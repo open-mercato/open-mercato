@@ -12,6 +12,11 @@ type ResolverContext = {
   resolve: <T = unknown>(name: string) => T
 }
 
+type NotificationScope = {
+  tenantId: string
+  organizationId?: string | null
+}
+
 const RESOURCE_PATHS: Record<string, string> = {
   'catalog.product': '/backend/catalog/products',
   'catalog.product_variant': '/backend/catalog/products',
@@ -32,7 +37,10 @@ export function resolveRecordLockNotificationType(type: string) {
   return notificationTypes.find((entry) => entry.type === type)
 }
 
-export async function isConflictNotificationEnabled(ctx: ResolverContext): Promise<boolean> {
+export async function isConflictNotificationEnabled(
+  ctx: ResolverContext,
+  _scope?: NotificationScope,
+): Promise<boolean> {
   try {
     const em = (ctx.resolve('em') as EntityManager).fork()
     const row = await em.findOne(ModuleConfig, {

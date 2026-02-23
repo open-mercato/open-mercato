@@ -161,7 +161,13 @@ export async function POST(req: Request) {
     organizationId: ctxOrResponse.organizationId ?? null,
   })
   return NextResponse.json({
-    ...result,
+    ok: true,
+    enabled: result.enabled,
+    resourceEnabled: result.resourceEnabled,
+    strategy: result.strategy,
+    heartbeatSeconds: result.heartbeatSeconds,
+    acquired: result.acquired,
+    latestActionLogId: result.latestActionLogId,
     allowForceUnlock,
     currentUserId: ctxOrResponse.auth.sub,
     lock,

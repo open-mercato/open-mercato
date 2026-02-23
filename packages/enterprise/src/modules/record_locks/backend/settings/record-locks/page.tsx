@@ -13,6 +13,7 @@ import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '@open-mercato/core/generated-shims/entities.ids.generated'
+import { DEFAULT_RECORD_LOCK_SETTINGS } from '../../../lib/config'
 
 type RecordLockSettings = {
   enabled: boolean
@@ -26,14 +27,7 @@ type RecordLockSettings = {
 }
 
 const DEFAULT_SETTINGS: RecordLockSettings = {
-  enabled: false,
-  strategy: 'optimistic',
-  timeoutSeconds: 300,
-  heartbeatSeconds: 30,
-  enabledResources: [],
-  allowForceUnlock: true,
-  allowIncomingOverride: true,
-  notifyOnConflict: true,
+  ...DEFAULT_RECORD_LOCK_SETTINGS,
 }
 
 const RECORD_LOCK_RESOURCE_ALIASES = [

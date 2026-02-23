@@ -51,7 +51,10 @@ function formatChangedFieldLabel(rawField: string): string {
 export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!payload.conflictActorUserId) return
 
-  const notificationsEnabled = await isConflictNotificationEnabled(ctx)
+  const notificationsEnabled = await isConflictNotificationEnabled(ctx, {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId ?? null,
+  })
   if (!notificationsEnabled) return
 
   try {

@@ -40,12 +40,15 @@ const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
 ])
 const LOCK_CONTENTION_EVENT_TTL_MS = 15_000
 const PARTICIPANT_REJOIN_AFTER_SAVE_SUPPRESS_MS = 20_000
+const LOCK_CONTENTION_EVENT_MAX_ENTRIES = 2_000
 const lockContentionEventThrottle = new Map<string, number>()
 const LOCK_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const LOCK_RETENTION_MS = 3 * 24 * 60 * 60 * 1000
 const RESOLVED_CONFLICT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const PENDING_CONFLICT_RETENTION_MS = 24 * 60 * 60 * 1000
-const lockCleanupStateByTenant = new Map<string, { lastRunAt: number; inFlight: boolean }>()
+const LOCK_CLEANUP_STATE_TTL_MS = 24 * 60 * 60 * 1000
+const LOCK_CLEANUP_STATE_MAX_ENTRIES = 2_000
+const lockCleanupStateByTenant = new Map<string, { lastRunAt: number; inFlight: boolean; lastSeenAt: number }>()
 
 export type RecordLockScope = {
   tenantId: string
@@ -234,6 +237,12 @@ function shouldEmitLockContentionEvent(input: {
     if (now - cachedAt > LOCK_CONTENTION_EVENT_TTL_MS) {
       lockContentionEventThrottle.delete(cachedKey)
     }
+  }
+  if (lockContentionEventThrottle.size > LOCK_CONTENTION_EVENT_MAX_ENTRIES) {
+    const oldest = Array.from(lockContentionEventThrottle.entries())
+      .sort((left, right) => left[1] - right[1])
+      .slice(0, lockContentionEventThrottle.size - LOCK_CONTENTION_EVENT_MAX_ENTRIES)
+    for (const [staleKey] of oldest) lockContentionEventThrottle.delete(staleKey)
   }
 
   return true
@@ -762,7 +771,8 @@ export class RecordLockService {
   async forceRelease(input: RecordLockForceReleaseInput): Promise<RecordLockForceReleaseResult> {
     const settings = await this.getSettings()
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
-    if (!resourceEnabled || !settings.allowForceUnlock) {
+    const canForceRelease = await this.canUserForceRelease(input, settings)
+    if (!resourceEnabled || !settings.allowForceUnlock || !canForceRelease) {
       return { ok: true, released: false, lock: null }
     }
 
@@ -1188,9 +1198,51 @@ export class RecordLockService {
     }
   }
 
+  private async canUserForceRelease(
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'>,
+    settings: RecordLockSettings,
+  ): Promise<boolean> {
+    if (!settings.allowForceUnlock) return false
+    if (!this.rbacService) return false
+
+    try {
+      return await this.rbacService.userHasAllFeatures(
+        input.userId,
+        ['record_locks.force_release'],
+        {
+          tenantId: input.tenantId,
+          organizationId: normalizeScopeOrganization(input.organizationId),
+        },
+      )
+    } catch {
+      return false
+    }
+  }
+
+  private pruneLockCleanupState(now: number): void {
+    for (const [tenantId, state] of lockCleanupStateByTenant.entries()) {
+      if (!state.inFlight && now - state.lastSeenAt > LOCK_CLEANUP_STATE_TTL_MS) {
+        lockCleanupStateByTenant.delete(tenantId)
+      }
+    }
+
+    if (lockCleanupStateByTenant.size <= LOCK_CLEANUP_STATE_MAX_ENTRIES) return
+
+    const removable = Array.from(lockCleanupStateByTenant.entries())
+      .filter(([, state]) => !state.inFlight)
+      .sort((left, right) => left[1].lastSeenAt - right[1].lastSeenAt)
+    const overflow = lockCleanupStateByTenant.size - LOCK_CLEANUP_STATE_MAX_ENTRIES
+    for (const [tenantId] of removable.slice(0, Math.max(0, overflow))) {
+      lockCleanupStateByTenant.delete(tenantId)
+    }
+  }
+
   private scheduleCleanup(tenantId: string): void {
     const now = Date.now()
-    const state = lockCleanupStateByTenant.get(tenantId) ?? { lastRunAt: 0, inFlight: false }
+    this.pruneLockCleanupState(now)
+    const state = lockCleanupStateByTenant.get(tenantId) ?? { lastRunAt: 0, inFlight: false, lastSeenAt: now }
+    state.lastSeenAt = now
+    lockCleanupStateByTenant.set(tenantId, state)
     if (state.inFlight) return
     if (now - state.lastRunAt < LOCK_CLEANUP_INTERVAL_MS) return
 
@@ -1213,13 +1265,17 @@ export class RecordLockService {
       const lockCutoff = new Date(now - LOCK_RETENTION_MS)
       const resolvedConflictCutoff = new Date(now - RESOLVED_CONFLICT_RETENTION_MS)
       const pendingConflictCutoff = new Date(now - PENDING_CONFLICT_RETENTION_MS)
+      const deletedAt = new Date(now)
 
       await knex('record_locks')
         .where({ tenant_id: tenantId })
         .whereNull('deleted_at')
         .whereNot('status', ACTIVE_LOCK_STATUS)
         .andWhere('updated_at', '<', lockCutoff)
-        .delete()
+        .update({
+          deleted_at: deletedAt,
+          updated_at: deletedAt,
+        })
 
       await knex('record_lock_conflicts')
         .where({ tenant_id: tenantId })
@@ -1233,7 +1289,10 @@ export class RecordLockService {
               resolved.whereNot('status', 'pending').andWhere('updated_at', '<', resolvedConflictCutoff)
             })
         })
-        .delete()
+        .update({
+          deleted_at: deletedAt,
+          updated_at: deletedAt,
+        })
     } catch {
       // Best-effort cleanup must never fail lock workflows.
     }

@@ -31,7 +31,10 @@ type ResolverContext = {
 export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!payload.incomingActorUserId || payload.incomingActorUserId === payload.resolvedByUserId) return
 
-  const notificationsEnabled = await isConflictNotificationEnabled(ctx)
+  const notificationsEnabled = await isConflictNotificationEnabled(ctx, {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId ?? null,
+  })
   if (!notificationsEnabled) return
 
   try {

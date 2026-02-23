@@ -1040,3 +1040,187 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
     )
   })
 })
+
+describe('RecordLockService.heartbeat', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('refreshes heartbeat and expiration for active owned lock', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+    const lock = buildLock({
+      expiresAt: new Date(Date.now() + 60_000),
+      lastHeartbeatAt: new Date(Date.now() - 60_000),
+    })
+    serviceAny.findOwnedLockByToken = jest.fn().mockResolvedValue(lock)
+
+    const result = await service.heartbeat({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      token: '30000000-0000-4000-8000-000000000001',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.expiresAt).toEqual(expect.any(String))
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  test('expires and releases stale lock on heartbeat', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+    const lock = buildLock({
+      expiresAt: new Date(Date.now() - 60_000),
+      releaseReason: null,
+      releasedAt: null,
+      releasedByUserId: null,
+      status: 'active',
+    })
+    serviceAny.findOwnedLockByToken = jest.fn().mockResolvedValue(lock)
+
+    const result = await service.heartbeat({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      token: '30000000-0000-4000-8000-000000000001',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.expiresAt).toBeNull()
+    expect(lock.status).toBe('expired')
+    expect(lock.releaseReason).toBe('expired')
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('RecordLockService.forceRelease', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('returns unreleased when user does not have force release feature', async () => {
+    const { service, rbacService } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+    rbacService.userHasAllFeatures.mockResolvedValue(false)
+    serviceAny.findActiveLocks = jest.fn()
+
+    const result = await service.forceRelease({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      reason: 'manual',
+    })
+
+    expect(result).toEqual({ ok: true, released: false, lock: null })
+    expect(serviceAny.findActiveLocks).not.toHaveBeenCalled()
+  })
+
+  test('force releases oldest active lock when user has permission', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+    const oldest = buildLock({
+      id: '10000000-0000-4000-8000-000000000001',
+      lockedByUserId: '50000000-0000-4000-8000-000000000001',
+      lockedAt: new Date('2026-02-17T09:50:00.000Z'),
+      createdAt: new Date('2026-02-17T09:50:00.000Z'),
+      expiresAt: new Date(Date.now() + 300_000),
+      status: 'active',
+      releaseReason: null,
+      releasedAt: null,
+      releasedByUserId: null,
+    })
+    const newer = buildLock({
+      id: '10000000-0000-4000-8000-000000000002',
+      token: '30000000-0000-4000-8000-000000000002',
+      lockedByUserId: '60000000-0000-4000-8000-000000000001',
+      lockedAt: new Date('2026-02-17T09:55:00.000Z'),
+      createdAt: new Date('2026-02-17T09:55:00.000Z'),
+      expiresAt: new Date(Date.now() + 300_000),
+      status: 'active',
+    })
+    serviceAny.findActiveLocks = jest.fn().mockResolvedValue([newer, oldest])
+
+    const result = await service.forceRelease({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000001',
+      reason: 'manual',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.released).toBe(true)
+    expect(oldest.status).toBe('force_released')
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
+      'record_locks.lock.force_released',
+      expect.objectContaining({
+        lockId: oldest.id,
+        releasedByUserId: '40000000-0000-4000-8000-000000000001',
+      }),
+    )
+  })
+})
+
+describe('RecordLockService.resolveConflictById', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('does not resolve keep-mine conflict without override feature', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS, null, { canOverrideIncoming: false })
+    const serviceAny = service as any
+    em.findOne.mockResolvedValue({
+      id: 'a0000000-0000-4000-8000-000000000001',
+      status: 'pending',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.resolveConflict = jest.fn()
+
+    const resolved = await service.resolveConflictById({
+      conflictId: 'a0000000-0000-4000-8000-000000000001',
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resolution: 'accept_mine',
+    })
+
+    expect(resolved).toBe(false)
+    expect(serviceAny.resolveConflict).not.toHaveBeenCalled()
+  })
+
+  test('resolves accept_incoming conflict for actor', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS, null, { canOverrideIncoming: false })
+    const serviceAny = service as any
+    const conflict = {
+      id: 'a0000000-0000-4000-8000-000000000002',
+      status: 'pending',
+      conflictActorUserId: '40000000-0000-4000-8000-000000000001',
+    }
+    em.findOne.mockResolvedValue(conflict)
+    serviceAny.resolveConflict = jest.fn().mockResolvedValue(undefined)
+
+    const resolved = await service.resolveConflictById({
+      conflictId: conflict.id,
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resolution: 'accept_incoming',
+    })
+
+    expect(resolved).toBe(true)
+    expect(serviceAny.resolveConflict).toHaveBeenCalledWith(
+      conflict,
+      'accept_incoming',
+      '40000000-0000-4000-8000-000000000001',
+    )
+  })
+})
