@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { ProgressJob } from '../../data/entities'
+import type { ProgressJob } from '../../data/entities'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['progress.view'] },
@@ -17,29 +16,14 @@ export async function GET(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
+  const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
 
-  const jobs = await em.find(ProgressJob, {
-    tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
-    status: { $in: ['pending', 'running'] },
-    parentJobId: null,
-  }, {
-    orderBy: { createdAt: 'DESC' },
-    limit: 50,
-  })
+  const ctx = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
-  const recentCutoff = new Date(Date.now() - 30_000)
-  const recentlyCompleted = await em.find(ProgressJob, {
-    tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
-    status: { $in: ['completed', 'failed'] },
-    finishedAt: { $gte: recentCutoff },
-    parentJobId: null,
-  }, {
-    orderBy: { finishedAt: 'DESC' },
-    limit: 10,
-  })
+  const [jobs, recentlyCompleted] = await Promise.all([
+    progressService.getActiveJobs(ctx),
+    progressService.getRecentlyCompletedJobs(ctx),
+  ])
 
   return NextResponse.json({
     active: jobs.map(formatJob),

@@ -1164,12 +1164,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             )}
           </div>
         </header>
+        <ProgressTopBar t={t} className="sticky top-0 z-10" />
         <main className="flex-1 p-4 lg:p-6">
           <FlashMessages />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
-          <ProgressTopBar t={t} />
           {children}
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">

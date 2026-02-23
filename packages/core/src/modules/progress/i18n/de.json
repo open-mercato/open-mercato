@@ -1,0 +1,20 @@
+{
+  "progress.title": "Fortschritt",
+  "progress.activeCount": "{count} Vorgänge laufen",
+  "progress.recentlyCompleted": "{count} Vorgänge abgeschlossen",
+  "progress.processed": "verarbeitet",
+  "progress.eta.seconds": "noch {count}s",
+  "progress.eta.minutes": "noch {count}m",
+  "progress.eta.hoursMinutes": "noch {hours}h {minutes}m",
+  "progress.status.pending": "Ausstehend",
+  "progress.status.running": "Läuft",
+  "progress.status.completed": "Abgeschlossen",
+  "progress.status.failed": "Fehlgeschlagen",
+  "progress.status.cancelled": "Abgebrochen",
+  "progress.actions.cancel": "Abbrechen",
+  "progress.actions.retry": "Wiederholen",
+  "progress.actions.dismiss": "Verwerfen",
+  "progress.errors.notFound": "Vorgang nicht gefunden",
+  "progress.errors.cannotCancel": "Dieser Vorgang kann nicht abgebrochen werden",
+  "progress.errors.alreadyFinished": "Vorgang ist bereits abgeschlossen"
+}

@@ -1,11 +1,18 @@
-export const PROGRESS_EVENTS = {
-  JOB_CREATED: 'progress.job.created',
-  JOB_STARTED: 'progress.job.started',
-  JOB_UPDATED: 'progress.job.updated',
-  JOB_COMPLETED: 'progress.job.completed',
-  JOB_FAILED: 'progress.job.failed',
-  JOB_CANCELLED: 'progress.job.cancelled',
-} as const
+import { events } from '../events'
+
+type EventEntry = typeof events[number]
+type EventMap = { [K in EventEntry['id'] as Uppercase<K extends `progress.job.${infer A}` ? `JOB_${A}` : never>]: K }
+
+function buildEventMap<T extends readonly { id: string }[]>(defs: T) {
+  const map: Record<string, string> = {}
+  for (const def of defs) {
+    const suffix = def.id.replace('progress.job.', '')
+    map[`JOB_${suffix.toUpperCase()}`] = def.id
+  }
+  return map as EventMap
+}
+
+export const PROGRESS_EVENTS = buildEventMap(events)
 
 export type ProgressJobCreatedPayload = {
   jobId: string

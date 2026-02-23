@@ -186,7 +186,7 @@ describe('progress service', () => {
     em.findOne.mockResolvedValue(job)
 
     const service = createProgressService(em as never, eventBus)
-    const result = await service.completeJob('job-1', { resultSummary: { imported: 100 } })
+    const result = await service.completeJob('job-1', { resultSummary: { imported: 100 } }, baseCtx)
 
     expect(result.status).toBe('completed')
     expect(result.progressPercent).toBe(100)
@@ -194,6 +194,10 @@ describe('progress service', () => {
     expect(result.finishedAt).toBeInstanceOf(Date)
     expect(result.resultSummary).toEqual({ imported: 100 })
     expect(em.flush).toHaveBeenCalled()
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId })
+    )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_COMPLETED,
       expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId })
@@ -213,16 +217,20 @@ describe('progress service', () => {
     em.findOne.mockResolvedValue(job)
 
     const service = createProgressService(em as never, eventBus)
-    const result = await service.failJob('job-1', { errorMessage: 'Network error', errorStack: 'stack...' })
+    const result = await service.failJob('job-1', { errorMessage: 'Network error', errorStack: 'stack...' }, baseCtx)
 
     expect(result.status).toBe('failed')
     expect(result.finishedAt).toBeInstanceOf(Date)
     expect(result.errorMessage).toBe('Network error')
     expect(result.errorStack).toBe('stack...')
     expect(em.flush).toHaveBeenCalled()
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId })
+    )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'job-1', errorMessage: 'Network error' })
+      expect.objectContaining({ jobId: 'job-1', errorMessage: 'Network error', tenantId: baseCtx.tenantId })
     )
   })
 
@@ -281,12 +289,12 @@ describe('progress service', () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
 
-    const staleJob1 = { id: 'stale-1', jobType: 'export', status: 'running', tenantId: 't-1' } as unknown as ProgressJob
-    const staleJob2 = { id: 'stale-2', jobType: 'import', status: 'running', tenantId: 't-2' } as unknown as ProgressJob
+    const staleJob1 = { id: 'stale-1', jobType: 'export', status: 'running', tenantId: baseCtx.tenantId } as unknown as ProgressJob
+    const staleJob2 = { id: 'stale-2', jobType: 'import', status: 'running', tenantId: baseCtx.tenantId } as unknown as ProgressJob
     em.find.mockResolvedValue([staleJob1, staleJob2])
 
     const service = createProgressService(em as never, eventBus)
-    const count = await service.markStaleJobsFailed(60)
+    const count = await service.markStaleJobsFailed(baseCtx.tenantId, 60)
 
     expect(count).toBe(2)
     expect(staleJob1.status).toBe('failed')
@@ -294,6 +302,10 @@ describe('progress service', () => {
     expect(staleJob1.errorMessage).toContain('no heartbeat for 60 seconds')
     expect(staleJob2.status).toBe('failed')
     expect(em.flush).toHaveBeenCalled()
+    expect(em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: baseCtx.tenantId })
+    )
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
@@ -302,6 +314,28 @@ describe('progress service', () => {
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
       expect.objectContaining({ jobId: 'stale-2', stale: true })
+    )
+  })
+
+  it('getRecentlyCompletedJobs — queries completed/failed jobs with tenant scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const completedJob = { id: 'done-1', status: 'completed', tenantId: baseCtx.tenantId } as unknown as ProgressJob
+    em.find.mockResolvedValue([completedJob])
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.getRecentlyCompletedJobs(baseCtx)
+
+    expect(result).toEqual([completedJob])
+    expect(em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: baseCtx.tenantId,
+        status: { $in: ['completed', 'failed'] },
+        parentJobId: null,
+      }),
+      expect.objectContaining({ orderBy: { finishedAt: 'DESC' }, limit: 10 })
     )
   })
 })

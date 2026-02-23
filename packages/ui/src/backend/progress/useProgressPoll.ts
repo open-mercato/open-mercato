@@ -61,8 +61,25 @@ export function useProgressPoll(): UseProgressPollResult {
 
   React.useEffect(() => {
     fetchJobs()
-    const interval = setInterval(fetchJobs, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = setInterval(fetchJobs, POLL_INTERVAL)
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        if (interval) {
+          clearInterval(interval)
+          interval = null
+        }
+      } else {
+        fetchJobs()
+        interval = setInterval(fetchJobs, POLL_INTERVAL)
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      if (interval) clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [fetchJobs])
 
   React.useEffect(() => {

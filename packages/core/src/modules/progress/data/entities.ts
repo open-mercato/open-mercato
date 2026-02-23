@@ -2,6 +2,8 @@ import { Entity, PrimaryKey, Property, Index, OptionalProps } from '@mikro-orm/c
 
 export type ProgressJobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 
+// No deleted_at column: terminal statuses (completed, failed, cancelled) serve as logical soft-delete.
+// Old jobs should be purged via scheduled cleanup rather than soft-deleted individually.
 @Entity({ tableName: 'progress_jobs' })
 @Index({ name: 'progress_jobs_status_tenant_idx', properties: ['status', 'tenantId'] })
 @Index({ name: 'progress_jobs_type_tenant_idx', properties: ['jobType', 'tenantId'] })
