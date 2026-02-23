@@ -21,3 +21,8 @@ export function forbidden(message = 'Forbidden'): CrudHttpError {
 export function notFound(message = 'Not found'): CrudHttpError {
   return new CrudHttpError(404, { error: message })
 }
+
+export function assertFound<T>(value: T | null | undefined, message: string): T {
+  if (!value) throw notFound(message)
+  return value
+}
