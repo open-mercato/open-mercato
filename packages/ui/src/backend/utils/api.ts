@@ -53,7 +53,7 @@ export class ForbiddenError extends Error {
   }
 }
 
-let DEFAULT_FORBIDDEN_ROLES: string[] = []
+let DEFAULT_FORBIDDEN_ROLES: string[] = ['admin']
 
 export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly string[] }) {
   if (cfg?.defaultForbiddenRoles && cfg.defaultForbiddenRoles.length) {
