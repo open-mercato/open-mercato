@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { DictionarySelectField } from '../formConfig'
@@ -337,15 +338,16 @@ function EntityMultiSelect({
         {selectedOptions.map((option) => (
           <span key={option.id} className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs">
             {option.label}
-            <button
-              type="button"
-              className="opacity-60 transition-opacity hover:opacity-100"
+            <IconButton
+              variant="ghost"
+              size="xs"
+              className="opacity-60 hover:opacity-100"
               onClick={() => removeOption(option.id)}
               aria-label={`${removeLabel} ${option.label}`}
               disabled={disabled}
             >
               ×
-            </button>
+            </IconButton>
           </span>
         ))}
         <input
@@ -372,10 +374,11 @@ function EntityMultiSelect({
       {!loading && filteredSuggestions.length ? (
         <div className="flex flex-wrap gap-2">
           {filteredSuggestions.slice(0, 10).map((option) => (
-            <button
+            <Button
               key={option.id}
-              type="button"
-              className="rounded border px-2 py-1 text-xs transition hover:bg-muted"
+              variant="outline"
+              size="sm"
+              className="h-auto px-2 py-1 text-xs font-normal"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => addOption(option)}
               disabled={disabled}
@@ -386,7 +389,7 @@ function EntityMultiSelect({
                   <span className="text-[10px] text-muted-foreground">{option.subtitle}</span>
                 ) : null}
               </span>
-            </button>
+            </Button>
           ))}
         </div>
       ) : null}

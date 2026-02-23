@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 
 export type TagsInputOption = {
   value: string
@@ -193,14 +195,16 @@ export function TagsInput({
                   <span className="text-[10px] text-muted-foreground">{description}</span>
                 ) : null}
               </span>
-              <button
+              <IconButton
                 type="button"
-                className="opacity-60 transition-opacity hover:opacity-100"
+                variant="ghost"
+                size="xs"
+                className="opacity-60 hover:opacity-100"
                 onClick={() => removeTag(tag)}
                 disabled={disabled}
               >
                 ×
-              </button>
+              </IconButton>
             </span>
           )
         })}
@@ -238,10 +242,12 @@ export function TagsInput({
         {!loading && filteredSuggestions.length ? (
           <div className="basis-full mt-1 flex flex-col gap-1">
             {filteredSuggestions.map((option) => (
-              <button
+              <Button
                 key={option.value}
                 type="button"
-                className="flex flex-col items-start rounded border px-1.5 py-1 text-xs transition hover:bg-muted"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start font-normal flex flex-col items-start text-xs px-1.5 py-1"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => addValue(option.value)}
               >
@@ -249,7 +255,7 @@ export function TagsInput({
                 {option.description ? (
                   <span className="text-[10px] text-muted-foreground">{option.description}</span>
                 ) : null}
-              </button>
+              </Button>
             ))}
           </div>
         ) : null}

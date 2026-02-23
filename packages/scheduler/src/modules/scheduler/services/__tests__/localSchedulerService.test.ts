@@ -1,7 +1,7 @@
 import { LocalSchedulerService } from '../localSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
-import { ScheduledJob } from '../../data/entities'
+import { ScheduledJob } from '../../data/entities.js'
 
 // Mock the typed event emitter
 const mockEmitSchedulerEvent = jest.fn()

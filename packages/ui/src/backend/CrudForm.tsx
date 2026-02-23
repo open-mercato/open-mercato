@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm'
 import { FormHeader } from './forms/FormHeader'
 import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
 import {
   Settings,
   Layers,
@@ -1344,17 +1345,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded border text-muted-foreground hover:text-foreground"
+              <IconButton
+                variant="outline"
+                className="text-muted-foreground hover:text-foreground"
                 onClick={() =>
                   handleOpenFieldsetEditor(entityLayout.entityId, entityLayout.activeFieldset ?? null, 'fieldset')}
                 disabled={!manageHref}
                 title={manageFieldsetLabel}
               >
                 <Settings className="size-4" />
-                <span className="sr-only">{manageFieldsetLabel}</span>
-              </button>
+              </IconButton>
             </div>
           </div>,
         )
@@ -1383,15 +1383,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     ) : null}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                <Button
+                  variant="muted"
+                  size="sm"
+                  className="text-xs"
                   onClick={() => handleOpenFieldsetEditor(entityLayout.entityId, section.fieldsetCode, 'fieldset')}
                   disabled={manageDisabled}
                 >
                   <Settings className="size-4" />
                   {manageFieldsetLabel}
-                </button>
+                </Button>
               </div>
               {section.groups.map((group) => {
                 const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
@@ -1744,24 +1745,26 @@ function RelationSelect({
         data-crud-focus-target=""
       />
       <div className="max-h-40 overflow-auto rounded border">
-        <button
-          type="button"
-          className="block w-full text-left px-2 py-1 text-sm hover:bg-muted"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start rounded-none font-normal"
           onClick={() => onChange('')}
         >
           —
-        </button>
+        </Button>
         {filtered.map((opt) => (
-          <button
+          <Button
             key={opt.value}
-            type="button"
-            className={`block w-full text-left px-2 py-1 text-sm hover:bg-muted ${
+            variant="ghost"
+            size="sm"
+            className={`w-full justify-start rounded-none font-normal ${
               value === opt.value ? 'bg-muted' : ''
             }`}
             onClick={() => onChange(opt.value)}
           >
             {opt.label}
-          </button>
+          </Button>
         ))}
       </div>
     </div>
@@ -2051,21 +2054,22 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</Button>
         <span className="mx-2 text-muted-foreground">|</span>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</button>
-        <button
-          type="button"
-          className="px-2 py-0.5 text-xs rounded hover:bg-muted"
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-auto px-2 py-0.5 text-xs"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             const url = window.prompt(linkUrlPrompt)?.trim()
             if (url) exec('createLink', url)
           }}
-        >{linkLabel}</button>
+        >{linkLabel}</Button>
       </div>
       <div
         ref={ref}
@@ -2129,9 +2133,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
       </div>
       <textarea
         ref={taRef}
@@ -2209,17 +2213,18 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
         {filtered.map((opt) => {
           const isSel = value.includes(opt.value)
           return (
-            <button
+            <Button
               key={opt.value}
-              type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => toggle(opt.value)}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSel ? 'bg-muted' : ''}`}
+              className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
                 <input type="checkbox" className="size-4" readOnly checked={isSel} />
                 <span>{opt.label}</span>
               </span>
-            </button>
+            </Button>
           )
         })}
         {!filtered.length ? (

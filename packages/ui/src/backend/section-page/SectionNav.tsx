@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { IconButton } from '../../primitives/icon-button'
 import type { SectionNavGroup, SectionNavItem } from './types'
 
 const DefaultIcon = (
@@ -94,14 +95,16 @@ export function SectionNav({
         {!collapsed && (
           <span className="text-sm font-medium truncate">{resolvedTitle}</span>
         )}
-        <button
+        <IconButton
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={onToggleCollapse}
-          className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
           title={collapsed ? t('common.expand', 'Expand') : t('common.collapse', 'Collapse')}
+          aria-label={collapsed ? t('common.expand', 'Expand') : t('common.collapse', 'Collapse')}
         >
           {collapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
-        </button>
+        </IconButton>
       </div>
       <div className="border-t" />
       <div className={`flex flex-col gap-4 ${collapsed ? 'items-center' : ''}`}>

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { Button } from './button'
 
 type TabsContextValue = {
   value: string
@@ -85,14 +86,14 @@ export function TabsTrigger({ value, children, className, disabled }: TabsTrigge
   const isSelected = selectedValue === value
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       role="tab"
       aria-selected={isSelected}
       disabled={disabled}
       onClick={() => onValueChange(value)}
       className={cn(
-        'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
         isSelected
           ? 'bg-background text-foreground shadow'
           : 'hover:bg-background/50 hover:text-foreground',
@@ -100,7 +101,7 @@ export function TabsTrigger({ value, children, className, disabled }: TabsTrigge
       )}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, jest } from '@jest/globals'
 import { ScheduledJobSubscriber } from '../scheduledJobSubscriber'
-import { ScheduledJob } from '../../data/entities'
+import { ScheduledJob } from '../../data/entities.js'
 
 describe('ScheduledJobSubscriber', () => {
   describe('getSubscribedEntities', () => {

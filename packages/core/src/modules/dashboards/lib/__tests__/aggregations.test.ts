@@ -288,6 +288,7 @@ describe('aggregations', () => {
         expect.arrayContaining([
           'sales:orders',
           'sales:order_lines',
+          'sales:quotes',
           'customers:entities',
           'customers:deals',
           'catalog:products',

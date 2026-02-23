@@ -2,6 +2,7 @@
 import * as React from "react";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { Button } from "@open-mercato/ui/primitives/button";
+import { IconButton } from "../../primitives/icon-button";
 import { cn } from "@open-mercato/shared/lib/utils";
 import { Loader2, X } from "lucide-react";
 
@@ -207,19 +208,17 @@ export function ConfirmDialog({
           )}
         >
           {/* Close button */}
-          <button
+          <IconButton
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={handleCancel}
             disabled={loading}
             aria-label={closeAriaLabel}
-            className={cn(
-              "absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity",
-              "hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-              "disabled:pointer-events-none disabled:opacity-50"
-            )}
+            className="absolute right-4 top-4 opacity-70 hover:opacity-100"
           >
             <X className="h-4 w-4" />
-          </button>
+          </IconButton>
 
           {/* Title */}
           <h2

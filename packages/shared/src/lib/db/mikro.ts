@@ -2,6 +2,7 @@ import 'dotenv/config'
 import 'reflect-metadata'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { getSslConfig } from './ssl'
 
 let ormInstance: MikroORM<PostgreSqlDriver> | null = null
 
@@ -51,7 +52,9 @@ export async function getOrm() {
     idleSessionTimeoutMs && idleSessionTimeoutMs > 0
       ? `-c idle_session_timeout=${idleSessionTimeoutMs}`
       : undefined
-  
+
+  const sslConfig = getSslConfig()
+
   ormInstance = await MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,
     clientUrl,
@@ -80,6 +83,7 @@ export async function getOrm() {
         acquireTimeoutMillis: poolAcquireTimeout,
         idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
         options: connectionOptions,
+        ssl: sslConfig,
       },
     },
   })

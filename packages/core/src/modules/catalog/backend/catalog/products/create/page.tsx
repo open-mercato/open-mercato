@@ -840,12 +840,14 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     <div className="space-y-6">
       <nav className="flex gap-6 border-b pb-2 text-sm font-medium">
         {steps.map((step, index) => (
-          <button
+          <Button
             key={step}
             type="button"
+            variant="ghost"
+            size="sm"
             className={cn(
-              'relative pb-2',
-              currentStep === index ? 'text-foreground' : 'text-muted-foreground',
+              'relative h-auto rounded-none px-0 py-1 pb-2 font-medium',
+              currentStep === index ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
             onClick={() => setCurrentStep(index)}
           >
@@ -858,7 +860,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             {currentStep === index ? (
               <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground rounded-full" />
             ) : null}
-          </button>
+          </Button>
         ))}
       </nav>
 
