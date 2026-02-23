@@ -359,6 +359,7 @@ export class InboxProposalAction {
 // ---------------------------------------------------------------------------
 
 @Entity({ tableName: 'inbox_discrepancies' })
+@Index({ properties: ['organizationId', 'tenantId'] })
 @Index({ properties: ['proposalId'] })
 export class InboxDiscrepancy {
   [OptionalProps]?: 'resolved' | 'createdAt' | 'updatedAt' | 'deletedAt'

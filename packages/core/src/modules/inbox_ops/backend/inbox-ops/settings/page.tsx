@@ -9,15 +9,15 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ArrowLeft, Copy, CheckCircle } from 'lucide-react'
 
-const LANGUAGE_OPTIONS = [
-  { value: 'en', label: 'English' },
-  { value: 'de', label: 'Deutsch' },
-  { value: 'es', label: 'Español' },
-  { value: 'pl', label: 'Polski' },
-]
+const LANGUAGE_KEYS = ['en', 'de', 'es', 'pl'] as const
 
 export default function InboxSettingsPage() {
   const t = useT()
+
+  const languageOptions = LANGUAGE_KEYS.map((key) => ({
+    value: key,
+    label: t(`inbox_ops.settings.language_${key}` as never, key),
+  }))
   const [settings, setSettings] = React.useState<{ inboxAddress?: string; isActive?: boolean; workingLanguage?: string } | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [copied, setCopied] = React.useState(false)
@@ -118,7 +118,7 @@ export default function InboxSettingsPage() {
                   onChange={handleLanguageChange}
                   disabled={isSavingLanguage}
                 >
-                  {LANGUAGE_OPTIONS.map((opt) => (
+                  {languageOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>

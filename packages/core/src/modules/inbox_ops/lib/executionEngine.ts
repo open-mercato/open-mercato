@@ -1484,7 +1484,7 @@ function parseDateToken(value?: string | null): Date | undefined {
 async function resolveActionDiscrepancies(
   em: EntityManager,
   actionId: string,
-  scope?: { tenantId: string; organizationId: string },
+  scope: { tenantId: string; organizationId: string },
 ): Promise<void> {
   const discrepancies = await findWithDecryption(
     em,
@@ -1504,7 +1504,7 @@ async function resolveActionDiscrepancies(
 export async function recalculateProposalStatus(
   em: EntityManager,
   proposalId: string,
-  scope?: { tenantId: string; organizationId: string },
+  scope: { tenantId: string; organizationId: string },
 ): Promise<void> {
   const proposal = await findOneWithDecryption(
     em,
