@@ -24,14 +24,75 @@ import { formatMoney, normalizeNumber } from "./lineItemUtils";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+import type { SalesLineUomSnapshot } from "../../lib/types";
+
+type ResolvedUnitPriceReference = {
+  grossPerReference: number;
+  referenceUnitCode: string;
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSalesLineUomSnapshot(
+  value: unknown,
+): value is SalesLineUomSnapshot {
+  if (!isPlainObject(value)) return false;
+  return (
+    value.version === 1 &&
+    typeof value.enteredQuantity === "string" &&
+    typeof value.toBaseFactor === "string" &&
+    typeof value.normalizedQuantity === "string"
+  );
+}
+
+function extractUomSnapshot(
+  item: Record<string, unknown>,
+): SalesLineUomSnapshot | null {
+  const raw = item.uom_snapshot ?? item.uomSnapshot;
+  if (isSalesLineUomSnapshot(raw)) return raw;
+  return null;
+}
+
+function resolveUnitPriceReference(
+  snapshot: SalesLineUomSnapshot | Record<string, unknown> | null,
+): ResolvedUnitPriceReference | null {
+  if (!snapshot) return null;
+
+  const ref = isSalesLineUomSnapshot(snapshot)
+    ? snapshot.unitPriceReference
+    : isPlainObject(snapshot)
+      ? isPlainObject(snapshot.unitPriceReference)
+        ? snapshot.unitPriceReference
+        : isPlainObject(snapshot.unit_price_reference)
+          ? snapshot.unit_price_reference
+          : null
+      : null;
+
+  if (!ref || !isPlainObject(ref)) return null;
+
+  const grossPerReference = normalizeNumber(
+    ref.grossPerReference ?? ref.gross_per_reference,
+    Number.NaN,
+  );
+  if (!Number.isFinite(grossPerReference)) return null;
+
+  const referenceUnitCode =
+    typeof ref.referenceUnitCode === "string"
+      ? ref.referenceUnitCode
+      : typeof ref.reference_unit_code === "string"
+        ? ref.reference_unit_code
+        : typeof ref.referenceUnit === "string"
+          ? ref.referenceUnit
+          : null;
+  if (!referenceUnitCode) return null;
+
+  return { grossPerReference, referenceUnitCode };
+}
 
 function getUomFields(item: Record<string, unknown>) {
-  const rawUomSnapshot =
-    typeof item.uom_snapshot === "object" && item.uom_snapshot
-      ? (item.uom_snapshot as Record<string, unknown>)
-      : typeof item.uomSnapshot === "object" && item.uomSnapshot
-        ? (item.uomSnapshot as Record<string, unknown>)
-        : null;
+  const uomSnapshot = extractUomSnapshot(item);
   return {
     normalizedQuantity: (item.normalized_quantity ?? item.normalizedQuantity ?? null) as
       | number
@@ -39,7 +100,7 @@ function getUomFields(item: Record<string, unknown>) {
       | null,
     normalizedUnit: (item.normalized_unit ?? item.normalizedUnit ?? null) as string | null,
     quantityUnit: (item.quantity_unit ?? item.quantityUnit ?? null) as string | null,
-    uomSnapshot: rawUomSnapshot,
+    uomSnapshot,
   };
 }
 
@@ -584,30 +645,9 @@ export function SalesDocumentItemsSection({
                     0.000001 ||
                     (item.normalizedUnit ?? null) !==
                       (item.quantityUnit ?? null));
-                const unitPriceReference =
-                  item.uomSnapshot &&
-                  typeof item.uomSnapshot === "object" &&
-                  typeof (item.uomSnapshot as Record<string, unknown>)
-                    .unitPriceReference === "object" &&
-                  (item.uomSnapshot as Record<string, unknown>)
-                    .unitPriceReference
-                    ? ((item.uomSnapshot as Record<string, unknown>)
-                        .unitPriceReference as Record<string, unknown>)
-                    : null;
-                const referenceGross = normalizeNumber(
-                  unitPriceReference?.grossPerReference ??
-                    unitPriceReference?.gross_per_reference,
-                  Number.NaN,
+                const unitPriceReference = resolveUnitPriceReference(
+                  item.uomSnapshot,
                 );
-                const referenceUnit =
-                  typeof unitPriceReference?.referenceUnitCode === "string"
-                    ? unitPriceReference.referenceUnitCode
-                    : typeof unitPriceReference?.reference_unit_code ===
-                        "string"
-                      ? unitPriceReference.reference_unit_code
-                      : typeof unitPriceReference?.referenceUnit === "string"
-                        ? unitPriceReference.referenceUnit
-                        : null;
 
                 return (
                   <tr
@@ -682,19 +722,19 @@ export function SalesDocumentItemsSection({
                           )}{" "}
                           {t("sales.documents.items.table.net", "net")}
                         </span>
-                        {Number.isFinite(referenceGross) && referenceUnit ? (
+                        {unitPriceReference ? (
                           <span className="text-xs text-muted-foreground">
                             {t(
                               "sales.documents.items.table.unitPriceReference",
                               "{{value}} per 1 {{unit}}",
                               {
                                 value: formatMoney(
-                                  referenceGross,
+                                  unitPriceReference.grossPerReference,
                                   item.currencyCode ??
                                     currencyCode ??
                                     undefined,
                                 ),
-                                unit: referenceUnit,
+                                unit: unitPriceReference.referenceUnitCode,
                               },
                             )}
                           </span>
