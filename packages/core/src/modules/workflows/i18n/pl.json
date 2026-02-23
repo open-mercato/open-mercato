@@ -1004,5 +1004,11 @@
   "workflows.visualEditor.runTest": "Uruchom test",
   "workflows.visualEditor.showMetadata": "Pokaż metadane",
   "workflows.visualEditor.validate": "Waliduj",
+  "workflows.visualEditor.hint.addSteps": "Kliknij typy kroków, aby je dodać",
+  "workflows.visualEditor.hint.connectSteps": "Łącz kroki, przeciągając z uchwytów",
+  "workflows.visualEditor.hint.dragSteps": "Przeciągaj kroki, aby je rozmieścić",
+  "workflows.visualEditor.hint.editSteps": "Kliknij kroki i przejścia, aby je edytować",
+  "workflows.visualEditor.hint.validate": "Zwaliduj przed zapisaniem",
+  "workflows.visualEditor.howToUse": "Jak używać:",
   "workflows.visualEditor.workflowMetadata": "Metadane przepływu pracy"
 }
