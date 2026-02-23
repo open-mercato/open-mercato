@@ -81,7 +81,12 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         description: line.description ?? null,
         quantity: line.quantity,
         normalizedQuantity: line.normalizedQuantity ?? line.quantity,
-        uomSnapshot: line.uomSnapshot ?? null,
+        uomSnapshot: line.uomSnapshot
+          ? {
+              baseUnitCode: (line.uomSnapshot as Record<string, unknown>).baseUnitCode ?? null,
+              enteredUnitCode: (line.uomSnapshot as Record<string, unknown>).enteredUnitCode ?? null,
+            }
+          : null,
         currencyCode: line.currencyCode,
         unitPriceNet: line.unitPriceNet,
         unitPriceGross: line.unitPriceGross,
@@ -153,13 +158,26 @@ const publicQuoteResponseSchema = z.object({
       quantityUnit: z.string().nullable(),
       normalizedQuantity: z.string(),
       normalizedUnit: z.string().nullable(),
-      uomSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+      uomSnapshot: z
+        .object({
+          baseUnitCode: z.string().nullable(),
+          enteredUnitCode: z.string().nullable(),
+        })
+        .nullable()
+        .optional(),
       currencyCode: z.string(),
+      unitPriceNet: z.string(),
+      unitPriceGross: z.string(),
+      discountAmount: z.string(),
+      discountPercent: z.string(),
+      taxRate: z.string(),
+      taxAmount: z.string(),
+      totalNetAmount: z.string(),
+      totalGrossAmount: z.string(),
       unitPriceReference: z
         .record(z.string(), z.unknown())
         .nullable()
         .optional(),
-      totalGrossAmount: z.string(),
     }),
   ),
   adjustments: z.array(
@@ -170,6 +188,9 @@ const publicQuoteResponseSchema = z.object({
       rate: z.string().nullable(),
       amountNet: z.string().nullable(),
       amountGross: z.string().nullable(),
+      currencyCode: z.string().nullable(),
+      position: z.number().nullable(),
+      quoteLineId: z.string().uuid().nullable(),
     }),
   ),
   isExpired: z.boolean(),

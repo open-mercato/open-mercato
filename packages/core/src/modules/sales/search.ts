@@ -473,6 +473,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_order_line',
       enabled: true,
       priority: 7,
+      fieldPolicy: {
+        searchable: ['name', 'description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata', 'catalog_snapshot', 'configuration', 'promotion_snapshot'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -497,6 +501,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_quote_line',
       enabled: true,
       priority: 7,
+      fieldPolicy: {
+        searchable: ['name', 'description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata', 'catalog_snapshot', 'configuration', 'promotion_snapshot'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -619,6 +627,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_invoice_line',
       enabled: true,
       priority: 5,
+      fieldPolicy: {
+        searchable: ['description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -661,6 +673,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_credit_memo_line',
       enabled: true,
       priority: 5,
+      fieldPolicy: {
+        searchable: ['description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record

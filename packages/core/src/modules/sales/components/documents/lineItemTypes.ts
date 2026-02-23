@@ -1,3 +1,5 @@
+import type { SalesLineUomSnapshot } from '../../lib/types'
+
 export type SalesLineRecord = {
   id: string
   name: string | null
@@ -14,7 +16,7 @@ export type SalesLineRecord = {
   totalNet: number
   totalGross: number
   priceMode: 'net' | 'gross'
-  uomSnapshot: Record<string, unknown> | null
+  uomSnapshot: SalesLineUomSnapshot | null
   metadata: Record<string, unknown> | null
   catalogSnapshot: Record<string, unknown> | null
   customFieldSetId?: string | null
