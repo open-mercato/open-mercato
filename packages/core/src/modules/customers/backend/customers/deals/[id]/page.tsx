@@ -423,7 +423,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isDeleting={isDeleting}
             deleteLabel={t('ui.actions.delete', 'Delete')}
           />
-
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
             <div className="space-y-6">
               <div className="rounded-lg border bg-card p-4">
@@ -464,18 +463,19 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex gap-2">
                     {tabs.map((tab) => (
-                      <button
+                      <Button
                         key={tab.id}
-                        type="button"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setActiveTab(tab.id)}
-                        className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
+                        className={`h-auto rounded-none border-b-2 px-0 py-1 ${
                           activeTab === tab.id
                             ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
                         }`}
                       >
                         {tab.label}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   {sectionAction ? (

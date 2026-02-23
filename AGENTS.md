@@ -46,7 +46,6 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
-| Contributing to enterprise/commercial code, enterprise overlays, or cross-package enterprise integrations | `packages/enterprise/AGENTS.md` |
 | **Testing** | |
 | Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/integration-tests/SKILL.md` |
 | **Other** | |
@@ -123,6 +122,10 @@ All packages use the `@open-mercato/<package>` naming convention:
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 
+Import strategy:
+- Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
+- Keep short relative imports for same-folder/local siblings (`./x`, `../x`) where they are clearer than package paths.
+
 ## Conventions
 
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
@@ -191,9 +194,6 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 -   Use DI (Awilix) to inject services; avoid `new`-ing directly
 -   Modules must remain isomorphic and independent
 -   When extending another module's data, add a separate extension entity and declare a link in `data/extensions.ts`
--   By default, do not add general/open-source contributions to `packages/enterprise`
--   Modify `packages/enterprise` only on explicit user request and only after explicitly confirming the user has coordinated with Open Mercato Core Team and settled IP transfer for enterprise contributions
--   Keep enterprise optional: non-enterprise packages/apps must not gain compile-time/runtime dependencies on `@open-mercato/enterprise`
 
 ### Data & Security
 
@@ -208,6 +208,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 ### UI & HTTP
 
 -   Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
+-   If a backend page cannot use `CrudForm`, wrap every write (`POST`/`PUT`/`PATCH`/`DELETE`) in `useGuardedMutation(...).runMutation(...)` and include `retryLastMutation` in the injection context
 -   For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
 -   For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
 -   Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`
@@ -230,7 +231,6 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 ```bash
 yarn dev                  # Start development server
-yarn dev:ephemeral        # Start dev on a free port, open browser, and register instance in .ai/dev-ephemeral-envs.json
 yarn build                # Build everything
 yarn build:packages       # Build packages only
 yarn lint                 # Lint all packages
@@ -243,10 +243,3 @@ yarn dev:greenfield       # Fresh dev environment setup
 yarn test:integration     # Run integration tests (Playwright, headless)
 yarn test:integration:report  # View HTML test report
 ```
-
-## Ephemeral Dev Runtime for Agents
-
-- Prefer `yarn dev:ephemeral` when running tests from worktrees or parallel LLM sessions.
-- Reuse running app URLs from `.ai/dev-ephemeral-envs.json` before starting new runtimes.
-- If an entry from `.ai/dev-ephemeral-envs.json` is not responding, remove it before selecting a target URL.
-- Only fallback to `.ai/qa/ephemeral-env.json` (container ephemeral runtime) when no reusable dev ephemeral instance exists.

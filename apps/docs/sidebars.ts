@@ -106,6 +106,14 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Enterprise Edition",
+      items: [
+        "enterprise/overview",
+        "enterprise/record-locks",
+      ],
+    },
+    {
+      type: "category",
       label: "REST API",
       items: [
         "api/overview",

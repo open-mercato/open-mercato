@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm'
 import { FormHeader } from './forms/FormHeader'
 import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
 import {
   Settings,
   Layers,
@@ -53,12 +54,14 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
+import { withScopedApiRequestHeaders } from './utils/apiCall'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
+import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 
 // Stable empty options array to avoid creating a new [] every render
@@ -364,12 +367,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
   
+  const recordId = React.useMemo(() => {
+    const raw = values.id
+    if (typeof raw === 'string') return raw
+    if (typeof raw === 'number') return String(raw)
+    return undefined
+  }, [values])
+
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
+    resourceKind: versionHistory?.resourceKind,
+    resourceId: recordId ?? versionHistory?.resourceId,
+    recordId,
     isLoading,
     pending,
-  }), [formId, primaryEntityId, isLoading, pending])
+  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, isLoading, pending])
   
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -405,32 +418,130 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setCustomFieldDefsVersion((prev) => prev + 1)
   }, [])
 
-  const recordId = React.useMemo(() => {
-    const raw = values.id
-    if (typeof raw === 'string') return raw
-    if (typeof raw === 'number') return String(raw)
-    return undefined
-  }, [values])
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
+    const deletePayload = values as TValues
     try {
       const confirmed = await confirm({
         title: deleteConfirmMessage,
         variant: 'destructive',
       })
       if (!confirmed) return
-      await onDelete()
+
+      let injectionRequestHeaders: Record<string, string> | undefined
+      if (resolvedInjectionSpotId) {
+        try {
+          const result = await triggerInjectionEvent('onBeforeDelete', deletePayload, injectionContext)
+          if (!result.ok) {
+            try {
+              if (typeof window !== 'undefined') {
+                dispatchBackendMutationError({
+                  contextId: formId,
+                  formId,
+                  error: result.details ?? result,
+                })
+                window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+                  detail: {
+                    formId,
+                    error: result.details ?? result,
+                  },
+                }))
+              }
+            } catch {
+              // ignore event dispatch failures
+            }
+            if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
+              setErrors(result.fieldErrors)
+            }
+            const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+            flash(message, 'error')
+            return
+          }
+          injectionRequestHeaders = result.requestHeaders
+        } catch (err) {
+          console.error('[CrudForm] Error in onBeforeDelete:', err)
+          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return
+        }
+      }
+
+      setPending(true)
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onDelete', deletePayload, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onDelete:', err)
+          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return
+        }
+      }
+
+      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
+        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+          await onDelete()
+        })
+      } else {
+        await onDelete()
+      }
+
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onAfterDelete', deletePayload, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onAfterDelete:', err)
+        }
+      }
       try { flash(deleteSuccessMessage, 'success') } catch {}
       // Redirect if requested by caller
       if (typeof deleteRedirect === 'string' && deleteRedirect) {
         router.push(deleteRedirect)
       }
     } catch (err) {
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onDeleteError', deletePayload, injectionContext, { error: err })
+        } catch (hookError) {
+          console.error('[CrudForm] Error in onDeleteError:', hookError)
+        }
+      }
+      try {
+        if (typeof window !== 'undefined') {
+          dispatchBackendMutationError({
+            contextId: formId,
+            formId,
+            error: err,
+          })
+          window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+            detail: {
+              formId,
+              error: err,
+            },
+          }))
+        }
+      } catch {
+        // ignore event dispatch failures
+      }
       const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
       try { flash(message, 'error') } catch {}
+    } finally {
+      setPending(false)
     }
-  }, [confirm, onDelete, deleteRedirect, router, deleteConfirmMessage, deleteSuccessMessage, deleteErrorMessage])
+  }, [
+    confirm,
+    deleteConfirmMessage,
+    deleteErrorMessage,
+    deleteRedirect,
+    deleteSuccessMessage,
+    formId,
+    injectionContext,
+    onDelete,
+    resolvedInjectionSpotId,
+    router,
+    t,
+    triggerInjectionEvent,
+    values,
+  ])
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
@@ -454,7 +565,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       {extraActions}
     </>
   ) : extraActions
-
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
     let cancelled = false
@@ -1072,10 +1182,28 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     // Trigger onBeforeSave event for injection widgets
+    let injectionRequestHeaders: Record<string, string> | undefined
     if (resolvedInjectionSpotId) {
       try {
         const result = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
         if (!result.ok) {
+          try {
+            if (typeof window !== 'undefined') {
+              dispatchBackendMutationError({
+                contextId: formId,
+                formId,
+                error: result.details ?? result,
+              })
+              window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+                detail: {
+                  formId,
+                  error: result.details ?? result,
+                },
+              }))
+            }
+          } catch {
+            // ignore event dispatch failures
+          }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
             setErrors(result.fieldErrors)
           }
@@ -1084,6 +1212,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           setPending(false)
           return
         }
+        injectionRequestHeaders = result.requestHeaders
       } catch (err) {
         console.error('[CrudForm] Error in onBeforeSave:', err)
         flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
@@ -1107,7 +1236,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     
     try {
-      await onSubmit?.(parsedValues)
+      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
+        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+          await onSubmit?.(parsedValues)
+        })
+      } else {
+        await onSubmit?.(parsedValues)
+      }
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {
@@ -1120,6 +1255,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       
       if (successRedirect) router.push(successRedirect)
     } catch (err: unknown) {
+      try {
+        if (typeof window !== 'undefined') {
+          dispatchBackendMutationError({
+            contextId: formId,
+            formId,
+            error: err,
+          })
+          window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+            detail: {
+              formId,
+              error: err,
+            },
+          }))
+        }
+      } catch {
+        // ignore event dispatch failures
+      }
       const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
       const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
@@ -1159,6 +1311,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setPending(false)
     }
   }
+
   // Load dynamic options for fields that require it
   React.useEffect(() => {
     let cancelled = false
@@ -1344,17 +1497,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded border text-muted-foreground hover:text-foreground"
+              <IconButton
+                variant="outline"
+                className="text-muted-foreground hover:text-foreground"
                 onClick={() =>
                   handleOpenFieldsetEditor(entityLayout.entityId, entityLayout.activeFieldset ?? null, 'fieldset')}
                 disabled={!manageHref}
                 title={manageFieldsetLabel}
               >
                 <Settings className="size-4" />
-                <span className="sr-only">{manageFieldsetLabel}</span>
-              </button>
+              </IconButton>
             </div>
           </div>,
         )
@@ -1383,15 +1535,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     ) : null}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                <Button
+                  variant="muted"
+                  size="sm"
+                  className="text-xs"
                   onClick={() => handleOpenFieldsetEditor(entityLayout.entityId, section.fieldsetCode, 'fieldset')}
                   disabled={manageDisabled}
                 >
                   <Settings className="size-4" />
                   {manageFieldsetLabel}
-                </button>
+                </Button>
               </div>
               {section.groups.map((group) => {
                 const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
@@ -1564,7 +1717,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
             }}
           />
         ) : null}
@@ -1606,7 +1759,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
                 }}
               />
             )}
@@ -1634,7 +1787,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
           }}
         />
       ) : null}
@@ -1696,7 +1849,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
                 }}
               />
             )}
@@ -1744,24 +1897,26 @@ function RelationSelect({
         data-crud-focus-target=""
       />
       <div className="max-h-40 overflow-auto rounded border">
-        <button
-          type="button"
-          className="block w-full text-left px-2 py-1 text-sm hover:bg-muted"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start rounded-none font-normal"
           onClick={() => onChange('')}
         >
           —
-        </button>
+        </Button>
         {filtered.map((opt) => (
-          <button
+          <Button
             key={opt.value}
-            type="button"
-            className={`block w-full text-left px-2 py-1 text-sm hover:bg-muted ${
+            variant="ghost"
+            size="sm"
+            className={`w-full justify-start rounded-none font-normal ${
               value === opt.value ? 'bg-muted' : ''
             }`}
             onClick={() => onChange(opt.value)}
           >
             {opt.label}
-          </button>
+          </Button>
         ))}
       </div>
     </div>
@@ -2051,21 +2206,22 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('bold')}>{boldLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('italic')}>{italicLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('underline')}>{underlineLabel}</Button>
         <span className="mx-2 text-muted-foreground">|</span>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</button>
-        <button
-          type="button"
-          className="px-2 py-0.5 text-xs rounded hover:bg-muted"
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('insertUnorderedList')}>• {listLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('formatBlock', '<h3>')}>{heading3Label}</Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-auto px-2 py-0.5 text-xs"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             const url = window.prompt(linkUrlPrompt)?.trim()
             if (url) exec('createLink', url)
           }}
-        >{linkLabel}</button>
+        >{linkLabel}</Button>
       </div>
       <div
         ref={ref}
@@ -2129,9 +2285,9 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</button>
-        <button type="button" className="px-2 py-0.5 text-xs rounded hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</Button>
+        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
       </div>
       <textarea
         ref={taRef}
@@ -2209,17 +2365,18 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
         {filtered.map((opt) => {
           const isSel = value.includes(opt.value)
           return (
-            <button
+            <Button
               key={opt.value}
-              type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => toggle(opt.value)}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSel ? 'bg-muted' : ''}`}
+              className={`w-full justify-start rounded-none font-normal px-3 py-2 ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
                 <input type="checkbox" className="size-4" readOnly checked={isSel} />
                 <span>{opt.label}</span>
               </span>
-            </button>
+            </Button>
           )
         })}
         {!filtered.length ? (

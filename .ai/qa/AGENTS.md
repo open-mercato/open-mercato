@@ -23,8 +23,8 @@ yarn test:integration:report
 ```
 
 Preferred local workflow for short iterations:
-1. Start `yarn dev:ephemeral` in your worktree (preferred) or `yarn test:integration:ephemeral:start`
-2. Reuse the running environment from `.ai/dev-ephemeral-envs.json` first, then `.ai/qa/ephemeral-env.json`
+1. Start `yarn test:integration:ephemeral:start`
+2. Reuse the running environment from `.ai/qa/ephemeral-env.json`
 3. Use `/integration-tests` against that URL
 
 ---
@@ -63,7 +63,7 @@ Use shared helpers directly from `@open-mercato/core/modules/core/__integration_
 | `@open-mercato/core/modules/core/__integration__/helpers/api` | `getAuthToken`, `apiRequest` | Authenticated API setup and raw API calls in integration tests |
 | `@open-mercato/core/modules/core/__integration__/helpers/authUi` | `createUserViaUi` | Auth module UI flows for user creation/edit smoke coverage |
 | `@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures` | `createProductFixture`, `deleteCatalogProductIfExists` | Catalog fixture lifecycle for setup/cleanup |
-| `@open-mercato/core/modules/core/__integration__/helpers/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists` | Customers/CRM fixture creation and cleanup |
+| `@open-mercato/core/modules/core/__integration__/helpers/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists`, `readJsonSafe` | Customers/CRM fixture creation and cleanup; `readJsonSafe` for parsing Playwright APIResponse body to JSON |
 | `@open-mercato/core/modules/core/__integration__/helpers/salesFixtures` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
 | `@open-mercato/core/modules/core/__integration__/helpers/salesUi` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
 | `packages/create-app/template/src/modules/auth/__integration__/helpers/auth.ts` | `login` | Template-local helper for generated apps (kept local to template) |
@@ -132,8 +132,6 @@ Useful flags:
 
 Environment state:
 
-- Local dev ephemeral instances are tracked in `.ai/dev-ephemeral-envs.json`
-- Remove non-responsive entries before selecting a target URL
 - Active ephemeral environment is written to `.ai/qa/ephemeral-env.json`
 - Default app port is `5001` when available
 - If `5001` is busy, a free fallback port is used and written to `.ai/qa/ephemeral-env.json`
@@ -162,7 +160,7 @@ Read one of:
 
 #### Step 2 — Explore via Playwright MCP
 
-Always check `.ai/dev-ephemeral-envs.json` first, remove non-responsive entries, and reuse an existing running environment when available. Fallback to `.ai/qa/ephemeral-env.json` when no dev ephemeral runtime is reusable.
+Always check `.ai/qa/ephemeral-env.json` first and reuse an existing running environment.
 
 If no active environment exists, start interactive mode first:
 
@@ -176,7 +174,7 @@ Use isolated app mode only for MCP/manual exploration without the menu:
 yarn test:integration:ephemeral:start
 ```
 
-Use `baseUrl` from `.ai/dev-ephemeral-envs.json` (preferred) or `base_url` from `.ai/qa/ephemeral-env.json` to avoid interference with any other local app instance.
+Use `base_url` from `.ai/qa/ephemeral-env.json` to avoid interference with any other local app instance.
 
 Walk through the test flow interactively to discover actual selectors:
 

@@ -77,8 +77,6 @@
   "configs.systemStatus.variables.cacheStrategy.label": "Cache strategy",
   "configs.systemStatus.variables.cacheTtl.description": "Default cache time-to-live in milliseconds.",
   "configs.systemStatus.variables.cacheTtl.label": "Cache TTL",
-  "configs.systemStatus.variables.databaseUrl.description": "Database connection string with credentials removed.",
-  "configs.systemStatus.variables.databaseUrl.label": "Database URL",
   "configs.systemStatus.variables.enableCrudApiCache.description": "Enable the CRUD API response cache layer.",
   "configs.systemStatus.variables.enableCrudApiCache.label": "CRUD API cache",
   "configs.systemStatus.variables.entitiesBackcompatEav.description": "Mirror custom entity writes into the legacy EAV tables.",

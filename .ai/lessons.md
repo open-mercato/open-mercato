@@ -38,22 +38,50 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, and related template-only wrapper components.
 
-## Build packages before running generators in fresh worktrees
+## Store global event bus in `globalThis` to survive module duplication in dev
 
-**Context**: Running `yarn generate` in a fresh/dirty worktree used stale `packages/cli/dist` generator output, which emitted imports like `./entities/<slug>/index.js` into `.mercato/generated/entity-fields-registry.ts`.
+**Context**: `record_locks` notifications stopped while banners still worked. Banner logic uses direct API polling, but notifications depend on `emitRecordLocksEvent()` from `createModuleEvents()` and the global event bus wiring.
 
-**Problem**: Generated files then referenced modules that did not exist (`index.ts` present, `.js` missing), causing repeated Next.js `Module not found` loops and noisy dev-watch failures.
+**Problem**: In dev (HMR/Turbopack), duplicated module instances can appear. One instance receives `setGlobalEventBus()` during bootstrap, another instance emits events. With module-local singleton only, emitted events can be dropped silently.
 
-**Rule**: For bootstrap commands (especially ephemeral/dev automation), always run `yarn build:packages` before `yarn generate` so generator runtime (`packages/cli/dist`) matches current source.
+**Rule**: For process-wide runtime singletons used across package boundaries (event bus, similar registries), keep canonical reference in `globalThis` and use module-local variable only as fallback.
 
-**Applies to**: `dev:ephemeral`, greenfield/bootstrap scripts, and any automated flow that calls `yarn generate` in potentially stale environments.
+**Applies to**: `packages/shared/src/modules/events/factory.ts` and any shared runtime singleton relied on by module auto-discovery/subscriber pipelines.
 
-## Never assume localhost:3000 in ephemeral workflows
+## Always propagate structured conflict payload from `onBeforeSave` blockers
 
-**Context**: Ephemeral runs can bind to random free ports, while other local processes may still occupy `3000`.
+**Context**: Conflict handling in record locks had two paths: preflight `onBeforeSave` and real mutation `save` response. UI recovered conflict dialog only from save error path.
 
-**Problem**: Opening or probing default `3000` can point to the wrong app instance and create misleading debugging signals.
+**Problem**: When conflict was blocked in preflight, users could hit dead-end loops (`Keep editing` / `Keep my changes`) because the dialog state was not rehydrated with full conflict payload.
 
-**Rule**: Always use the resolved runtime URL from command output/state files (`.ai/dev-ephemeral-envs.json` or `.ai/qa/ephemeral-env.json`) for browser navigation, MCP usage, and health checks.
+**Rule**: Any blocking `onBeforeSave` result must carry machine-readable `details` (code + payload), and `CrudForm` must route it through the same global save-error recovery channel as normal save failures.
 
-**Applies to**: Dev ephemeral startup, integration-test environment reuse, and manual QA instructions.
+**Applies to**: Injection widgets that gate save (`WidgetBeforeSaveResult`) and conflict-capable modules (record locks, future optimistic concurrency widgets).
+## MUST use Button and IconButton primitives — never raw `<button>` elements
+
+**Context**: The codebase was refactored to replace all raw `<button>` elements with `Button` and `IconButton` from `@open-mercato/ui/primitives`. This ensures consistent styling, focus rings, disabled states, and dark mode support across the entire application.
+
+**Rules**:
+
+1. **Never use raw `<button>` elements** — always use `Button` or `IconButton` from `@open-mercato/ui`.
+2. **Use `IconButton` for icon-only buttons** (no text label, just an icon). Use `Button` for everything else (text-only, icon+text, or any button with visible label content).
+3. **Always pass `type="button"` explicitly** unless the button is a form submit (`type="submit"`). Neither `Button` nor `IconButton` sets a default type, so omitting it defaults to `type="submit"` per HTML spec, which can cause accidental form submissions.
+4. **Tab-pattern buttons** using `variant="ghost"` with underline indicators MUST include `hover:bg-transparent` in className to suppress the ghost variant's default `hover:bg-accent` background.
+5. **For compact inline contexts** (tag chips, toolbar buttons, inline list items), add `h-auto` to className to override the fixed height from size variants.
+
+**Button variants and sizes quick reference**:
+
+| Component | Variants | Sizes | Default |
+|-----------|----------|-------|---------|
+| `Button` | `default`, `destructive`, `outline`, `secondary`, `ghost`, `muted`, `link` | `default` (h-9), `sm` (h-8), `lg` (h-10), `icon` (size-9) | `variant="default"`, `size="default"` |
+| `IconButton` | `outline`, `ghost` | `xs` (size-6), `sm` (size-7), `default` (size-8), `lg` (size-9) | `variant="outline"`, `size="default"` |
+
+**Common patterns**:
+- Sidebar/nav toggle: `<IconButton variant="outline" size="sm">`
+- Close/dismiss: `<IconButton variant="ghost" size="sm">` with `<X />` icon
+- Tab navigation: `<Button variant="ghost" size="sm" className="h-auto rounded-none hover:bg-transparent border-b-2 ...">`
+- Dropdown menu items: `<Button variant="ghost" size="sm" className="w-full justify-start">`
+- Toolbar formatting buttons: `<Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs">`
+- Muted section headers: `<Button variant="muted" className="w-full justify-between">`
+
+**Applies to**: All UI components across `packages/ui`, `packages/core`, and `apps/mercato`.

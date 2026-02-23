@@ -48,6 +48,7 @@ import { createCustomerNotesAdapter } from '../../../../components/detail/notesA
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type CompanyOverview = {
   company: {
@@ -148,7 +149,43 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         ? t('customers.companies.detail.deals.loading', 'Loading deals…')
         : activeTab === 'people'
           ? t('customers.companies.detail.people.loading', 'Loading people…')
-          : t('customers.companies.detail.sectionLoading', 'Loading…')
+        : t('customers.companies.detail.sectionLoading', 'Loading…')
+  const mutationContextId = React.useMemo(
+    () => (currentCompanyId ? `customer-company:${currentCompanyId}` : `customer-company:${id ?? 'pending'}`),
+    [currentCompanyId, id],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    companyId?: string | null
+    resourceKind: string
+    resourceId?: string
+    data: CompanyOverview | null
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const injectionContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      companyId: currentCompanyId,
+      resourceKind: 'customers.company',
+      resourceId: currentCompanyId ?? (id ?? undefined),
+      data,
+      retryLastMutation,
+    }),
+    [currentCompanyId, data, id, mutationContextId, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: injectionContext,
+      })
+    },
+    [injectionContext, runMutation],
+  )
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -199,10 +236,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
   }), [t])
 
-  const injectionContext = React.useMemo(
-    () => ({ companyId: currentCompanyId, data }),
-    [currentCompanyId, data],
-  )
   const { widgets: injectedTabWidgets } = useInjectionWidgets('customers.company.detail:tabs', {
     context: injectionContext,
     triggerOnLoad: true,
@@ -282,18 +315,22 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const saveCompany = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
       if (!data) return
-      await apiCallOrThrow(
-        '/api/customers/companies',
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: data.company.id, ...patch }),
-        },
-        { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+      const payload = { id: data.company.id, ...patch }
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          '/api/customers/companies',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        ),
+        payload,
       )
       setData((prev) => (prev ? apply(prev) : prev))
     },
-    [data, t],
+    [data, runMutationWithContext, t],
   )
 
   const updateDisplayName = React.useCallback(
@@ -368,18 +405,22 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         if (showFlash) flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
         return
       }
+      const payload = {
+        id: data.company.id,
+        customFields: customPayload,
+      }
       try {
-        await apiCallOrThrow(
-          '/api/customers/companies',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              id: data.company.id,
-              customFields: customPayload,
-            }),
-          },
-          { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+        await runMutationWithContext(
+          () => apiCallOrThrow(
+            '/api/customers/companies',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.companies.detail.inline.error', 'Unable to update company.') },
+          ),
+          payload,
         )
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
@@ -407,7 +448,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       })
       if (showFlash) flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [data, t],
+    [data, runMutationWithContext, t],
   )
 
   const handleAnnualRevenueChange = React.useCallback(
@@ -443,13 +484,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      await apiCallOrThrow(
-        `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        },
-        { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          `/api/customers/companies?id=${encodeURIComponent(currentCompanyId)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: t('customers.companies.list.deleteError', 'Failed to delete company.') },
+        ),
+        { id: currentCompanyId },
       )
       flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
       router.push('/backend/customers/companies')
@@ -459,7 +503,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
-  }, [confirm, currentCompanyId, companyName, router, t])
+  }, [companyName, confirm, currentCompanyId, router, runMutationWithContext, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))

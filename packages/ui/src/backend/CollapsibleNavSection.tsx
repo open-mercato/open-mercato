@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
+import { Button } from '../primitives/button'
 
 export type CollapsibleNavItem = {
   href: string
@@ -171,11 +172,12 @@ export function CollapsibleNavSection({
 
   return (
     <div className="border-t pt-2">
-      <button
+      <Button
         type="button"
+        variant="muted"
         onClick={() => setExpanded((prev) => !prev)}
         onKeyDown={handleKeyDown}
-        className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} flex items-center text-xs uppercase text-muted-foreground/90 py-2 hover:text-foreground`}
+        className={`w-full ${compact ? 'px-0 justify-center' : 'px-2 justify-between'} text-xs uppercase text-muted-foreground/90 py-2 hover:text-foreground`}
         aria-expanded={expanded}
         aria-controls="collapsible-nav-content"
       >
@@ -188,7 +190,7 @@ export function CollapsibleNavSection({
             className={`size-4 transition-transform ${expanded ? 'rotate-180' : ''}`}
           />
         )}
-      </button>
+      </Button>
       {expanded && (
         <div id="collapsible-nav-content" className={`flex flex-col gap-2 ${!compact ? 'pl-1' : 'items-center'} mt-1`}>
           {groups.map(renderGroup)}

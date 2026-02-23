@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -156,20 +157,22 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
           <div className="border-b">
             <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={translate('planner.availabilityRuleSets.tabs.label', 'Schedule sections')}>
               {tabs.map((tab) => (
-                <button
+                <Button
                   key={tab.id}
                   type="button"
                   role="tab"
                   aria-selected={activeTab === tab.id}
-                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
-                  className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
+                  variant="ghost"
+                  size="sm"
+                  className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
                     activeTab === tab.id
                       ? 'border-primary text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
+                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
                 >
                   {tab.label}
-                </button>
+                </Button>
               ))}
             </nav>
           </div>

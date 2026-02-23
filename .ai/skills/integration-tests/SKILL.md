@@ -19,7 +19,7 @@ This skill generates executable Playwright tests in module-local `__integration_
 | View report | `yarn test:integration:report` |
 | Test files location | `<module>/__integration__/TC-XXX.spec.ts` (legacy `.ai/qa/tests` still supported) |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
-| Reusable env state files | `.ai/dev-ephemeral-envs.json`, `.ai/qa/ephemeral-env.json` |
+| Reusable env state file | `.ai/qa/ephemeral-env.json` |
 
 ## Runtime Policy
 
@@ -61,27 +61,22 @@ find apps packages .ai/qa/tests -type f -name "TC-{CATEGORY}-*.spec.ts" 2>/dev/n
 
 Use the highest number found across both directories, then increment. For example, if the last scenario is TC-CRM-011 but the last test is TC-CRM-013, use TC-CRM-014.
 
-### Phase 3 — Reuse Existing Running Environment First
+### Phase 3 — Reuse Existing Ephemeral Environment First
 
-Before starting any new ephemeral app, check environment state in this order:
+Before starting any new ephemeral app, read `.ai/qa/ephemeral-env.json`.
 
-1. `.ai/dev-ephemeral-envs.json` (preferred for local worktrees):
-- Read `instances`.
-- Remove entries that are not responding at `<baseUrl>/backend/login`.
-- If at least one responsive instance remains, use its `baseUrl`.
-2. `.ai/qa/ephemeral-env.json`:
-- If it exists and contains `status: running`, use `base_url`.
-3. If neither source is reusable, start:
+- If it exists and contains `status: running`, use `base_url` from that file.
+- If it does not exist (or cannot be reused), start:
 
 ```bash
 yarn test:integration:ephemeral:start
 ```
 
-Default container ephemeral app port is `5001` when available; fallback port is recorded in `.ai/qa/ephemeral-env.json`.
+Default ephemeral app port is `5001` when available; fallback port is recorded in `.ai/qa/ephemeral-env.json`.
 
 ### Phase 4 — Explore the Feature via Playwright MCP
 
-Use the active base URL selected in Phase 3 for MCP navigation, then discover the actual UI:
+Use the active base URL from `.ai/qa/ephemeral-env.json` for MCP navigation, then discover the actual UI:
 
 1. Login with the appropriate role
 2. Navigate to the relevant page
@@ -236,9 +231,8 @@ If the run fails, apply the shared failure-analysis section above.
 ## Rules
 
 - MUST explore the running app before writing — never guess selectors or flows
-- MUST check `.ai/dev-ephemeral-envs.json` first and remove non-responsive entries before selecting an environment
-- MUST fallback to `.ai/qa/ephemeral-env.json` only when no reusable dev ephemeral instance exists
-- MUST use the active URL discovered from those state files (never assume `localhost:3000`)
+- MUST check `.ai/qa/ephemeral-env.json` first and reuse existing environment when available
+- MUST use the active URL from `.ai/qa/ephemeral-env.json` (never assume `localhost:3000`)
 - MUST NOT hardcode record IDs (UUIDs/PKs) in generated tests
 - MUST discover or create test entities at runtime, then navigate using discovered links/URLs
 - MUST NOT rely on seeded/demo data for prerequisites
