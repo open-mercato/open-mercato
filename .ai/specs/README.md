@@ -83,6 +83,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-031](SPEC-031-2026-02-18-decrypt-database-cli.md) | 2026-02-18 | Decrypt Database CLI Command | CLI operation to decrypt encrypted tenant data back to plaintext with strict safety gates and operational guardrails |
 | [SPEC-032](SPEC-032-2026-02-19-notification-templates-db-only.md) | 2026-02-19 | Notification Templates (DB-Only) | DB-only architecture for versioned email/slack notification templates with publish flow, mapping resolver, and tenant-safe runtime fallback policy |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, API exposure, and admin configuration |
+| [SPEC-037](SPEC-037-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
 
 ## Specification Structure
 
