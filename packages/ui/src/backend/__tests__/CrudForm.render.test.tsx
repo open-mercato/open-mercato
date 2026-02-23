@@ -1,6 +1,6 @@
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
-  usePathname: () => '/backend/test',
+  usePathname: () => '/',
   useSearchParams: () => new URLSearchParams(),
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
