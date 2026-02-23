@@ -52,6 +52,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+*.tgz
 next-env.d.ts
 .tsbuild/
 

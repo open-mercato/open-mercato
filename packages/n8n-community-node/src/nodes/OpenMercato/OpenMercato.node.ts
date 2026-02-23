@@ -68,10 +68,10 @@ export class OpenMercato implements INodeType {
         default: '/api/customers/people',
         required: true,
         placeholder: '/api/customers/people',
-        description: 'REST path including /api prefix',
+        description: 'REST path. If it does not start with /api, it will be normalized automatically.',
         routing: {
           request: {
-            url: '={{$value}}'
+            url: '={{$value.startsWith("/api/") ? $value : `/api${$value.startsWith("/") ? "" : "/"}${$value}`}}'
           }
         }
       },
@@ -103,6 +103,18 @@ export class OpenMercato implements INodeType {
         name: 'sendBody',
         type: 'boolean',
         default: false
+      },
+      {
+        displayName: 'Body is typically used with POST/PUT/PATCH.',
+        name: 'bodyMethodHint',
+        type: 'notice',
+        default: '',
+        displayOptions: {
+          show: {
+            sendBody: [true],
+            method: ['GET', 'DELETE']
+          }
+        }
       },
       {
         displayName: 'Body (JSON)',

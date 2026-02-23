@@ -1,0 +1,51 @@
+{
+  "name": "Open Mercato Smoke Test",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        260,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "path": "/api/customers/people",
+        "sendQuery": false,
+        "sendBody": false
+      },
+      "id": "open-mercato-call",
+      "name": "Open Mercato",
+      "type": "openMercato",
+      "typeVersion": 1,
+      "position": [
+        520,
+        260
+      ],
+      "credentials": {
+        "openMercatoApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Open Mercato API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Open Mercato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

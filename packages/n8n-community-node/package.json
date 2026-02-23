@@ -12,7 +12,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "node -e \"console.log('No package tests yet')\"",
+    "test": "node ./scripts/smoke-test.cjs",
     "openapi:generate": "node scripts/generate-openapi.mjs"
   },
   "n8n": {
