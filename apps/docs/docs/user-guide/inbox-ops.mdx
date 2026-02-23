@@ -118,7 +118,9 @@ Restart the dev server after updating env vars.
 
 ## Step 4: Verify Your Inbox Address
 
-After starting Open Mercato, each tenant automatically gets an inbox address generated during setup. The format is:
+After starting Open Mercato, each tenant automatically gets an inbox address generated during setup. You can also configure a **working language** on the Settings page — proposals will be translated to this language for easier review.
+
+The address format is:
 
 ```
 ops-<first-8-chars-of-org-id>@<INBOX_OPS_DOMAIN>
@@ -246,6 +248,10 @@ Once set up, the typical workflow for your team is:
    - Yellow/red actions: have discrepancies that need attention (unknown contact, price mismatch, missing product)
 5. **Employee** accepts good actions, edits or rejects problematic ones
 6. Accepted actions execute automatically (orders created, contacts linked, replies sent)
+
+:::tip Translation
+If your team works in a language different from the emails, configure a **working language** in **Inbox Ops → Settings**. The system will translate AI summaries and action descriptions to your preferred language. You can also translate individual proposals on demand from the proposal detail page.
+:::
 
 ## Developer Testing
 
