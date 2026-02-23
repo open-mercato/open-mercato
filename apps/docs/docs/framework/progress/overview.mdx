@@ -1,0 +1,400 @@
+---
+title: Progress Tracking
+description: Track long-running server-side operations with real-time progress, ETA calculation, and cancellation support.
+---
+
+# Progress Tracking
+
+The Progress module provides a generic, tenant-scoped system for tracking long-running operations such as data imports, reindexing, bulk updates, and report generation. It replaces ad-hoc job tracking with a unified service layer, REST API, and real-time UI integration.
+
+## Package Location
+
+```
+packages/core/src/modules/progress/
+├── api/
+│   ├── active/route.ts        # Active + recently completed jobs
+│   ├── jobs/route.ts           # List + create jobs
+│   └── jobs/[id]/route.ts      # Get, update progress, cancel
+├── data/
+│   ├── entities.ts             # ProgressJob entity
+│   └── validators.ts           # Zod schemas
+├── lib/
+│   ├── progressService.ts      # Service interface
+│   ├── progressServiceImpl.ts  # Service implementation
+│   └── events.ts               # Event constants + payload types
+├── i18n/                       # Translations (en, de, es, pl)
+├── acl.ts                      # Feature-based permissions
+├── di.ts                       # DI registration
+├── events.ts                   # Typed event declarations
+└── setup.ts                    # Role defaults
+```
+
+## Key Features
+
+- **Tenant-isolated job tracking** — all queries scoped to `tenantId` and optionally `organizationId`
+- **Automatic progress calculation** — percentage and ETA derived from `processedCount` / `totalCount`
+- **Heartbeat-based stale detection** — jobs without a heartbeat for 60 seconds are marked as failed
+- **Cancellation support** — cooperative cancellation via `cancelRequestedAt` flag
+- **Parent/child jobs** — hierarchical tracking for partitioned operations
+- **Typed events** — lifecycle events emitted for every state transition
+- **Real-time UI** — polling-based top bar with visibility-aware pausing
+
+## Data Model
+
+### ProgressJob Entity
+
+```typescript
+@Entity({ tableName: 'progress_jobs' })
+export class ProgressJob {
+  id: string                          // UUID PK
+  jobType: string                     // e.g. 'import', 'reindex', 'export'
+  name: string                        // Human-readable label
+  description?: string                // Optional details
+  status: ProgressJobStatus           // 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progressPercent: number             // 0-100, auto-calculated or explicit
+  processedCount: number              // Items processed so far
+  totalCount?: number                 // Total items (null = indeterminate)
+  etaSeconds?: number                 // Estimated seconds remaining
+  startedByUserId?: string            // Who initiated the job
+  startedAt?: Date                    // When status changed to 'running'
+  heartbeatAt?: Date                  // Last heartbeat timestamp
+  finishedAt?: Date                   // When job reached a terminal state
+  resultSummary?: Record<string, unknown>  // Structured result on completion
+  errorMessage?: string               // Error description on failure
+  errorStack?: string                 // Stack trace (never exposed via API)
+  meta?: Record<string, unknown>      // Arbitrary metadata, merged on update
+  cancellable: boolean                // Whether the job accepts cancellation
+  cancelRequestedAt?: Date            // When cancellation was requested
+  cancelledByUserId?: string          // Who requested cancellation
+  parentJobId?: string                // Parent job for partitioned work
+  partitionIndex?: number             // This partition's index (0-based)
+  partitionCount?: number             // Total number of partitions
+  tenantId: string                    // Tenant scope
+  organizationId?: string             // Optional organization scope
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+:::info No deleted_at column
+Terminal statuses (`completed`, `failed`, `cancelled`) serve as logical soft-delete. Old jobs should be purged via scheduled cleanup rather than soft-deleted individually.
+:::
+
+### Database Indexes
+
+- `(status, tenant_id)` — tenant-scoped status queries
+- `(job_type, tenant_id)` — filtering by job type
+- `(parent_job_id)` — child job lookups
+
+## Service Layer
+
+All job operations go through `ProgressService`, resolved from DI as `progressService`:
+
+```typescript
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+
+const progressService = container.resolve('progressService') as ProgressService
+```
+
+### Creating and Running Jobs
+
+```typescript
+// 1. Create a job
+const job = await progressService.createJob({
+  jobType: 'import',
+  name: 'Import contacts from CSV',
+  totalCount: 1000,
+  cancellable: true,
+}, { tenantId, organizationId, userId })
+
+// 2. Start processing
+await progressService.startJob(job.id, { tenantId })
+
+// 3. Update progress (auto-calculates percent and ETA)
+await progressService.incrementProgress(job.id, 50, { tenantId })
+
+// 4. Check for cancellation in your processing loop
+const cancelled = await progressService.isCancellationRequested(job.id)
+if (cancelled) {
+  await progressService.failJob(job.id, {
+    errorMessage: 'Cancelled by user',
+  }, { tenantId })
+  return
+}
+
+// 5. Complete the job
+await progressService.completeJob(job.id, {
+  resultSummary: { imported: 950, skipped: 50 },
+}, { tenantId })
+```
+
+### Service Methods
+
+| Method | Description |
+|--------|-------------|
+| `createJob(input, ctx)` | Create a new job in `pending` status |
+| `startJob(jobId, ctx)` | Transition to `running`, set `startedAt` and `heartbeatAt` |
+| `updateProgress(jobId, input, ctx)` | Set explicit progress values, updates heartbeat |
+| `incrementProgress(jobId, delta, ctx)` | Add `delta` to `processedCount`, auto-recalculates percent and ETA |
+| `completeJob(jobId, input, ctx)` | Mark as `completed` with 100% progress and optional result summary |
+| `failJob(jobId, input, ctx)` | Mark as `failed` with error message and optional stack trace |
+| `cancelJob(jobId, ctx)` | Request cancellation (pending jobs cancel immediately) |
+| `isCancellationRequested(jobId)` | Check if cancellation was requested (for cooperative cancellation) |
+| `getActiveJobs(ctx)` | List pending/running top-level jobs |
+| `getRecentlyCompletedJobs(ctx, sinceSeconds?)` | List completed/failed jobs finished within `sinceSeconds` (default 30) |
+| `getJob(jobId, ctx)` | Fetch a single job by ID |
+| `markStaleJobsFailed(tenantId, timeoutSeconds?)` | Mark running jobs with no heartbeat as failed (default timeout: 60s) |
+
+### Progress Calculation
+
+When `totalCount` is set and `progressPercent` is not explicitly provided:
+
+```typescript
+progressPercent = Math.min(100, Math.round((processedCount / totalCount) * 100))
+```
+
+ETA is calculated from the processing rate:
+
+```typescript
+const elapsedMs = Date.now() - startedAt.getTime()
+const rate = processedCount / elapsedMs
+const remaining = totalCount - processedCount
+etaSeconds = Math.ceil(remaining / rate / 1000)
+```
+
+## API Endpoints
+
+All endpoints require authentication and the appropriate ACL feature.
+
+### List Jobs
+
+```http
+GET /api/progress/jobs?status=running&search=import&page=1&pageSize=20
+```
+
+**Feature:** `progress.view`
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | string | Comma-separated status filter (e.g. `running,pending`) |
+| `jobType` | string | Filter by job type |
+| `parentJobId` | UUID | Filter by parent job |
+| `includeCompleted` | `true`/`false` | Include completed/failed jobs (default: `false`) |
+| `completedSince` | ISO date | Only completed jobs finished after this date |
+| `search` | string | Search in name and jobType |
+| `sortField` | `createdAt`/`startedAt`/`finishedAt` | Sort field |
+| `sortDir` | `asc`/`desc` | Sort direction |
+| `page` | number | Page number (default: 1) |
+| `pageSize` | number | Items per page (default: 20, max: 100) |
+
+### Create Job
+
+```http
+POST /api/progress/jobs
+Content-Type: application/json
+
+{
+  "jobType": "import",
+  "name": "Import contacts",
+  "totalCount": 1000,
+  "cancellable": true,
+  "meta": { "source": "csv" }
+}
+```
+
+**Feature:** `progress.create`
+
+### Get Job Details
+
+```http
+GET /api/progress/jobs/:id
+```
+
+**Feature:** `progress.view`
+
+### Update Progress
+
+```http
+PUT /api/progress/jobs/:id
+Content-Type: application/json
+
+{
+  "processedCount": 500,
+  "totalCount": 1000,
+  "meta": { "lastBatch": 50 }
+}
+```
+
+**Feature:** `progress.update`
+
+### Cancel Job
+
+```http
+DELETE /api/progress/jobs/:id
+```
+
+**Feature:** `progress.cancel`
+
+Pending jobs are cancelled immediately. Running jobs have `cancelRequestedAt` set — the worker should poll `isCancellationRequested()` and stop cooperatively.
+
+### Active Jobs (Top Bar)
+
+```http
+GET /api/progress/active
+```
+
+**Feature:** `progress.view`
+
+Returns two arrays:
+- `active` — pending and running top-level jobs (limit 50)
+- `recentlyCompleted` — completed/failed jobs from the last 30 seconds (limit 10)
+
+## Events
+
+The module declares typed events via `createModuleEvents()`:
+
+| Event ID | Category | When |
+|----------|----------|------|
+| `progress.job.created` | crud | Job created |
+| `progress.job.started` | lifecycle | Job started running |
+| `progress.job.updated` | lifecycle | Progress updated |
+| `progress.job.completed` | lifecycle | Job completed successfully |
+| `progress.job.failed` | lifecycle | Job failed (error or stale) |
+| `progress.job.cancelled` | lifecycle | Cancellation requested |
+
+All event payloads include `jobId`, `jobType`, and `tenantId`. Subscribe to these events to trigger side effects:
+
+```typescript
+// subscribers/job-completed-notify.ts
+export const metadata = {
+  event: 'progress.job.completed',
+  persistent: true,
+  id: 'job-completed-notify',
+}
+
+export default async function handler(payload: {
+  jobId: string
+  jobType: string
+  tenantId: string
+  resultSummary?: Record<string, unknown>
+}) {
+  // Send notification, update dashboards, etc.
+}
+```
+
+## Access Control
+
+Features declared in `acl.ts`:
+
+| Feature | Description |
+|---------|-------------|
+| `progress.view` | View progress jobs and active status |
+| `progress.create` | Create new progress jobs |
+| `progress.update` | Update progress on running jobs |
+| `progress.cancel` | Cancel running/pending jobs |
+| `progress.manage` | Full management access |
+
+Default role assignments in `setup.ts`:
+
+```typescript
+defaultRoleFeatures: {
+  admin: ['progress.*'],
+  employee: ['progress.view'],
+}
+```
+
+## UI Integration
+
+### ProgressTopBar
+
+The `ProgressTopBar` component (from `@open-mercato/ui/backend/progress`) renders a collapsible bar showing active and recently completed jobs. It is placed between the header and main content in the `AppShell` with `sticky top-0` positioning.
+
+```tsx
+import { ProgressTopBar } from '@open-mercato/ui/backend/progress/ProgressTopBar'
+
+<ProgressTopBar t={t} className="sticky top-0 z-10" />
+```
+
+**Features:**
+- Shows active job count with the lead job's name and percentage
+- Expands to show per-job progress bars with ETA
+- Cancel button on cancellable jobs
+- Recently completed jobs shown with success/error indicators
+- Collapsed/expanded state persisted in `localStorage`
+
+### useProgressPoll Hook
+
+The `useProgressPoll` hook polls `GET /api/progress/active` every 5 seconds and exposes reactive state:
+
+```tsx
+import { useProgressPoll } from '@open-mercato/ui/backend/progress/useProgressPoll'
+
+const { activeJobs, recentlyCompleted, isLoading, error, refresh } = useProgressPoll()
+```
+
+**Visibility-aware:** Polling automatically pauses when the browser tab is hidden and resumes (with an immediate fetch) when the tab becomes visible again.
+
+**Event-driven updates:** The hook also subscribes to `progress:update` and `progress:complete` DOM events for instant UI updates from the same tab.
+
+## Stale Job Detection
+
+Jobs that stop sending heartbeats are automatically detected:
+
+```typescript
+// Call periodically (e.g. via scheduler) per tenant
+await progressService.markStaleJobsFailed(tenantId, 60) // 60 second timeout
+```
+
+This finds all `running` jobs for the given tenant where `heartbeatAt` is older than the timeout, marks them as `failed` with the message `"Job stale: no heartbeat for 60 seconds"`, and emits a `progress.job.failed` event with `stale: true` for each.
+
+:::tip Integrate with the Scheduler
+Register a scheduled job to call `markStaleJobsFailed` periodically:
+
+```typescript
+await schedulerService.register({
+  id: 'progress:stale-check:system',
+  name: 'Check for stale progress jobs',
+  scopeType: 'system',
+  scheduleType: 'interval',
+  scheduleValue: '30s',
+  targetType: 'queue',
+  targetQueue: 'progress-stale-check',
+  sourceModule: 'progress',
+})
+```
+:::
+
+## Partitioned Jobs
+
+For parallel processing, create a parent job with child partitions:
+
+```typescript
+// Create parent
+const parent = await progressService.createJob({
+  jobType: 'reindex',
+  name: 'Reindex all products',
+  totalCount: 10000,
+}, ctx)
+
+// Create partitions
+for (let i = 0; i < 4; i++) {
+  await progressService.createJob({
+    jobType: 'reindex',
+    name: `Reindex partition ${i + 1}/4`,
+    totalCount: 2500,
+    parentJobId: parent.id,
+    partitionIndex: i,
+    partitionCount: 4,
+  }, ctx)
+}
+```
+
+Child jobs are filtered out of `getActiveJobs` (which queries `parentJobId: null`), so only top-level jobs appear in the UI.
+
+## Further Reading
+
+- [Events & Subscribers](../events/overview.mdx) — event system used by the progress module
+- [Scheduler Module](../scheduler/overview.mdx) — schedule periodic stale job checks
+- [Queue & Workers](../events/queue-workers.mdx) — background processing for long-running operations
