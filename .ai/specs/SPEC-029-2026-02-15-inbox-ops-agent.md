@@ -1,4 +1,4 @@
-﻿# SPEC-028: InboxOps Agent — Email-to-ERP Action Proposals
+﻿# SPEC-029: InboxOps Agent — Email-to-ERP Action Proposals
 
 **Date**: 2026-02-15
 **Updated**: 2026-02-21
@@ -234,6 +234,7 @@ This convergence is not blocked by Phase 1 — the `InboxEmail` entity and webho
 - `link_contact` — Link an email participant to an existing contact (fuzzy matched).
 - `log_activity` — Log an activity (call, email, meeting) on a customer record. Requires `contactType` ('person' | 'company').
 - `draft_reply` — Generate a reply email draft with ERP context. Uses `replyTo` and `inReplyTo` headers for proper threading.
+- `create_product` — Create a new catalog product when order line items reference unknown products. Sets `source: 'inbox_ops'` for traceability.
 
 **FR-4: Proposal Review Page**
 - List view showing all proposals grouped by status: `pending`, `partial`, `accepted`, `rejected`.
@@ -307,6 +308,9 @@ export class InboxSettings {
   @Property({ name: 'inbox_address', type: 'text' })
   inboxAddress!: string  // e.g., ops-acme@inbox.openmercato.com
 
+  @Property({ name: 'working_language', type: 'text', default: 'en' })
+  workingLanguage: string = 'en'
+
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
@@ -325,7 +329,7 @@ export class InboxSettings {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 
-  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isActive' | 'workingLanguage' | 'createdAt' | 'updatedAt' | 'deletedAt'
 }
 ```
 
@@ -392,7 +396,7 @@ export class InboxEmail {
   receivedAt!: Date
 
   @Property({ name: 'status', type: 'text' })
-  status: 'received' | 'processing' | 'processed' | 'failed' = 'received'
+  status: 'received' | 'processing' | 'processed' | 'needs_review' | 'failed' = 'received'
 
   @Property({ name: 'processing_error', type: 'text', nullable: true })
   processingError?: string | null  // NOT encrypted (for debugging)
@@ -479,6 +483,12 @@ export class InboxProposal {
   @Property({ name: 'llm_model', type: 'text', nullable: true })
   llmModel?: string | null  // Model used for extraction (for audit)
 
+  @Property({ name: 'working_language', type: 'text', nullable: true })
+  workingLanguage?: string | null  // Snapshot of tenant's working language at extraction time
+
+  @Property({ name: 'translations', type: 'json', nullable: true })
+  translations?: ProposalTranslations | null  // Cached translations keyed by locale
+
   @Property({ name: 'llm_tokens_used', type: 'integer', nullable: true })
   llmTokensUsed?: number | null
 
@@ -538,7 +548,7 @@ export class InboxProposalAction {
 
   @Property({ name: 'action_type', type: 'text' })
   actionType!: 'create_order' | 'create_quote' | 'update_order' | 'update_shipment'
-    | 'create_contact' | 'link_contact' | 'log_activity' | 'draft_reply'
+    | 'create_contact' | 'create_product' | 'link_contact' | 'log_activity' | 'draft_reply'
 
   @Property({ name: 'description', type: 'text' })
   description!: string  // Encrypted — human-readable description
@@ -547,7 +557,7 @@ export class InboxProposalAction {
   payload!: Record<string, unknown>  // Encrypted JSON — action-specific data
 
   @Property({ name: 'status', type: 'text' })
-  status: 'pending' | 'accepted' | 'rejected' | 'executed' | 'failed' = 'pending'
+  status: 'pending' | 'processing' | 'accepted' | 'rejected' | 'executed' | 'failed' = 'pending'
 
   @Property({ name: 'confidence', type: 'numeric', precision: 3, scale: 2 })
   confidence!: string  // 0.00-1.00
@@ -758,6 +768,16 @@ const draftReplyPayloadSchema = z.object({
   references: z.array(z.string()).optional(),           // RFC 822 References chain
   context: z.string().optional(),                       // ERP context included in draft
 })
+
+// create_product
+const createProductPayloadSchema = z.object({
+  title: z.string().trim().min(1).max(255),
+  sku: z.string().trim().max(100).optional(),
+  unitPrice: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  currencyCode: z.string().trim().length(3).optional(),
+  kind: z.enum(['product', 'service']).default('product'),
+  description: z.string().trim().max(4000).optional(),
+})
 ```
 
 ### 8.2) Required Feature per Action Type
@@ -774,6 +794,7 @@ The execution engine checks permissions in the target module before executing:
 | `link_contact` | `customers.people.manage` | customers |
 | `log_activity` | `customers.activities.manage` | customers |
 | `draft_reply` | `inbox_ops.replies.send` | inbox_ops |
+| `create_product` | `catalog.products.manage` | catalog |
 
 ### 8.3) Quote→Order Flow Handling
 
@@ -810,6 +831,9 @@ All API route files MUST export an `openApi` object per project convention.
 | `/api/inbox-ops/proposals/:id/discrepancies` | GET | List discrepancies for a proposal |
 | `/api/inbox-ops/proposals/:id/replies/:replyId/send` | POST | Send a draft reply email |
 | `/api/inbox-ops/settings` | GET | Get tenant inbox configuration |
+| `/api/inbox-ops/settings` | PATCH | Update inbox settings (working language, active status) |
+| `/api/inbox-ops/proposals/:id/translate` | POST | Translate proposal to specified language |
+| `/api/inbox-ops/proposals/:id/actions/:actionId/complete` | POST | Mark action as externally completed |
 | `/api/inbox-ops/stats` | GET | Processing statistics (Phase 2e) |
 
 ### 9.2 Webhook Endpoint
@@ -1420,7 +1444,7 @@ When executing an action, the system checks that the accepting user also has the
 
 The inbound webhook endpoint is public (no user auth) but secured by:
 
-1. Provider HMAC signature validation.
+1. **Dual signature verification**: Svix (Resend native) via `RESEND_WEBHOOK_SIGNING_SECRET` + custom HMAC SHA256 via `INBOX_OPS_WEBHOOK_SECRET`. At least one must be configured. Svix verification uses `svix-id`, `svix-timestamp`, `svix-signature` headers. Custom HMAC uses `X-Webhook-Signature` header with SHA256 digest.
 2. Timestamp validation — reject payloads older than 5 minutes (replay protection).
 3. Rate limiting: 10/min, 100/hour, 1000/day per tenant address.
 4. Payload size limit: **2MB** max (sufficient for text-only; 10MB was excessive).
@@ -1593,7 +1617,7 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 - **Scenario**: Attacker sends forged email payloads to the webhook endpoint.
 - **Severity**: High
 - **Affected area**: Data integrity
-- **Mitigation**: HMAC signature validation. Timestamp validation (reject >5min old). Rate limiting (10/min, 100/hour, 1000/day per address). 2MB payload limit. Tenant address validation. Zod validation on all data. Idempotent dedup (return 200 for duplicates).
+- **Mitigation**: Dual signature verification — Svix (Resend native) via `RESEND_WEBHOOK_SIGNING_SECRET` + custom HMAC SHA256 via `INBOX_OPS_WEBHOOK_SECRET`. At least one must be configured. Timestamp validation (reject >5min old). Rate limiting (10/min, 100/hour, 1000/day per address). 2MB payload limit. Tenant address validation. Zod validation on all data. Idempotent dedup (return 200 for duplicates).
 - **Residual risk**: If the webhook secret is compromised, attacker can inject emails until secret is rotated. All injected content still requires human review before any action executes.
 
 ### Tenant Data Isolation
@@ -1889,6 +1913,10 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 ---
 
 ## Changelog
+
+### 2026-02-23
+
+- **Spec sync with implementation**: Updated inline entity definitions to match code — added `workingLanguage` to `InboxSettings` and `InboxProposal`, `translations` to `InboxProposal`, `create_product` to action type union, `processing` to action status union, `needs_review` to email status union. Added `createProductPayloadSchema` to section 8.1, `create_product` feature row to section 8.2. Added 3 missing API endpoints to section 9.1 (`PATCH settings`, `POST translate`, `POST complete`). Clarified dual webhook verification (Svix + HMAC) in sections 9.2 and 14.3. Fixed spec heading number (SPEC-028→SPEC-029).
 
 ### 2026-02-21
 
