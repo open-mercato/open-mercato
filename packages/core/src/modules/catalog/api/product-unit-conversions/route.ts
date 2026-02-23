@@ -91,7 +91,7 @@ const crud = makeCrudRoute({
     transformItem: (item: Record<string, unknown> | null | undefined) => {
       if (!item) return item;
       const unitCode = canonicalizeUnitCode(
-        (item as any).unit_code ?? (item as any).unitCode,
+        item["unit_code"] ?? item["unitCode"],
       );
       return {
         ...item,

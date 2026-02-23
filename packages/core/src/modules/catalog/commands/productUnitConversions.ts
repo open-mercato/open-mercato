@@ -15,10 +15,6 @@ import { UniqueConstraintViolationException } from "@mikro-orm/core";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
-import {
-  Dictionary,
-  DictionaryEntry,
-} from "@open-mercato/core/modules/dictionaries/data/entities";
 import { CatalogProduct, CatalogProductUnitConversion } from "../data/entities";
 import {
   productUnitConversionCreateSchema,
@@ -31,12 +27,14 @@ import {
 import {
   ensureOrganizationScope,
   ensureSameScope,
+  cloneJson,
   ensureTenantScope,
   extractUndoPayload,
   requireProduct,
   toNumericString,
 } from "./shared";
-import { canonicalizeUnitCode, toUnitLookupKey } from "../lib/unitCodes";
+import { toUnitLookupKey } from "../lib/unitCodes";
+import { resolveCanonicalUnitCode } from "../lib/unitResolution";
 
 type ProductUnitConversionSnapshot = {
   id: string;
@@ -111,58 +109,6 @@ async function emitConversionCrudUndoChange(opts: {
   });
 }
 
-async function resolveUnitDictionary(
-  em: EntityManager,
-  organizationId: string,
-  tenantId: string,
-) {
-  return em.findOne(
-    Dictionary,
-    {
-      organizationId,
-      tenantId,
-      key: { $in: ["unit", "units", "measurement_units"] },
-      deletedAt: null,
-      isActive: true,
-    },
-    { orderBy: { createdAt: "asc" } },
-  );
-}
-
-async function resolveCanonicalUnitCode(
-  em: EntityManager,
-  params: {
-    organizationId: string;
-    tenantId: string;
-    unitCode: string;
-  },
-): Promise<string> {
-  const dictionary = await resolveUnitDictionary(
-    em,
-    params.organizationId,
-    params.tenantId,
-  );
-  if (!dictionary) {
-    throw new CrudHttpError(400, { error: "uom.unit_not_found" });
-  }
-  const unitCode = canonicalizeUnitCode(params.unitCode);
-  if (!unitCode) {
-    throw new CrudHttpError(400, { error: "uom.unit_not_found" });
-  }
-  const normalized = unitCode.toLowerCase();
-  const entry = await em.findOne(DictionaryEntry, {
-    dictionary,
-    organizationId: dictionary.organizationId,
-    tenantId: dictionary.tenantId,
-    $or: [{ normalizedValue: normalized }, { value: unitCode }],
-  });
-  if (!entry) {
-    throw new CrudHttpError(400, { error: "uom.unit_not_found" });
-  }
-  const canonical = typeof entry.value === "string" ? entry.value.trim() : "";
-  return canonical.length ? canonical : unitCode;
-}
-
 async function loadConversionSnapshot(
   em: EntityManager,
   id: string,
@@ -188,7 +134,7 @@ async function loadConversionSnapshot(
     sortOrder: record.sortOrder,
     isActive: record.isActive,
     metadata: record.metadata
-      ? JSON.parse(JSON.stringify(record.metadata))
+      ? cloneJson(record.metadata)
       : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -208,7 +154,7 @@ function applyConversionSnapshot(
   record.sortOrder = snapshot.sortOrder;
   record.isActive = snapshot.isActive;
   record.metadata = snapshot.metadata
-    ? JSON.parse(JSON.stringify(snapshot.metadata))
+    ? cloneJson(snapshot.metadata)
     : null;
   record.createdAt = new Date(snapshot.createdAt);
   record.updatedAt = new Date(snapshot.updatedAt);
@@ -293,16 +239,23 @@ const createProductUnitConversionCommand: CommandHandler<
       unitCode: parsed.unitCode,
     });
 
+    const toBaseFactorStr = toNumericString(parsed.toBaseFactor);
+    if (!toBaseFactorStr) {
+      throw new CrudHttpError(400, {
+        error: "uom.conversion_factor_required",
+      });
+    }
+
     const conversion = em.create(CatalogProductUnitConversion, {
       product,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       unitCode: canonicalUnitCode,
-      toBaseFactor: toNumericString(parsed.toBaseFactor) ?? "1",
+      toBaseFactor: toBaseFactorStr,
       sortOrder: parsed.sortOrder ?? 0,
       isActive: parsed.isActive !== false,
       metadata: parsed.metadata
-        ? JSON.parse(JSON.stringify(parsed.metadata))
+        ? cloneJson(parsed.metadata)
         : null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -355,6 +308,7 @@ const createProductUnitConversionCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const record = await em.findOne(CatalogProductUnitConversion, {
       id: after.id,
+      deletedAt: null,
     });
     if (!record) return;
     ensureTenantScope(ctx, record.tenantId);
@@ -426,7 +380,7 @@ const updateProductUnitConversionCommand: CommandHandler<
     }
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata
-        ? JSON.parse(JSON.stringify(parsed.metadata))
+        ? cloneJson(parsed.metadata)
         : null;
     }
     try {
@@ -488,6 +442,7 @@ const updateProductUnitConversionCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let record = await em.findOne(CatalogProductUnitConversion, {
       id: before.id,
+      deletedAt: null,
     });
     if (!record) {
       record = em.create(CatalogProductUnitConversion, {
@@ -500,7 +455,7 @@ const updateProductUnitConversionCommand: CommandHandler<
         sortOrder: before.sortOrder,
         isActive: before.isActive,
         metadata: before.metadata
-          ? JSON.parse(JSON.stringify(before.metadata))
+          ? cloneJson(before.metadata)
           : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
@@ -593,6 +548,7 @@ const deleteProductUnitConversionCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let record = await em.findOne(CatalogProductUnitConversion, {
       id: before.id,
+      deletedAt: null,
     });
     if (!record) {
       record = em.create(CatalogProductUnitConversion, {
@@ -605,7 +561,7 @@ const deleteProductUnitConversionCommand: CommandHandler<
         sortOrder: before.sortOrder,
         isActive: before.isActive,
         metadata: before.metadata
-          ? JSON.parse(JSON.stringify(before.metadata))
+          ? cloneJson(before.metadata)
           : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),

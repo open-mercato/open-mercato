@@ -80,6 +80,15 @@ import {
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
+  UNIT_PRICE_REFERENCE_UNITS,
+  toTrimmedOrNull,
+  parseNumericInput,
+  toPositiveNumberOrNull,
+  toIntegerInRangeOrDefault,
+  normalizeProductConversionInputs,
+  type ProductUnitConversionInput,
+} from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
+import {
   AlignLeft,
   BookMarked,
   ExternalLink,
@@ -191,22 +200,6 @@ type OfferSnapshot = {
   channelCode: string | null;
 };
 
-type ProductUnitConversionInput = {
-  id: string | null;
-  unitCode: string;
-  toBaseFactor: number;
-  sortOrder: number;
-  isActive: boolean;
-};
-
-const UNIT_PRICE_REFERENCE_UNITS = new Set<ProductUnitPriceReferenceUnit>([
-  "kg",
-  "l",
-  "m2",
-  "m3",
-  "pc",
-]);
-
 function mapVariantPriceSummary(
   item: VariantPriceSummaryApi | undefined,
 ): VariantPriceSummary | null {
@@ -250,74 +243,6 @@ function normalizeVariantOptionValues(
     }
   });
   return Object.keys(result).length ? result : null;
-}
-
-function toTrimmedOrNull(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-
-function parseNumericInput(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().replace(/\s+/g, "").replace(",", ".");
-    if (!normalized.length) return Number.NaN;
-    return Number(normalized);
-  }
-  return Number(value);
-}
-
-function toPositiveNumberOrNull(value: unknown): number | null {
-  const numeric = parseNumericInput(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  return numeric;
-}
-
-function toIntegerInRangeOrDefault(
-  value: unknown,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
-  const numeric = parseNumericInput(value);
-  if (!Number.isInteger(numeric) || numeric < min || numeric > max)
-    return fallback;
-  return numeric;
-}
-
-function normalizeProductConversionInputs(
-  rows: ProductUnitConversionDraft[] | undefined,
-  duplicateMessage: string,
-): ProductUnitConversionInput[] {
-  const list = Array.isArray(rows) ? rows : [];
-  const normalized: ProductUnitConversionInput[] = [];
-  const seen = new Set<string>();
-  for (const row of list) {
-    const unitCode = canonicalizeUnitCode(row?.unitCode);
-    const toBaseFactor = toPositiveNumberOrNull(row?.toBaseFactor);
-    if (!unitCode || toBaseFactor === null) continue;
-    const unitKey = unitCode.toLowerCase();
-    if (seen.has(unitKey)) {
-      throw createCrudFormError(duplicateMessage, {
-        unitConversions: duplicateMessage,
-      });
-    }
-    seen.add(unitKey);
-    normalized.push({
-      id: toTrimmedOrNull(row?.id),
-      unitCode,
-      toBaseFactor,
-      sortOrder: toIntegerInRangeOrDefault(
-        row?.sortOrder,
-        0,
-        100000,
-        normalized.length * 10,
-      ),
-      isActive: row?.isActive !== false,
-    });
-  }
-  return normalized;
 }
 
 function readProductConversionRows(
@@ -631,51 +556,16 @@ export default function EditCatalogProductPage({
           typeof record.default_media_url === "string"
             ? record.default_media_url
             : ((record as any).defaultMediaUrl ?? "");
-        const unitPriceObject = isRecord((record as any).unit_price)
-          ? ((record as any).unit_price as Record<string, unknown>)
-          : null;
-        const defaultUnit = canonicalizeUnitCode(
-          (record as any).default_unit ?? (record as any).defaultUnit,
-        );
-        const defaultSalesUnit = canonicalizeUnitCode(
-          (record as any).default_sales_unit ??
-            (record as any).defaultSalesUnit,
-        );
-        const defaultSalesUnitQuantity = toPositiveNumberOrNull(
-          (record as any).default_sales_unit_quantity ??
-            (record as any).defaultSalesUnitQuantity,
-        );
-        const roundingScale = toIntegerInRangeOrDefault(
-          (record as any).uom_rounding_scale ??
-            (record as any).uomRoundingScale,
-          0,
-          6,
-          4,
-        );
-        const roundingModeRaw = toTrimmedOrNull(
-          (record as any).uom_rounding_mode ?? (record as any).uomRoundingMode,
-        );
-        const roundingMode: ProductUnitRoundingMode =
-          roundingModeRaw === "down" || roundingModeRaw === "up"
-            ? roundingModeRaw
-            : "half_up";
-        const unitPriceEnabled = Boolean(
-          unitPriceObject?.enabled ??
-          (record as any).unit_price_enabled ??
-          (record as any).unitPriceEnabled,
-        );
-        const unitPriceReferenceUnit = canonicalizeUnitCode(
-          unitPriceObject?.reference_unit ??
-            unitPriceObject?.referenceUnit ??
-            (record as any).unit_price_reference_unit ??
-            (record as any).unitPriceReferenceUnit,
-        );
-        const unitPriceBaseQuantity = toPositiveNumberOrNull(
-          unitPriceObject?.base_quantity ??
-            unitPriceObject?.baseQuantity ??
-            (record as any).unit_price_base_quantity ??
-            (record as any).unitPriceBaseQuantity,
-        );
+        const {
+          defaultUnit,
+          defaultSalesUnit,
+          defaultSalesUnitQuantity,
+          roundingScale,
+          roundingMode,
+          unitPriceEnabled,
+          unitPriceReferenceUnit,
+          unitPriceBaseQuantity,
+        } = extractUomFields(record);
         const initial: ProductFormValues = {
           title: typeof record.title === "string" ? record.title : "",
           subtitle: typeof record.subtitle === "string" ? record.subtitle : "",
@@ -2736,6 +2626,61 @@ function ensureString(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractUomFields(record: Record<string, unknown>) {
+  const unitPriceObject = isRecord(record.unit_price)
+    ? (record.unit_price as Record<string, unknown>)
+    : null;
+  const defaultUnit = canonicalizeUnitCode(
+    record.default_unit ?? record.defaultUnit,
+  );
+  const defaultSalesUnit = canonicalizeUnitCode(
+    record.default_sales_unit ?? record.defaultSalesUnit,
+  );
+  const defaultSalesUnitQuantity = toPositiveNumberOrNull(
+    record.default_sales_unit_quantity ?? record.defaultSalesUnitQuantity,
+  );
+  const roundingScale = toIntegerInRangeOrDefault(
+    record.uom_rounding_scale ?? record.uomRoundingScale,
+    0,
+    6,
+    4,
+  );
+  const roundingModeRaw = toTrimmedOrNull(
+    record.uom_rounding_mode ?? record.uomRoundingMode,
+  );
+  const roundingMode: ProductUnitRoundingMode =
+    roundingModeRaw === "down" || roundingModeRaw === "up"
+      ? roundingModeRaw
+      : "half_up";
+  const unitPriceEnabled = Boolean(
+    unitPriceObject?.enabled ??
+    record.unit_price_enabled ??
+    record.unitPriceEnabled,
+  );
+  const unitPriceReferenceUnit = canonicalizeUnitCode(
+    unitPriceObject?.reference_unit ??
+      unitPriceObject?.referenceUnit ??
+      record.unit_price_reference_unit ??
+      record.unitPriceReferenceUnit,
+  );
+  const unitPriceBaseQuantity = toPositiveNumberOrNull(
+    unitPriceObject?.base_quantity ??
+      unitPriceObject?.baseQuantity ??
+      record.unit_price_base_quantity ??
+      record.unitPriceBaseQuantity,
+  );
+  return {
+    defaultUnit,
+    defaultSalesUnit,
+    defaultSalesUnitQuantity,
+    roundingScale,
+    roundingMode,
+    unitPriceEnabled,
+    unitPriceReferenceUnit,
+    unitPriceBaseQuantity,
+  };
 }
 
 function buildMetadataPayload(

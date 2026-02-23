@@ -7,6 +7,7 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { Checkbox } from "@open-mercato/ui/primitives/checkbox";
 import { Input } from "@open-mercato/ui/primitives/input";
 import { Label } from "@open-mercato/ui/primitives/label";
+import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import type {
   ProductFormValues,
@@ -35,6 +36,14 @@ type ProductUomSectionProps = {
   setValue: (id: string, value: unknown) => void;
   embedded?: boolean;
 };
+
+const REFERENCE_UNIT_OPTIONS = [
+  { value: "kg", i18nKey: "catalog.products.unitPrice.options.kg", fallback: "1 kg" },
+  { value: "l", i18nKey: "catalog.products.unitPrice.options.l", fallback: "1 l" },
+  { value: "m2", i18nKey: "catalog.products.unitPrice.options.m2", fallback: "1 m\u00B2" },
+  { value: "m3", i18nKey: "catalog.products.unitPrice.options.m3", fallback: "1 m\u00B3" },
+  { value: "pc", i18nKey: "catalog.products.unitPrice.options.pc", fallback: "1 pc" },
+] as const;
 
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -123,6 +132,7 @@ export function ProductUomSection({
   const t = useT();
   const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
   const [loadingUnits, setLoadingUnits] = React.useState(false);
+  const [errorLoadingUnits, setErrorLoadingUnits] = React.useState(false);
   const conversions = React.useMemo(
     () => normalizeConversions(values.unitConversions),
     [values.unitConversions],
@@ -132,6 +142,7 @@ export function ProductUomSection({
     let cancelled = false;
     async function loadUnits() {
       setLoadingUnits(true);
+      setErrorLoadingUnits(false);
       try {
         const response = await apiCall<UnitDictionaryResponse>(
           "/api/catalog/dictionaries/unit",
@@ -141,7 +152,10 @@ export function ProductUomSection({
         if (cancelled) return;
         setUnitOptions(buildUnitOptions(response.result?.entries));
       } catch {
-        if (!cancelled) setUnitOptions([]);
+        if (!cancelled) {
+          setUnitOptions([]);
+          setErrorLoadingUnits(true);
+        }
       } finally {
         if (!cancelled) setLoadingUnits(false);
       }
@@ -285,10 +299,27 @@ export function ProductUomSection({
         </p>
       </div>
 
+      {loadingUnits ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Spinner className="h-3 w-3" />
+          {t("catalog.products.uom.loadingUnits", "Loading units...")}
+        </div>
+      ) : null}
+
+      {errorLoadingUnits ? (
+        <p className="text-xs text-destructive">
+          {t(
+            "catalog.products.uom.errors.loadUnits",
+            "Failed to load units. Please try refreshing the page.",
+          )}
+        </p>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label>{t("catalog.products.uom.baseUnit", "Base unit")}</Label>
+          <Label htmlFor="catalog-product-uom-base-unit">{t("catalog.products.uom.baseUnit", "Base unit")}</Label>
           <select
+            id="catalog-product-uom-base-unit"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             value={defaultUnit}
             onChange={(event) =>
@@ -311,10 +342,11 @@ export function ProductUomSection({
         </div>
 
         <div className="space-y-2">
-          <Label>
+          <Label htmlFor="catalog-product-uom-sales-unit">
             {t("catalog.products.uom.defaultSalesUnit", "Default sales unit")}
           </Label>
           <select
+            id="catalog-product-uom-sales-unit"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             value={defaultSalesUnit}
             onChange={(event) =>
@@ -394,6 +426,47 @@ export function ProductUomSection({
         </div>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="catalog-product-uom-rounding-mode">
+            {t("catalog.products.uom.roundingMode", "Rounding mode")}
+          </Label>
+          <select
+            id="catalog-product-uom-rounding-mode"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            value={values.uomRoundingMode ?? "half_up"}
+            onChange={(event) =>
+              setValue("uomRoundingMode", event.target.value)
+            }
+          >
+            <option value="half_up">
+              {t("catalog.products.uom.roundingModeHalfUp", "Half up (default)")}
+            </option>
+            <option value="down">
+              {t("catalog.products.uom.roundingModeDown", "Round down")}
+            </option>
+            <option value="up">
+              {t("catalog.products.uom.roundingModeUp", "Round up")}
+            </option>
+          </select>
+        </div>
+        <div className="space-y-2">
+          <Label>
+            {t("catalog.products.uom.roundingScale", "Rounding scale (decimal places)")}
+          </Label>
+          <Input
+            type="number"
+            min={0}
+            max={6}
+            value={values.uomRoundingScale ?? 4}
+            onChange={(event) => {
+              const parsed = Number.parseInt(event.target.value, 10);
+              setValue("uomRoundingScale", Number.isFinite(parsed) ? Math.max(0, Math.min(6, parsed)) : 4);
+            }}
+          />
+        </div>
+      </div>
+
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Checkbox
@@ -417,13 +490,14 @@ export function ProductUomSection({
         {unitPriceEnabled ? (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>
+              <Label htmlFor="catalog-product-uom-reference-unit">
                 {t(
                   "catalog.products.unitPrice.referenceUnit",
                   "Reference unit",
                 )}
               </Label>
               <select
+                id="catalog-product-uom-reference-unit"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 value={unitPriceReferenceUnit}
                 onChange={(event) =>
@@ -436,11 +510,11 @@ export function ProductUomSection({
                     "Select reference unit",
                   )}
                 </option>
-                <option value="kg">1 kg</option>
-                <option value="l">1 l</option>
-                <option value="m2">1 m²</option>
-                <option value="m3">1 m³</option>
-                <option value="pc">1 pc</option>
+                {REFERENCE_UNIT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.i18nKey, option.fallback)}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="space-y-2">

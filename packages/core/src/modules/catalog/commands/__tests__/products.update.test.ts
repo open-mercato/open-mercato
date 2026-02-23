@@ -81,6 +81,7 @@ describe('catalog.products.update', () => {
         events.push(`find:${name}`)
         return []
       }),
+      count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockImplementation((_entity: any, payload: any) => payload),
       remove: jest.fn(),
       persist: jest.fn(),
@@ -187,6 +188,7 @@ describe('catalog.products.update', () => {
     const em = {
       findOne: jest.fn().mockResolvedValue(record),
       find: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockImplementation((_entity: any, payload: any) => payload),
       remove: jest.fn(),
       persist: jest.fn(),

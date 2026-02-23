@@ -40,10 +40,6 @@ import {
   CatalogProductTag,
   CatalogProductTagAssignment,
 } from "../data/entities";
-import {
-  Dictionary,
-  DictionaryEntry,
-} from "@open-mercato/core/modules/dictionaries/data/entities";
 import { SalesTaxRate } from "@open-mercato/core/modules/sales/data/entities";
 import {
   productCreateSchema,
@@ -73,6 +69,9 @@ import {
   findOneWithDecryption,
 } from "@open-mercato/shared/lib/encryption/find";
 import { canonicalizeUnitCode } from "../lib/unitCodes";
+import {
+  resolveCanonicalUnitCode,
+} from "../lib/unitResolution";
 
 type ProductSnapshot = {
   id: string;
@@ -114,62 +113,6 @@ type ProductSnapshot = {
   custom: Record<string, unknown> | null;
 };
 
-function normalizeUnitCodeInput(value: unknown): string | null {
-  return canonicalizeUnitCode(value);
-}
-
-async function resolveUnitDictionary(
-  em: EntityManager,
-  organizationId: string,
-  tenantId: string,
-) {
-  return em.findOne(
-    Dictionary,
-    {
-      organizationId,
-      tenantId,
-      key: { $in: ["unit", "units", "measurement_units"] },
-      deletedAt: null,
-      isActive: true,
-    },
-    { orderBy: { createdAt: "asc" } },
-  );
-}
-
-async function resolveCanonicalUnitCode(
-  em: EntityManager,
-  params: {
-    organizationId: string;
-    tenantId: string;
-    unitCode: string;
-  },
-): Promise<string> {
-  const dictionary = await resolveUnitDictionary(
-    em,
-    params.organizationId,
-    params.tenantId,
-  );
-  if (!dictionary) {
-    throw new CrudHttpError(400, { error: "uom.unit_not_found" });
-  }
-  const unitCode = canonicalizeUnitCode(params.unitCode);
-  if (!unitCode) {
-    throw new CrudHttpError(400, { error: "uom.unit_not_found" });
-  }
-  const normalized = unitCode.toLowerCase();
-  const entry = await em.findOne(DictionaryEntry, {
-    dictionary,
-    organizationId: dictionary.organizationId,
-    tenantId: dictionary.tenantId,
-    $or: [{ normalizedValue: normalized }, { value: unitCode }],
-  });
-  if (!entry) {
-    throw new CrudHttpError(400, { error: "uom.unit_not_found" });
-  }
-  const canonical = typeof entry.value === "string" ? entry.value.trim() : "";
-  return canonical.length ? canonical : unitCode;
-}
-
 async function resolveProductUnitDefaults(
   em: EntityManager,
   params: {
@@ -179,8 +122,8 @@ async function resolveProductUnitDefaults(
     defaultSalesUnit: string | null | undefined;
   },
 ): Promise<{ defaultUnit: string | null; defaultSalesUnit: string | null }> {
-  const defaultUnitInput = normalizeUnitCodeInput(params.defaultUnit);
-  const defaultSalesUnitInput = normalizeUnitCodeInput(params.defaultSalesUnit);
+  const defaultUnitInput = canonicalizeUnitCode(params.defaultUnit);
+  const defaultSalesUnitInput = canonicalizeUnitCode(params.defaultSalesUnit);
   if (!defaultUnitInput && defaultSalesUnitInput) {
     throw new CrudHttpError(400, { error: "uom.default_unit_missing" });
   }
@@ -215,30 +158,25 @@ async function ensureBaseUnitCanBeRemoved(
   if (params.defaultSalesUnit) {
     throw new CrudHttpError(400, { error: "uom.default_unit_missing" });
   }
-  const where = {
+  const activeConversionCount = await em.count(CatalogProductUnitConversion, {
     product: params.productId,
     organizationId: params.organizationId,
     tenantId: params.tenantId,
     deletedAt: null,
     isActive: true,
-  };
-  const countFn = (
-    em as unknown as {
-      count?: (
-        entity: unknown,
-        where: Record<string, unknown>,
-      ) => Promise<number>;
-    }
-  ).count;
-  const activeConversionExists =
-    typeof countFn === "function"
-      ? (await countFn.call(em, CatalogProductUnitConversion, where)) > 0
-      : false;
-  if (activeConversionExists) {
+  });
+  if (activeConversionCount > 0) {
     throw new CrudHttpError(400, { error: "uom.default_unit_missing" });
   }
 }
 
+/**
+ * Resolves unit-price configuration from product input.
+ * Supports two input paths:
+ *   - Nested: `unitPrice.enabled`, `unitPrice.referenceUnit`, `unitPrice.baseQuantity` (preferred)
+ *   - Flat: `unitPriceEnabled`, `unitPriceReferenceUnit`, `unitPriceBaseQuantity` (legacy compat)
+ * Nested values take precedence when both are provided.
+ */
 function resolveUnitPriceInput(
   parsed: ProductCreateInput | ProductUpdateInput,
 ): {
@@ -507,11 +445,12 @@ function convertLegacyOptionSchema(
       if (!title) return null;
       const values = Array.isArray(source["values"])
         ? (source["values"] as unknown[])
-            .map((value: any) => {
+            .map((value: unknown) => {
               if (!value || typeof value !== "object") return null;
+              const v = value as Record<string, unknown>;
               const label =
-                typeof value.label === "string" && value.label.trim().length
-                  ? value.label.trim()
+                typeof v.label === "string" && (v.label as string).trim().length
+                  ? (v.label as string).trim()
                   : null;
               if (!label) return null;
               return { code: slugifyCode(label), label };

@@ -75,6 +75,15 @@ import {
 } from "@open-mercato/core/modules/attachments/lib/imageUrls";
 import { ProductUomSection } from "@open-mercato/core/modules/catalog/components/products/ProductUomSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
+import {
+  UNIT_PRICE_REFERENCE_UNITS,
+  toTrimmedOrNull,
+  parseNumericInput,
+  toPositiveNumberOrNull,
+  toIntegerInRangeOrDefault,
+  normalizeProductConversionInputs,
+  type ProductUnitConversionInput,
+} from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 
 const productFormTypedSchema =
   productFormSchema as unknown as ZodType<ProductFormValues>;
@@ -108,13 +117,6 @@ const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
 type ProductFormStep = (typeof PRODUCT_FORM_STEPS)[number];
 
 const TRUE_BOOLEAN_VALUES = new Set(["true", "1", "yes", "y", "t"]);
-
-type ProductUnitConversionInput = {
-  unitCode: string;
-  toBaseFactor: number;
-  sortOrder: number;
-  isActive: boolean;
-};
 
 const matchField = (fieldId: string) => (value: string) =>
   value === fieldId ||
@@ -158,81 +160,6 @@ const STEP_FIELD_MATCHERS: Record<
     matchPrefix("variants"),
   ],
 };
-
-const UNIT_PRICE_REFERENCE_UNITS = new Set<ProductUnitPriceReferenceUnit>([
-  "kg",
-  "l",
-  "m2",
-  "m3",
-  "pc",
-]);
-
-function toTrimmedOrNull(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-
-function parseNumericInput(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().replace(/\s+/g, "").replace(",", ".");
-    if (!normalized.length) return Number.NaN;
-    return Number(normalized);
-  }
-  return Number(value);
-}
-
-function toPositiveNumberOrNull(value: unknown): number | null {
-  const numeric = parseNumericInput(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  return numeric;
-}
-
-function toIntegerInRangeOrDefault(
-  value: unknown,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
-  const numeric = parseNumericInput(value);
-  if (!Number.isInteger(numeric) || numeric < min || numeric > max)
-    return fallback;
-  return numeric;
-}
-
-function normalizeProductConversionInputs(
-  rows: ProductUnitConversionDraft[] | undefined,
-  duplicateMessage: string,
-): ProductUnitConversionInput[] {
-  const list = Array.isArray(rows) ? rows : [];
-  const normalized: ProductUnitConversionInput[] = [];
-  const seen = new Set<string>();
-  for (const row of list) {
-    const unitCode = canonicalizeUnitCode(row?.unitCode);
-    const toBaseFactor = toPositiveNumberOrNull(row?.toBaseFactor);
-    if (!unitCode || toBaseFactor === null) continue;
-    const unitKey = unitCode.toLowerCase();
-    if (seen.has(unitKey)) {
-      throw createCrudFormError(duplicateMessage, {
-        unitConversions: duplicateMessage,
-      });
-    }
-    seen.add(unitKey);
-    normalized.push({
-      unitCode,
-      toBaseFactor,
-      sortOrder: toIntegerInRangeOrDefault(
-        row?.sortOrder,
-        0,
-        100000,
-        normalized.length * 10,
-      ),
-      isActive: row?.isActive !== false,
-    });
-  }
-  return normalized;
-}
 
 function resolveStepForField(fieldId: string): ProductFormStep | null {
   const normalized = fieldId?.trim();

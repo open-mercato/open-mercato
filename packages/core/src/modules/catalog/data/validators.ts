@@ -316,7 +316,7 @@ export const categoryUpdateSchema = z
 export const productUnitConversionCreateSchema = scoped.extend({
   productId: uuid(),
   unitCode: z.string().trim().min(1).max(50),
-  toBaseFactor: z.coerce.number().positive(),
+  toBaseFactor: z.coerce.number().positive().max(999999999999),
   sortOrder: z.coerce.number().int().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
