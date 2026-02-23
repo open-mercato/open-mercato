@@ -131,6 +131,7 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
             onClick={handleCancel}
             disabled={cancelling}
             className="flex-shrink-0"
+            aria-label={t('progress.actions.cancel', 'Cancel')}
           >
             <X className="h-4 w-4" />
           </Button>

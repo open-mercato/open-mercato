@@ -1,0 +1,20 @@
+{
+  "progress.title": "Postęp",
+  "progress.activeCount": "{count} operacji w toku",
+  "progress.recentlyCompleted": "{count} operacji zakończonych",
+  "progress.processed": "przetworzonych",
+  "progress.eta.seconds": "pozostało {count}s",
+  "progress.eta.minutes": "pozostało {count}m",
+  "progress.eta.hoursMinutes": "pozostało {hours}h {minutes}m",
+  "progress.status.pending": "Oczekuje",
+  "progress.status.running": "W toku",
+  "progress.status.completed": "Zakończone",
+  "progress.status.failed": "Niepowodzenie",
+  "progress.status.cancelled": "Anulowane",
+  "progress.actions.cancel": "Anuluj",
+  "progress.actions.retry": "Ponów",
+  "progress.actions.dismiss": "Odrzuć",
+  "progress.errors.notFound": "Nie znaleziono zadania",
+  "progress.errors.cannotCancel": "Tego zadania nie można anulować",
+  "progress.errors.alreadyFinished": "Zadanie zostało już zakończone"
+}

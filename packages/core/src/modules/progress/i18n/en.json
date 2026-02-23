@@ -13,6 +13,7 @@
   "progress.actions.cancel": "Cancel",
   "progress.actions.retry": "Retry",
   "progress.actions.dismiss": "Dismiss",
+  "progress.processed": "processed",
   "progress.errors.notFound": "Job not found",
   "progress.errors.cannotCancel": "This job cannot be cancelled",
   "progress.errors.alreadyFinished": "Job has already finished"

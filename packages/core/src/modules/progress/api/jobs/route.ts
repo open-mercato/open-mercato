@@ -4,8 +4,9 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { ProgressJob } from '../../data/entities'
-import { createProgressJobSchema } from '../../data/validators'
+import { createProgressJobSchema, listProgressJobsSchema } from '../../data/validators'
 import {
   createProgressCrudOpenApi,
   createPagedListResponseSchema,
@@ -18,18 +19,7 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-const listQuerySchema = z.object({
-  status: z.string().optional(),
-  jobType: z.string().optional(),
-  parentJobId: z.string().uuid().optional(),
-  includeCompleted: z.enum(['true', 'false']).optional(),
-  completedSince: z.string().optional(),
-  page: z.coerce.number().min(1).default(1),
-  pageSize: z.coerce.number().min(1).max(100).default(20),
-  search: z.string().optional(),
-  sortField: z.enum(['createdAt', 'startedAt', 'finishedAt']).optional(),
-  sortDir: z.enum(['asc', 'desc']).optional(),
-}).loose()
+const listQuerySchema = listProgressJobsSchema
 
 type JobRow = {
   id: string
@@ -116,9 +106,10 @@ export async function GET(req: Request) {
   if (completedSince) filter.finishedAt = { $gte: new Date(completedSince) }
 
   if (search) {
+    const escaped = escapeLikePattern(search)
     filter.$or = [
-      { name: { $ilike: `%${search}%` } },
-      { jobType: { $ilike: `%${search}%` } },
+      { name: { $ilike: `%${escaped}%` } },
+      { jobType: { $ilike: `%${escaped}%` } },
     ]
   }
 
@@ -135,10 +126,12 @@ export async function GET(req: Request) {
     orderBy.createdAt = 'DESC'
   }
 
-  const [all, total] = await em.findAndCount(ProgressJob, filter, { orderBy })
-  const start = (page - 1) * pageSize
-  const paged = all.slice(start, start + pageSize)
-  const items = paged.map(toRow)
+  const [rows, total] = await em.findAndCount(ProgressJob, filter, {
+    orderBy,
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+  })
+  const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return NextResponse.json({ items, total, page, pageSize, totalPages })

@@ -12,13 +12,14 @@ export interface ProgressService {
   startJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob>
   updateProgress(jobId: string, input: UpdateProgressInput, ctx: ProgressServiceContext): Promise<ProgressJob>
   incrementProgress(jobId: string, delta: number, ctx: ProgressServiceContext): Promise<ProgressJob>
-  completeJob(jobId: string, input?: CompleteJobInput, ctx?: ProgressServiceContext): Promise<ProgressJob>
-  failJob(jobId: string, input: FailJobInput, ctx?: ProgressServiceContext): Promise<ProgressJob>
+  completeJob(jobId: string, input: CompleteJobInput | undefined, ctx: ProgressServiceContext): Promise<ProgressJob>
+  failJob(jobId: string, input: FailJobInput, ctx: ProgressServiceContext): Promise<ProgressJob>
   cancelJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob>
   isCancellationRequested(jobId: string): Promise<boolean>
   getActiveJobs(ctx: ProgressServiceContext): Promise<ProgressJob[]>
+  getRecentlyCompletedJobs(ctx: ProgressServiceContext, sinceSeconds?: number): Promise<ProgressJob[]>
   getJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob | null>
-  markStaleJobsFailed(timeoutSeconds: number): Promise<number>
+  markStaleJobsFailed(tenantId: string, timeoutSeconds?: number): Promise<number>
 }
 
 export const HEARTBEAT_INTERVAL_MS = 5000

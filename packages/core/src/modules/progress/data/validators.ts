@@ -32,17 +32,17 @@ export const failJobSchema = z.object({
 })
 
 export const listProgressJobsSchema = z.object({
-  status: z.union([progressJobStatusSchema, z.array(progressJobStatusSchema)]).optional(),
+  status: z.string().optional(),
   jobType: z.string().optional(),
   parentJobId: z.string().uuid().optional(),
   includeCompleted: z.enum(['true', 'false']).optional(),
-  completedSince: z.string().datetime().optional(),
-  page: z.coerce.number().int().min(1).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  completedSince: z.string().optional(),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(20),
   search: z.string().optional(),
   sortField: z.enum(['createdAt', 'startedAt', 'finishedAt']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-}).loose()
+})
 
 export type CreateProgressJobInput = z.infer<typeof createProgressJobSchema>
 export type UpdateProgressInput = z.infer<typeof updateProgressSchema>

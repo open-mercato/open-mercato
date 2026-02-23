@@ -121,8 +121,8 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return job
     },
 
-    async completeJob(jobId, input) {
-      const job = await em.findOne(ProgressJob, { id: jobId })
+    async completeJob(jobId, input, ctx) {
+      const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
       if (!job) throw new Error(`Job ${jobId} not found`)
 
       job.status = 'completed'
@@ -139,14 +139,14 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         jobId: job.id,
         jobType: job.jobType,
         resultSummary: job.resultSummary,
-        tenantId: job.tenantId,
+        tenantId: ctx.tenantId,
       })
 
       return job
     },
 
-    async failJob(jobId, input) {
-      const job = await em.findOne(ProgressJob, { id: jobId })
+    async failJob(jobId, input, ctx) {
+      const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
       if (!job) throw new Error(`Job ${jobId} not found`)
 
       job.status = 'failed'
@@ -160,7 +160,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         jobId: job.id,
         jobType: job.jobType,
         errorMessage: job.errorMessage,
-        tenantId: job.tenantId,
+        tenantId: ctx.tenantId,
       })
 
       return job
@@ -201,11 +201,26 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     async getActiveJobs(ctx) {
       return em.find(ProgressJob, {
         tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId ?? null,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
         status: { $in: ['pending', 'running'] },
         parentJobId: null,
       }, {
         orderBy: { createdAt: 'DESC' },
+        limit: 50,
+      })
+    },
+
+    async getRecentlyCompletedJobs(ctx, sinceSeconds = 30) {
+      const cutoff = new Date(Date.now() - sinceSeconds * 1000)
+      return em.find(ProgressJob, {
+        tenantId: ctx.tenantId,
+        ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
+        status: { $in: ['completed', 'failed'] },
+        finishedAt: { $gte: cutoff },
+        parentJobId: null,
+      }, {
+        orderBy: { finishedAt: 'DESC' },
+        limit: 10,
       })
     },
 
@@ -216,10 +231,11 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       })
     },
 
-    async markStaleJobsFailed(timeoutSeconds = STALE_JOB_TIMEOUT_SECONDS) {
+    async markStaleJobsFailed(tenantId: string, timeoutSeconds = STALE_JOB_TIMEOUT_SECONDS) {
       const cutoff = new Date(Date.now() - timeoutSeconds * 1000)
 
       const staleJobs = await em.find(ProgressJob, {
+        tenantId,
         status: 'running',
         heartbeatAt: { $lt: cutoff },
       })
