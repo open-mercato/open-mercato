@@ -5,12 +5,13 @@ import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import type { EntityManager } from "@mikro-orm/postgresql";
+import { findOneWithDecryption, findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import {
   SalesQuote,
   SalesQuoteLine,
   SalesQuoteAdjustment,
 } from "../../../../data/entities";
-import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
+import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
@@ -25,7 +26,7 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
     const { token } = paramsSchema.parse(ctx.params ?? {});
     const container = await createRequestContainer();
     const em = container.resolve("em") as EntityManager;
-    const quote = await em.findOne(SalesQuote, {
+    const quote = await findOneWithDecryption(em, SalesQuote, {
       acceptanceToken: token,
       deletedAt: null,
     });
@@ -41,14 +42,16 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
       !!quote.validUntil && quote.validUntil.getTime() < now.getTime();
 
     const [lines, adjustments] = await Promise.all([
-      em.find(
+      findWithDecryption(
+        em,
         SalesQuoteLine,
-        { quote: quote.id, deletedAt: null },
+        { quote: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId, deletedAt: null },
         { orderBy: { lineNumber: "asc" } },
       ),
-      em.find(
+      findWithDecryption(
+        em,
         SalesQuoteAdjustment,
-        { quote: quote.id },
+        { quote: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId },
         { orderBy: { position: "asc" } },
       ),
     ]);
