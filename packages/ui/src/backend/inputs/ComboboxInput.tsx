@@ -260,7 +260,7 @@ export function ComboboxInput({
               >
                 <span className="font-medium">{option.label}</span>
                 {option.description ? (
-                  <span className="text-xs text-muted-foreground mt-0">{option.description}</span>
+                  <span className="text-xs text-muted-foreground">{option.description}</span>
                 ) : null}
               </Button>
             ))

@@ -13,15 +13,6 @@ export interface EventPatternInputProps {
   modules?: string[]
 }
 
-/**
- * EventPatternInput — a combobox that suggests known declared events by their
- * human-readable label while still allowing custom wildcard patterns.
- *
- * Combines the autocomplete UX of ComboboxInput with the event catalogue
- * from useAvailableEvents. Selecting a suggestion stores the event ID
- * (e.g. "sales.orders.created"). Typing a custom pattern (e.g. "sales.*")
- * is also allowed.
- */
 export function EventPatternInput({
   value,
   onChange,

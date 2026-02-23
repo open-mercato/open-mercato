@@ -395,7 +395,7 @@ export function DefinitionTriggersEditor({
               <EventPatternInput
                 value={formValues.eventPattern}
                 onChange={eventPattern => setFormValues(prev => ({ ...prev, eventPattern }))}
-                placeholder="sales.orders.created"
+                placeholder={t('workflows.triggers.placeholders.eventPattern')}
               />
               <p className="text-xs text-muted-foreground">
                 {t('workflows.triggers.hints.eventPattern', 'Use * as wildcard: "sales.orders.*" matches any order event')}
