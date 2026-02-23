@@ -33,7 +33,7 @@ export class OpenMercatoApi implements ICredentialType {
     type: 'generic',
     properties: {
       headers: {
-        Authorization: '=Bearer {{$credentials.apiKey}}',
+        Authorization: '=ApiKey {{$credentials.apiKey}}',
         Accept: 'application/json'
       }
     }
