@@ -96,15 +96,19 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         taxAmount: line.taxAmount,
         totalNetAmount: line.totalNetAmount,
         totalGrossAmount: line.totalGrossAmount,
-        unitPriceReference:
-          line.uomSnapshot &&
-          typeof line.uomSnapshot === "object" &&
-          (line.uomSnapshot as Record<string, unknown>).unitPriceReference &&
-          typeof (line.uomSnapshot as Record<string, unknown>)
-            .unitPriceReference === "object"
-            ? ((line.uomSnapshot as Record<string, unknown>)
-                .unitPriceReference as Record<string, unknown>)
-            : null,
+        unitPriceReference: (() => {
+          if (!line.uomSnapshot || typeof line.uomSnapshot !== "object") return null;
+          const ref = (line.uomSnapshot as Record<string, unknown>).unitPriceReference;
+          if (!ref || typeof ref !== "object") return null;
+          const r = ref as Record<string, unknown>;
+          return {
+            enabled: r.enabled ?? null,
+            referenceUnitCode: r.referenceUnitCode ?? null,
+            baseQuantity: r.baseQuantity ?? null,
+            grossPerReference: r.grossPerReference ?? null,
+            netPerReference: r.netPerReference ?? null,
+          };
+        })(),
       })),
       adjustments: adjustments.map((adj) => ({
         scope: adj.scope,

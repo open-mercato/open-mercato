@@ -16,6 +16,7 @@ import {
   defaultOkResponseSchema,
 } from "../openapi";
 import { canonicalizeUnitCode } from "../../lib/unitCodes";
+import { E } from "#generated/entities.ids.generated";
 
 const rawBodySchema = z.object({}).passthrough();
 
@@ -51,11 +52,11 @@ const crud = makeCrudRoute({
     softDeleteField: "deletedAt",
   },
   indexer: {
-    entityType: "catalog:catalog_product_unit_conversion",
+    entityType: E.catalog.catalog_product_unit_conversion,
   },
   list: {
     schema: listSchema,
-    entityId: "catalog:catalog_product_unit_conversion",
+    entityId: E.catalog.catalog_product_unit_conversion,
     fields: [
       "id",
       "product_id",
