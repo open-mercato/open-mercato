@@ -39,7 +39,7 @@ import {
   normalizeCustomFieldSubmitValue,
   extractCustomFieldValues,
 } from "./customFieldHelpers";
-import { canonicalizeUnitCode } from "../../../catalog/lib/unitCodes";
+import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 
 type ProductOption = {
   id: string;
@@ -196,6 +196,42 @@ function buildPlaceholder(label?: string | null) {
 
 function normalizeUnitCode(value: unknown): string | null {
   return canonicalizeUnitCode(value);
+}
+
+function getRecordBoolean(
+  record: Record<string, unknown>,
+  fallback: boolean,
+  ...keys: string[]
+): boolean {
+  for (const key of keys) {
+    const val = record[key];
+    if (typeof val === "boolean") return val;
+  }
+  return fallback;
+}
+
+function getUomProductFields(item: Record<string, unknown>) {
+  return {
+    defaultUnit: normalizeUnitCode(item.default_unit ?? item.defaultUnit),
+    defaultSalesUnit: normalizeUnitCode(
+      item.default_sales_unit ?? item.defaultSalesUnit,
+    ),
+    defaultSalesUnitQuantity: normalizeNumber(
+      item.default_sales_unit_quantity ?? item.defaultSalesUnitQuantity,
+      Number.NaN,
+    ),
+  };
+}
+
+function getUomConversionFields(row: Record<string, unknown>) {
+  return {
+    unitCode: normalizeUnitCode(row.unit_code ?? row.unitCode),
+    isActive: getRecordBoolean(row, true, "is_active", "isActive"),
+    toBaseFactor: normalizeNumber(
+      row.to_base_factor ?? row.toBaseFactor,
+      Number.NaN,
+    ),
+  };
 }
 
 function normalizeQuantityPreview(value: number): number {
@@ -462,17 +498,10 @@ export function LineItemDialog({
               (item as any).taxRate,
             Number.NaN,
           );
-          const defaultUnit = normalizeUnitCode(
-            (item as any).default_unit ?? (item as any).defaultUnit,
-          );
-          const defaultSalesUnit = normalizeUnitCode(
-            (item as any).default_sales_unit ?? (item as any).defaultSalesUnit,
-          );
-          const defaultSalesUnitQuantity = normalizeNumber(
-            (item as any).default_sales_unit_quantity ??
-              (item as any).defaultSalesUnitQuantity,
-            Number.NaN,
-          );
+          const uomFields = getUomProductFields(item);
+          const defaultUnit = uomFields.defaultUnit;
+          const defaultSalesUnit = uomFields.defaultSalesUnit;
+          const defaultSalesUnitQuantity = uomFields.defaultSalesUnitQuantity;
           const matches =
             !needle ||
             title.toLowerCase().includes(needle) ||
@@ -628,21 +657,13 @@ export function LineItemDialog({
             ? response.result.items
             : [];
           const matched =
-            records.find((entry) => (entry as any).id === productId) ??
+            records.find((entry) => entry.id === productId) ??
             records[0] ??
             null;
           if (matched) {
-            baseUnit =
-              baseUnit ??
-              normalizeUnitCode(
-                (matched as any).default_unit ?? (matched as any).defaultUnit,
-              );
-            defaultSalesUnit =
-              defaultSalesUnit ??
-              normalizeUnitCode(
-                (matched as any).default_sales_unit ??
-                  (matched as any).defaultSalesUnit,
-              );
+            const matchedUom = getUomProductFields(matched);
+            baseUnit = baseUnit ?? matchedUom.defaultUnit;
+            defaultSalesUnit = defaultSalesUnit ?? matchedUom.defaultSalesUnit;
           }
         } catch (err) {
           console.error("sales.document.items.loadProductUnits.hydration", err);
@@ -663,25 +684,16 @@ export function LineItemDialog({
           ? response.result.items
           : [];
         for (const row of rows) {
-          const unitCode = normalizeUnitCode(
-            (row as any).unit_code ?? (row as any).unitCode,
-          );
-          if (!unitCode) continue;
-          const isActive =
-            typeof (row as any).is_active === "boolean"
-              ? (row as any).is_active
-              : typeof (row as any).isActive === "boolean"
-                ? (row as any).isActive
-                : true;
-          if (!isActive) continue;
-          const factor = normalizeNumber(
-            (row as any).to_base_factor ?? (row as any).toBaseFactor,
-            Number.NaN,
-          );
-          map.set(unitCode, {
-            code: unitCode,
-            toBaseFactor: Number.isFinite(factor) && factor > 0 ? factor : null,
-            isBase: baseUnit ? unitCode === baseUnit : false,
+          const conv = getUomConversionFields(row);
+          if (!conv.unitCode) continue;
+          if (!conv.isActive) continue;
+          map.set(conv.unitCode, {
+            code: conv.unitCode,
+            toBaseFactor:
+              Number.isFinite(conv.toBaseFactor) && conv.toBaseFactor > 0
+                ? conv.toBaseFactor
+                : null,
+            isBase: baseUnit ? conv.unitCode === baseUnit : false,
           });
         }
       } catch (err) {

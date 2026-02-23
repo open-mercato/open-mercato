@@ -111,7 +111,9 @@ import { notificationTypes } from "../notifications";
 import {
   canonicalizeUnitCode,
   toUnitLookupKey,
-} from "../../catalog/lib/unitCodes";
+} from "@open-mercato/shared/lib/units/unitCodes";
+import type { AuthContext } from "@open-mercato/shared/lib/auth/server";
+import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/translate";
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -715,7 +717,7 @@ function normalizeStatusValue(raw: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-function resolveNoteAuthorFromAuth(auth: any): string | null {
+function resolveNoteAuthorFromAuth(auth: AuthContext | null): string | null {
   if (!auth || auth.isApiKey) return null;
   const sub = typeof auth.sub === "string" ? auth.sub.trim() : "";
   const uuidRegex =
@@ -723,7 +725,7 @@ function resolveNoteAuthorFromAuth(auth: any): string | null {
   return uuidRegex.test(sub) ? sub : null;
 }
 
-function resolveStatusChangeActor(auth: any, translate: any): string {
+function resolveStatusChangeActor(auth: AuthContext | null, translate: TranslateWithFallbackFn): string {
   const unknownLabel = translate(
     "sales.orders.status_change.actor_unknown",
     "unknown user",
@@ -749,7 +751,7 @@ function resolveStatusChangeActor(auth: any, translate: any): string {
   return unknownLabel;
 }
 
-function formatStatusLabel(status: string | null, translate: any): string {
+function formatStatusLabel(status: string | null, translate: TranslateWithFallbackFn): string {
   if (status && status.trim().length) return status.trim();
   return translate("sales.orders.status_change.empty", "unset");
 }
@@ -763,7 +765,7 @@ async function appendOrderStatusChangeNote({
   em: EntityManager;
   order: SalesOrder;
   previousStatus: string | null;
-  auth: any;
+  auth: AuthContext | null;
 }): Promise<SalesNote | null> {
   const nextStatus = normalizeStatusValue(order.status);
   if (previousStatus === nextStatus) return null;
@@ -2550,7 +2552,7 @@ function createLineSnapshotFromInput(
 ): SalesLineSnapshot {
   const quantity = Number(line.quantity ?? 0);
   const normalizedQuantity = toNumeric(
-    (line as any).normalizedQuantity ?? quantity,
+    line.normalizedQuantity ?? quantity,
   );
   return {
     lineNumber,
@@ -2564,12 +2566,12 @@ function createLineSnapshotFromInput(
     quantityUnit: line.quantityUnit ?? null,
     normalizedQuantity,
     normalizedUnit:
-      typeof (line as any).normalizedUnit === "string"
-        ? ((line as any).normalizedUnit as string)
+      typeof line.normalizedUnit === "string"
+        ? line.normalizedUnit
         : (line.quantityUnit ?? null),
     uomSnapshot:
-      (line as any).uomSnapshot && typeof (line as any).uomSnapshot === "object"
-        ? cloneJson((line as any).uomSnapshot as Record<string, unknown>)
+      line.uomSnapshot && typeof line.uomSnapshot === "object"
+        ? cloneJson(line.uomSnapshot as Record<string, unknown>)
         : null,
     currencyCode: line.currencyCode,
     unitPriceNet: line.unitPriceNet ?? null,
@@ -6134,9 +6136,9 @@ const orderLineUpsertCommand: CommandHandler<
         parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
       quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
       quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-      normalizedQuantity: (existingSnapshot as any)?.normalizedQuantity ?? null,
-      normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
-      uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
+      normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
+      normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
+      uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
     };
     const uomResolver = createUomResolver();
     let normalizedUom = await normalizeLineUom({
@@ -6604,9 +6606,9 @@ const quoteLineUpsertCommand: CommandHandler<
         parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
       quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
       quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-      normalizedQuantity: (existingSnapshot as any)?.normalizedQuantity ?? null,
-      normalizedUnit: (existingSnapshot as any)?.normalizedUnit ?? null,
-      uomSnapshot: (existingSnapshot as any)?.uomSnapshot ?? null,
+      normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
+      normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
+      uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
     };
     const uomResolver = createUomResolver();
     let normalizedUom = await normalizeLineUom({

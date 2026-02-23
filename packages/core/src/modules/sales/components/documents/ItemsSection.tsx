@@ -23,7 +23,25 @@ import type { SalesLineRecord } from "./lineItemTypes";
 import { formatMoney, normalizeNumber } from "./lineItemUtils";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
-import { canonicalizeUnitCode } from "../../../catalog/lib/unitCodes";
+import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+
+function getUomFields(item: Record<string, unknown>) {
+  const rawUomSnapshot =
+    typeof item.uom_snapshot === "object" && item.uom_snapshot
+      ? (item.uom_snapshot as Record<string, unknown>)
+      : typeof item.uomSnapshot === "object" && item.uomSnapshot
+        ? (item.uomSnapshot as Record<string, unknown>)
+        : null;
+  return {
+    normalizedQuantity: (item.normalized_quantity ?? item.normalizedQuantity ?? null) as
+      | number
+      | string
+      | null,
+    normalizedUnit: (item.normalized_unit ?? item.normalizedUnit ?? null) as string | null,
+    quantityUnit: (item.quantity_unit ?? item.quantityUnit ?? null) as string | null,
+    uomSnapshot: rawUomSnapshot,
+  };
+}
 
 type SalesDocumentItemsSectionProps = {
   documentId: string;
@@ -120,26 +138,15 @@ export function SalesDocumentItemsSection({
                   ? (item.catalog_snapshot as any).name
                   : null;
             const quantity = normalizeNumber(item.quantity, 0);
-            const quantityUnit = canonicalizeUnitCode(
-              (item as any).quantity_unit ?? (item as any).quantityUnit,
-            );
+            const uomFields = getUomFields(item);
+            const quantityUnit = canonicalizeUnitCode(uomFields.quantityUnit);
             const normalizedQuantity = normalizeNumber(
-              (item as any).normalized_quantity ??
-                (item as any).normalizedQuantity,
+              uomFields.normalizedQuantity,
               quantity,
             );
             const normalizedUnit =
-              canonicalizeUnitCode(
-                (item as any).normalized_unit ?? (item as any).normalizedUnit,
-              ) ?? quantityUnit;
-            const uomSnapshot =
-              typeof (item as any).uom_snapshot === "object" &&
-              (item as any).uom_snapshot
-                ? ((item as any).uom_snapshot as Record<string, unknown>)
-                : typeof (item as any).uomSnapshot === "object" &&
-                    (item as any).uomSnapshot
-                  ? ((item as any).uomSnapshot as Record<string, unknown>)
-                  : null;
+              canonicalizeUnitCode(uomFields.normalizedUnit) ?? quantityUnit;
+            const uomSnapshot = uomFields.uomSnapshot;
             const unitPriceNetRaw = normalizeNumber(
               (item as any).unit_price_net ?? (item as any).unitPriceNet,
               Number.NaN,

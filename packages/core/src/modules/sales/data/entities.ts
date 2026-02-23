@@ -11,6 +11,7 @@ import {
 } from '@mikro-orm/core'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib/documentNumberTokens'
 import type { ShipmentItemSnapshot } from '../lib/shipments/types'
+import type { SalesLineUomSnapshot } from '../lib/types'
 
 export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
@@ -616,7 +617,7 @@ export class SalesOrderLine {
   normalizedUnit?: string | null
 
   @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
-  uomSnapshot?: Record<string, unknown> | null
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'reserved_quantity', type: 'numeric', precision: 18, scale: 4, default: '0' })
   reservedQuantity: string = '0'
@@ -1065,7 +1066,7 @@ export class SalesQuoteLine {
   normalizedUnit?: string | null
 
   @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
-  uomSnapshot?: Record<string, unknown> | null
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -1413,7 +1414,7 @@ export class SalesInvoiceLine {
   normalizedUnit?: string | null
 
   @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
-  uomSnapshot?: Record<string, unknown> | null
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -1562,7 +1563,7 @@ export class SalesCreditMemoLine {
   normalizedUnit?: string | null
 
   @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
-  uomSnapshot?: Record<string, unknown> | null
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string

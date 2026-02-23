@@ -16,7 +16,7 @@ import {
 import { withScopedPayload } from "../utils";
 import { E } from "#generated/entities.ids.generated";
 import * as F from "#generated/entities/sales_order_line";
-import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
+import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 
 const rawBodySchema = z.object({}).passthrough();
 const resolveRawBody = (raw: unknown): Record<string, unknown> => {
@@ -139,12 +139,11 @@ const crud = makeCrudRoute({
         if (key.startsWith("cf:")) delete normalized[key];
       }
       const quantityUnit = canonicalizeUnitCode(
-        (normalized as any).quantity_unit ?? (normalized as any).quantityUnit,
+        normalized["quantity_unit"] ?? normalized["quantityUnit"],
       );
       const normalizedUnit =
         canonicalizeUnitCode(
-          (normalized as any).normalized_unit ??
-            (normalized as any).normalizedUnit,
+          normalized["normalized_unit"] ?? normalized["normalizedUnit"],
         ) ?? quantityUnit;
       return {
         ...normalized,
