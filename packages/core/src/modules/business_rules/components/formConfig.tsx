@@ -187,31 +187,34 @@ export function createFormGroups(
 ): CrudFormGroup[] {
   // Wrapper to adapt CrudForm props to ConditionBuilder props
   const ConditionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
+    const banner = renderSuggestionBanner?.('conditionExpression', props.value, props.setValue)
     return (
-      <>
-        {renderSuggestionBanner?.('conditionExpression', props.value, props.setValue)}
+      <div className={banner ? 'ai-suggestion-pending' : undefined}>
+        {banner}
         <ConditionBuilderComponent value={props.value} onChangeAction={props.setValue} error={props.error} showJsonPreview />
-      </>
+      </div>
     )
   }
 
   // Wrapper to adapt CrudForm props to ActionBuilder props — success
   const SuccessActionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
+    const banner = renderSuggestionBanner?.('successActions', props.value, props.setValue)
     return (
-      <>
-        {renderSuggestionBanner?.('successActions', props.value, props.setValue)}
+      <div className={banner ? 'ai-suggestion-pending' : undefined}>
+        {banner}
         <ActionBuilderComponent value={props.value} onChange={props.setValue} error={props.error} showJsonPreview />
-      </>
+      </div>
     )
   }
 
   // Wrapper to adapt CrudForm props to ActionBuilder props — failure
   const FailureActionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
+    const banner = renderSuggestionBanner?.('failureActions', props.value, props.setValue)
     return (
-      <>
-        {renderSuggestionBanner?.('failureActions', props.value, props.setValue)}
+      <div className={banner ? 'ai-suggestion-pending' : undefined}>
+        {banner}
         <ActionBuilderComponent value={props.value} onChange={props.setValue} error={props.error} showJsonPreview />
-      </>
+      </div>
     )
   }
   return [

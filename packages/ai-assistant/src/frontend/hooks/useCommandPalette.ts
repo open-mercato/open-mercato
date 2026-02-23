@@ -498,6 +498,13 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
     // Don't reset initialContext - it stays valid for the session
   }, [updateOpencodeSessionId, updateMcpSessionToken])
 
+  // Notify form bridge when the AI chat opens/closes
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('om:ai-chat-state', { detail: { isOpen: state.isOpen } })
+    )
+  }, [state.isOpen])
+
   // Reset to idle state (without closing)
   const reset = useCallback(() => {
     setState((prev) => ({

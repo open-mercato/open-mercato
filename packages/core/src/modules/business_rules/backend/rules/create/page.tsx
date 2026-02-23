@@ -8,6 +8,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useAiFormBridge, AiSuggestionBanner } from '@open-mercato/ai-assistant/frontend'
+import { Sparkles } from 'lucide-react'
 import {
   businessRuleFormSchema,
   createFormGroups,
@@ -108,6 +109,12 @@ export default function CreateBusinessRulePage() {
   return (
     <Page>
       <PageBody>
+        {bridge.isAiConnected && (
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Sparkles className="h-3 w-3 text-sky-500" />
+            <span>{t('ai_assistant.form_bridge.ai_connected')}</span>
+          </div>
+        )}
         <CrudForm
           title={t('business_rules.rules.create.title')}
           backHref="/backend/rules"

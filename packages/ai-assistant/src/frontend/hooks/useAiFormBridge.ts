@@ -62,6 +62,7 @@ export function useAiFormBridge(options: AiFormBridgeOptions) {
 
   const [pendingSuggestion, setPendingSuggestion] = useState<PendingSuggestion | null>(null)
   const [generatingSections, setGeneratingSections] = useState<Set<string>>(new Set())
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false)
 
   // Register form state globally (immediate, no timing issues) and via event (for listeners)
   useEffect(() => {
@@ -112,6 +113,18 @@ export function useAiFormBridge(options: AiFormBridgeOptions) {
     window.addEventListener('om:ai-form-suggestion', handleSuggestion as EventListener)
     return () => {
       window.removeEventListener('om:ai-form-suggestion', handleSuggestion as EventListener)
+    }
+  }, [])
+
+  // Listen for AI chat open/close state from useCommandPalette
+  useEffect(() => {
+    const handleChatState = (event: CustomEvent<{ isOpen: boolean }>) => {
+      setIsAiChatOpen(event.detail.isOpen)
+    }
+
+    window.addEventListener('om:ai-chat-state', handleChatState as EventListener)
+    return () => {
+      window.removeEventListener('om:ai-chat-state', handleChatState as EventListener)
     }
   }, [])
 
@@ -202,6 +215,7 @@ export function useAiFormBridge(options: AiFormBridgeOptions) {
 
   return {
     pendingSuggestion,
+    isAiConnected: isAiChatOpen,
     getSuggestionSection,
     isSectionStale,
     isSectionGenerating,

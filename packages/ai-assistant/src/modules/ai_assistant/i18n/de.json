@@ -54,5 +54,6 @@
   "ai_assistant.form_bridge.reject_shortcut": "Escape zum Ablehnen",
   "ai_assistant.form_bridge.section_conditions": "Bedingungen",
   "ai_assistant.form_bridge.section_success_actions": "Erfolgsaktionen",
-  "ai_assistant.form_bridge.section_failure_actions": "Fehleraktionen"
+  "ai_assistant.form_bridge.section_failure_actions": "Fehleraktionen",
+  "ai_assistant.form_bridge.ai_connected": "KI-verbunden"
 }

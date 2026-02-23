@@ -355,6 +355,11 @@ No new environment variables or feature flags. The feature is gated by existing 
 
 ## Changelog
 
+### 2026-02-23 (cosmetic polish)
+- Added `ai-suggestion-pending` CSS class on ConditionBuilder/ActionBuilder wrapper divs when a suggestion is pending
+- Added "AI-connected" indicator: `useCommandPalette` dispatches `om:ai-chat-state` event on open/close; `useAiFormBridge` listens and exposes `isAiConnected` boolean; create/edit pages render a subtle Sparkles badge above the form when the AI chat is open
+- Added `ai_assistant.form_bridge.ai_connected` i18n key in all 4 locales (en, pl, de, es)
+
 ### 2026-02-12 (phase 4 implementation)
 - Added concurrent suggestion handling: `AiSuggestionBanner` clears undo state and diff view when a new suggestion replaces the current one
 - Added loading state: `useAiFormBridge` tracks `generatingSections` via `om:ai-form-generating` CustomEvent; `useCommandPalette` dispatches generating events on `tool-call` for `business_rules_suggest_*` tools, clears on `done`/`error`
