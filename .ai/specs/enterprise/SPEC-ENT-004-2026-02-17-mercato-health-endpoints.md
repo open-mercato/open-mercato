@@ -1,4 +1,4 @@
-# SPEC-ENT-002: Open Mercato Enterprise Health Endpoints (`live`, `ready`)
+# SPEC-ENT-004: Open Mercato Enterprise Health Endpoints (`live`, `ready`)
 
 **Date:** 2026-02-17  
 **Status:** Draft  
