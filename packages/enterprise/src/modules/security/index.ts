@@ -1,5 +1,6 @@
-export const metadata = {
-  id: 'security',
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+
+export const metadata: ModuleInfo = {
+  name: 'security',
   version: '0.1.0',
-  enterprise: true,
-} as const
+}

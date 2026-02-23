@@ -48,6 +48,10 @@ All module paths use `src/modules/<module>/` as shorthand.
 
 All API route files MUST export an `openApi` object for automatic API documentation generation.
 
+For custom write routes that do not use `makeCrudRoute` (`POST`/`PUT`/`PATCH`/`DELETE`), MUST wire the mutation guard contract:
+- call `validateCrudMutationGuard` before mutation logic
+- call `runCrudMutationGuardAfterSuccess` after successful mutation when requested
+
 ### CRUD Routes
 
 Create an `openapi.ts` helper in your module's `api/` directory:

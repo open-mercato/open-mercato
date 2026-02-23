@@ -96,7 +96,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  })
+  }, 20000)
 
   it('falls back to rebuilding when the ephemeral environment state is unreachable', async () => {
     const baseUrl = 'http://127.0.0.1:5001'

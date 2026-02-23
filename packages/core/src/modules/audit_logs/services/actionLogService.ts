@@ -9,6 +9,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -143,8 +144,6 @@ export class ActionLogService {
       }
       return value
     }
-    const toOptionalString = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : undefined)
-
     const normalizeRecordLike = (value: unknown): ActionLogCreateInput['changes'] => {
       if (value === null) return null
       if (Array.isArray(value)) return value
@@ -160,13 +159,13 @@ export class ActionLogService {
       organizationId: toNullableUuid(input.organizationId),
       actorUserId: toNullableUuid(input.actorUserId),
       commandId: typeof input.commandId === 'string' && input.commandId.length > 0 ? input.commandId : 'unknown',
-      actionLabel: toOptionalString(input.actionLabel),
-      resourceKind: toOptionalString(input.resourceKind),
-      resourceId: toOptionalString(input.resourceId),
+      actionLabel: toOptionalString(input.actionLabel) ?? undefined,
+      resourceKind: toOptionalString(input.resourceKind) ?? undefined,
+      resourceId: toOptionalString(input.resourceId) ?? undefined,
       parentResourceKind: toOptionalString(input.parentResourceKind) ?? null,
       parentResourceId: toOptionalString(input.parentResourceId) ?? null,
       executionState: input.executionState === 'undone' || input.executionState === 'failed' ? input.executionState : 'done',
-      undoToken: toOptionalString(input.undoToken),
+      undoToken: toOptionalString(input.undoToken) ?? undefined,
       commandPayload: input.commandPayload,
       snapshotBefore: input.snapshotBefore,
       snapshotAfter: input.snapshotAfter,

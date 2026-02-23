@@ -550,4 +550,16 @@
   "inbox_ops.activity_type.note": "Note",
   "inbox_ops.placeholder.comma_separated": "Comma-separated",
   "inbox_ops.placeholder.one_note_per_line": "One note per line"
+  "ui.datePicker.placeholder": "Pick a date",
+  "ui.datePicker.todayButton": "Today",
+  "ui.datePicker.clearButton": "Clear",
+  "ui.dateTimePicker.clearButton": "Clear",
+  "ui.dateTimePicker.placeholder": "Pick date and time",
+  "ui.dateTimePicker.timeLabel": "Time",
+  "ui.dateTimePicker.todayButton": "Today",
+  "ui.timePicker.hourLabel": "Hour",
+  "ui.timePicker.minuteLabel": "Minute",
+  "ui.timePicker.nowButton": "Now",
+  "ui.timePicker.clearButton": "Clear",
+  "ui.timePicker.placeholder": "Pick a time"
 }
