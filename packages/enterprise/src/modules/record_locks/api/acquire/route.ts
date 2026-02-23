@@ -46,6 +46,7 @@ function maskEmail(email: string | null | undefined): string | null {
 async function redactPersonalData(
   em: EntityManager,
   lock: LockPayload | null | undefined,
+  scope: { tenantId: string; organizationId: string | null },
 ): Promise<LockPayload | null> {
   if (!lock) return null
   const userIds = new Set<string>()
@@ -59,7 +60,12 @@ async function redactPersonalData(
   }
 
   const users = userIds.size
-    ? await em.find(User, { id: { $in: Array.from(userIds) }, deletedAt: null })
+    ? await em.find(User, {
+      id: { $in: Array.from(userIds) },
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
     : []
   const userById = new Map(users.map((user) => [user.id, user]))
 
@@ -134,7 +140,10 @@ export async function POST(req: Request) {
   const allowForceUnlock = result.allowForceUnlock && canForceRelease
 
   if (!result.ok) {
-    const lock = await redactPersonalData(em, result.lock as LockPayload | null)
+    const lock = await redactPersonalData(em, result.lock as LockPayload | null, {
+      tenantId: ctxOrResponse.auth.tenantId,
+      organizationId: ctxOrResponse.organizationId ?? null,
+    })
     return NextResponse.json(
       {
         error: result.error,
@@ -147,7 +156,10 @@ export async function POST(req: Request) {
     )
   }
 
-  const lock = await redactPersonalData(em, result.lock as LockPayload | null)
+  const lock = await redactPersonalData(em, result.lock as LockPayload | null, {
+    tenantId: ctxOrResponse.auth.tenantId,
+    organizationId: ctxOrResponse.organizationId ?? null,
+  })
   return NextResponse.json({
     ...result,
     allowForceUnlock,

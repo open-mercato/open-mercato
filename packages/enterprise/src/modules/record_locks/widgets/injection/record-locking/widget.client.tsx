@@ -761,7 +761,14 @@ export default function RecordLockingWidget({
   React.useEffect(() => {
     if (!isPrimaryInstance) return
     if (!state?.lock?.token || !state.resourceKind || !state.resourceId) return
-    const intervalMs = 10_000
+    const heartbeatSeconds = (
+      typeof state.heartbeatSeconds === 'number'
+      && Number.isFinite(state.heartbeatSeconds)
+      && state.heartbeatSeconds > 0
+    )
+      ? state.heartbeatSeconds
+      : 10
+    const intervalMs = Math.max(1_000, Math.round(heartbeatSeconds * 1000))
     const interval = window.setInterval(() => {
       void apiCall('/api/record_locks/heartbeat', {
         method: 'POST',

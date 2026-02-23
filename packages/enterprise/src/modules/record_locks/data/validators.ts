@@ -112,6 +112,46 @@ export const recordLockAcquireResponseSchema = z.object({
   lock: recordLockApiLockSchema.nullable(),
 })
 
+export const recordLockConflictSchema = z.object({
+  id: z.string().uuid(),
+  resourceKind: z.string(),
+  resourceId: z.string(),
+  baseActionLogId: z.string().uuid().nullable(),
+  incomingActionLogId: z.string().uuid().nullable(),
+  allowIncomingOverride: z.boolean().default(true),
+  canOverrideIncoming: z.boolean().default(false),
+  resolutionOptions: z.array(z.enum(['accept_mine'])).default(['accept_mine']),
+  changes: z.array(
+    z.object({
+      field: z.string().min(1),
+      displayValue: z.unknown().nullable(),
+      baseValue: z.unknown().nullable().optional(),
+      incomingValue: z.unknown().nullable(),
+      mineValue: z.unknown().nullable(),
+    }),
+  ).default([]),
+})
+
+export const recordLockValidateResponseSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    enabled: z.boolean(),
+    resourceEnabled: z.boolean(),
+    strategy: z.enum(['optimistic', 'pessimistic']),
+    shouldReleaseOnSuccess: z.boolean(),
+    lock: recordLockApiLockSchema.nullable(),
+    latestActionLogId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    status: z.union([z.literal(409), z.literal(423)]),
+    error: z.string(),
+    code: z.enum(['record_lock_conflict', 'record_locked']),
+    lock: recordLockApiLockSchema.nullable(),
+    conflict: recordLockConflictSchema.optional(),
+  }),
+])
+
 export const recordLockHeartbeatResponseSchema = z.object({
   ok: z.literal(true),
   expiresAt: z.string().nullable(),
@@ -134,25 +174,7 @@ export const recordLockErrorSchema = z.object({
   code: z.string().optional(),
   allowForceUnlock: z.boolean().optional(),
   lock: recordLockApiLockSchema.nullable().optional(),
-  conflict: z.object({
-    id: z.string().uuid(),
-    resourceKind: z.string(),
-    resourceId: z.string(),
-    baseActionLogId: z.string().uuid().nullable(),
-    incomingActionLogId: z.string().uuid().nullable(),
-    allowIncomingOverride: z.boolean().default(true),
-    canOverrideIncoming: z.boolean().default(false),
-    resolutionOptions: z.array(z.enum(['accept_mine'])).default(['accept_mine']),
-    changes: z.array(
-      z.object({
-        field: z.string().min(1),
-        displayValue: z.unknown().nullable(),
-        baseValue: z.unknown().nullable().optional(),
-        incomingValue: z.unknown().nullable(),
-        mineValue: z.unknown().nullable(),
-      }),
-    ).default([]),
-  }).optional(),
+  conflict: recordLockConflictSchema.optional(),
 })
 
 export type RecordLockAcquireInput = z.infer<typeof recordLockAcquireSchema>

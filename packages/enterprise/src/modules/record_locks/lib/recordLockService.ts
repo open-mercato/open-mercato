@@ -288,8 +288,8 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 
 function toIsoDate(value: unknown): string | null {
   if (value instanceof Date) {
-    const iso = value.toISOString()
-    return Number.isNaN(value.getTime()) ? null : iso
+    if (Number.isNaN(value.getTime())) return null
+    return value.toISOString()
   }
   if (typeof value === 'string') {
     const parsed = new Date(value)
@@ -555,6 +555,8 @@ export class RecordLockService {
       await this.em.flush()
     } catch (error) {
       if (!isActiveLockScopeUniqueViolation(error)) throw error
+      const clear = (this.em as { clear?: () => void }).clear
+      if (typeof clear === 'function') clear.call(this.em)
       const locksAfterCollision = await this.findActiveLocks(input, now)
       const competingAfterCollision = locksAfterCollision.find((item) => item.lockedByUserId !== input.userId) ?? null
       if (settings.strategy === 'pessimistic' && competingAfterCollision) {

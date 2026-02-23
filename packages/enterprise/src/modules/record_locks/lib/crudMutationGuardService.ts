@@ -52,24 +52,9 @@ export function createRecordLockCrudMutationGuardService(
     },
 
     async afterMutationSuccess(input) {
-      await recordLockService.emitIncomingChangesNotificationAfterMutation({
-        tenantId: input.tenantId,
-        organizationId: input.organizationId ?? null,
-        userId: input.userId,
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId,
-        method: resolveRecordLockMutationMethod(input.operation),
-      })
-      await recordLockService.emitRecordDeletedNotificationAfterMutation({
-        tenantId: input.tenantId,
-        organizationId: input.organizationId ?? null,
-        userId: input.userId,
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId,
-        method: resolveRecordLockMutationMethod(input.operation),
-      })
-
+      const method = resolveRecordLockMutationMethod(input.operation)
       const headers = readRecordLockHeaders(input.requestHeaders)
+
       await recordLockService.releaseAfterMutation({
         tenantId: input.tenantId,
         organizationId: input.organizationId ?? null,
@@ -79,6 +64,25 @@ export function createRecordLockCrudMutationGuardService(
         token: headers.token,
         reason: 'saved',
       })
+
+      await Promise.allSettled([
+        recordLockService.emitIncomingChangesNotificationAfterMutation({
+          tenantId: input.tenantId,
+          organizationId: input.organizationId ?? null,
+          userId: input.userId,
+          resourceKind: input.resourceKind,
+          resourceId: input.resourceId,
+          method,
+        }),
+        recordLockService.emitRecordDeletedNotificationAfterMutation({
+          tenantId: input.tenantId,
+          organizationId: input.organizationId ?? null,
+          userId: input.userId,
+          resourceKind: input.resourceKind,
+          resourceId: input.resourceId,
+          method,
+        }),
+      ])
     },
   }
 }

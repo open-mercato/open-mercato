@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { recordLockValidateResponseSchema } from '../../data/validators'
 import { resolveRecordLocksApiContext } from '../utils'
 
 const validateSchema = z.object({
@@ -52,6 +53,7 @@ function maskEmail(email: string | null | undefined): string | null {
 async function redactPersonalData(
   em: EntityManager,
   lock: LockPayload | null | undefined,
+  scope: { tenantId: string; organizationId: string | null },
 ): Promise<LockPayload | null> {
   if (!lock) return null
   const userIds = new Set<string>()
@@ -64,7 +66,12 @@ async function redactPersonalData(
     }
   }
   const users = userIds.size
-    ? await em.find(User, { id: { $in: Array.from(userIds) }, deletedAt: null })
+    ? await em.find(User, {
+      id: { $in: Array.from(userIds) },
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
     : []
   const userById = new Map(users.map((user) => [user.id, user]))
 
@@ -124,7 +131,10 @@ export async function POST(req: Request) {
   })
 
   const em = ctxOrResponse.container.resolve<EntityManager>('em').fork()
-  const lock = await redactPersonalData(em, (result as { lock?: LockPayload | null }).lock ?? null)
+  const lock = await redactPersonalData(em, (result as { lock?: LockPayload | null }).lock ?? null, {
+    tenantId: ctxOrResponse.auth.tenantId,
+    organizationId: ctxOrResponse.organizationId ?? null,
+  })
   return NextResponse.json({
     ...result,
     lock,
@@ -142,7 +152,7 @@ export const openApi: OpenApiRouteDoc = {
         schema: validateSchema,
       },
       responses: [
-        { status: 200, description: 'Validation result' },
+        { status: 200, description: 'Validation result', schema: recordLockValidateResponseSchema },
       ],
     },
   },
