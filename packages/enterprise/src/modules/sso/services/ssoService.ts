@@ -3,6 +3,7 @@ import { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { AuthService } from '@open-mercato/core/modules/auth/services/authService'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { SsoConfig } from '../data/entities'
 import type { SsoProviderRegistry } from '../lib/registry'
 import type { AccountLinkingService } from './accountLinkingService'
@@ -17,6 +18,7 @@ export class SsoService {
     private accountLinkingService: AccountLinkingService,
     private tenantEncryptionService: TenantDataEncryptionService,
     private authService: AuthService,
+    private rbacService: RbacService,
   ) {}
 
   async findConfigByEmail(email: string): Promise<SsoConfig | null> {
@@ -117,6 +119,8 @@ export class SsoService {
 
     const tenantId = config.tenantId ?? ''
     const { user } = await this.accountLinkingService.resolveUser(config, idpPayload, tenantId)
+
+    await this.rbacService.invalidateUserCache(String(user.id))
 
     const roles = await this.authService.getUserRoles(user, tenantId || null)
     const token = signJwt({
