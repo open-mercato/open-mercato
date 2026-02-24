@@ -165,7 +165,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
                       unit:
                         line.unitPriceReference?.referenceUnitCode ??
                         line.unitPriceReference?.referenceUnit ??
-                        'unit',
+                        t('sales.quotes.public.defaultUnit', 'unit'),
                     })}
                   </p>
                 ) : null}

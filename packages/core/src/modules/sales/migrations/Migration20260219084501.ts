@@ -67,5 +67,7 @@ export class Migration20260219084501 extends Migration {
     );
   }
 
-  override async down(): Promise<void> {}
+  override async down(): Promise<void> {
+    // Intentionally empty: UoM column additions and data migrations are not reversible
+  }
 }
