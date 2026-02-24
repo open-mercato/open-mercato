@@ -108,7 +108,7 @@ async function resolveNormalizedQuantityForFilter(params: {
       tenantId: params.tenantId,
       deletedAt: null,
     },
-    { fields: ["id", "defaultUnit"] },
+    { fields: ["id", "defaultUnit", "uomRoundingScale"] },
   );
   if (!product) return quantity;
   const baseUnitKey = toUnitLookupKey(product.defaultUnit);
@@ -131,7 +131,10 @@ async function resolveNormalizedQuantityForFilter(params: {
   if (!conversion) return quantity;
   const factor = Number(conversion.toBaseFactor);
   if (!Number.isFinite(factor) || factor <= 0) return quantity;
-  const normalized = quantity * factor;
+  const rawNormalized = quantity * factor;
+  const scale = Number(product.uomRoundingScale ?? 4);
+  const pow = Math.pow(10, scale);
+  const normalized = Math.round(rawNormalized * pow) / pow;
   return Number.isFinite(normalized) && normalized > 0 ? normalized : quantity;
 }
 
