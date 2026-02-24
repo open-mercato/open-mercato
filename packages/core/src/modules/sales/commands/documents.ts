@@ -249,7 +249,7 @@ type QuoteLineSnapshot = {
   quantityUnit: string | null;
   normalizedQuantity: string;
   normalizedUnit: string | null;
-  uomSnapshot: Record<string, unknown> | null;
+  uomSnapshot: SalesLineUomSnapshot | null;
   currencyCode: string;
   unitPriceNet: string;
   unitPriceGross: string;
@@ -367,7 +367,7 @@ type OrderLineSnapshot = {
   quantityUnit: string | null;
   normalizedQuantity: string;
   normalizedUnit: string | null;
-  uomSnapshot: Record<string, unknown> | null;
+  uomSnapshot: SalesLineUomSnapshot | null;
   reservedQuantity: string;
   fulfilledQuantity: string;
   invoicedQuantity: string;
