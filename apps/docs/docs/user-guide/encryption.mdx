@@ -96,6 +96,32 @@ Notes:
 - Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
 - Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
 
+## Decrypting data (removing encryption)
+
+Use `decrypt-database` to write all encrypted fields back to plaintext for a tenant. This is irreversible — take a full backup first.
+
+```bash
+# Preview only (no writes)
+yarn mercato entities decrypt-database --tenant <tenantId> --confirm <tenantId> --dry-run
+
+# Check encryption status and sampled payload estimate
+yarn mercato entities decrypt-database --tenant <tenantId> --check
+
+# Full decryption
+yarn mercato entities decrypt-database --tenant <tenantId> --confirm <tenantId>
+
+# Full decryption + deactivate encryption maps
+yarn mercato entities decrypt-database --tenant <tenantId> --confirm <tenantId> --deactivate-maps
+```
+
+After a successful run:
+1. Set `TENANT_DATA_ENCRYPTION=false` in your environment / secrets.
+2. Restart all application replicas to flush in-process encryption caches.
+3. Run `yarn mercato query_index reindex --tenant <tenantId>` to rebuild search indexes.
+4. Run `--check` again to confirm no encrypted values remain.
+
+The `--confirm <tenantUuid>` flag is a required safety gate — it must exactly match `--tenant` to prevent accidental cross-tenant runs. See the [decrypt-database CLI reference](../cli/entities-decrypt-database) for the full option list, error codes, and troubleshooting.
+
 ## Debugging
 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.

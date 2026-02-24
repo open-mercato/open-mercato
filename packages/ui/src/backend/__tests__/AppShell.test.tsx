@@ -3,9 +3,11 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+
+const mockInjectionSpot = jest.fn()
 
 jest.mock('next/link', () => {
   const React = require('react')
@@ -20,10 +22,18 @@ jest.mock('next/image', () => (props: any) => <img alt={props.alt} {...props} />
 
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/users',
+  useSearchParams: () => new URLSearchParams('tab=profile'),
   useRouter: () => ({
     refresh: jest.fn(),
     push: jest.fn(),
   }),
+}))
+
+jest.mock('../injection/InjectionSpot', () => ({
+  InjectionSpot: (props: { spotId: string; context?: Record<string, unknown> }) => {
+    mockInjectionSpot(props)
+    return <div data-testid={`injection-spot:${props.spotId}`} />
+  },
 }))
 
 jest.mock('../operations/LastOperationBanner', () => ({
@@ -74,6 +84,10 @@ const groups = [
 ]
 
 describe('AppShell', () => {
+  beforeEach(() => {
+    mockInjectionSpot.mockClear()
+  })
+
   beforeAll(() => {
     const storage: Record<string, string> = {}
     Object.defineProperty(window, 'localStorage', {
@@ -110,6 +124,30 @@ describe('AppShell', () => {
     expect(screen.getByText('Users List')).toBeInTheDocument()
     expect(screen.getAllByText('Terms')[0]).toBeInTheDocument()
     expect(screen.getByTestId('flash-messages')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:layout:top')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:record:current')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:layout:footer')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:sidebar:top')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend:sidebar:footer')).toBeInTheDocument()
+    expect(screen.getByTestId('injection-spot:backend-mutation:global')).toBeInTheDocument()
     expect(screen.getByText('Child content')).toBeInTheDocument()
+    expect(mockInjectionSpot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spotId: 'backend-mutation:global',
+        context: {
+          path: '/backend/users',
+          query: 'tab=profile',
+        },
+      }),
+    )
+    expect(mockInjectionSpot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spotId: 'backend:record:current',
+        context: {
+          path: '/backend/users',
+          query: 'tab=profile',
+        },
+      }),
+    )
   })
 })

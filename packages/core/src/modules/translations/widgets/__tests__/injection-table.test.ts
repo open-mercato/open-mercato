@@ -2,17 +2,20 @@ import { buildInjectionTable } from '../injection-table'
 import { translatableFields as catalogFields } from '../../../catalog/translations'
 import { translatableFields as dictionaryFields } from '../../../dictionaries/translations'
 import { translatableFields as entitiesFields } from '../../../entities/translations'
+import { translatableFields as resourcesFields } from '../../../resources/translations'
 
 const allExpectedEntityTypes = [
   ...Object.keys(catalogFields),
   ...Object.keys(dictionaryFields),
   ...Object.keys(entitiesFields),
+  ...Object.keys(resourcesFields),
 ]
 
 const expectedFields: Record<string, string[]> = {
   ...catalogFields,
   ...dictionaryFields,
   ...entitiesFields,
+  ...resourcesFields,
 }
 
 describe('translations injection-table', () => {
@@ -48,5 +51,15 @@ describe('translations injection-table', () => {
         expect(resolved).toBe(widgetId)
       }
     }
+  })
+
+  it('includes resources:resources_resource in both full and short form', () => {
+    expect(injectionTable['crud-form:resources.resources_resource:header']).toBeDefined()
+    expect(injectionTable['crud-form:resources.resource:header']).toBeDefined()
+  })
+
+  it('includes resources:resources_resource_type in both full and short form', () => {
+    expect(injectionTable['crud-form:resources.resources_resource_type:header']).toBeDefined()
+    expect(injectionTable['crud-form:resources.resource_type:header']).toBeDefined()
   })
 })

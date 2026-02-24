@@ -13,20 +13,32 @@ export class Migration20260215120000 extends Migration {
     this.addSql(`create unique index "entity_translations_scope_uq" on "entity_translations" ("entity_type", "entity_id", coalesce("organization_id", '00000000-0000-0000-0000-000000000000'), coalesce("tenant_id", '00000000-0000-0000-0000-000000000000'));`);
 
     // Migrate existing localized_content from catalog_product_offers into entity_translations
+    // Guard legacy/fresh schemas where localized_content may already be removed.
     this.addSql(`
-      insert into "entity_translations" ("entity_type", "entity_id", "organization_id", "tenant_id", "translations", "created_at", "updated_at")
-      select
-        'catalog:catalog_offer',
-        o."id"::text,
-        o."organization_id",
-        o."tenant_id",
-        o."localized_content",
-        now(),
-        now()
-      from "catalog_product_offers" o
-      where o."localized_content" is not null
-        and o."localized_content" != '{}'::jsonb
-        and o."deleted_at" is null
+      do $$
+      begin
+        if exists (
+          select 1
+          from information_schema.columns
+          where table_schema = current_schema()
+            and table_name = 'catalog_product_offers'
+            and column_name = 'localized_content'
+        ) then
+          insert into "entity_translations" ("entity_type", "entity_id", "organization_id", "tenant_id", "translations", "created_at", "updated_at")
+          select
+            'catalog:catalog_offer',
+            o."id"::text,
+            o."organization_id",
+            o."tenant_id",
+            o."localized_content",
+            now(),
+            now()
+          from "catalog_product_offers" o
+          where o."localized_content" is not null
+            and o."localized_content" != '{}'::jsonb
+            and o."deleted_at" is null;
+        end if;
+      end $$;
     `);
 
     // Drop localized_content column from catalog_product_offers

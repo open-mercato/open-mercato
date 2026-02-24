@@ -116,9 +116,10 @@ async function ensureSalesDocumentFixtures(
             isPrimary: true,
           },
         }).catch(() => {});
+        customerQuery = companyName;
       }
-      customerQuery = companyName;
-    } else {
+    }
+    if (!customerQuery) {
       customerQuery = 'Copperleaf';
     }
   }
@@ -169,25 +170,34 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   const customerQuery = fixtureContext.customerQuery;
   const channelQuery = fixtureContext.channelQuery;
 
-  await page.goto('/backend/sales/documents/create');
-  await page.getByRole('button', { name: new RegExp(`^${options.kind === 'order' ? 'Order' : 'Quote'}$`, 'i') }).click();
+  await page.goto(`/backend/sales/documents/create?kind=${options.kind}`);
+  
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(500);
 
+
+  await page.getByText('Document type').click();
   await page.getByRole('textbox', { name: /Search customers/i }).fill(customerQuery);
-  await page
-    .getByRole('button', { name: new RegExp(`${escapeRegExp(customerQuery)}.*Select`, 'i') })
-    .first()
-    .click();
+  await page.waitForTimeout(500);
 
-  await page.getByRole('textbox', { name: /Select a channel/i }).fill(channelQuery);
-  const channelSelect = page
+  const selectButton = page
+    .locator('[role="button"]')
+    .filter({ hasText: customerQuery })
+    .getByRole('button', { name: 'Select' });
+
+  await selectButton.scrollIntoViewIfNeeded();
+  await selectButton.click();
+// Channel selection
+await page.getByRole('textbox', { name: /Select a channel/i }).fill(channelQuery);
+try {
+  await page
     .getByRole('button', { name: /Select$/i })
     .filter({ hasText: new RegExp(escapeRegExp(channelQuery), 'i') })
-    .first();
-  if ((await channelSelect.count()) > 0) {
-    await channelSelect.click();
-  } else {
-    await page.getByRole('button', { name: /Select$/i }).first().click();
-  }
+    .first()
+    .click({ timeout: 2000 });
+} catch {
+  await page.getByRole('button', { name: /Select$/i }).first().click();
+}
 
   await selectFirstAddressIfAvailable(page);
 

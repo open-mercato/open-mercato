@@ -1,8 +1,6 @@
 name: Canary Release
 
 on:
-  push:
-    branches: [develop]
   pull_request:
     branches: [main, develop]
 
@@ -14,19 +12,19 @@ jobs:
   canary:
     name: Publish Canary
     runs-on: ubuntu-latest
-    # Only run on push to develop, or PRs from the same repo (not forks)
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Only run for PRs from the same repo (not forks)
+    if: github.event.pull_request.head.repo.full_name == github.repository
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
 
@@ -61,7 +59,7 @@ jobs:
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && steps.release.outputs.package_count != '0'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const packages = ${{ steps.release.outputs.packages_json }};

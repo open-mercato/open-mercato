@@ -13,11 +13,28 @@ import { extractRecordId } from '../../../lib/extract-record-id'
 type WidgetContext = { entityId?: string; recordId?: string }
 type WidgetData = Record<string, unknown> & { id?: string | number }
 
+function useTranslationAccess(): boolean {
+  const [hasAccess, setHasAccess] = React.useState(false)
+  React.useEffect(() => {
+    let mounted = true
+    // Use the original fetch to bypass the global apiFetch wrapper
+    // that redirects to login on 403. This lets us gracefully hide the widget
+    // when the user lacks translations.view instead of crashing the page.
+    const nativeFetch = ((window as any).__omOriginalFetch as typeof fetch) || fetch
+    nativeFetch('/api/translations/locales', { credentials: 'include' })
+      .then((res) => { if (mounted) setHasAccess(res.ok) })
+      .catch(() => { if (mounted) setHasAccess(false) })
+    return () => { mounted = false }
+  }, [])
+  return hasAccess
+}
+
 export default function TranslationWidget({ context, data }: InjectionWidgetComponentProps<WidgetContext, WidgetData>) {
   const entityType = context?.entityId
   const params = useParams()
   const t = useT()
   const [open, setOpen] = React.useState(false)
+  const hasAccess = useTranslationAccess()
 
   const contextRecordId = typeof context?.recordId === 'string' && context.recordId.trim().length > 0
     ? context.recordId.trim()
@@ -25,7 +42,7 @@ export default function TranslationWidget({ context, data }: InjectionWidgetComp
   const dataRecordId = data?.id === undefined || data.id === null ? undefined : String(data.id)
   const routeRecordId = params ? extractRecordId(params as Record<string, string | string[]>) : undefined
   const recordId = contextRecordId ?? dataRecordId ?? routeRecordId
-  const canRender = Boolean(entityType && recordId)
+  const canRender = Boolean(entityType && recordId && hasAccess)
 
   React.useEffect(() => {
     if (!open || !canRender) return

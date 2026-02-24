@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -10,6 +11,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ActivitiesSection, NotesSection, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
@@ -474,10 +476,29 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     flash(t('resources.resources.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
   }, [resourceId, t])
 
+  const resourceTitle =
+    typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
+      ? initialValues.name.trim()
+      : t('resources.resources.detail.untitled', 'Unnamed resource')
+
   return (
     <Page>
       <PageBody>
         <div className="space-y-6">
+          <FormHeader
+            mode="detail"
+            backHref="/backend/resources/resources"
+            backLabel={t('resources.resources.detail.back', 'Back to resources')}
+            utilityActions={(
+              <VersionHistoryAction
+                config={resourceId ? { resourceKind: 'resources.resource', resourceId, includeRelated: true } : null}
+                t={t}
+              />
+            )}
+            title={resourceTitle}
+            subtitle={t('resources.resources.detail.subtitle', 'Resource profile and activity')}
+          />
+
           <div className="border-b">
             <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={t('resources.resources.tabs.label', 'Resource sections')}>
               {tabs.map((tab) => (

@@ -567,7 +567,7 @@ The following section should be added to `AGENTS.md` under **Conventions**:
 ```markdown
 ## Entity Update Safety — `withAtomicFlush`
 
-MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, multiple `em.flush()` calls without transaction wrapping risk partial commits. See [SPEC-018](.ai/specs/SPEC-018-2026-02-05-safe-entity-flush.md) for the full analysis.
+MikroORM's identity-map and subscriber infrastructure can silently discard pending scalar changes when a query (`em.find`, `em.findOne`, etc.) runs on the same `EntityManager` before an explicit `em.flush()`. Additionally, multiple `em.flush()` calls without transaction wrapping risk partial commits. See [SPEC-018](SPEC-018-2026-02-05-safe-entity-flush.md) for the full analysis.
 
 ### Rules
 
