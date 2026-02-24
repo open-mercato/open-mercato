@@ -287,7 +287,7 @@ See each phase sub-spec for detailed test scenarios, example module additions, a
 | 4 | Priority conflicts | Medium | Build-time detection; require explicit priority |
 | 5 | Interceptor blocks legitimate requests | High | Include `interceptorId` in errors; admin can disable per-tenant |
 | 6 | Backward compatibility | Critical | All existing APIs preserved; new features additive |
-| 7 | Complexity for simple modules | Medium | Progressive disclosure; CLI scaffolding |
+| 7 | Complexity for simple modules | Medium | Progressive disclosure; AGENTS.md scaffolding guides |
 | 8 | Enrichers expose cross-tenant data | Critical | `EnricherContext` scoped to tenant; code review checklist |
 
 ---
@@ -316,6 +316,7 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 | Adding menu items to sidebar/profile/topbar | `packages/core/AGENTS.md` → Menu Item Injection |
 | Bridging server events to client widgets | `packages/events/AGENTS.md` → DOM Event Bridge |
 | Using `useExtensibleDetail` for detail pages | `packages/ui/src/backend/AGENTS.md` → Extensible Detail Pages |
+| Scaffolding a new UMES extension (widget, enricher, interceptor, component override) | `packages/core/AGENTS.md` → UMES Scaffolding Guide |
 
 **Optional Module Files to add:**
 
@@ -353,13 +354,81 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 
 | File | New Sections |
 |------|-------------|
-| `packages/core/AGENTS.md` | Response Enrichers, API Interceptors, Component Replacement, Menu Item Injection |
+| `packages/core/AGENTS.md` | Response Enrichers, API Interceptors, Component Replacement, Menu Item Injection, UMES Scaffolding Guide |
 | `packages/ui/AGENTS.md` | DataTable Extension Injection, CrudForm Field Injection |
 | `packages/ui/src/backend/AGENTS.md` | Extensible Detail Pages |
 | `packages/events/AGENTS.md` | DOM Event Bridge |
 | `.ai/qa/AGENTS.md` | Testing UMES Extension Points |
 
-**Total**: 10 new sections across 6 files. All existing content preserved — changes are purely additive.
+**Total**: 11 new sections across 6 files. All existing content preserved — changes are purely additive.
+
+---
+
+## UMES Scaffolding Guide (for AGENTS.md)
+
+Instead of CLI scaffolding commands, UMES scaffolding is handled by LLM agents via AGENTS.md instructions. The following section MUST be added to `packages/core/AGENTS.md` under a new "UMES Scaffolding Guide" heading.
+
+### Scaffolding a Widget Injection
+
+When asked to scaffold a widget injection into another module's page:
+
+1. Create `widgets/injection/<widget-name>/widget.ts` (or `widget.client.tsx` if it needs React)
+2. Export `metadata` with `id` (`<module>.injection.<name>`), `title`, and `features`
+3. If headless (columns, fields, menu items): export the data declaration only, no `Widget` component
+4. If interactive: export a `Widget` React component with `({ context, data }: WidgetProps)` signature
+5. Add event handlers (`onBeforeSave`, `onSave`, `onAfterSave`) if the widget participates in save lifecycle
+6. Add entry to `widgets/injection-table.ts` mapping spot ID → `{ widgetId, priority }`
+7. Run `yarn generate` to register the widget
+
+**Spot ID format**: `<surface>:<entityId>:<position>` (e.g., `crud-form:customers.person:group:details`, `data-table:customers.person:columns`)
+
+### Scaffolding a Response Enricher
+
+When asked to add data to another module's API response:
+
+1. Create `data/enrichers.ts` in the module root
+2. Export an array of `ResponseEnricher` objects with: `id`, `targetEntity`, `enrichOne(record, context)`, `enrichMany(records, context)`
+3. Enricher MUST use `context.em` (EntityManager) for data access — NO direct entity imports from target module
+4. Enriched data MUST be namespaced under `_<module>` prefix (e.g., `_loyalty.tier`)
+5. `enrichMany` MUST batch-load to prevent N+1 queries
+6. Run `yarn generate` to register the enricher
+
+### Scaffolding an API Interceptor
+
+When asked to validate, block, or modify another module's API operations:
+
+1. Create `api/interceptors.ts` in the module root
+2. Export an array of `ApiInterceptor` objects with: `id`, `targetRoute`, `methods`, `before?(request, context)`, `after?(request, response, context)`
+3. `before` hooks can return `{ ok: false, message }` to reject, `{ ok: true, body }` to modify
+4. Modified body MUST pass the target route's Zod schema (re-validated automatically)
+5. `after` hooks can transform the response body
+6. Run `yarn generate` to register the interceptor
+
+### Scaffolding a Component Replacement
+
+When asked to replace or wrap another module's component:
+
+1. Create `widgets/components.ts` in the module root
+2. Export an array of component override declarations with: `id`, `targetComponentId`, `mode` (`replace` | `wrapper` | `propsTransform`)
+3. For `replace`: provide the full replacement component maintaining the original props contract
+4. For `wrapper`: provide a wrapper that renders children and adds behavior
+5. For `propsTransform`: provide a function that transforms props before they reach the original component
+6. Include `propsSchema` (Zod) for runtime validation in dev mode
+7. Run `yarn generate` to register the override
+
+### Scaffolding a Field Injection (Triad Pattern)
+
+When asked to add fields to another module's CrudForm:
+
+1. Create a response enricher (`data/enrichers.ts`) to load the field data — see "Scaffolding a Response Enricher"
+2. Create a headless field widget (`widgets/injection/<name>/widget.ts`) declaring the `fields` array with `id`, `label`, `type`, `group`, `placement`, and `readOnly`
+3. Add `onSave` handler to persist the field value via the module's own API
+4. Add `onBeforeSave` handler if validation is needed before core save
+5. Map the widget to the target form's field injection spot in `injection-table.ts`
+6. Add translations for field labels
+7. Run `yarn generate`
+
+**This is the "triad pattern"**: enricher loads data → field widget renders → onSave persists.
 
 ---
 
@@ -407,3 +476,4 @@ Key implementation details from deep-diving into the actual codebase:
 |------|--------|
 | 2026-02-24 | Initial draft — complete spec with all phases |
 | 2026-02-24 | Split into phased sub-specs (SPEC-041a through SPEC-041k) for LLM context management |
+| 2026-02-24 | Replace CLI scaffolding commands with AGENTS.md scaffolding guide for LLM-driven scaffolding |
