@@ -10,13 +10,15 @@
 **Key Points:**
 - A standalone `promotions` module that defines promotions via a flexible, recursive rule-condition tree, evaluates which promotions apply to a given cart context, and returns **fully resolved effects** to the cart module — promotions owns the math, the cart only applies the pre-computed results.
 - Promotional codes (static vouchers and dynamically generated pools) are managed independently of individual promotions and linked via `CodeRule` nodes inside the rule tree.
+- **Extensible by design**: other modules can register custom rule types, custom benefit types, evaluation middleware (before/after hooks), and custom admin configurator components — without modifying core promotions code.
 
 **Scope:**
-- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + 15 concrete rule types, polymorphic `Benefit` + 6 concrete benefit types, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`
+- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + 15 built-in rule types, polymorphic `Benefit` + 6 built-in benefit types, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`
 - Three-pass evaluation engine (boolean pass → benefit collection pass → effect resolution pass), product-page lightweight variant
 - Promotion ordering, cumulativity, and tag-based self-exclusion algorithm
 - Cart interaction REST API (apply-promotion, code lifecycle endpoints)
 - Admin UI: drag-sortable promotion list, inline tree builder, promotional codes table
+- Extension infrastructure: server-side `PromotionExtensionRegistry`, client-side configurator registry, evaluation middleware pipeline, declared widget injection slots
 
 **Concerns:**
 - Rule tree depth and polymorphic joins require careful N+1 mitigation and upfront caching strategy
@@ -56,7 +58,7 @@ A dedicated `promotions` module placed in `packages/core/src/modules/promotions/
 | Decision | Rationale |
 |----------|-----------|
 | Benefits live on `RuleGroup`, not on `Promotion` | Allows different benefit sets for different condition branches within a single promotion |
-| Polymorphic rule/benefit tables | Each concrete type has its own table; only the discriminator and FK live on the `rules`/`benefits` tables — clean separation, no sparse columns |
+| JSONB rule/benefit config | `promotion_rules` and `promotion_benefits` each store a `rule_type`/`benefit_type` discriminator and a `config jsonb` column. Follows the established `condition_expression` pattern in `business_rules` and `workflows`. Zod discriminated union validates config per type at the application boundary. No migrations required when adding new rule or benefit types. The only application-layer concern is validating `code_id` references inside `code` rule configs, handled in commands before persisting. |
 | Codes are promotion-agnostic | A single code template can unlock multiple promotions simultaneously via `CodeRule` in each promotion's tree |
 | Three-pass evaluation | Pass 1 is pure boolean (no side effects); Pass 2 collects benefits only from fully-satisfied ancestor chains; Pass 3 resolves each benefit into concrete effects using the cart context (actual amounts, free item SKUs) — avoids partial benefit collection and keeps math out of the cart |
 | Promotions resolves effects; cart applies them | The promotions engine owns all discount math — it receives unit prices in the cart context and returns fully computed effect amounts. The cart module applies pre-computed effects without re-doing any calculations. No duplication, no ambiguity, deterministic totals. |
@@ -119,7 +121,8 @@ promotions/
 │   ├── dynamic-labels/route.ts       Storefront condition metadata (GET)
 │   ├── free-products/route.ts        Free product eligibility (POST)
 │   ├── delivery-methods/route.ts     Delivery promotion eligibility (POST)
-│   └── product-page/route.ts         Product promotion badge data (POST)
+│   ├── product-page/route.ts         Product promotion badge data (POST)
+│   └── extension-types/route.ts      Available extension rule/benefit type metadata (GET)
 │
 ├── backend/
 │   ├── promotions/page.tsx           Promotion list (drag-sort, filters, save)
@@ -136,11 +139,13 @@ promotions/
 │
 ├── lib/
 │   ├── evaluation-engine.ts          Three-pass recursive evaluator
-│   ├── rule-evaluators.ts            15 concrete rule evaluators
+│   ├── rule-evaluators.ts            15 built-in rule evaluators
 │   ├── effect-resolvers.ts           Benefit config → ResolvedEffect[] (owns all discount math)
 │   ├── product-page-engine.ts        Lightweight variant (product visibility)
 │   ├── code-service.ts               Code validation, reservation, usage
-│   └── tag-exclusion.ts              Promotion ordering + cumulativity + tag exclusion loop
+│   ├── tag-exclusion.ts              Promotion ordering + cumulativity + tag exclusion loop
+│   ├── extension-registry.ts         Server-side rule/benefit/middleware extension registry
+│   └── extension-registry.client.ts  Client-side configurator component registry
 │
 ├── services/
 │   ├── promotion-cache.ts            Active promotions cache (tag-invalidated)
@@ -159,7 +164,9 @@ promotions/
 ├── migrations/                       DB migrations (generated, never hand-written)
 ├── i18n/en.json                      English locale strings
 ├── components/                       Shared React components (tree builder)
-└── widgets/injection/                Widget injection slots
+└── widgets/
+    ├── injection-table.ts            Widget-to-slot mappings
+    └── injection/                    Widget injection slots (injected by other modules)
 ```
 
 ### Evaluation Engine Data Flow
@@ -231,7 +238,7 @@ NormalizedBenefit {
 
 `services/promotion-cache.ts` guarantees:
 
-1. A single cache build performs **all** required database reads (promotions → rule groups (recursive) → rule dispatchers → all concrete rule tables → benefit dispatchers → all concrete benefit tables)
+1. A single cache build performs **all** required database reads (promotions → rule groups (recursive) → `promotion_rules` → `promotion_benefits`)
 2. After caching, promotion evaluation executes with **zero database access**
 3. Any missing eager-loaded relation is treated as a critical bug
 
@@ -259,6 +266,28 @@ delete-code → delete CodeReservation only
 | `promotions.code.delete` | `promotions.code.deleted` |
 | `promotions.code.use` | `promotions.code.used` |
 | `promotions.generated-code.generate` | `promotions.generated-code.created` (batch) |
+
+Additional events emitted by the evaluation and code pipelines:
+
+| Trigger | Event emitted | Payload |
+|---------|--------------|---------|
+| Successful `apply-promotion` call | `promotions.evaluation.completed` | `{ organizationId, tenantId, appliedPromotionIds, effectCount, durationMs }` |
+| `use-code` finalises successfully | `promotions.code.used` (existing) + `promotions.code.exhausted` (if the code pool is now empty) | |
+| Code pool drops to zero available | `promotions.code.exhausted` | `{ organizationId, tenantId, codeId, codeName }` |
+| Promotion `ends_at` within 48h | `promotions.promotion.expiring-soon` | `{ organizationId, tenantId, promotionId, endsAt }` — emitted by a scheduled check, not on mutation |
+
+### Evaluation Middleware Hooks
+
+These are synchronous hooks registered on `PromotionExtensionRegistry` — they are NOT async event bus events. They execute in-process within the same request and are called in registration order.
+
+| Hook | When it runs | What it can do |
+|------|-------------|----------------|
+| `EvaluationMiddleware.beforeEvaluate` | Before Pass 1 starts for any promotion | Return a modified `CartContext` (e.g. append loyalty tier data to `context.extensions`) |
+| `EvaluationMiddleware.afterResolve` | After Pass 3 produces all `AppliedPromotion[]` | Filter, augment, or reorder the resolved effects (e.g. enterprise pricing caps a maximum discount) |
+| `CodeMiddleware.beforeCodeUse` | Inside the serializable transaction before `use-code` commits | Throw a typed error to veto code use |
+| `CodeMiddleware.afterCodeUse` | After `use-code` transaction commits (outside transaction) | Side effects — awarding loyalty points, sending confirmation events |
+
+Middleware is registered at DI startup and is immutable for the lifetime of the process. Registration order is deterministic (alphabetical by module ID within a single DI container boot).
 
 ---
 
@@ -306,7 +335,7 @@ Table: `promotion_rule_groups`
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
-### Rule (polymorphic dispatcher)
+### Rule
 
 Table: `promotion_rules`
 
@@ -315,36 +344,34 @@ Table: `promotion_rules`
 | `id` | uuid PK | |
 | `rule_group_id` | uuid FK → promotion_rule_groups | |
 | `promotion_id` | uuid FK → promotions | Denormalised |
-| `ruleable_type` | text | Discriminator (e.g. `order_value`, `product`, `code`) |
-| `ruleable_id` | uuid | FK to concrete rule table |
+| `rule_type` | text | Discriminator (e.g. `order_value`, `product`, `code`) |
+| `config` | jsonb | Validated per `rule_type` by Zod discriminated union in `data/validators.ts` |
 | `sort_order` | integer | |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
-### Concrete Rule Tables
+**Config schemas per `rule_type`:**
 
-One table per rule type. All share `id` (uuid PK), `organization_id`, `tenant_id`. Fields per type:
+| `rule_type` | Config fields |
+|-------------|---------------|
+| `order_value` | `value` decimal string, `operator` text, `tax_inclusive` bool, `limit_to_category` text nullable |
+| `order_date` | `date` date string, `operator` text |
+| `product_count` | `value` integer, `operator` text, `exclude_pharmaceutical` bool |
+| `cart_weight` | `value` decimal string, `operator` text |
+| `row_total` | `value` decimal string, `operator` text, `sku` text nullable, `category_slug` text nullable |
+| `product` | `sku` text, `quantity` integer, `operator` text |
+| `category` | `category_slug` text, `quantity` integer, `operator` text, `exclude_pharmaceutical` bool |
+| `producer` | `producer_code` text, `quantity` integer, `operator` text, `exclude_pharmaceutical` bool |
+| `product_attribute` | `attribute_code` text, `operator` text, `value` text |
+| `user_group` | `user_group_id` uuid string |
+| `customer_order_history` | `value` integer, `operator` text |
+| `consent_flag` | `flag_key` text — identifier of a consent flag the customer must have accepted (e.g. `newsletter_optin`, `loyalty_terms`); evaluated against `consentFlags` in the cart context |
+| `code` | `code_id` uuid string — application-layer validated reference to `promotion_codes`; validated in commands before persist |
+| `delivery_method` | `delivery_method_code` text |
+| `payment_method` | `payment_method_code` text |
+| `shipping_address` | `field` text (`country`/`region`/`postcode`), `operator` text, `value` text |
 
-| Table | Key fields |
-|-------|-----------|
-| `promotion_rules_order_value` | `value` decimal, `operator` text, `tax_inclusive` bool, `limit_to_category` text nullable |
-| `promotion_rules_order_date` | `date` date, `operator` text |
-| `promotion_rules_product_count` | `value` integer, `operator` text, `exclude_pharmaceutical` bool |
-| `promotion_rules_cart_weight` | `value` decimal, `operator` text |
-| `promotion_rules_row_total` | `value` decimal, `operator` text, `sku` text nullable, `category_slug` text nullable |
-| `promotion_rules_product` | `sku` text, `quantity` integer, `operator` text |
-| `promotion_rules_category` | `category_slug` text, `quantity` integer, `operator` text, `exclude_pharmaceutical` bool |
-| `promotion_rules_producer` | `producer_code` text, `quantity` integer, `operator` text, `exclude_pharmaceutical` bool |
-| `promotion_rules_product_attribute` | `attribute_code` text, `operator` text, `value` text |
-| `promotion_rules_user_group` | `user_group_id` uuid |
-| `promotion_rules_customer_order_history` | `value` integer, `operator` text |
-| `promotion_rules_consent_flag` | `flag_key` text — identifier of a consent flag the customer must have accepted (e.g. `newsletter_optin`, `loyalty_terms`); evaluated against `consentFlags` in the cart context |
-| `promotion_rules_code` | `code_id` uuid FK → promotion_codes |
-| `promotion_rules_delivery_method` | `delivery_method_code` text |
-| `promotion_rules_payment_method` | `payment_method_code` text |
-| `promotion_rules_shipping_address` | `field` text (`country`/`region`/`postcode`), `operator` text, `value` text |
-
-### Benefit (polymorphic dispatcher)
+### Benefit
 
 Table: `promotion_benefits`
 
@@ -353,24 +380,24 @@ Table: `promotion_benefits`
 | `id` | uuid PK | |
 | `rule_group_id` | uuid FK → promotion_rule_groups | |
 | `promotion_id` | uuid FK → promotions | Denormalised |
-| `benefitable_type` | text | Discriminator |
-| `benefitable_id` | uuid | FK to concrete benefit table |
+| `benefit_type` | text | Discriminator |
+| `config` | jsonb | Validated per `benefit_type` by Zod discriminated union in `data/validators.ts` |
 | `sort_order` | integer | |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
-### Concrete Benefit Tables
+**Config schemas per `benefit_type`:**
 
-| Table | Key fields |
-|-------|-----------|
-| `promotion_benefits_product_discount` | `sku` text nullable, `discount_type` text, `value` decimal, `selector` text, `nth_position` int nullable, `pcs_limit` int nullable, `limit_to_category` text nullable, `excluded_producers` text[], `labels` jsonb |
-| `promotion_benefits_cart_discount` | `discount_type` text, `value` decimal, `labels` jsonb |
-| `promotion_benefits_delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal, `scope` text, `labels` jsonb |
-| `promotion_benefits_free_product` | `sku` text nullable, `category_slug` text nullable, `quantity` int, `labels` jsonb |
-| `promotion_benefits_buy_x_get_y` | `trigger_sku` text nullable, `trigger_category_slug` text nullable, `trigger_quantity` int, `reward_sku` text, `reward_quantity` int, `discount_type` text, `value` decimal, `max_applications` int nullable, `labels` jsonb |
-| `promotion_benefits_tiered_discount` | `scope` text (`cart`\|`line`), `selector` text nullable (see selector values below), `limit_to_category` text nullable, `tiers` jsonb, `labels` jsonb |
+| `benefit_type` | Config fields |
+|----------------|---------------|
+| `product_discount` | `sku` text nullable, `discount_type` text, `value` decimal string, `selector` text, `nth_position` int nullable, `pcs_limit` int nullable, `limit_to_category` text nullable, `excluded_producers` text[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `cart_discount` | `discount_type` text, `value` decimal string, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal string, `scope` text, `labels` Record\<locale, string\> |
+| `free_product` | `sku` text nullable, `category_slug` text nullable, `quantity` int, `labels` Record\<locale, string\> |
+| `buy_x_get_y` | `trigger_sku` text nullable, `trigger_category_slug` text nullable, `trigger_quantity` int, `reward_sku` text, `reward_quantity` int, `discount_type` text, `value` decimal string, `max_applications` int nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `tiered_discount` | `scope` text (`cart`\|`line`), `selector` text nullable (see selector values below), `limit_to_category` text nullable, `tiers` TierElement[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
 
-**`selector` values** (used in `promotion_benefits_product_discount` and `promotion_benefits_tiered_discount`):
+**`selector` values** (used in `product_discount` and `tiered_discount` configs):
 
 | Value | Meaning |
 |-------|---------|
@@ -381,7 +408,9 @@ Table: `promotion_benefits`
 
 `pcs_limit` caps the total number of items that receive the discount regardless of `selector`.
 
-**`tiers` JSONB schema** for `promotion_benefits_tiered_discount` must be explicitly validated in `data/validators.ts`. Each tier element: `{ threshold: string (decimal), discount_type: "percentage" | "fixed", value: string (decimal) }`. Tiers must be sorted ascending by `threshold`; the evaluator applies the highest tier whose threshold is met.
+`max_discount` (optional, decimal string) caps the total monetary discount produced by a single benefit invocation. The effect resolver in `lib/effect-resolvers.ts` applies the cap after computing the raw amount: `effectiveAmount = min(rawAmount, max_discount)`. The cap is expressed in the cart's operating currency. This allows operators to configure benefits such as "10% off the cart, but no more than $1000". Applies to `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount`; not relevant for `delivery_discount` (naturally bounded by delivery cost) or `free_product`/`buy_x_get_y` free-item additions (no monetary amount computed).
+
+**`tiers` schema** for `tiered_discount` config must be explicitly validated in `data/validators.ts`. Each tier element: `{ threshold: string (decimal), discount_type: "percentage" | "fixed", value: string (decimal) }`. Tiers must be sorted ascending by `threshold`; the evaluator applies the highest tier whose threshold is met.
 
 ### Code
 
@@ -438,7 +467,7 @@ Table: `promotion_code_reservations`
 | `created_at` | timestamptz | |
 | `expires_at` | timestamptz | `created_at + 24h` |
 
-> **Partial unique index**: `(code_id, customer_id) WHERE expires_at > NOW()` — enforces at most one active reservation per customer per code. Expired reservations are excluded from the constraint, allowing a customer to re-enter a code after their session expires.
+> **Unique constraint**: `UNIQUE (code_id, customer_id)` — enforces at most one reservation row per customer per code. The application uses **upsert semantics**: on re-reservation, the existing row's `expires_at` is extended rather than inserting a new row. To check if a reservation is still active, compare `expires_at > NOW()` in application logic or queries — not in the index. This sidesteps PostgreSQL's prohibition on volatile functions (`NOW()`) in index predicates.
 
 ### CodeUsage
 
@@ -615,6 +644,7 @@ Response:
 - `amount` is always a negative decimal string (the cart adds it; no sign confusion)
 - One `LINE_DISCOUNT` effect per SKU per promotion (effects for the same SKU from different promotions are separate entries in separate `appliedPromotions` objects)
 - `ADD_FREE_ITEM` effects are decided entirely by the promotions engine — the cart must not compute which free item to add from raw benefit config
+- When `max_discount` is set on a benefit config, the effect resolver caps `|amount|` at `max_discount` before returning the effect — the resolved `amount` is always `≥ -max_discount`. The cap is applied per-benefit, not across the whole promotion.
 
 #### `POST /api/cart/add-code`
 
@@ -656,6 +686,36 @@ Request: cart context + delivery method codes to check. Response: which delivery
 
 Request: `{ organizationId, tenantId, skus: string[] }` — list of SKUs rendered on a product listing or detail page.
 Response: `{ badges: Array<{ sku: string, promotionId: uuid, promotionName: string, label: Record<string, string> }> }` — one entry per SKU that has an active promotion with a matching `ProductDiscount` or `BuyXGetY` benefit. Evaluated via `lib/product-page-engine.ts` against the same normalized promotion cache; zero DB access.
+
+#### `GET /api/promotions/extension-types`
+
+Returns all rule and benefit extensions currently registered in `PromotionExtensionRegistry`. Used by the admin tree builder to populate rule/benefit type dropdowns with extension entries.
+
+Requires `requireAuth` + `promotions.view` feature.
+
+Response:
+```jsonc
+{
+  "ruleTypes": [
+    {
+      "type": "loyalty.tier_membership",
+      "label": { "en": "Customer loyalty tier", "pl": "Poziom lojalności klienta" },
+      "description": { "en": "Applies when the customer belongs to the specified loyalty tier" },
+      "contextKeys": ["loyalty.tier_membership"]
+    }
+  ],
+  "benefitTypes": [
+    {
+      "type": "loyalty.points_multiplier",
+      "label": { "en": "Loyalty points multiplier", "pl": "Mnożnik punktów lojalnościowych" },
+      "description": { "en": "Multiplies earned loyalty points for this cart" },
+      "contextKeys": []
+    }
+  ]
+}
+```
+
+`contextKeys` is surfaced so cart integrations can determine which `extensions` fields to include in `POST /api/cart/apply-promotion` requests.
 
 ---
 
@@ -724,6 +784,247 @@ Four panels in a single page (not tabs):
 
 ---
 
+## Extensibility
+
+The promotions module is designed so that other modules (enterprise, loyalty, POS, partner integrations) can add custom rule types, custom benefit types, evaluation middleware, and admin configurator UI — all without touching core promotions code.
+
+### Extension Registry (Server-Side)
+
+`lib/extension-registry.ts` exports `PromotionExtensionRegistry`, registered as a singleton in `di.ts` and resolvable by any other module's DI registrar.
+
+```typescript
+// lib/extension-registry.ts
+
+export interface RuleExtension {
+  /** Discriminator key, globally unique. Use namespaced form: '<module>.<rule>', e.g. 'loyalty.tier_membership' */
+  type: string
+  /** Human-readable label per locale, shown in the rule type dropdown */
+  label: Record<string, string>
+  description?: Record<string, string>
+  /** Zod schema used to validate the config JSONB at write time */
+  configSchema: z.ZodSchema
+  /**
+   * Evaluates whether the rule is satisfied.
+   * MUST be pure given the same inputs — no DB access, no side effects.
+   * Extension-specific context data is passed via `context.extensions[type]`.
+   */
+  evaluate(config: unknown, context: CartContext): boolean
+  /**
+   * Keys the extension needs from context.extensions.
+   * Declared so cart integrations know what to include in the request body.
+   */
+  contextKeys?: string[]
+}
+
+export interface BenefitExtension {
+  /** Discriminator key. Use namespaced form: '<module>.<benefit>', e.g. 'loyalty.points_multiplier' */
+  type: string
+  label: Record<string, string>
+  description?: Record<string, string>
+  configSchema: z.ZodSchema
+  /**
+   * Resolves the benefit into concrete ResolvedEffect[].
+   * MUST be pure — no DB access, no side effects.
+   */
+  resolve(config: unknown, context: CartContext): ResolvedEffect[]
+}
+
+export interface EvaluationMiddleware {
+  /** Stable ID for deduplication; use namespaced form: '<module>.<name>' */
+  id: string
+  /**
+   * Runs before evaluation begins.
+   * May return a modified CartContext (e.g. loyalty module appends tier info to context.extensions).
+   * Must not mutate the original context object — return a new reference.
+   */
+  beforeEvaluate?(context: CartContext): Promise<CartContext>
+  /**
+   * Runs after all effects are resolved.
+   * May filter, augment, or reorder the effects list.
+   * Must not mutate the original array — return a new reference.
+   */
+  afterResolve?(effects: AppliedPromotion[], context: CartContext): Promise<AppliedPromotion[]>
+}
+
+export interface CodeMiddleware {
+  id: string
+  /**
+   * Runs inside the serializable transaction before `use-code` finalises.
+   * Throw a typed error to veto the code use (e.g. loyalty module vetoes if eligibility check fails).
+   */
+  beforeCodeUse?(codeId: string, context: CartContext): Promise<void>
+  /**
+   * Runs after `use-code` commits successfully (outside the transaction).
+   * Used for side effects such as awarding loyalty points.
+   */
+  afterCodeUse?(codeId: string, context: CartContext): Promise<void>
+}
+
+export class PromotionExtensionRegistry {
+  registerRuleType(ext: RuleExtension): void
+  registerBenefitType(ext: BenefitExtension): void
+  registerEvaluationMiddleware(middleware: EvaluationMiddleware): void
+  registerCodeMiddleware(middleware: CodeMiddleware): void
+
+  getRuleExtension(type: string): RuleExtension | undefined
+  getBenefitExtension(type: string): BenefitExtension | undefined
+
+  getAllRuleExtensions(): RuleExtension[]
+  getAllBenefitExtensions(): BenefitExtension[]
+  getEvaluationMiddlewares(): EvaluationMiddleware[]
+  getCodeMiddlewares(): CodeMiddleware[]
+}
+```
+
+**Registration pattern** — another module registers extensions in its own `di.ts`:
+
+```typescript
+// packages/core/src/modules/loyalty/di.ts
+import { PromotionExtensionRegistry } from '@open-mercato/core/modules/promotions/lib/extension-registry'
+import { loyaltyTierRule } from './promotions/loyalty-tier-rule'
+import { loyaltyPointsMultiplierBenefit } from './promotions/loyalty-points-benefit'
+
+export function register(container: AwilixContainer) {
+  const registry = container.resolve<PromotionExtensionRegistry>('promotionExtensionRegistry')
+  registry.registerRuleType(loyaltyTierRule)
+  registry.registerBenefitType(loyaltyPointsMultiplierBenefit)
+}
+```
+
+**Evaluation engine integration** — `lib/evaluation-engine.ts` resolves unknown rule/benefit types via the registry:
+
+```
+Pass 1 (boolean):
+  Built-in rule types → lib/rule-evaluators.ts
+  Unknown type        → registry.getRuleExtension(type)?.evaluate(config, context) ?? false
+
+Pass 3 (effect resolution):
+  Built-in benefit types → lib/effect-resolvers.ts
+  Unknown type           → registry.getBenefitExtension(type)?.resolve(config, context) ?? []
+```
+
+The middleware pipeline wraps the entire evaluation:
+
+```
+beforeEvaluate middlewares (ordered by registration)
+  → evaluateGroup() → collectBenefits() → resolveEffects()
+afterResolve middlewares (ordered by registration)
+  → return AppliedPromotion[]
+```
+
+**Constraints on extension evaluators:**
+
+- MUST be synchronous (extensions returning `Promise` are rejected at registration time with a clear error)
+- MUST NOT access the database, entity manager, or any I/O — all required data must be declared via `contextKeys` and supplied by the cart in `context.extensions`
+- MUST return a deterministic result for the same inputs
+- Config JSONB is validated against `configSchema` at write time; evaluators may safely assume the config is valid
+
+**Validation integration** — `data/validators.ts` accepts extension types in the Zod discriminated union via a passthrough branch:
+
+```typescript
+// In the rule config discriminated union:
+z.discriminatedUnion('rule_type', [
+  // ... 15 built-in branches ...
+  z.object({ rule_type: z.string(), config: z.unknown() })  // extension fallback; validated by extension's own configSchema
+])
+```
+
+At write time, the API command resolves the extension from the registry and runs `extension.configSchema.parse(config)` before persisting, producing the same 422 validation errors as built-in types.
+
+---
+
+### Client-Side Configurator Registry
+
+`lib/extension-registry.client.ts` provides a browser-side registry that maps extension type keys to React configurator components. The tree builder (`components/RuleGroupNode`) calls this registry when the selected rule/benefit type is not a built-in type.
+
+```typescript
+// lib/extension-registry.client.ts
+
+export interface ConfiguratorProps<TConfig = unknown> {
+  config: TConfig
+  onChange(config: TConfig): void
+  errors?: Record<string, string>
+  locale: string
+}
+
+export interface RuleConfiguratorExtension {
+  type: string
+  label: Record<string, string>
+  component: React.ComponentType<ConfiguratorProps>
+}
+
+export interface BenefitConfiguratorExtension {
+  type: string
+  label: Record<string, string>
+  component: React.ComponentType<ConfiguratorProps>
+}
+
+export const promotionExtensionConfiguratorRegistry = {
+  registerRule(ext: RuleConfiguratorExtension): void
+  registerBenefit(ext: BenefitConfiguratorExtension): void
+  getRule(type: string): RuleConfiguratorExtension | undefined
+  getBenefit(type: string): BenefitConfiguratorExtension | undefined
+  getAllRules(): RuleConfiguratorExtension[]
+  getAllBenefits(): BenefitConfiguratorExtension[]
+}
+```
+
+**Registration pattern** — another module registers its configurator component in its own `notifications.client.ts` or module entry point that is loaded by the app shell:
+
+```typescript
+// packages/core/src/modules/loyalty/promotions/configurators.client.ts
+import { promotionExtensionConfiguratorRegistry } from '@open-mercato/core/modules/promotions/lib/extension-registry.client'
+import { LoyaltyTierRuleConfigurator } from './LoyaltyTierRuleConfigurator'
+
+promotionExtensionConfiguratorRegistry.registerRule({
+  type: 'loyalty.tier_membership',
+  label: { en: 'Customer loyalty tier', pl: 'Poziom lojalności klienta' },
+  component: LoyaltyTierRuleConfigurator,
+})
+```
+
+**Tree builder integration** — `components/RuleGroupNode.tsx` populates the rule type combobox by merging built-in rule descriptors with `promotionExtensionConfiguratorRegistry.getAllRules()`. When a rule card's `rule_type` matches an extension, the tree builder renders the extension's `component` instead of a built-in field set. The extension component receives `config` and `onChange`; the tree builder owns persistence.
+
+The type dropdown groups extension types under a labelled section (e.g. `"Extensions"`) to distinguish them visually from built-in types.
+
+---
+
+### Widget Injection Points
+
+The promotions module declares the following injection slots for other modules to inject UI widgets. Slot IDs follow the platform convention `<module>.<location>`.
+
+| Slot ID | Location | Typical use |
+|---------|----------|-------------|
+| `promotions.promotion-list.toolbar` | Right side of the promotion list header bar | Bulk action buttons, export controls |
+| `promotions.promotion-detail.panels` | Below the standard 4 panels on the promotion form | Module-specific metadata panels (e.g. loyalty stats for a promotion) |
+| `promotions.promotion-detail.sidebar` | Sidebar alongside the tree editor | Real-time preview, analytics breakdowns |
+| `promotions.codes-list.toolbar` | Right side of the codes list header bar | Bulk export, import |
+| `promotions.dashboard.stats` | Dashboard overview area | Promotion usage summary, active promotions count |
+
+Injected widgets receive `{ promotionId?: string, organizationId: string, tenantId: string }` as props via the standard widget context.
+
+Slot declarations live in `widgets/injection-table.ts` following the platform's widget injection pattern.
+
+---
+
+### Extensible Cart Context
+
+The `CartContext` (accepted by `POST /api/cart/apply-promotion`) is extended with an open-ended `extensions` field to let cart integrations supply extension-specific data:
+
+```jsonc
+{
+  // ... existing fields ...
+  "extensions": {
+    "loyalty.tier_membership": { "tier": "gold", "points": 1240 },
+    "enterprise.contract_pricing": { "contractId": "uuid" }
+  }
+}
+```
+
+Extension rule evaluators receive the full context and should read from `context.extensions[ext.type]`. The `contextKeys` field declared on each `RuleExtension` is surfaced via `GET /api/promotions/extension-types` so cart integrations know exactly which keys to populate.
+
+---
+
 ## Migration & Compatibility
 
 - All tables created via MikroORM migrations (`yarn db:generate` → `yarn db:migrate`)
@@ -740,7 +1041,7 @@ Four panels in a single page (not tabs):
 **Goal:** Operators can create, edit, and delete promotions with a full rule-benefit tree. Data persists correctly. All entities, migrations, and CRUD in place.
 
 1. Scaffold module: `index.ts`, `acl.ts`, `events.ts`, `setup.ts`, `di.ts`, `ce.ts`, `translations.ts`
-2. Write all MikroORM entities in `data/entities.ts` (Promotion, RuleGroup, Rule, 15 concrete rule tables, Benefit, 6 concrete benefit tables)
+2. Write all MikroORM entities in `data/entities.ts` (Promotion, RuleGroup, Rule with `rule_type` + `config jsonb`, Benefit with `benefit_type` + `config jsonb`)
 3. Write Zod validators in `data/validators.ts` for all entities and API inputs
 4. Generate and apply DB migration (`yarn db:generate && yarn db:migrate`)
 5. Implement `commands/promotions.ts` — create/update/delete with undo support, events, cache invalidation
@@ -761,9 +1062,9 @@ Four panels in a single page (not tabs):
 
 1. Implement `lib/evaluation-engine.ts` — three-pass recursive evaluator accepting `NormalizedPromotion[]`; MUST NOT depend on MikroORM entities or any DB access; applies deterministic ordering (`ORDER BY order ASC, id ASC`); Pass 3 calls effect resolvers with the cart context to compute final amounts
 2. Implement `lib/rule-evaluators.ts` — all 15 concrete rule evaluators with context key declarations; evaluators receive normalized `config` objects only
-3. Implement `lib/effect-resolvers.ts` — all 6 concrete effect resolvers; each resolver maps a `NormalizedBenefit` config + cart context to one or more `ResolvedEffect` objects with computed amounts and resolved SKUs; no math may live outside this file
+3. Implement `lib/effect-resolvers.ts` — all 6 concrete effect resolvers; each resolver maps a `NormalizedBenefit` config + cart context to one or more `ResolvedEffect` objects with computed amounts and resolved SKUs; no math may live outside this file. Resolvers for `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` must apply `max_discount` capping after computing the raw amount: `effectiveAmount = min(rawAmount, config.max_discount ?? Infinity)`
 4. Implement `lib/tag-exclusion.ts` — promotion ordering + cumulativity + tag exclusion loop
-5. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, normalize entity graphs into `NormalizedPromotion[]` (flattening polymorphic tables, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event
+5. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, normalize entity graphs into `NormalizedPromotion[]` (mapping `promotion_rules`/`promotion_benefits` jsonb rows directly to `{ type, config }` shape, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event
 6. Implement `api/cart/apply-promotion/route.ts` — full cart evaluation endpoint
 7. Implement `api/dynamic-labels/route.ts`, `api/free-products/route.ts`, `api/delivery-methods/route.ts`
 8. Implement `lib/product-page-engine.ts` — lightweight variant that evaluates active promotions against a list of SKUs; implement `api/product-page/route.ts` consuming it
@@ -789,12 +1090,28 @@ Four panels in a single page (not tabs):
 **Goal:** Promotions are searchable; operators receive relevant notifications; edge cases handled.
 
 1. Implement `search.ts` — fulltext indexing for promotions (name, description, tags) and codes (name, code)
-2. Implement `notifications.ts` — code pool exhaustion notification, promotion about to expire
+2. Implement `notifications.ts` — code pool exhaustion notification (`promotions.code.exhausted` event), promotion expiring-soon notification
 3. Implement `subscribers/` for notification events
 4. Add i18n locale files (`i18n/en.json`, `i18n/pl.json`, etc.)
-5. Widget injection: promotion count widget for dashboard, code usage stats
+5. Declare widget injection slots in `widgets/injection-table.ts`: `promotions.promotion-list.toolbar`, `promotions.promotion-detail.panels`, `promotions.promotion-detail.sidebar`, `promotions.codes-list.toolbar`, `promotions.dashboard.stats`
 6. POS integration event subscription: `pos.cart.completed` → trigger `use-code` if code in session
 7. Final compliance and spec update
+8. Integration tests: `TC-PROM-030` Search indexing, `TC-PROM-031` Notification on code exhaustion, `TC-PROM-032` Notification on promotion expiring soon
+
+### Phase 5 — Extension Infrastructure
+
+**Goal:** Other modules can register custom rule types, benefit types, evaluation middleware, and admin configurator UI against the promotions module without modifying any promotions file.
+
+1. Implement `lib/extension-registry.ts` — `PromotionExtensionRegistry` class; `registerRuleType`, `registerBenefitType`, `registerEvaluationMiddleware`, `registerCodeMiddleware`; validate at registration that evaluators are synchronous functions; log a warning on duplicate `type` registration (last-registered wins)
+2. Register `PromotionExtensionRegistry` as a singleton in `di.ts` under the token `promotionExtensionRegistry`
+3. Update `lib/evaluation-engine.ts` — resolve unknown rule types from registry in Pass 1; resolve unknown benefit types from registry in Pass 3; run `EvaluationMiddleware.beforeEvaluate` chain before Pass 1; run `EvaluationMiddleware.afterResolve` chain after Pass 3; pass `context.extensions` through unchanged to all evaluators
+4. Update `lib/code-service.ts` — call `CodeMiddleware.beforeCodeUse` inside the serializable transaction; call `CodeMiddleware.afterCodeUse` after transaction commits; wrap `beforeCodeUse` errors as 422 responses with the thrown message
+5. Update `data/validators.ts` — add extension passthrough branch to the Zod discriminated union for `rule_type` and `benefit_type`; run `extension.configSchema.parse(config)` in commands for unknown types before persisting
+6. Extend `CartContext` type to include `extensions?: Record<string, unknown>`; update the `POST /api/cart/apply-promotion` Zod schema and OpenAPI spec to include the `extensions` field
+7. Implement `api/extension-types/route.ts` — `GET`, resolves registry from DI, maps to response shape, exports `openApi`; requires `requireAuth` + `promotions.view`
+8. Implement `lib/extension-registry.client.ts` — `promotionExtensionConfiguratorRegistry` object; `registerRule`, `registerBenefit`, `getRule`, `getBenefit`, `getAllRules`, `getAllBenefits`
+9. Update `components/RuleGroupNode.tsx` tree builder — fetch `/api/promotions/extension-types` once on mount; merge extension entries into rule type and benefit type comboboxes under an `"Extensions"` group heading; render extension component from client registry when selected type is not built-in; fall back to a `<JsonConfigEditor>` (raw JSON textarea with schema validation) when a type is present in server metadata but has no registered client configurator
+10. Integration tests: `TC-PROM-040` Register a test rule extension, create a promotion using it, verify evaluation returns correct result; `TC-PROM-041` Register a test benefit extension, verify effect is present in `apply-promotion` response; `TC-PROM-042` `beforeEvaluate` middleware can inject data into `context.extensions`; `TC-PROM-043` `afterResolve` middleware can filter effects; `TC-PROM-044` `beforeCodeUse` middleware can veto code use with 422; `TC-PROM-045` Extension type appears in `GET /api/promotions/extension-types` response
 
 ### File Manifest (Phase 1 critical files)
 
@@ -817,9 +1134,10 @@ Four panels in a single page (not tabs):
 
 Integration tests for each phase following `.ai/qa/AGENTS.md`:
 - Phase 1: `TC-PROM-001` Promotion CRUD, `TC-PROM-002` Rule tree save/load, `TC-PROM-003` Order batch update
-- Phase 2: `TC-PROM-010` Apply-promotion returns resolved amounts (not raw percentages) for each rule type, `TC-PROM-011` Cumulativity + tag exclusion, `TC-PROM-012` Sub-group benefit collection, `TC-PROM-013` ADD_FREE_ITEM effect carries correct SKU + quantity for FreeProduct and BuyXGetY
+- Phase 2: `TC-PROM-010` Apply-promotion returns resolved amounts (not raw percentages) for each rule type, `TC-PROM-011` Cumulativity + tag exclusion, `TC-PROM-012` Sub-group benefit collection, `TC-PROM-013` ADD_FREE_ITEM effect carries correct SKU + quantity for FreeProduct and BuyXGetY, `TC-PROM-014` `max_discount` cap — a `cart_discount` benefit with `value: "10%"` and `max_discount: "100"` applied to a $1500 cart produces `amount: "-100"` (capped), not `"-150"`
 - Phase 3: `TC-PROM-020` Code lifecycle, `TC-PROM-021` Per-customer limit, `TC-PROM-022` Concurrent reservation race
-- Phase 4: `TC-PROM-030` Search indexing, `TC-PROM-031` Notification on code exhaustion
+- Phase 4: `TC-PROM-030` Search indexing, `TC-PROM-031` Notification on code exhaustion, `TC-PROM-032` Notification on promotion expiring soon
+- Phase 5: `TC-PROM-040` Custom rule extension evaluation, `TC-PROM-041` Custom benefit extension effect resolution, `TC-PROM-042` `beforeEvaluate` middleware context injection, `TC-PROM-043` `afterResolve` middleware effect filtering, `TC-PROM-044` `beforeCodeUse` veto, `TC-PROM-045` Extension type metadata endpoint
 
 ---
 
@@ -841,12 +1159,12 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 - **Mitigation**: `CodeReservation` creation is wrapped in a serialisable transaction that re-reads `CodeUsage` count + existing reservation count inside the transaction. A unique constraint on `(code_id, customer_id)` for active reservations enforces single-claim.
 - **Residual risk**: Customers with very high checkout abandonment rates create many expired reservations; cleanup job required.
 
-#### Polymorphic Rule Deletion
-- **Scenario**: A concrete rule record (e.g. `promotion_rules_product`) is deleted directly without deleting its parent `Rule` dispatcher. The dispatcher now references a non-existent ID.
+#### JSONB Config Schema Drift
+- **Scenario**: A rule or benefit record is persisted with a `config` shape that no longer matches the current Zod schema (e.g. after a schema evolution). Evaluation engine receives unexpected config fields or missing required fields.
 - **Severity**: Medium
-- **Affected area**: Evaluation engine (null-pointer on dispatch)
-- **Mitigation**: All concrete rule deletions cascade from `Rule` deletion; no direct delete of concrete tables via API. Evaluator validates `ruleable_id` exists before dispatch and returns false (not throw) if missing.
-- **Residual risk**: Low — cascades are DB-enforced.
+- **Affected area**: Evaluation engine (runtime error in rule evaluator or effect resolver)
+- **Mitigation**: All writes go through Zod discriminated union validation in `data/validators.ts` before persisting. Evaluators defensively destructure only known fields and return `false` (not throw) on unrecognised shapes. Schema migrations for existing rows must be handled via a one-time data migration when field renames occur.
+- **Residual risk**: Low — write-time validation prevents bad data entering the store; evaluator defensiveness contains runtime exposure.
 
 ### Cascading Failures & Side Effects
 
@@ -882,12 +1200,12 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 
 ### Migration & Deployment Risks
 
-#### Large Number of Tables
-- **Scenario**: 15 concrete rule tables + 6 concrete benefit tables = 21+ new tables. Migration creates all at once. If migration fails mid-way, partial state is left.
-- **Severity**: Medium
+#### Migration Scope
+- **Scenario**: Schema migration introduces `promotion_rules` and `promotion_benefits` tables. If migration fails, partial state is left.
+- **Severity**: Low
 - **Affected area**: Database schema
-- **Mitigation**: MikroORM generates a single migration file; Postgres wraps it in a transaction. Rollback restores prior state completely.
-- **Residual risk**: Migration time on large databases — tables are empty on first deploy; negligible.
+- **Mitigation**: MikroORM generates a single migration file; Postgres wraps it in a transaction. Rollback restores prior state completely. Total new tables are ~6 (down from 23 in the original design), reducing migration surface.
+- **Residual risk**: Negligible — tables are empty on first deploy.
 
 ### Operational Risks
 
@@ -954,6 +1272,10 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | packages/ui/AGENTS.md | Use `CrudForm` for standard forms; `useGuardedMutation` for non-CrudForm writes | Compliant | Promotion and code forms use `CrudForm`; tree reconciliation (PUT) uses `useGuardedMutation` |
 | packages/ui/AGENTS.md | Use `LoadingMessage`/`ErrorMessage` | Compliant | All backend pages use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail` |
 | packages/ui/AGENTS.md | Use `DataTable` for lists | Compliant | Codes list and generated codes panel use `DataTable` |
+| root AGENTS.md | Widget injection: declare in `widgets/injection/`, map via `injection-table.ts` | Compliant | 5 injection slots declared in `widgets/injection-table.ts`; external modules inject via the standard widget system |
+| root AGENTS.md | Events: use `createModuleEvents()` with `as const` for all emitted events | Compliant | New events (`evaluation.completed`, `code.exhausted`, `promotion.expiring-soon`) added to `events.ts` following `createModuleEvents()` pattern |
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | `PromotionExtensionRegistry` holds only plain objects (interfaces); no ORM entities or repositories cross module boundaries through the registry |
+| root AGENTS.md | Validate all inputs with Zod | Compliant | Extension `configSchema` is validated at write time via `configSchema.parse(config)` in commands; unknown types are not persisted without validation |
 
 ---
 
@@ -962,3 +1284,6 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | Date | Version | Summary |
 |------|---------|---------|
 | 2026-02-23 | 1.0.0 | Initial spec — domain model, three-pass evaluation engine, cart API, admin UI, code system, 4-phase implementation plan |
+| 2026-02-24 | 1.1.0 | Replace 15 concrete rule tables + 6 concrete benefit tables with JSONB approach: `promotion_rules.rule_type + config jsonb` and `promotion_benefits.benefit_type + config jsonb`. Aligns with `condition_expression` pattern in `business_rules` and `workflows`. Normalization step now maps rows directly to `{ type, config }` shape. Config per type validated by Zod discriminated union. |
+| 2026-02-24 | 1.2.0 | Add extensibility architecture: server-side `PromotionExtensionRegistry` (custom rule types, custom benefit types, evaluation middleware `beforeEvaluate`/`afterResolve`, code middleware `beforeCodeUse`/`afterCodeUse`); client-side `promotionExtensionConfiguratorRegistry` for custom tree-builder UI components; `GET /api/promotions/extension-types` endpoint; `context.extensions` field on `CartContext`; 5 declared widget injection slots; Phase 5 implementation plan and TC-PROM-040–045 test cases; new events `evaluation.completed`, `code.exhausted`, `promotion.expiring-soon`. |
+| 2026-02-24 | 1.3.0 | Add `max_discount` optional field to `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` benefit configs. Effect resolvers in `lib/effect-resolvers.ts` cap the computed amount at `max_discount` after the raw calculation. New invariant: cap is per-benefit, expressed in operating currency. Added `TC-PROM-014` test case. |
