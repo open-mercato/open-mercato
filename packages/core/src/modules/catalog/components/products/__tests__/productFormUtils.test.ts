@@ -8,8 +8,8 @@ jest.mock("../../../lib/unitCodes", () => ({
 
 jest.mock("@open-mercato/ui/backend/utils/serverErrors", () => ({
   createCrudFormError: (message: string, fieldErrors?: Record<string, string>) => {
-    const err = new Error(message);
-    (err as any).fieldErrors = fieldErrors;
+    const err = new Error(message) as Error & { fieldErrors?: Record<string, string> };
+    err.fieldErrors = fieldErrors;
     return err;
   },
 }));
@@ -177,14 +177,14 @@ describe("normalizeProductConversionInputs", () => {
     expect(() => normalizeProductConversionInputs(rows, "Duplicate unit")).toThrow("Duplicate unit");
     try {
       normalizeProductConversionInputs(rows, "Duplicate unit");
-    } catch (error: any) {
-      expect(error.fieldErrors).toEqual({ unitConversions: "Duplicate unit" });
+    } catch (error: unknown) {
+      expect((error as Error & { fieldErrors?: Record<string, string> }).fieldErrors).toEqual({ unitConversions: "Duplicate unit" });
     }
   });
 
   it("sets isActive to true by default", () => {
     const rows = [
-      { id: null, unitCode: "kg", toBaseFactor: "1000", sortOrder: "0", isActive: undefined as any },
+      { id: null, unitCode: "kg", toBaseFactor: "1000", sortOrder: "0", isActive: undefined as unknown as boolean },
     ];
     const result = normalizeProductConversionInputs(rows, "dup");
     expect(result[0].isActive).toBe(true);
