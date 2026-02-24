@@ -14,7 +14,5 @@ export function canonicalizeUnitCode(value: unknown): string | null {
 }
 
 export function toUnitLookupKey(value: unknown): string | null {
-  const canonical = canonicalizeUnitCode(value);
-  if (!canonical) return null;
-  return canonical.toLowerCase();
+  return canonicalizeUnitCode(value);
 }
