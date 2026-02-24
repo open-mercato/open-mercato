@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { slugify } from "@open-mercato/shared/lib/slugify";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
+import type { ReferenceUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import type { CatalogProductOptionSchema } from "../../data/types";
 import type { ProductMediaItem } from "./ProductMediaManager";
 
@@ -55,7 +56,7 @@ export type VariantPriceValue = {
 };
 
 export type ProductUnitRoundingMode = "half_up" | "down" | "up";
-export type ProductUnitPriceReferenceUnit = "kg" | "l" | "m2" | "m3" | "pc";
+export type ProductUnitPriceReferenceUnit = ReferenceUnitCode;
 
 export type ProductUnitConversionDraft = {
   id: string | null;
@@ -194,7 +195,15 @@ export const productFormSchema = z
     tags: z.array(z.string().trim().min(1).max(100)).optional(),
     optionSchemaId: z.string().uuid().nullable().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .refine(
+    (data) => !data.unitPriceEnabled || (data.unitPriceReferenceUnit != null && data.unitPriceReferenceUnit.length > 0),
+    { message: 'Reference unit is required when unit price display is enabled.', path: ['unitPriceReferenceUnit'] }
+  )
+  .refine(
+    (data) => !data.defaultSalesUnit || (data.defaultUnit != null && data.defaultUnit.length > 0),
+    { message: 'Base unit is required when a default sales unit is set.', path: ['defaultUnit'] }
+  );
 
 export const PRODUCT_FORM_STEPS = [
   "general",

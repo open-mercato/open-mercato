@@ -14,6 +14,7 @@ import type {
   ProductUnitConversionDraft,
 } from "./productForm";
 import { createProductUnitConversionDraft } from "./productForm";
+import { REFERENCE_UNIT_CODES } from "@open-mercato/shared/lib/units/unitCodes";
 import { toTrimmedOrNull } from "./productFormUtils";
 
 type UnitDictionaryEntry = {
@@ -38,13 +39,14 @@ type ProductUomSectionProps = {
   embedded?: boolean;
 };
 
-const REFERENCE_UNIT_OPTIONS = [
-  { value: "kg", i18nKey: "catalog.products.unitPrice.options.kg", fallback: "1 kg" },
-  { value: "l", i18nKey: "catalog.products.unitPrice.options.l", fallback: "1 l" },
-  { value: "m2", i18nKey: "catalog.products.unitPrice.options.m2", fallback: "1 m\u00B2" },
-  { value: "m3", i18nKey: "catalog.products.unitPrice.options.m3", fallback: "1 m\u00B3" },
-  { value: "pc", i18nKey: "catalog.products.unitPrice.options.pc", fallback: "1 pc" },
-] as const;
+const REFERENCE_UNIT_DISPLAY: Record<string, string> = {
+  kg: "1 kg", l: "1 l", m2: "1 m\u00B2", m3: "1 m\u00B3", pc: "1 pc",
+};
+const REFERENCE_UNIT_OPTIONS = REFERENCE_UNIT_CODES.map((code) => ({
+  value: code,
+  i18nKey: `catalog.products.unitPrice.options.${code}` as const,
+  fallback: REFERENCE_UNIT_DISPLAY[code] ?? code,
+}));
 
 const normalizeText = toTrimmedOrNull;
 

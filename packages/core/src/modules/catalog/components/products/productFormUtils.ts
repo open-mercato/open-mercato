@@ -1,17 +1,9 @@
+import { REFERENCE_UNIT_CODES, type ReferenceUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { canonicalizeUnitCode } from "../../lib/unitCodes";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
-import type {
-  ProductUnitConversionDraft,
-  ProductUnitPriceReferenceUnit,
-} from "./productForm";
+import type { ProductUnitConversionDraft } from "./productForm";
 
-export const UNIT_PRICE_REFERENCE_UNITS = new Set<ProductUnitPriceReferenceUnit>([
-  "kg",
-  "l",
-  "m2",
-  "m3",
-  "pc",
-]);
+export const UNIT_PRICE_REFERENCE_UNITS = new Set<ReferenceUnitCode>(REFERENCE_UNIT_CODES);
 
 export function toTrimmedOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
