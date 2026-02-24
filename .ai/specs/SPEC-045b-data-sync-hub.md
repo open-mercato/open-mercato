@@ -2,12 +2,13 @@
 
 **Parent**: [SPEC-045 — Integration Marketplace](./SPEC-045-2026-02-24-integration-marketplace.md)
 **Phase**: 2 of 6
+**Depends on**: [SPEC-004 — Progress Module](./SPEC-004-2026-01-23-progress-module.md)
 
 ---
 
 ## Goal
 
-Build the `data_sync` hub module with a `DataSyncAdapter` contract designed for **high-velocity, delta-based, resumable import/export** using streaming, queue-based processing, and real-time progress tracking. Then build the first provider bundle (`sync_medusa`) as a reference implementation.
+Build the `data_sync` hub module with a `DataSyncAdapter` contract designed for **high-velocity, delta-based, resumable import/export** using streaming, queue-based processing, and real-time progress tracking via the **progress module** (`ProgressService`). Then build the first provider bundle (`sync_medusa`) as a reference implementation.
 
 ---
 
@@ -33,7 +34,7 @@ Enterprise integrations move large volumes of data — 100K+ products, millions 
 | 2 | **Streaming** — data flows through the system in chunks/batches, never loaded fully into memory | Handles datasets larger than available RAM |
 | 3 | **Queue-based** — sync runs are background jobs with controlled concurrency | No API timeouts; multiple syncs can run in parallel |
 | 4 | **Resumable** — every batch persists its cursor; failures resume from last successful batch | No re-importing 50K items because item 50,001 failed |
-| 5 | **Progress observable** — real-time progress via polling API + notification on completion | Admin sees progress bar, ETA, item counts |
+| 5 | **Progress observable** — real-time progress via the `progress` module (`ProgressService`) and `ProgressTopBar` UI | Admin sees progress bar, ETA, item counts in the unified top bar — no custom progress UI needed |
 | 6 | **Error coherent** — every item-level error is logged via `integrationLog` with entity context | Admin can filter errors, see which products failed, click through to fix |
 | 7 | **Idempotent** — re-running a sync with the same cursor produces the same result | Safe to retry, safe to resume |
 
@@ -172,7 +173,7 @@ interface FieldMapping {
 packages/core/src/modules/data_sync/
 ├── index.ts
 ├── acl.ts                       # data_sync.view, .run, .configure
-├── di.ts                        # Sync service, adapter registry
+├── di.ts                        # Sync service, adapter registry (resolves progressService from DI)
 ├── events.ts                    # Sync lifecycle events
 ├── setup.ts
 ├── lib/
@@ -211,7 +212,7 @@ packages/core/src/modules/data_sync/
 
 ### 4.2 SyncRun Entity
 
-Tracks each sync execution with real-time progress:
+Tracks each sync execution. **Progress tracking is delegated to the `progress` module** — each SyncRun creates a `ProgressJob` and updates it via `ProgressService`. The SyncRun stores sync-specific data (cursors, action counts) while the ProgressJob handles generic progress (percent, ETA, heartbeat, stale detection, UI display in `ProgressTopBar`).
 
 ```typescript
 @Entity({ tableName: 'sync_runs' })
@@ -236,10 +237,7 @@ export class SyncRun extends BaseEntity {
   @Property({ type: 'text', nullable: true })
   initialCursor?: string
 
-  /** Progress counters — updated after each batch */
-  @Property({ default: 0 })
-  processedCount!: number
-
+  /** Sync-specific action counters (not duplicated in ProgressJob) */
   @Property({ default: 0 })
   createdCount!: number
 
@@ -252,22 +250,16 @@ export class SyncRun extends BaseEntity {
   @Property({ default: 0 })
   failedCount!: number
 
-  @Property({ nullable: true })
-  totalEstimate?: number  // Estimated total (from adapter), null if unknown
-
   @Property({ default: 0 })
   batchesCompleted!: number
-
-  /** Timing */
-  @Property({ nullable: true })
-  startedAt?: Date
-
-  @Property({ nullable: true })
-  completedAt?: Date
 
   /** Error summary (last error message for UI display) */
   @Property({ type: 'text', nullable: true })
   lastError?: string
+
+  /** Reference to the ProgressJob (progress module) for progress tracking + UI */
+  @Property({ nullable: true })
+  progressJobId?: string
 
   /** Job ID in the queue system (for cancellation) */
   @Property({ nullable: true })
@@ -284,6 +276,8 @@ export class SyncRun extends BaseEntity {
   tenantId!: string
 }
 ```
+
+> **Why not put everything on ProgressJob?** The `SyncRun` owns sync-specific semantics (cursors, action-level counters like `createdCount`/`updatedCount`, batch tracking). The `ProgressJob` owns generic progress display (percent, ETA, heartbeat, stale detection, ProgressTopBar rendering). The `progressJobId` links the two — the sync engine updates both in lockstep.
 
 ### 4.3 SyncCursor Entity
 
@@ -358,12 +352,12 @@ When the sync engine needs a mapping, it checks for a persisted `SyncMapping` fi
 
 ### 4.5 Sync Engine — Streaming Orchestration
 
-The sync engine is the heart of the hub. It drives the adapter's async iterable, persists cursors, updates progress, and logs every step.
+The sync engine is the heart of the hub. It drives the adapter's async iterable, persists cursors, updates progress via **`ProgressService`**, and logs every step. The `ProgressJob` provides the unified progress bar, ETA, heartbeat, and stale detection — the sync engine focuses on sync-specific orchestration.
 
 ```typescript
 // data_sync/lib/sync-engine.ts
 
-export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies) {
+export function createSyncEngine({ em, integrationLog, eventBus, progressService }: Dependencies) {
   return {
     async runImport(syncRun: SyncRun, adapter: DataSyncAdapter, input: StreamImportInput): Promise<void> {
       const log = integrationLog.scoped(syncRun.integrationId, syncRun.id, {
@@ -371,22 +365,56 @@ export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies)
         tenantId: syncRun.tenantId,
       })
 
+      const progressCtx = {
+        tenantId: syncRun.tenantId,
+        organizationId: syncRun.organizationId,
+        userId: syncRun.triggeredBy,
+      }
+
+      // Create a ProgressJob for unified progress tracking + ProgressTopBar UI
+      const progressJob = await progressService.createJob({
+        jobType: 'data_sync:import',
+        name: `Importing ${input.entityType}`,
+        description: `${syncRun.integrationId} — ${input.cursor ? 'delta sync' : 'full sync'}`,
+        cancellable: true,
+        meta: {
+          syncRunId: syncRun.id,
+          integrationId: syncRun.integrationId,
+          entityType: input.entityType,
+          direction: 'import',
+        },
+      }, progressCtx)
+
+      syncRun.progressJobId = progressJob.id
       syncRun.status = 'running'
-      syncRun.startedAt = new Date()
       await em.flush()
+
+      await progressService.startJob(progressJob.id, progressCtx)
 
       await log.info('sync.import.started', `Starting ${input.entityType} import`, {
         cursor: input.cursor ?? 'full-sync',
         batchSize: input.batchSize,
+        progressJobId: progressJob.id,
       })
+
+      let processedCount = 0
 
       try {
         for await (const batch of adapter.streamImport!(input)) {
-          // Check if sync was cancelled
-          await em.refresh(syncRun)
-          if (syncRun.status === 'cancelled') {
+          // Check if sync was cancelled (via ProgressService cancellation)
+          if (await progressService.isCancellationRequested(progressJob.id)) {
+            syncRun.status = 'cancelled'
+            await em.flush()
+            await progressService.cancelJob(progressJob.id, progressCtx)
             await log.info('sync.import.cancelled', 'Sync cancelled by user')
             return
+          }
+
+          // Set totalEstimate on first batch (if adapter provides it)
+          if (batch.totalEstimate && batch.batchIndex === 0) {
+            await progressService.updateProgress(progressJob.id, {
+              totalCount: batch.totalEstimate,
+            }, progressCtx)
           }
 
           // Process each item in the batch
@@ -398,10 +426,10 @@ export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies)
               else if (item.action === 'update') syncRun.updatedCount++
               else syncRun.skippedCount++
 
-              syncRun.processedCount++
+              processedCount++
             } catch (err) {
               syncRun.failedCount++
-              syncRun.processedCount++
+              processedCount++
               syncRun.lastError = err.message
 
               await log.error('sync.import.item_failed', `Failed: ${item.externalId}`, {
@@ -416,15 +444,26 @@ export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies)
           // Persist cursor after each successful batch
           syncRun.cursor = batch.cursor
           syncRun.batchesCompleted = batch.batchIndex + 1
-          if (batch.totalEstimate) syncRun.totalEstimate = batch.totalEstimate
           await em.flush()
+
+          // Update progress via ProgressService (auto-calculates percent + ETA + heartbeat)
+          await progressService.updateProgress(progressJob.id, {
+            processedCount,
+            meta: {
+              createdCount: syncRun.createdCount,
+              updatedCount: syncRun.updatedCount,
+              failedCount: syncRun.failedCount,
+              batchesCompleted: syncRun.batchesCompleted,
+              cursor: batch.cursor,
+            },
+          }, progressCtx)
 
           // Update the global cursor for next delta run
           await persistSyncCursor(syncRun.integrationId, input.entityType, 'import', batch.cursor, em)
 
           await log.info('sync.import.batch', `Batch ${batch.batchIndex + 1}: +${batch.items.length} items`, {
             batchIndex: batch.batchIndex,
-            processedCount: syncRun.processedCount,
+            processedCount,
             createdCount: syncRun.createdCount,
             updatedCount: syncRun.updatedCount,
             failedCount: syncRun.failedCount,
@@ -435,16 +474,23 @@ export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies)
         }
 
         syncRun.status = 'completed'
-        syncRun.completedAt = new Date()
         await em.flush()
 
-        const durationMs = syncRun.completedAt.getTime() - syncRun.startedAt!.getTime()
+        await progressService.completeJob(progressJob.id, {
+          resultSummary: {
+            createdCount: syncRun.createdCount,
+            updatedCount: syncRun.updatedCount,
+            skippedCount: syncRun.skippedCount,
+            failedCount: syncRun.failedCount,
+            batchesCompleted: syncRun.batchesCompleted,
+          },
+        })
+
         await log.info('sync.import.completed', `Import complete: ${syncRun.createdCount} created, ${syncRun.updatedCount} updated, ${syncRun.failedCount} failed`, {
           createdCount: syncRun.createdCount,
           updatedCount: syncRun.updatedCount,
           skippedCount: syncRun.skippedCount,
           failedCount: syncRun.failedCount,
-          durationMs,
         })
 
         await eventBus.emit('data_sync.run.completed', { syncRunId: syncRun.id })
@@ -452,13 +498,17 @@ export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies)
       } catch (err) {
         syncRun.status = 'failed'
         syncRun.lastError = err.message
-        syncRun.completedAt = new Date()
         await em.flush()
+
+        await progressService.failJob(progressJob.id, {
+          errorMessage: err.message,
+          errorStack: err.stack,
+        })
 
         await log.error('sync.import.failed', `Import failed: ${err.message}`, {
           error: err.message,
           stack: err.stack,
-          processedBeforeFailure: syncRun.processedCount,
+          processedBeforeFailure: processedCount,
           lastCursor: syncRun.cursor,
         })
 
@@ -471,6 +521,8 @@ export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies)
 
 ### 4.6 Import Worker
 
+The worker resolves `progressService` from the DI container and passes it to the sync engine:
+
 ```typescript
 // data_sync/workers/sync-import.ts
 
@@ -482,6 +534,7 @@ export const metadata: WorkerMeta = {
 
 export default async function handler(job: Job, ctx: WorkerContext) {
   const { syncRunId } = job.data
+  const progressService = ctx.container.resolve('progressService') as ProgressService
 
   const syncRun = await ctx.em.findOneOrFail(SyncRun, {
     id: syncRunId,
@@ -513,6 +566,12 @@ export default async function handler(job: Job, ctx: WorkerContext) {
 
 ### 4.7 Progress API
 
+The data_sync module exposes two levels of progress:
+
+1. **Generic progress (via progress module)**: The `ProgressTopBar` automatically shows active sync jobs (job type `data_sync:import` / `data_sync:export`) with progress bars, ETAs, and cancel buttons — polling `GET /api/progress/active`. **No custom UI code needed** for the top bar.
+
+2. **Sync-specific detail**: The `GET /api/data-sync/runs/:id` endpoint returns sync-specific data (cursors, action counters, error logs) alongside the linked `ProgressJob` data:
+
 ```
 GET /api/data-sync/runs/abc123
 
@@ -522,22 +581,32 @@ GET /api/data-sync/runs/abc123
   entityType: 'catalog.product',
   direction: 'import',
   status: 'running',
-  processedCount: 34500,
   createdCount: 12000,
   updatedCount: 22400,
   skippedCount: 0,
   failedCount: 100,
-  totalEstimate: 50000,
   batchesCompleted: 345,
-  startedAt: '2026-02-24T14:00:00Z',
-  elapsedMs: 120000,
-  estimatedRemainingMs: 52000,  // calculated from rate
-  itemsPerSecond: 287,          // calculated from elapsed
+  cursor: '2026-02-24T13:58:00Z',
   lastError: 'Invalid SKU format for product xyz-123',
+  // Progress data from the linked ProgressJob:
+  progressJob: {
+    id: 'pj-xyz',
+    progressPercent: 69,
+    processedCount: 34500,
+    totalCount: 50000,
+    etaSeconds: 52,
+    status: 'running',
+    startedAt: '2026-02-24T14:00:00Z',
+    cancellable: true,
+  },
 }
 ```
 
-### 4.8 Progress UI — Sync Run Detail Page
+### 4.8 Progress UI
+
+**Top bar (automatic)**: The `ProgressTopBar` (from the `progress` module) automatically picks up active `data_sync:import` / `data_sync:export` jobs. Admin sees progress bars, ETAs, and cancel buttons without any custom data_sync UI code.
+
+**Sync run detail page**: The `/backend/data-sync/runs/[id]` page shows sync-specific details (action counters, error log, retry) that go beyond the generic progress bar:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -546,9 +615,9 @@ GET /api/data-sync/runs/abc123
 │  MedusaJS — Products                              Status: Running  │
 │  Import • Started 2 min ago by admin@example.com                   │
 │                                                                     │
-│  ── Progress ─────────────────────────────────────────────────────  │
+│  ── Progress (from ProgressJob) ──────────────────────────────────  │
 │  [████████████████████░░░░░░░░] 69%   34,500 / ~50,000            │
-│  287 items/sec • ~52s remaining                                    │
+│  ~52s remaining                                                    │
 │                                                                     │
 │  Created:  12,000   Updated:  22,400   Skipped:  0   Failed:  100  │
 │  Batches:  345 completed                                           │
@@ -564,7 +633,9 @@ GET /api/data-sync/runs/abc123
 
 ### 4.9 Retry & Resume
 
-**Resume after failure**: When a sync run fails mid-way (e.g., network error at batch 345), the `cursor` is already persisted at batch 344. Clicking "Retry" creates a new `SyncRun` with `initialCursor = syncRun.cursor`, so it picks up where it left off.
+**Resume after failure**: When a sync run fails mid-way (e.g., network error at batch 345), the `cursor` is already persisted at batch 344. Clicking "Retry" creates a new `SyncRun` (and a new `ProgressJob`) with `initialCursor = syncRun.cursor`, so it picks up where it left off.
+
+**Cancellation**: Admin can cancel a running sync via the `ProgressTopBar` cancel button or the sync run detail page. Both use `progressService.cancelJob()` — the sync engine checks `progressService.isCancellationRequested()` at each batch boundary and stops gracefully.
 
 **Retry failed items**: After a completed sync with `failedCount > 0`, admin can view the failed items via logs (filtered by `correlationId = syncRunId, level = error`) and trigger a targeted re-import of just those items.
 
@@ -1442,10 +1513,15 @@ export function createRateLimiter(requestsPerSecond: number) {
 |------|--------|--------|
 | Start import sync run | POST `/api/data-sync/run` | Creates SyncRun in `pending`, enqueues job |
 | Import worker processes mock adapter | Worker | Items created/updated, cursor persisted, progress updated |
-| Resume after failure | POST `.../retry` | New run starts from last cursor, not from zero |
-| Cancel running sync | POST `.../cancel` | Status → cancelled, worker stops at next batch boundary |
+| ProgressJob created on sync start | Worker | `ProgressJob` created with `jobType: 'data_sync:import'`, linked via `syncRun.progressJobId` |
+| ProgressJob updated per batch | Worker | `progressService.updateProgress()` called after each batch; `processedCount`, `progressPercent`, `etaSeconds` reflect batch progress |
+| ProgressJob completed on sync finish | Worker | `progressService.completeJob()` called with `resultSummary` containing action counts |
+| ProgressJob failed on sync error | Worker | `progressService.failJob()` called with error details |
+| Cancel via ProgressService | ProgressTopBar cancel / DELETE `/api/progress/jobs/:id` | `progressService.isCancellationRequested()` returns true → sync stops at next batch boundary, SyncRun status → `cancelled` |
+| Active sync visible in ProgressTopBar | GET `/api/progress/active` | Running sync shows in active jobs list with correct `jobType`, progress, ETA |
+| Resume after failure | POST `.../retry` | New SyncRun + new ProgressJob start from last cursor, not from zero |
 | Full re-sync | POST `/api/data-sync/run` with `fullSync: true` | Cursor reset, processes all items |
-| Progress API during sync | GET `.../runs/:id` | Returns current counts + rate + ETA |
+| Sync run detail includes ProgressJob | GET `.../runs/:id` | Response includes linked `progressJob` data (percent, ETA, status) |
 | Item-level errors logged | Worker with failing items | Errors in `IntegrationLog`, `failedCount` incremented, sync continues |
 | Batch cursor persistence | Worker with 5 batches | After each batch, `SyncCursor` updated |
 | Delta detection | Import with cursor | Only items after cursor are processed |
