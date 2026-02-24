@@ -181,6 +181,7 @@ packages/core/src/modules/data_sync/
 │   ├── adapter-registry.ts      # registerDataSyncAdapter / getAdapter
 │   ├── sync-engine.ts           # Orchestrates streaming, batching, cursor persistence
 │   ├── sync-run-service.ts      # CRUD for SyncRun entity
+│   ├── sync-schedule-service.ts # SyncSchedule CRUD + schedulerService.register() sync
 │   ├── id-mapping.ts            # lookupLocalId / lookupExternalId / storeExternalIdMapping
 │   ├── transforms.ts            # Built-in field transforms
 │   ├── rate-limiter.ts          # Token-bucket rate limiter for external API throttling
@@ -197,9 +198,6 @@ packages/core/src/modules/data_sync/
 │   ├── get/data-sync/mappings.ts      # List configured mappings
 │   ├── put/data-sync/mappings/[id].ts # Save mapping config
 │   └── post/data-sync/validate.ts     # Validate connection + mapping
-├── lib/
-│   ├── ...
-│   └── sync-schedule-service.ts # SyncSchedule CRUD + schedulerService.register() sync
 ├── workers/
 │   ├── sync-import.ts           # Import worker — drives streamImport
 │   ├── sync-export.ts           # Export worker — drives streamExport
