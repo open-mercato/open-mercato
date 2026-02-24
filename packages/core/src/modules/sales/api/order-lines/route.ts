@@ -16,7 +16,7 @@ import {
 import { withScopedPayload } from "../utils";
 import { E } from "#generated/entities.ids.generated";
 import * as F from "#generated/entities/sales_order_line";
-import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+import { canonicalizeUnitCode, REFERENCE_UNIT_CODES } from "@open-mercato/shared/lib/units/unitCodes";
 
 const rawBodySchema = z.object({}).passthrough();
 const resolveRawBody = (raw: unknown): Record<string, unknown> => {
@@ -212,6 +212,37 @@ const { GET, POST, PUT, DELETE } = crud;
 
 export { GET, POST, PUT, DELETE };
 
+const uomSnapshotOpenApiSchema = z
+  .object({
+    version: z.literal(1),
+    productId: z.string().nullable(),
+    productVariantId: z.string().nullable(),
+    baseUnitCode: z.string().nullable(),
+    enteredUnitCode: z.string().nullable(),
+    enteredQuantity: z.string(),
+    toBaseFactor: z.string(),
+    normalizedQuantity: z.string(),
+    rounding: z.object({
+      mode: z.enum(["half_up", "down", "up"]),
+      scale: z.number().int(),
+    }),
+    source: z.object({
+      conversionId: z.string().nullable(),
+      resolvedAt: z.string(),
+    }),
+    unitPriceReference: z
+      .object({
+        enabled: z.boolean(),
+        referenceUnitCode: z.enum(REFERENCE_UNIT_CODES).nullable(),
+        baseQuantity: z.string().nullable(),
+        grossPerReference: z.string().nullable().optional(),
+        netPerReference: z.string().nullable().optional(),
+      })
+      .optional(),
+  })
+  .nullable()
+  .optional();
+
 const orderLineSchema = z.object({
   id: z.string().uuid(),
   order_id: z.string().uuid(),
@@ -229,7 +260,7 @@ const orderLineSchema = z.object({
   quantity_unit: z.string().nullable().optional(),
   normalized_quantity: z.number(),
   normalized_unit: z.string().nullable().optional(),
-  uom_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+  uom_snapshot: uomSnapshotOpenApiSchema,
   currency_code: z.string(),
   unit_price_net: z.number(),
   unit_price_gross: z.number(),
