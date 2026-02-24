@@ -641,8 +641,11 @@ async function decorateProductsAfterList(
           return pricingContext.quantity;
         const productConversions = conversionsByProduct.get(id);
         const factor = productConversions?.get(requestQuantityUnitKey) ?? null;
-        if (!factor || !Number.isFinite(factor) || factor <= 0)
+        if (!factor || !Number.isFinite(factor) || factor <= 0) {
+          // eslint-disable-next-line no-console
+          console.warn(`[catalog.products] Invalid conversion factor for product=${id} unit=${requestQuantityUnitKey} factor=${factor}`);
           return pricingContext.quantity;
+        }
         const normalized = pricingContext.quantity * factor;
         return Number.isFinite(normalized) && normalized > 0
           ? normalized
