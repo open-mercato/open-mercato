@@ -25,6 +25,7 @@
   "search.dialog.strategies.semanticDescription": "Wyszukiwanie oparte na znaczeniu wspomagane AI",
   "search.dialog.strategies.toggle": "Opcje wyszukiwania",
   "search.dialog.title": "Globalne Wyszukiwanie",
+  "search.scopeHint.currentOrg": "Zakres: bieżąca organizacja",
   "search.messages.missingConfig": "Wyszukiwanie wymaga skonfigurowania dostawcy embeddingów dla wyszukiwania semantycznego.",
   "search.nav.hybridSearch": "Wyszukiwanie",
   "search.settings.actions.apply": "Zastosuj",

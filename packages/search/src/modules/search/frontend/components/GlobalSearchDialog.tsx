@@ -334,6 +334,9 @@ export function GlobalSearchDialog({
             {showVectorWarning ? (
               <p className="rounded bg-amber-100 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{missingConfigMessage}</p>
             ) : null}
+            <p className="text-xs text-muted-foreground">
+              {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
+            </p>
           </div>
           <div className="max-h-96 overflow-y-auto px-2 pb-3">
             {results.length === 0 && !loading && !error ? (

@@ -390,6 +390,10 @@ export function HybridSearchTable({
         </div>
       ) : null}
 
+      <div className="text-xs text-muted-foreground">
+        {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
+      </div>
+
       {/* Data Table */}
       <DataTable<Row>
         title={t('search.table.title', 'Search')}
