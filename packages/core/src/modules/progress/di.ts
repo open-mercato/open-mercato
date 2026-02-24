@@ -7,7 +7,7 @@ export function register(container: AppContainer) {
     progressService: {
       resolve: (c) => {
         const em = c.resolve<EntityManager>('em')
-        const eventBus = c.resolve('eventBus')
+        const eventBus = c.resolve('eventBus') as { emit: (event: string, payload: Record<string, unknown>) => Promise<void> }
         return createProgressService(em, eventBus)
       },
     },
