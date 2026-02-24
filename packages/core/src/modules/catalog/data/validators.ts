@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
+import { REFERENCE_UNIT_CODES } from '../lib/unitCodes'
 
 const uuid = () => z.string().uuid()
 
@@ -108,7 +109,7 @@ export const offerUpdateSchema = z
 
 const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
 const uomRoundingModeSchema = z.enum(['half_up', 'down', 'up'])
-const unitPriceReferenceUnitSchema = z.enum(['kg', 'l', 'm2', 'm3', 'pc'])
+const unitPriceReferenceUnitSchema = z.enum(REFERENCE_UNIT_CODES)
 const unitPriceConfigSchema = z.object({
   enabled: z.boolean().optional(),
   referenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),

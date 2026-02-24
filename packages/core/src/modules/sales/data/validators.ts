@@ -4,6 +4,7 @@ import {
   updateDictionaryEntrySchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { getPaymentProvider, getShippingProvider } from '../lib/providers'
+import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
 
 const uuid = () => z.string().uuid()
 
@@ -307,6 +308,32 @@ const linePricingSchema = z.object({
   totalGrossAmount: decimal({ min: 0 }).optional(),
 })
 
+const uomSnapshotSchema = z.object({
+  version: z.literal(1),
+  productId: z.string().nullable(),
+  productVariantId: z.string().nullable(),
+  baseUnitCode: z.string().nullable(),
+  enteredUnitCode: z.string().nullable(),
+  enteredQuantity: z.string(),
+  toBaseFactor: z.string(),
+  normalizedQuantity: z.string(),
+  rounding: z.object({
+    mode: z.enum(['half_up', 'down', 'up']),
+    scale: z.number().int(),
+  }),
+  source: z.object({
+    conversionId: z.string().nullable(),
+    resolvedAt: z.string(),
+  }),
+  unitPriceReference: z.object({
+    enabled: z.boolean(),
+    referenceUnitCode: z.enum(REFERENCE_UNIT_CODES).nullable(),
+    baseQuantity: z.string().nullable(),
+    grossPerReference: z.string().nullable().optional(),
+    netPerReference: z.string().nullable().optional(),
+  }).optional(),
+}).nullable().optional()
+
 const lineSharedSchema = z.object({
   kind: lineKindSchema.optional(),
   statusEntryId: uuid().optional(),
@@ -319,31 +346,7 @@ const lineSharedSchema = z.object({
   configuration: z.record(z.string(), z.unknown()).optional(),
   promotionCode: z.string().trim().max(120).optional(),
   promotionSnapshot: z.record(z.string(), z.unknown()).optional(),
-  uomSnapshot: z.object({
-    version: z.literal(1),
-    productId: z.string().nullable(),
-    productVariantId: z.string().nullable(),
-    baseUnitCode: z.string().nullable(),
-    enteredUnitCode: z.string().nullable(),
-    enteredQuantity: z.string(),
-    toBaseFactor: z.string(),
-    normalizedQuantity: z.string(),
-    rounding: z.object({
-      mode: z.enum(['half_up', 'down', 'up']),
-      scale: z.number().int(),
-    }),
-    source: z.object({
-      conversionId: z.string().nullable(),
-      resolvedAt: z.string(),
-    }),
-    unitPriceReference: z.object({
-      enabled: z.boolean(),
-      referenceUnitCode: z.enum(['kg', 'l', 'm2', 'm3', 'pc']).nullable(),
-      baseQuantity: z.string().nullable(),
-      grossPerReference: z.string().nullable().optional(),
-      netPerReference: z.string().nullable().optional(),
-    }).optional(),
-  }).nullable().optional(),
+  uomSnapshot: uomSnapshotSchema,
   metadata,
   customFieldSetId: uuid().optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
@@ -631,6 +634,9 @@ export const invoiceCreateSchema = scoped.extend({
         description: z.string().trim().max(4000).optional(),
         quantity: decimal({ min: 0 }),
         quantityUnit: z.string().trim().max(25).optional(),
+        normalizedQuantity: decimal({ min: 0 }).optional(),
+        normalizedUnit: z.string().trim().max(25).nullable().optional(),
+        uomSnapshot: uomSnapshotSchema,
         currencyCode,
         unitPriceNet: decimal({ min: 0 }).optional(),
         unitPriceGross: decimal({ min: 0 }).optional(),
@@ -677,6 +683,9 @@ export const creditMemoCreateSchema = scoped.extend({
         description: z.string().trim().max(4000).optional(),
         quantity: decimal({ min: 0 }),
         quantityUnit: z.string().trim().max(25).optional(),
+        normalizedQuantity: decimal({ min: 0 }).optional(),
+        normalizedUnit: z.string().trim().max(25).nullable().optional(),
+        uomSnapshot: uomSnapshotSchema,
         currencyCode,
         unitPriceNet: decimal({ min: 0 }).optional(),
         unitPriceGross: decimal({ min: 0 }).optional(),

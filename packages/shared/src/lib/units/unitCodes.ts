@@ -1,3 +1,6 @@
+export const REFERENCE_UNIT_CODES = ['kg', 'l', 'm2', 'm3', 'pc'] as const;
+export type ReferenceUnitCode = (typeof REFERENCE_UNIT_CODES)[number];
+
 const LEGACY_UNIT_CODE_ALIASES: Record<string, string> = {
   qty: "pc",
 };
