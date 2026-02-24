@@ -25,7 +25,7 @@ import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/h
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
 import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
 import { E } from "#generated/entities.ids.generated";
-import { findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
+import { findWithDecryption, findOneWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import {
   SalesQuote,
   SalesQuoteLine,
@@ -1942,7 +1942,8 @@ async function resolveUnitDictionaryScoped(
   organizationId: string,
   tenantId: string,
 ): Promise<Dictionary | null> {
-  return em.findOne(
+  return findOneWithDecryption(
+    em,
     Dictionary,
     {
       organizationId,
@@ -1983,7 +1984,7 @@ async function assertUnitExists(
     }
     return;
   }
-  const entry = await em.findOne(DictionaryEntry, {
+  const entry = await findOneWithDecryption(em, DictionaryEntry, {
     dictionary,
     organizationId: dictionary.organizationId,
     tenantId: dictionary.tenantId,
@@ -2006,7 +2007,7 @@ async function resolveProductUomState(
   if (resolver.productCache.has(productId)) {
     return resolver.productCache.get(productId) ?? null;
   }
-  const product = await em.findOne(CatalogProduct, {
+  const product = await findOneWithDecryption(em, CatalogProduct, {
     id: productId,
     organizationId,
     tenantId,
@@ -2016,7 +2017,7 @@ async function resolveProductUomState(
     resolver.productCache.set(productId, null);
     return null;
   }
-  const conversions = await em.find(CatalogProductUnitConversion, {
+  const conversions = await findWithDecryption(em, CatalogProductUnitConversion, {
     product: product.id,
     organizationId,
     tenantId,

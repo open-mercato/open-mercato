@@ -5,6 +5,7 @@ import type {
   CommandRuntimeContext,
 } from "@open-mercato/shared/lib/commands";
 import {
+  buildChanges,
   requireId,
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -1204,6 +1205,7 @@ const createProductCommand: CommandHandler<
     ensureTenantScope(ctx, parsed.tenantId);
     ensureOrganizationScope(ctx, parsed.organizationId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const { translate } = await resolveTranslations();
     const now = new Date();
     const { taxRateId, taxRate } = await resolveScopedTaxRate(
       em,
@@ -1284,7 +1286,7 @@ const createProductCommand: CommandHandler<
       optionSchemaTemplate = await requireOptionSchemaTemplate(
         em,
         parsed.optionSchemaId,
-        "Option schema not found",
+        translate("catalog.errors.optionSchemaNotFound", "Option schema not found"),
       );
       ensureSameScope(
         optionSchemaTemplate,
@@ -1360,7 +1362,7 @@ const createProductCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const record = await em.findOne(CatalogProduct, { id: after.id });
+    const record = await findOneWithDecryption(em, CatalogProduct, { id: after.id });
     if (!record) return;
     ensureTenantScope(ctx, record.tenantId);
     ensureOrganizationScope(ctx, record.organizationId);
@@ -1428,12 +1430,15 @@ const updateProductCommand: CommandHandler<
       ? rawPayload?.defaultSalesUnit
       : parsed.defaultSalesUnit;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const record = await em.findOne(CatalogProduct, {
+    const { translate } = await resolveTranslations();
+    const record = await findOneWithDecryption(em, CatalogProduct, {
       id: parsed.id,
       deletedAt: null,
     });
     if (!record)
-      throw new CrudHttpError(404, { error: "Catalog product not found" });
+      throw new CrudHttpError(404, {
+        error: translate("catalog.errors.productNotFound", "Catalog product not found"),
+      });
     const organizationId = parsed.organizationId ?? record.organizationId;
     const tenantId = parsed.tenantId ?? record.tenantId;
     ensureTenantScope(ctx, tenantId);
@@ -1582,9 +1587,9 @@ const updateProductCommand: CommandHandler<
         record.optionSchemaTemplate = null;
       } else {
         const optionTemplate = await requireOptionSchemaTemplate(
-          em,
+          lookupEm,
           parsed.optionSchemaId,
-          "Option schema not found",
+          translate("catalog.errors.optionSchemaNotFound", "Option schema not found"),
         );
         ensureSameScope(optionTemplate, organizationId, tenantId);
         record.optionSchemaTemplate = optionTemplate;
@@ -1652,6 +1657,17 @@ const updateProductCommand: CommandHandler<
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
+      changes: buildChanges(before, after, [
+        "name",
+        "sku",
+        "productType",
+        "defaultUnit",
+        "defaultSalesUnit",
+        "unitPriceEnabled",
+        "unitPriceReferenceUnit",
+        "unitPriceBaseQuantity",
+        "isActive",
+      ]),
       snapshotBefore: before,
       snapshotAfter: after,
       payload: {
@@ -1667,7 +1683,7 @@ const updateProductCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    let record = await em.findOne(CatalogProduct, { id: before.id });
+    let record = await findOneWithDecryption(em, CatalogProduct, { id: before.id });
     if (!record) {
       record = em.create(CatalogProduct, {
         id: before.id,
@@ -1712,7 +1728,7 @@ const updateProductCommand: CommandHandler<
     await em.flush();
 
     const relationEm = em.fork();
-    const relationRecord = await relationEm.findOne(CatalogProduct, { id: before.id });
+    const relationRecord = await findOneWithDecryption(relationEm, CatalogProduct, { id: before.id });
     if (relationRecord) {
       await restoreOffersFromSnapshot(relationEm, relationRecord, before.offers);
       await syncCategoryAssignments(relationEm, relationRecord, before.categoryIds);
@@ -1836,7 +1852,7 @@ const deleteProductCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    let record = await em.findOne(CatalogProduct, { id: before.id });
+    let record = await findOneWithDecryption(em, CatalogProduct, { id: before.id });
     if (!record) {
       record = em.create(CatalogProduct, {
         id: before.id,
@@ -1881,7 +1897,7 @@ const deleteProductCommand: CommandHandler<
     await em.flush();
 
     const relationEm = em.fork();
-    const relationRecord = await relationEm.findOne(CatalogProduct, { id: before.id });
+    const relationRecord = await findOneWithDecryption(relationEm, CatalogProduct, { id: before.id });
     if (relationRecord) {
       await restoreOffersFromSnapshot(relationEm, relationRecord, before.offers);
       await syncCategoryAssignments(relationEm, relationRecord, before.categoryIds);

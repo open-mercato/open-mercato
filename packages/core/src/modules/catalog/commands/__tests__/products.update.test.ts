@@ -116,6 +116,8 @@ describe('catalog.products.update', () => {
       organizationIds: null,
     }
 
+    findOneWithDecryption.mockResolvedValue(record)
+
     await (updateCommand as { execute: (payload: Record<string, unknown>, ctx: unknown) => Promise<void> }).execute(
       {
         id: '11111111-1111-4111-8111-111111111111',
@@ -220,6 +222,8 @@ describe('catalog.products.update', () => {
       selectedOrganizationId: null,
       organizationIds: null,
     }
+
+    findOneWithDecryption.mockResolvedValue(record)
 
     await expect(
       (updateCommand as { execute: (payload: Record<string, unknown>, ctx: unknown) => Promise<void> }).execute(
