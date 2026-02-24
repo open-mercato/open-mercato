@@ -79,6 +79,7 @@ function createMockEm() {
     remove: jest.fn(),
     persist: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
+    transactional: jest.fn().mockImplementation(async (cb: () => Promise<void>) => cb()),
     fork: jest.fn(),
     getReference: jest.fn().mockImplementation((_entity: unknown, id: string) => ({ id })),
   }

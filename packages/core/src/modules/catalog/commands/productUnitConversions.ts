@@ -410,7 +410,9 @@ const updateProductUnitConversionCommand: CommandHandler<
         : null;
     }
     try {
-      await em.flush();
+      await em.transactional(async () => {
+        await em.flush();
+      });
     } catch (error) {
       await rethrowConversionUniqueConstraint(error);
     }
@@ -494,7 +496,9 @@ const updateProductUnitConversionCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
     applyConversionSnapshot(em, record, before);
-    await em.flush();
+    await em.transactional(async () => {
+      await em.flush();
+    });
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitConversionCrudUndoChange({
       dataEngine,
@@ -537,7 +541,9 @@ const deleteProductUnitConversionCommand: CommandHandler<
     await ensureDefaultSalesUnitIsNotRemoved(em, record, false);
 
     em.remove(record);
-    await em.flush();
+    await em.transactional(async () => {
+      await em.flush();
+    });
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitConversionCrudChange({
@@ -602,7 +608,9 @@ const deleteProductUnitConversionCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
     applyConversionSnapshot(em, record, before);
-    await em.flush();
+    await em.transactional(async () => {
+      await em.flush();
+    });
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitConversionCrudUndoChange({
       dataEngine,
