@@ -1,19 +1,21 @@
-name: Canary Release
+name: Snapshot Release
 
 on:
+  push:
+    branches: [develop, main]
   pull_request:
-    branches: [main, develop]
+    branches: [develop, main]
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
-  canary:
-    name: Publish Canary
+  snapshot:
+    name: Publish Snapshot
     runs-on: ubuntu-latest
-    # Only run for PRs from the same repo (not forks)
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Skip PRs from forks (no access to secrets)
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -41,12 +43,21 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Release canary
+      - name: Determine release suffix
+        id: suffix
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=canary" >> $GITHUB_OUTPUT
+          else
+            echo "value=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Release snapshot
         id: release
         run: |
-          ./scripts/release-canary.sh
+          ./scripts/release-snapshot.sh "${{ steps.suffix.outputs.value }}"
 
-          # Build packages list from package.json files for PR comment
+          # Build packages list for PR comment
           PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
             jq -s '[.[] | select(.private != true) | {name: .name, version: .version}]')
 
