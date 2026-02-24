@@ -140,10 +140,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       const hasAclHints = Boolean((roles && roles.length) || (features && features.length))
       if (hasAclHints) {
         redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
-        const msg = await res.clone().text().catch(() => 'Forbidden')
-        throw new ForbiddenError(msg)
       }
-      return res
+      const msg = await res.clone().text().catch(() => 'Forbidden')
+      throw new ForbiddenError(msg)
     }
     // If already on login, just return the response for the caller to handle
   }

@@ -66,15 +66,14 @@ describe('apiFetch', () => {
     )
   })
 
-  it('returns 403 response when ACL hints are missing', async () => {
+  it('throws ForbiddenError when ACL hints are missing', async () => {
     const response = createMockResponse(403, {
       error: 'Forbidden',
       message: 'Access denied without ACL hints',
     })
     ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => response)
 
-    const result = await apiFetch('/api/private')
-    expect(result).toBe(response)
+    await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(ForbiddenError)
     expect(flash).not.toHaveBeenCalled()
   })
 
