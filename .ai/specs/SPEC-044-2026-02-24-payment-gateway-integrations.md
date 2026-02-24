@@ -404,26 +404,50 @@ packages/core/src/modules/payment_gateways/
     └── pl.ts
 ```
 
-### 6.2 Adapter Registry
+### 6.2 Adapter Registry (Version-Aware)
+
+The registry supports versioned adapters. Provider modules register one adapter per supported API version. The gateway service resolves the tenant's selected version via `IntegrationState.apiVersion` (see SPEC-045a §1.3).
 
 ```typescript
 // payment_gateways/lib/adapter-registry.ts
 
-const adapters = new Map<string, GatewayAdapter>()
+const adapters = new Map<string, GatewayAdapter>()  // key: 'providerKey' or 'providerKey:version'
 
-/** Called by each provider module in its setup.ts or di.ts */
-export function registerGatewayAdapter(adapter: GatewayAdapter): void {
-  adapters.set(adapter.providerKey, adapter)
+/** Register an adapter, optionally for a specific API version */
+export function registerGatewayAdapter(
+  adapter: GatewayAdapter,
+  options?: { version?: string },
+): void {
+  if (options?.version) {
+    adapters.set(`${adapter.providerKey}:${options.version}`, adapter)
+  }
+  // Register as unversioned default if no unversioned entry exists yet,
+  // or if this is the default version for the integration
+  if (!options?.version || isDefaultVersion(`gateway_${adapter.providerKey}`, options.version)) {
+    adapters.set(adapter.providerKey, adapter)
+  }
 }
 
-export function getGatewayAdapter(providerKey: string): GatewayAdapter | undefined {
+/** Get an adapter, optionally for a specific API version */
+export function getGatewayAdapter(providerKey: string, version?: string): GatewayAdapter | undefined {
+  if (version) {
+    return adapters.get(`${providerKey}:${version}`) ?? adapters.get(providerKey)
+  }
   return adapters.get(providerKey)
 }
 
 export function listGatewayAdapters(): GatewayAdapter[] {
-  return Array.from(adapters.values())
+  // Returns unique adapters (deduplicates versioned + unversioned entries)
+  const seen = new Set<string>()
+  return Array.from(adapters.values()).filter(a => {
+    if (seen.has(a.providerKey)) return false
+    seen.add(a.providerKey)
+    return true
+  })
 }
 ```
+
+**Unversioned provider modules** (e.g., a simple community gateway) still work — they call `registerGatewayAdapter(adapter)` without the `version` option, exactly as before. Zero breaking changes.
 
 ### 6.3 Gateway Transaction Entity
 
@@ -491,12 +515,20 @@ interface WebhookLogEntry {
 
 ### 6.4 Gateway Service (DI)
 
-The high-level service that routes calls to the correct adapter. Consumed by API routes and widgets.
+The high-level service that routes calls to the correct adapter. Consumed by API routes and widgets. Resolves the tenant's selected API version automatically via `IntegrationState.apiVersion`.
 
 ```typescript
 // payment_gateways/lib/gateway-service.ts
 
-export function createPaymentGatewayService({ em, eventBus }: Dependencies) {
+export function createPaymentGatewayService({ em, eventBus, integrationState }: Dependencies) {
+  /** Resolve the correct adapter for a provider, respecting the tenant's version selection */
+  async function resolveAdapter(providerKey: string, scope: TenantScope): Promise<GatewayAdapter> {
+    const version = await integrationState.resolveApiVersion(`gateway_${providerKey}`, scope)
+    const adapter = getGatewayAdapter(providerKey, version)
+    if (!adapter) throw new Error(`No adapter registered for provider '${providerKey}'${version ? ` version '${version}'` : ''}`)
+    return adapter
+  }
+
   return {
     async createPaymentSession(input: {
       orderId: string
@@ -507,7 +539,7 @@ export function createPaymentGatewayService({ em, eventBus }: Dependencies) {
       locale?: string
     }) {
       // 1. Load payment method → get providerKey + settings
-      // 2. Look up adapter via registry
+      // 2. Resolve adapter (version-aware) via resolveAdapter()
       // 3. Call adapter.createSession()
       // 4. Create SalesPayment + GatewayTransaction
       // 5. Emit payment_gateways.session.created
@@ -725,33 +757,37 @@ A self-contained module that depends only on the `payment_gateways` core (for th
 ```
 packages/core/src/modules/gateway_stripe/
 ├── index.ts                   # Module metadata (depends on: payment_gateways)
-├── setup.ts                   # Register adapter + provider on tenant init
+├── integration.ts             # Integration definition with apiVersions
+├── setup.ts                   # Register versioned adapters + provider on tenant init
 ├── lib/
-│   └── adapter.ts             # GatewayAdapter implementation for Stripe
+│   ├── shared.ts              # Common logic across API versions (status maps, helpers)
+│   └── adapters/
+│       ├── v2024-12-18.ts     # GatewayAdapter for Stripe API 2024-12-18
+│       └── v2023-10-16.ts     # GatewayAdapter for Stripe API 2023-10-16
 └── i18n/
     ├── en.ts
     └── pl.ts
 ```
 
-That's it. No `acl.ts` (uses core's features), no `data/entities.ts` (uses core's GatewayTransaction), no `api/` (uses core's webhook routing), no `widgets/` (uses core's UMES extensions).
+That's it. No `acl.ts` (uses core's features), no `data/entities.ts` (uses core's GatewayTransaction), no `api/` (uses core's webhook routing), no `widgets/` (uses core's UMES extensions). Versioned adapters live in `lib/adapters/` with shared logic in `lib/shared.ts`.
 
-### 7.2 Setup — Registration
+### 7.2 Setup — Registration (Versioned)
 
 ```typescript
 // gateway_stripe/setup.ts
 
 import { registerGatewayAdapter } from '../payment_gateways/lib/adapter-registry'
 import { registerPaymentProvider } from '../../sales/lib/providers'
-import { stripeAdapter } from './lib/adapter'
+import { stripeAdapterV20241218 } from './lib/adapters/v2024-12-18'
+import { stripeAdapterV20231016 } from './lib/adapters/v2023-10-16'
 
 export const setup: ModuleSetupConfig = {
   async onTenantCreated() {
-    // Register the adapter (idempotent — Map.set is safe to call multiple times)
-    registerGatewayAdapter(stripeAdapter)
+    // Register versioned adapters — one per supported Stripe API version
+    registerGatewayAdapter(stripeAdapterV20241218, { version: '2024-12-18' })
+    registerGatewayAdapter(stripeAdapterV20231016, { version: '2023-10-16' })
 
     // Register or update the provider definition with settings schema
-    // (the existing Stripe provider in defaultProviders.ts defines settings;
-    //  this replaces it with the gateway-aware version)
     registerPaymentProvider({
       key: 'stripe',
       label: 'Stripe',
@@ -776,24 +812,76 @@ export const setup: ModuleSetupConfig = {
 }
 ```
 
-### 7.3 Adapter Implementation
+### 7.3 Adapter Implementation (Versioned)
+
+Versioned adapters share common logic (status maps, webhook verification, credential loading) in `lib/shared.ts` and only override what changed between Stripe API versions. This keeps versioned files thin.
 
 ```typescript
-// gateway_stripe/lib/adapter.ts
+// gateway_stripe/lib/shared.ts — common logic across all Stripe API versions
 
 import Stripe from 'stripe'
-import type { GatewayAdapter, UnifiedPaymentStatus } from '../../payment_gateways/lib/adapter'
+import type { UnifiedPaymentStatus } from '../../payment_gateways/lib/adapter'
 
-export const stripeAdapter: GatewayAdapter = {
+/** Create a Stripe client pinned to a specific API version */
+export function createStripeClient(settings: Record<string, unknown>, apiVersion: string): Stripe {
+  return new Stripe(settings.secretKey as string, { apiVersion: apiVersion as Stripe.LatestApiVersion })
+}
+
+/** Webhook verification is the same across Stripe API versions */
+export async function verifyStripeWebhook(input: VerifyWebhookInput, settings: Record<string, unknown>) {
+  const stripe = new Stripe(settings.secretKey as string)
+  const event = stripe.webhooks.constructEvent(
+    input.body,
+    input.headers['stripe-signature']!,
+    settings.webhookSecret as string,
+  )
+  const paymentIntent = event.data.object as Stripe.PaymentIntent
+  return {
+    eventType: event.type,
+    gatewayPaymentId: paymentIntent.id,
+    data: event.data.object as Record<string, unknown>,
+    idempotencyKey: event.id,
+  }
+}
+
+/** Status mapping shared across versions (overridable per version if needed) */
+export const defaultEventMap: Record<string, UnifiedPaymentStatus> = {
+  'payment_intent.succeeded': 'captured',
+  'payment_intent.payment_failed': 'failed',
+  'payment_intent.canceled': 'cancelled',
+  'payment_intent.amount_capturable_updated': 'authorized',
+  'payment_intent.requires_action': 'pending',
+  'charge.refunded': 'refunded',
+  'checkout.session.expired': 'expired',
+}
+
+export const defaultStatusMap: Record<string, UnifiedPaymentStatus> = {
+  requires_payment_method: 'pending',
+  requires_confirmation: 'pending',
+  requires_action: 'pending',
+  processing: 'pending',
+  requires_capture: 'authorized',
+  succeeded: 'captured',
+  canceled: 'cancelled',
+}
+```
+
+```typescript
+// gateway_stripe/lib/adapters/v2024-12-18.ts — latest stable version
+
+import { createStripeClient, verifyStripeWebhook, defaultEventMap, defaultStatusMap } from '../shared'
+import type { GatewayAdapter, UnifiedPaymentStatus } from '../../../payment_gateways/lib/adapter'
+
+const API_VERSION = '2024-12-18'
+
+export const stripeAdapterV20241218: GatewayAdapter = {
   providerKey: 'stripe',
 
   async createSession(input) {
-    const stripe = new Stripe(input.settings.secretKey as string)
+    const stripe = createStripeClient(input.settings, API_VERSION)
 
     const paymentMethodTypes = input.paymentMethodTypes ?? ['card']
-    if (input.settings.enableApplePay) {
-      paymentMethodTypes.push('apple_pay')
-    }
+    if (input.settings.enableApplePay) paymentMethodTypes.push('apple_pay')
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -829,7 +917,7 @@ export const stripeAdapter: GatewayAdapter = {
   },
 
   async capture(input) {
-    const stripe = new Stripe(input.settings.secretKey as string)
+    const stripe = createStripeClient(input.settings, API_VERSION)
     const intent = await stripe.paymentIntents.capture(
       input.gatewayPaymentId,
       input.amount ? { amount_to_capture: Math.round(input.amount * 100) } : undefined,
@@ -842,7 +930,7 @@ export const stripeAdapter: GatewayAdapter = {
   },
 
   async refund(input) {
-    const stripe = new Stripe(input.settings.secretKey as string)
+    const stripe = createStripeClient(input.settings, API_VERSION)
     const refund = await stripe.refunds.create({
       payment_intent: input.gatewayPaymentId,
       amount: input.amount ? Math.round(input.amount * 100) : undefined,
@@ -856,16 +944,13 @@ export const stripeAdapter: GatewayAdapter = {
   },
 
   async cancel(input) {
-    const stripe = new Stripe(input.settings.secretKey as string)
+    const stripe = createStripeClient(input.settings, API_VERSION)
     const intent = await stripe.paymentIntents.cancel(input.gatewayPaymentId)
-    return {
-      cancelled: intent.status === 'canceled',
-      gatewayStatus: intent.status,
-    }
+    return { cancelled: intent.status === 'canceled', gatewayStatus: intent.status }
   },
 
   async getStatus(input) {
-    const stripe = new Stripe(input.settings.secretKey as string)
+    const stripe = createStripeClient(input.settings, API_VERSION)
     const intent = await stripe.paymentIntents.retrieve(input.gatewayPaymentId)
     return {
       status: intent.status,
@@ -876,56 +961,82 @@ export const stripeAdapter: GatewayAdapter = {
     }
   },
 
-  async verifyWebhook(input) {
-    const stripe = new Stripe(input.settings.secretKey as string)
-    const event = stripe.webhooks.constructEvent(
-      input.body,
-      input.headers['stripe-signature']!,
-      input.settings.webhookSecret as string,
-    )
-    const paymentIntent = event.data.object as Stripe.PaymentIntent
-    return {
-      eventType: event.type,
-      gatewayPaymentId: paymentIntent.id,
-      data: event.data.object as Record<string, unknown>,
-      idempotencyKey: event.id,
-    }
-  },
+  verifyWebhook: verifyStripeWebhook,
 
   mapStatus(gatewayStatus, eventType) {
-    const eventMap: Record<string, UnifiedPaymentStatus> = {
-      'payment_intent.succeeded': 'captured',
-      'payment_intent.payment_failed': 'failed',
-      'payment_intent.canceled': 'cancelled',
-      'payment_intent.amount_capturable_updated': 'authorized',
-      'payment_intent.requires_action': 'pending',
-      'charge.refunded': 'refunded',
-      'checkout.session.expired': 'expired',
-    }
-    if (eventType && eventMap[eventType]) return eventMap[eventType]
-
-    const statusMap: Record<string, UnifiedPaymentStatus> = {
-      requires_payment_method: 'pending',
-      requires_confirmation: 'pending',
-      requires_action: 'pending',
-      processing: 'pending',
-      requires_capture: 'authorized',
-      succeeded: 'captured',
-      canceled: 'cancelled',
-    }
-    return statusMap[gatewayStatus] ?? 'unknown'
+    if (eventType && defaultEventMap[eventType]) return defaultEventMap[eventType]
+    return defaultStatusMap[gatewayStatus] ?? 'unknown'
   },
 }
 ```
+
+```typescript
+// gateway_stripe/lib/adapters/v2023-10-16.ts — deprecated version (kept for existing tenants)
+// Inherits most logic from shared, overrides only what's different in the older API
+
+import { createStripeClient, verifyStripeWebhook, defaultEventMap, defaultStatusMap } from '../shared'
+import type { GatewayAdapter } from '../../../payment_gateways/lib/adapter'
+
+const API_VERSION = '2023-10-16'
+
+export const stripeAdapterV20231016: GatewayAdapter = {
+  providerKey: 'stripe',
+
+  async createSession(input) {
+    const stripe = createStripeClient(input.settings, API_VERSION)
+    // Older API: uses different checkout session params (e.g., no automatic_tax)
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: input.paymentMethodTypes ?? ['card'],
+      line_items: input.lineItems.map(item => ({
+        price_data: {
+          currency: input.currencyCode.toLowerCase(),
+          product_data: { name: item.name },
+          unit_amount: Math.round(item.unitPrice * 100),
+        },
+        quantity: item.quantity,
+      })),
+      success_url: input.successUrl,
+      cancel_url: input.cancelUrl,
+      customer_email: input.customerEmail,
+      metadata: { orderId: input.orderId, organizationId: input.organizationId, tenantId: input.tenantId },
+    })
+
+    return { sessionId: session.id, redirectUrl: session.url!, gatewayPaymentId: session.payment_intent as string | undefined }
+  },
+
+  // capture, refund, cancel, getStatus — delegate to shared helpers (same across versions)
+  async capture(input) { /* same as v2024-12-18 — uses shared createStripeClient */ },
+  async refund(input) { /* same as v2024-12-18 */ },
+  async cancel(input) { /* same as v2024-12-18 */ },
+  async getStatus(input) { /* same as v2024-12-18 */ },
+
+  verifyWebhook: verifyStripeWebhook,  // Same across all versions
+  mapStatus(gatewayStatus, eventType) {
+    if (eventType && defaultEventMap[eventType]) return defaultEventMap[eventType]
+    return defaultStatusMap[gatewayStatus] ?? 'unknown'
+  },
+}
+```
+
+Note how the deprecated `v2023-10-16` adapter is thin — it only overrides `createSession()` where the API changed. Everything else delegates to shared logic. This is the recommended pattern for versioned adapters: keep them minimal, share aggressively.
 
 ### 7.4 What a Provider Module Developer Needs to Know
 
 To build a new provider module:
 
-1. Create a module with `index.ts` and `setup.ts`
+1. Create a module with `index.ts`, `integration.ts`, and `setup.ts`
 2. Implement the `GatewayAdapter` interface (imported from `payment_gateways/lib/adapter`)
 3. In `setup.ts`, call `registerGatewayAdapter(myAdapter)` and `registerPaymentProvider({ key, label, settings })`
-4. That's it. The core handles: webhook routing, status sync, UMES UI, API endpoints, workers.
+4. That's it. The core handles: webhook routing, status sync, version resolution, UMES UI, API endpoints, workers.
+
+**Adding API version support** (optional — recommended for providers with versioned APIs):
+
+5. Add `apiVersions` to your `integration.ts` with at least one `default: true` version
+6. Create separate adapter files in `lib/adapters/` — one per API version
+7. Put shared logic (status maps, credential loading, webhook verification) in `lib/shared.ts`
+8. Register each adapter with `registerGatewayAdapter(adapter, { version: 'x.y.z' })`
+9. Omitting `apiVersions` entirely is fine — your integration works as unversioned (no version picker in admin UI)
 
 ---
 
@@ -1268,8 +1379,12 @@ export default async function handler(job: Job, ctx: WorkerContext) {
   })
   if (!transaction) return
 
-  // 2. Map gateway event to unified status
-  const adapter = getGatewayAdapter(providerKey)!
+  // 2. Map gateway event to unified status (resolve tenant's selected API version)
+  const version = await ctx.integrationState.resolveApiVersion(
+    `gateway_${providerKey}`,
+    { organizationId: tenantContext.organizationId, tenantId: tenantContext.tenantId },
+  )
+  const adapter = getGatewayAdapter(providerKey, version)!
   const newStatus = adapter.mapStatus(event.data.status as string, event.eventType)
   if (newStatus === 'unknown') return
 
@@ -1304,7 +1419,11 @@ export default async function handler(job: Job, ctx: WorkerContext) {
   }, { limit: 50 })
 
   for (const transaction of staleTransactions) {
-    const adapter = getGatewayAdapter(transaction.providerKey)
+    const version = await ctx.integrationState.resolveApiVersion(
+      `gateway_${transaction.providerKey}`,
+      { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+    )
+    const adapter = getGatewayAdapter(transaction.providerKey, version)
     if (!adapter || !transaction.gatewayPaymentId) continue
 
     const settings = await getProviderSettings(transaction.providerKey, {
@@ -1598,6 +1717,24 @@ export const integration: IntegrationDefinition = {
   icon: 'stripe',
   package: '@open-mercato/gateway-stripe',
   tags: ['cards', 'apple-pay', 'google-pay', 'checkout'],
+  apiVersions: [
+    {
+      id: '2024-12-18',
+      label: 'v2024-12-18 (latest)',
+      status: 'stable',
+      default: true,
+      changelog: 'Payment Intents v2, improved error codes, enhanced refund metadata',
+    },
+    {
+      id: '2023-10-16',
+      label: 'v2023-10-16',
+      status: 'deprecated',
+      deprecatedAt: '2025-06-01',
+      sunsetAt: '2026-12-01',
+      migrationGuide: 'https://docs.stripe.com/upgrades#2024-12-18',
+      changelog: 'Legacy Payment Intents API',
+    },
+  ],
   credentials: {
     fields: [
       { key: 'publishableKey', label: 'Publishable Key', type: 'text', required: true },
@@ -1669,7 +1806,7 @@ Generate a typed manifest of all extension points during `yarn generate` for IDE
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Gateway SDK breaking changes | Medium | Pin SDK versions per provider module; provider-specific integration tests |
+| Gateway SDK breaking changes | Medium | Pin SDK versions per provider module; provider-specific integration tests; versioned adapters isolate API changes |
 | Webhook delivery failure | High | Status polling worker as fallback; webhook retry tolerance |
 | Multi-tenant webhook routing | High | Store org/tenant in gateway metadata; verify on receipt |
 | Credential exposure in logs | Critical | Never log settings; sanitize error messages; use encryption |
@@ -1700,6 +1837,9 @@ Generate a typed manifest of all extension points during `yarn generate` for IDE
 | Webhook — unknown provider | POST | `/api/payment-gateways/webhook/unknown` | 404 |
 | Status polling | Worker | — | Stale transactions updated via adapter.getStatus() |
 | Enricher | GET | `/api/sales/payments` | `_gateway` field present on enriched payments |
+| Version resolution — default | POST | `/api/payment-gateways/sessions` | Uses default adapter version when tenant has no version selected |
+| Version resolution — explicit | POST | `/api/payment-gateways/sessions` | Uses adapter matching tenant's selected `apiVersion` |
+| Version fallback | POST | `/api/payment-gateways/sessions` | Falls back to default adapter if selected version is not registered |
 
 ### 20.2 Per-Provider Module Tests
 
@@ -1725,3 +1865,4 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-02-24 | Initial draft |
 | 2026-02-24 | Split from monolithic to core + plugin architecture — provider modules are independent |
 | 2026-02-24 | Added §17 Integration Marketplace Alignment — credentials move to SPEC-045 `IntegrationCredentials`, provider modules declare `integration.ts` |
+| 2026-02-24 | Added API versioning support: adapter registry is version-aware, gateway service resolves tenant's selected version, Stripe module restructured with `lib/shared.ts` + `lib/adapters/v*.ts` pattern, `integration.ts` declares `apiVersions` |

@@ -64,7 +64,8 @@ See [SPEC-045a §1.2](./SPEC-045a-foundation.md#12-integration-bundles) for the 
 | 4 | **Bundles for platform connectors** — one npm package → many integrations sharing credentials | One-click MedusaJS/Shopify/Magento installer |
 | 5 | **No new extension points** — UMES slots, events, workers, DI for everything | Flat learning curve |
 | 6 | **Runtime enable/disable** — per tenant without code changes | `IntegrationState` entity |
-| 7 | **Zero core module modifications** — integrations extend via UMES, events, DI | Community can contribute independently |
+| 7 | **Versioned adapters** — one integration ships multiple API versions; tenants pick which to use | External APIs evolve; tenants upgrade at their own pace |
+| 8 | **Zero core module modifications** — integrations extend via UMES, events, DI | Community can contribute independently |
 
 ---
 
@@ -102,6 +103,12 @@ The full spec is split into focused phase documents:
 | **5** | [SPEC-045e — Storage & Webhook Hubs](./SPEC-045e-storage-webhook-hubs.md) | `storage_providers` hub + `webhook_endpoints` hub |
 | **6** | [SPEC-045f — Health Monitoring](./SPEC-045f-health-monitoring.md) | Scheduled health checks, marketplace search/filtering, usage analytics |
 
+### Provider-Specific Specifications
+
+| Spec | Provider | Goal |
+|------|----------|------|
+| [SPEC-045g — Google Workspace](./SPEC-045g-google-workspace.md) | Google | Spreadsheet product import with field mapping, Google OAuth, step-by-step setup guide |
+
 ---
 
 ## Key Concepts
@@ -117,21 +124,36 @@ export const integration: IntegrationDefinition = {
   category: 'payment',
   hub: 'payment_gateways',
   providerKey: 'stripe',
+  apiVersions: [
+    { id: '2024-12-18', label: 'v2024-12-18 (latest)', status: 'stable', default: true },
+    { id: '2023-10-16', label: 'v2023-10-16', status: 'deprecated', sunsetAt: '2026-12-01' },
+  ],
   credentials: { fields: [
     { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
   ]},
 }
 ```
 
-Bundles export both `bundle` and `integrations` (array). See [SPEC-045a §1](./SPEC-045a-foundation.md).
+Integrations without `apiVersions` are treated as single-version (unversioned) — no version picker is shown. Bundles export both `bundle` and `integrations` (array). See [SPEC-045a §1](./SPEC-045a-foundation.md).
 
 ### Credentials API
 
-Unified encrypted per-tenant store. Bundle integrations inherit bundle credentials via fallthrough. Secret fields masked on read (`'••••••••'`). See [SPEC-045a §2](./SPEC-045a-foundation.md#2-credentials-api).
+Unified encrypted per-tenant store. Bundle integrations inherit bundle credentials via fallthrough. Secret fields masked on read (`'••••••••'`). Supports **OAuth 2.0 credential type** for third-party app authentication (Google, Microsoft, GitHub, Slack) — admin creates their own OAuth app, connects via consent screen, tokens stored encrypted with background renewal. See [SPEC-045a §2](./SPEC-045a-foundation.md#2-credentials-api) and [SPEC-045a §8](./SPEC-045a-foundation.md#8-oauth-20-credential-type--third-party-app-authentication).
 
 ### Operation Logs
 
 Shared `IntegrationLog` entity + scoped logger via DI. Every integration uses the same logging API. Admin panel renders timeline per integration with level filtering. See [SPEC-045a §3](./SPEC-045a-foundation.md#3-operation-logs--shared-logging-mechanism).
+
+### API Versioning
+
+External APIs change frequently. A single integration module can ship **multiple adapter versions**, one per external API version. Each tenant picks which version to use — no forced upgrades.
+
+- **Developer side**: Declare `apiVersions` in `integration.ts`. Register one adapter per version. Share common logic in `lib/shared.ts`.
+- **User side**: Version picker on the integration detail page. Deprecation warnings with sunset dates and migration guides.
+- **Framework side**: Adapter registries resolve the tenant's selected version transparently. Defaults to the version marked `default: true`.
+- **Lifecycle**: `stable` → `deprecated` (with sunset date) → removed in a future release. The admin panel highlights deprecated versions and links to migration guides.
+
+Integrations that don't need versioning simply omit `apiVersions` — zero overhead. See [SPEC-045a §1.3](./SPEC-045a-foundation.md#13-api-versioning).
 
 ### Data Sync — Delta Streaming
 
@@ -144,7 +166,7 @@ Import/export via `AsyncIterable<ImportBatch>` — streaming, resumable, queue-b
 | Entity | Table | Owner | Purpose |
 |--------|-------|-------|---------|
 | `IntegrationCredentials` | `integration_credentials` | `integrations` | Encrypted per-tenant secrets |
-| `IntegrationState` | `integration_states` | `integrations` | Enable/disable + health state |
+| `IntegrationState` | `integration_states` | `integrations` | Enable/disable + health state + selected API version |
 | `IntegrationLog` | `integration_logs` | `integrations` | Structured operation logs |
 | `SyncRun` | `sync_runs` | `data_sync` | Import/export run with progress |
 | `SyncCursor` | `sync_cursors` | `data_sync` | Last delta cursor per entity type |
@@ -271,3 +293,7 @@ Becomes `communication_channels` hub. WhatsApp becomes first spoke. See [SPEC-04
 | 2026-02-24 | Redesigned DataSyncAdapter with delta streaming, queue processing, resumability, progress tracking |
 | 2026-02-24 | Split into 6 phase files (SPEC-045a through SPEC-045f) |
 | 2026-02-24 | Consistency audit: added missing `SyncExternalIdMapping` and `SyncMapping` entities to data models table, fixed §4 subsection numbering in SPEC-045b, added `id-mapping.ts` and `rate-limiter.ts` to module structure, added 3 missing integration tests |
+| 2026-02-24 | Added API Versioning: integrations can declare multiple API versions (`apiVersions` array); tenants select version via admin UI; adapter registries resolve version-aware adapters; deprecated version warnings with sunset dates |
+| 2026-02-24 | Added OAuth 2.0 credential type (SPEC-045a §8): per-integration OAuth apps, authorization code + PKCE flow, encrypted token storage, background refresh worker, re-auth detection |
+| 2026-02-24 | Added SSH key credential type (SPEC-045a §10): key-pair generation, public key display, private key encrypted storage, fingerprint tracking |
+| 2026-02-24 | Added SPEC-045g — Google Workspace provider spec: end-to-end OAuth + Sheets product import with field mapping |
