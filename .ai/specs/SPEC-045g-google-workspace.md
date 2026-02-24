@@ -105,7 +105,119 @@ The integration detail page (`/backend/integrations/sync_google_workspace`) incl
 5. Complete the Google consent flow
 6. You should see "Connected" status
 
-### 3.2 Setup Guide UI
+### 3.2 Local Development with Tunnels (ngrok / Cloudflare Tunnel / localtunnel)
+
+Google OAuth requires HTTPS redirect URIs — `localhost` does not work. During local development, use a tunnel to expose your local Open Mercato instance to the internet.
+
+#### Option A: ngrok (Recommended for Development)
+
+1. Install ngrok: `brew install ngrok` (macOS) or download from [ngrok.com](https://ngrok.com)
+2. Sign up for a free ngrok account and authenticate:
+   ```bash
+   ngrok config add-authtoken YOUR_AUTH_TOKEN
+   ```
+3. Start your Open Mercato dev server:
+   ```bash
+   yarn dev
+   ```
+4. In a separate terminal, start the ngrok tunnel pointing to your dev server port:
+   ```bash
+   ngrok http 3000
+   ```
+5. ngrok displays a public URL, e.g.:
+   ```
+   Forwarding   https://a1b2c3d4.ngrok-free.app → http://localhost:3000
+   ```
+6. Copy the HTTPS URL and configure it in Google Cloud Console:
+   - Go to **APIs & Services** → **Credentials** → click your OAuth Client ID
+   - Under **Authorized redirect URIs**, add:
+     ```
+     https://a1b2c3d4.ngrok-free.app/api/integrations/oauth/callback
+     ```
+   - Click **Save**
+7. **Important**: The free ngrok tier generates a new URL on every restart. When the URL changes:
+   - Update the redirect URI in Google Cloud Console
+   - Wait ~30 seconds for Google to propagate the change
+8. **Tip**: Use ngrok's paid plan for a stable subdomain (`ngrok http --domain=your-name.ngrok-free.app 3000`) to avoid reconfiguring the redirect URI each time
+
+#### Option B: Cloudflare Tunnel (Free, Stable URL)
+
+1. Install cloudflared: `brew install cloudflare/cloudflare/cloudflared`
+2. Login to Cloudflare:
+   ```bash
+   cloudflared tunnel login
+   ```
+3. Create a named tunnel:
+   ```bash
+   cloudflared tunnel create open-mercato-dev
+   ```
+4. Route a subdomain to the tunnel:
+   ```bash
+   cloudflared tunnel route dns open-mercato-dev dev-mercato.your-domain.com
+   ```
+5. Start the tunnel:
+   ```bash
+   cloudflared tunnel run --url http://localhost:3000 open-mercato-dev
+   ```
+6. Add the redirect URI in Google Cloud Console:
+   ```
+   https://dev-mercato.your-domain.com/api/integrations/oauth/callback
+   ```
+7. **Advantage**: The URL is stable — no reconfiguration needed between restarts
+
+#### Option C: localtunnel (Zero Setup)
+
+1. Run directly with npx (no install needed):
+   ```bash
+   npx localtunnel --port 3000 --subdomain open-mercato-dev
+   ```
+2. Add the redirect URI in Google Cloud Console:
+   ```
+   https://open-mercato-dev.loca.lt/api/integrations/oauth/callback
+   ```
+3. **Note**: localtunnel shows an interstitial page on first visit — click through it
+
+#### Google Cloud Console Configuration for Tunnels
+
+Regardless of which tunnel you use, the Google side configuration is the same:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services** → **Credentials**
+2. Click your OAuth 2.0 Client ID
+3. Under **Authorized redirect URIs**, add your tunnel URL:
+   ```
+   https://<your-tunnel-url>/api/integrations/oauth/callback
+   ```
+4. Under **Authorized JavaScript origins** (optional, for client-side flows), add:
+   ```
+   https://<your-tunnel-url>
+   ```
+5. Click **Save**
+6. **Important**: Google may take up to 5 minutes to propagate redirect URI changes. If you get a "redirect_uri_mismatch" error, wait and retry.
+
+**Multiple redirect URIs**: Google allows multiple redirect URIs on the same OAuth Client ID. You can add both your production URL and your tunnel URL simultaneously:
+```
+https://your-production-domain.com/api/integrations/oauth/callback
+https://a1b2c3d4.ngrok-free.app/api/integrations/oauth/callback
+https://dev-mercato.your-domain.com/api/integrations/oauth/callback
+```
+
+This way, the same Client ID works for both production and development environments. Remove development URIs before publishing the app for Google verification.
+
+#### Platform Callback URL Resolution
+
+The platform must generate the correct `redirect_uri` matching the incoming request's host. The OAuth start endpoint (`POST /api/integrations/:id/oauth/start`) builds the callback URL from the request's `Host` header:
+
+```typescript
+function buildCallbackUrl(req: ApiRequest): string {
+  const protocol = req.headers['x-forwarded-proto'] ?? 'https'
+  const host = req.headers['x-forwarded-host'] ?? req.headers.host
+  return `${protocol}://${host}/api/integrations/oauth/callback`
+}
+```
+
+This ensures the same code works with any tunnel or production domain — no environment variables needed for the redirect URI.
+
+### 3.3 Setup Guide UI
 
 The integration detail page shows this as a collapsible step-by-step guide:
 
