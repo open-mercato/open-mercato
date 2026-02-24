@@ -168,7 +168,7 @@ export const productCreateSchema = scoped
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['defaultSalesUnit'],
-        message: 'Base unit is required when default sales unit is set.',
+        message: 'catalog.products.validation.baseUnitRequired',
       })
     }
     const unitPriceEnabled = input.unitPrice?.enabled ?? input.unitPriceEnabled ?? false
@@ -181,14 +181,14 @@ export const productCreateSchema = scoped
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['unitPrice'],
-        message: 'Reference unit is required when unit price is enabled.',
+        message: 'catalog.products.validation.referenceUnitRequired',
       })
     }
     if (baseQuantity === null || baseQuantity === undefined || Number(baseQuantity) <= 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['unitPrice'],
-        message: 'Base quantity is required when unit price is enabled.',
+        message: 'catalog.products.unitPrice.errors.baseQuantity',
       })
     }
   })
