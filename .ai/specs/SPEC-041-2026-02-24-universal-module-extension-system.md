@@ -6,7 +6,7 @@
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-02-24 |
 | **Issue** | [#675](https://github.com/open-mercato/open-mercato/issues/675) |
-| **Related** | [PR #635 — Record Locking](https://github.com/open-mercato/open-mercato/pull/635), SPEC-035 (Mutation Guard), SPEC-036 (Request Lifecycle Events) |
+| **Related** | [PR #635 — Record Locking](https://github.com/open-mercato/open-mercato/pull/635), SPEC-035 (Mutation Guard), SPEC-036 (Request Lifecycle Events), SPEC-043 (Reactive Notification Handlers) |
 
 ## TLDR
 
@@ -34,9 +34,12 @@ Evolve the widget injection system into a **Universal Module Extension System (U
 16. [Risks & Impact Review](#16-risks--impact-review)
 17. [Integration Test Coverage](#17-integration-test-coverage)
 18. [Final Compliance Report](#18-final-compliance-report)
-19. [Appendix A — Insights from Code Analysis](#19-appendix-a--insights-from-code-analysis)
-20. [Appendix B — Competitive Analysis Summary](#20-appendix-b--competitive-analysis-summary)
-21. [Changelog](#21-changelog)
+19. [DOM Event Bridge — Widget ↔ App Event Unification](#19-dom-event-bridge--widget--app-event-unification)
+20. [AGENTS.md Changes Required for UMES](#20-agentsmd-changes-required-for-umes)
+21. [PR Delivery Plan — Phased Implementation](#21-pr-delivery-plan--phased-implementation)
+22. [Appendix A — Insights from Code Analysis](#22-appendix-a--insights-from-code-analysis)
+23. [Appendix B — Competitive Analysis Summary](#23-appendix-b--competitive-analysis-summary)
+24. [Changelog](#24-changelog)
 
 ---
 
@@ -175,6 +178,12 @@ Every backend page automatically gets slots at predictable positions:
 'backend:layout:footer'                   // Page footer
 'backend:sidebar:top'                     // Sidebar top
 'backend:sidebar:footer'                  // Sidebar footer
+
+// NEW: Application chrome slots (topbar, sidebar navigation, profile menu)
+'backend:topbar:profile-menu'             // Profile dropdown menu items
+'backend:topbar:actions'                  // Topbar action buttons (left of profile)
+'backend:sidebar:nav'                     // Sidebar navigation items
+'backend:sidebar:nav:footer'              // Sidebar navigation footer items
 ```
 
 ### 4.2 Wildcard & Pattern Matching (Existing — Formalized)
@@ -186,7 +195,346 @@ Every backend page automatically gets slots at predictable positions:
 'detail:*:tabs'                  // All detail page tab sections
 ```
 
-### 4.3 Event Handler Expansion
+### 4.3 Universal Menu Injection
+
+#### Current State: 5 Menu Surfaces, None Extensible by Modules
+
+Open Mercato has 5 distinct navigation/menu surfaces in the backend:
+
+| Surface | Component | Built From | Currently Extensible? |
+|---------|-----------|-----------|----------------------|
+| **Main sidebar** | `AppShell.tsx` | `groups[]` from `buildAdminNav()` scanning module `page.meta.ts` | Partially — pages with `pageContext: 'main'` auto-appear, but no items without pages |
+| **Settings sidebar** | `SectionNav.tsx` | `settingsSections[]` from pages with `pageContext: 'settings'` | Partially — settings pages auto-appear, but no items without pages |
+| **Profile sidebar** | `SectionNav.tsx` | `profileSections[]` hardcoded in `auth/lib/profile-sections.tsx` | No |
+| **Profile dropdown** | `ProfileDropdown.tsx` | Hardcoded JSX (Change Password, Theme, Language, Sign Out) | No |
+| **Header actions** | `layout.tsx` | Hardcoded JSX (AI Chat, Search, Org Switcher, Settings, Notifications) | No |
+
+The auto-discovery via `page.meta.ts` works for adding **pages** to the sidebar, but fails when a module needs to:
+- Add a menu item without a corresponding page (e.g., "Open external dashboard")
+- Add items to the profile dropdown, profile sidebar, or header
+- Add items to a specific group in Settings sidebar (e.g., a new section under "Auth")
+- Add non-link items (toggles, badges, status indicators)
+- Remove or reorder existing items
+
+#### Solution: `InjectionMenuItemWidget` — One Type, Any Menu Surface
+
+A single widget type that targets any menu surface via the standard injection table spot ID system:
+
+```typescript
+// packages/shared/src/modules/widgets/injection-menu.ts
+
+/**
+ * Every menu surface has a string ID. Items are injected by targeting that ID.
+ * Built-in menu surfaces:
+ */
+type MenuSurfaceId =
+  | 'menu:sidebar:main'               // Main sidebar navigation
+  | 'menu:sidebar:settings'           // Settings section sidebar
+  | 'menu:sidebar:profile'            // Profile section sidebar
+  | 'menu:topbar:profile-dropdown'    // Top-right profile dropdown
+  | 'menu:topbar:actions'             // Topbar action area (left of profile)
+  | `menu:sidebar:settings:${string}` // Specific settings section (e.g., 'menu:sidebar:settings:auth')
+  | `menu:sidebar:main:${string}`     // Specific main sidebar group (e.g., 'menu:sidebar:main:sales')
+  | `menu:${string}`                  // Extensible — widgets can define their own menu surfaces
+
+/**
+ * Universal menu item — works across all surfaces.
+ */
+interface InjectionMenuItem {
+  id: string
+  label: string                        // i18n key
+  labelKey?: string                    // i18n key (alias for label, matches existing page.meta.ts pattern)
+  icon?: string                        // Lucide icon name (string) or React.ReactNode
+  href?: string                        // Navigate to URL
+  onClick?: () => void                 // Custom client-side action (for non-link items)
+  /** Visual separator before this item */
+  separator?: boolean
+  /** Position relative to built-in or other injected items */
+  placement?: InjectionPlacement
+  /** ACL features required to show this item (checked at render time) */
+  features?: string[]
+  /** ACL roles required to show this item */
+  roles?: string[]
+  /** Badge/counter (e.g., notification count, "New" label) */
+  badge?: string | number
+  /** Child items (one level of nesting — matches sidebar group→item pattern) */
+  children?: Omit<InjectionMenuItem, 'children'>[]
+  /** For sidebar: which group to add this item to (by group ID) */
+  groupId?: string
+  /** For sidebar: create a new group if groupId doesn't exist */
+  groupLabel?: string
+  groupLabelKey?: string
+  groupOrder?: number
+}
+
+/**
+ * Widget type for menu injection. Headless — no Widget component needed.
+ */
+type InjectionMenuItemWidget = {
+  metadata: {
+    id: string
+    features?: string[]
+  }
+  menuItems: InjectionMenuItem[]
+}
+```
+
+#### The Runtime: `useInjectedMenuItems(surfaceId)`
+
+A single hook used by any menu component to collect injected items:
+
+```typescript
+// packages/ui/src/backend/injection/useInjectedMenuItems.ts
+
+function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
+  items: InjectionMenuItem[]
+  isLoading: boolean
+} {
+  const { widgets } = useInjectionDataWidgets(surfaceId)
+  const items = widgets.flatMap(w => w.module.menuItems ?? [])
+  // Filter by current user's features/roles
+  // Sort by placement
+  return { items: filtered, isLoading: false }
+}
+```
+
+Every menu component calls this once. The hook returns items already filtered by ACL and sorted by placement.
+
+#### Shared Utility: `mergeMenuItems(builtIn, injected)`
+
+A utility that merges built-in items with injected items, resolving placements:
+
+```typescript
+// packages/ui/src/backend/injection/mergeMenuItems.ts
+
+function mergeMenuItems(
+  builtIn: { id: string; [key: string]: unknown }[],
+  injected: InjectionMenuItem[],
+): MergedMenuItem[] {
+  // 1. Index built-in items by ID
+  // 2. For each injected item:
+  //    - If placement.relativeTo exists and matches a built-in ID → insert before/after
+  //    - If placement is First → prepend
+  //    - If placement is Last or missing → append
+  //    - If groupId specified → find or create group, insert into it
+  // 3. Return merged list preserving built-in order
+}
+```
+
+#### Example 1: SSO Module → Profile Dropdown + Settings Sidebar
+
+One module, two menu surfaces:
+
+```typescript
+// sso/widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  // Add "Manage SSO" to profile dropdown
+  'menu:topbar:profile-dropdown': {
+    widgetId: 'sso.injection.menus',
+    priority: 50,
+  },
+  // Add "SSO Configuration" to settings sidebar under "Auth" section
+  'menu:sidebar:settings:auth': {
+    widgetId: 'sso.injection.menus',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// sso/widgets/injection/menus/widget.ts
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+
+export default {
+  metadata: {
+    id: 'sso.injection.menus',
+    features: ['auth.sso.manage'],
+  },
+  menuItems: [
+    {
+      id: 'sso-settings',
+      label: 'sso.menu.manageSso',
+      icon: 'Shield',
+      href: '/backend/settings/sso',
+      separator: true,
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
+      // When targeted at profile-dropdown: item with separator before "Sign Out"
+      // When targeted at settings:auth: item appears in the Auth section
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+**Result in Profile Dropdown:**
+```
+Change Password
+Notification Preferences
+──────────────────────
+🛡 Manage SSO            ← injected
+──────────────────────
+Dark Mode
+Language
+Sign Out
+```
+
+**Result in Settings Sidebar → Auth section:**
+```
+Auth
+  Users
+  Roles
+  API Keys
+  🛡 SSO Configuration   ← injected
+```
+
+#### Example 2: Analytics Module → New Sidebar Group
+
+```typescript
+// analytics/widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  'menu:sidebar:main': {
+    widgetId: 'analytics.injection.sidebar-group',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// analytics/widgets/injection/sidebar-group/widget.ts
+export default {
+  metadata: {
+    id: 'analytics.injection.sidebar-group',
+    features: ['analytics.view'],
+  },
+  menuItems: [
+    {
+      id: 'analytics-dashboard',
+      label: 'analytics.nav.dashboard',
+      icon: 'BarChart3',
+      href: '/backend/analytics',
+      // Create a new group "Analytics" in the main sidebar
+      groupId: 'analytics',
+      groupLabel: 'Analytics',
+      groupLabelKey: 'analytics.nav.group',
+      groupOrder: 50,   // After Sales (order ~40), before Settings
+    },
+    {
+      id: 'analytics-reports',
+      label: 'analytics.nav.reports',
+      icon: 'FileBarChart',
+      href: '/backend/analytics/reports',
+      groupId: 'analytics',  // Same group
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+**Result in Main Sidebar:**
+```
+📋 Customers
+  People
+  Companies
+📦 Catalog
+  Products
+  Categories
+💰 Sales
+  Orders
+  Quotes
+📊 Analytics              ← injected group
+  Dashboard               ← injected item
+  Reports                 ← injected item
+```
+
+#### Example 3: Record Locks → Settings Item Without a Page
+
+The record-locking module already has a settings page at `pageContext: 'settings'`, so it auto-appears. But imagine a module that wants a menu item pointing to an **external URL**:
+
+```typescript
+// external_bi/widgets/injection/menus/widget.ts
+export default {
+  metadata: {
+    id: 'external_bi.injection.menus',
+    features: ['external_bi.view'],
+  },
+  menuItems: [
+    {
+      id: 'open-bi-dashboard',
+      label: 'external_bi.menu.openDashboard',
+      icon: 'ExternalLink',
+      href: 'https://bi.example.com/dashboard',  // External URL
+      groupId: 'analytics',
+      placement: { position: InjectionPosition.Last },
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+This adds an external link to the sidebar — something impossible today since `page.meta.ts` only works for internal pages.
+
+#### Example 4: Carrier Integration → Profile Sidebar Section
+
+```typescript
+// carrier_integration/widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  'menu:sidebar:profile': {
+    widgetId: 'carrier_integration.injection.profile-section',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// carrier_integration/widgets/injection/profile-section/widget.ts
+export default {
+  metadata: {
+    id: 'carrier_integration.injection.profile-section',
+    features: ['carrier_integration.manage'],
+  },
+  menuItems: [
+    {
+      id: 'carrier-api-keys',
+      label: 'carrier_integration.menu.apiKeys',
+      icon: 'Key',
+      href: '/backend/profile/carrier-api-keys',
+      // Create a new section in profile sidebar
+      groupId: 'integrations',
+      groupLabel: 'Integrations',
+      groupLabelKey: 'carrier_integration.menu.integrationsGroup',
+      groupOrder: 2,
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+**Result in Profile Sidebar:**
+```
+Account                    ← existing section
+  Change Password
+
+Integrations               ← injected section
+  🔑 API Keys              ← injected item
+```
+
+#### Implementation: Which Components Change
+
+| Component | Change | Scope |
+|-----------|--------|-------|
+| `ProfileDropdown.tsx` | Add `useInjectedMenuItems('menu:topbar:profile-dropdown')`, call `mergeMenuItems()`, render injected items | ~20 LOC |
+| `AppShell.tsx` (main sidebar) | Add `useInjectedMenuItems('menu:sidebar:main')`, merge groups/items into existing `groups` prop | ~15 LOC |
+| `SectionNav.tsx` | Add `useInjectedMenuItems('menu:sidebar:settings')` / `'menu:sidebar:profile'`, merge into sections | ~15 LOC |
+| `layout.tsx` (header) | Add `useInjectedMenuItems('menu:topbar:actions')`, render injected action buttons | ~10 LOC |
+| `buildAdminNav()` in `nav.ts` | No change — continues building nav from `page.meta.ts`; injected items are merged at render time | 0 LOC |
+
+**Key design**: `buildAdminNav()` is NOT modified. The module discovery via `page.meta.ts` continues to work as-is. Menu injection is a render-time overlay — it adds items to the already-built navigation tree. This means sidebar customization (reorder, rename, hide) also works on injected items, since the customization UI operates on the final merged item list.
+
+#### Interaction with Sidebar Customization
+
+The existing sidebar customization system (reorder groups, rename items, hide items, per-role preferences) works on the final merged item list. Injected items:
+- **Can be hidden** by the user via the customization UI (stored by item `id` in `hiddenItems[]`)
+- **Can be renamed** by the user (stored by item `id` in `itemLabels{}`)
+- **Can be reordered** within their group (stored by group `id` in `groupOrder[]`)
+- **Cannot be edited** at the code level by the customization UI — only visual overrides
+
+### 4.4 Event Handler Expansion
 
 Extend the existing `WidgetInjectionEventHandlers` with DOM-inspired lifecycle:
 
@@ -587,11 +935,15 @@ interface InterceptorBeforeResult {
   message?: string
   /** HTTP status code for rejection */
   statusCode?: number
+  /** Arbitrary data passed to the after hook via ctx.metadata */
+  metadata?: Record<string, unknown>
 }
 
 interface InterceptorAfterResult {
-  /** Additional fields to merge into the response */
+  /** Additional fields to merge into the response (additive) */
   merge?: Record<string, unknown>
+  /** Completely replace the response body (use with caution — for post-query filtering) */
+  replace?: Record<string, unknown>
 }
 ```
 
@@ -1964,6 +2316,7 @@ No existing InjectionSpot usage changes. No existing injection-table.ts changes.
 | React to a completed operation | **Event Subscriber** (existing) | Async side-effect |
 | Add data model relations | **Entity Extension** (existing) | Data model |
 | Add user-configurable fields | **Custom Fields/Entities** (existing) | User-defined |
+| Add items to profile menu / sidebar nav | **Menu Item Injection** (Phase 1 §4.3) | Application chrome |
 
 ### 10.2 What Does NOT Change
 
@@ -2014,7 +2367,7 @@ Each numbered step preserves the exact contract of existing hooks — new steps 
 
 ---
 
-## 11. Extension Manifest & Discovery
+## 12. Extension Manifest & Discovery
 
 ### 11.1 Unified Module Extension File
 
@@ -2055,7 +2408,7 @@ All extension types support `features?: string[]` for ACL-based activation. Exte
 
 ---
 
-## 12. Developer Experience
+## 13. Developer Experience
 
 ### 12.1 CLI Scaffolding
 
@@ -2094,7 +2447,7 @@ At build time (`yarn generate`), detect:
 
 ---
 
-## 13. Data Models
+## 14. Data Models
 
 ### 13.1 No New Database Entities for Phase 1-2
 
@@ -2130,7 +2483,7 @@ Interceptor rejections can be logged for audit:
 
 ---
 
-## 14. API Contracts
+## 15. API Contracts
 
 ### 14.1 No New HTTP Endpoints
 
@@ -2165,7 +2518,7 @@ When enrichers are active, responses include metadata:
 
 ---
 
-## 15. Risks & Impact Review
+## 16. Risks & Impact Review
 
 | # | Risk | Severity | Area | Mitigation | Residual Risk |
 |---|------|----------|------|------------|---------------|
@@ -2180,7 +2533,7 @@ When enrichers are active, responses include metadata:
 
 ---
 
-## 16. Integration Test Coverage
+## 17. Integration Test Coverage
 
 ### Phase 1 — UI Extension Slots
 | Test ID | Scenario | Path |
@@ -2232,7 +2585,7 @@ When enrichers are active, responses include metadata:
 
 ---
 
-## 17. Final Compliance Report
+## 18. Final Compliance Report
 
 | Check | Status |
 |-------|--------|
@@ -2248,7 +2601,7 @@ When enrichers are active, responses include metadata:
 
 ---
 
-## 18. Appendix A — Insights from Code Analysis
+## 22. Appendix A — Insights from Code Analysis
 
 This section captures critical implementation details learned from deep-diving into the actual codebase, particularly the record-locking widget (PR #635) and the core injection infrastructure.
 
@@ -2418,7 +2771,7 @@ From `CrudForm.tsx` lines 1100-1332, the exact save flow:
 
 ---
 
-## 19. Appendix B — Competitive Analysis Summary
+## 23. Appendix B — Competitive Analysis Summary
 
 | Platform | Strengths to Adopt | Weaknesses to Avoid |
 |----------|-------------------|---------------------|
@@ -2439,7 +2792,7 @@ From `CrudForm.tsx` lines 1100-1332, the exact save flow:
 
 ---
 
-## 20. Changelog
+## 24. Changelog
 
 | Date | Change |
 |------|--------|
@@ -2451,3 +2804,7 @@ From `CrudForm.tsx` lines 1100-1332, the exact save flow:
 | 2026-02-24 | Added: Typed positioning via `InjectionPosition` enum + `InjectionPlacement` interface (§8.0) — replaces error-prone string literals |
 | 2026-02-24 | Added: Two-tier filter architecture (§8.4) — server-side via API interceptor query rewriting for cross-module filtering, client-side for enriched data |
 | 2026-02-24 | Added: `query` field to `InterceptorBeforeResult` for GET interceptors |
+| 2026-02-24 | Added: End-to-end shipment field injection example (§8.6) — carrier_integration adds "Special Instructions" + "Handling Code" to ShipmentDialog without touching sales module |
+| 2026-02-24 | Added: Tier 3 post-query merge filter (§8.4) — interceptor `after` hook filters/merges results when API can't accept ID rewrites; `replace` + `metadata` fields on interceptor types |
+| 2026-02-24 | Added: Application chrome injection (§4.3) — `InjectionMenuItemWidget` type, profile menu/topbar/sidebar nav slots, SSO and carrier integration examples, ProfileDropdown implementation guide |
+| 2026-02-24 | Added reference to SPEC-043 (Reactive Notification Handlers) — extends UMES with `notification:<type>:handler` extension points for client-side reactive effects (toasts, popups, state refreshes) triggered on notification arrival, eliminating module-specific polling loops |
