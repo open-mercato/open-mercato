@@ -175,6 +175,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 - API routes MUST export `openApi` for documentation generation
 - CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
+- Write operations: implement via the Command pattern (see `packages/core/src/modules/customers/commands/*`)
 - Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`).
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
@@ -182,6 +183,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
+- Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files
 
 ## Critical Rules
