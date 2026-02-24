@@ -372,17 +372,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
-  const recordId = typeof values.id === 'string'
-    ? values.id
-    : typeof values.id === 'number'
-      ? String(values.id)
-      : undefined
-  const fallbackRecordId = recordId || (
-    versionHistory?.resourceId === undefined || versionHistory.resourceId === null
-      ? undefined
-      : String(versionHistory.resourceId).trim() || undefined
-  )
-  
+
   // Injection spot events for widget lifecycle management
   const resolvedInjectionSpotId = React.useMemo(() => {
     if (injectionSpotId) return injectionSpotId
@@ -400,6 +390,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (typeof raw === 'number') return String(raw)
     return undefined
   }, [values])
+  const fallbackRecordId = recordId || (
+    versionHistory?.resourceId === undefined || versionHistory.resourceId === null
+      ? undefined
+      : String(versionHistory.resourceId).trim() || undefined
+  )
 
   const injectionContext = React.useMemo(() => ({
     formId,
