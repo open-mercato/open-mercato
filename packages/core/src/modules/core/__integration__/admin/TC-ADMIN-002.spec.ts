@@ -48,9 +48,11 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       const actionsButton = keyRow.getByRole('button').last();
       await actionsButton.click();
 
+      // Wait for the dropdown menu to open before interacting with items
+      await expect(page.getByRole('menu')).toBeVisible({ timeout: 5_000 });
+
       // Look for a Revoke or Delete option in the dropdown menu
       const revokeButton = page.getByRole('menuitem', { name: /revoke|delete/i }).first();
-      await expect(revokeButton).toBeVisible({ timeout: 3_000 });
       await revokeButton.click();
 
       // Handle confirmation dialog if present
@@ -60,7 +62,7 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       }
 
       // Verify the key is revoked or removed
-      await page.waitForTimeout(1_000);
+      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {});
       await page.getByRole('textbox', { name: 'Search' }).fill(keyName);
       // Key should either show as revoked or be removed from list
       // We verify at least that no error occurred

@@ -36,12 +36,12 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
       await login(page, 'admin');
       await page.goto(`/backend/customers/deals/${dealId}`);
 
-      // Select "Win" stage (nth(1) because status select also has a "Win" option)
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: 'Win' }) })
-        .nth(1)
-        .selectOption({ label: 'Win' });
+      // Select "Win" stage — scope to the CrudForm field wrapper to avoid
+      // collisions with the status select which may also list "Win" entries.
+      // Wait for enabled: the select is disabled until pipeline stages load.
+      const pipelineStageSelect = page.locator('[data-crud-field-id="pipelineStageId"] select');
+      await expect(pipelineStageSelect).toBeEnabled();
+      await pipelineStageSelect.selectOption(winStageId!);
       await page.getByRole('button', { name: /Update deal/i }).click();
       await expect(page.getByText(/Win/i).first()).toBeVisible();
 
