@@ -7,7 +7,7 @@ import {
 } from "@open-mercato/core/modules/dictionaries/data/entities";
 import { canonicalizeUnitCode } from "./unitCodes";
 
-const UOM_DICTIONARY_KEYS = ["unit", "units", "measurement_units"];
+export const UOM_DICTIONARY_KEYS = ["unit", "units", "measurement_units"] as const;
 
 export async function resolveUnitDictionary(
   em: EntityManager,

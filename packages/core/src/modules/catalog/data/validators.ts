@@ -116,6 +116,49 @@ const unitPriceConfigSchema = z.object({
   baseQuantity: z.coerce.number().positive().optional(),
 })
 
+function productUomCrossFieldRefinement(
+  input: {
+    defaultUnit?: string | null
+    defaultSalesUnit?: string | null
+    unitPriceEnabled?: boolean
+    unitPriceReferenceUnit?: string | null
+    unitPriceBaseQuantity?: number
+    unitPrice?: { enabled?: boolean; referenceUnit?: string | null; baseQuantity?: number }
+  },
+  ctx: z.RefinementCtx,
+) {
+  const defaultUnit = typeof input.defaultUnit === 'string' ? input.defaultUnit.trim() : ''
+  const defaultSalesUnit =
+    typeof input.defaultSalesUnit === 'string' ? input.defaultSalesUnit.trim() : ''
+  if (defaultSalesUnit && !defaultUnit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['defaultSalesUnit'],
+      message: 'catalog.products.validation.baseUnitRequired',
+    })
+  }
+  const unitPriceEnabled = input.unitPrice?.enabled ?? input.unitPriceEnabled ?? false
+  if (!unitPriceEnabled) return
+  const referenceUnit =
+    input.unitPrice?.referenceUnit ?? input.unitPriceReferenceUnit ?? null
+  const baseQuantity =
+    input.unitPrice?.baseQuantity ?? input.unitPriceBaseQuantity ?? null
+  if (!referenceUnit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['unitPrice'],
+      message: 'catalog.products.validation.referenceUnitRequired',
+    })
+  }
+  if (baseQuantity === null || baseQuantity === undefined || Number(baseQuantity) <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['unitPrice'],
+      message: 'catalog.products.unitPrice.errors.baseQuantity',
+    })
+  }
+}
+
 export const productCreateSchema = scoped
   .extend({
     title: z.string().trim().min(1).max(255),
@@ -160,38 +203,7 @@ export const productCreateSchema = scoped
     categoryIds: z.array(uuid()).max(100).optional(),
     tags: z.array(tagLabelSchema).max(100).optional(),
   })
-  .superRefine((input, ctx) => {
-    const defaultUnit = typeof input.defaultUnit === 'string' ? input.defaultUnit.trim() : ''
-    const defaultSalesUnit =
-      typeof input.defaultSalesUnit === 'string' ? input.defaultSalesUnit.trim() : ''
-    if (defaultSalesUnit && !defaultUnit) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['defaultSalesUnit'],
-        message: 'catalog.products.validation.baseUnitRequired',
-      })
-    }
-    const unitPriceEnabled = input.unitPrice?.enabled ?? input.unitPriceEnabled ?? false
-    if (!unitPriceEnabled) return
-    const referenceUnit =
-      input.unitPrice?.referenceUnit ?? input.unitPriceReferenceUnit ?? null
-    const baseQuantity =
-      input.unitPrice?.baseQuantity ?? input.unitPriceBaseQuantity ?? null
-    if (!referenceUnit) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['unitPrice'],
-        message: 'catalog.products.validation.referenceUnitRequired',
-      })
-    }
-    if (baseQuantity === null || baseQuantity === undefined || Number(baseQuantity) <= 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['unitPrice'],
-        message: 'catalog.products.unitPrice.errors.baseQuantity',
-      })
-    }
-  })
+  .superRefine(productUomCrossFieldRefinement)
 
 export const productUpdateSchema = z
   .object({
@@ -201,6 +213,7 @@ export const productUpdateSchema = z
   .extend({
     productType: productTypeSchema.optional(),
   })
+  .superRefine(productUomCrossFieldRefinement)
 
 export const variantCreateSchema = scoped.extend({
   productId: uuid(),
