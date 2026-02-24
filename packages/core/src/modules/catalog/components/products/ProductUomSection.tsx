@@ -586,7 +586,25 @@ export function ProductUomSection({
           </p>
         ) : (
           <div className="space-y-2">
-            {conversions.map((entry, index) => (
+            {conversions.map((entry, index) => {
+              const conversionFactor = toPositiveNumber(entry.toBaseFactor);
+              const conversionPreviewText =
+                entry.unitCode && conversionFactor !== null
+                  ? t(
+                      "catalog.products.uom.conversionPreview",
+                      "1 {{fromUnit}} = {{factor}} {{baseUnit}}",
+                      {
+                        fromUnit: findUnitLabel(entry.unitCode) ?? entry.unitCode,
+                        factor: formatPreviewNumber(conversionFactor),
+                        baseUnit:
+                          findUnitLabel(defaultUnit) ??
+                          defaultUnit ??
+                          t("catalog.products.uom.baseUnit", "base unit"),
+                      },
+                    )
+                  : null;
+
+              return (
               <div
                 key={entry.id ?? `uom-conversion-${index}`}
                 className="grid gap-3 rounded-md border p-3 md:grid-cols-12"
@@ -698,28 +716,14 @@ export function ProductUomSection({
                   </Button>
                 </div>
 
-                {(() => {
-                  const factor = toPositiveNumber(entry.toBaseFactor);
-                  if (!entry.unitCode || factor === null) return null;
-                  return (
+                {conversionPreviewText && (
                   <p className="text-xs text-muted-foreground md:col-span-12">
-                    {t(
-                      "catalog.products.uom.conversionPreview",
-                      "1 {{fromUnit}} = {{factor}} {{baseUnit}}",
-                      {
-                        fromUnit: findUnitLabel(entry.unitCode) ?? entry.unitCode,
-                        factor: formatPreviewNumber(factor),
-                        baseUnit:
-                          findUnitLabel(defaultUnit) ??
-                          defaultUnit ??
-                          t("catalog.products.uom.baseUnit", "base unit"),
-                      },
-                    )}
+                    {conversionPreviewText}
                   </p>
-                  );
-                })()}
+                )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

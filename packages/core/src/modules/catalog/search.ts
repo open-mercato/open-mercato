@@ -442,6 +442,30 @@ export const searchConfig: SearchModuleConfig = {
       },
     },
     {
+      entityId: 'catalog:catalog_product_unit_conversion',
+      enabled: true,
+      priority: 3,
+      buildSource: async (ctx) => {
+        const record = ctx.record
+        const lines: string[] = []
+        appendLine(lines, 'Unit code', record.unit_code ?? record.unitCode)
+        appendLine(lines, 'To base factor', record.to_base_factor ?? record.toBaseFactor)
+        appendLine(lines, 'Sort order', record.sort_order ?? record.sortOrder)
+        const isActive = record.is_active ?? record.isActive
+        appendLine(lines, 'Active', isActive)
+        return lines.length
+          ? { text: lines, checksumSource: { record: ctx.record, customFields: ctx.customFields } }
+          : null
+      },
+      resolveUrl: async (ctx) => {
+        const productId = resolveProductId(ctx.record)
+        return buildProductUrl(productId)
+      },
+      fieldPolicy: {
+        searchable: ['unit_code'],
+      },
+    },
+    {
       entityId: 'catalog:catalog_option_schema_template',
       enabled: true,
       priority: 4,

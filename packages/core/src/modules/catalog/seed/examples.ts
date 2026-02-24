@@ -973,8 +973,6 @@ export async function seedCatalogExamples(
         variant.id,
         variantSeed.media,
       );
-      const variantCover = variantMedia[0] ?? productMedia[0];
-
       const regularPrice = em.create(CatalogProductPrice, {
         id: randomUUID(),
         organizationId: scope.organizationId,
