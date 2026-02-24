@@ -109,6 +109,7 @@ import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGen
 import { loadSalesSettings } from "./settings";
 import { notificationTypes } from "../notifications";
 import {
+  REFERENCE_UNIT_CODES,
   canonicalizeUnitCode,
   toUnitLookupKey,
 } from "@open-mercato/shared/lib/units/unitCodes";
@@ -1741,7 +1742,7 @@ function toNumeric(value: string | number | null | undefined): number {
 }
 
 const UNIT_DICTIONARY_KEYS = ["unit", "units", "measurement_units"] as const;
-const UOM_REFERENCE_UNITS = new Set(["kg", "l", "m2", "m3", "pc"]);
+const UOM_REFERENCE_UNITS = new Set<string>(REFERENCE_UNIT_CODES);
 const UOM_NORMALIZED_SCALE = 6;
 const UOM_NORMALIZED_MAX = 1_000_000_000_000;
 const UNIT_PRICE_AUTOCONVERT_SCALE = 4;

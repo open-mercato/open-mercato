@@ -1,4 +1,5 @@
 import type { EventBus } from '@open-mercato/events'
+import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
 import type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind } from '../data/entities'
 
 export type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind }
@@ -24,7 +25,7 @@ export type SalesLineUomSnapshot = {
   }
   unitPriceReference?: {
     enabled: boolean
-    referenceUnitCode: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+    referenceUnitCode: ReferenceUnitCode | null
     baseQuantity: string | null
     grossPerReference?: string | null
     netPerReference?: string | null
