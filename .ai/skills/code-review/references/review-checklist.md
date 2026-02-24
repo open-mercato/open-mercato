@@ -234,12 +234,91 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] New API behavior is covered by route-level integration tests
 - [ ] Missing test coverage is explicitly called out in review findings with proposed test files/cases
 
-## 21. Anti-Pattern Checklist
+## 21. Backward Compatibility (Critical)
+
+Every item below refers to the Backward Compatibility Contract in root `AGENTS.md`. A violation is **Critical** unless the deprecation protocol is fully followed.
+
+### Convention Files & Auto-Discovery
+- [ ] No convention file renamed or removed (`index.ts`, `acl.ts`, `setup.ts`, `ce.ts`, `search.ts`, `events.ts`, `translations.ts`, `notifications.ts`, `di.ts`, `cli.ts`, etc.)
+- [ ] No convention file export name renamed (e.g., `features`, `setup`, `searchConfig`, `eventsConfig`, `translatableFields`)
+- [ ] No auto-discovery directory convention changed (routing algorithm for `frontend/`, `backend/`, `api/`, `subscribers/`, `workers/`)
+
+### Type Interfaces
+- [ ] No required fields removed from public types (`Module`, `ModuleSetupConfig`, `EventDefinition`, `EntityExtension`, `CustomFieldDefinition`, `InjectionWidgetMetadata`, `InjectionWidgetComponentProps`, `WidgetInjectionEventHandlers`, `SearchModuleConfig`, `NotificationTypeDefinition`, `DashboardWidgetMetadata`, `DashboardWidgetComponentProps`, `OpenApiRouteDoc`, `McpToolDefinition`, `WorkerMeta`, `PageMetadata`)
+- [ ] No required field types narrowed (e.g., `string | null` changed to `string`)
+- [ ] No existing optional fields removed from public types
+
+### Function Signatures
+- [ ] No required parameters removed or reordered on public functions (`createModuleEvents`, `makeCrudRoute`, `findWithDecryption`, `findOneWithDecryption`, `entityId`, `defineLink`, `defineFields`, `cf.*`, `lazyDashboardWidget`, `registerMcpTool`, `apiCall`, `apiCallOrThrow`, `useT`, `resolveTranslations`, `collectCustomFieldValues`, `flash`, `parseBooleanToken`, `parseBooleanWithDefault`, `createCrudOpenApiFactory`)
+- [ ] No return type changed in a breaking way
+- [ ] New parameters added as optional only (no required params added to existing functions)
+
+### Event IDs
+- [ ] No existing event ID renamed (IDs in any module's `events.ts`)
+- [ ] No existing event ID removed
+- [ ] No existing event payload fields removed (may add optional fields)
+- [ ] Deprecated events still emitted during bridge period alongside replacement
+
+### Widget Injection Spot IDs
+- [ ] No existing spot ID renamed or removed
+- [ ] No spot ID context/data type changed in a breaking way (may add optional fields)
+- [ ] Wildcard spots (`crud-form:*`, `data-table:*`) still match as documented
+
+### API Routes
+- [ ] No existing API route URL removed or renamed
+- [ ] No HTTP method changed for existing operations
+- [ ] No fields removed from existing response schemas (may add new fields)
+- [ ] Deprecated routes marked `deprecated: true` in `openApi` and kept functional
+
+### Database Schema
+- [ ] No existing table or column renamed
+- [ ] No existing column removed (soft-deprecate: stop writing, keep column)
+- [ ] No column type narrowed (e.g., `text` → `varchar(50)`)
+- [ ] Standard columns preserved (`id`, `created_at`, `updated_at`, `deleted_at`, `is_active`, `organization_id`, `tenant_id`)
+- [ ] New columns have defaults (non-breaking addition)
+
+### DI Service Names
+- [ ] No existing DI registration key renamed
+- [ ] No existing service interface changed in a breaking way
+
+### ACL Feature IDs
+- [ ] No existing feature ID renamed (stored in DB role configs)
+- [ ] No feature ID removed without data migration for existing role configs
+
+### Notification Type IDs
+- [ ] No existing `type` string renamed on `NotificationTypeDefinition`
+- [ ] No existing notification type removed
+
+### Import Paths
+- [ ] No documented public import path removed without re-export bridge + `@deprecated`
+- [ ] Moved modules re-exported from old path
+
+### CLI Commands
+- [ ] No existing CLI command or required flag renamed/removed
+
+### Generated Files
+- [ ] No generated file export names changed
+- [ ] No required fields removed from `BootstrapData`
+
+### Deprecation Protocol (when changing any of the above)
+- [ ] `@deprecated` JSDoc added with migration guidance and target removal version
+- [ ] Bridge provided (re-export, alias, or dual-emit) for at least one minor version
+- [ ] Documented in RELEASE_NOTES.md
+- [ ] Spec in `.ai/specs/` with "Migration & Backward Compatibility" section
+
+## 22. Anti-Pattern Checklist
 
 Flag any of these patterns as violations:
 
 | Anti-Pattern | Severity | Fix |
 |---|---|---|
+| Removed/renamed event ID without deprecation bridge | Critical | Keep old ID, emit both, deprecate after one minor version |
+| Removed/renamed widget spot ID | Critical | Keep old spot ID, add new one additively |
+| Removed field from API response schema | Critical | Keep field (set to null/default if no longer meaningful), deprecate |
+| Renamed/removed DB column or table | Critical | Keep old column, add new one, backfill, deprecate old |
+| Removed/renamed public type field or function param | Critical | Add `@deprecated` alias, keep old signature |
+| Removed public import path without re-export | Critical | Re-export from old path with `@deprecated` |
+| Contract surface change without spec + migration section | Critical | Create spec with "Migration & Backward Compatibility" section |
 | Direct ORM relationships between modules | Critical | Use FK IDs, fetch separately |
 | Missing `organization_id` filter on tenant queries | Critical | Add tenant scoping |
 | Raw `em.find`/`em.findOne` without decryption | High | Use `findWithDecryption` |

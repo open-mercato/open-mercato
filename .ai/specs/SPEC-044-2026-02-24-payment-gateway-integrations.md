@@ -9,7 +9,7 @@
 
 ## TLDR
 
-Define a **payment gateway integration module** (`payment_gateways`) that connects Open Mercato's existing payment provider registry and `SalesPayment` entity to real payment processors — Stripe, PayU, Przelewy24, and Apple Pay. Uses the existing provider plugin architecture for configuration, UMES (SPEC-041) for UI extensions and API interception, and a gateway adapter pattern for unified webhook/status handling across all providers.
+Define a **two-layer payment architecture**: a thin core `payment_gateways` module that provides the shared adapter contract, status machine, webhook infrastructure, and UMES-based UI extensions — plus **independent provider modules** (`gateway_stripe`, `gateway_payu`, `gateway_przelewy24`) that each implement the adapter interface and can be developed, installed, and maintained independently by different teams or the community. Apple Pay is a payment method type within Stripe/PayU, not a separate module.
 
 ---
 
@@ -20,11 +20,11 @@ Define a **payment gateway integration module** (`payment_gateways`) that connec
 3. [Architecture Overview](#3-architecture-overview)
 4. [Existing Infrastructure Assessment](#4-existing-infrastructure-assessment)
 5. [Gateway Adapter Contract](#5-gateway-adapter-contract)
-6. [Phase 1 — Core Gateway Infrastructure](#6-phase-1--core-gateway-infrastructure)
-7. [Phase 2 — Stripe Integration](#7-phase-2--stripe-integration)
-8. [Phase 3 — PayU Integration](#8-phase-3--payu-integration)
-9. [Phase 4 — Przelewy24 Integration](#9-phase-4--przelewy24-integration)
-10. [Phase 5 — Apple Pay (via Stripe/PayU)](#10-phase-5--apple-pay-via-stripepayu)
+6. [Core Module — `payment_gateways`](#6-core-module--payment_gateways)
+7. [Provider Module — `gateway_stripe`](#7-provider-module--gateway_stripe)
+8. [Provider Module — `gateway_payu`](#8-provider-module--gateway_payu)
+9. [Provider Module — `gateway_przelewy24`](#9-provider-module--gateway_przelewy24)
+10. [Apple Pay (via Stripe/PayU)](#10-apple-pay-via-stripepayu)
 11. [Payment Status Machine](#11-payment-status-machine)
 12. [Webhook Architecture](#12-webhook-architecture)
 13. [UMES Integration Points](#13-umes-integration-points)
@@ -65,12 +65,11 @@ Open Mercato has a well-designed payment foundation:
 
 ### Goal
 
-Build a `payment_gateways` module that:
-- Implements gateway communication for Stripe, PayU, Przelewy24, and Apple Pay
-- Handles webhooks with signature verification, idempotency, and retry tolerance
-- Synchronizes payment status automatically (gateway → `SalesPayment`)
-- Uses UMES to extend the sales UI without modifying sales module code
-- Follows the adapter pattern so adding more gateways later is trivial
+Build a **plugin-friendly payment architecture** where:
+- A core `payment_gateways` module provides shared infrastructure (adapter contract, status machine, webhook routing, UMES extensions)
+- Each payment provider (Stripe, PayU, P24, etc.) is a **separate, independent module** that implements the adapter contract
+- Different developers or community contributors can build, maintain, and release provider modules independently
+- Adding a new gateway means creating a new module — no changes to core or existing providers
 
 ---
 
@@ -78,51 +77,70 @@ Build a `payment_gateways` module that:
 
 | # | Principle | Rationale |
 |---|-----------|-----------|
-| 1 | **Adapter pattern** — Each gateway implements a common interface | Swap/add gateways without changing core code |
-| 2 | **Zero sales module modifications** — All gateway logic lives in `payment_gateways` module | UMES makes this possible; keeps sales module clean |
-| 3 | **Webhook-first status sync** — Trust the gateway's webhook as source of truth for payment state | Polling is a fallback, not primary |
-| 4 | **Idempotent processing** — Every webhook and status transition is safely re-enterable | Gateways retry; we must handle duplicates |
-| 5 | **Metadata bridge** — Use `SalesPayment.metadata` for gateway-specific data (transaction IDs, gateway status codes) | Avoids schema changes to the core entity |
-| 6 | **Provider registry integration** — Register gateways via the existing `registerPaymentProvider()` system | No new registration mechanisms |
-| 7 | **Apple Pay as method, not gateway** — Apple Pay is a payment method type within Stripe/PayU, not a standalone gateway | Simplifies architecture significantly |
+| 1 | **Core + plugins architecture** — Thin shared core, independent provider modules | Different teams own different providers; community can contribute new ones |
+| 2 | **Adapter pattern** — All providers implement a common `GatewayAdapter` interface exported by the core | Providers are interchangeable; core doesn't know provider internals |
+| 3 | **Zero sales module modifications** — All gateway logic lives outside the sales module | UMES makes this possible; keeps sales module clean |
+| 4 | **Each provider is self-contained** — Provider module owns its adapter, webhook handler, provider registration, settings schema, and translations | No cross-provider dependencies |
+| 5 | **Webhook-first status sync** — Trust the gateway's webhook as source of truth for payment state | Polling is a fallback, not primary |
+| 6 | **Idempotent processing** — Every webhook and status transition is safely re-enterable | Gateways retry; we must handle duplicates |
+| 7 | **Metadata bridge** — Use `SalesPayment.metadata` for gateway-specific data (transaction IDs, gateway status codes) | Avoids schema changes to the core entity |
+| 8 | **Provider registry integration** — Providers register via the existing `registerPaymentProvider()` system | No new registration mechanisms |
+| 9 | **Apple Pay as method, not module** — Apple Pay is a payment method type within Stripe/PayU, not a standalone gateway | Simplifies architecture significantly |
 
 ---
 
 ## 3. Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     payment_gateways module                              │
-│                                                                          │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐  │
-│  │  Gateway         │  │  Webhook         │  │  Status Sync            │  │
-│  │  Adapters        │  │  Handler         │  │  Engine                 │  │
-│  │                  │  │                  │  │                         │  │
-│  │  • Stripe        │  │  • Signature     │  │  • State machine        │  │
-│  │  • PayU          │  │    verification  │  │  • SalesPayment update  │  │
-│  │  • Przelewy24    │  │  • Idempotency   │  │  • Event emission       │  │
-│  │                  │  │  • Rate limiting │  │  • Order total recomp.  │  │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────────┬────────────┘  │
-│           │                     │                          │              │
-│  ┌────────┴─────────────────────┴──────────────────────────┴────────────┐ │
-│  │                    Gateway Service (DI-resolved)                      │ │
-│  │  • createPaymentSession(orderId, provider, options)                   │ │
-│  │  • capturePayment(paymentId)                                          │ │
-│  │  • refundPayment(paymentId, amount?)                                  │ │
-│  │  • cancelPayment(paymentId)                                           │ │
-│  │  • syncPaymentStatus(paymentId)                                       │ │
-│  └──────────────────────────────────────────────────────────────────────┘ │
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────────┐ │
-│  │  UMES Extensions (zero sales module changes)                         │ │
-│  │  • Widget: "Pay Now" button on order detail → creates session         │ │
-│  │  • Widget: Payment status badge with gateway details                  │ │
-│  │  • Enricher: Adds gateway transaction data to payment API responses   │ │
-│  │  • Interceptor: Validates payment method has valid gateway config     │ │
-│  │  • Subscriber: Listens to sales.payment.created → auto-initiate      │ │
-│  └──────────────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Core: payment_gateways module (packages/core/src/modules/payment_gateways/) │
+│                                                                              │
+│  Exports:                                                                    │
+│  • GatewayAdapter interface + types                                          │
+│  • Adapter registry (register/get/list)                                      │
+│  • Status machine (unified status, valid transitions)                        │
+│  • Status sync engine (gateway status → SalesPayment update)                 │
+│  • Webhook routing (dispatch to correct adapter)                             │
+│  • GatewayTransaction entity (shared data model)                             │
+│  • UMES extensions (UI widgets, enrichers, interceptors)                     │
+│  • Gateway service (DI: createSession, capture, refund, cancel, sync)        │
+│                                                                              │
+│  Does NOT contain any provider-specific code.                                │
+└─────────────────────────────────┬────────────────────────────────────────────┘
+                                  │
+                   Adapter contract (GatewayAdapter)
+                                  │
+          ┌───────────────────────┼───────────────────────┐
+          │                       │                       │
+          ▼                       ▼                       ▼
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
+│  gateway_stripe   │  │  gateway_payu    │  │  gateway_przelewy24  │
+│                    │  │                  │  │                      │
+│  • Stripe adapter  │  │  • PayU adapter  │  │  • P24 adapter       │
+│  • Provider reg.   │  │  • Provider reg. │  │  • Provider reg.     │
+│  • Settings schema │  │  • Settings sch. │  │  • Settings schema   │
+│  • Webhook verify  │  │  • Webhook ver.  │  │  • Webhook verify    │
+│  • Status mapping  │  │  • Status map.   │  │  • Status mapping    │
+│  • Translations    │  │  • Translations  │  │  • Translations      │
+│                    │  │                  │  │                      │
+│  npm: independent  │  │  npm: independent│  │  npm: independent    │
+│  Author: anyone    │  │  Author: anyone  │  │  Author: anyone      │
+└──────────────────┘  └──────────────────┘  └──────────────────────┘
+
+          ▼                       ▼                       ▼
+   (future: gateway_adyen, gateway_mollie, gateway_blik, ...)
 ```
+
+### Why Two Layers?
+
+| Concern | Monolithic (rejected) | Core + Plugins (chosen) |
+|---------|----------------------|------------------------|
+| Adding a new provider | Edit central module, risk breaking existing ones | Create new module, zero risk to existing |
+| Different teams | All must coordinate in same module | Each owns their module independently |
+| Dependencies | One module pulls in `stripe`, `payu-sdk`, etc. | Each module only pulls its own SDK |
+| Release cadence | All providers release together | Each releases independently |
+| Community contributions | High bar — PR to core | Low bar — separate repo/module |
+| Install only what you need | Bundle all gateways | Install only `gateway_stripe` if that's all you use |
 
 ---
 
@@ -137,40 +155,34 @@ Build a `payment_gateways` module that:
 | `SalesPayment.status` / `statusEntryId` | Map to unified status machine | Yes |
 | `SalesPayment.capturedAmount` / `refundedAmount` | Updated by status sync engine | Yes |
 | `SalesPayment.receivedAt` / `capturedAt` | Set when gateway confirms receipt/capture | Yes |
-| Payment Provider Registry | Register Stripe/PayU/P24 with settings schemas | Yes |
-| Payment Commands (create/update) | Used by status sync to update payment records | Yes |
+| Payment Provider Registry | Provider modules call `registerPaymentProvider()` with their settings | Yes |
+| Payment Commands (create/update) | Used by core status sync to update payment records | Yes |
 | Payment Events | `sales.payment.updated` triggers downstream (notifications, workflows) | Yes |
 | Webhook pattern from inbox_ops | Reference for signature verification, rate limiting | Yes (template) |
 | Worker/Queue system | Async webhook processing, status polling | Yes |
-| DI container | Register gateway services | Yes |
+| DI container | Core registers gateway service; providers register adapters | Yes |
 
 ### What Requires UMES (SPEC-041)
 
-| Extension | UMES Feature | Phase |
-|-----------|-------------|-------|
-| "Pay via Gateway" button on order detail | UI Slot Injection (Phase 1) | Existing widget injection |
-| Gateway transaction details on payment detail | Response Enricher (Phase 3) | UMES Phase 3 |
-| Validate gateway config before payment creation | API Interceptor (Phase 4) | UMES Phase 4 |
-| Gateway status column on payments table | Column Injection (Phase 5) | UMES Phase 5 |
-| Gateway settings fields on payment method form | Field Injection (Phase 5) | UMES Phase 5 |
+| Extension | UMES Feature | Owned By |
+|-----------|-------------|----------|
+| "Pay via Gateway" button on order detail | UI Slot Injection (Phase 1) | Core module |
+| Gateway transaction details on payment detail | Response Enricher (Phase 3) | Core module |
+| Validate gateway config before payment creation | API Interceptor (Phase 4) | Core module |
+| Gateway status column on payments table | Column Injection (Phase 5) | Core module |
+| Gateway settings fields on payment method form | Field Injection (Phase 5) | Core module |
 
-### What Requires NO UMES (Works Today)
-
-| Feature | Mechanism |
-|---------|-----------|
-| Webhook endpoints | Standard API route auto-discovery |
-| Gateway service | DI registration |
-| Status sync on webhook | Event subscriber + payment commands |
-| Background status polling | Worker auto-discovery |
-| Gateway-specific events | `createModuleEvents()` |
-| ACL for gateway operations | `acl.ts` features |
+All UMES extensions live in the **core** `payment_gateways` module because they are provider-agnostic — they read from `GatewayTransaction` which works the same regardless of provider.
 
 ---
 
 ## 5. Gateway Adapter Contract
 
+This is the interface that every provider module must implement. Exported by the core module.
+
 ```typescript
 // payment_gateways/lib/adapter.ts
+// (exported from @open-mercato/core/modules/payment_gateways)
 
 interface GatewayAdapter {
   /** Provider key matching the provider registry (e.g., 'stripe', 'payu', 'przelewy24') */
@@ -342,7 +354,9 @@ type UnifiedPaymentStatus =
 
 ---
 
-## 6. Phase 1 — Core Gateway Infrastructure
+## 6. Core Module — `payment_gateways`
+
+The core module contains **zero provider-specific code**. It provides shared infrastructure that all provider modules use.
 
 ### 6.1 Module Structure
 
@@ -350,19 +364,16 @@ type UnifiedPaymentStatus =
 packages/core/src/modules/payment_gateways/
 ├── index.ts                           # Module metadata
 ├── acl.ts                             # RBAC features
-├── di.ts                              # Service registration
-├── events.ts                          # Gateway-specific events
+├── di.ts                              # Gateway service registration
+├── events.ts                          # Gateway lifecycle events
 ├── setup.ts                           # Tenant init, default statuses
 ├── lib/
-│   ├── adapter.ts                     # GatewayAdapter interface
-│   ├── adapter-registry.ts            # registerGatewayAdapter(), getAdapter()
-│   ├── status-machine.ts              # Unified status transitions
+│   ├── adapter.ts                     # GatewayAdapter interface + all types (§5)
+│   ├── adapter-registry.ts            # registerGatewayAdapter(), getAdapter(), listAdapters()
+│   ├── status-machine.ts              # Unified status transitions + validation
 │   ├── status-sync.ts                 # Gateway status → SalesPayment update
-│   └── webhook-utils.ts              # Shared webhook verification utilities
-├── adapters/
-│   ├── stripe.ts                      # Stripe adapter implementation
-│   ├── payu.ts                        # PayU adapter implementation
-│   └── przelewy24.ts                 # Przelewy24 adapter implementation
+│   ├── gateway-service.ts             # High-level service (createSession, capture, refund...)
+│   └── webhook-utils.ts              # Shared helpers (idempotency check, tenant resolution)
 ├── data/
 │   ├── entities.ts                    # GatewayTransaction entity
 │   ├── validators.ts                  # Zod schemas
@@ -375,7 +386,7 @@ packages/core/src/modules/payment_gateways/
 │   ├── status/route.ts               # GET: query gateway status
 │   ├── interceptors.ts               # Validate gateway config on payment creation
 │   └── webhook/
-│       └── [provider]/route.ts       # Webhook endpoints per provider
+│       └── [provider]/route.ts       # Dynamic webhook routing — dispatches to adapter
 ├── subscribers/
 │   └── payment-status-changed.ts     # React to status changes
 ├── workers/
@@ -386,13 +397,36 @@ packages/core/src/modules/payment_gateways/
 │   └── injection/
 │       ├── pay-button/               # "Pay via Gateway" button on order detail
 │       ├── gateway-status-badge/     # Gateway status on payment list/detail
-│       └── gateway-settings/         # Gateway config fields on payment method form
+│       └── gateway-status-column/    # Gateway status column on payments table
 └── i18n/
     ├── en.ts
     └── pl.ts
 ```
 
-### 6.2 Gateway Transaction Entity
+### 6.2 Adapter Registry
+
+```typescript
+// payment_gateways/lib/adapter-registry.ts
+
+const adapters = new Map<string, GatewayAdapter>()
+
+/** Called by each provider module in its setup.ts or di.ts */
+export function registerGatewayAdapter(adapter: GatewayAdapter): void {
+  adapters.set(adapter.providerKey, adapter)
+}
+
+export function getGatewayAdapter(providerKey: string): GatewayAdapter | undefined {
+  return adapters.get(providerKey)
+}
+
+export function listGatewayAdapters(): GatewayAdapter[] {
+  return Array.from(adapters.values())
+}
+```
+
+### 6.3 Gateway Transaction Entity
+
+Owned by the core module. All provider modules write to this entity via the core's status sync engine — they never create their own transaction tables.
 
 ```typescript
 // payment_gateways/data/entities.ts
@@ -403,7 +437,7 @@ export class GatewayTransaction extends BaseEntity {
   paymentId!: string  // FK to sales_payments.id (ID only, no ORM relation)
 
   @Property()
-  providerKey!: string  // 'stripe' | 'payu' | 'przelewy24'
+  providerKey!: string  // 'stripe' | 'payu' | 'przelewy24' | any future provider
 
   @Property({ nullable: true })
   sessionId?: string  // Gateway session/checkout ID
@@ -454,31 +488,60 @@ interface WebhookLogEntry {
 }
 ```
 
-### 6.3 Adapter Registry
+### 6.4 Gateway Service (DI)
+
+The high-level service that routes calls to the correct adapter. Consumed by API routes and widgets.
 
 ```typescript
-// payment_gateways/lib/adapter-registry.ts
+// payment_gateways/lib/gateway-service.ts
 
-const adapters = new Map<string, GatewayAdapter>()
+export function createPaymentGatewayService({ em, eventBus }: Dependencies) {
+  return {
+    async createPaymentSession(input: {
+      orderId: string
+      paymentMethodId: string
+      successUrl: string
+      cancelUrl: string
+      paymentMethodTypes?: string[]
+      locale?: string
+    }) {
+      // 1. Load payment method → get providerKey + settings
+      // 2. Look up adapter via registry
+      // 3. Call adapter.createSession()
+      // 4. Create SalesPayment + GatewayTransaction
+      // 5. Emit payment_gateways.session.created
+      // 6. Return session result
+    },
 
-export function registerGatewayAdapter(adapter: GatewayAdapter): void {
-  adapters.set(adapter.providerKey, adapter)
-}
+    async capturePayment(paymentId: string, amount?: number) {
+      // 1. Load GatewayTransaction → get adapter
+      // 2. Call adapter.capture()
+      // 3. Call syncPaymentStatus()
+    },
 
-export function getGatewayAdapter(providerKey: string): GatewayAdapter | undefined {
-  return adapters.get(providerKey)
-}
+    async refundPayment(paymentId: string, amount?: number, reason?: string) {
+      // 1. Load GatewayTransaction → get adapter
+      // 2. Call adapter.refund()
+      // 3. Call syncPaymentStatus()
+    },
 
-export function listGatewayAdapters(): GatewayAdapter[] {
-  return Array.from(adapters.values())
+    async cancelPayment(paymentId: string) {
+      // 1. Load GatewayTransaction → get adapter
+      // 2. Call adapter.cancel()
+      // 3. Call syncPaymentStatus()
+    },
+
+    async syncPaymentStatus(paymentId: string) {
+      // 1. Load GatewayTransaction → get adapter
+      // 2. Call adapter.getStatus() (poll)
+      // 3. Call status sync engine
+    },
+  }
 }
 ```
 
-### 6.4 DI Registration
-
 ```typescript
 // payment_gateways/di.ts
-
 export function register(container: AppContainer) {
   container.register({
     paymentGatewayService: asFunction(createPaymentGatewayService).singleton().proxy(),
@@ -508,7 +571,6 @@ export const eventsConfig = createModuleEvents('payment_gateways', [
 
 ```typescript
 // payment_gateways/acl.ts
-
 export const features = [
   'payment_gateways.view',
   'payment_gateways.manage',
@@ -518,25 +580,223 @@ export const features = [
 ]
 ```
 
----
+### 6.7 Webhook Routing
 
-## 7. Phase 2 — Stripe Integration
-
-### 7.1 Adapter Implementation
+The core module provides a single dynamic webhook endpoint that routes to the correct adapter:
 
 ```typescript
-// payment_gateways/adapters/stripe.ts
+// payment_gateways/api/webhook/[provider]/route.ts
+
+export const metadata = {
+  POST: { requireAuth: false },  // Webhooks are unauthenticated
+}
+
+export async function POST(request: NextRequest, { params }: RouteContext) {
+  const providerKey = params.provider  // Dynamic: 'stripe', 'payu', 'przelewy24', etc.
+  const adapter = getGatewayAdapter(providerKey)
+  if (!adapter) return NextResponse.json({ error: 'Unknown provider' }, { status: 404 })
+
+  const body = await request.text()
+  const headers = Object.fromEntries(request.headers.entries())
+
+  // 1. Determine tenant from gateway metadata or lookup
+  const tenantContext = await resolveTenantFromWebhook(providerKey, body, headers)
+  if (!tenantContext) return NextResponse.json({ error: 'Unknown tenant' }, { status: 400 })
+
+  // 2. Get provider settings for this tenant
+  const settings = await getProviderSettings(providerKey, tenantContext)
+
+  // 3. Verify signature via the provider's adapter
+  let event: WebhookEvent
+  try {
+    event = await adapter.verifyWebhook({ headers, body, settings })
+  } catch {
+    await emitEvent('payment_gateways.webhook.failed', { providerKey, reason: 'signature' })
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+  }
+
+  // 4. Idempotency check
+  const isDuplicate = await checkWebhookIdempotency(event.idempotencyKey, tenantContext)
+  if (isDuplicate) return NextResponse.json({ received: true })  // Acknowledge but skip
+
+  // 5. Enqueue for async processing (quick response to gateway)
+  await enqueueJob('payment-gateway-webhook', {
+    providerKey,
+    event,
+    tenantContext,
+  })
+
+  // 6. Acknowledge receipt immediately
+  return NextResponse.json({ received: true })
+}
+```
+
+This means provider modules **don't need their own webhook endpoints** — they only need to implement `verifyWebhook()` and `mapStatus()` in their adapter.
+
+### 6.8 Status Sync Engine
+
+```typescript
+// payment_gateways/lib/status-sync.ts
+
+async function syncPaymentStatus(
+  paymentId: string,
+  newUnifiedStatus: UnifiedPaymentStatus,
+  gatewayData: {
+    gatewayPaymentId: string
+    gatewayStatus: string
+    capturedAmount?: number
+    refundedAmount?: number
+    rawResponse?: Record<string, unknown>
+  },
+  context: { em: EntityManager; organizationId: string; tenantId: string },
+): Promise<void> {
+  // 1. Load existing GatewayTransaction
+  const transaction = await context.em.findOne(GatewayTransaction, {
+    paymentId,
+    organizationId: context.organizationId,
+  })
+  if (!transaction) return
+
+  // 2. Check if transition is valid (idempotent — same status = no-op)
+  if (transaction.unifiedStatus === newUnifiedStatus) return
+
+  // 3. Update GatewayTransaction
+  transaction.unifiedStatus = newUnifiedStatus
+  transaction.gatewayStatus = gatewayData.gatewayStatus
+  transaction.gatewayMetadata = {
+    ...transaction.gatewayMetadata,
+    lastResponse: gatewayData.rawResponse,
+  }
+
+  // 4. Update SalesPayment via existing payment commands
+  const paymentUpdate: Partial<SalesPaymentUpdate> = {
+    status: mapToSalesPaymentStatus(newUnifiedStatus),
+    paymentReference: gatewayData.gatewayPaymentId,
+    metadata: {
+      gateway: {
+        provider: transaction.providerKey,
+        status: gatewayData.gatewayStatus,
+        transactionId: gatewayData.gatewayPaymentId,
+        lastSyncAt: new Date().toISOString(),
+      },
+    },
+  }
+
+  if (gatewayData.capturedAmount !== undefined) {
+    paymentUpdate.capturedAmount = gatewayData.capturedAmount
+    if (newUnifiedStatus === 'captured') {
+      paymentUpdate.capturedAt = new Date()
+    }
+  }
+
+  if (gatewayData.refundedAmount !== undefined) {
+    paymentUpdate.refundedAmount = gatewayData.refundedAmount
+  }
+
+  if (newUnifiedStatus === 'captured' || newUnifiedStatus === 'authorized') {
+    paymentUpdate.receivedAt = paymentUpdate.receivedAt ?? new Date()
+  }
+
+  // 5. Execute update via existing command (triggers events, recomputes totals)
+  await updatePaymentCommand.execute({
+    paymentId,
+    data: paymentUpdate,
+    ...context,
+  })
+
+  // 6. Emit gateway-specific event
+  await emitEvent(`payment_gateways.payment.${newUnifiedStatus}`, {
+    paymentId,
+    gatewayPaymentId: gatewayData.gatewayPaymentId,
+    providerKey: transaction.providerKey,
+  })
+}
+```
+
+---
+
+## 7. Provider Module — `gateway_stripe`
+
+A self-contained module that depends only on the `payment_gateways` core (for the adapter contract) and the `stripe` npm package.
+
+### 7.1 Module Structure
+
+```
+packages/core/src/modules/gateway_stripe/
+├── index.ts                   # Module metadata (depends on: payment_gateways)
+├── setup.ts                   # Register adapter + provider on tenant init
+├── lib/
+│   └── adapter.ts             # GatewayAdapter implementation for Stripe
+└── i18n/
+    ├── en.ts
+    └── pl.ts
+```
+
+That's it. No `acl.ts` (uses core's features), no `data/entities.ts` (uses core's GatewayTransaction), no `api/` (uses core's webhook routing), no `widgets/` (uses core's UMES extensions).
+
+### 7.2 Setup — Registration
+
+```typescript
+// gateway_stripe/setup.ts
+
+import { registerGatewayAdapter } from '../payment_gateways/lib/adapter-registry'
+import { registerPaymentProvider } from '../../sales/lib/providers'
+import { stripeAdapter } from './lib/adapter'
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated() {
+    // Register the adapter (idempotent — Map.set is safe to call multiple times)
+    registerGatewayAdapter(stripeAdapter)
+
+    // Register or update the provider definition with settings schema
+    // (the existing Stripe provider in defaultProviders.ts defines settings;
+    //  this replaces it with the gateway-aware version)
+    registerPaymentProvider({
+      key: 'stripe',
+      label: 'Stripe',
+      description: 'Card payments, Apple Pay, Google Pay via Stripe Checkout.',
+      settings: {
+        fields: [
+          { key: 'publishableKey', label: 'Publishable Key', type: 'secret', required: true },
+          { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
+          { key: 'webhookSecret', label: 'Webhook Secret', type: 'secret', required: true },
+          { key: 'captureMethod', label: 'Capture Method', type: 'select', options: [
+            { value: 'automatic', label: 'Automatic' },
+            { value: 'manual', label: 'Manual (authorize then capture)' },
+          ]},
+          { key: 'enableApplePay', label: 'Enable Apple Pay', type: 'boolean' },
+          { key: 'successUrl', label: 'Success URL', type: 'url' },
+          { key: 'cancelUrl', label: 'Cancel URL', type: 'url' },
+        ],
+        schema: stripeSettingsSchema,
+      },
+    })
+  },
+}
+```
+
+### 7.3 Adapter Implementation
+
+```typescript
+// gateway_stripe/lib/adapter.ts
 
 import Stripe from 'stripe'
+import type { GatewayAdapter, UnifiedPaymentStatus } from '../../payment_gateways/lib/adapter'
 
 export const stripeAdapter: GatewayAdapter = {
   providerKey: 'stripe',
 
   async createSession(input) {
     const stripe = new Stripe(input.settings.secretKey as string)
+
+    const paymentMethodTypes = input.paymentMethodTypes ?? ['card']
+    if (input.settings.enableApplePay) {
+      paymentMethodTypes.push('apple_pay')
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
-      payment_method_types: input.paymentMethodTypes ?? ['card'],
+      payment_method_types: paymentMethodTypes,
       line_items: input.lineItems.map(item => ({
         price_data: {
           currency: input.currencyCode.toLowerCase(),
@@ -632,8 +892,7 @@ export const stripeAdapter: GatewayAdapter = {
   },
 
   mapStatus(gatewayStatus, eventType) {
-    // Map Stripe event types to unified status
-    const map: Record<string, UnifiedPaymentStatus> = {
+    const eventMap: Record<string, UnifiedPaymentStatus> = {
       'payment_intent.succeeded': 'captured',
       'payment_intent.payment_failed': 'failed',
       'payment_intent.canceled': 'cancelled',
@@ -642,10 +901,8 @@ export const stripeAdapter: GatewayAdapter = {
       'charge.refunded': 'refunded',
       'checkout.session.expired': 'expired',
     }
+    if (eventType && eventMap[eventType]) return eventMap[eventType]
 
-    if (eventType && map[eventType]) return map[eventType]
-
-    // Fallback: map by PaymentIntent status
     const statusMap: Record<string, UnifiedPaymentStatus> = {
       requires_payment_method: 'pending',
       requires_confirmation: 'pending',
@@ -655,73 +912,82 @@ export const stripeAdapter: GatewayAdapter = {
       succeeded: 'captured',
       canceled: 'cancelled',
     }
-
     return statusMap[gatewayStatus] ?? 'unknown'
   },
 }
 ```
 
-### 7.2 Stripe Provider Registration Update
+### 7.4 What a Provider Module Developer Needs to Know
 
-The existing Stripe provider in `defaultProviders.ts` already declares the correct settings fields. The `payment_gateways` module enhances it at module init:
+To build a new provider module:
+
+1. Create a module with `index.ts` and `setup.ts`
+2. Implement the `GatewayAdapter` interface (imported from `payment_gateways/lib/adapter`)
+3. In `setup.ts`, call `registerGatewayAdapter(myAdapter)` and `registerPaymentProvider({ key, label, settings })`
+4. That's it. The core handles: webhook routing, status sync, UMES UI, API endpoints, workers.
+
+---
+
+## 8. Provider Module — `gateway_payu`
+
+### 8.1 Module Structure
+
+```
+packages/core/src/modules/gateway_payu/
+├── index.ts
+├── setup.ts                   # Register adapter + provider
+├── lib/
+│   ├── adapter.ts             # GatewayAdapter implementation for PayU
+│   └── auth.ts                # PayU OAuth token management
+└── i18n/
+    ├── en.ts
+    └── pl.ts
+```
+
+### 8.2 Setup
 
 ```typescript
-// payment_gateways/setup.ts
+// gateway_payu/setup.ts
 
 export const setup: ModuleSetupConfig = {
-  defaultRoleFeatures: {
-    admin: ['payment_gateways.*'],
-    employee: ['payment_gateways.view'],
-  },
-
-  async onTenantCreated({ em, tenantId, organizationId }) {
-    // Register gateway adapters (idempotent)
-    registerGatewayAdapter(stripeAdapter)
+  async onTenantCreated() {
     registerGatewayAdapter(payuAdapter)
-    registerGatewayAdapter(przelewy24Adapter)
+
+    registerPaymentProvider({
+      key: 'payu',
+      label: 'PayU',
+      description: 'Online payments via PayU (popular in Poland, CEE, India, Latin America).',
+      settings: {
+        fields: [
+          { key: 'posId', label: 'POS ID', type: 'text', required: true },
+          { key: 'clientId', label: 'OAuth Client ID', type: 'text', required: true },
+          { key: 'clientSecret', label: 'OAuth Client Secret', type: 'secret', required: true },
+          { key: 'secondKey', label: 'Second Key (MD5 signature)', type: 'secret', required: true },
+          { key: 'sandbox', label: 'Sandbox mode', type: 'boolean' },
+          { key: 'enableApplePay', label: 'Enable Apple Pay', type: 'boolean' },
+        ],
+        schema: payuSettingsSchema,
+      },
+    })
   },
 }
 ```
 
-### 7.3 Apple Pay via Stripe
-
-Apple Pay is not a separate gateway — it's a payment method type within Stripe Checkout:
+### 8.3 Adapter (Key Differences from Stripe)
 
 ```typescript
-// When creating a session with Apple Pay enabled:
-await gatewayService.createPaymentSession({
-  orderId: order.id,
-  providerKey: 'stripe',
-  paymentMethodTypes: ['card', 'apple_pay'],
-  // ... rest of input
-})
-```
-
-The Stripe adapter passes `payment_method_types: ['card', 'apple_pay']` to `stripe.checkout.sessions.create()`. Apple Pay appears automatically in the Stripe Checkout UI on supported devices.
-
-**Provider settings extension** for Apple Pay:
-
-```typescript
-// Added to Stripe provider settings fields
-{ key: 'enableApplePay', label: 'Enable Apple Pay', type: 'boolean' },
-{ key: 'applePayMerchantId', label: 'Apple Pay Merchant ID', type: 'text' },
-```
-
----
-
-## 8. Phase 3 — PayU Integration
-
-### 8.1 PayU Adapter
-
-```typescript
-// payment_gateways/adapters/payu.ts
+// gateway_payu/lib/adapter.ts
 
 export const payuAdapter: GatewayAdapter = {
   providerKey: 'payu',
 
   async createSession(input) {
     const token = await getPayUAccessToken(input.settings)
-    const response = await fetch(`${getPayUBaseUrl(input.settings)}/api/v2_1/orders`, {
+    const baseUrl = input.settings.sandbox
+      ? 'https://secure.snd.payu.com'
+      : 'https://secure.payu.com'
+
+    const response = await fetch(`${baseUrl}/api/v2_1/orders`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -731,7 +997,7 @@ export const payuAdapter: GatewayAdapter = {
         merchantPosId: input.settings.posId,
         description: `Order ${input.orderNumber}`,
         currencyCode: input.currencyCode,
-        totalAmount: Math.round(input.amount * 100).toString(), // PayU uses minor units as string
+        totalAmount: Math.round(input.amount * 100).toString(),
         buyer: {
           email: input.customerEmail,
           firstName: input.customerName?.split(' ')[0],
@@ -749,8 +1015,6 @@ export const payuAdapter: GatewayAdapter = {
       }),
     })
 
-    // PayU returns 302 with redirect URL in Location header
-    // or 200 with orderId and redirectUri
     const data = await response.json()
     return {
       sessionId: data.orderId,
@@ -759,8 +1023,12 @@ export const payuAdapter: GatewayAdapter = {
     }
   },
 
-  // capture, refund, cancel, getStatus, verifyWebhook, mapStatus...
-  // PayU webhook uses MD5 signature: md5(body + secondKey)
+  // verifyWebhook: PayU uses MD5(body + secondKey)
+  async verifyWebhook(input) {
+    const expectedSignature = md5(input.body + input.settings.secondKey)
+    const receivedSignature = input.headers['openpayu-signature']
+    // Parse signature header and verify...
+  },
 
   mapStatus(gatewayStatus) {
     const map: Record<string, UnifiedPaymentStatus> = {
@@ -773,48 +1041,73 @@ export const payuAdapter: GatewayAdapter = {
     }
     return map[gatewayStatus] ?? 'unknown'
   },
+
+  // capture, refund, cancel, getStatus — similar pattern
 }
-```
-
-### 8.2 PayU Provider Registration
-
-```typescript
-// Registered via payment_gateways module (not in sales defaultProviders)
-registerPaymentProvider({
-  key: 'payu',
-  label: 'PayU',
-  description: 'Online payments via PayU (popular in Poland, CEE, India, Latin America).',
-  settings: {
-    fields: [
-      { key: 'posId', label: 'POS ID', type: 'text', required: true },
-      { key: 'clientId', label: 'OAuth Client ID', type: 'text', required: true },
-      { key: 'clientSecret', label: 'OAuth Client Secret', type: 'secret', required: true },
-      { key: 'secondKey', label: 'Second Key (MD5 signature)', type: 'secret', required: true },
-      { key: 'sandbox', label: 'Sandbox mode', type: 'boolean' },
-      { key: 'enableApplePay', label: 'Enable Apple Pay', type: 'boolean' },
-    ],
-    schema: payuSettings,
-  },
-})
 ```
 
 ---
 
-## 9. Phase 4 — Przelewy24 Integration
+## 9. Provider Module — `gateway_przelewy24`
 
-### 9.1 Przelewy24 Adapter
+### 9.1 Module Structure
 
-Przelewy24 (P24) is a Polish payment aggregator. It acts as a gateway to multiple Polish banks and payment methods.
+```
+packages/core/src/modules/gateway_przelewy24/
+├── index.ts
+├── setup.ts
+├── lib/
+│   └── adapter.ts
+└── i18n/
+    ├── en.ts
+    └── pl.ts
+```
+
+### 9.2 Setup
 
 ```typescript
-// payment_gateways/adapters/przelewy24.ts
+// gateway_przelewy24/setup.ts
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated() {
+    registerGatewayAdapter(przelewy24Adapter)
+
+    registerPaymentProvider({
+      key: 'przelewy24',
+      label: 'Przelewy24',
+      description: 'Polish payment aggregator supporting bank transfers, BLIK, cards, and more.',
+      settings: {
+        fields: [
+          { key: 'merchantId', label: 'Merchant ID', type: 'text', required: true },
+          { key: 'posId', label: 'POS ID (if different)', type: 'text' },
+          { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
+          { key: 'crc', label: 'CRC Key', type: 'secret', required: true },
+          { key: 'sandbox', label: 'Sandbox mode', type: 'boolean' },
+        ],
+        schema: przelewy24SettingsSchema,
+      },
+    })
+  },
+}
+```
+
+### 9.3 Adapter (Key Differences)
+
+P24 has a two-step flow: register transaction → redirect → webhook notification → **verify transaction** (extra step vs Stripe/PayU).
+
+```typescript
+// gateway_przelewy24/lib/adapter.ts
 
 export const przelewy24Adapter: GatewayAdapter = {
   providerKey: 'przelewy24',
 
   async createSession(input) {
+    const baseUrl = input.settings.sandbox
+      ? 'https://sandbox.przelewy24.pl'
+      : 'https://secure.przelewy24.pl'
+
     const sign = computeP24Sign(input)  // SHA384 of {sessionId|merchantId|amount|currency|crc}
-    const response = await fetch(`${getP24BaseUrl(input.settings)}/api/v1/transaction/register`, {
+    const response = await fetch(`${baseUrl}/api/v1/transaction/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -839,17 +1132,21 @@ export const przelewy24Adapter: GatewayAdapter = {
     const data = await response.json()
     return {
       sessionId: input.orderId,
-      redirectUrl: `${getP24BaseUrl(input.settings)}/trnRequest/${data.data.token}`,
+      redirectUrl: `${baseUrl}/trnRequest/${data.data.token}`,
       gatewayPaymentId: data.data.token,
     }
   },
 
-  // P24 uses a verify endpoint after webhook notification
-  // Webhook includes: merchantId, posId, sessionId, amount, currency, orderId, sign
+  // P24 webhook requires an extra verify call after receiving notification
+  async verifyWebhook(input) {
+    // 1. Parse notification body
+    // 2. Verify signature (SHA384)
+    // 3. Call PUT /api/v1/transaction/verify to confirm
+    // 4. Return WebhookEvent
+  },
 
   mapStatus(gatewayStatus) {
     const map: Record<string, UnifiedPaymentStatus> = {
-      // P24 notifications include a status: true (verified) or error code
       verified: 'captured',
       error: 'failed',
       pending: 'pending',
@@ -859,74 +1156,35 @@ export const przelewy24Adapter: GatewayAdapter = {
 }
 ```
 
-### 9.2 P24 Provider Registration
-
-```typescript
-registerPaymentProvider({
-  key: 'przelewy24',
-  label: 'Przelewy24',
-  description: 'Polish payment aggregator supporting bank transfers, BLIK, cards, and more.',
-  settings: {
-    fields: [
-      { key: 'merchantId', label: 'Merchant ID', type: 'text', required: true },
-      { key: 'posId', label: 'POS ID (if different)', type: 'text' },
-      { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
-      { key: 'crc', label: 'CRC Key', type: 'secret', required: true },
-      { key: 'sandbox', label: 'Sandbox mode', type: 'boolean' },
-    ],
-    schema: przelewy24Settings,
-  },
-})
-```
-
 ---
 
-## 10. Phase 5 — Apple Pay (via Stripe/PayU)
+## 10. Apple Pay (via Stripe/PayU)
 
-Apple Pay is implemented as a **payment method type**, not a standalone gateway. Both Stripe and PayU support Apple Pay natively.
+Apple Pay is implemented as a **payment method type**, not a separate module. Both Stripe and PayU support Apple Pay natively.
 
 ### 10.1 How It Works
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Apple Pay is a Payment Method, Not a Gateway                │
-│                                                              │
-│  Customer chooses "Apple Pay" → gateway handles the rest     │
-│                                                              │
-│  Stripe path:                                                │
-│    createSession({ paymentMethodTypes: ['apple_pay'] })      │
-│    → Stripe Checkout shows Apple Pay button                  │
-│    → Stripe handles Apple Pay token → charges card            │
-│    → Webhook: payment_intent.succeeded                       │
-│                                                              │
-│  PayU path:                                                  │
-│    createSession({ paymentMethodTypes: ['ap'] })             │
-│    → PayU shows Apple Pay option                             │
-│    → PayU handles Apple Pay token → processes payment        │
-│    → Webhook: COMPLETED                                      │
-└─────────────────────────────────────────────────────────────┘
+Customer chooses "Apple Pay" → gateway handles the rest
+
+Stripe path:
+  createSession({ paymentMethodTypes: ['apple_pay'] })
+  → Stripe Checkout shows Apple Pay button
+  → Stripe handles Apple Pay token → charges card
+  → Webhook: payment_intent.succeeded
+
+PayU path:
+  createSession({ paymentMethodTypes: ['ap'] })
+  → PayU shows Apple Pay option
+  → PayU handles Apple Pay token → processes payment
+  → Webhook: COMPLETED
 ```
 
 ### 10.2 Configuration
 
-In the payment method settings form (extended via UMES field injection):
+Each provider module adds an `enableApplePay` toggle to its settings fields (see §7.2 and §8.2). The adapter's `createSession` checks `settings.enableApplePay` and includes the appropriate payment method type.
 
-- **Stripe**: Toggle "Enable Apple Pay" → adds `apple_pay` to `payment_method_types`
-- **PayU**: Toggle "Enable Apple Pay" → adds `ap` to PayU's payMethod parameter
-
-No separate Apple Pay adapter is needed. The domain name verification (Apple Pay requires a `/.well-known/apple-developer-merchantid-domain-association` file) is handled by the Stripe/PayU Apple Pay setup documentation — Open Mercato serves the file from the frontend `public/` directory.
-
-### 10.3 Provider-Level Setting
-
-```typescript
-// In Stripe provider settings:
-{ key: 'enableApplePay', label: 'Enable Apple Pay', type: 'boolean' },
-
-// In PayU provider settings:
-{ key: 'enableApplePay', label: 'Enable Apple Pay', type: 'boolean' },
-```
-
-The `createSession` method checks `settings.enableApplePay` and includes the appropriate payment method type.
+No separate Apple Pay module is needed. Apple Pay domain verification (serving `/.well-known/apple-developer-merchantid-domain-association`) is handled by the Stripe/PayU documentation — the merchant uploads the file to the frontend `public/` directory.
 
 ---
 
@@ -963,150 +1221,30 @@ Special:
   pending → expired (session timeout, no customer action)
 ```
 
-### 11.2 Status Sync Engine
+### 11.2 Validation
 
-```typescript
-// payment_gateways/lib/status-sync.ts
-
-async function syncPaymentStatus(
-  paymentId: string,
-  newUnifiedStatus: UnifiedPaymentStatus,
-  gatewayData: {
-    gatewayPaymentId: string
-    gatewayStatus: string
-    capturedAmount?: number
-    refundedAmount?: number
-    rawResponse?: Record<string, unknown>
-  },
-  context: { em: EntityManager; organizationId: string; tenantId: string },
-): Promise<void> {
-  // 1. Load existing GatewayTransaction
-  const transaction = await context.em.findOne(GatewayTransaction, {
-    paymentId,
-    organizationId: context.organizationId,
-  })
-  if (!transaction) return
-
-  // 2. Check if transition is valid (idempotent — same status = no-op)
-  if (transaction.unifiedStatus === newUnifiedStatus) return
-
-  // 3. Update GatewayTransaction
-  transaction.unifiedStatus = newUnifiedStatus
-  transaction.gatewayStatus = gatewayData.gatewayStatus
-  transaction.gatewayMetadata = {
-    ...transaction.gatewayMetadata,
-    lastResponse: gatewayData.rawResponse,
-  }
-
-  // 4. Update SalesPayment via existing payment commands
-  const paymentUpdate: Partial<SalesPaymentUpdate> = {
-    status: mapToSalesPaymentStatus(newUnifiedStatus),
-    paymentReference: gatewayData.gatewayPaymentId,
-    metadata: {
-      gateway: {
-        provider: transaction.providerKey,
-        status: gatewayData.gatewayStatus,
-        transactionId: gatewayData.gatewayPaymentId,
-        lastSyncAt: new Date().toISOString(),
-      },
-    },
-  }
-
-  if (gatewayData.capturedAmount !== undefined) {
-    paymentUpdate.capturedAmount = gatewayData.capturedAmount
-    if (newUnifiedStatus === 'captured') {
-      paymentUpdate.capturedAt = new Date()
-    }
-  }
-
-  if (gatewayData.refundedAmount !== undefined) {
-    paymentUpdate.refundedAmount = gatewayData.refundedAmount
-  }
-
-  if (newUnifiedStatus === 'captured' || newUnifiedStatus === 'authorized') {
-    paymentUpdate.receivedAt = paymentUpdate.receivedAt ?? new Date()
-  }
-
-  // 5. Execute update via existing command (triggers events, recomputes totals)
-  await updatePaymentCommand.execute({
-    paymentId,
-    data: paymentUpdate,
-    ...context,
-  })
-
-  // 6. Emit gateway-specific event
-  await emitEvent(`payment_gateways.payment.${newUnifiedStatus}`, {
-    paymentId,
-    gatewayPaymentId: gatewayData.gatewayPaymentId,
-    providerKey: transaction.providerKey,
-    amount: transaction.amount,
-  })
-}
-```
+The status sync engine validates transitions. Invalid transitions (e.g., `captured → pending`) are rejected and logged but do not crash — idempotent by design.
 
 ---
 
 ## 12. Webhook Architecture
 
-### 12.1 Webhook Endpoints
+### 12.1 Flow
 
-One endpoint per provider (different signature schemes require provider-specific handling):
-
-```typescript
-// payment_gateways/api/webhook/[provider]/route.ts
-
-export const metadata = {
-  POST: { requireAuth: false },  // Webhooks are unauthenticated
-}
-
-export async function POST(request: NextRequest, { params }: RouteContext) {
-  const providerKey = params.provider  // 'stripe', 'payu', 'przelewy24'
-  const adapter = getGatewayAdapter(providerKey)
-  if (!adapter) return NextResponse.json({ error: 'Unknown provider' }, { status: 404 })
-
-  const body = await request.text()
-  const headers = Object.fromEntries(request.headers.entries())
-
-  // 1. Determine tenant from gateway metadata or lookup
-  const tenantContext = await resolveTenantFromWebhook(providerKey, body, headers)
-  if (!tenantContext) return NextResponse.json({ error: 'Unknown tenant' }, { status: 400 })
-
-  // 2. Get provider settings for this tenant
-  const settings = await getProviderSettings(providerKey, tenantContext)
-
-  // 3. Verify signature
-  let event: WebhookEvent
-  try {
-    event = await adapter.verifyWebhook({ headers, body, settings })
-  } catch {
-    await emitEvent('payment_gateways.webhook.failed', { providerKey, reason: 'signature' })
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-  }
-
-  // 4. Idempotency check
-  const isDuplicate = await checkWebhookIdempotency(event.idempotencyKey, tenantContext)
-  if (isDuplicate) return NextResponse.json({ received: true })  // Acknowledge but skip
-
-  // 5. Enqueue for async processing (quick response to gateway)
-  await enqueueJob('payment-gateway-webhook', {
-    providerKey,
-    event,
-    tenantContext,
-  })
-
-  // 6. Acknowledge receipt immediately
-  return NextResponse.json({ received: true })
-}
-
-export const openApi = {
-  POST: {
-    summary: 'Receive payment gateway webhook',
-    tags: ['Payment Gateways'],
-    parameters: [{ name: 'provider', in: 'path', required: true }],
-    responses: { 200: { description: 'Webhook acknowledged' } },
-  },
-}
 ```
+Gateway sends webhook
+  → POST /api/payment-gateways/webhook/{provider}    (core module endpoint)
+  → Core resolves tenant, loads settings
+  → Core calls adapter.verifyWebhook()               (provider module code)
+  → Core checks idempotency
+  → Core enqueues job to 'payment-gateway-webhook' queue
+  → Worker picks up job
+  → Worker calls adapter.mapStatus()                  (provider module code)
+  → Worker calls core syncPaymentStatus()             (core module code)
+  → SalesPayment updated, events emitted
+```
+
+The provider module only implements two webhook-related methods: `verifyWebhook()` and `mapStatus()`. Everything else is handled by the core.
 
 ### 12.2 Webhook Processing Worker
 
@@ -1122,48 +1260,26 @@ export const metadata: WorkerMeta = {
 export default async function handler(job: Job, ctx: WorkerContext) {
   const { providerKey, event, tenantContext } = job.data
 
-  // 1. Find the SalesPayment by gateway payment ID
+  // 1. Find GatewayTransaction by gateway payment ID
   const transaction = await ctx.em.findOne(GatewayTransaction, {
     gatewayPaymentId: event.gatewayPaymentId,
     organizationId: tenantContext.organizationId,
   })
-  if (!transaction) {
-    // May be a session creation webhook — try session ID
-    // Or log and skip if truly unknown
-    return
-  }
+  if (!transaction) return
 
   // 2. Map gateway event to unified status
   const adapter = getGatewayAdapter(providerKey)!
   const newStatus = adapter.mapStatus(event.data.status as string, event.eventType)
+  if (newStatus === 'unknown') return
 
-  if (newStatus === 'unknown') {
-    // Log unmapped event for debugging, do not crash
-    return
-  }
-
-  // 3. Sync status
-  await syncPaymentStatus(
-    transaction.paymentId,
-    newStatus,
-    {
-      gatewayPaymentId: event.gatewayPaymentId,
-      gatewayStatus: event.data.status as string,
-      capturedAmount: extractCapturedAmount(providerKey, event),
-      refundedAmount: extractRefundedAmount(providerKey, event),
-      rawResponse: event.data,
-    },
-    { em: ctx.em, ...tenantContext },
-  )
-
-  // 4. Log webhook in transaction
-  await appendWebhookLog(transaction.id, {
-    eventType: event.eventType,
-    receivedAt: new Date().toISOString(),
-    idempotencyKey: event.idempotencyKey,
-    unifiedStatus: newStatus,
-    processed: true,
-  }, ctx.em)
+  // 3. Sync status (core engine handles SalesPayment update + events)
+  await syncPaymentStatus(transaction.paymentId, newStatus, {
+    gatewayPaymentId: event.gatewayPaymentId,
+    gatewayStatus: event.data.status as string,
+    capturedAmount: extractCapturedAmount(providerKey, event),
+    refundedAmount: extractRefundedAmount(providerKey, event),
+    rawResponse: event.data,
+  }, { em: ctx.em, ...tenantContext })
 }
 ```
 
@@ -1178,11 +1294,11 @@ export const metadata: WorkerMeta = {
   concurrency: 3,
 }
 
-// Scheduled: check pending/authorized transactions older than 15 minutes without webhook updates
+// Checks pending/authorized transactions older than 15 min without webhook updates
 export default async function handler(job: Job, ctx: WorkerContext) {
   const staleTransactions = await ctx.em.find(GatewayTransaction, {
     unifiedStatus: { $in: ['pending', 'authorized'] },
-    lastWebhookAt: { $lt: new Date(Date.now() - 15 * 60 * 1000) },  // No webhook in 15 min
+    lastWebhookAt: { $lt: new Date(Date.now() - 15 * 60 * 1000) },
     organizationId: job.data.organizationId,
   }, { limit: 50 })
 
@@ -1220,19 +1336,17 @@ export default async function handler(job: Job, ctx: WorkerContext) {
 
 ## 13. UMES Integration Points
 
-All sales module UI extensions use UMES — zero files changed in `packages/core/src/modules/sales/`.
+All UMES extensions live in the **core** `payment_gateways` module because they are provider-agnostic — they read from `GatewayTransaction` regardless of which provider created it.
 
-### 13.1 "Pay via Gateway" Button (Widget Injection — Works Today)
+### 13.1 "Pay via Gateway" Button (Widget Injection)
 
 ```typescript
 // payment_gateways/widgets/injection-table.ts
 export const injectionTable: ModuleInjectionTable = {
-  // Button on order detail page
   'detail:sales.document:actions': {
     widgetId: 'payment_gateways.injection.pay-button',
     priority: 40,
   },
-  // Gateway status badge on payment detail
   'crud-form:sales.sales_payment': {
     widgetId: 'payment_gateways.injection.gateway-status-badge',
     priority: 30,
@@ -1281,15 +1395,13 @@ export const enrichers: ResponseEnricher[] = [
         const t = map.get(record.id)
         return {
           ...record,
-          _gateway: t
-            ? {
-                providerKey: t.providerKey,
-                unifiedStatus: t.unifiedStatus,
-                gatewayStatus: t.gatewayStatus,
-                gatewayPaymentId: t.gatewayPaymentId,
-                lastWebhookAt: t.lastWebhookAt,
-              }
-            : undefined,
+          _gateway: t ? {
+            providerKey: t.providerKey,
+            unifiedStatus: t.unifiedStatus,
+            gatewayStatus: t.gatewayStatus,
+            gatewayPaymentId: t.gatewayPaymentId,
+            lastWebhookAt: t.lastWebhookAt,
+          } : undefined,
         }
       })
     },
@@ -1315,12 +1427,8 @@ export default {
         const status = getValue() as UnifiedPaymentStatus | undefined
         if (!status) return null
         const colors: Record<string, string> = {
-          captured: 'success',
-          authorized: 'info',
-          pending: 'warning',
-          failed: 'destructive',
-          refunded: 'muted',
-          cancelled: 'ghost',
+          captured: 'success', authorized: 'info', pending: 'warning',
+          failed: 'destructive', refunded: 'muted', cancelled: 'ghost',
         }
         return <Badge variant={colors[status] ?? 'default'}>{status}</Badge>
       },
@@ -1352,13 +1460,12 @@ export const interceptors: ApiInterceptor[] = [
         organizationId: ctx.organizationId,
       })
 
-      // If the payment method has a gateway provider, validate settings
       if (method?.providerKey) {
         const adapter = getGatewayAdapter(method.providerKey)
         if (adapter && !method.providerSettings) {
           return {
             ok: false,
-            message: `Payment method "${method.name}" requires gateway configuration. Please configure ${method.providerKey} settings first.`,
+            message: `Payment method "${method.name}" requires gateway configuration.`,
             statusCode: 422,
           }
         }
@@ -1374,302 +1481,129 @@ export const interceptors: ApiInterceptor[] = [
 
 ## 14. Data Models
 
-### 14.1 GatewayTransaction (New Entity)
+### 14.1 GatewayTransaction (New Entity — Core Module)
 
-See Section 6.2 for full entity definition.
+See Section 6.3. Owned by `payment_gateways` core module. All providers write to it via the core's status sync engine.
 
 ### 14.2 SalesPayment — No Schema Changes
 
-All gateway data flows through:
-- `SalesPayment.paymentReference` — gateway payment ID
-- `SalesPayment.metadata` — gateway-specific data under `metadata.gateway` namespace
-- `SalesPayment.status` — mapped from unified status via existing status workflow
-- `SalesPayment.capturedAmount` / `refundedAmount` — updated by status sync
-- `SalesPayment.receivedAt` / `capturedAt` — set on status transitions
+All gateway data flows through existing fields:
+- `metadata.gateway` — provider, status, transaction ID, last sync timestamp
+- `paymentReference` — gateway payment ID
+- `status` — mapped from unified status
+- `capturedAmount` / `refundedAmount` — updated by status sync
+- `receivedAt` / `capturedAt` — set on status transitions
 
 ### 14.3 SalesPaymentMethod — No Schema Changes
 
-- `SalesPaymentMethod.providerKey` — links to adapter registry
-- `SalesPaymentMethod.providerSettings` — stores gateway credentials (encrypted at rest via existing encryption)
+- `providerKey` — links to adapter registry
+- `providerSettings` — stores gateway credentials (encrypted at rest)
 
 ---
 
 ## 15. API Contracts
+
+All API routes are in the **core** `payment_gateways` module. Provider modules have no API routes.
 
 ### 15.1 Create Payment Session
 
 ```
 POST /api/payment-gateways/sessions
 Authorization: Bearer <token>
-Content-Type: application/json
 
 {
   "orderId": "order-uuid",
   "paymentMethodId": "method-uuid",
   "successUrl": "https://shop.example.com/payment/success",
   "cancelUrl": "https://shop.example.com/payment/cancel",
-  "paymentMethodTypes": ["card", "apple_pay"],  // Optional, provider-specific
-  "locale": "pl"                                 // Optional
+  "paymentMethodTypes": ["card", "apple_pay"],
+  "locale": "pl"
 }
 
-Response 201:
-{
-  "sessionId": "cs_test_...",
-  "redirectUrl": "https://checkout.stripe.com/...",
-  "gatewayPaymentId": "pi_...",
-  "paymentId": "payment-uuid",            // Created SalesPayment ID
-  "transactionId": "transaction-uuid"     // GatewayTransaction ID
-}
+→ 201: { "sessionId", "redirectUrl", "gatewayPaymentId", "paymentId", "transactionId" }
 ```
 
-### 15.2 Capture Payment
+### 15.2 Capture / Refund / Cancel
 
 ```
-POST /api/payment-gateways/capture
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "paymentId": "payment-uuid",
-  "amount": 150.00                // Optional, for partial capture
-}
-
-Response 200:
-{
-  "captured": true,
-  "capturedAmount": 150.00,
-  "unifiedStatus": "captured"
-}
+POST /api/payment-gateways/capture   { "paymentId", "amount?" }
+POST /api/payment-gateways/refund    { "paymentId", "amount?", "reason?" }
+POST /api/payment-gateways/cancel    { "paymentId" }
 ```
 
-### 15.3 Refund Payment
+### 15.3 Query Status
 
 ```
-POST /api/payment-gateways/refund
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "paymentId": "payment-uuid",
-  "amount": 50.00,              // Optional, for partial refund
-  "reason": "requested_by_customer"
-}
-
-Response 200:
-{
-  "refundId": "re_...",
-  "refundedAmount": 50.00,
-  "unifiedStatus": "partially_refunded"
-}
+GET /api/payment-gateways/status?paymentId=<uuid>
+→ 200: { "unifiedStatus", "gatewayStatus", "providerKey", ... }
 ```
 
-### 15.4 Cancel Payment
+### 15.4 Webhook (Dynamic)
 
 ```
-POST /api/payment-gateways/cancel
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "paymentId": "payment-uuid"
-}
-
-Response 200:
-{
-  "cancelled": true,
-  "unifiedStatus": "cancelled"
-}
+POST /api/payment-gateways/webhook/stripe
+POST /api/payment-gateways/webhook/payu
+POST /api/payment-gateways/webhook/przelewy24
+POST /api/payment-gateways/webhook/<any-registered-provider>
 ```
 
-### 15.5 Query Gateway Status
-
-```
-GET /api/payment-gateways/status?paymentId=payment-uuid
-Authorization: Bearer <token>
-
-Response 200:
-{
-  "unifiedStatus": "captured",
-  "gatewayStatus": "succeeded",
-  "providerKey": "stripe",
-  "gatewayPaymentId": "pi_...",
-  "amount": 200.00,
-  "capturedAmount": 200.00,
-  "refundedAmount": 0,
-  "lastWebhookAt": "2026-02-24T10:30:00Z",
-  "lastPolledAt": null
-}
-```
-
-### 15.6 Webhook Endpoints
-
-```
-POST /api/payment-gateways/webhook/stripe     — No auth, Stripe signature
-POST /api/payment-gateways/webhook/payu        — No auth, PayU MD5 signature
-POST /api/payment-gateways/webhook/przelewy24  — No auth, P24 signature
-```
+No auth. Signature verified by the provider's adapter.
 
 ---
 
 ## 16. Security & Compliance
 
-### 16.1 PCI DSS Compliance
+### 16.1 PCI DSS
 
-Open Mercato **never handles card data directly**. All gateway integrations use redirect-based checkout (Stripe Checkout, PayU hosted form, P24 redirect). This keeps Open Mercato out of PCI DSS scope (SAQ-A or SAQ A-EP at most).
-
-| Gateway | Checkout Method | Card Data Handling |
-|---------|----------------|-------------------|
-| Stripe | Stripe Checkout (hosted page) | Stripe handles all card data |
-| PayU | PayU hosted checkout page | PayU handles all card data |
-| Przelewy24 | P24 redirect to bank/BLIK | P24 handles all payment data |
-| Apple Pay | Handled by Stripe/PayU via their checkout | Token-based, no card data |
+Open Mercato **never handles card data directly**. All integrations use redirect-based checkout (Stripe Checkout, PayU hosted form, P24 redirect). SAQ-A compliance level.
 
 ### 16.2 Credential Storage
 
-- Provider settings (`SalesPaymentMethod.providerSettings`) containing API keys and secrets MUST be encrypted at rest using the existing encryption system (`findWithDecryption`/`findOneWithDecryption`)
-- Webhook secrets stored as `type: 'secret'` provider settings — rendered as password fields in UI, encrypted in DB
+- Provider settings (`SalesPaymentMethod.providerSettings`) encrypted at rest via existing encryption
 - Gateway API keys MUST NOT appear in logs, API responses, or error messages
+- Webhook secrets stored as `type: 'secret'` — rendered as password fields in UI
 
 ### 16.3 Webhook Security
 
-- Each provider uses its own signature verification scheme (Stripe HMAC, PayU MD5, P24 SHA384)
-- Webhook endpoints require no authentication (`requireAuth: false`) but verify signatures
-- Replay attack prevention via timestamp validation (5-minute window for Stripe, idempotency key for all)
-- Rate limiting per tenant to prevent DoS via webhook flooding
+- Each adapter implements its own signature verification scheme
+- Replay attack prevention via timestamp validation + idempotency keys
+- Rate limiting per tenant via core webhook handler
 
 ### 16.4 Multi-Tenant Isolation
 
-- All `GatewayTransaction` records are scoped by `organizationId` and `tenantId`
-- Webhook processing resolves tenant from gateway metadata (order ID → payment → org)
+- `GatewayTransaction` scoped by `organizationId` + `tenantId`
+- Webhook processing resolves tenant from gateway metadata
 - Provider settings are per-tenant (different Stripe accounts per tenant)
 
 ---
 
 ## 17. SPEC-041 Improvement Suggestions
 
-After analyzing how payment gateway integration would use UMES, here are concrete suggestions for SPEC-041:
+Based on analyzing how this payment architecture uses UMES:
 
-### 17.1 Webhook Extension Point (Missing from UMES)
+### 17.1 Webhook Extension Point (Missing)
 
-**Problem**: UMES covers UI, data enrichment, and API interception but has no pattern for **incoming webhooks from external services**. The payment gateway module needs webhook endpoints, but so would any future integration module (shipping carriers, email providers, CRM sync).
+UMES covers UI, data enrichment, and API interception but has no pattern for **incoming webhooks from external services**. Consider adding a standardized webhook declaration with auto-discovery, shared verification utilities, and a common idempotency layer.
 
-**Suggestion**: Add a **Webhook Extension Point** to UMES — a standardized way for modules to register webhook endpoints with auto-discovery, shared signature verification utilities, and a common idempotency layer.
+### 17.2 Enricher Caching (Performance)
 
-```typescript
-// Proposed: module-level webhook declaration (auto-discovered)
-// payment_gateways/webhooks.ts
-export const webhooks: WebhookEndpointDeclaration[] = [
-  {
-    id: 'payment_gateways.stripe',
-    path: '/webhook/stripe',          // → /api/payment-gateways/webhook/stripe
-    signatureScheme: 'stripe',        // Built-in: stripe, hmac-sha256, md5
-    // ...or custom verifier function
-  },
-]
-```
+If many modules add enrichers to the same entity, cumulative latency adds up. Add an optional `cache` property to `ResponseEnricher` with TTL and tag-based invalidation via the existing `@open-mercato/cache` package.
 
-This would reduce boilerplate across modules that handle incoming webhooks.
+### 17.3 Interceptor Data Dependencies
 
-### 17.2 Async Side-Effect Enrichment (Performance Concern)
+API interceptors often need to load related entities (e.g., payment method settings). Consider a `preload` declaration on `ApiInterceptor` to avoid manual entity queries in every interceptor.
 
-**Problem**: Response enrichers (Phase 3) run synchronously in the CRUD GET pipeline. For payment gateways, enriching every payment with gateway transaction data adds a database query per API call. For list endpoints with `enrichMany`, this is one extra query — acceptable. But if many modules each add enrichers to the same entity, the cumulative latency could become significant.
+### 17.4 Worker Extension Point
 
-**Suggestion**: Add an optional **enricher caching strategy** to UMES. Enrichers could declare a cache TTL, and the enricher pipeline would check the cache before executing the enricher function.
+UMES has no way for one module to extend another module's background processing. Consider adding worker-level extension points for post-processing hooks.
 
-```typescript
-// Proposed addition to ResponseEnricher interface
-interface ResponseEnricher<TRecord, TEnriched> {
-  // ... existing fields
-  cache?: {
-    ttl: number                      // Seconds
-    tags: string[]                   // Cache invalidation tags
-    keyFn: (record: TRecord) => string  // Cache key derivation
-  }
-}
-```
+### 17.5 Lazy Enrichment Mode
 
-The existing cache package (`@open-mercato/cache`) with tag-based invalidation would handle this.
+Some enrichment data is expensive but rarely viewed. Add `mode: 'eager' | 'lazy'` to enrichers so clients opt-in to expensive data via `?enrich=gateway`.
 
-### 17.3 API Interceptor — Method-Level Settings Access
+### 17.6 Typed Extension Point Discovery
 
-**Problem**: API interceptors (Phase 4) receive `InterceptorContext` with `em` and organization scope, but for payment gateways, the interceptor needs to load provider settings from the payment method — this requires knowing which payment method entity to query, which is domain-specific knowledge.
-
-**Suggestion**: UMES `InterceptorContext` should include a `resolveEntity` helper or the interceptor should be able to declare its data dependencies:
-
-```typescript
-// Proposed: interceptor can declare pre-loaded data
-interface ApiInterceptor {
-  // ... existing fields
-  preload?: {
-    entities: Array<{
-      entityType: string
-      fromBody?: string        // JSON path to ID in request body
-      fromQuery?: string       // Query param name
-      as: string               // Key in context
-    }>
-  }
-}
-```
-
-This avoids every interceptor having to manually query for related entities.
-
-### 17.4 Extension Point for Background Jobs / Workers
-
-**Problem**: UMES focuses on synchronous extension points (UI slots, API interception, response enrichment). But integration modules often need **scheduled background work** (status polling, retry processing, session expiration cleanup). Workers already exist via auto-discovery, but there's no UMES-style way for one module to extend another module's background processing.
-
-**Suggestion**: Consider adding a **Worker Extension Point** in UMES — allowing a module to inject additional processing steps into another module's worker pipeline:
-
-```typescript
-// Proposed: module extends another module's worker
-'worker:sales.payment-processor:after': {
-  widgetId: 'payment_gateways.injection.gateway-sync',
-  priority: 50,
-}
-```
-
-This would be useful for cases like: "after the sales module processes a payment, the gateway module should sync the status."
-
-### 17.5 Event-Driven Enrichment (Lazy Enrichment Pattern)
-
-**Problem**: Some enrichment data is expensive to compute but rarely viewed. Gateway transaction details are only needed when a user views a specific payment, not when listing all payments.
-
-**Suggestion**: Add an `enrichmentMode` to the enricher declaration:
-
-```typescript
-interface ResponseEnricher {
-  // ... existing
-  mode?: 'eager' | 'lazy'  // Default: 'eager'
-  // eager: runs on every request (current behavior)
-  // lazy: only runs when client requests via ?enrich=gateway
-}
-```
-
-This lets the client opt-in to expensive enrichment via a query parameter, reducing default payload size and query overhead.
-
-### 17.6 Typed Extension Point Discovery for External Integrations
-
-**Problem**: UMES's string-based extension point IDs (`ui:sales.order:detail:shipment-dialog`) are documented but not programmatically discoverable. When building a payment gateway module, the developer needs to know which spot IDs exist on the order detail page.
-
-**Suggestion**: Generate a typed manifest of all extension points in the system during `yarn generate`:
-
-```typescript
-// Generated: .mercato/generated/extension-points.generated.ts
-export const extensionPoints = {
-  'ui:sales.document:detail:actions': {
-    type: 'slot',
-    contextType: 'SalesDocumentInjectionContext',
-    module: 'sales',
-  },
-  'data:sales.sales_payment:response:enrich': {
-    type: 'enricher',
-    entityType: 'SalesPayment',
-    module: 'sales',
-  },
-  // ...
-} as const
-```
-
-This enables IDE autocompletion when writing injection tables.
+Generate a typed manifest of all extension points during `yarn generate` for IDE autocompletion when writing injection tables.
 
 ---
 
@@ -1677,65 +1611,52 @@ This enables IDE autocompletion when writing injection tables.
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Gateway API changes break adapter | Medium | Pin SDK versions; adapter-specific integration tests |
+| Gateway SDK breaking changes | Medium | Pin SDK versions per provider module; provider-specific integration tests |
 | Webhook delivery failure | High | Status polling worker as fallback; webhook retry tolerance |
 | Multi-tenant webhook routing | High | Store org/tenant in gateway metadata; verify on receipt |
 | Credential exposure in logs | Critical | Never log settings; sanitize error messages; use encryption |
-| Race condition: webhook + poll update same payment | Medium | Idempotent status sync; skip if status unchanged |
-| Enricher performance on large payment lists | Low | `enrichMany` uses batch query; consider cache (suggestion 17.2) |
-| UMES Phase 3/4/5 not yet implemented | High | Phase 1 (widget injection) works today for basic UI; full integration requires UMES phases |
-| Apple Pay domain verification | Low | Documentation-only; merchant uploads file to `public/` |
-| P24 verify step after webhook | Low | Adapter handles verify call in webhook processing |
+| Race condition: webhook + poll | Medium | Idempotent status sync; skip if status unchanged |
+| Provider module not installed | Low | Core gracefully handles missing adapters (404 on webhook, skip in UI) |
+| UMES Phase 3/4/5 not yet implemented | High | Phase 1 (widget injection) works today; full integration requires UMES phases |
+| Provider module breaks core | Low | Adapters are called via try/catch; failures isolated to that provider |
+| Multiple providers for same gateway | Low | Adapter registry uses `Map.set` — last registration wins; log warning |
 
 ---
 
 ## 19. Integration Test Coverage
 
-### 19.1 Gateway Session Flow
+### 19.1 Core Module Tests
 
 | Test | Method | Path | Assert |
 |------|--------|------|--------|
-| Create Stripe session | POST | `/api/payment-gateways/sessions` | Returns sessionId, redirectUrl; creates SalesPayment + GatewayTransaction |
-| Create PayU session | POST | `/api/payment-gateways/sessions` | Returns sessionId, redirectUrl with PayU domain |
-| Create P24 session | POST | `/api/payment-gateways/sessions` | Returns token-based redirectUrl |
-| Session with invalid provider | POST | `/api/payment-gateways/sessions` | Returns 422 |
-| Session without auth | POST | `/api/payment-gateways/sessions` | Returns 401 |
+| Create session (mock adapter) | POST | `/api/payment-gateways/sessions` | Creates SalesPayment + GatewayTransaction, returns redirectUrl |
+| Create session — unknown provider | POST | `/api/payment-gateways/sessions` | 422 error |
+| Capture | POST | `/api/payment-gateways/capture` | capturedAmount updated, status → captured |
+| Refund (partial) | POST | `/api/payment-gateways/refund` | refundedAmount updated, status → partially_refunded |
+| Refund (full) | POST | `/api/payment-gateways/refund` | status → refunded |
+| Cancel | POST | `/api/payment-gateways/cancel` | status → cancelled |
+| Invalid transition | POST | `/api/payment-gateways/capture` on captured payment | 422 |
+| Webhook — valid signature | POST | `/api/payment-gateways/webhook/mock` | Status synced |
+| Webhook — invalid signature | POST | `/api/payment-gateways/webhook/mock` | 401 |
+| Webhook — duplicate event | POST | `/api/payment-gateways/webhook/mock` | 200, no double-processing |
+| Webhook — unknown provider | POST | `/api/payment-gateways/webhook/unknown` | 404 |
+| Status polling | Worker | — | Stale transactions updated via adapter.getStatus() |
+| Enricher | GET | `/api/sales/payments` | `_gateway` field present on enriched payments |
 
-### 19.2 Webhook Processing
+### 19.2 Per-Provider Module Tests
 
-| Test | Method | Path | Assert |
-|------|--------|------|--------|
-| Stripe webhook: payment_intent.succeeded | POST | `/api/payment-gateways/webhook/stripe` | SalesPayment status → captured, capturedAmount updated |
-| Stripe webhook: invalid signature | POST | `/api/payment-gateways/webhook/stripe` | Returns 401, no status change |
-| Stripe webhook: duplicate event ID | POST | `/api/payment-gateways/webhook/stripe` | Returns 200, no double-processing |
-| PayU webhook: COMPLETED | POST | `/api/payment-gateways/webhook/payu` | SalesPayment status → captured |
-| P24 webhook: verified | POST | `/api/payment-gateways/webhook/przelewy24` | SalesPayment status → captured, verify call made |
-
-### 19.3 Capture / Refund / Cancel
-
-| Test | Method | Path | Assert |
-|------|--------|------|--------|
-| Capture authorized payment | POST | `/api/payment-gateways/capture` | capturedAmount updated, status → captured |
-| Partial refund | POST | `/api/payment-gateways/refund` | refundedAmount updated, status → partially_refunded |
-| Full refund | POST | `/api/payment-gateways/refund` | status → refunded |
-| Cancel pending payment | POST | `/api/payment-gateways/cancel` | status → cancelled |
-| Capture already captured | POST | `/api/payment-gateways/capture` | Returns 422 (invalid transition) |
-
-### 19.4 Status Sync
+Each provider module should include tests for:
 
 | Test | Assert |
 |------|--------|
-| Polling detects completed payment | GatewayTransaction + SalesPayment updated |
-| Concurrent webhook + poll | Only one update applied (idempotent) |
-| Unknown gateway status | Logged as 'unknown', no SalesPayment change |
+| Adapter.createSession with valid settings | Returns sessionId + redirectUrl |
+| Adapter.verifyWebhook with valid signature | Returns parsed WebhookEvent |
+| Adapter.verifyWebhook with invalid signature | Throws |
+| Adapter.mapStatus for all gateway statuses | Correct UnifiedPaymentStatus mapping |
+| Adapter.capture | CaptureResult with correct amounts |
+| Adapter.refund (full + partial) | RefundResult with correct amounts |
 
-### 19.5 UMES Extensions (UI)
-
-| Test | Assert |
-|------|--------|
-| Payment list shows gateway status column | Column visible with correct badge |
-| Order detail shows "Pay via Gateway" button | Button visible, opens session |
-| Payment detail shows gateway transaction info | Enriched data displayed |
+These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 
 ---
 
@@ -1744,3 +1665,4 @@ This enables IDE autocompletion when writing injection tables.
 | Date | Change |
 |------|--------|
 | 2026-02-24 | Initial draft |
+| 2026-02-24 | Split from monolithic to core + plugin architecture — provider modules are independent |
