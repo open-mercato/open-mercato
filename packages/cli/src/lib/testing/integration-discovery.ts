@@ -36,6 +36,11 @@ function normalizeModuleId(moduleId: string): string {
   return moduleId.trim().toLowerCase()
 }
 
+function isEnterpriseModulesEnabled(): boolean {
+  const rawValue = process.env.OM_ENABLE_ENTERPRISE_MODULES?.trim().toLowerCase()
+  return rawValue === 'true' || rawValue === '1' || rawValue === 'yes' || rawValue === 'on'
+}
+
 function collectNamedDirectories(rootPath: string, directoryName: string): string[] {
   let entries
   try {
@@ -95,6 +100,7 @@ function resolveEnabledModuleIds(projectRoot: string): Set<string> {
   const enabledModules = new Set<string>()
   const appsRoot = path.join(projectRoot, 'apps')
   const packagesRoot = path.join(projectRoot, 'packages')
+  const enterpriseEnabled = isEnterpriseModulesEnabled()
 
   for (const appName of collectDirectDirectoryNames(appsRoot)) {
     const moduleRoot = path.join(appsRoot, appName, 'src', 'modules')
@@ -103,6 +109,9 @@ function resolveEnabledModuleIds(projectRoot: string): Set<string> {
     }
   }
   for (const packageName of collectDirectDirectoryNames(packagesRoot)) {
+    if (packageName === 'enterprise' && !enterpriseEnabled) {
+      continue
+    }
     const moduleRoot = path.join(packagesRoot, packageName, 'src', 'modules')
     for (const moduleName of collectDirectDirectoryNames(moduleRoot)) {
       enabledModules.add(normalizeModuleId(moduleName))
@@ -212,6 +221,7 @@ function resolveRequiredModulesForSpec(projectRoot: string, relativeSpecPath: st
 export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrationRoot: string): IntegrationSpecDiscoveryItem[] {
   const discoveredByPath = new Map<string, IntegrationSpecDiscoveryItem>()
   const overlayRoot = resolveOverlayRootPath()
+  const enterpriseEnabled = isEnterpriseModulesEnabled()
   const discoveryRoots = [
     path.join(projectRoot, 'apps'),
     path.join(projectRoot, 'packages'),
@@ -255,10 +265,19 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
       if (file.requiredModules.some((moduleId) => !enabledModules.has(normalizeModuleId(moduleId)))) {
         return false
       }
-      if (!file.isOverlay || !file.moduleName) {
+      if (!file.isOverlay) {
         return true
       }
-      return enabledModuleNames.has(file.moduleName)
+      if (!enterpriseEnabled) {
+        return false
+      }
+      if (!file.moduleName) {
+        return true
+      }
+      if (enabledModuleNames.has(file.moduleName)) {
+        return true
+      }
+      return enabledModules.has(normalizeModuleId(file.moduleName))
     })
     .sort((left, right) => left.path.localeCompare(right.path))
 }

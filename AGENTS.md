@@ -122,6 +122,10 @@ All packages use the `@open-mercato/<package>` naming convention:
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 
+Import strategy:
+- Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
+- Keep short relative imports for same-folder/local siblings (`./x`, `../x`) where they are clearer than package paths.
+
 ## Conventions
 
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
@@ -204,6 +208,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 ### UI & HTTP
 
 -   Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
+-   If a backend page cannot use `CrudForm`, wrap every write (`POST`/`PUT`/`PATCH`/`DELETE`) in `useGuardedMutation(...).runMutation(...)` and include `retryLastMutation` in the injection context
 -   For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
 -   For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
 -   Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`

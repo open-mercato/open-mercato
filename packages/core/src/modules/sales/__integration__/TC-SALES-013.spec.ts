@@ -44,8 +44,9 @@ test.describe('TC-SALES-013: Sales Channel Config', () => {
         (response) => response.request().method() === 'POST' && /\/api\/sales\/channels(?:\?|$)/.test(response.url()),
         { timeout: 10_000 },
       );
-      await page.getByRole('button', { name: /Create channel|Create/i }).last().click();
+      await createForm.getByRole('button', { name: /Create channel|Create/i }).first().click();
       const createResponse = await createResponsePromise;
+      expect(createResponse.ok(), `Channel create failed with ${createResponse.status()}`).toBeTruthy();
       const createBody = (await createResponse.json().catch(() => null)) as unknown;
       channelId = readId(createBody);
       expect(channelId, 'Channel id should be present in create response').toBeTruthy();
@@ -54,7 +55,13 @@ test.describe('TC-SALES-013: Sales Channel Config', () => {
       await expect(page).toHaveURL(/\/backend\/sales\/channels\/[0-9a-f-]{36}\/edit$/i);
       const editForm = page.locator('form').first();
       await editForm.getByRole('textbox').nth(0).fill(updatedName);
-      await page.getByRole('button', { name: /Save changes|Update|Save/i }).last().click();
+      const updateResponsePromise = page.waitForResponse(
+        (response) => response.request().method() === 'PUT' && /\/api\/sales\/channels(?:\?|$)/.test(response.url()),
+        { timeout: 10_000 },
+      );
+      await editForm.getByRole('button', { name: /Save changes|Update|Save/i }).first().click();
+      const updateResponse = await updateResponsePromise;
+      expect(updateResponse.ok(), `Channel update failed with ${updateResponse.status()}`).toBeTruthy();
       await page.goto(`/backend/sales/channels/${channelId}/edit`);
       await expect(editForm.getByRole('textbox').nth(0)).toHaveValue(updatedName);
     } finally {

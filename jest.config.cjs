@@ -1,4 +1,6 @@
 /** @type {import('jest').Config} */
+const isGitHubActions = process.env.GITHUB_ACTIONS === 'true'
+
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
@@ -45,4 +47,7 @@ module.exports = {
   setupFiles: ['<rootDir>/jest.setup.ts'],
   setupFilesAfterEnv: ['<rootDir>/jest.dom.setup.ts'],
   collectCoverageFrom: ['src/**/*.(ts|tsx)', '!src/modules/**/migrations/**'],
+  reporters: isGitHubActions
+    ? [['github-actions', { silent: false }], 'summary']
+    : ['default'],
 }

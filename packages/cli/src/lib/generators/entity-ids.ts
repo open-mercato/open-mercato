@@ -112,13 +112,19 @@ function parseEntityFieldsFromFile(filePath: string, exportedClassNames: string[
 
 function writePerEntityFieldFiles(outRoot: string, fieldsByEntity: EntityFieldMap): void {
   fs.mkdirSync(outRoot, { recursive: true })
-  rimrafDir(outRoot)
-  fs.mkdirSync(outRoot, { recursive: true })
+  const desiredEntities = new Set(Object.keys(fieldsByEntity))
   for (const [entity, fields] of Object.entries(fieldsByEntity)) {
     const entDir = path.join(outRoot, entity)
     fs.mkdirSync(entDir, { recursive: true })
     const idx = fields.map((f) => `export const ${toVar(f)} = '${f}'`).join('\n') + '\n'
     fs.writeFileSync(path.join(entDir, 'index.ts'), idx)
+  }
+
+  const existingEntries = fs.existsSync(outRoot) ? fs.readdirSync(outRoot, { withFileTypes: true }) : []
+  for (const entry of existingEntries) {
+    if (!entry.isDirectory()) continue
+    if (desiredEntities.has(entry.name)) continue
+    rimrafDir(path.join(outRoot, entry.name))
   }
 }
 

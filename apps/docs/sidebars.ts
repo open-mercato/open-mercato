@@ -11,7 +11,15 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Installation",
-      items: ["installation/prerequisites", "installation/setup"],
+      items: [
+        "installation/prerequisites",
+        "installation/setup",
+        {
+          type: "link",
+          label: "Standalone App (create-mercato-app)",
+          href: "/customization/standalone-app",
+        },
+      ],
     },
     {
       type: "category",
@@ -95,6 +103,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/workflows/monitoring",
           ],
         },
+        "user-guide/inbox-ops",
         "user-guide/audit-logs",
         "user-guide/scheduler",
       ],
@@ -103,6 +112,14 @@ const sidebars: SidebarsConfig = {
       type: "category",
       label: "Architecture",
       items: ["architecture/system-overview", "architecture/data-encryption"],
+    },
+    {
+      type: "category",
+      label: "Enterprise Edition",
+      items: [
+        "enterprise/overview",
+        "enterprise/record-locks",
+      ],
     },
     {
       type: "category",
@@ -152,6 +169,11 @@ const sidebars: SidebarsConfig = {
             "cli/db-migrate",
             "cli/db-greenfield",
           ],
+        },
+        {
+          type: "category",
+          label: "Development Runtime",
+          items: ["cli/dev-ephemeral"],
         },
         {
           type: "category",
@@ -321,6 +343,7 @@ const sidebars: SidebarsConfig = {
             "framework/operations/system-status",
           ],
         },
+        "framework/progress/overview",
         {
           type: "category",
           label: "Scheduler",
