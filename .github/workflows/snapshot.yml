@@ -205,7 +205,6 @@ jobs:
           ENABLE_CRUD_API_CACHE=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
-          OM_SEARCH_ENABLED=false
           CACHE_STRATEGY=memory
           EOF
 
