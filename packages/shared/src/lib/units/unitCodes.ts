@@ -10,7 +10,7 @@ export function canonicalizeUnitCode(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed.length) return null;
   const alias = LEGACY_UNIT_CODE_ALIASES[trimmed.toLowerCase()];
-  return alias ?? trimmed;
+  return alias ?? trimmed.toLowerCase();
 }
 
 export function toUnitLookupKey(value: unknown): string | null {

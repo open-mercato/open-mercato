@@ -13,6 +13,11 @@ describe('canonicalizeUnitCode', () => {
     expect(canonicalizeUnitCode('m2')).toBe('m2')
   })
 
+  it('lowercases non-alias unit codes', () => {
+    expect(canonicalizeUnitCode('KG')).toBe('kg')
+    expect(canonicalizeUnitCode('M2')).toBe('m2')
+  })
+
   it('returns null for empty string', () => {
     expect(canonicalizeUnitCode('')).toBeNull()
   })
