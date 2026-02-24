@@ -1053,10 +1053,12 @@ async function loadProductSnapshot(
       { populate: ["tag"] },
       { tenantId: record.tenantId, organizationId: record.organizationId },
     ),
-    em.find(
+    findWithDecryption(
+      em,
       CatalogProductCategoryAssignment,
       { product: record.id },
       { populate: ["category"] },
+      { tenantId: record.tenantId, organizationId: record.organizationId },
     ),
   ]);
   const tags = tagAssignments
@@ -1709,10 +1711,14 @@ const updateProductCommand: CommandHandler<
     applyProductSnapshot(em, record, before);
     await em.flush();
 
-    await restoreOffersFromSnapshot(em, record, before.offers);
-    await syncCategoryAssignments(em, record, before.categoryIds);
-    await syncProductTags(em, record, before.tags);
-    await em.flush();
+    const relationEm = em.fork();
+    const relationRecord = await relationEm.findOne(CatalogProduct, { id: before.id });
+    if (relationRecord) {
+      await restoreOffersFromSnapshot(relationEm, relationRecord, before.offers);
+      await syncCategoryAssignments(relationEm, relationRecord, before.categoryIds);
+      await syncProductTags(relationEm, relationRecord, before.tags);
+      await relationEm.flush();
+    }
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
@@ -1872,10 +1878,16 @@ const deleteProductCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
     applyProductSnapshot(em, record, before);
-    await restoreOffersFromSnapshot(em, record, before.offers);
-    await syncCategoryAssignments(em, record, before.categoryIds);
-    await syncProductTags(em, record, before.tags);
     await em.flush();
+
+    const relationEm = em.fork();
+    const relationRecord = await relationEm.findOne(CatalogProduct, { id: before.id });
+    if (relationRecord) {
+      await restoreOffersFromSnapshot(relationEm, relationRecord, before.offers);
+      await syncCategoryAssignments(relationEm, relationRecord, before.categoryIds);
+      await syncProductTags(relationEm, relationRecord, before.tags);
+      await relationEm.flush();
+    }
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
