@@ -55,6 +55,7 @@
   "dashboards.analytics.settings.granularity": "Szczegółowość",
   "dashboards.analytics.settings.horizontal": "Poziomy",
   "dashboards.analytics.settings.limit": "Liczba elementów",
+  "dashboards.analytics.settings.pipeline": "Lejek",
   "dashboards.analytics.settings.showArea": "Pokaż wypełnienie obszaru",
   "dashboards.analytics.settings.showComparison": "Pokaż porównanie",
   "dashboards.analytics.settings.vertical": "Pionowy",

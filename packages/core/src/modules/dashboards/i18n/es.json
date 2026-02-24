@@ -55,6 +55,7 @@
   "dashboards.analytics.settings.granularity": "Granularidad",
   "dashboards.analytics.settings.horizontal": "Horizontal",
   "dashboards.analytics.settings.limit": "Número de elementos",
+  "dashboards.analytics.settings.pipeline": "Embudo",
   "dashboards.analytics.settings.showArea": "Mostrar relleno de área",
   "dashboards.analytics.settings.showComparison": "Mostrar comparación",
   "dashboards.analytics.settings.vertical": "Vertical",

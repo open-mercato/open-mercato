@@ -9,7 +9,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../data/entities'
+import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink, CustomerPipelineStage } from '../data/entities'
 import {
   dealCreateSchema,
   dealUpdateSchema,
@@ -22,6 +22,7 @@ import {
   requireCustomerEntity,
   ensureSameScope,
   extractUndoPayload,
+  ensureDictionaryEntry,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -53,6 +54,23 @@ const dealCrudEvents: CrudEventsConfig = {
   }),
 }
 
+async function resolvePipelineStageValue(
+  em: EntityManager,
+  pipelineStageId: string,
+  tenantId: string,
+  organizationId: string,
+): Promise<string | null> {
+  const stage = await em.findOne(CustomerPipelineStage, { id: pipelineStageId })
+  if (!stage) return null
+  const entry = await ensureDictionaryEntry(em, {
+    tenantId,
+    organizationId,
+    kind: 'pipeline_stage',
+    value: stage.label,
+  })
+  return entry?.value ?? stage.label
+}
+
 type DealSnapshot = {
   deal: {
     id: string
@@ -62,6 +80,8 @@ type DealSnapshot = {
     description: string | null
     status: string
     pipelineStage: string | null
+    pipelineId: string | null
+    pipelineStageId: string | null
     valueAmount: string | null
     valueCurrency: string | null
     probability: number | null
@@ -116,6 +136,8 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
       description: deal.description ?? null,
       status: deal.status,
       pipelineStage: deal.pipelineStage ?? null,
+      pipelineId: deal.pipelineId ?? null,
+      pipelineStageId: deal.pipelineStageId ?? null,
       valueAmount: deal.valueAmount ?? null,
       valueCurrency: deal.valueCurrency ?? null,
       probability: deal.probability ?? null,
@@ -193,6 +215,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       description: parsed.description ?? null,
       status: parsed.status ?? 'open',
       pipelineStage: parsed.pipelineStage ?? null,
+      pipelineId: parsed.pipelineId ?? null,
+      pipelineStageId: parsed.pipelineStageId ?? null,
       valueAmount: toNumericString(parsed.valueAmount),
       valueCurrency: parsed.valueCurrency ?? null,
       probability: parsed.probability ?? null,
@@ -201,6 +225,12 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       source: parsed.source ?? null,
     })
     em.persist(deal)
+
+    if (deal.pipelineStageId && !deal.pipelineStage) {
+      const resolved = await resolvePipelineStageValue(em, deal.pipelineStageId, parsed.tenantId, parsed.organizationId)
+      if (resolved) deal.pipelineStage = resolved
+    }
+
     await em.flush()
 
     await syncDealPeople(em, deal, parsed.personIds ?? [])
@@ -290,6 +320,13 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.status !== undefined) record.status = parsed.status ?? record.status
     if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
+    if (parsed.pipelineId !== undefined) record.pipelineId = parsed.pipelineId ?? null
+    if (parsed.pipelineStageId !== undefined) record.pipelineStageId = parsed.pipelineStageId ?? null
+
+    if (record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+      const resolved = await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
+      if (resolved) record.pipelineStage = resolved
+    }
     if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
     if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
     if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
@@ -401,6 +438,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         description: before.deal.description,
         status: before.deal.status,
         pipelineStage: before.deal.pipelineStage,
+        pipelineId: before.deal.pipelineId,
+        pipelineStageId: before.deal.pipelineStageId,
         valueAmount: before.deal.valueAmount,
         valueCurrency: before.deal.valueCurrency,
         probability: before.deal.probability,
@@ -414,6 +453,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       deal.description = before.deal.description
       deal.status = before.deal.status
       deal.pipelineStage = before.deal.pipelineStage
+      deal.pipelineId = before.deal.pipelineId
+      deal.pipelineStageId = before.deal.pipelineStageId
       deal.valueAmount = before.deal.valueAmount
       deal.valueCurrency = before.deal.valueCurrency
       deal.probability = before.deal.probability
@@ -525,6 +566,8 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           description: before.deal.description,
           status: before.deal.status,
           pipelineStage: before.deal.pipelineStage,
+          pipelineId: before.deal.pipelineId,
+          pipelineStageId: before.deal.pipelineStageId,
           valueAmount: before.deal.valueAmount,
           valueCurrency: before.deal.valueCurrency,
           probability: before.deal.probability,
