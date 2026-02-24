@@ -232,8 +232,7 @@ export function SalesDocumentItemsSection({
               Number.NaN,
             );
             const totalGrossRaw = normalizeNumber(
-              (item as any).total_gross_amount ??
-                (item as any).totalGrossAmount,
+              item.total_gross_amount ?? item.totalGrossAmount,
               Number.NaN,
             );
             const totalNet = Number.isFinite(totalNetRaw)
@@ -243,9 +242,9 @@ export function SalesDocumentItemsSection({
               ? totalGrossRaw
               : unitPriceGross * quantity;
             const priceModeRaw =
-              (item as any)?.metadata &&
-              typeof (item as any).metadata === "object"
-                ? ((item as any).metadata as Record<string, unknown>).priceMode
+              item.metadata &&
+              typeof item.metadata === "object"
+                ? (item.metadata as Record<string, unknown>).priceMode
                 : null;
             const priceMode = priceModeRaw === "net" ? "net" : "gross";
             const customFieldSetId =
@@ -423,9 +422,9 @@ export function SalesDocumentItemsSection({
       null;
     const variantSnapshot =
       snapshot &&
-      typeof (snapshot as any).variant === "object" &&
-      (snapshot as any).variant
-        ? ((snapshot as any).variant as Record<string, unknown>)
+      typeof snapshot.variant === "object" &&
+      snapshot.variant
+        ? (snapshot.variant as Record<string, unknown>)
         : null;
     const variantTitle =
       meta && typeof (meta as any).variantTitle === "string"
@@ -535,16 +534,16 @@ export function SalesDocumentItemsSection({
         : {};
     const productThumb =
       (meta &&
-        typeof (meta as any).productThumbnail === "string" &&
-        (meta as any).productThumbnail) ||
+        typeof meta.productThumbnail === "string" &&
+        meta.productThumbnail) ||
       (productSnapshot &&
         typeof productSnapshot.thumbnailUrl === "string" &&
         productSnapshot.thumbnailUrl) ||
       null;
     const variantThumb =
       (meta &&
-        typeof (meta as any).variantThumbnail === "string" &&
-        (meta as any).variantThumbnail) ||
+        typeof meta.variantThumbnail === "string" &&
+        meta.variantThumbnail) ||
       (variantSnapshot &&
         typeof variantSnapshot.thumbnailUrl === "string" &&
         variantSnapshot.thumbnailUrl) ||
@@ -621,8 +620,8 @@ export function SalesDocumentItemsSection({
                     | undefined) ?? null;
                 const { variantTitle, variantSku } = resolveVariantInfo(item);
                 const productSku =
-                  meta && typeof (meta as any).productSku === "string"
-                    ? (meta as any).productSku
+                  meta && typeof meta.productSku === "string"
+                    ? meta.productSku
                     : null;
                 const variantLabel = variantTitle ?? variantSku;
                 const variantSuffix =
