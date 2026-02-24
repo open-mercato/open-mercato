@@ -172,6 +172,56 @@ Update `yarn generate` to discover and register headless widget types. The gener
 - Register them in the headless widget registry alongside the existing visual widget registry
 - Generated files follow the same `loader: () => import(...)` pattern
 
+### 6. Standardized Slot Categories
+
+Every backend page automatically gets slots at predictable positions:
+
+```typescript
+// Auto-generated for every CrudForm entity
+'crud-form:<entityId>:before-fields'      // Before all field groups
+'crud-form:<entityId>:after-fields'       // After all field groups
+'crud-form:<entityId>:header'             // Form header area
+'crud-form:<entityId>:footer'             // Form footer/actions area
+'crud-form:<entityId>:sidebar'            // Right sidebar (column 2)
+'crud-form:<entityId>:group:<groupId>'    // Inside a specific group
+'crud-form:<entityId>:field:<fieldId>:before'  // Before a specific field
+'crud-form:<entityId>:field:<fieldId>:after'   // After a specific field
+
+// Auto-generated for every DataTable
+'data-table:<tableId>:header'             // Above the table
+'data-table:<tableId>:footer'             // Below the table
+'data-table:<tableId>:toolbar'            // Toolbar area (filters, search)
+'data-table:<tableId>:empty-state'        // Custom empty state
+
+// Auto-generated for every detail page
+'detail:<entityId>:header'                // Detail page header
+'detail:<entityId>:tabs'                  // Tab injection
+'detail:<entityId>:sidebar'              // Detail sidebar
+'detail:<entityId>:footer'                // Detail footer
+
+// Global slots (already exist, formalized)
+'backend:record:current'                  // Current record context
+'backend:layout:top'                      // Page header
+'backend:layout:footer'                   // Page footer
+'backend:sidebar:top'                     // Sidebar top
+'backend:sidebar:footer'                  // Sidebar footer
+
+// NEW: Application chrome slots (topbar, sidebar navigation, profile menu)
+'backend:topbar:profile-menu'             // Profile dropdown menu items
+'backend:topbar:actions'                  // Topbar action buttons (left of profile)
+'backend:sidebar:nav'                     // Sidebar navigation items
+'backend:sidebar:nav:footer'              // Sidebar navigation footer items
+```
+
+### 7. Wildcard & Pattern Matching (Existing — Formalized)
+
+```typescript
+'crud-form:*'                    // All CRUD forms (record-locking uses this)
+'crud-form:catalog.*'            // All catalog module forms
+'data-table:*'                   // All data tables
+'detail:*:tabs'                  // All detail page tab sections
+```
+
 ---
 
 ## Example Module Additions

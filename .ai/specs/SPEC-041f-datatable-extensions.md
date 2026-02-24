@@ -88,27 +88,173 @@ bulkActions: [
 ]
 ```
 
-### 5. DataTable Filter Injection (Two-Tier Architecture)
+### 5. DataTable Filter Injection (Three-Tier Architecture)
 
-**Tier 1 — Server-side** (via API interceptor from Phase E): For filters that need to reduce the dataset before pagination (e.g., filter 10,000 customers by loyalty tier).
+#### The Problem
 
-**Tier 2 — Client-side**: For filtering on enriched data already present in the response (small datasets, pageSize ≤ 100).
+A loyalty module wants to add a "Tier" filter to the customers list. But the customers API (`GET /api/customers/people`) has no idea what `loyaltyTier` is — it's not a column on the `people` table, it's not in the query index, and the customers CRUD factory's Zod schema will reject unknown query parameters.
+
+#### Tier 1 — API Interceptor Filter (Server-Side Query Rewriting)
+
+For cross-module filtering that needs server-side query modification:
 
 ```typescript
-filters: [
+// loyalty/api/interceptors.ts
+export const interceptors: ApiInterceptor[] = [
   {
-    id: 'todoCount',
-    label: 'example.filter.hasTodos',
-    type: 'select',
-    options: [
-      { value: 'yes', label: 'example.filter.hasTodos.yes' },
-      { value: 'no', label: 'example.filter.hasTodos.no' },
-    ],
-    strategy: 'server',
-    queryParam: 'hasTodos',
+    id: 'loyalty.filter-by-tier',
+    targetRoute: 'customers/people',
+    methods: ['GET'],
+    features: ['loyalty.view'],
+    async before(request, ctx) {
+      const tierFilter = request.query.loyaltyTier
+      if (!tierFilter) return { ok: true }
+
+      const memberships = await ctx.em.find(LoyaltyMembership, {
+        tier: tierFilter,
+        organizationId: ctx.organizationId,
+      }, { fields: ['customerId'] })
+
+      const customerIds = memberships.map(m => m.customerId)
+
+      if (customerIds.length === 0) {
+        return { ok: true, query: { ...request.query, id: { $in: [] } } }
+      }
+
+      return {
+        ok: true,
+        query: {
+          ...request.query,
+          id: { $in: customerIds },
+          loyaltyTier: undefined,  // Remove non-native param
+        },
+      }
+    },
   },
 ]
 ```
+
+#### Tier 2 — Client-Side Filter (Enriched Data Filtering)
+
+For filtering on enriched data already present in the response (small datasets, pageSize ≤ 100):
+
+```typescript
+// loyalty/widgets/injection/customer-filters/widget.ts
+export default {
+  metadata: {
+    id: 'loyalty.injection.customer-filters',
+    features: ['loyalty.view'],
+  },
+  filters: [
+    {
+      id: 'loyaltyTier',
+      label: 'loyalty.filter.tier',
+      type: 'select',
+      options: [
+        { value: 'bronze', label: 'loyalty.tier.bronze' },
+        { value: 'silver', label: 'loyalty.tier.silver' },
+        { value: 'gold', label: 'loyalty.tier.gold' },
+      ],
+      strategy: 'server',
+      queryParam: 'loyaltyTier',
+    },
+  ],
+} satisfies InjectionFilterWidget
+```
+
+#### Complete Filter Flow (Server Strategy)
+
+```
+1. Loyalty module registers:
+   - Filter widget (UI dropdown in DataTable toolbar)
+   - API interceptor (translates loyaltyTier → customer ID list)
+
+2. User selects "Gold" in Loyalty Tier filter
+   → URL becomes: ?status=active&loyaltyTier=gold
+
+3. Parent page fetches: GET /api/customers/people?status=active&loyaltyTier=gold
+
+4. Server-side:
+   a. API Interceptor runs BEFORE Zod validation
+      → Queries loyalty_memberships WHERE tier = 'gold' → gets [id1, id5, id12]
+      → Rewrites query: { status: 'active', id: { $in: ['id1', 'id5', 'id12'] } }
+      → Removes loyaltyTier param
+   b. Zod validates the rewritten query (valid — id and status are known params)
+   c. Query engine filters: SELECT * FROM people WHERE status = 'active' AND id IN (...)
+   d. Enrichers add _loyalty data to results
+
+5. DataTable renders filtered, enriched rows
+```
+
+#### Tier 3 — Post-Query Merge Filter (When Core API Can't Be Rewritten)
+
+For cases where the target API has complex query logic that can't accept injected ID filters (e.g., pagination conflicts):
+
+```typescript
+// credit_scoring/api/interceptors.ts
+export const interceptors: ApiInterceptor[] = [
+  {
+    id: 'credit_scoring.filter-orders-by-risk',
+    targetRoute: 'sales/documents',
+    methods: ['GET'],
+    features: ['credit_scoring.view'],
+
+    async before(request, ctx) {
+      const creditRisk = request.query.creditRisk
+      if (!creditRisk) return { ok: true }
+      return {
+        ok: true,
+        query: { ...request.query, creditRisk: undefined },
+        metadata: { creditRiskFilter: creditRisk },
+      }
+    },
+
+    async after(request, response, ctx) {
+      const creditRiskFilter = ctx.metadata?.creditRiskFilter
+      if (!creditRiskFilter) return {}
+
+      const records = response.body.data ?? response.body.items ?? []
+      if (!records.length) return {}
+
+      const customerIds = [...new Set(records.map((r: any) => r.customerId).filter(Boolean))]
+      const scores = await ctx.em.find(CreditScore, {
+        customerId: { $in: customerIds },
+        organizationId: ctx.organizationId,
+      })
+      const scoreMap = new Map(scores.map(s => [s.customerId, s]))
+
+      const filtered = records.filter((record: any) => {
+        const score = scoreMap.get(record.customerId)
+        return score?.riskLevel === creditRiskFilter
+      })
+
+      return {
+        replace: {
+          ...response.body,
+          data: filtered,
+          total: filtered.length,
+          _meta: {
+            ...(response.body._meta ?? {}),
+            postFiltered: true,
+            originalTotal: response.body.total,
+          },
+        },
+      }
+    },
+  },
+]
+```
+
+#### Trade-offs
+
+| Aspect | Tier 1 (ID Rewrite) | Tier 3 (Post-Query Merge) |
+|--------|---------------------|--------------------------|
+| **Pagination** | Accurate — core paginates on filtered IDs | Inaccurate — page may have fewer items than `pageSize` |
+| **Performance** | Two queries: one for IDs + one for core data | One core query + one for filter data, but post-filtering |
+| **Total count** | Correct | Corrected but may differ from expected page count |
+| **Use when** | Target API supports `id: { $in: [...] }` | Target API has complex query logic that can't be rewritten |
+
+**Recommendation**: Prefer Tier 1 (ID rewrite) whenever possible. Use Tier 3 only when the API's query engine cannot accept injected ID filters.
 
 ### 6. DataTable Integration
 

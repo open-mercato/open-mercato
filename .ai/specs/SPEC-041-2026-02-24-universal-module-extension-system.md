@@ -292,14 +292,112 @@ See each phase sub-spec for detailed test scenarios, example module additions, a
 
 ---
 
+## Feature-Gated Activation
+
+All extension types support `features?: string[]` for ACL-based activation. Extensions are only loaded when the current user has the required features. This reuses the existing RBAC system — no new permission model needed.
+
+---
+
+## AGENTS.md Changes Required for UMES
+
+This section specifies what must change in each AGENTS.md file to make UMES a first-class documented pattern.
+
+### Root `AGENTS.md` — Additions
+
+**Task Router rows to add:**
+
+| Task | Guide |
+|------|-------|
+| Adding response enrichers, data federation | `packages/core/AGENTS.md` → Response Enrichers |
+| Adding API interceptors, cross-module validation | `packages/core/AGENTS.md` → API Interceptors |
+| Replacing or wrapping another module's component | `packages/core/AGENTS.md` → Component Replacement |
+| Injecting columns/row actions into DataTable | `packages/ui/AGENTS.md` → DataTable Extension Injection |
+| Injecting fields into CrudForm groups | `packages/ui/AGENTS.md` → CrudForm Field Injection |
+| Adding menu items to sidebar/profile/topbar | `packages/core/AGENTS.md` → Menu Item Injection |
+| Bridging server events to client widgets | `packages/events/AGENTS.md` → DOM Event Bridge |
+| Using `useExtensibleDetail` for detail pages | `packages/ui/src/backend/AGENTS.md` → Extensible Detail Pages |
+
+**Optional Module Files to add:**
+
+| File | Export | Purpose |
+|------|--------|---------|
+| `data/enrichers.ts` | `enrichers` | Response enrichers for other modules' entities |
+| `api/interceptors.ts` | `interceptors` | API route interceptors (before/after hooks) |
+| `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper declarations |
+
+**Imports to add:**
+
+| Need | Import |
+|------|--------|
+| Response enricher types | `import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'` |
+| API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
+| Injection position enum | `import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'` |
+| App event hook | `import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'` |
+| Extensible detail hook | `import { useExtensibleDetail } from '@open-mercato/ui/backend/injection/useExtensibleDetail'` |
+| Injected menu items hook | `import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'` |
+
+**Key Rules to add:**
+- Response enrichers MUST implement `enrichMany` for list endpoints (N+1 prevention)
+- Response enrichers MUST NOT modify or remove existing fields (additive only)
+- API interceptors that modify request body MUST return data that passes the route's Zod schema
+- Injected columns read data from response enrichers — pair every column injection with an enricher
+- `clientBroadcast: true` on events enables the DOM Event Bridge
+
+**Critical Rules → Architecture to add:**
+- NO direct entity import from another module's enricher — use EntityManager
+- Response enrichers run AFTER `CrudHooks.afterList` — they do not change what existing hooks receive
+- API interceptor `before` hooks run AFTER Zod validation; modified body is re-validated
+- Component replacements MUST maintain the original component's props contract
+
+### Package-Level AGENTS.md New Sections
+
+| File | New Sections |
+|------|-------------|
+| `packages/core/AGENTS.md` | Response Enrichers, API Interceptors, Component Replacement, Menu Item Injection |
+| `packages/ui/AGENTS.md` | DataTable Extension Injection, CrudForm Field Injection |
+| `packages/ui/src/backend/AGENTS.md` | Extensible Detail Pages |
+| `packages/events/AGENTS.md` | DOM Event Bridge |
+| `.ai/qa/AGENTS.md` | Testing UMES Extension Points |
+
+**Total**: 10 new sections across 6 files. All existing content preserved — changes are purely additive.
+
+---
+
 ## Appendices
 
-Technical appendices covering codebase analysis and competitive analysis are preserved in the phase sub-specs where relevant. Key insights:
+### Appendix A — Codebase Analysis Insights
 
-- **Current runtime**: Widget injection uses `globalThis` keys for HMR, lazy loading via `entry.loader()`, wildcard matching via regex, priority sorting
-- **Scoped headers**: `withScopedApiRequestHeaders` bridges client widgets to server API — standard pattern for all UMES extensions
-- **CRUD factory hooks**: `CrudHooks` + mutation guards already exist; UMES interceptors compose with them, not replace
-- **Bootstrap order**: New registries follow the same pattern as existing widget registration
+Key implementation details from deep-diving into the actual codebase:
+
+1. **Runtime Architecture**: Widget injection uses `globalThis` keys for HMR (`__openMercatoCoreInjectionWidgetEntries__`, `__openMercatoCoreInjectionTables__`), lazy loading via `entry.loader()`, wildcard matching via regex, priority sorting `(b.priority ?? 0) - (a.priority ?? 0)`
+2. **Scoped Headers**: `withScopedApiRequestHeaders` bridges client widgets to server API — standard pattern for all UMES extensions. Widget `onBeforeSave` returns `requestHeaders`, `useGuardedMutation` wraps the operation, and all `apiCall()` invocations within include the scoped headers
+3. **CRUD Factory Hooks**: `CrudHooks` (before/afterList, before/afterCreate, before/afterUpdate, before/afterDelete) + mutation guards already exist; UMES interceptors compose with them at precise pipeline positions
+4. **Bootstrap Order**: New registries follow existing pattern — generated files → bootstrap registration → `globalThis` for HMR
+5. **Record-Locking Patterns**: Primary instance election (global Map), client-side state store (pub/sub), beacon-based cleanup, portal rendering — UMES should formalize these as standard widget utilities
+6. **Command Bus Integration**: API interceptors should hook into the command bus pipeline (`prepare` → `execute` → `captureAfter` → `buildLog`) for audit coverage
+7. **Event System**: Ephemeral (in-process) vs persistent (queue) subscribers; interceptors are synchronous and can modify, subscribers are async and react
+8. **DataTable Current Gaps**: Supports header/footer injection spots but no column, row action, filter, or bulk action injection — Phase F fills this
+9. **CrudForm Save Flow**: `handleSubmit` → blur flush → required validation → CE validation → Zod → widget `onBeforeSave` → `withScopedApiRequestHeaders` → `onSubmit` → widget `onAfterSave`
+10. **Generated Files**: `apps/mercato/.mercato/generated/` — `injection-widgets.generated.ts` and `injection-tables.generated.ts` use `loader: () => import(...)` for lazy loading
+
+### Appendix B — Competitive Analysis Summary
+
+| Platform | Strengths Adopted | Weaknesses Avoided |
+|----------|-------------------|---------------------|
+| **WordPress** | Actions vs Filters; priority system; recursive hooks | Global mutable state; no type safety |
+| **Shopify** | Extension targets (typed string IDs); constrained components | Overly restrictive; no cross-extension communication |
+| **VSCode** | Contribution points (declarative); lazy activation | Complex activation model; process isolation overhead |
+| **GraphQL Federation** | `@key` + `@extends` for data composition | Gateway complexity; debugging distributed queries |
+| **Browser Extensions** | Content scripts inject into any page; pattern-based targeting | No component-level granularity; security risks |
+
+**Key patterns adopted:**
+1. Actions vs Transformers (WordPress) → `onBeforeSave` vs `transformFormData`
+2. Typed Extension Targets (Shopify) → Standardized spot ID taxonomy
+3. Lazy Activation (VSCode) → Existing `loader()` pattern
+4. Data Federation (GraphQL) → Response enrichers
+5. Pattern Matching (Browser) → Wildcard spot IDs
+6. Priority System (WordPress) → Existing priority in injection tables
+7. Removal API (WordPress) → Component override with conditional hiding
 
 ---
 

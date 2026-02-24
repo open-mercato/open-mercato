@@ -231,6 +231,313 @@ export default {
 
 ---
 
+## InjectedField Component Implementation
+
+```typescript
+// packages/ui/src/backend/injection/InjectedField.tsx
+
+function InjectedField({ field, value, onChange, isLoading }: InjectedFieldProps) {
+  const t = useT()
+
+  switch (field.type) {
+    case 'select':
+      return (
+        <FormField label={t(field.label)}>
+          <Select
+            value={value as string}
+            onChange={(v) => onChange(field.id, v)}
+            options={(field.options ?? []).map(o => ({ value: o.value, label: t(o.label) }))}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+    case 'text':
+      return (
+        <FormField label={t(field.label)}>
+          <Input
+            value={value as string ?? ''}
+            onChange={(e) => onChange(field.id, e.target.value)}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+    case 'textarea':
+      return (
+        <FormField label={t(field.label)}>
+          <Textarea
+            value={value as string ?? ''}
+            onChange={(e) => onChange(field.id, e.target.value)}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+    case 'number':
+      return (
+        <FormField label={t(field.label)}>
+          <Input
+            type="number"
+            value={value as number ?? ''}
+            onChange={(e) => onChange(field.id, Number(e.target.value))}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+    case 'boolean':
+      return (
+        <FormField label={t(field.label)}>
+          <Checkbox
+            checked={Boolean(value)}
+            onChange={(checked) => onChange(field.id, checked)}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+    case 'date':
+      return (
+        <FormField label={t(field.label)}>
+          <DatePicker
+            value={value as string}
+            onChange={(date) => onChange(field.id, date)}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+  }
+}
+```
+
+Renders the appropriate input based on `field.type`, using the same UI primitives as CrudForm for visual consistency.
+
+---
+
+## End-to-End Example: "Carrier Instructions" Field in Shipment Dialog
+
+A complete walkthrough: a `carrier_integration` module adds a "Special Instructions" textarea to the shipment dialog without touching any file in `packages/core/src/modules/sales/`.
+
+**Requirements:**
+1. Show a "Special Instructions" field in the shipment dialog's "Tracking information" group
+2. Load existing instructions when editing a shipment
+3. Save instructions to the carrier integration module's own table — not to `sales_shipments`
+4. Never modify any file in `packages/core/src/modules/sales/`
+
+### Step 1 — Data Model
+
+```typescript
+// carrier_integration/data/entities.ts
+@Entity({ tableName: 'carrier_shipment_instructions' })
+export class CarrierShipmentInstructions extends BaseEntity {
+  @Property()
+  shipmentId!: string              // FK to sales_shipments.id (no ORM relation)
+
+  @Property({ type: 'text', nullable: true })
+  specialInstructions?: string
+
+  @Property({ type: 'text', nullable: true })
+  handlingCode?: string
+
+  @Property()
+  organizationId!: string
+
+  @Property()
+  tenantId!: string
+}
+```
+
+### Step 2 — API Endpoint
+
+```typescript
+// carrier_integration/api/shipment-instructions/route.ts
+export const { GET, POST, PUT, DELETE } = makeCrudRoute({
+  entity: CarrierShipmentInstructions,
+  basePath: 'carrier-integration/shipment-instructions',
+  schemas: { create: createSchema, update: updateSchema, list: listSchema },
+  features: { write: ['carrier_integration.manage'] },
+})
+export const openApi = { ... }
+```
+
+### Step 3 — Response Enricher
+
+```typescript
+// carrier_integration/data/enrichers.ts
+export const enrichers: ResponseEnricher[] = [
+  {
+    id: 'carrier_integration.shipment-instructions',
+    targetEntity: 'sales.sales_shipment',
+    features: ['carrier_integration.view'],
+
+    async enrichOne(record, ctx) {
+      const instructions = await ctx.em.findOne(CarrierShipmentInstructions, {
+        shipmentId: record.id,
+        organizationId: ctx.organizationId,
+      })
+      return {
+        ...record,
+        _carrierInstructions: {
+          specialInstructions: instructions?.specialInstructions ?? '',
+          handlingCode: instructions?.handlingCode ?? '',
+        },
+      }
+    },
+
+    async enrichMany(records, ctx) {
+      const shipmentIds = records.map(r => r.id)
+      const all = await ctx.em.find(CarrierShipmentInstructions, {
+        shipmentId: { $in: shipmentIds },
+        organizationId: ctx.organizationId,
+      })
+      const map = new Map(all.map(i => [i.shipmentId, i]))
+      return records.map(record => ({
+        ...record,
+        _carrierInstructions: {
+          specialInstructions: map.get(record.id)?.specialInstructions ?? '',
+          handlingCode: map.get(record.id)?.handlingCode ?? '',
+        },
+      }))
+    },
+  },
+]
+```
+
+### Step 4 — Widget (Field Injection)
+
+```typescript
+// carrier_integration/widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  'crud-form:sales.sales_shipment': {
+    widgetId: 'carrier_integration.injection.shipment-instructions-field',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// carrier_integration/widgets/injection/shipment-instructions-field/widget.ts
+export default {
+  metadata: {
+    id: 'carrier_integration.injection.shipment-instructions-field',
+    title: 'Carrier Instructions',
+    features: ['carrier_integration.manage'],
+  },
+  fields: [
+    {
+      id: '_carrierInstructions.specialInstructions',
+      label: 'carrier_integration.field.specialInstructions',
+      type: 'textarea',
+      group: 'tracking',
+      placement: { position: InjectionPosition.After, relativeTo: 'notes' },
+    },
+    {
+      id: '_carrierInstructions.handlingCode',
+      label: 'carrier_integration.field.handlingCode',
+      type: 'select',
+      options: [
+        { value: 'standard', label: 'carrier_integration.handling.standard' },
+        { value: 'fragile', label: 'carrier_integration.handling.fragile' },
+        { value: 'hazmat', label: 'carrier_integration.handling.hazmat' },
+        { value: 'refrigerated', label: 'carrier_integration.handling.refrigerated' },
+      ],
+      group: 'tracking',
+      placement: { position: InjectionPosition.After, relativeTo: '_carrierInstructions.specialInstructions' },
+    },
+  ],
+  eventHandlers: {
+    onSave: async (data, context) => {
+      const specialInstructions = data['_carrierInstructions.specialInstructions'] ?? ''
+      const handlingCode = data['_carrierInstructions.handlingCode'] ?? 'standard'
+      const shipmentId = context.resourceId
+      if (!shipmentId) return
+
+      await apiCallOrThrow(
+        '/api/carrier-integration/shipment-instructions',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            shipmentId, specialInstructions, handlingCode,
+            organizationId: context.organizationId,
+            tenantId: context.tenantId,
+          }),
+        },
+        { errorMessage: 'Failed to save carrier instructions' },
+      )
+    },
+    onBeforeSave: async (data, context) => {
+      const handlingCode = data['_carrierInstructions.handlingCode']
+      if (handlingCode === 'hazmat') {
+        const instructions = data['_carrierInstructions.specialInstructions'] ?? ''
+        if (instructions.trim().length < 10) {
+          return {
+            ok: false,
+            message: 'Hazmat shipments require detailed special instructions (min 10 chars).',
+            fieldErrors: { '_carrierInstructions.specialInstructions': 'Required for hazmat shipments' },
+          }
+        }
+      }
+      return { ok: true }
+    },
+  },
+} satisfies InjectionFieldWidget
+```
+
+### Step 5 — Translations
+
+```typescript
+// carrier_integration/i18n/en.ts
+export default {
+  'carrier_integration.field.specialInstructions': 'Special Instructions',
+  'carrier_integration.field.handlingCode': 'Handling Code',
+  'carrier_integration.handling.standard': 'Standard',
+  'carrier_integration.handling.fragile': 'Fragile',
+  'carrier_integration.handling.hazmat': 'Hazmat',
+  'carrier_integration.handling.refrigerated': 'Refrigerated',
+}
+```
+
+### What Happens at Runtime
+
+**Edit shipment dialog opens:**
+```
+1. Order detail page opens ShipmentDialog for shipment id=abc
+2. ShipmentDialog renders CrudForm with entityId='sales.sales_shipment'
+3. CrudForm loads initial values (including existing data from shipment)
+4. Response enricher has already attached _carrierInstructions to the shipment data
+5. CrudForm discovers injected field widgets via injection-table
+6. The "Tracking information" group now renders:
+   - Shipped date        ← core field
+   - Delivered date       ← core field
+   - Tracking numbers     ← core field
+   - Notes               ← core field
+   - Special Instructions ← INJECTED (from carrier_integration)
+   - Handling Code        ← INJECTED (from carrier_integration)
+```
+
+**User fills in fields and clicks Save (Cmd+Enter):**
+```
+1. CrudForm validates core fields (Zod schema)
+2. CrudForm triggers onBeforeSave on all injection widgets
+   → carrier_integration validates: hazmat requires instructions ≥10 chars
+3. CrudForm calls handleSubmit() → sends core fields to PUT /api/sales/shipments
+   → The _carrierInstructions fields are NOT sent (not in shipment Zod schema)
+4. CrudForm triggers onSave on all injection widgets
+   → carrier_integration posts to POST /api/carrier-integration/shipment-instructions
+5. CrudForm triggers onAfterSave → dialog closes, shipments list refreshes
+```
+
+**Files touched in `packages/core/src/modules/sales/`: ZERO.**
+
+---
+
+## CrudForm Group Injection (Existing — Formalized)
+
+Already works via current injection table with `kind: 'group'` and `column` placement. Formalized with explicit type:
+
+```typescript
+satisfies InjectionGroupWidget  // Existing pattern, now typed
+```
+
+---
+
 ## Integration Tests
 
 ### TC-UMES-CF01: Injected "Priority" field appears in customer edit form within "Details" group

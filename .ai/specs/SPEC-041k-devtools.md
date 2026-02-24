@@ -60,7 +60,54 @@ In development mode, log enricher execution time:
 - 100–500ms: warning in console
 - > 500ms: error in console with suggestion to add caching
 
-### 5. Interceptor Audit Trail
+### 5. Extension Header Protocol
+
+Widgets and interceptors communicate via scoped headers (existing pattern from record-locking):
+
+```
+x-om-ext-<module>-<key>: <value>
+```
+
+Example:
+```
+x-om-ext-record-locks-token: abc123
+x-om-ext-business-rules-override: skip-credit-check
+```
+
+### 6. Response Metadata
+
+When enrichers are active, responses include metadata:
+
+```json
+{
+  "data": { /* enriched record */ },
+  "_meta": {
+    "enrichedBy": ["loyalty.customer-points", "credit.score"]
+  }
+}
+```
+
+### 7. Enricher Cache (Optional)
+
+For performance-critical enrichers, an optional cache layer using existing `@open-mercato/cache` infrastructure:
+
+```typescript
+{
+  id: 'loyalty.customer-points',
+  cache: {
+    strategy: 'read-through',
+    ttl: 60,  // seconds
+    tags: ['loyalty', 'customers'],
+    invalidateOn: ['loyalty.points.updated', 'loyalty.tier.changed'],
+  },
+}
+```
+
+### 8. No New Database Entities for UI Phases
+
+Phases A-B (UI slots, menus, component replacement) are purely runtime — no database changes. All configuration is in code. Phase D (enrichers) optionally uses cache infrastructure. Phase E (interceptors) optionally uses existing `action_log` for audit.
+
+### 9. Interceptor Audit Trail
 
 All interceptor rejections are logged as `action_log` entries:
 ```sql

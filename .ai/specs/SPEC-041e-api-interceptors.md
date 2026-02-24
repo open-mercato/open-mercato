@@ -45,6 +45,41 @@ interface InterceptorAfterResult {
   merge?: Record<string, unknown>
   replace?: Record<string, unknown>
 }
+
+interface InterceptorRequest {
+  /** HTTP method */
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  /** Request URL path */
+  url: string
+  /** Parsed request body (for POST/PUT/PATCH) */
+  body?: Record<string, unknown>
+  /** Parsed query parameters (for GET) */
+  query?: Record<string, unknown>
+  /** Request headers */
+  headers: Record<string, string>
+}
+
+interface InterceptorResponse {
+  /** HTTP status code */
+  statusCode: number
+  /** Response body */
+  body: Record<string, unknown>
+  /** Response headers */
+  headers: Record<string, string>
+}
+
+interface InterceptorContext {
+  /** Current user ID */
+  userId: string
+  /** Current organization ID */
+  organizationId: string
+  /** Current tenant ID */
+  tenantId: string
+  /** Entity manager (read-only) */
+  em: EntityManager
+  /** Metadata passed from `before` to `after` hook */
+  metadata?: Record<string, unknown>
+}
 ```
 
 ### 2. Execution Order in CRUD Mutation Pipeline

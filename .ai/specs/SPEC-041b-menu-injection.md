@@ -96,6 +96,195 @@ Injected items:
 
 ---
 
+## Real-World Menu Injection Examples
+
+### Example 1: SSO Module → Profile Dropdown + Settings Sidebar
+
+One module, two menu surfaces:
+
+```typescript
+// sso/widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  'menu:topbar:profile-dropdown': {
+    widgetId: 'sso.injection.menus',
+    priority: 50,
+  },
+  'menu:sidebar:settings:auth': {
+    widgetId: 'sso.injection.menus',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// sso/widgets/injection/menus/widget.ts
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+
+export default {
+  metadata: {
+    id: 'sso.injection.menus',
+    features: ['auth.sso.manage'],
+  },
+  menuItems: [
+    {
+      id: 'sso-settings',
+      label: 'sso.menu.manageSso',
+      icon: 'Shield',
+      href: '/backend/settings/sso',
+      separator: true,
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+**Result in Profile Dropdown:**
+```
+Change Password
+Notification Preferences
+──────────────────────
+🛡 Manage SSO            ← injected
+──────────────────────
+Dark Mode
+Language
+Sign Out
+```
+
+**Result in Settings Sidebar → Auth section:**
+```
+Auth
+  Users
+  Roles
+  API Keys
+  🛡 SSO Configuration   ← injected
+```
+
+### Example 2: Analytics Module → New Sidebar Group
+
+```typescript
+// analytics/widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  'menu:sidebar:main': {
+    widgetId: 'analytics.injection.sidebar-group',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// analytics/widgets/injection/sidebar-group/widget.ts
+export default {
+  metadata: {
+    id: 'analytics.injection.sidebar-group',
+    features: ['analytics.view'],
+  },
+  menuItems: [
+    {
+      id: 'analytics-dashboard',
+      label: 'analytics.nav.dashboard',
+      icon: 'BarChart3',
+      href: '/backend/analytics',
+      groupId: 'analytics',
+      groupLabel: 'Analytics',
+      groupLabelKey: 'analytics.nav.group',
+      groupOrder: 50,
+    },
+    {
+      id: 'analytics-reports',
+      label: 'analytics.nav.reports',
+      icon: 'FileBarChart',
+      href: '/backend/analytics/reports',
+      groupId: 'analytics',
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+**Result in Main Sidebar:**
+```
+📋 Customers
+  People
+  Companies
+📦 Catalog
+  Products
+  Categories
+💰 Sales
+  Orders
+  Quotes
+📊 Analytics              ← injected group
+  Dashboard               ← injected item
+  Reports                 ← injected item
+```
+
+### Example 3: External BI → Menu Item Without a Page (External URL)
+
+```typescript
+// external_bi/widgets/injection/menus/widget.ts
+export default {
+  metadata: {
+    id: 'external_bi.injection.menus',
+    features: ['external_bi.view'],
+  },
+  menuItems: [
+    {
+      id: 'open-bi-dashboard',
+      label: 'external_bi.menu.openDashboard',
+      icon: 'ExternalLink',
+      href: 'https://bi.example.com/dashboard',
+      groupId: 'analytics',
+      placement: { position: InjectionPosition.Last },
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+This adds an external link to the sidebar — something impossible today since `page.meta.ts` only works for internal pages.
+
+### Example 4: Carrier Integration → Profile Sidebar Section
+
+```typescript
+// carrier_integration/widgets/injection-table.ts
+export const injectionTable: ModuleInjectionTable = {
+  'menu:sidebar:profile': {
+    widgetId: 'carrier_integration.injection.profile-section',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// carrier_integration/widgets/injection/profile-section/widget.ts
+export default {
+  metadata: {
+    id: 'carrier_integration.injection.profile-section',
+    features: ['carrier_integration.manage'],
+  },
+  menuItems: [
+    {
+      id: 'carrier-api-keys',
+      label: 'carrier_integration.menu.apiKeys',
+      icon: 'Key',
+      href: '/backend/profile/carrier-api-keys',
+      groupId: 'integrations',
+      groupLabel: 'Integrations',
+      groupLabelKey: 'carrier_integration.menu.integrationsGroup',
+      groupOrder: 2,
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+**Result in Profile Sidebar:**
+```
+Account                    ← existing section
+  Change Password
+
+Integrations               ← injected section
+  🔑 API Keys              ← injected item
+```
+
+---
+
 ## Example Module Additions
 
 ### `example/widgets/injection/example-menus/widget.ts`

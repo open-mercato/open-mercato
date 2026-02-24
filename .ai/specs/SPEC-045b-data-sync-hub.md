@@ -566,77 +566,644 @@ export const eventsConfig = createModuleEvents('data_sync', [
 
 ## 5. Reference Implementation — `sync_medusa` Bundle
 
+A platform connector like MedusaJS is **not just an ETL pipeline**. It has two operational modes:
+
+| Mode | Mechanism | When Used |
+|------|-----------|-----------|
+| **Batch sync** | `DataSyncAdapter.streamImport()` / `streamExport()` | Initial data migration, catch-up after downtime, scheduled full reconciliation |
+| **Real-time sync** | Event subscribers + inbound webhooks | Ongoing operation — order status changes, inventory updates, new products |
+
+Batch sync bootstraps the data. Real-time sync keeps it current. Both use the same field mapping, credentials, and logging infrastructure.
+
 ### 5.1 Module Structure
 
 ```
 packages/core/src/modules/sync_medusa/
 ├── index.ts                    # Module metadata
-├── integration.ts              # Bundle + 5 integration definitions (§1.2 in SPEC-045a)
-├── setup.ts                    # Register all adapters
-├── di.ts                       # Health check service
+├── integration.ts              # Bundle + integration definitions (§1.2 in SPEC-045a)
+├── setup.ts                    # Register adapters, status maps, webhook adapter
+├── di.ts                       # Medusa client, health check
 ├── lib/
 │   ├── client.ts               # MedusaJS REST client (streaming-capable)
+│   ├── status-map.ts           # Bidirectional status mapping
 │   ├── adapters/
-│   │   ├── products.ts         # DataSyncAdapter for products
-│   │   ├── customers.ts        # DataSyncAdapter for customers
-│   │   ├── orders.ts           # DataSyncAdapter for orders
-│   │   └── inventory.ts        # DataSyncAdapter for inventory
+│   │   ├── products.ts         # DataSyncAdapter for products (batch)
+│   │   ├── customers.ts        # DataSyncAdapter for customers (batch)
+│   │   ├── orders.ts           # DataSyncAdapter for orders (batch)
+│   │   └── inventory.ts        # DataSyncAdapter for inventory (batch)
+│   ├── webhooks/
+│   │   └── adapter.ts          # WebhookEndpointAdapter for inbound Medusa events
 │   ├── transforms.ts           # Medusa-specific field transforms
 │   └── health.ts               # HealthCheckable implementation
+├── subscribers/
+│   ├── order-status-changed.ts # React to local order status → push to Medusa
+│   ├── order-created.ts        # React to local order creation → push to Medusa
+│   ├── product-updated.ts      # React to local product edit → push to Medusa
+│   ├── inventory-adjusted.ts   # React to local stock change → push to Medusa
+│   └── shipment-created.ts     # React to local shipment → mark fulfilled in Medusa
+├── workers/
+│   └── outbound-push.ts        # Async worker for pushing changes to Medusa API
 └── i18n/
     ├── en.ts
     └── pl.ts
 ```
 
-### 5.2 Streaming MedusaJS Client
+### 5.2 Two Sync Modes — How They Complement Each Other
 
-The client uses cursor-based pagination from MedusaJS's API to stream data without loading everything into memory:
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  MODE 1: BATCH SYNC (DataSyncAdapter)                                   │
+│  • Initial migration: "Import all 50K products from Medusa"            │
+│  • Scheduled reconciliation: "Nightly full delta sync"                  │
+│  • Catch-up: "Sync everything changed in the last 7 days"              │
+│                                                                         │
+│  Uses: streamImport() / streamExport() → queue → progress bar           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  MODE 2: REAL-TIME SYNC (Events + Webhooks)                             │
+│                                                                         │
+│  OUTBOUND (Open Mercato → Medusa):                                      │
+│  • Event subscribers listen to local events                             │
+│  • Enqueue outbound push via worker (not inline — fault-tolerant)       │
+│  • Worker calls Medusa API, logs via integrationLog                     │
+│                                                                         │
+│  sales.order.status_changed ──► subscriber ──► worker ──► Medusa API    │
+│  catalog.product.updated    ──► subscriber ──► worker ──► Medusa API    │
+│  sales.shipment.created     ──► subscriber ──► worker ──► Medusa API    │
+│                                                                         │
+│  INBOUND (Medusa → Open Mercato):                                       │
+│  • Medusa sends webhooks to /api/webhook-endpoints/webhook/medusa       │
+│  • WebhookEndpointAdapter verifies + parses                             │
+│  • Worker processes: creates/updates local entities via commands         │
+│                                                                         │
+│  Medusa webhook ──► verify ──► worker ──► local command (create order)  │
+│                                                                         │
+│  Uses: subscribers, workers, webhook_endpoints hub, integrationLog      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.3 Status Mapping — Bidirectional
+
+A platform connector must map statuses between the two systems. This is a core concern — different platforms use different status vocabularies.
 
 ```typescript
-// sync_medusa/lib/client.ts
+// sync_medusa/lib/status-map.ts
 
-export function createMedusaClient(credentials: Record<string, unknown>) {
-  const baseUrl = credentials.medusaApiUrl as string
-  const apiKey = credentials.medusaApiKey as string
+/**
+ * Bidirectional order status mapping between Medusa and Open Mercato.
+ * Used by both outbound subscribers (local → Medusa) and inbound webhooks (Medusa → local).
+ */
 
-  return {
-    async *streamProducts(cursor?: string, batchSize = 100): AsyncIterable<{
-      items: MedusaProduct[]
-      nextCursor: string | null
-      totalCount: number
-    }> {
-      let offset = cursor ? parseInt(cursor, 10) : 0
+/** Open Mercato order status → Medusa fulfillment/payment actions */
+const outboundOrderStatusMap: Record<string, MedusaAction> = {
+  'confirmed':    { action: 'none' },                              // No Medusa action needed
+  'processing':   { action: 'none' },
+  'shipped':      { action: 'create_fulfillment', shipAll: true }, // Create fulfillment in Medusa
+  'delivered':    { action: 'create_fulfillment', shipAll: true, markDelivered: true },
+  'cancelled':    { action: 'cancel_order' },                     // Cancel order in Medusa
+  'refunded':     { action: 'create_refund' },                    // Refund via Medusa
+}
 
-      while (true) {
-        const response = await fetch(
-          `${baseUrl}/admin/products?offset=${offset}&limit=${batchSize}&order=updated_at`,
-          { headers: { 'x-medusa-access-token': apiKey } },
-        )
+/** Medusa webhook event → Open Mercato order status + actions */
+const inboundEventMap: Record<string, LocalAction> = {
+  'order.placed':              { createOrder: true },              // Create new order locally
+  'order.updated':             { updateOrder: true },
+  'order.canceled':            { status: 'cancelled' },
+  'order.payment_captured':    { status: 'paid', capturePayment: true },
+  'order.fulfillment_created': { status: 'shipped', createShipment: true },
+  'order.shipment_created':    { status: 'shipped', updateTracking: true },
+  'order.return_requested':    { status: 'return_requested' },
+  'order.items_returned':      { status: 'returned' },
+  'order.refund_created':      { status: 'refunded', createRefund: true },
+}
 
-        if (!response.ok) {
-          throw new Error(`MedusaJS API error: ${response.status} ${response.statusText}`)
+/** Medusa product status → Open Mercato isActive */
+function medusaProductStatusToLocal(medusaStatus: string): boolean {
+  return medusaStatus === 'published'
+  // 'draft' | 'proposed' | 'rejected' → isActive: false
+}
+
+/** Open Mercato isActive → Medusa product status */
+function localProductStatusToMedusa(isActive: boolean): string {
+  return isActive ? 'published' : 'draft'
+}
+
+interface MedusaAction {
+  action: 'none' | 'create_fulfillment' | 'cancel_order' | 'create_refund'
+  shipAll?: boolean
+  markDelivered?: boolean
+}
+
+interface LocalAction {
+  createOrder?: boolean
+  updateOrder?: boolean
+  createShipment?: boolean
+  updateTracking?: boolean
+  capturePayment?: boolean
+  createRefund?: boolean
+  status?: string
+}
+```
+
+### 5.4 Outbound Event Subscribers (Open Mercato → Medusa)
+
+Each subscriber listens to a local event and enqueues an outbound push job. The subscriber is **thin** — it only checks if the Medusa integration is enabled and enqueues. The **worker** does the actual API call.
+
+```typescript
+// sync_medusa/subscribers/order-status-changed.ts
+
+export const metadata = {
+  event: 'sales.order.status_changed',
+  persistent: true,
+  id: 'sync_medusa.order_status_push',
+}
+
+export default async function handler(event: OrderStatusChangedEvent, ctx: SubscriberContext) {
+  // 1. Check if Medusa integration is enabled for this tenant
+  const enabled = await ctx.integrationState.isEnabled('sync_medusa_orders', {
+    organizationId: event.organizationId,
+    tenantId: event.tenantId,
+  })
+  if (!enabled) return
+
+  // 2. Look up the status action
+  const action = outboundOrderStatusMap[event.newStatus]
+  if (!action || action.action === 'none') return
+
+  // 3. Enqueue outbound push (not inline — decoupled for fault tolerance)
+  await ctx.enqueueJob('medusa-outbound-push', {
+    type: 'order_status',
+    orderId: event.orderId,
+    newStatus: event.newStatus,
+    previousStatus: event.previousStatus,
+    action,
+    organizationId: event.organizationId,
+    tenantId: event.tenantId,
+  })
+}
+```
+
+```typescript
+// sync_medusa/subscribers/shipment-created.ts
+
+export const metadata = {
+  event: 'sales.shipment.created',
+  persistent: true,
+  id: 'sync_medusa.shipment_push',
+}
+
+export default async function handler(event: ShipmentCreatedEvent, ctx: SubscriberContext) {
+  const enabled = await ctx.integrationState.isEnabled('sync_medusa_orders', {
+    organizationId: event.organizationId,
+    tenantId: event.tenantId,
+  })
+  if (!enabled) return
+
+  await ctx.enqueueJob('medusa-outbound-push', {
+    type: 'fulfillment',
+    orderId: event.orderId,
+    shipmentId: event.shipmentId,
+    trackingNumber: event.trackingNumber,
+    carrier: event.carrier,
+    items: event.items,  // Which line items were shipped
+    organizationId: event.organizationId,
+    tenantId: event.tenantId,
+  })
+}
+```
+
+```typescript
+// sync_medusa/subscribers/product-updated.ts
+
+export const metadata = {
+  event: 'catalog.product.updated',
+  persistent: true,
+  id: 'sync_medusa.product_push',
+}
+
+export default async function handler(event: ProductUpdatedEvent, ctx: SubscriberContext) {
+  const enabled = await ctx.integrationState.isEnabled('sync_medusa_products', {
+    organizationId: event.organizationId,
+    tenantId: event.tenantId,
+  })
+  if (!enabled) return
+
+  await ctx.enqueueJob('medusa-outbound-push', {
+    type: 'product_update',
+    productId: event.productId,
+    changedFields: event.changedFields,
+    organizationId: event.organizationId,
+    tenantId: event.tenantId,
+  })
+}
+```
+
+### 5.5 Outbound Push Worker
+
+The worker handles all outbound pushes to Medusa. It resolves credentials, calls the Medusa API, and logs everything.
+
+```typescript
+// sync_medusa/workers/outbound-push.ts
+
+export const metadata: WorkerMeta = {
+  queue: 'medusa-outbound-push',
+  id: 'medusa-outbound-push-worker',
+  concurrency: 5,
+}
+
+export default async function handler(job: Job, ctx: WorkerContext) {
+  const { type, organizationId, tenantId } = job.data
+  const scope = { organizationId, tenantId }
+
+  const credentials = await ctx.integrationCredentials.resolve('sync_medusa', scope)
+  const client = createMedusaClient(credentials)
+  const log = ctx.integrationLog.scoped('sync_medusa_orders', job.id, scope)
+
+  try {
+    switch (type) {
+      case 'order_status': {
+        const { orderId, newStatus, action } = job.data
+
+        if (action.action === 'cancel_order') {
+          // Look up the Medusa order ID from our sync mapping
+          const medusaOrderId = await lookupExternalId('sales.order', orderId, scope, ctx.em)
+          if (!medusaOrderId) {
+            await log.warning('push.skip', `Order ${orderId} not synced to Medusa — skipping cancel`)
+            return
+          }
+          await client.cancelOrder(medusaOrderId)
+          await log.info('push.order_cancelled', `Cancelled Medusa order ${medusaOrderId}`, {
+            localOrderId: orderId,
+            medusaOrderId,
+          })
         }
 
-        const data = await response.json()
-        const products = data.products as MedusaProduct[]
-
-        yield {
-          items: products,
-          nextCursor: products.length === batchSize ? String(offset + batchSize) : null,
-          totalCount: data.count,
+        if (action.action === 'create_refund') {
+          const medusaOrderId = await lookupExternalId('sales.order', orderId, scope, ctx.em)
+          if (!medusaOrderId) return
+          // Load refund details from local order
+          const refundData = await loadRefundData(orderId, ctx.em)
+          await client.createRefund(medusaOrderId, refundData)
+          await log.info('push.refund_created', `Created refund on Medusa order ${medusaOrderId}`, {
+            localOrderId: orderId,
+            medusaOrderId,
+            amount: refundData.amount,
+          })
         }
-
-        if (products.length < batchSize) break
-        offset += batchSize
+        break
       }
-    },
 
-    // Similar for customers, orders, inventory...
+      case 'fulfillment': {
+        const { orderId, shipmentId, trackingNumber, carrier, items } = job.data
+        const medusaOrderId = await lookupExternalId('sales.order', orderId, scope, ctx.em)
+        if (!medusaOrderId) {
+          await log.warning('push.skip', `Order ${orderId} not synced to Medusa — skipping fulfillment`)
+          return
+        }
+
+        const fulfillment = await client.createFulfillment(medusaOrderId, {
+          items: items.map((i: LineItemRef) => ({
+            item_id: i.medusaLineItemId,
+            quantity: i.quantity,
+          })),
+          tracking_numbers: trackingNumber ? [trackingNumber] : [],
+          // No provider ID needed — Medusa auto-resolves
+        })
+
+        await log.info('push.fulfillment_created', `Created fulfillment on Medusa order ${medusaOrderId}`, {
+          localOrderId: orderId,
+          localShipmentId: shipmentId,
+          medusaOrderId,
+          medusaFulfillmentId: fulfillment.id,
+          trackingNumber,
+          carrier,
+        })
+        break
+      }
+
+      case 'product_update': {
+        const { productId, changedFields } = job.data
+        const medusaProductId = await lookupExternalId('catalog.product', productId, scope, ctx.em)
+        if (!medusaProductId) {
+          await log.warning('push.skip', `Product ${productId} not synced to Medusa — skipping update`)
+          return
+        }
+
+        // Load current product, map fields, push to Medusa
+        const localProduct = await loadProduct(productId, ctx.em)
+        const medusaData = mapLocalToMedusa(localProduct, changedFields)
+        await client.updateProduct(medusaProductId, medusaData)
+
+        await log.info('push.product_updated', `Updated Medusa product ${medusaProductId}`, {
+          localProductId: productId,
+          medusaProductId,
+          changedFields,
+        })
+        break
+      }
+    }
+  } catch (err) {
+    await log.error(`push.${type}_failed`, `Failed to push ${type}: ${err.message}`, {
+      error: err.message,
+      stack: err.stack,
+      jobData: job.data,
+    })
+    throw err  // Let worker retry with backoff
   }
 }
 ```
 
-### 5.3 Products Adapter Implementation
+### 5.6 Inbound Webhooks (Medusa → Open Mercato)
+
+The Medusa bundle also registers a `WebhookEndpointAdapter` (from the `webhook_endpoints` hub) to receive events FROM Medusa:
+
+```typescript
+// sync_medusa/lib/webhooks/adapter.ts
+
+export const medusaWebhookAdapter: WebhookEndpointAdapter = {
+  providerKey: 'medusa_webhooks',
+
+  subscribedEvents: [
+    'order.placed',
+    'order.updated',
+    'order.canceled',
+    'order.payment_captured',
+    'order.fulfillment_created',
+    'order.shipment_created',
+    'order.return_requested',
+    'order.items_returned',
+    'order.refund_created',
+    'product.created',
+    'product.updated',
+    'product.deleted',
+    'inventory-item.updated',
+  ],
+
+  async verifyWebhook(input: VerifyWebhookInput): Promise<InboundWebhookEvent> {
+    // Medusa signs webhooks with HMAC-SHA256 using the webhook secret
+    const expectedSignature = crypto
+      .createHmac('sha256', input.settings.medusaWebhookSecret as string)
+      .update(input.body)
+      .digest('hex')
+
+    const receivedSignature = input.headers['x-medusa-signature']
+    if (receivedSignature !== expectedSignature) {
+      throw new Error('Invalid Medusa webhook signature')
+    }
+
+    const payload = JSON.parse(input.body)
+    return {
+      eventType: payload.event,          // e.g., 'order.placed'
+      externalId: payload.data.id,       // Medusa entity ID
+      data: payload.data,                // Full entity data
+      idempotencyKey: payload.id,        // Unique event ID from Medusa
+      timestamp: payload.timestamp,
+    }
+  },
+
+  async processInbound(event: InboundWebhookEvent): Promise<void> {
+    // Dispatched by the webhook_endpoints hub to the sync_medusa worker
+    // The hub enqueues to 'medusa-inbound-webhook' queue
+  },
+
+  async formatPayload(): Promise<WebhookPayload> {
+    // Not used — Medusa is an inbound-only webhook for this adapter
+    throw new Error('Medusa webhook adapter is inbound-only')
+  },
+}
+```
+
+### 5.7 Inbound Webhook Processing — Order Flow Example
+
+When Medusa sends `order.placed`, the full lifecycle:
+
+```
+Medusa API                        Open Mercato
+─────────                        ──────────────
+order.placed webhook ───────────► POST /api/webhook-endpoints/webhook/medusa_webhooks
+                                  │
+                                  ├─ verify HMAC signature
+                                  ├─ idempotency check (skip if duplicate)
+                                  ├─ enqueue to 'medusa-inbound-webhook' queue
+                                  └─ 200 OK (fast response)
+
+                                  Worker picks up job:
+                                  │
+                                  ├─ Parse event: 'order.placed'
+                                  ├─ Look up action: { createOrder: true }
+                                  ├─ Map Medusa order → local SalesDocument fields:
+                                  │   ├─ customer email → resolve local person
+                                  │   ├─ line items → resolve local products by SKU
+                                  │   ├─ shipping → resolve local shipping method
+                                  │   ├─ payment → resolve local payment method
+                                  │   └─ addresses → map to local address format
+                                  ├─ Execute createOrderCommand (existing sales module command)
+                                  ├─ Store external ID mapping: medusa_order_123 ↔ local_order_456
+                                  ├─ Log: "Created order local_order_456 from Medusa order medusa_order_123"
+                                  └─ Done
+
+Later: order.payment_captured ──► same flow → updatePaymentStatus('paid')
+Later: order.fulfillment_created ► same flow → local status stays (Medusa confirms our push)
+```
+
+```typescript
+// sync_medusa/workers/inbound-webhook.ts (registered via webhook_endpoints hub)
+
+export const metadata: WorkerMeta = {
+  queue: 'medusa-inbound-webhook',
+  id: 'medusa-inbound-webhook-worker',
+  concurrency: 5,
+}
+
+export default async function handler(job: Job, ctx: WorkerContext) {
+  const { event, scope } = job.data
+  const log = ctx.integrationLog.scoped('sync_medusa_orders', event.idempotencyKey, scope)
+
+  const action = inboundEventMap[event.eventType]
+  if (!action) {
+    await log.debug('webhook.skip', `Unhandled event type: ${event.eventType}`)
+    return
+  }
+
+  await log.info('webhook.processing', `Processing ${event.eventType}`, {
+    medusaId: event.externalId,
+    eventType: event.eventType,
+  })
+
+  try {
+    if (action.createOrder) {
+      // Map Medusa order to local format
+      const localOrder = await mapMedusaOrderToLocal(event.data, ctx)
+      const result = await ctx.salesCommands.createOrder(localOrder)
+
+      // Store the external ID mapping for future lookups
+      await storeExternalIdMapping('sales.order', result.id, event.externalId, scope, ctx.em)
+
+      // Also map line item IDs for fulfillment tracking
+      for (const lineItem of event.data.items) {
+        const localLineItem = result.lineItems.find(
+          (li: LineItem) => li.sku === lineItem.variant.sku
+        )
+        if (localLineItem) {
+          await storeExternalIdMapping(
+            'sales.line_item', localLineItem.id, lineItem.id, scope, ctx.em,
+          )
+        }
+      }
+
+      await log.info('webhook.order_created', `Created local order ${result.id} from Medusa ${event.externalId}`, {
+        localOrderId: result.id,
+        medusaOrderId: event.externalId,
+        lineItemCount: result.lineItems.length,
+        total: result.total,
+      })
+    }
+
+    if (action.status) {
+      const localOrderId = await lookupLocalId('sales.order', event.externalId, scope, ctx.em)
+      if (!localOrderId) {
+        await log.warning('webhook.skip', `Medusa order ${event.externalId} not found locally`)
+        return
+      }
+
+      await ctx.salesCommands.updateOrderStatus(localOrderId, action.status)
+      await log.info('webhook.status_updated', `Order ${localOrderId} → ${action.status}`, {
+        localOrderId,
+        medusaOrderId: event.externalId,
+        newStatus: action.status,
+      })
+    }
+
+    if (action.createShipment) {
+      const localOrderId = await lookupLocalId('sales.order', event.externalId, scope, ctx.em)
+      if (!localOrderId) return
+
+      const fulfillment = event.data  // Medusa fulfillment object
+      await ctx.salesCommands.createShipment({
+        orderId: localOrderId,
+        trackingNumber: fulfillment.tracking_numbers?.[0],
+        items: fulfillment.items.map((fi: FulfillmentItem) => ({
+          lineItemId: lookupLocalId('sales.line_item', fi.item_id, scope, ctx.em),
+          quantity: fi.quantity,
+        })),
+      })
+      await log.info('webhook.shipment_created', `Created shipment for order ${localOrderId}`, {
+        localOrderId,
+        trackingNumber: fulfillment.tracking_numbers?.[0],
+      })
+    }
+
+    if (action.createRefund) {
+      const localOrderId = await lookupLocalId('sales.order', event.externalId, scope, ctx.em)
+      if (!localOrderId) return
+
+      const refund = event.data
+      await ctx.salesCommands.createRefund({
+        orderId: localOrderId,
+        amount: refund.amount / 100,  // Medusa stores in cents
+        reason: refund.reason,
+      })
+      await log.info('webhook.refund_created', `Created refund for order ${localOrderId}`, {
+        localOrderId,
+        amount: refund.amount / 100,
+        reason: refund.reason,
+      })
+    }
+
+  } catch (err) {
+    await log.error('webhook.processing_failed', `Failed to process ${event.eventType}: ${err.message}`, {
+      error: err.message,
+      stack: err.stack,
+      medusaId: event.externalId,
+      eventType: event.eventType,
+    })
+    throw err  // Worker retries with backoff
+  }
+}
+```
+
+### 5.8 External ID Mapping
+
+A critical piece for bidirectional sync is knowing which Medusa entity corresponds to which local entity:
+
+```typescript
+// data_sync/data/entities.ts
+
+@Entity({ tableName: 'sync_external_id_mappings' })
+export class SyncExternalIdMapping extends BaseEntity {
+  @Property()
+  integrationId!: string  // 'sync_medusa'
+
+  @Property()
+  entityType!: string  // 'sales.order', 'catalog.product', 'sales.line_item'
+
+  @Property()
+  localId!: string  // Open Mercato entity ID
+
+  @Property()
+  externalId!: string  // Medusa entity ID
+
+  @Property()
+  organizationId!: string
+
+  @Property()
+  tenantId!: string
+
+  @Unique({ properties: ['integrationId', 'entityType', 'externalId', 'organizationId', 'tenantId'] })
+  _unique!: never
+}
+```
+
+Lookup helpers:
+```typescript
+// data_sync/lib/id-mapping.ts
+
+/** Find the local entity ID for an external ID */
+async function lookupLocalId(entityType: string, externalId: string, scope: TenantScope, em: EntityManager): Promise<string | null>
+
+/** Find the external ID for a local entity */
+async function lookupExternalId(entityType: string, localId: string, scope: TenantScope, em: EntityManager): Promise<string | null>
+
+/** Store a new mapping (idempotent — upsert) */
+async function storeExternalIdMapping(entityType: string, localId: string, externalId: string, scope: TenantScope, em: EntityManager): Promise<void>
+```
+
+This table is populated by:
+- Batch imports (each imported item stores its external ID mapping)
+- Inbound webhooks (when creating a local entity from a Medusa event)
+- Outbound pushes (when creating an entity in Medusa from a local event, store the returned Medusa ID)
+
+### 5.9 Conflict Prevention — Loop Detection
+
+Since changes flow both ways, a naive implementation would create infinite loops:
+
+```
+Local order status → 'shipped' → subscriber → push to Medusa
+                                                    ↓
+Medusa webhook 'order.fulfillment_created' → update local → 'shipped' → subscriber → push to Medusa → ...
+```
+
+Prevention strategy — **origin tagging**:
+
+```typescript
+// When processing an inbound webhook, tag the resulting command with origin
+await ctx.salesCommands.updateOrderStatus(localOrderId, action.status, {
+  metadata: { _syncOrigin: 'sync_medusa' },  // Tag the mutation origin
+})
+
+// In the outbound subscriber, skip events that originated from this integration
+export default async function handler(event: OrderStatusChangedEvent, ctx: SubscriberContext) {
+  // Skip if this change was caused by our own inbound sync
+  if (event.metadata?._syncOrigin === 'sync_medusa') return
+
+  // ... proceed with outbound push
+}
+```
+
+### 5.10 Batch Sync Adapters (Products Example)
+
+The batch sync adapters handle the initial data migration and scheduled reconciliation. They use the same field mapping and status maps as the real-time sync:
 
 ```typescript
 // sync_medusa/lib/adapters/products.ts
@@ -654,7 +1221,7 @@ export const medusaProductsAdapter: DataSyncAdapter = {
       const items: ImportItem[] = page.items.map(product => ({
         externalId: product.id,
         data: product,
-        action: determineAction(product, input),  // 'create' | 'update' | 'skip'
+        action: determineAction(product, input),
         hash: computeHash(product),
       }))
 
@@ -669,7 +1236,7 @@ export const medusaProductsAdapter: DataSyncAdapter = {
   },
 
   async *streamExport(input: StreamExportInput): AsyncIterable<ExportBatch> {
-    // Stream local products, push to Medusa API
+    // Stream local products, push to Medusa API in batches
   },
 
   async getMapping(): Promise<DataMapping> {
@@ -684,7 +1251,6 @@ export const medusaProductsAdapter: DataSyncAdapter = {
         { externalField: 'variants[0].prices[0].amount', localField: 'basePrice', transform: 'centsToDecimal' },
         { externalField: 'variants[0].sku', localField: 'sku' },
         { externalField: 'images[0].url', localField: 'imageUrl' },
-        { externalField: 'metadata.categories', localField: 'categoryIds', transform: 'medusaCategoryMap' },
       ],
     }
   },
@@ -702,33 +1268,14 @@ export const medusaProductsAdapter: DataSyncAdapter = {
 }
 ```
 
-### 5.4 Delta Detection
+### 5.11 Delta Detection
 
-The adapter determines whether each item is a create, update, or skip:
-
-```typescript
-function determineAction(
-  externalProduct: MedusaProduct,
-  input: StreamImportInput,
-): 'create' | 'update' | 'skip' {
-  // Option 1: Hash-based change detection
-  // Store hash of each imported item in SyncItemHash table
-  // Compare current hash with stored hash
-  // Same hash → skip, different hash → update, no stored hash → create
-
-  // Option 2: Timestamp-based (preferred for delta cursors)
-  // The cursor is a timestamp — only items updated after cursor are streamed
-  // If cursor is set, all items in the stream are 'update' or 'create'
-  // Check if local entity with matching externalId exists → update, else → create
-}
-```
-
-For MedusaJS specifically, delta detection works via `updated_at` ordering:
+For MedusaJS, delta detection works via `updated_at` ordering:
 1. First sync: cursor = null, all items are `create`
-2. Subsequent syncs: cursor = timestamp of last sync, MedusaJS API filters by `updated_at > cursor`
-3. For each item, check if a local product with matching external ID exists → `update` if yes, `create` if no
+2. Subsequent syncs: cursor = timestamp of last sync, API filters by `updated_at > cursor`
+3. For each item, check `SyncExternalIdMapping` — if mapping exists → `update`, else → `create`
 
-### 5.5 Setup — Registration
+### 5.12 Setup — Registration
 
 ```typescript
 // sync_medusa/setup.ts
@@ -740,12 +1287,62 @@ export const setup: ModuleSetupConfig = {
   },
 
   async onTenantCreated() {
+    // Batch sync adapters
     registerDataSyncAdapter(medusaProductsAdapter)
     registerDataSyncAdapter(medusaCustomersAdapter)
     registerDataSyncAdapter(medusaOrdersAdapter)
     registerDataSyncAdapter(medusaInventoryAdapter)
+
+    // Inbound webhook adapter
+    registerWebhookEndpointAdapter(medusaWebhookAdapter)
   },
 }
+```
+
+### 5.13 Full Lifecycle Example — Order Flow
+
+Here is the complete flow for a Medusa ↔ Open Mercato order lifecycle:
+
+```
+TIME   MEDUSA                        OPEN MERCATO                      DIRECTION
+─────  ──────                        ──────────────                    ─────────
+T0     Customer places order  ──────► webhook: order.placed            INBOUND
+                                      → Create local order (draft)
+                                      → Store ID mapping
+                                      → Log: "Order created"
+
+T1     Payment captured      ──────► webhook: order.payment_captured   INBOUND
+                                      → Update payment status → 'paid'
+                                      → Log: "Payment captured"
+
+T2                                    Staff confirms order              LOCAL
+                                      → Status: 'confirmed'
+                                      (No outbound push — Medusa
+                                       doesn't have a 'confirmed'
+                                       status. Controlled by status map)
+
+T3                                    Staff creates shipment            LOCAL
+                                      → Status: 'shipped'
+                              ◄────── subscriber: sales.shipment.created OUTBOUND
+                                      → Worker: create fulfillment
+                                        in Medusa with tracking #
+                                      → Log: "Fulfillment created"
+
+T4     Medusa confirms       ──────► webhook: order.fulfillment_created INBOUND
+       fulfillment created            → Skip (origin: sync_medusa via   (LOOP
+                                        loop detection)                 PREVENTED)
+
+T5                                    Customer requests return          LOCAL
+                                      → Status: 'return_requested'
+                              ◄────── subscriber: (no outbound push —   SKIP
+                                       Medusa doesn't have this status)
+
+T6                                    Staff processes refund            LOCAL
+                                      → Status: 'refunded'
+                              ◄────── subscriber: sales.order.          OUTBOUND
+                                        status_changed
+                                      → Worker: create refund in Medusa
+                                      → Log: "Refund created"
 ```
 
 ---

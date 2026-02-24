@@ -179,6 +179,82 @@ The hook is **opt-in per page**. Migration:
 
 No existing InjectionSpot, injection-table, or widget changes needed.
 
+### 7. Sales Document Detail — Extension Points
+
+```typescript
+const ext = useExtensibleDetail({ entityId: 'sales.document', ... })
+
+// 1. COMPONENT REPLACEMENT: Shipment dialog
+const ShipmentDialog = ext.getComponent<ShipmentDialogProps>(
+  'sales.document.shipment-dialog'
+)
+
+// 2. FIELD INJECTION: Document header
+const headerFields = ext.getFieldsForSection('document-header')
+
+// 3. COLUMN INJECTION: Items table
+const itemColumns = ext.getColumnsForTable('sales.document.items')
+
+// 4. ROW ACTIONS: Items table
+const itemRowActions = ext.getRowActionsForTable('sales.document.items')
+
+// 5. TAB INJECTION
+const allTabs = [...builtInTabs, ...ext.injectedTabs]
+
+// 6. SECTION SAVE with widget hooks
+await ext.runSectionSave('items', async () => {
+  await apiCallOrThrow('/api/sales/documents', { method: 'PUT', body: ... })
+})
+```
+
+### 8. Data Flow: Detail Page With Enrichment + Field Injection + Save
+
+Complete end-to-end example — a loyalty module extending the customer detail page:
+
+```
+                                ┌─────────────────────────────────────────┐
+                                │     Customer Detail Page (person)       │
+                                └───────────────────┬─────────────────────┘
+                                                    │
+         ┌──────────────────────────────────────────┼──────────────────────────────────────────┐
+         │                                          │                                          │
+    1. LOAD                                    2. RENDER                                  3. SAVE
+         │                                          │                                          │
+  GET /api/customers/                    ┌──────────┴──────────┐                     User edits tier
+  people/123                             │                     │                     and clicks save
+         │                          Core fields           Injected fields                  │
+  ┌──────┴──────────┐               firstName             _loyalty.tier ← InjectedField   │
+  │ Core query      │               lastName              (from enricher)                  │
+  │ returns person  │               email                                             ┌────┴─────────┐
+  └──────┬──────────┘               status                                            │ runSection   │
+         │                                                                            │ Save()       │
+  ┌──────┴──────────┐                                                                 └────┬─────────┘
+  │ Enrichers run:  │                                                                      │
+  │ loyalty adds    │                                                          ┌───────────┼───────────┐
+  │ _loyalty.tier   │                                                          │           │           │
+  │ _loyalty.points │                                                     onBeforeSave  Core PUT    onSave
+  └──────┬──────────┘                                                     (validate)    (person)    (loyalty)
+         │                                                                     │           │           │
+  Response arrives:                                                            │    PUT /api/      PUT /api/
+  {                                                                            │    customers/     loyalty/
+    person: { id, firstName, ... },                                            │    people         memberships/
+    _loyalty: { tier: 'gold', points: 1250 },                                 │    {id,name,...}  123/tier
+  }                                                                            │           │      {tier:'silver'}
+                                                                               │           │           │
+                                                                               └───────────┴───────────┘
+                                                                                     onAfterSave
+                                                                                   (refresh data)
+```
+
+### 9. Implementation Scope Per Detail Page
+
+| Page | Current State | Required Changes |
+|------|--------------|-----------------|
+| **Customer Person** (`people/[id]/page.tsx`) | Has: tabs, detail spots, guarded mutation. Missing: field injection, column injection | Add `useExtensibleDetail` (~15 LOC), `<InjectedField>` in details, injected columns to DealsSection |
+| **Customer Company** (`companies/[id]/page.tsx`) | Same pattern as person | Same changes as person |
+| **Sales Document** (`documents/[id]/page.tsx`) | Has: tabs, detail spots, guarded mutation. Missing: field injection, column injection, dialog replacement | Add `useExtensibleDetail`, wrap `ShipmentDialog` with `ext.getComponent()`, fields in header, columns in items |
+| **Future detail pages** | N/A | Use `useExtensibleDetail` from the start |
+
 ---
 
 ## Example Module Additions
