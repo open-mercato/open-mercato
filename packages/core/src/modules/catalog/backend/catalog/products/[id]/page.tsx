@@ -481,40 +481,35 @@ export default function EditCatalogProductPage({
           );
         const rawMetadata = isRecord(record.metadata)
           ? (record.metadata as Record<string, unknown>)
-          : isRecord((record as any).metadata)
-            ? ((record as any).metadata as Record<string, unknown>)
-            : null;
+          : null;
         const dimensions = normalizeProductDimensions(
-          (record as any).dimensions ??
-            (rawMetadata as any)?.dimensions ??
-            null,
+          record.dimensions ?? rawMetadata?.dimensions ?? null,
         );
+        const rawWeightMeta = isRecord(rawMetadata?.weight)
+          ? (rawMetadata.weight as Record<string, unknown>)
+          : null;
         const weight = normalizeProductWeight({
           value:
-            (record as any).weight_value ??
-            (record as any).weightValue ??
-            (isRecord((rawMetadata as any)?.weight)
-              ? (rawMetadata as any).weight.value
-              : undefined),
+            record.weight_value ??
+            record.weightValue ??
+            rawWeightMeta?.value,
           unit:
-            (record as any).weight_unit ??
-            (record as any).weightUnit ??
-            (isRecord((rawMetadata as any)?.weight)
-              ? (rawMetadata as any).weight.unit
-              : undefined),
+            record.weight_unit ??
+            record.weightUnit ??
+            rawWeightMeta?.unit,
         });
         const metadata = normalizeMetadata(rawMetadata);
         const optionSchemaId =
           typeof record.option_schema_id === "string"
             ? record.option_schema_id
-            : typeof (record as any).optionSchemaId === "string"
-              ? (record as any).optionSchemaId
+            : typeof record.optionSchemaId === "string"
+              ? record.optionSchemaId
               : null;
         const taxRateId =
-          typeof (record as any).tax_rate_id === "string"
-            ? (record as any).tax_rate_id
-            : typeof (record as any).taxRateId === "string"
-              ? (record as any).taxRateId
+          typeof record.tax_rate_id === "string"
+            ? record.tax_rate_id
+            : typeof record.taxRateId === "string"
+              ? record.taxRateId
               : null;
         const optionSchemaTemplate = optionSchemaId
           ? await fetchOptionSchemaTemplate(optionSchemaId)
@@ -552,11 +547,15 @@ export default function EditCatalogProductPage({
         const defaultMediaId =
           typeof record.default_media_id === "string"
             ? record.default_media_id
-            : ((record as any).defaultMediaId ?? null);
+            : typeof record.defaultMediaId === "string"
+              ? record.defaultMediaId
+              : null;
         const defaultMediaUrl =
           typeof record.default_media_url === "string"
             ? record.default_media_url
-            : ((record as any).defaultMediaUrl ?? "");
+            : typeof record.defaultMediaUrl === "string"
+              ? record.defaultMediaUrl
+              : "";
         const {
           defaultUnit,
           defaultSalesUnit,
@@ -605,8 +604,8 @@ export default function EditCatalogProductPage({
           customFieldsetCode:
             typeof record.custom_fieldset_code === "string"
               ? record.custom_fieldset_code
-              : typeof (record as any).customFieldsetCode === "string"
-                ? (record as any).customFieldsetCode
+              : typeof record.customFieldsetCode === "string"
+                ? record.customFieldsetCode
                 : null,
           categoryIds,
           channelIds,
@@ -2358,8 +2357,8 @@ function readOptionSchema(metadata: Record<string, any>): ProductOptionInput[] {
   return raw
     .map((option) => {
       if (!option || typeof option !== "object") return null;
-      const values = Array.isArray((option as any).values)
-        ? (option as any).values
+      const values = Array.isArray(option.values)
+        ? option.values
             .map((value: any) =>
               value && typeof value === "object"
                 ? {
@@ -2375,11 +2374,8 @@ function readOptionSchema(metadata: Record<string, any>): ProductOptionInput[] {
             )
         : [];
       return {
-        id: String((option as any).id ?? createLocalId()),
-        title:
-          typeof (option as any).title === "string"
-            ? (option as any).title
-            : "",
+        id: String(option.id ?? createLocalId()),
+        title: typeof option.title === "string" ? option.title : "",
         values,
       };
     })
