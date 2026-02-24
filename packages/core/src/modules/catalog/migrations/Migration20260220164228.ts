@@ -1,5 +1,6 @@
 import { Migration } from '@mikro-orm/migrations';
 
+// Drop unused localized_content column — content is now managed via the translations system
 export class Migration20260220164228 extends Migration {
 
   override async up(): Promise<void> {

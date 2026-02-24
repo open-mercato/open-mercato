@@ -1,5 +1,6 @@
 import { Migration } from "@mikro-orm/migrations";
 
+// Data migration: normalize legacy 'qty' unit codes to 'pc'
 export class Migration20260219084500 extends Migration {
   override async up(): Promise<void> {
     this.addSql(
@@ -20,5 +21,6 @@ export class Migration20260219084500 extends Migration {
     );
   }
 
+  // Irreversible: cannot reconstruct original 'qty' values
   override async down(): Promise<void> {}
 }
