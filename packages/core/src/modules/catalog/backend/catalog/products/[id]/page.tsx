@@ -25,6 +25,7 @@ import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
 import { Textarea } from "@open-mercato/ui/primitives/textarea";
 import { DataLoader } from "@open-mercato/ui/primitives/DataLoader";
 import { cn } from "@open-mercato/shared/lib/utils";
+import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
   apiCall,
   readApiResultOrThrow,
@@ -110,7 +111,7 @@ const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
   ssr: false,
   loading: () => (
     <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-      Loading editor…
+      <Spinner />
     </div>
   ),
 }) as unknown as React.ComponentType<{
