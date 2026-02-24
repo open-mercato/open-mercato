@@ -494,6 +494,7 @@
   "catalog.search.badge.priceKind": "Rodzaj ceny",
   "catalog.search.badge.product": "Produkt",
   "catalog.search.badge.tag": "Tag",
+  "catalog.search.badge.unitConversion": "Przelicznik jednostek",
   "catalog.search.badge.variant": "Wariant",
   "catalog.search.priceKind.excludingTax": "Bez VAT",
   "catalog.search.priceKind.includingTax": "Z VAT",

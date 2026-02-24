@@ -494,6 +494,7 @@
   "catalog.search.badge.priceKind": "Price Kind",
   "catalog.search.badge.product": "Product",
   "catalog.search.badge.tag": "Tag",
+  "catalog.search.badge.unitConversion": "Unit Conversion",
   "catalog.search.badge.variant": "Variant",
   "catalog.search.priceKind.excludingTax": "Excl. tax",
   "catalog.search.priceKind.includingTax": "Incl. tax",

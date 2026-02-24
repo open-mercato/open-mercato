@@ -242,6 +242,20 @@ function buildPriceKindPresenter(
   return { title, subtitle, icon: 'dollar-sign', badge: label }
 }
 
+function buildUnitConversionPresenter(
+  translate: TranslateFn,
+  record: Record<string, unknown>,
+): SearchResultPresenter {
+  const label = translate('catalog.search.badge.unitConversion', 'Unit Conversion')
+  const unitCode = readRecordText(record, 'unit_code', 'unitCode')
+  const factor = readRecordText(record, 'to_base_factor', 'toBaseFactor')
+  const title = unitCode ? `${unitCode} (×${factor ?? '?'})` : label
+  const isActive = record.is_active ?? record.isActive
+  const statusText = isActive === false ? translate('catalog.search.status.inactive', 'Inactive') : null
+  const subtitle = formatSubtitle(unitCode, statusText)
+  return { title, subtitle, icon: 'ruler', badge: label }
+}
+
 function buildOptionSchemaPresenter(
   translate: TranslateFn,
   record: Record<string, unknown>,
@@ -446,6 +460,7 @@ export const searchConfig: SearchModuleConfig = {
       enabled: true,
       priority: 3,
       buildSource: async (ctx) => {
+        const { t: translate } = await resolveTranslations()
         const record = ctx.record
         const lines: string[] = []
         appendLine(lines, 'Unit code', record.unit_code ?? record.unitCode)
@@ -453,9 +468,11 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Sort order', record.sort_order ?? record.sortOrder)
         const isActive = record.is_active ?? record.isActive
         appendLine(lines, 'Active', isActive)
-        return lines.length
-          ? { text: lines, checksumSource: { record: ctx.record, customFields: ctx.customFields } }
-          : null
+        return buildIndexSource(ctx, buildUnitConversionPresenter(translate, record), lines)
+      },
+      formatResult: async (ctx) => {
+        const { t: translate } = await resolveTranslations()
+        return buildUnitConversionPresenter(translate, ctx.record)
       },
       resolveUrl: async (ctx) => {
         const productId = resolveProductId(ctx.record)

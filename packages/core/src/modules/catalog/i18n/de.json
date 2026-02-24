@@ -494,6 +494,7 @@
   "catalog.search.badge.priceKind": "Preisart",
   "catalog.search.badge.product": "Produkt",
   "catalog.search.badge.tag": "Schlagwort",
+  "catalog.search.badge.unitConversion": "Einheitenumrechnung",
   "catalog.search.badge.variant": "Variante",
   "catalog.search.priceKind.excludingTax": "Exkl. MwSt.",
   "catalog.search.priceKind.includingTax": "Inkl. MwSt.",
