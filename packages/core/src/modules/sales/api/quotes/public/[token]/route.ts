@@ -71,16 +71,16 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         grandTotalGrossAmount: quote.grandTotalGrossAmount,
       },
       lines: lines.map((line) => ({
-        quantityUnit: canonicalizeUnitCode(line.quantityUnit) ?? null,
-        normalizedUnit:
-          canonicalizeUnitCode(line.normalizedUnit ?? line.quantityUnit) ??
-          null,
         lineNumber: line.lineNumber ?? null,
         kind: line.kind,
         name: line.name ?? null,
         description: line.description ?? null,
         quantity: line.quantity,
+        quantityUnit: canonicalizeUnitCode(line.quantityUnit) ?? null,
         normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+        normalizedUnit:
+          canonicalizeUnitCode(line.normalizedUnit ?? line.quantityUnit) ??
+          null,
         uomSnapshot: line.uomSnapshot
           ? {
               baseUnitCode: line.uomSnapshot.baseUnitCode ?? null,
@@ -178,7 +178,13 @@ const publicQuoteResponseSchema = z.object({
       totalNetAmount: z.string(),
       totalGrossAmount: z.string(),
       unitPriceReference: z
-        .record(z.string(), z.unknown())
+        .object({
+          enabled: z.boolean().nullable().optional(),
+          referenceUnitCode: z.string().nullable().optional(),
+          baseQuantity: z.string().nullable().optional(),
+          grossPerReference: z.string().nullable().optional(),
+          netPerReference: z.string().nullable().optional(),
+        })
         .nullable()
         .optional(),
     }),
