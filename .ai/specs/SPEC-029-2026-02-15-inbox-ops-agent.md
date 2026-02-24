@@ -1,8 +1,8 @@
-﻿# SPEC-028: InboxOps Agent — Email-to-ERP Action Proposals
+﻿# SPEC-029: InboxOps Agent — Email-to-ERP Action Proposals
 
 **Date**: 2026-02-15
-**Updated**: 2026-02-17
-**Status**: In Progress
+**Updated**: 2026-02-21
+**Status**: Phase 1 Complete (In Review)
 **Module**: `inbox_ops` (`packages/core/src/modules/inbox_ops/`)
 **Related**: SPEC-002 (Messages Module), Issue #573, Issue #414 (Messages/Email Accounts), PR #569 (Messages Module)
 
@@ -234,6 +234,7 @@ This convergence is not blocked by Phase 1 — the `InboxEmail` entity and webho
 - `link_contact` — Link an email participant to an existing contact (fuzzy matched).
 - `log_activity` — Log an activity (call, email, meeting) on a customer record. Requires `contactType` ('person' | 'company').
 - `draft_reply` — Generate a reply email draft with ERP context. Uses `replyTo` and `inReplyTo` headers for proper threading.
+- `create_product` — Create a new catalog product when order line items reference unknown products. Sets `source: 'inbox_ops'` for traceability.
 
 **FR-4: Proposal Review Page**
 - List view showing all proposals grouped by status: `pending`, `partial`, `accepted`, `rejected`.
@@ -307,6 +308,9 @@ export class InboxSettings {
   @Property({ name: 'inbox_address', type: 'text' })
   inboxAddress!: string  // e.g., ops-acme@inbox.openmercato.com
 
+  @Property({ name: 'working_language', type: 'text', default: 'en' })
+  workingLanguage: string = 'en'
+
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
@@ -325,7 +329,7 @@ export class InboxSettings {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 
-  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isActive' | 'workingLanguage' | 'createdAt' | 'updatedAt' | 'deletedAt'
 }
 ```
 
@@ -392,7 +396,7 @@ export class InboxEmail {
   receivedAt!: Date
 
   @Property({ name: 'status', type: 'text' })
-  status: 'received' | 'processing' | 'processed' | 'failed' = 'received'
+  status: 'received' | 'processing' | 'processed' | 'needs_review' | 'failed' = 'received'
 
   @Property({ name: 'processing_error', type: 'text', nullable: true })
   processingError?: string | null  // NOT encrypted (for debugging)
@@ -479,6 +483,12 @@ export class InboxProposal {
   @Property({ name: 'llm_model', type: 'text', nullable: true })
   llmModel?: string | null  // Model used for extraction (for audit)
 
+  @Property({ name: 'working_language', type: 'text', nullable: true })
+  workingLanguage?: string | null  // Snapshot of tenant's working language at extraction time
+
+  @Property({ name: 'translations', type: 'json', nullable: true })
+  translations?: ProposalTranslations | null  // Cached translations keyed by locale
+
   @Property({ name: 'llm_tokens_used', type: 'integer', nullable: true })
   llmTokensUsed?: number | null
 
@@ -538,7 +548,7 @@ export class InboxProposalAction {
 
   @Property({ name: 'action_type', type: 'text' })
   actionType!: 'create_order' | 'create_quote' | 'update_order' | 'update_shipment'
-    | 'create_contact' | 'link_contact' | 'log_activity' | 'draft_reply'
+    | 'create_contact' | 'create_product' | 'link_contact' | 'log_activity' | 'draft_reply'
 
   @Property({ name: 'description', type: 'text' })
   description!: string  // Encrypted — human-readable description
@@ -547,7 +557,7 @@ export class InboxProposalAction {
   payload!: Record<string, unknown>  // Encrypted JSON — action-specific data
 
   @Property({ name: 'status', type: 'text' })
-  status: 'pending' | 'accepted' | 'rejected' | 'executed' | 'failed' = 'pending'
+  status: 'pending' | 'processing' | 'accepted' | 'rejected' | 'executed' | 'failed' = 'pending'
 
   @Property({ name: 'confidence', type: 'numeric', precision: 3, scale: 2 })
   confidence!: string  // 0.00-1.00
@@ -758,6 +768,16 @@ const draftReplyPayloadSchema = z.object({
   references: z.array(z.string()).optional(),           // RFC 822 References chain
   context: z.string().optional(),                       // ERP context included in draft
 })
+
+// create_product
+const createProductPayloadSchema = z.object({
+  title: z.string().trim().min(1).max(255),
+  sku: z.string().trim().max(100).optional(),
+  unitPrice: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  currencyCode: z.string().trim().length(3).optional(),
+  kind: z.enum(['product', 'service']).default('product'),
+  description: z.string().trim().max(4000).optional(),
+})
 ```
 
 ### 8.2) Required Feature per Action Type
@@ -774,6 +794,7 @@ The execution engine checks permissions in the target module before executing:
 | `link_contact` | `customers.people.manage` | customers |
 | `log_activity` | `customers.activities.manage` | customers |
 | `draft_reply` | `inbox_ops.replies.send` | inbox_ops |
+| `create_product` | `catalog.products.manage` | catalog |
 
 ### 8.3) Quote→Order Flow Handling
 
@@ -810,6 +831,9 @@ All API route files MUST export an `openApi` object per project convention.
 | `/api/inbox-ops/proposals/:id/discrepancies` | GET | List discrepancies for a proposal |
 | `/api/inbox-ops/proposals/:id/replies/:replyId/send` | POST | Send a draft reply email |
 | `/api/inbox-ops/settings` | GET | Get tenant inbox configuration |
+| `/api/inbox-ops/settings` | PATCH | Update inbox settings (working language, active status) |
+| `/api/inbox-ops/proposals/:id/translate` | POST | Translate proposal to specified language |
+| `/api/inbox-ops/proposals/:id/actions/:actionId/complete` | POST | Mark action as externally completed |
 | `/api/inbox-ops/stats` | GET | Processing statistics (Phase 2e) |
 
 ### 9.2 Webhook Endpoint
@@ -1420,7 +1444,7 @@ When executing an action, the system checks that the accepting user also has the
 
 The inbound webhook endpoint is public (no user auth) but secured by:
 
-1. Provider HMAC signature validation.
+1. **Dual signature verification**: Svix (Resend native) via `RESEND_WEBHOOK_SIGNING_SECRET` + custom HMAC SHA256 via `INBOX_OPS_WEBHOOK_SECRET`. At least one must be configured. Svix verification uses `svix-id`, `svix-timestamp`, `svix-signature` headers. Custom HMAC uses `X-Webhook-Signature` header with SHA256 digest.
 2. Timestamp validation — reject payloads older than 5 minutes (replay protection).
 3. Rate limiting: 10/min, 100/hour, 1000/day per tenant address.
 4. Payload size limit: **2MB** max (sufficient for text-only; 10MB was excessive).
@@ -1593,7 +1617,7 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 - **Scenario**: Attacker sends forged email payloads to the webhook endpoint.
 - **Severity**: High
 - **Affected area**: Data integrity
-- **Mitigation**: HMAC signature validation. Timestamp validation (reject >5min old). Rate limiting (10/min, 100/hour, 1000/day per address). 2MB payload limit. Tenant address validation. Zod validation on all data. Idempotent dedup (return 200 for duplicates).
+- **Mitigation**: Dual signature verification — Svix (Resend native) via `RESEND_WEBHOOK_SIGNING_SECRET` + custom HMAC SHA256 via `INBOX_OPS_WEBHOOK_SECRET`. At least one must be configured. Timestamp validation (reject >5min old). Rate limiting (10/min, 100/hour, 1000/day per address). 2MB payload limit. Tenant address validation. Zod validation on all data. Idempotent dedup (return 200 for duplicates).
 - **Residual risk**: If the webhook secret is compromised, attacker can inject emails until secret is rotated. All injected content still requires human review before any action executes.
 
 ### Tenant Data Isolation
@@ -1746,6 +1770,16 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 | **Concurrent proposal review** | `SELECT ... FOR UPDATE` on proposal row. Recalculate status after each action change. |
 | **LLM extraction times out** | Mark email as `failed`. User can re-extract via button. |
 | **Webhook provider is down** | Emails queue in provider. Provider retries on recovery. |
+| **LLM payload field name variations** | Enrichment normalizes common LLM variations: `email`/`emailAddress`, `id`/`matchedId`/`matchedContactId`, `type`/`kind`/`matchedType`. Ensures consistent downstream processing regardless of LLM output drift. |
+| **Missing currency code in order** | Enrichment falls back to the sales channel's default currency when `currencyCode` is absent from LLM output. |
+| **Duplicate contact creation** | `create_contact` execution checks existing contacts by email before creating. Returns existing entity ID if found, preventing duplicates. |
+| **Contact resolution by name+type** | `log_activity` and `draft_reply` fall back to name-based contact lookup (via query engine) when email match fails. Scoped by `contactType` (person/company). |
+| **Line item without productId** | `update_order` matches line items by normalized product name when `lineItemId` is missing from LLM output. |
+| **Auto-generated auxiliary actions** | Extraction worker auto-generates `create_contact`, `link_contact`, and `create_product` actions from email participants and unmatched products beyond what the LLM explicitly proposes. |
+| **Discrepancy auto-resolution on create** | Creating a contact resolves matching `unknown_contact` discrepancies. Creating a product resolves matching `product_not_found` discrepancies and back-patches `productId` into related order line items. |
+| **Dictionary token normalization** | Shipment status lookup tries `normalizedValue`, `label`, and `value` matching against dictionary entries for resilient resolution. |
+| **Hallucinated productId in LLM output** | Enrichment strips `productId` values not found in the real catalog to prevent referencing non-existent products. |
+| **Pre-generated UUIDs in sales commands** | Order/quote IDs are pre-generated via `randomUUID()` before `em.create()` to enable immediate audit trail linking from the execution engine result. |
 
 ---
 
@@ -1876,4 +1910,45 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 
 **Conditionally compliant** — Approved for Phase 1 implementation. Two items (cache strategy in Phase 2d, command handler registration in Phase 2b) are deferred with documented timelines. All core architectural rules (tenant isolation, encryption, zod validation, module independence, event conventions) are fully compliant.
 
+---
 
+## Changelog
+
+### 2026-02-23
+
+- **Spec sync with implementation**: Updated inline entity definitions to match code — added `workingLanguage` to `InboxSettings` and `InboxProposal`, `translations` to `InboxProposal`, `create_product` to action type union, `processing` to action status union, `needs_review` to email status union. Added `createProductPayloadSchema` to section 8.1, `create_product` feature row to section 8.2. Added 3 missing API endpoints to section 9.1 (`PATCH settings`, `POST translate`, `POST complete`). Clarified dual webhook verification (Svix + HMAC) in sections 9.2 and 14.3. Fixed spec heading number (SPEC-028→SPEC-029).
+
+### 2026-02-21
+
+- **Translation feature**: Added proposal translation support — new API endpoint `POST /api/inbox-ops/proposals/:id/translate`, `translationProvider.ts` for LLM-based translation, cached translations stored in `InboxProposal.translations` JSONB field. Allows operators to translate AI summaries and action descriptions to their working language
+- **Working language**: Added `workingLanguage` field to `InboxSettings` (tenant-level preference) and `InboxProposal` (per-proposal snapshot). LLM extraction prompt now generates content in the configured working language
+- **Settings API**: Added `PATCH /api/inbox_ops/settings` endpoint for updating working language preference
+- **`create_product` action type**: Added auto-generation of `create_product` actions when order line items reference products not found in the catalog. Includes Zod schema (`createProductPayloadSchema`), execution engine handler, and ACL feature (`catalog.products.manage`)
+- **`link_contact` auto-generation**: Extraction worker now auto-generates `link_contact` actions for email participants that match existing CRM contacts, in addition to `create_contact` for unmatched participants
+- **Draft reply target enrichment**: Extraction worker validates and corrects hallucinated email addresses in LLM-generated draft replies using the participant email map from header parsing
+- **Create contact email enrichment**: When the LLM proposes a `create_contact` without an email, the worker resolves it from known thread participants by name matching
+- **Duplicate order detection**: Extraction worker now checks `customerReference` against existing `SalesOrder` records to flag potential duplicate orders as `duplicate_order` discrepancies
+- **`needs_review` email status**: Added to `InboxEmailStatus` union type (emails with confidence below threshold)
+- **`processing` action status**: Added to `InboxActionStatus` for optimistic locking during execution
+- **New entity fields**: `InboxProposal.workingLanguage`, `InboxProposal.translations` (JSONB), `InboxSettings.workingLanguage`
+- **New migration**: `Migration20260221021831.ts` for working language and translation columns
+- **Code review fixes**: Replaced 3 hardcoded fallback strings with i18n keys (`inbox_ops.sender_unknown`, `inbox_ops.edit_dialog.invalid_json`, `inbox_ops.proposal`), added `sender_unknown` key to all 8 locale files
+- **Test coverage**: Added `translationProvider.test.ts` for translation feature
+
+### 2026-02-20
+
+- **Status**: Phase 1 complete, in review on `feat/mail-agent` branch
+- **Edge cases documented**: Added 11 implementation-discovered edge cases to section 19 (LLM field normalization, currency fallback, contact dedup, name-based contact resolution, line item fuzzy matching, auto-generated auxiliary actions, discrepancy auto-resolution, dictionary token normalization, hallucinated productId clearing, pre-generated UUIDs in sales commands)
+- **Flush safety fix**: Applied two-phase flush pattern (SPEC-018) to `resolveProductDiscrepanciesInProposal` — scalar mutations (`discrepancy.resolved = true`) now flush before intermediate `findOneWithDecryption` queries in `updateLineItemProductId`
+- **dictionaries/di.ts**: Added DI registration for `Dictionary` and `DictionaryEntry` entities (required for execution engine's `resolveShipmentStatusEntryId`)
+- **Sales documents.ts**: Pre-generated UUIDs (`randomUUID()`) for orders/quotes to enable immediate audit trail linking from execution results
+- **i18n note**: `ExecutionError` messages remain in English (developer/operator-facing). Flagged for Phase 2 i18n pass
+
+### 2026-02-17
+
+- Initial spec creation with full architecture, data models, API contracts, and phasing plan
+- Final compliance report completed
+
+### 2026-02-15
+
+- Initial draft
