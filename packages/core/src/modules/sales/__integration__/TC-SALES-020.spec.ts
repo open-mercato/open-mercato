@@ -150,7 +150,6 @@ test.describe('TC-SALES-020a: Quote line normalization and snapshot preservation
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
-      await deleteCatalogProductIfExists(request, token, productId)
       if (token && conversionId) {
         try {
           await apiRequest(
@@ -163,6 +162,7 @@ test.describe('TC-SALES-020a: Quote line normalization and snapshot preservation
           // ignore cleanup failures
         }
       }
+      await deleteCatalogProductIfExists(request, token, productId)
     }
   })
 })
