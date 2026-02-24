@@ -48,8 +48,6 @@ const REFERENCE_UNIT_OPTIONS = REFERENCE_UNIT_CODES.map((code) => ({
   fallback: REFERENCE_UNIT_DISPLAY[code] ?? code,
 }));
 
-const normalizeText = toTrimmedOrNull;
-
 function normalizeDecimalInput(value: string): string {
   return value.replace(/,/g, ".");
 }
@@ -59,7 +57,7 @@ function toPositiveNumber(value: unknown): number | null {
     return Number.isFinite(value) && value > 0 ? value : null;
   }
   if (typeof value !== "string") return null;
-  const normalized = normalizeText(value);
+  const normalized = toTrimmedOrNull(value);
   if (!normalized) return null;
   const numeric = Number(normalized.replace(",", "."));
   return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
@@ -83,12 +81,12 @@ function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
       if (!entry || typeof entry !== "object") return null;
       const row = entry as ProductUnitConversionDraft;
       return {
-        id: normalizeText(row.id) ?? null,
-        unitCode: normalizeText(row.unitCode) ?? "",
-        toBaseFactor: normalizeText(row.toBaseFactor)
-          ? normalizeDecimalInput(normalizeText(row.toBaseFactor) as string)
+        id: toTrimmedOrNull(row.id) ?? null,
+        unitCode: toTrimmedOrNull(row.unitCode) ?? "",
+        toBaseFactor: toTrimmedOrNull(row.toBaseFactor)
+          ? normalizeDecimalInput(toTrimmedOrNull(row.toBaseFactor) as string)
           : "",
-        sortOrder: normalizeText(row.sortOrder) ?? "",
+        sortOrder: toTrimmedOrNull(row.sortOrder) ?? "",
         isActive: row.isActive !== false,
       } satisfies ProductUnitConversionDraft;
     })
@@ -111,11 +109,11 @@ function buildUnitOptions(
   const list = Array.isArray(entries) ? entries : [];
   const options = list
     .map((entry) => {
-      const value = normalizeText(entry.value);
+      const value = toTrimmedOrNull(entry.value);
       if (!value) return null;
       return {
         value,
-        label: normalizeText(entry.label) ?? value,
+        label: toTrimmedOrNull(entry.label) ?? value,
       } satisfies UnitOption;
     })
     .filter((entry): entry is UnitOption => Boolean(entry));
@@ -167,7 +165,7 @@ export function ProductUomSection({
 
   const findUnitLabel = React.useCallback(
     (value: string | null | undefined) => {
-      const code = normalizeText(value);
+      const code = toTrimmedOrNull(value);
       if (!code) return null;
       const option = unitOptions.find((entry) => entry.value === code);
       return option?.label ?? code;
@@ -227,16 +225,16 @@ export function ProductUomSection({
     [conversions, setConversions],
   );
 
-  const defaultUnit = normalizeText(values.defaultUnit) ?? "";
-  const defaultSalesUnit = normalizeText(values.defaultSalesUnit) ?? "";
+  const defaultUnit = toTrimmedOrNull(values.defaultUnit) ?? "";
+  const defaultSalesUnit = toTrimmedOrNull(values.defaultSalesUnit) ?? "";
   const defaultSalesQuantityRaw =
-    normalizeText(values.defaultSalesUnitQuantity) ?? "1";
+    toTrimmedOrNull(values.defaultSalesUnitQuantity) ?? "1";
   const defaultSalesQuantity = normalizeDecimalInput(defaultSalesQuantityRaw);
   const unitPriceEnabled = Boolean(values.unitPriceEnabled);
   const unitPriceReferenceUnit =
-    normalizeText(values.unitPriceReferenceUnit) ?? "";
+    toTrimmedOrNull(values.unitPriceReferenceUnit) ?? "";
   const unitPriceBaseQuantityRaw =
-    normalizeText(values.unitPriceBaseQuantity) ?? "";
+    toTrimmedOrNull(values.unitPriceBaseQuantity) ?? "";
   const unitPriceBaseQuantity = normalizeDecimalInput(unitPriceBaseQuantityRaw);
 
   const baseUnitLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
@@ -268,14 +266,14 @@ export function ProductUomSection({
 
   const validConversions = conversions.filter(
     (entry) =>
-      normalizeText(entry.unitCode) && normalizeText(entry.toBaseFactor),
+      toTrimmedOrNull(entry.unitCode) && toTrimmedOrNull(entry.toBaseFactor),
   );
   const conversionPreviewItems = validConversions
     .slice(0, 3)
     .map((entry) => {
       const label = findUnitLabel(entry.unitCode) ?? entry.unitCode;
       const baseLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
-      const factor = normalizeText(entry.toBaseFactor) ?? "1";
+      const factor = toTrimmedOrNull(entry.toBaseFactor) ?? "1";
       return `1 ${label} = ${factor} ${baseLabel || t("catalog.products.uom.baseUnit", "base unit")}`;
     });
   const conversionPreview =
