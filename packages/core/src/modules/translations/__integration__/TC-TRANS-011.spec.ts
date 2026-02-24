@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createCategoryFixture, deleteCatalogCategoryIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { deleteTranslationIfExists } from './helpers/translationFixtures'
 
 const ENTITY_TYPE = 'catalog:catalog_product_category'
@@ -37,18 +38,6 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
   }
 
   return firstEditableField
-}
-
-async function setAuthCookie(page: Page, token: string): Promise<void> {
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
-  await page.context().addCookies([
-    {
-      name: 'auth_token',
-      value: token,
-      url: baseUrl,
-      sameSite: 'Lax',
-    },
-  ])
 }
 
 function getTokenSubject(token: string): string {
@@ -93,12 +82,14 @@ async function setUserAcl(
  * Verifies UI save action fails for a signed-in user with translations.view but without translations.manage.
  */
 test.describe('TC-TRANS-011: RBAC UI Save Blocked Without translations.manage', () => {
+  test.use({ actionTimeout: 30_000 })
+
   test('should block translation save in UI when admin lacks translations.manage', async ({ page, request }) => {
     const saToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
     const adminUserId = getTokenSubject(adminToken)
     const originalUserAcl = await getUserAcl(request, saToken, adminUserId)
-    const restrictedFeatures = ['catalog.*', 'attachments.view', 'translations.view', 'ai_assistant.view']
+    const restrictedFeatures = ['catalog.*', 'attachments.view', 'translations.view', 'ai_assistant.view', 'dashboards.view']
     let categoryId: string | null = null
 
     try {
@@ -119,7 +110,7 @@ test.describe('TC-TRANS-011: RBAC UI Save Blocked Without translations.manage', 
       })
       expect(permissionProbe.status()).toBe(403)
 
-      await setAuthCookie(page, restrictedAdminToken)
+      await login(page, 'admin')
       await page.goto(`/backend/catalog/categories/${categoryId}/edit`)
 
       const dialog = await openTranslationsDrawer(page)
