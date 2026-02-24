@@ -25,17 +25,18 @@ Evolve the widget injection system into a **Universal Module Extension System (U
 7. [Phase 4 — API Middleware & Action Interceptors](#7-phase-4--api-middleware--action-interceptors)
 8. [Phase 5 — DataTable & CrudForm Deep Extensibility](#8-phase-5--datatable--crudform-deep-extensibility)
 9. [Phase 6 — Recursive Widget Extensibility](#9-phase-6--recursive-widget-extensibility)
-10. [Coherence with Existing Systems](#10-coherence-with-existing-systems)
-11. [Extension Manifest & Discovery](#11-extension-manifest--discovery)
-12. [Developer Experience](#12-developer-experience)
-13. [Data Models](#13-data-models)
-14. [API Contracts](#14-api-contracts)
-15. [Risks & Impact Review](#15-risks--impact-review)
-16. [Integration Test Coverage](#16-integration-test-coverage)
-17. [Final Compliance Report](#17-final-compliance-report)
-18. [Appendix A — Insights from Code Analysis](#18-appendix-a--insights-from-code-analysis)
-19. [Appendix B — Competitive Analysis Summary](#19-appendix-b--competitive-analysis-summary)
-20. [Changelog](#20-changelog)
+10. [Phase 7 — Detail Page Bindings](#10-phase-7--detail-page-bindings-customer-sales-document-etc)
+11. [Coherence with Existing Systems](#11-coherence-with-existing-systems)
+12. [Extension Manifest & Discovery](#12-extension-manifest--discovery)
+13. [Developer Experience](#13-developer-experience)
+14. [Data Models](#14-data-models)
+15. [API Contracts](#15-api-contracts)
+16. [Risks & Impact Review](#16-risks--impact-review)
+17. [Integration Test Coverage](#17-integration-test-coverage)
+18. [Final Compliance Report](#18-final-compliance-report)
+19. [Appendix A — Insights from Code Analysis](#19-appendix-a--insights-from-code-analysis)
+20. [Appendix B — Competitive Analysis Summary](#20-appendix-b--competitive-analysis-summary)
+21. [Changelog](#21-changelog)
 
 ---
 
@@ -576,8 +577,10 @@ interface ApiInterceptor {
 interface InterceptorBeforeResult {
   /** Continue processing (true) or reject (false) */
   ok: boolean
-  /** Modified request body (if needed) */
+  /** Modified request body (if needed, for POST/PUT/PATCH) */
   body?: Record<string, unknown>
+  /** Modified query params (if needed, for GET — enables cross-module filtering) */
+  query?: Record<string, unknown>
   /** Additional headers to inject */
   headers?: Record<string, string>
   /** Rejection message */
@@ -667,12 +670,64 @@ This maintains clear separation: **widgets** own UI-level behavior, **intercepto
 
 ## 8. Phase 5 — DataTable & CrudForm Deep Extensibility
 
-### 8.1 DataTable Column Injection
+### 8.0 Typed Positioning — Shared Across All Injection Types
 
-Allow modules to inject columns into other modules' data tables:
+All injection types (columns, fields, row actions, filters) use a **typed position object** instead of error-prone string literals:
 
 ```typescript
-// In module's widgets/injection-table.ts
+// packages/shared/src/modules/widgets/injection-position.ts
+
+enum InjectionPosition {
+  Before = 'before',
+  After = 'after',
+  First = 'first',
+  Last = 'last',
+}
+
+interface InjectionPlacement {
+  position: InjectionPosition
+  /** Target element ID to position relative to. Required for Before/After. */
+  relativeTo?: string
+}
+
+// Usage examples:
+{ position: InjectionPosition.After, relativeTo: 'email' }    // After the "email" column
+{ position: InjectionPosition.Before, relativeTo: 'status' }  // Before "status" field
+{ position: InjectionPosition.First }                          // Absolute first
+{ position: InjectionPosition.Last }                           // Absolute last (default)
+```
+
+If `position` is omitted, the default is `InjectionPosition.Last` — the injected element appends at the end. Invalid `relativeTo` references (e.g., targeting a column that doesn't exist) fall back to `Last` with a dev-mode console warning.
+
+### 8.1 DataTable Column Injection — With Batch Data Loading
+
+Allow modules to inject columns into other modules' data tables. The critical question: **how does the injected column get its data without N+1 fetches?**
+
+#### The Problem
+
+DataTable does NOT fetch its own data — the parent page calls the API and passes `data` as a prop. If a loyalty module injects a "Points" column, the loyalty data needs to already be in the row objects, or the column will render empty.
+
+#### Solution: Response Enricher Is the Data Source
+
+The same `data/enrichers.ts` mechanism (Phase 3) that works for single-entity endpoints also works for list endpoints. The key is `enrichMany` — it batch-fetches all loyalty data in ONE query for all rows:
+
+```
+Parent page fetches: GET /api/customers/people?page=1&pageSize=25
+  │
+  ├─ Core query returns 25 customer records
+  │
+  ├─ CrudHooks.afterList (existing — unchanged)
+  │
+  └─ Enrichers run (Phase 3):
+     └─ loyalty.customer-tier.enrichMany receives all 25 records
+        └─ ONE query: SELECT * FROM loyalty_memberships WHERE customer_id IN (id1, id2, ..., id25)
+        └─ Returns 25 enriched records with _loyalty.tier, _loyalty.points
+```
+
+The DataTable receives enriched rows — the injected column can read the data directly:
+
+```typescript
+// loyalty/widgets/injection-table.ts
 export const injectionTable: ModuleInjectionTable = {
   'data-table:customers.people:columns': {
     widgetId: 'loyalty.injection.customer-points-column',
@@ -680,27 +735,69 @@ export const injectionTable: ModuleInjectionTable = {
   },
 }
 
-// In widget.ts
+// loyalty/widgets/injection/customer-points-column/widget.ts
 export default {
   metadata: {
     id: 'loyalty.injection.customer-points-column',
     title: 'Loyalty Points',
     features: ['loyalty.view'],
   },
-  // New: column injection uses a declarative column definition
   columns: [
     {
       id: 'loyaltyPoints',
-      header: 'loyalty.column.points',  // i18n key
-      accessorKey: 'loyaltyPoints',     // From response enricher
-      cell: ({ getValue }) => <Badge>{getValue()}</Badge>,
+      header: 'loyalty.column.points',           // i18n key
+      accessorKey: '_loyalty.points',             // Dot-path into enriched row data
+      cell: ({ getValue }) => {
+        const points = getValue() as number
+        return <Badge variant={points > 1000 ? 'success' : 'default'}>{points}</Badge>
+      },
       size: 100,
-      sortable: true,
-      position: 'after:email',          // Insert after email column
+      sortable: false,                            // Not sortable (enriched, not indexed)
+      placement: { position: InjectionPosition.After, relativeTo: 'email' },
+    },
+    {
+      id: 'loyaltyTier',
+      header: 'loyalty.column.tier',
+      accessorKey: '_loyalty.tier',
+      cell: ({ getValue }) => {
+        const tier = getValue() as string
+        const colors = { gold: 'warning', silver: 'default', bronze: 'muted', none: 'ghost' }
+        return <Badge variant={colors[tier] ?? 'ghost'}>{tier}</Badge>
+      },
+      size: 80,
+      placement: { position: InjectionPosition.After, relativeTo: 'loyaltyPoints' },
     },
   ],
 } satisfies InjectionColumnWidget
 ```
+
+#### Complete Data Flow Diagram
+
+```
+1. Parent page calls: GET /api/customers/people?page=1&pageSize=25
+
+2. Server-side (CRUD factory):
+   ├─ Core query: SELECT * FROM people WHERE org_id = ? LIMIT 25
+   ├─ afterList hook (existing)
+   └─ Enrichers (NEW):
+      ├─ loyalty.enrichMany → 1 query for 25 rows → adds _loyalty to each row
+      ├─ credit.enrichMany  → 1 query for 25 rows → adds _credit to each row
+      └─ (N enrichers = N extra queries, NOT N×25)
+
+3. Response arrives at frontend with enriched rows:
+   [
+     { id: '1', firstName: 'John', email: 'john@...', _loyalty: { tier: 'gold', points: 1250 }, _credit: { ... } },
+     { id: '2', firstName: 'Jane', email: 'jane@...', _loyalty: { tier: 'silver', points: 430 }, _credit: { ... } },
+     ...
+   ]
+
+4. DataTable renders:
+   ├─ Core columns: Name, Email, Status, ...
+   ├─ Injected column "Points": reads row._loyalty.points → <Badge>1250</Badge>
+   └─ Injected column "Tier": reads row._loyalty.tier → <Badge>gold</Badge>
+```
+
+**Zero N+1 queries. Zero client-side fetching per row. The enricher handles everything server-side in batch.**
 
 ### 8.2 DataTable Row Action Injection
 
@@ -719,7 +816,7 @@ export default {
       onSelect: (row, context) => {
         context.openDialog('loyalty.adjust-points', { customerId: row.id })
       },
-      position: 'after:edit',
+      placement: { position: InjectionPosition.After, relativeTo: 'edit' },
     },
   ],
 } satisfies InjectionRowActionWidget
@@ -748,9 +845,84 @@ export default {
 } satisfies InjectionBulkActionWidget
 ```
 
-### 8.4 DataTable Filter Injection
+### 8.4 DataTable Filter Injection — Including Non-Native Fields
+
+#### The Problem
+
+A loyalty module wants to add a "Tier" filter to the customers list. But the customers API (`GET /api/customers/people`) has no idea what `loyaltyTier` is — it's not a column on the `people` table, it's not in the query index, and the customers CRUD factory's Zod schema will reject unknown query parameters.
+
+#### How Filtering Works Today (Current Mechanism)
+
+The current data flow for a customers list page:
+
+```
+1. Parent page renders DataTable with filters
+2. User selects filter → URL query params update: ?status=active&tag=vip
+3. Parent page fetches: GET /api/customers/people?status=active&tag=vip
+4. Server-side CRUD factory:
+   a. Zod-parses query params against the route's list schema
+   b. Passes parsed params to query engine (SQL WHERE clauses)
+   c. Returns filtered results
+5. DataTable renders the filtered rows
+```
+
+The key constraint: **only query params declared in the route's Zod list schema are accepted**. Unknown params like `?loyaltyTier=gold` would be stripped by Zod or cause a 400 error.
+
+#### Solution: Two-Tier Filter Architecture
+
+Injected filters work at two levels depending on whether the filter targets core data or enriched data:
+
+**Tier 1 — API Interceptor filter** (for cross-module filtering that needs server-side query modification):
 
 ```typescript
+// loyalty/api/interceptors.ts
+export const interceptors: ApiInterceptor[] = [
+  {
+    id: 'loyalty.filter-by-tier',
+    targetRoute: 'customers/people',
+    methods: ['GET'],
+    features: ['loyalty.view'],
+    async before(request, ctx) {
+      const tierFilter = request.query.loyaltyTier
+      if (!tierFilter) return { ok: true }
+
+      // Look up which customer IDs match this tier
+      const memberships = await ctx.em.find(LoyaltyMembership, {
+        tier: tierFilter,
+        organizationId: ctx.organizationId,
+      }, { fields: ['customerId'] })
+
+      const customerIds = memberships.map(m => m.customerId)
+
+      if (customerIds.length === 0) {
+        // No customers match — inject impossible filter to return empty results
+        return {
+          ok: true,
+          query: { ...request.query, id: { $in: [] } },
+        }
+      }
+
+      // Inject an ID filter that the core query engine understands
+      return {
+        ok: true,
+        query: {
+          ...request.query,
+          id: { $in: customerIds },
+          // Remove the non-native param so Zod doesn't reject it
+          loyaltyTier: undefined,
+        },
+      }
+    },
+  },
+]
+```
+
+**Tier 2 — Client-side filter** (for filtering on enriched data already present in the response):
+
+If the enricher already adds `_loyalty.tier` to every row, a simple client-side filter can work without any API changes:
+
+```typescript
+// loyalty/widgets/injection/customer-filters/widget.ts
 export default {
   metadata: {
     id: 'loyalty.injection.customer-filters',
@@ -762,22 +934,227 @@ export default {
       label: 'loyalty.filter.tier',
       type: 'select',
       options: [
-        { value: 'bronze', label: 'Bronze' },
-        { value: 'silver', label: 'Silver' },
-        { value: 'gold', label: 'Gold' },
+        { value: 'bronze', label: 'loyalty.tier.bronze' },
+        { value: 'silver', label: 'loyalty.tier.silver' },
+        { value: 'gold', label: 'loyalty.tier.gold' },
       ],
-      // Maps to query parameter sent to API
+      // Strategy determines HOW the filter is applied:
+      strategy: 'server',              // 'server' | 'client'
+      // For 'server': maps to query param → interceptor handles it
       queryParam: 'loyaltyTier',
+      // For 'client': would use enriched data path for in-memory filtering
+      // enrichedField: '_loyalty.tier',
     },
   ],
 } satisfies InjectionFilterWidget
 ```
 
-### 8.5 CrudForm Field Injection
+#### Complete Filter Flow (Server Strategy)
 
-Allow modules to inject fields into existing form groups:
+```
+1. Loyalty module registers:
+   - Filter widget (UI dropdown in DataTable toolbar)
+   - API interceptor (translates loyaltyTier → customer ID list)
+
+2. User selects "Gold" in Loyalty Tier filter
+   → URL becomes: ?status=active&loyaltyTier=gold
+
+3. Parent page fetches: GET /api/customers/people?status=active&loyaltyTier=gold
+
+4. Server-side:
+   a. API Interceptor runs BEFORE Zod validation
+      → Queries loyalty_memberships WHERE tier = 'gold' → gets [id1, id5, id12]
+      → Rewrites query: { status: 'active', id: { $in: ['id1', 'id5', 'id12'] } }
+      → Removes loyaltyTier param
+   b. Zod validates the rewritten query (valid — id and status are known params)
+   c. Query engine filters: SELECT * FROM people WHERE status = 'active' AND id IN (...)
+   d. Enrichers add _loyalty data to results
+
+5. DataTable renders filtered, enriched rows
+```
+
+**Why two tiers?** Client-side filtering works for small datasets (pageSize ≤ 100) where all rows are enriched. Server-side filtering is required when the filter must reduce the dataset before pagination — you can't filter 10,000 customers client-side.
+
+#### Tier 3 — Post-Query Merge Filter (When the Core API Can't Be Rewritten)
+
+The `id: { $in: [...] }` rewrite works when the target API supports ID filtering. But what if it doesn't? For example, the sales documents list API has complex query logic (channel scoping, document type filtering, date ranges) and injecting an `id` filter might conflict with existing filters or the query engine might not support `$in` for that entity.
+
+For these cases, the interceptor uses a **post-query merge** strategy: let the core API execute normally, then filter/merge the results in the `after` hook.
+
+**Real example:** A `credit_scoring` module wants to add a "Credit Risk" filter to the sales orders list. The orders API doesn't know about credit scores, and injecting IDs before the query would conflict with the pagination logic (the core would paginate on IDs, losing the total count).
 
 ```typescript
+// credit_scoring/api/interceptors.ts
+export const interceptors: ApiInterceptor[] = [
+  {
+    id: 'credit_scoring.filter-orders-by-risk',
+    targetRoute: 'sales/documents',
+    methods: ['GET'],
+    features: ['credit_scoring.view'],
+
+    async before(request, ctx) {
+      // Just strip the custom param so Zod doesn't reject it
+      // Store it for the after hook
+      const creditRisk = request.query.creditRisk
+      if (!creditRisk) return { ok: true }
+
+      return {
+        ok: true,
+        query: { ...request.query, creditRisk: undefined },
+        // Pass data between before and after via interceptor metadata
+        metadata: { creditRiskFilter: creditRisk },
+      }
+    },
+
+    async after(request, response, ctx) {
+      const creditRiskFilter = ctx.metadata?.creditRiskFilter
+      if (!creditRiskFilter) return {}
+
+      // The core API has already returned paginated results.
+      // Now fetch credit scores for ONLY the returned records (not all records).
+      const records = response.body.data ?? response.body.items ?? []
+      if (!records.length) return {}
+
+      // Get customer IDs from the returned orders
+      const customerIds = [...new Set(records.map((r: any) => r.customerId).filter(Boolean))]
+
+      // Batch-fetch credit scores from our own table
+      const scores = await ctx.em.find(CreditScore, {
+        customerId: { $in: customerIds },
+        organizationId: ctx.organizationId,
+      })
+      const scoreMap = new Map(scores.map(s => [s.customerId, s]))
+
+      // Filter: keep only records matching the credit risk level
+      const filtered = records.filter((record: any) => {
+        const score = scoreMap.get(record.customerId)
+        return score?.riskLevel === creditRiskFilter
+      })
+
+      // Return the filtered set with corrected pagination
+      return {
+        replace: {
+          ...response.body,
+          data: filtered,
+          total: filtered.length,
+          // Flag that client-side filtering was applied
+          _meta: {
+            ...(response.body._meta ?? {}),
+            postFiltered: true,
+            originalTotal: response.body.total,
+          },
+        },
+      }
+    },
+  },
+]
+```
+
+This requires extending `InterceptorAfterResult` with a `replace` option:
+
+```typescript
+interface InterceptorAfterResult {
+  /** Additional fields to merge into the response (additive) */
+  merge?: Record<string, unknown>
+  /** Completely replace the response body (use with caution — for post-query filtering) */
+  replace?: Record<string, unknown>
+}
+```
+
+And `InterceptorBeforeResult` needs a `metadata` passthrough:
+
+```typescript
+interface InterceptorBeforeResult {
+  ok: boolean
+  body?: Record<string, unknown>
+  query?: Record<string, unknown>
+  headers?: Record<string, string>
+  message?: string
+  statusCode?: number
+  /** Arbitrary data passed to the after hook via ctx.metadata */
+  metadata?: Record<string, unknown>
+}
+```
+
+#### Trade-offs of Tier 3 (Post-Query Merge)
+
+| Aspect | Tier 1 (ID Rewrite) | Tier 3 (Post-Query Merge) |
+|--------|---------------------|--------------------------|
+| **Pagination** | Accurate — core paginates on filtered IDs | Inaccurate — page may have fewer items than `pageSize` |
+| **Performance** | Two queries: one for IDs + one for core data | One core query + one for filter data, but post-filtering |
+| **Total count** | Correct | Corrected but may differ from expected page count |
+| **Use when** | Target API supports `id: { $in: [...] }` | Target API has complex query logic that can't be rewritten |
+| **Risk** | Low | Medium — pages may have inconsistent sizes |
+
+**Recommendation**: Prefer Tier 1 (ID rewrite) whenever possible. Use Tier 3 only when the API's query engine cannot accept injected ID filters.
+
+### 8.5 CrudForm Field Injection — Complete Data Lifecycle
+
+Allow modules to inject fields into existing form groups. The critical question: **how does injected field data get loaded and saved?**
+
+#### The Problem
+
+A loyalty module wants to add a "Tier" dropdown into the customer form. But:
+- The customer entity doesn't have a `loyaltyTier` column — it lives in the loyalty module's own table
+- The customer API doesn't return `loyaltyTier` — nothing knows to include it
+- When the user saves, the customer PUT endpoint doesn't know about `loyaltyTier`
+
+#### The Solution: Enricher + Field Widget + onSave — The Triad Pattern
+
+Injected fields work through **three cooperating mechanisms**:
+
+**Step 1 — Load: Response Enricher adds the data to the API response**
+
+```typescript
+// loyalty/data/enrichers.ts
+export const enrichers: ResponseEnricher[] = [
+  {
+    id: 'loyalty.customer-tier',
+    targetEntity: 'customers.person',
+    features: ['loyalty.view'],
+
+    async enrichOne(record, ctx) {
+      const membership = await ctx.em.findOne(LoyaltyMembership, {
+        customerId: record.id,
+        organizationId: ctx.organizationId,
+      })
+      return {
+        ...record,
+        // These fields are now part of every customer API response
+        _loyalty: {
+          tier: membership?.tier ?? 'none',
+          points: membership?.points ?? 0,
+          memberSince: membership?.createdAt ?? null,
+        },
+      }
+    },
+
+    async enrichMany(records, ctx) {
+      const ids = records.map(r => r.id)
+      const memberships = await ctx.em.find(LoyaltyMembership, {
+        customerId: { $in: ids },
+        organizationId: ctx.organizationId,
+      })
+      const map = new Map(memberships.map(m => [m.customerId, m]))
+      return records.map(record => ({
+        ...record,
+        _loyalty: {
+          tier: map.get(record.id)?.tier ?? 'none',
+          points: map.get(record.id)?.points ?? 0,
+          memberSince: map.get(record.id)?.createdAt ?? null,
+        },
+      }))
+    },
+  },
+]
+```
+
+**Step 2 — Render: Field widget displays the enriched data as an editable field**
+
+```typescript
+// loyalty/widgets/injection/customer-fields/widget.ts
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+
 export default {
   metadata: {
     id: 'loyalty.injection.customer-fields',
@@ -785,35 +1162,338 @@ export default {
   },
   fields: [
     {
-      id: 'loyaltyTier',
-      label: 'loyalty.field.tier',
+      id: '_loyalty.tier',              // Dot-path into the enriched response
+      label: 'loyalty.field.tier',      // i18n key
       type: 'select',
       options: [
-        { value: 'bronze', label: 'Bronze' },
-        { value: 'silver', label: 'Silver' },
-        { value: 'gold', label: 'Gold' },
+        { value: 'none', label: 'loyalty.tier.none' },
+        { value: 'bronze', label: 'loyalty.tier.bronze' },
+        { value: 'silver', label: 'loyalty.tier.silver' },
+        { value: 'gold', label: 'loyalty.tier.gold' },
       ],
-      // Target group and position
-      group: 'details',
-      position: 'after:status',
-      // Value is sourced from enriched API response
-      // Saved via the onSave handler (not the core entity)
+      group: 'details',                 // Insert into the "Details" form group
+      placement: { position: InjectionPosition.After, relativeTo: 'status' },
       readOnly: false,
     },
   ],
   eventHandlers: {
+    // Step 3 — Save: widget handles its own persistence
     onSave: async (data, context) => {
-      // Save loyalty tier via loyalty module's own API
-      await fetch(`/api/loyalty/customers/${context.recordId}/tier`, {
-        method: 'PUT',
-        body: JSON.stringify({ tier: data.loyaltyTier }),
-      })
+      // Extract the injected field value from the form data
+      const tier = data['_loyalty.tier'] ?? data._loyalty?.tier
+      if (!tier) return
+
+      // Save via loyalty module's own API — NOT via customer API
+      await apiCallOrThrow(
+        `/api/loyalty/memberships/${context.resourceId}/tier`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ tier }),
+        },
+        { errorMessage: 'Failed to update loyalty tier' },
+      )
     },
   },
 } satisfies InjectionFieldWidget
 ```
 
-### 8.6 CrudForm Group Injection (Existing — Formalized)
+**Step 3 — Save: The complete save flow**
+
+```
+User edits "Loyalty Tier" dropdown and clicks Save
+  │
+  ├─ CrudForm collects ALL field values (core + injected)
+  │
+  ├─ CrudForm validates core fields via Zod
+  │  (injected fields are excluded from core schema validation)
+  │
+  ├─ Widget onBeforeSave handlers run (can validate injected fields)
+  │
+  ├─ CrudForm sends core fields to core API:
+  │  PUT /api/customers/people  { id, firstName, lastName, status, ... }
+  │  (the _loyalty fields are NOT sent to the core API)
+  │
+  ├─ Widget onSave handlers run (each saves its own data):
+  │  PUT /api/loyalty/memberships/:id/tier  { tier: 'gold' }
+  │
+  └─ Widget onAfterSave handlers run (cleanup, refresh)
+```
+
+**Key design**: The core API never sees the injected fields. Each widget saves its own data through its own API. This preserves the core contract completely.
+
+#### For Detail Pages (Non-CrudForm)
+
+Detail pages use `useGuardedMutation` which already calls `onSave` handlers on all injected widgets. The injected field widget's `onSave` runs automatically:
+
+```typescript
+// In customer detail page — existing pattern, no changes needed
+const { runMutation } = useGuardedMutation({
+  contextId: `customer-person:${personId}`,
+})
+
+// When any section saves:
+await runMutation({
+  operation: () => apiCallOrThrow('/api/customers/people', { method: 'PUT', ... }),
+  context: injectionContext,   // Widgets receive this context
+})
+// ↑ useGuardedMutation automatically calls onSave on all injected widgets
+// ↑ The loyalty widget's onSave fires, saving tier via /api/loyalty/memberships/:id/tier
+```
+
+### 8.6 End-to-End Example: Adding a "Carrier Instructions" Field to the Shipment Dialog (Without Touching Core)
+
+This is a complete, realistic walkthrough. A hypothetical `carrier_integration` module wants to add a "Special Instructions" textarea to the shipment dialog so warehouse staff can attach carrier-specific handling notes. The shipment dialog is a `CrudForm` embedded inside a `<Dialog>` on the order detail page (`ShipmentDialog.tsx`). It uses `entityId={E.sales.sales_shipment}`.
+
+**Requirements:**
+1. Show a "Special Instructions" field in the shipment dialog's "Tracking information" group
+2. Load existing instructions when editing a shipment
+3. Save instructions to the carrier integration module's own table — not to `sales_shipments`
+4. Never modify any file in `packages/core/src/modules/sales/`
+
+#### Step 1 — Data Model: Create the entity
+
+```typescript
+// carrier_integration/data/entities.ts
+@Entity({ tableName: 'carrier_shipment_instructions' })
+export class CarrierShipmentInstructions extends BaseEntity {
+  @Property()
+  shipmentId!: string              // FK to sales_shipments.id (no ORM relation — ID only)
+
+  @Property({ type: 'text', nullable: true })
+  specialInstructions?: string
+
+  @Property({ type: 'text', nullable: true })
+  handlingCode?: string
+
+  @Property()
+  organizationId!: string
+
+  @Property()
+  tenantId!: string
+}
+```
+
+Run `yarn db:generate` → creates migration for `carrier_shipment_instructions` table.
+
+#### Step 2 — API: Create CRUD endpoint
+
+```typescript
+// carrier_integration/api/shipment-instructions/route.ts
+export const { GET, POST, PUT, DELETE } = makeCrudRoute({
+  entity: CarrierShipmentInstructions,
+  basePath: 'carrier-integration/shipment-instructions',
+  schemas: { create: createSchema, update: updateSchema, list: listSchema },
+  features: { write: ['carrier_integration.manage'] },
+})
+
+export const openApi = { ... }
+```
+
+#### Step 3 — Response Enricher: Attach instructions to shipment API responses
+
+```typescript
+// carrier_integration/data/enrichers.ts
+export const enrichers: ResponseEnricher[] = [
+  {
+    id: 'carrier_integration.shipment-instructions',
+    targetEntity: 'sales.sales_shipment',
+    features: ['carrier_integration.view'],
+
+    async enrichOne(record, ctx) {
+      const instructions = await ctx.em.findOne(CarrierShipmentInstructions, {
+        shipmentId: record.id,
+        organizationId: ctx.organizationId,
+      })
+      return {
+        ...record,
+        _carrierInstructions: {
+          specialInstructions: instructions?.specialInstructions ?? '',
+          handlingCode: instructions?.handlingCode ?? '',
+        },
+      }
+    },
+
+    async enrichMany(records, ctx) {
+      const shipmentIds = records.map(r => r.id)
+      const all = await ctx.em.find(CarrierShipmentInstructions, {
+        shipmentId: { $in: shipmentIds },
+        organizationId: ctx.organizationId,
+      })
+      const map = new Map(all.map(i => [i.shipmentId, i]))
+      return records.map(record => ({
+        ...record,
+        _carrierInstructions: {
+          specialInstructions: map.get(record.id)?.specialInstructions ?? '',
+          handlingCode: map.get(record.id)?.handlingCode ?? '',
+        },
+      }))
+    },
+  },
+]
+```
+
+Now every `GET /api/sales/shipments` response includes `_carrierInstructions` on each shipment.
+
+#### Step 4 — Widget: Inject field into the shipment dialog
+
+The shipment dialog is a CrudForm with `entityId={E.sales.sales_shipment}`. It has groups: `shipmentDetails` (column 1), `tracking` (column 2), `items` (column 1), `shipmentCustomFields` (column 2).
+
+```typescript
+// carrier_integration/widgets/injection-table.ts
+import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+
+export const injectionTable: ModuleInjectionTable = {
+  // Target the CrudForm that has entityId 'sales.sales_shipment'
+  'crud-form:sales.sales_shipment': {
+    widgetId: 'carrier_integration.injection.shipment-instructions-field',
+    priority: 50,
+  },
+}
+```
+
+```typescript
+// carrier_integration/widgets/injection/shipment-instructions-field/widget.ts
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+
+export default {
+  metadata: {
+    id: 'carrier_integration.injection.shipment-instructions-field',
+    title: 'Carrier Instructions',
+    features: ['carrier_integration.manage'],
+  },
+  fields: [
+    {
+      id: '_carrierInstructions.specialInstructions',
+      label: 'carrier_integration.field.specialInstructions',
+      type: 'textarea',
+      group: 'tracking',      // Insert into the existing "Tracking information" group
+      placement: { position: InjectionPosition.After, relativeTo: 'notes' },
+    },
+    {
+      id: '_carrierInstructions.handlingCode',
+      label: 'carrier_integration.field.handlingCode',
+      type: 'select',
+      options: [
+        { value: 'standard', label: 'carrier_integration.handling.standard' },
+        { value: 'fragile', label: 'carrier_integration.handling.fragile' },
+        { value: 'hazmat', label: 'carrier_integration.handling.hazmat' },
+        { value: 'refrigerated', label: 'carrier_integration.handling.refrigerated' },
+      ],
+      group: 'tracking',
+      placement: { position: InjectionPosition.After, relativeTo: '_carrierInstructions.specialInstructions' },
+    },
+  ],
+  eventHandlers: {
+    // Save the carrier instructions via the carrier integration API
+    onSave: async (data, context) => {
+      const specialInstructions = data['_carrierInstructions.specialInstructions'] ?? ''
+      const handlingCode = data['_carrierInstructions.handlingCode'] ?? 'standard'
+
+      // context.resourceId is the shipment ID (set after core save)
+      const shipmentId = context.resourceId
+      if (!shipmentId) return
+
+      await apiCallOrThrow(
+        '/api/carrier-integration/shipment-instructions',
+        {
+          method: 'POST',      // Upsert pattern: create-or-update
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            shipmentId,
+            specialInstructions,
+            handlingCode,
+            organizationId: context.organizationId,
+            tenantId: context.tenantId,
+          }),
+        },
+        { errorMessage: 'Failed to save carrier instructions' },
+      )
+    },
+
+    // Validate before save
+    onBeforeSave: async (data, context) => {
+      const handlingCode = data['_carrierInstructions.handlingCode']
+      if (handlingCode === 'hazmat') {
+        const instructions = data['_carrierInstructions.specialInstructions'] ?? ''
+        if (instructions.trim().length < 10) {
+          return {
+            ok: false,
+            message: 'Hazmat shipments require detailed special instructions (min 10 chars).',
+            fieldErrors: {
+              '_carrierInstructions.specialInstructions': 'Required for hazmat shipments',
+            },
+          }
+        }
+      }
+      return { ok: true }
+    },
+  },
+} satisfies InjectionFieldWidget
+```
+
+#### Step 5 — Translations
+
+```typescript
+// carrier_integration/i18n/en.ts
+export default {
+  'carrier_integration.field.specialInstructions': 'Special Instructions',
+  'carrier_integration.field.handlingCode': 'Handling Code',
+  'carrier_integration.handling.standard': 'Standard',
+  'carrier_integration.handling.fragile': 'Fragile',
+  'carrier_integration.handling.hazmat': 'Hazmat',
+  'carrier_integration.handling.refrigerated': 'Refrigerated',
+}
+```
+
+#### What Happens at Runtime
+
+**Edit shipment dialog opens:**
+```
+1. Order detail page opens ShipmentDialog for shipment id=abc
+2. ShipmentDialog renders CrudForm with entityId='sales.sales_shipment'
+3. CrudForm loads initial values (including existing data from shipment)
+4. Response enricher has already attached _carrierInstructions to the shipment data
+5. CrudForm discovers injected field widgets via injection-table
+6. The "Tracking information" group now renders:
+   - Shipped date        ← core field
+   - Delivered date       ← core field
+   - Tracking numbers     ← core field
+   - Notes               ← core field
+   - Special Instructions ← INJECTED (from carrier_integration)
+   - Handling Code        ← INJECTED (from carrier_integration)
+```
+
+**User fills in fields and clicks Save (⌘Enter):**
+```
+1. CrudForm validates core fields (Zod schema)
+2. CrudForm triggers onBeforeSave on all injection widgets
+   → carrier_integration validates: hazmat requires instructions ≥10 chars
+   → record_locks validates: lock token is valid (if record-locking active)
+3. CrudForm calls handleSubmit() → sends core fields to PUT /api/sales/shipments
+   → The _carrierInstructions fields are NOT sent (not in shipment Zod schema)
+4. CrudForm triggers onSave on all injection widgets
+   → carrier_integration posts to POST /api/carrier-integration/shipment-instructions
+5. CrudForm triggers onAfterSave → dialog closes, shipments list refreshes
+```
+
+**Files touched in `packages/core/src/modules/sales/`: ZERO.**
+
+#### What's Needed in UMES for This to Work
+
+This example works TODAY for the basic case because:
+- ✅ CrudForm already supports injection via `crud-form:<entityId>` spot IDs
+- ✅ CrudForm already calls `onBeforeSave`/`onSave`/`onAfterSave` on injection widgets
+- ✅ Custom fields already render in CrudForm groups
+
+What UMES adds to make the **field injection** specifically work:
+- **NEW**: `InjectionFieldWidget` type — fields array with `group`, `placement`, `type`
+- **NEW**: CrudForm reads `fields` from injection widgets and inserts them into specified groups at specified positions
+- **NEW**: CrudForm populates injected field initial values from enriched API response data (via `accessorKey` dot-path)
+- **NEW**: Response enrichers (`data/enrichers.ts`) auto-discovered and applied in CRUD factory
+
+### 8.7 CrudForm Group Injection (Existing — Formalized)
 
 Already works via current injection table with `kind: 'group'` and `column` placement. Formalized with explicit type:
 
@@ -905,7 +1585,370 @@ This enables **layered composition** — audit module adds logging to record-loc
 
 ---
 
-## 10. Coherence with Existing Systems
+## 10. Phase 7 — Detail Page Bindings (Customer, Sales Document, etc.)
+
+**Goal**: Bring the full UMES extensibility to detail pages that are NOT based on CrudForm — specifically the customer person/company detail pages and sales document detail pages (orders, quotes, invoices).
+
+### 10.1 The Problem: Detail Pages Are Bespoke
+
+CrudForm-based pages get UMES features for free (field injection, event handlers, headless widgets). But the most important pages in Open Mercato — customer detail and sales document detail — are **hand-built pages** that:
+
+- Load data via manual `useEffect` + `readApiResultOrThrow`
+- Store data in component state (`useState<PersonOverview>`)
+- Handle mutations via `useGuardedMutation.runMutation()`
+- Render tabs/sections manually with conditional logic
+- Pass `injectionContext` to `InjectionSpot` components
+
+These pages already support **tab injection** and **detail section injection** (via existing `InjectionSpot`), and **mutation hooks** (via `useGuardedMutation`). But they do NOT support:
+- Field injection into existing sections
+- Column injection into embedded data tables
+- Response enrichment (enrichers work on the API but the UI doesn't know about the extra fields)
+- Component replacement of specific sections/dialogs
+
+### 10.2 Architecture: The `useExtensibleDetail` Hook
+
+Introduce a unified hook that detail pages opt into, binding all UMES features:
+
+```typescript
+// packages/ui/src/backend/injection/useExtensibleDetail.ts
+
+interface UseExtensibleDetailOptions<TData> {
+  /** Entity identifier for extension point resolution */
+  entityId: string                    // e.g., 'customers.person', 'sales.document'
+  /** The loaded entity data (from useState) */
+  data: TData | null
+  /** Data setter (the existing setState function) */
+  setData: React.Dispatch<React.SetStateAction<TData | null>>
+  /** The existing injection context */
+  injectionContext: Record<string, unknown>
+  /** The existing useGuardedMutation instance */
+  guardedMutation: ReturnType<typeof useGuardedMutation>
+}
+
+interface ExtensibleDetailResult<TData> {
+  // === Injected tabs (already works, but now typed) ===
+  injectedTabs: InjectedTab[]
+
+  // === Injected fields for specific sections ===
+  getFieldsForSection(sectionId: string): InjectedField[]
+
+  // === Injected columns for embedded DataTables ===
+  getColumnsForTable(tableId: string): InjectedColumn[]
+  getRowActionsForTable(tableId: string): InjectedRowAction[]
+
+  // === Component replacements available for this page ===
+  getComponent<TProps>(componentId: string): React.ComponentType<TProps>
+
+  // === Enriched data accessor (reads _ext fields from data) ===
+  getEnrichedData<T>(namespace: string): T | undefined
+
+  // === Composed save handler (calls all widget onSave handlers) ===
+  runSectionSave(
+    sectionId: string,
+    operation: () => Promise<unknown>,
+    sectionData?: Record<string, unknown>,
+  ): Promise<void>
+}
+```
+
+### 10.3 Customer Detail Page — Before/After
+
+**Before** (current code — simplified):
+
+```typescript
+// packages/core/src/modules/customers/backend/customers/people/[id]/page.tsx
+
+export default function PersonDetailPage() {
+  const [data, setData] = React.useState<PersonOverview | null>(null)
+  const { runMutation, retryLastMutation } = useGuardedMutation({ ... })
+
+  // Load data
+  React.useEffect(() => { /* fetch /api/customers/people/${id} */ }, [id])
+
+  // Injection context
+  const injectionContext = React.useMemo(() => ({
+    formId: contextId,
+    personId,
+    resourceKind: 'customers.person',
+    resourceId: personId,
+    data,
+    retryLastMutation,
+  }), [data, personId, retryLastMutation])
+
+  // Injected tabs
+  const { widgets: injectedTabWidgets } = useInjectionWidgets(
+    'customers.person.detail:tabs', { context: injectionContext }
+  )
+
+  return (
+    <Page>
+      <FormHeader mode="detail" ... />
+      <DetailFieldsSection>
+        {/* Hard-coded fields: firstName, lastName, email, phone, status */}
+      </DetailFieldsSection>
+      <InjectionSpot spotId="customers.person.detail:details" ... />
+      <DetailTabsLayout tabs={[...builtInTabs, ...injectedTabs]}>
+        {activeTab === 'activities' && <ActivitiesSection ... />}
+        {activeTab === 'deals' && <DealsSection ... />}
+        ...
+      </DetailTabsLayout>
+    </Page>
+  )
+}
+```
+
+**After** (with UMES bindings):
+
+```typescript
+export default function PersonDetailPage() {
+  const [data, setData] = React.useState<PersonOverview | null>(null)
+  const guardedMutation = useGuardedMutation({ ... })
+
+  React.useEffect(() => { /* fetch — unchanged */ }, [id])
+
+  const injectionContext = React.useMemo(() => ({ /* unchanged */ }), [...])
+
+  // NEW: single hook binds all UMES features
+  const ext = useExtensibleDetail({
+    entityId: 'customers.person',
+    data,
+    setData,
+    injectionContext,
+    guardedMutation,
+  })
+
+  return (
+    <Page>
+      <FormHeader mode="detail" ... />
+      <DetailFieldsSection>
+        {/* Hard-coded fields: firstName, lastName, email, phone, status */}
+
+        {/* NEW: Injected fields render after core fields in this section */}
+        {ext.getFieldsForSection('details').map(field => (
+          <InjectedField key={field.id} field={field} data={data} onSave={ext.runSectionSave} />
+        ))}
+      </DetailFieldsSection>
+
+      <InjectionSpot spotId="customers.person.detail:details" ... />
+
+      <DetailTabsLayout tabs={[...builtInTabs, ...ext.injectedTabs]}>
+        {activeTab === 'activities' && <ActivitiesSection ... />}
+        {activeTab === 'deals' && (
+          <DealsSection
+            columns={[...coreColumns, ...ext.getColumnsForTable('customers.person.deals')]}
+            rowActions={[...coreActions, ...ext.getRowActionsForTable('customers.person.deals')]}
+          />
+        )}
+        ...
+      </DetailTabsLayout>
+    </Page>
+  )
+}
+```
+
+### 10.4 Sales Document Detail Page — Concrete Bindings
+
+The sales document detail page is the most complex page in the system. Here are the specific extension points:
+
+```typescript
+// Sales document detail — extension point map
+const ext = useExtensibleDetail({
+  entityId: 'sales.document',
+  data: documentData,
+  setData: setDocumentData,
+  injectionContext,
+  guardedMutation,
+})
+
+// 1. COMPONENT REPLACEMENT: Shipment dialog
+//    A new_sales module can swap the entire ShipmentDialog
+const ShipmentDialog = ext.getComponent<ShipmentDialogProps>(
+  'sales.document.shipment-dialog'
+)
+
+// 2. FIELD INJECTION: Add fields to the document header section
+//    Example: a "Priority" field injected by a fulfillment module
+const headerFields = ext.getFieldsForSection('document-header')
+
+// 3. COLUMN INJECTION: Items table
+//    Example: a warehouse module adds a "Stock Level" column to the items table
+const itemColumns = ext.getColumnsForTable('sales.document.items')
+
+// 4. ROW ACTIONS: Items table
+//    Example: a procurement module adds "Reorder from supplier" row action
+const itemRowActions = ext.getRowActionsForTable('sales.document.items')
+
+// 5. TAB INJECTION: Additional tabs
+//    Example: a shipping module adds a "Tracking" tab
+const allTabs = [...builtInTabs, ...ext.injectedTabs]
+
+// 6. SECTION SAVE: When the items section saves, loyalty widget also saves
+await ext.runSectionSave('items', async () => {
+  await apiCallOrThrow('/api/sales/documents', { method: 'PUT', body: ... })
+})
+```
+
+### 10.5 The `runSectionSave` Pattern
+
+Detail pages have multiple save operations (each section saves independently). Unlike CrudForm where there's one Save button, detail pages have inline editing, section-level save buttons, and auto-save on blur.
+
+`runSectionSave` wraps any section's save with the full UMES lifecycle:
+
+```typescript
+async function runSectionSave(
+  sectionId: string,
+  operation: () => Promise<unknown>,
+  sectionData?: Record<string, unknown>,
+): Promise<void> {
+  // 1. Collect injected field values for this section
+  const injectedValues = collectInjectedFieldValues(sectionId)
+
+  // 2. Run widget onBeforeSave (can block)
+  const guardResult = await triggerEvent('onBeforeSave', {
+    ...sectionData,
+    ...injectedValues,
+  }, injectionContext)
+
+  if (!guardResult.ok) {
+    throw createCrudFormError(guardResult.message, guardResult.fieldErrors)
+  }
+
+  // 3. Execute the core save (with scoped headers from widgets)
+  await withScopedApiRequestHeaders(guardResult.requestHeaders ?? {}, operation)
+
+  // 4. Run widget onSave (each widget saves its own data)
+  await triggerEvent('onSave', {
+    ...sectionData,
+    ...injectedValues,
+  }, injectionContext)
+
+  // 5. Run widget onAfterSave (cleanup, refresh)
+  await triggerEvent('onAfterSave', {
+    ...sectionData,
+    ...injectedValues,
+  }, injectionContext)
+}
+```
+
+### 10.6 The `<InjectedField>` Component
+
+A new UI component that renders injected fields consistently across both CrudForm and detail pages:
+
+```typescript
+// packages/ui/src/backend/injection/InjectedField.tsx
+
+interface InjectedFieldProps {
+  field: {
+    id: string
+    label: string       // i18n key
+    type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea'
+    options?: { value: string; label: string }[]
+    readOnly?: boolean
+    position?: string
+    group?: string
+  }
+  /** Current value (read from enriched data via dot-path) */
+  value: unknown
+  /** Called when user changes the value */
+  onChange: (fieldId: string, value: unknown) => void
+  /** Whether the page is in loading state */
+  isLoading?: boolean
+}
+
+function InjectedField({ field, value, onChange, isLoading }: InjectedFieldProps) {
+  const t = useT()
+
+  // Renders the appropriate input based on field.type
+  // Uses the same UI primitives as CrudForm fields for visual consistency
+  switch (field.type) {
+    case 'select':
+      return (
+        <FormField label={t(field.label)}>
+          <Select
+            value={value as string}
+            onChange={(v) => onChange(field.id, v)}
+            options={(field.options ?? []).map(o => ({ value: o.value, label: t(o.label) }))}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+    case 'text':
+      return (
+        <FormField label={t(field.label)}>
+          <Input
+            value={value as string ?? ''}
+            onChange={(e) => onChange(field.id, e.target.value)}
+            disabled={field.readOnly || isLoading}
+          />
+        </FormField>
+      )
+    // ... other field types
+  }
+}
+```
+
+### 10.7 Data Flow: Detail Page With Enrichment + Field Injection + Save
+
+Complete end-to-end example — a loyalty module extending the customer detail page:
+
+```
+                                ┌─────────────────────────────────────────┐
+                                │     Customer Detail Page (person)       │
+                                └───────────────────┬─────────────────────┘
+                                                    │
+         ┌──────────────────────────────────────────┼──────────────────────────────────────────┐
+         │                                          │                                          │
+    1. LOAD                                    2. RENDER                                  3. SAVE
+         │                                          │                                          │
+  GET /api/customers/                    ┌──────────┴──────────┐                     User edits tier
+  people/123                             │                     │                     and clicks save
+         │                          Core fields           Injected fields                  │
+  ┌──────┴──────────┐               firstName             _loyalty.tier ← InjectedField   │
+  │ Core query      │               lastName              (from enricher)                  │
+  │ returns person  │               email                                             ┌────┴─────────┐
+  └──────┬──────────┘               status                                            │ runSection   │
+         │                                                                            │ Save()       │
+  ┌──────┴──────────┐                                                                 └────┬─────────┘
+  │ Enrichers run:  │                                                                      │
+  │ loyalty adds    │                                                          ┌───────────┼───────────┐
+  │ _loyalty.tier   │                                                          │           │           │
+  │ _loyalty.points │                                                     onBeforeSave  Core PUT    onSave
+  └──────┬──────────┘                                                     (validate)    (person)    (loyalty)
+         │                                                                     │           │           │
+  Response arrives:                                                            │    PUT /api/      PUT /api/
+  {                                                                            │    customers/     loyalty/
+    person: { id, firstName, ... },                                            │    people         memberships/
+    _loyalty: { tier: 'gold', points: 1250 },                                 │    {id,name,...}  123/tier
+  }                                                                            │           │      {tier:'silver'}
+                                                                               │           │           │
+                                                                               └───────────┴───────────┘
+                                                                                     onAfterSave
+                                                                                   (refresh data)
+```
+
+### 10.8 Implementation Scope Per Detail Page
+
+| Page | Current State | Required Changes |
+|------|--------------|-----------------|
+| **Customer Person** (`people/[id]/page.tsx`) | Has: tabs, detail spots, guarded mutation. Missing: field injection, column injection in deals/activities tables, component replacement | Add `useExtensibleDetail` hook (~15 LOC). Add `<InjectedField>` rendering in details section. Pass injected columns to DealsSection DataTable. |
+| **Customer Company** (`companies/[id]/page.tsx`) | Same pattern as person detail | Same changes as person detail |
+| **Sales Document** (`documents/[id]/page.tsx`) | Has: tabs, detail spots, guarded mutation. Missing: field injection in header, column injection in items table, shipment dialog replacement | Add `useExtensibleDetail` hook. Wrap `ShipmentDialog` with `ext.getComponent()`. Add `<InjectedField>` in header section. Pass injected columns to items DataTable. |
+| **Future detail pages** | N/A | All new detail pages should use `useExtensibleDetail` from the start |
+
+### 10.9 Migration Path — Non-Breaking
+
+The `useExtensibleDetail` hook is **opt-in per page**. Pages that don't adopt it continue working exactly as today. The migration is:
+
+1. Add `const ext = useExtensibleDetail({ ... })` (using existing state and mutation instances)
+2. Render `ext.getFieldsForSection('...')` where field injection is desired
+3. Pass `ext.getColumnsForTable('...')` to embedded DataTables
+4. Wrap replaceable components with `ext.getComponent('...')`
+
+No existing InjectionSpot usage changes. No existing injection-table.ts changes. No existing widget.ts changes.
+
+---
+
+## 11. Coherence with Existing Systems
 
 ### 10.1 Mapping: When to Use What
 
@@ -1402,3 +2445,9 @@ From `CrudForm.tsx` lines 1100-1332, the exact save flow:
 |------|--------|
 | 2026-02-24 | Initial draft — complete spec with 6 phases, appendices with code analysis and competitive analysis |
 | 2026-02-24 | Backward compatibility review: resolved 4 medium-severity concerns — added dual-mode event dispatch (§4.5), enricher ordering guarantee (§6.3), interceptor execution order with re-validation (§7.3), headless widget loader (§8.7); updated event flow (§10.3) |
+| 2026-02-24 | Added: Phase 7 — Detail Page Bindings (§10) with `useExtensibleDetail` hook, `<InjectedField>` component, `runSectionSave` pattern, and concrete customer/sales document migration examples |
+| 2026-02-24 | Added: Complete data lifecycle for field injection (§8.5) — enricher loads, field widget renders, onSave persists through module's own API (the "triad pattern") |
+| 2026-02-24 | Added: DataTable batch data loading via `enrichMany` (§8.1) — zero N+1, one query per enricher for all rows |
+| 2026-02-24 | Added: Typed positioning via `InjectionPosition` enum + `InjectionPlacement` interface (§8.0) — replaces error-prone string literals |
+| 2026-02-24 | Added: Two-tier filter architecture (§8.4) — server-side via API interceptor query rewriting for cross-module filtering, client-side for enriched data |
+| 2026-02-24 | Added: `query` field to `InterceptorBeforeResult` for GET interceptors |
