@@ -21,7 +21,6 @@ interface WizardState {
   domains: string[]
   jitEnabled: boolean
   autoLinkByEmail: boolean
-  defaultRoleId: string | null
 }
 
 const initialState: WizardState = {
@@ -33,7 +32,6 @@ const initialState: WizardState = {
   domains: [],
   jitEnabled: true,
   autoLinkByEmail: true,
-  defaultRoleId: null,
 }
 
 export default function SsoConfigCreateWizard() {
@@ -120,7 +118,6 @@ export default function SsoConfigCreateWizard() {
             allowedDomains: state.domains,
             jitEnabled: state.jitEnabled,
             autoLinkByEmail: state.autoLinkByEmail,
-            defaultRoleId: state.defaultRoleId,
           }),
         },
         { errorMessage: t('sso.admin.error.createFailed', 'Failed to create SSO configuration') },

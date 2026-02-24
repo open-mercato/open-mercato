@@ -1,17 +1,18 @@
 # SSO Implementation Milestones
 
 **Date:** 2026-02-19
-**Updated:** 2026-02-22
+**Updated:** 2026-02-23
 **Status:** M1 and M2 completed. M3 (SCIM) is next.
 **Spec:** `.ai/specs/enterprise/SPEC-ENT-002-2026-02-19-sso-directory-sync.md`
 **Strategy:** One PR per milestone, merged to `develop` incrementally
-**Dev IdP:** Zitadel (free cloud instance) for all phases; cross-validate with Entra ID + Google Workspace in final milestones
+**Dev IdP:** Microsoft Entra ID (free tenant) for OIDC + SCIM testing; cross-validate with Google Workspace in final milestones
+**Previous Dev IdPs:** Zitadel was used for M1-M2 (OIDC only). JumpCloud was attempted for M3 but proved difficult to configure for local dev (OIDC redirect issues with localhost). Switched to Entra ID — the most common enterprise IdP, supports both OIDC and SCIM outbound provisioning, and allows `http://localhost` redirect URIs for dev.
 
 ---
 
 ## What We're Building
 
-A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) and SCIM 2.0, with three identity providers: Zitadel, Microsoft Entra ID, and Google Workspace. Each milestone delivers a shippable increment.
+A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) and SCIM 2.0, with three identity providers: Microsoft Entra ID, Google Workspace, and JumpCloud. Each milestone delivers a shippable increment.
 
 **Protocol decision:** OIDC covers ~90% of real enterprise use cases. Entra ID, Google Workspace, Okta, and Zitadel all support OIDC natively. SAML is deferred — the pluggable provider architecture accommodates adding it later without touching OIDC code, when a specific customer demands it and their IdP has no OIDC endpoint.
 
@@ -72,7 +73,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ---
 
-### Milestone 3: SCIM 2.0 Provisioning with Zitadel
+### Milestone 3: SCIM 2.0 Provisioning with Entra ID
 
 **PR:** `feat(sso): SCIM 2.0 provisioning endpoint`
 **Goal:** IdP can push user lifecycle changes (create, update, deactivate) and group membership via SCIM.
@@ -98,36 +99,31 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 - [ ] Integration test: SCIM create/update/deactivate user, group sync
 
 **Acceptance criteria:**
-- Admin generates SCIM token in UI, configures Zitadel to push to Open Mercato SCIM endpoint
-- Zitadel creates user → user appears in Open Mercato with SSO identity
-- Zitadel updates user name → reflected in Open Mercato
-- Zitadel deactivates user → user soft-deleted, active sessions revoked
-- Zitadel group membership change → user roles updated in Open Mercato
+- Admin generates SCIM token in UI, configures Entra ID to push to Open Mercato SCIM endpoint
+- Entra ID creates user → user appears in Open Mercato with SSO identity
+- Entra ID updates user name → reflected in Open Mercato
+- Entra ID deactivates user → user soft-deleted, active sessions revoked
+- Entra ID group membership change → user roles updated in Open Mercato
 - All SCIM operations logged in provisioning log
 - Invalid/expired SCIM tokens rejected with 401
 
 ---
 
-### Milestone 4: Microsoft Entra ID Validation
+### Milestone 4: JumpCloud / Additional IdP Validation
 
-**PR:** `feat(sso): entra id validation and compatibility`
-**Goal:** SSO (OIDC) and SCIM fully working with Microsoft Entra ID.
+**PR:** `feat(sso): cross-idp validation and compatibility`
+**Goal:** SSO (OIDC) and SCIM verified working with a second IdP (JumpCloud or Okta).
 
 **Deliverables:**
-- [ ] Entra ID OIDC testing (App Registration → OIDC flow → callback)
-- [ ] PKCE hardcoded verification (Entra doesn't advertise in metadata but supports it)
-- [ ] Entra ID SCIM testing (Enterprise App → provisioning → SCIM endpoint)
-- [ ] Lenient SCIM parser for Entra deviations (non-standard PATCH paths, mixed-case filter operators)
-- [ ] SCIM filter extensions if needed for Entra compatibility
-- [ ] Admin UI: Entra-specific setup hints in the wizard (where to find tenant ID, client ID, etc.)
-- [ ] Documentation: Entra ID setup guide (step-by-step with screenshots/instructions)
-- [ ] Integration tests with Entra ID (may require test tenant)
+- [ ] JumpCloud or Okta OIDC + SCIM testing
+- [ ] Any SCIM parser fixes for IdP-specific deviations
+- [ ] Documentation: second IdP setup guide
+- [ ] Integration tests with second IdP
 
 **Acceptance criteria:**
-- OIDC login with Entra ID works end-to-end
-- SCIM provisioning from Entra ID creates/updates/deactivates users
-- SCIM group sync from Entra ID maps to Open Mercato roles
-- Setup wizard provides clear guidance for Entra configuration
+- OIDC login works end-to-end with second IdP
+- SCIM provisioning from second IdP creates/updates/deactivates users
+- No code changes required (proves the implementation is IdP-agnostic)
 
 ---
 
@@ -150,7 +146,7 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 **Acceptance criteria:**
 - Google Workspace OIDC login works end-to-end
-- All three IdPs (Zitadel, Entra ID, Google) verified working
+- All target IdPs (Entra ID, Google Workspace, + optional JumpCloud/Okta) verified working
 - Notifications sent for key SSO events
 - All UI strings translated (en + pl)
 - Security audit passed — no CSRF or replay vulnerabilities
@@ -183,8 +179,8 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 1. **OIDC-only for v1** — covers all targeted IdPs; SAML deferred until a specific customer demands it on a legacy IdP with no OIDC endpoint
 2. **Spec phases as milestone axis** — follow SPEC-ENT-002 phases, one PR per milestone
-3. **Zitadel first** — all protocol work developed and tested against the free Zitadel cloud instance
-4. **Cross-IdP validation last** — Entra ID and Google Workspace are validation milestones, not development milestones
+3. **Entra ID first** — all protocol work (OIDC + SCIM) developed and tested against Microsoft Entra ID (free tenant). Replaced JumpCloud due to local dev redirect issues. Entra ID is the most common enterprise IdP and supports both OIDC and SCIM outbound provisioning.
+4. **Cross-IdP validation last** — Google Workspace is a validation milestone, not a development milestone
 5. **SCIM paths** — use `/api/sso/scim/v2/...` (module-prefixed) to comply with auto-discovery; IdP clients configured with this base URL
 6. **OIDC state in encrypted cookie** — no Redis/DB needed for flow state
 7. **PR per milestone** — incremental merges to `develop`, module behind enterprise overlay
@@ -192,7 +188,8 @@ A fully working enterprise SSO module supporting **OIDC only** (SAML deferred) a
 
 ## Resolved Questions
 
-1. **SAML support:** Deferred. All three target IdPs (Entra ID, Google Workspace, Zitadel) support OIDC. The pluggable `SsoProtocolProvider` interface means SAML can be added as a second implementation without touching OIDC code. Revisit when a customer demands it.
+1. **SAML support:** Deferred. All target IdPs (Entra ID, Google Workspace, JumpCloud) support OIDC. The pluggable `SsoProtocolProvider` interface means SAML can be added as a second implementation without touching OIDC code. Revisit when a customer demands it.
 2. **Google Directory Sync:** JIT-only is acceptable for v1. Google Workspace users are created on first SSO login. No pull-based Directory API sync in scope — can be added as a future milestone if needed.
-3. **Entra ID test tenant:** Need to create a free Azure account + Entra ID tenant before Milestone 5. Document the setup steps in the Entra ID setup guide.
-4. **Zitadel SCIM:** Zitadel supports SCIM 2.0 natively (no extension needed). Use the free cloud instance for SCIM development and testing. Document how to enable and configure SCIM in the Zitadel console.
+3. **Entra ID test tenant:** Need to create a free Azure account + Entra ID tenant before Milestone 4. Document the setup steps in the Entra ID setup guide.
+4. **Zitadel → JumpCloud → Entra ID:** Zitadel lacks outbound SCIM ([issue #6601](https://github.com/zitadel/zitadel/issues/6601)). JumpCloud was attempted but had OIDC redirect issues with localhost dev setup. Switched to Microsoft Entra ID — the #1 enterprise IdP, free dev tenant available, supports `http://localhost` redirect URIs, and has both OIDC and SCIM outbound provisioning (Enterprise App → Provisioning).
+5. **Entra ID OIDC:** Entra ID supports OIDC natively via App Registration. Issuer URL is `https://login.microsoftonline.com/{tenant-id}/v2.0`. Existing OIDC flow (M1-M2) works without code changes — only IdP credentials need updating.

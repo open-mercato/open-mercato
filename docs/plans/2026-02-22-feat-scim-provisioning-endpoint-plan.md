@@ -1,68 +1,84 @@
 ---
 title: "feat: SCIM 2.0 provisioning endpoint"
 type: feat
-date: 2026-02-22
-milestone: "SSO M3: SCIM 2.0 Provisioning with Zitadel"
+date: 2026-02-23
+milestone: "SSO M3: SCIM 2.0 Provisioning with Entra ID"
 spec: ".ai/specs/enterprise/SPEC-ENT-002-2026-02-19-sso-directory-sync.md"
 brainstorm: "docs/brainstorms/2026-02-19-sso-implementation-milestones-brainstorm.md"
+reviewed_by: "DHH, Kieran, Simplicity"
 ---
 
 # feat: SCIM 2.0 Provisioning Endpoint
 
 ## Overview
 
-Implement a SCIM 2.0 server endpoint in the SSO module so that identity providers (Zitadel, Microsoft Entra ID) can push user lifecycle changes (create, update, deactivate) and group membership changes to Open Mercato. This enables automated directory sync — when an admin adds/removes a user in the IdP, the change propagates to Open Mercato without manual intervention.
+Implement a SCIM 2.0 server endpoint in the SSO module so that identity providers (Microsoft Entra ID, JumpCloud, Okta) can push user lifecycle changes (create, update, deactivate) to Open Mercato. This enables automated directory sync — when an admin adds/removes a user in the IdP, the change propagates without manual intervention.
+
+**Scope**: User provisioning only. Group/role mapping deferred to a future milestone (see Deferred section).
 
 ## Problem Statement
 
 Today, SSO users are only provisioned via JIT (just-in-time) on first login. This means:
 - Users must log in at least once before they exist in Open Mercato
-- There is no way to pre-provision users or sync group/role assignments from the IdP
+- There is no way to pre-provision users before they need access
 - When a user is removed from the IdP, their Open Mercato account remains active until manually deactivated
-- No automated role assignment based on IdP group membership
 
-SCIM 2.0 solves all of these by providing a standard inbound API for identity lifecycle management.
+SCIM 2.0 User CRUD solves all three by providing a standard inbound API for user lifecycle management.
+
+---
 
 ## Design Decisions
 
 ### D1: SCIM resource `id` = `SsoIdentity.id`
 
-The SCIM `id` returned in responses maps to `SsoIdentity.id` (the junction record linking IdP subject to Open Mercato user). This is the SCIM-specific resource — the IdP uses it for subsequent GET/PATCH/DELETE calls.
+The SCIM `id` returned in responses maps to `SsoIdentity.id` (the junction record linking IdP subject to Open Mercato user). The IdP uses this for subsequent GET/PATCH/DELETE calls.
 
-### D2: User deactivation via `deleted_at` (soft-delete)
+`SsoIdentity` also gains an `externalId` column (indexed, unique per `sso_config_id`) — Entra ID uses `externalId` heavily for reconciliation and sends `filter=externalId eq "..."` during sync.
 
-Rather than adding `is_active` to the core `User` entity (violating "zero auth module changes"), SCIM deactivation sets `User.deleted_at`. Reactivation (`active: true`) clears `deleted_at`. The existing auth middleware already rejects soft-deleted users. This is pragmatic for v1 — if full deactivation semantics are needed later, an extension entity can be added.
+### D2: User deactivation via extension entity `SsoUserDeactivation`
 
-### D3: Duplicate email handling = auto-link if no SSO identity, 409 if already linked
+~~Using `deleted_at` for SCIM deactivation~~ (rejected by review — conflates "deactivated in IdP" with "permanently deleted"). Instead, the SSO module owns an `SsoUserDeactivation` extension entity:
+
+```
+sso_user_deactivations(id, user_id, sso_config_id, deactivated_at, reactivated_at, tenant_id, organization_id)
+```
+
+- `deactivated_at` set when SCIM sends `active: false`
+- `reactivated_at` set when SCIM sends `active: true` (clears deactivation)
+- Session revocation happens immediately on deactivation
+- Auth middleware check: the SCIM auth context (and future login flow) checks this table. Deactivated users cannot log in but remain visible in admin user lists, audit logs, and assignment history.
+- Follows the "zero auth module changes" principle — owned entirely by the SSO module via `data/extensions.ts`
+
+### D3: Duplicate email handling = auto-link or 409
 
 When `POST /Users` receives an email matching an existing user:
-- If the user has no SSO identity for this config → auto-link (create `SsoIdentity` pointing to existing user), return 200 with the linked resource
+- If the user has no SSO identity for this config → auto-link (create `SsoIdentity`), return `201 Created`
 - If the user already has an SSO identity for this config → return `409 Conflict` (uniqueness)
 - If the user exists in a different organization → return `409 Conflict`
 
-### D4: Group-to-role mapping is reconciled, but only for SCIM-managed roles
+**Idempotency**: If `POST /Users` sends the same `externalId` that already exists for this SSO config, return the existing resource (200), not a duplicate.
 
-When group membership changes, roles are reconciled against the current `sso_group_role_mappings`. SCIM only manages roles that it granted (tracked via `source: 'scim'` on `UserRole`). Manually-assigned roles are never touched by SCIM.
+### D4: SCIM token format = `omscim_<hex>`
 
-### D5: Groups stored in a `scim_groups` table
+Token format: `omscim_` prefix + 32 bytes random hex (~71 chars total). Prefix column stores first 12 chars for fast DB lookup before bcrypt compare. Follows the existing `api_keys` module pattern (`omk_`).
 
-SCIM requires groups to be first-class resources (GET/POST/PATCH/DELETE). A `scim_groups` entity stores group state with a `members` JSONB column for member IDs.
+No `expires_at` — SCIM tokens are long-lived infrastructure credentials. Entra ID does not support token rotation or expiration-aware provisioning. Tokens are either active or revoked.
 
-### D6: SCIM token format = `omscim_<hex>`
-
-Token format: `omscim_` prefix + 32 bytes random hex (total ~71 chars). Prefix column stores first 12 chars for fast DB lookup before bcrypt compare. Max 5 active tokens per SSO config.
-
-### D7: Reject SCIM requests when parent `SsoConfig.isActive = false`
+### D5: Reject SCIM requests when parent `SsoConfig.isActive = false`
 
 Return `403 Forbidden` with SCIM error body. The token itself is valid, but the config is deactivated.
 
-### D8: Bulk operations = `false` in ServiceProviderConfig
+### D6: Bulk operations = `false` in ServiceProviderConfig
 
-Not needed for Entra ID or Zitadel. Advertise as unsupported.
+Not needed for Entra ID or JumpCloud. Advertise as unsupported.
 
-### D9: SCIM is optional per SSO config
+### D7: SCIM is optional per SSO config
 
-Not every IdP supports SCIM (e.g., Google Workspace has no SCIM push). SCIM provisioning is entirely opt-in per SSO config — an admin only enables it by generating a SCIM token. SSO configs without tokens continue to work with JIT-only provisioning. The admin UI shows the Provisioning tab for all configs, but with a clear "not configured" state and explanation that SCIM is optional. The `SsoConfig` entity does NOT get a `scimEnabled` flag — the presence of active `ScimToken` records is the implicit enablement signal.
+Not every IdP supports SCIM (e.g., Google Workspace has no SCIM push). SCIM is entirely opt-in — enabled implicitly by generating a SCIM token. No `scimEnabled` flag on `SsoConfig`. SSO configs without tokens continue with JIT-only provisioning.
+
+### D8: Discovery endpoints — `/ServiceProviderConfig` only for v1
+
+`/Schemas` and `/ResourceTypes` are not consumed by IdPs at runtime. Entra only hits `/ServiceProviderConfig` during "Test Connection". Add the other two only if an IdP integration fails without them.
 
 ---
 
@@ -71,39 +87,36 @@ Not every IdP supports SCIM (e.g., Google Workspace has no SCIM push). SCIM prov
 ### Architecture
 
 ```
-IdP (Entra ID / Zitadel)
+IdP (Entra ID / JumpCloud / Okta)
   │
   │  SCIM 2.0 over HTTPS
   │  Authorization: Bearer <token>
   ▼
-┌─────────────────────────────────────────┐
-│  SCIM API Layer                         │
-│  /api/sso/scim/v2/...                   │
-│                                         │
-│  ┌─────────────┐  ┌──────────────────┐  │
-│  │ SCIM Auth   │  │ SCIM Router      │  │
-│  │ Middleware   │→ │ /Users, /Groups  │  │
-│  │ (bearer     │  │ /ServiceProvider │  │
-│  │  token)     │  │  Config, etc.    │  │
-│  └─────────────┘  └──────────────────┘  │
-│         │                  │             │
-│         ▼                  ▼             │
-│  ┌─────────────┐  ┌──────────────────┐  │
-│  │ ScimToken   │  │ ScimService      │  │
-│  │ Service     │  │ (user CRUD,      │  │
-│  │ (auth,      │  │  group CRUD,     │  │
-│  │  generate,  │  │  filter parsing, │  │
-│  │  revoke)    │  │  PATCH handler)  │  │
-│  └─────────────┘  └──────────────────┘  │
-│                          │               │
-│              ┌───────────┼───────────┐   │
-│              ▼           ▼           ▼   │
-│  ┌──────────────┐ ┌───────────┐ ┌─────┐ │
-│  │ Account      │ │ ScimGroup │ │ Log │ │
-│  │ Linking      │ │ Service   │ │     │ │
-│  │ Service      │ │           │ │     │ │
-│  └──────────────┘ └───────────┘ └─────┘ │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────┐
+│  SCIM API Layer                      │
+│  /api/sso/scim/v2/...               │
+│                                      │
+│  ┌─────────────┐ ┌────────────────┐  │
+│  │ SCIM Auth   │ │ SCIM Routes    │  │
+│  │ (bearer     │→│ /Users         │  │
+│  │  token)     │ │ /ServiceProv.. │  │
+│  └─────────────┘ └────────────────┘  │
+│        │                │            │
+│        ▼                ▼            │
+│  ┌───────────┐  ┌──────────────┐     │
+│  │ ScimToken │  │ ScimService  │     │
+│  │ Service   │  │ (user CRUD,  │     │
+│  │           │  │  filter,     │     │
+│  │           │  │  PATCH)      │     │
+│  └───────────┘  └──────────────┘     │
+│                       │              │
+│                       ▼              │
+│               ┌──────────────┐       │
+│               │ Account      │       │
+│               │ Linking      │       │
+│               │ Service      │       │
+│               └──────────────┘       │
+└──────────────────────────────────────┘
 ```
 
 ### ERD: New Entities
@@ -111,11 +124,9 @@ IdP (Entra ID / Zitadel)
 ```mermaid
 erDiagram
     sso_configs ||--o{ scim_tokens : "has"
-    sso_configs ||--o{ scim_groups : "has"
-    sso_configs ||--o{ sso_group_role_mappings : "has"
     sso_configs ||--o{ scim_provisioning_log : "has"
-    scim_groups ||--o{ sso_group_role_mappings : "mapped to"
-    roles ||--o{ sso_group_role_mappings : "mapped to"
+    users ||--o| sso_user_deactivations : "deactivated by"
+    sso_configs ||--o{ sso_user_deactivations : "deactivates via"
 
     scim_tokens {
         uuid id PK
@@ -124,8 +135,6 @@ erDiagram
         string token_hash
         string token_prefix
         boolean is_active
-        timestamp expires_at
-        timestamp last_used_at
         uuid created_by
         uuid tenant_id
         uuid organization_id
@@ -133,24 +142,12 @@ erDiagram
         timestamp updated_at
     }
 
-    scim_groups {
+    sso_user_deactivations {
         uuid id PK
+        uuid user_id FK
         uuid sso_config_id FK
-        string external_id
-        string display_name
-        jsonb members
-        uuid tenant_id
-        uuid organization_id
-        timestamp created_at
-        timestamp updated_at
-        timestamp deleted_at
-    }
-
-    sso_group_role_mappings {
-        uuid id PK
-        uuid sso_config_id FK
-        string idp_group_id
-        uuid role_id FK
+        timestamp deactivated_at
+        timestamp reactivated_at
         uuid tenant_id
         uuid organization_id
         timestamp created_at
@@ -165,45 +162,53 @@ erDiagram
         string scim_external_id
         integer response_status
         string error_message
-        jsonb request_body
         uuid tenant_id
         uuid organization_id
         timestamp created_at
     }
 ```
 
+### Changes to existing `SsoIdentity` entity
+
+Add column:
+- `externalId` — `string, nullable, unique per (sso_config_id, external_id)` — Entra uses this for reconciliation
+
+---
+
 ### Implementation Phases
 
 #### Phase 1: Data Model + SCIM Token Management
 
 **New entities** in `packages/enterprise/src/modules/sso/data/entities.ts`:
-- `ScimToken` — bearer token storage (bcrypt hash + prefix)
-- `ScimGroup` — SCIM group resources
-- `SsoGroupRoleMapping` — IdP group to Open Mercato role
-- `ScimProvisioningLog` — append-only audit log
+- `ScimToken` — bearer token storage (bcrypt hash + prefix, `is_active`, no expiry)
+- `SsoUserDeactivation` — SCIM deactivation state (extension entity)
+- `ScimProvisioningLog` — append-only audit log with index on `(sso_config_id, created_at DESC)`
+
+**Modify existing entity** `SsoIdentity`:
+- Add `externalId` column with unique compound index on `(ssoConfigId, externalId)`
 
 **New validators** in `packages/enterprise/src/modules/sso/data/validators.ts`:
-- `createScimTokenSchema` — name, expiresAt (optional)
-- `scimTokenListSchema` — pagination query
+- `createScimTokenSchema` — `{ ssoConfigId: uuid, name: string }`
+- `scimTokenListSchema` — pagination query params
 
 **New service** `packages/enterprise/src/modules/sso/services/scimTokenService.ts`:
-- `generateToken(ssoConfigId, name, expiresAt?)` — generate `omscim_<hex>`, hash with bcrypt(10), store hash + prefix, return raw token once
-- `verifyToken(rawToken)` — extract prefix (first 12 chars), lookup by prefix + is_active + not expired, bcrypt.compare, return `{ ssoConfigId, organizationId, tenantId }` or null
+- `generateToken(ssoConfigId, name, scope)` — generate `omscim_<hex>`, hash with bcrypt(10), store hash + prefix, return raw token once
+- `verifyToken(rawToken)` — extract prefix (first 12 chars), lookup by prefix + `is_active`, bcrypt.compare, return `{ ssoConfigId, organizationId, tenantId }` or null
 - `revokeToken(tokenId, scope)` — set `is_active = false`
-- `listTokens(ssoConfigId, scope)` — return tokens (without hashes) for admin display
+- `listTokens(ssoConfigId, scope)` — return tokens (name, prefix, created date — no hashes)
 - Timing-safe: always bcrypt.compare against dummy hash when prefix not found
 
-**New API routes**:
-- `api/scim/tokens/route.ts` — `GET` (list), `POST` (create) — admin auth via `resolveSsoAdminContext`
-- `api/scim/tokens/[id]/route.ts` — `DELETE` (revoke) — admin auth
+**New API routes** (admin auth via `resolveSsoAdminContext`):
+- `api/scim/tokens/route.ts` — `GET` (list), `POST` (create)
+- `api/scim/tokens/[id]/route.ts` — `DELETE` (revoke)
+- All admin routes export `openApi` per codebase convention
 
 **ACL additions** to `acl.ts`:
-- `sso.scim.manage` — manage SCIM tokens and group mappings
-- `sso.provisioning.view` — view provisioning logs
+- `sso.scim.manage` — manage SCIM tokens
 
 **Setup additions** to `setup.ts`:
-- `defaultRoleFeatures.superadmin` → add `sso.scim.manage`, `sso.provisioning.view`
-- `defaultRoleFeatures.admin` → add `sso.scim.manage`, `sso.provisioning.view`
+- `defaultRoleFeatures.superadmin` → add `sso.scim.manage`
+- `defaultRoleFeatures.admin` → add `sso.scim.manage`
 
 **DI additions** to `di.ts`:
 - Register `scimTokenService`
@@ -214,171 +219,148 @@ erDiagram
 - [ ] Admin can generate a SCIM token from the API (show-once flow)
 - [ ] Admin can list active tokens (prefix + name + created date, no hashes)
 - [ ] Admin can revoke a token
-- [ ] Max 5 active tokens per SSO config enforced
-- [ ] Expired/revoked tokens rejected with 401
+- [ ] Revoked tokens rejected with 401
+- [ ] `SsoIdentity.externalId` column exists with compound unique index
 
 ---
 
-#### Phase 2: SCIM Auth Middleware + Discovery Endpoints
+#### Phase 2: SCIM Auth Middleware + Discovery
 
 **New file** `packages/enterprise/src/modules/sso/api/scim/context.ts`:
 - `resolveScimContext(req)` — extract `Authorization: Bearer <token>`, call `scimTokenService.verifyToken()`, check `SsoConfig.isActive`, return `{ ssoConfigId, organizationId, tenantId }` or throw 401/403
 - Timing-safe dummy comparison when token prefix not found
-- Update `ScimToken.lastUsedAt` on successful auth
+- Returns 401 with `WWW-Authenticate: Bearer` header on auth failure
+- Returns 403 with SCIM error body when config is inactive
 
-**Discovery routes** (no auth required per RFC, but accept auth gracefully):
-- `api/scim/v2/ServiceProviderConfig/route.ts` — static JSON: patch=true, bulk=false, filter=true (maxResults=200), sort=false, etag=false, changePassword=false
-- `api/scim/v2/Schemas/route.ts` — User + EnterpriseUser + Group schema definitions
-- `api/scim/v2/ResourceTypes/route.ts` — User + Group resource type metadata
+**Discovery route**:
+- `api/scim/v2/ServiceProviderConfig/route.ts` — static JSON: patch=true, bulk=false, filter=true (maxResults=200), sort=false, etag=false, changePassword=false, `authenticationSchemes: [{ type: 'oauthbearertoken' }]`
 
-All SCIM responses use `Content-Type: application/scim+json`.
+**New file** `packages/enterprise/src/modules/sso/lib/scim-response.ts`:
+- `buildScimError(status, detail, scimType?)` — RFC 7644 error format with `urn:ietf:params:scim:api:messages:2.0:Error` schema
+- `buildListResponse(resources, totalResults, startIndex, itemsPerPage)` — pagination wrapper
+- `SCIM_CONTENT_TYPE = 'application/scim+json'`
+- `scimHeaders()` — returns `{ 'Content-Type': 'application/scim+json' }`
+
+All SCIM responses use `Content-Type: application/scim+json`. Accept both `application/scim+json` and `application/json` on requests.
 
 **Acceptance criteria:**
-- [ ] `GET /api/sso/scim/v2/ServiceProviderConfig` returns valid SCIM config
-- [ ] `GET /api/sso/scim/v2/Schemas` returns User, EnterpriseUser, Group schemas
-- [ ] `GET /api/sso/scim/v2/ResourceTypes` returns User + Group types
+- [ ] `GET /api/sso/scim/v2/ServiceProviderConfig` returns valid SCIM config JSON
 - [ ] Invalid bearer token returns 401 with `WWW-Authenticate: Bearer` header
 - [ ] Inactive SSO config returns 403 with SCIM error body
+- [ ] Missing `Authorization` header returns 401
 
 ---
 
-#### Phase 3: SCIM User CRUD
+#### Phase 3a: SCIM User Create + Read
 
 **New service** `packages/enterprise/src/modules/sso/services/scimService.ts`:
-- `createUser(scimPayload, scope)` — map SCIM attrs to User, handle duplicate email (auto-link or 409), create SsoIdentity with `provisioningMethod: 'scim'`, log to provisioning log
-- `getUser(scimId, scope)` — lookup by `SsoIdentity.id`, return SCIM resource representation
-- `listUsers(filter?, startIndex?, count?, scope)` — parse filter, query users, return ListResponse
-- `patchUser(scimId, operations, scope)` — parse PATCH ops, apply changes, handle `active: false` → soft-delete + revoke sessions
-- `deleteUser(scimId, scope)` — soft-delete user, revoke sessions, log
-- `toScimUserResource(user, ssoIdentity)` — map internal models to SCIM JSON
+- `createUser(scimPayload, scope)` — map SCIM attrs to User, handle duplicate email (D3 logic), handle duplicate `externalId` (idempotent return), create `SsoIdentity` with `provisioningMethod: 'scim'` and `externalId`, log to provisioning log
+- `getUser(scimId, scope)` — lookup by `SsoIdentity.id`, return SCIM User resource with `meta` object (`resourceType`, `created`, `lastModified`, `location`)
+- `listUsers(filter?, startIndex?, count?, scope)` — parse filter, query users scoped to org, return ListResponse with pagination
+- `toScimUserResource(user, ssoIdentity)` — map internal models to SCIM JSON including `meta` object
+
+**New file** `packages/enterprise/src/modules/sso/lib/scim-mapper.ts`:
+- `toScimUserResource(user, identity, baseUrl)` — maps User + SsoIdentity to SCIM User JSON with `meta`, `schemas`, `externalId`
+- `fromScimUserPayload(payload)` — maps SCIM User JSON to internal create params with strict attribute allowlist
+- Keeps ScimService focused on orchestration
 
 **New file** `packages/enterprise/src/modules/sso/lib/scim-filter.ts`:
-- Parse SCIM filter expressions: support `eq` operator (case-insensitive) and `and` combinator
-- Attribute paths: `userName`, `externalId`, `displayName`, `name.familyName`, `name.givenName`, `active`
-- Returns a structured filter object that can be converted to MikroORM query conditions
+- Parse SCIM filter expressions: support `eq` operator (case-insensitive for strings, case-insensitive operator keyword) and `and` combinator
+- Supported attribute paths: `userName`, `externalId`, `displayName`, `active`
+- Returns structured filter object convertible to MikroORM query conditions
 
-**New file** `packages/enterprise/src/modules/sso/lib/scim-patch.ts`:
-- Parse SCIM PatchOp operations array
-- Case-insensitive `op` values (handle Entra's PascalCase)
-- Support path syntax: simple (`active`), dotted (`name.familyName`), bracket-filter (`members[value eq "..."]`)
-- Boolean leniency: accept `"False"`/`"True"` strings as booleans
-- Strict attribute allowlist to prevent injection (only map known SCIM attrs to internal fields)
-
-**New file** `packages/enterprise/src/modules/sso/lib/scim-response.ts`:
-- `buildScimError(status, detail, scimType?)` — RFC 7644 error format
-- `buildListResponse(resources, totalResults, startIndex, itemsPerPage)` — pagination wrapper
-- `SCIM_CONTENT_TYPE = 'application/scim+json'`
-
-**SCIM User routes**:
+**SCIM User routes** (SCIM bearer auth via `resolveScimContext`):
 - `api/scim/v2/Users/route.ts` — `POST` (create), `GET` (list with filter + pagination)
-- `api/scim/v2/Users/[id]/route.ts` — `GET` (single), `PATCH` (update), `DELETE` (deactivate)
+- `api/scim/v2/Users/[id]/route.ts` — `GET` (single user)
 
-**Session revocation on deactivation**:
-- When `active` set to `false` or DELETE called: `em.nativeDelete(Session, { user: userId })` (pattern from auth module `commands/users.ts:273`)
-- Emit `sso.scim.user.deactivated` event
-
-**Rate limiting**:
-- Apply existing `checkRateLimit` helper with config: `{ points: 25, duration: 1, keyPrefix: 'scim' }` keyed by token ID
-- Return `429` with `Retry-After: 1` header when exceeded
+**Provisioning log**: Each create/read operation logged to `scim_provisioning_log` (operation, resource_type, resource_id, response_status, error_message).
 
 **DI additions**: Register `scimService`
 
-**Events additions** to `events.ts`:
-- `sso.scim.user.created`
-- `sso.scim.user.updated`
-- `sso.scim.user.deactivated`
-- `sso.scim.user.deleted`
-- `sso.scim.token.created`
-- `sso.scim.token.revoked`
-
 **Acceptance criteria:**
 - [ ] `POST /Users` creates user + SsoIdentity with `provisioningMethod: 'scim'`
-- [ ] `POST /Users` with existing email auto-links if no SSO identity, 409 if already linked
+- [ ] `POST /Users` returns `201 Created` with `Location` header
+- [ ] `POST /Users` with existing email auto-links if no SSO identity, `409` if already linked
+- [ ] `POST /Users` with duplicate `externalId` returns existing resource (idempotent)
 - [ ] `GET /Users/{id}` returns SCIM User resource with `meta` object
 - [ ] `GET /Users?filter=userName eq "x"` returns matching users in ListResponse
-- [ ] `PATCH /Users/{id}` with `active: false` soft-deletes user and revokes all sessions
-- [ ] `PATCH /Users/{id}` handles Entra's PascalCase ops and string booleans
-- [ ] `DELETE /Users/{id}` soft-deletes and revokes sessions
-- [ ] All operations logged to `scim_provisioning_log`
-- [ ] Rate limited at 25 req/s per token with 429 + Retry-After
-- [ ] `201 Created` includes `Location` header
+- [ ] `GET /Users?filter=externalId eq "x"` works (Entra reconciliation)
+- [ ] Empty filter results return `200` with empty `Resources` array, not `404`
 - [ ] All responses use `Content-Type: application/scim+json`
-- [ ] `externalId` is stored on `SsoIdentity` and queryable via filter
+- [ ] `externalId` stored on `SsoIdentity` and queryable via filter
 
 ---
 
-#### Phase 4: SCIM Group CRUD + Role Mapping
+#### Phase 3b: SCIM User Patch + Delete
 
-**New service** `packages/enterprise/src/modules/sso/services/scimGroupService.ts`:
-- `createGroup(scimPayload, scope)` — create `ScimGroup`, apply member role mappings
-- `getGroup(groupId, scope)` — return SCIM Group resource
-- `listGroups(filter?, startIndex?, count?, scope)` — filter by `displayName`
-- `patchGroup(groupId, operations, scope)` — add/remove members, handle Entra's non-standard member removal format
-- `deleteGroup(groupId, scope)` — soft-delete group, optionally revoke SCIM-granted roles
-- `reconcileRoles(userId, scope)` — recalculate user roles based on current group memberships and `sso_group_role_mappings`
+**New file** `packages/enterprise/src/modules/sso/lib/scim-patch.ts`:
+- Parse SCIM PatchOp operations array
+- Case-insensitive `op` values (handle Entra's PascalCase: `"Replace"`, `"Add"`, `"Remove"`)
+- Support path syntax: simple (`active`), dotted (`name.familyName`), no-path (value object)
+- Boolean leniency: accept `"False"`/`"True"` strings as booleans (Entra quirk)
+- Strict attribute allowlist: only map known SCIM attrs → internal fields. Reject/ignore `tenantId`, `organizationId`, `id`, `meta`, etc.
+- All operations in a single PATCH are atomic — if any fails, roll back all
 
-**Group-to-role mapping admin API** (admin auth):
-- `api/scim/group-mappings/route.ts` — `GET` (list), `POST` (create mapping)
-- `api/scim/group-mappings/[id]/route.ts` — `DELETE` (remove mapping)
+**Add to `scimService.ts`**:
+- `patchUser(scimId, operations, scope)` — parse PATCH ops via `scim-patch.ts`, apply changes atomically, handle `active: false` → create `SsoUserDeactivation` + revoke sessions, handle `active: true` → set `reactivated_at` on deactivation record
+- `deleteUser(scimId, scope)` — create `SsoUserDeactivation` + revoke sessions, log. Does NOT hard-delete.
 
-**SCIM Group routes** (SCIM bearer auth):
-- `api/scim/v2/Groups/route.ts` — `POST` (create), `GET` (list with filter)
-- `api/scim/v2/Groups/[id]/route.ts` — `GET` (single), `PATCH` (update members), `DELETE`
+**Session revocation on deactivation**:
+- When `active` set to `false` or DELETE called: `em.nativeDelete(Session, { user: userId })` (pattern from auth module `commands/users.ts:273`)
 
-**Role source tracking**:
-- Add `source` field to `UserRole` tracking: when SCIM assigns a role, record it as `source: 'scim'` (via a `scim_role_grants` table or metadata on the role assignment)
-- On group membership reconciliation, only add/remove roles with `source: 'scim'`
-
-**RBAC cache invalidation**:
-- After role changes, invalidate RBAC cache for affected users (use existing cache invalidation pattern if available)
-
-**Events additions**:
-- `sso.scim.group.created`
-- `sso.scim.group.updated`
-- `sso.scim.group.deleted`
-
-**DI additions**: Register `scimGroupService`
+**Add to User route**:
+- `api/scim/v2/Users/[id]/route.ts` — add `PATCH` (update), `DELETE` (deactivate)
 
 **Acceptance criteria:**
-- [ ] `POST /Groups` creates group, applies role mappings to members
-- [ ] `PATCH /Groups/{id}` add/remove members updates user roles
-- [ ] Entra's non-standard member removal format handled
-- [ ] Role reconciliation only touches SCIM-granted roles, not manual ones
-- [ ] Admin can configure group-to-role mappings via API
-- [ ] `GET /Groups?filter=displayName eq "x"` returns matching groups
+- [ ] `PATCH /Users/{id}` with `active: false` creates deactivation record and revokes all sessions
+- [ ] `PATCH /Users/{id}` with `active: true` reactivates (clears deactivation)
+- [ ] `PATCH /Users/{id}` handles Entra's PascalCase ops (`"Replace"`)
+- [ ] `PATCH /Users/{id}` handles string booleans (`"False"`)
+- [ ] `PATCH /Users/{id}` with no `path` (value object) works
+- [ ] `PATCH` operations are atomic — partial failure rolls back all changes
+- [ ] `DELETE /Users/{id}` deactivates and revokes sessions (no hard delete)
+- [ ] `PATCH /Users/{id}` returns `200` with updated resource
+- [ ] `DELETE /Users/{id}` returns `204 No Content`
+- [ ] Attribute allowlist prevents injection of `organizationId`, `tenantId`, etc.
+- [ ] All operations logged to `scim_provisioning_log`
 
 ---
 
-#### Phase 5: Admin UI
+#### Phase 4: Admin UI — Provisioning Tab
 
-**New tab on SSO config detail page** (`backend/sso/config/[id]/page.tsx`):
+**Add tab to SSO config detail page** (`backend/sso/config/[id]/page.tsx`):
 
 **"Provisioning" tab:**
-- SCIM token list (name, prefix, created date, last used, expires)
+- SCIM token list (name, prefix, created date)
 - "Generate Token" button → show-once modal with copy-to-clipboard
 - "Revoke" action per token with confirmation dialog
 - SCIM endpoint URL display (copy-to-clipboard): `{baseUrl}/api/sso/scim/v2`
-
-**"Group Mappings" tab:**
-- Table: IdP Group ID → Open Mercato Role
-- Add mapping form (group ID input + role select)
-- Remove mapping action
-
-**"Provisioning Log" tab:**
-- DataTable: timestamp, operation, resource type, resource ID, status, error
-- Filter by operation type and status
-- Pagination
-
-**New backend page** `backend/sso/scim/log/page.tsx`:
-- Full provisioning log viewer across all SSO configs (for superadmin)
-- `page.meta.ts` with `requireFeatures: ['sso.provisioning.view']`
+- "Not configured" empty state explaining SCIM is optional
+- Simple provisioning log table (last 50 entries: timestamp, operation, status, error)
 
 **Acceptance criteria:**
 - [ ] Admin can generate/revoke SCIM tokens from the UI
 - [ ] Token shown once with copy button, never retrievable again
 - [ ] SCIM endpoint URL displayed for easy IdP configuration
-- [ ] Admin can add/remove group-to-role mappings
-- [ ] Provisioning log viewable with filtering and pagination
+- [ ] Provisioning log entries visible with recent operations
+- [ ] "Not configured" state shown when no tokens exist
+
+---
+
+## Integration Tests
+
+Following the existing test naming convention in the SSO module:
+
+| Test ID | File | Covers |
+|---------|------|--------|
+| TC-SSO-011 | `scim-token-lifecycle.spec.ts` | Token generate, list, revoke, auth rejection |
+| TC-SSO-012 | `scim-user-create.spec.ts` | POST /Users: create, auto-link, duplicate, idempotent externalId |
+| TC-SSO-013 | `scim-user-read.spec.ts` | GET /Users/{id}, GET /Users?filter=..., ListResponse pagination |
+| TC-SSO-014 | `scim-user-patch.spec.ts` | PATCH active:false, active:true, name update, Entra quirks |
+| TC-SSO-015 | `scim-user-delete.spec.ts` | DELETE deactivation, session revocation |
+| TC-SSO-016 | `scim-auth-middleware.spec.ts` | Bearer token auth, invalid token, inactive config, timing safety |
+
+Tests must be self-contained: create SSO config + SCIM token in setup, clean up in teardown.
 
 ---
 
@@ -388,75 +370,104 @@ The SCIM implementation must handle these Entra-specific behaviors:
 
 | Behavior | Handling |
 |----------|----------|
-| PascalCase `op` values (`"Replace"`) | Case-insensitive `op` parsing |
-| String booleans (`"False"` instead of `false`) | Parse both string and boolean |
-| Non-standard member removal (value array instead of path filter) | Handle both formats in PATCH |
-| `application/scim+json` and `application/json` Content-Type | Accept both |
-| Mixed-case filter operators (`Eq` vs `eq`) | Case-insensitive filter parsing |
-| `externalId` used for reconciliation | Store on SsoIdentity, index, support in filters |
-| Sync every 20-40 minutes, initial sync can take hours | Rate limit is generous (25/s), no token short-expiry |
-| Expects 25 req/s minimum throughput | Rate limiter set at 25/s per token |
+| PascalCase `op` values (`"Replace"`) | Case-insensitive `op` parsing in `scim-patch.ts` |
+| String booleans (`"False"` instead of `false`) | Parse both string and boolean in `scim-patch.ts` |
+| `application/scim+json` and `application/json` Content-Type | Accept both on requests |
+| Mixed-case filter operators (`Eq` vs `eq`) | Case-insensitive filter parsing in `scim-filter.ts` |
+| `externalId` used for reconciliation | Indexed column on `SsoIdentity`, supported in filter |
+| Sync every 20-40 minutes, initial sync can take hours | No token expiry, generous throughput |
+| Expects 25 req/s minimum throughput | No artificial rate limiting in v1 (bcrypt ~100ms is natural throttle) |
+| PATCH without `path` (value object) | Supported in `scim-patch.ts` |
 
 ## Security Considerations
 
-1. **Bearer tokens**: bcrypt(10) hashed, prefix-based lookup, timing-safe dummy comparison
-2. **Tenant isolation**: every query scoped by `organizationId` resolved from token
-3. **Attribute allowlist**: PATCH operations go through strict mapping, preventing injection of `tenantId`, `organizationId`, etc.
-4. **Session revocation**: immediate on deactivation/deletion — no stale sessions
-5. **HTTPS only**: SCIM endpoints should reject non-HTTPS in production
-6. **Rate limiting**: 25 req/s per token with `429 + Retry-After`
-7. **Audit trail**: all SCIM operations logged to `scim_provisioning_log`
-8. **Minimal error messages**: 401 responses don't reveal whether token exists
+1. **Bearer tokens**: bcrypt(10) hashed, prefix-based lookup, timing-safe dummy comparison when prefix not found
+2. **Tenant isolation**: every SCIM query scoped by `organizationId` resolved from token → `SsoConfig`
+3. **Attribute allowlist**: PATCH operations go through strict mapping in `scim-patch.ts`, preventing injection of `tenantId`, `organizationId`, etc.
+4. **Session revocation**: immediate on deactivation/deletion via `em.nativeDelete(Session, { user: userId })`
+5. **Minimal error messages**: 401 responses don't reveal whether token exists
+6. **Audit trail**: all SCIM operations logged to `scim_provisioning_log`
+7. **HTTPS**: SCIM endpoints should reject non-HTTPS in production
 
 ## Dependencies & Prerequisites
 
 - M1 (OIDC login) and M2 (Admin UI) completed
+- Microsoft Entra ID free tenant set up with OIDC app registration + test users — see `docs/guides/entra-id-setup.md`
 - Existing entities: `SsoConfig`, `SsoIdentity`, `User`, `Session`, `Role`, `UserRole`
 - Existing services: `AccountLinkingService`, `SsoConfigService`, `AuthService`
-- Existing infrastructure: rate limiting, bcrypt, DI container, event bus
+- Existing infrastructure: bcrypt, DI container, event bus
 
 ---
 
-## Zitadel Configuration Guide (for Testing)
+## Deferred to Future Milestones
 
-### Important Note on Zitadel SCIM Client Support
+### SCIM Group CRUD + Role Mapping
 
-As of early 2026, Zitadel's **outbound SCIM provisioning** (pushing users to your endpoint) may still be in development (see [issue #6601](https://github.com/zitadel/zitadel/issues/6601)). Zitadel's SCIM **server** (receiving provisioning) is available. Check the current status before testing.
+**Why deferred**: User CRUD alone solves the three core problems (pre-provisioning, user existence, deactivation). Group/role mapping is a separate feature that doubles entity count, adds a `ScimGroupService`, introduces the complex `source: 'scim'` role tracking problem, and requires a `scim_group_members` junction table (JSONB members rejected by review — race condition on concurrent PATCH). No customer has requested it yet.
 
-If Zitadel outbound SCIM is not yet available, you can test with:
-- **Manual SCIM requests** via curl/Postman (recommended for development)
-- **Microsoft Entra ID** free tenant (for real-world IdP testing in M4)
+**When to implement**: When a customer needs IdP-driven role assignment. The SCIM endpoint already returns `501 Not Implemented` for `/Groups` endpoints.
 
-### Option A: Manual Testing with curl
+**Scope when implemented**:
+- `ScimGroup` entity with `scim_group_members` junction table (not JSONB)
+- `SsoGroupRoleMapping` entity (FK to `ScimGroup.id`, not string `idp_group_id`)
+- `scim_role_grants` table to track SCIM-managed role assignments (never touch manual roles)
+- `ScimGroupService` for group CRUD + role reconciliation
+- Group Mappings admin UI tab
+- SCIM Group routes: POST/GET/PATCH/DELETE `/Groups`
 
-This is the recommended approach for development and integration testing.
+### `/Schemas` and `/ResourceTypes` Discovery Endpoints
+
+Add only if an IdP integration fails without them. Not consumed at runtime by Entra ID.
+
+### Rate Limiting
+
+Defer SCIM-specific rate limiting. Bcrypt verification (~100ms per request) is a natural throttle. Add infrastructure-level rate limiting (nginx/CDN) if abuse is observed.
+
+### SCIM Events
+
+No events declared — no subscribers exist yet. Add events (`sso.scim.user.created`, etc.) when a feature needs to react to SCIM operations. The provisioning log table covers audit.
+
+---
+
+## Testing Guide
+
+### Dev IdP: Microsoft Entra ID (Free Tenant)
+
+Entra ID is the primary dev IdP. It supports both OIDC and SCIM outbound provisioning, allows `http://localhost` redirect URIs for OIDC, and is the most common enterprise IdP. See `docs/guides/entra-id-setup.md` for setup instructions.
+
+**Note**: SCIM provisioning from Entra requires a publicly reachable URL (use ngrok for local dev). OIDC redirect works with `http://localhost`.
+
+### Testing Strategy
+
+| Phase | Method | Purpose |
+|-------|--------|---------|
+| Phase 1-2 (tokens + discovery) | curl | Fast iteration, full control |
+| Phase 3a-3b (user CRUD) | curl first, then Entra ID "Provision on demand" | Validate with real IdP |
+| Phase 4 (admin UI) | Entra ID | End-to-end: admin generates token in UI → configures Entra → users sync |
+| M4 (Entra validation) | Microsoft Entra ID | Quirks testing, production readiness |
+
+### Option A: Manual Testing with curl (Development)
 
 **1. Generate a SCIM token:**
 
 ```bash
-# Via the admin API (requires session auth)
 curl -X POST http://localhost:3000/api/sso/scim/tokens \
   -H "Content-Type: application/json" \
   -H "Cookie: <session_cookie>" \
   -d '{ "ssoConfigId": "<your-sso-config-id>", "name": "Dev Test Token" }'
 
-# Response includes the raw token (shown once):
+# Response (token shown once):
 # { "token": "omscim_abc123...", "id": "...", "prefix": "omscim_abc1" }
 ```
 
-**2. Test discovery endpoints:**
+**2. Test discovery:**
 
 ```bash
-# ServiceProviderConfig
 curl http://localhost:3000/api/sso/scim/v2/ServiceProviderConfig \
-  -H "Authorization: Bearer omscim_abc123..."
-
-# Schemas
-curl http://localhost:3000/api/sso/scim/v2/Schemas \
   -H "Authorization: Bearer omscim_abc123..."
 ```
 
-**3. Create a user via SCIM:**
+**3. Create a user:**
 
 ```bash
 curl -X POST http://localhost:3000/api/sso/scim/v2/Users \
@@ -480,8 +491,8 @@ curl -X POST http://localhost:3000/api/sso/scim/v2/Users \
 curl "http://localhost:3000/api/sso/scim/v2/Users?filter=userName%20eq%20%22jane.doe%40example.com%22" \
   -H "Authorization: Bearer omscim_abc123..."
 
-# List all
-curl "http://localhost:3000/api/sso/scim/v2/Users?startIndex=1&count=20" \
+# By externalId
+curl "http://localhost:3000/api/sso/scim/v2/Users?filter=externalId%20eq%20%22ext-12345%22" \
   -H "Authorization: Bearer omscim_abc123..."
 ```
 
@@ -509,77 +520,58 @@ curl -X PATCH http://localhost:3000/api/sso/scim/v2/Users/<scim-id> \
   }'
 ```
 
-**7. Create and manage groups:**
+**7. Reactivate a user:**
 
 ```bash
-# Create group
-curl -X POST http://localhost:3000/api/sso/scim/v2/Groups \
-  -H "Authorization: Bearer omscim_abc123..." \
-  -H "Content-Type: application/scim+json" \
-  -d '{
-    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
-    "displayName": "Engineering",
-    "externalId": "eng-group-001",
-    "members": [{ "value": "<scim-user-id>" }]
-  }'
-
-# Add member to group
-curl -X PATCH http://localhost:3000/api/sso/scim/v2/Groups/<group-id> \
+curl -X PATCH http://localhost:3000/api/sso/scim/v2/Users/<scim-id> \
   -H "Authorization: Bearer omscim_abc123..." \
   -H "Content-Type: application/scim+json" \
   -d '{
     "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-    "Operations": [{ "op": "add", "path": "members", "value": [{ "value": "<scim-user-id>" }] }]
+    "Operations": [{ "op": "replace", "path": "active", "value": true }]
   }'
 ```
 
-### Option B: Zitadel Outbound SCIM (if available)
+### Option B: Microsoft Entra ID (Primary Dev IdP — OIDC + SCIM)
 
-**1. Check if outbound SCIM is available:**
-- Go to your Zitadel Console → Settings → Identity Providers or Provisioning
-- Look for "SCIM Provisioning" or "Outbound Provisioning" option
-- If not available, use Option A (curl) or Option C (Entra ID)
-
-**2. If available, configure:**
-- Navigate to SCIM Provisioning settings
-- Set the SCIM endpoint URL: `https://<your-domain>/api/sso/scim/v2`
-- Paste the bearer token generated from the admin UI
-- Enable provisioning for Users and Groups
-- Trigger a test sync
-
-### Option C: Microsoft Entra ID (Free Tenant)
-
-This is the best real-world test. Instructions for M4 (Entra ID milestone), but can be used earlier:
+See `docs/guides/entra-id-setup.md` for full step-by-step setup. Summary:
 
 **1. Create a free Azure account** at https://azure.microsoft.com/free
 
-**2. Set up Entra ID:**
-- Go to Azure Portal → Microsoft Entra ID
-- Create a test user and group
+**2. Register OIDC application:**
+- Entra admin center → App registrations → New registration
+- Add redirect URI: `http://localhost:3000/api/sso/callback/oidc` (localhost works for OIDC!)
+- Note the **Application (client) ID** and **Directory (tenant) ID**
+- Create a client secret under Certificates & secrets
+- Add `email` optional claim to ID token (Token configuration)
+- Issuer URL: `https://login.microsoftonline.com/<tenant-id>/v2.0`
 
-**3. Register a non-gallery enterprise application:**
-- Entra ID → Enterprise Applications → New Application → Create your own application
-- Name: "Open Mercato SCIM Test"
-- Select "Integrate any other application you don't find in the gallery"
-
-**4. Configure provisioning:**
-- Go to the app → Provisioning → Get started
-- Set Provisioning Mode to "Automatic"
+**3. Configure SCIM provisioning:**
+- Enterprise applications → Open Mercato → Provisioning → Get started
+- Provisioning Mode: "Automatic"
 - Admin Credentials:
-  - Tenant URL: `https://<your-domain>/api/sso/scim/v2`
-  - Secret Token: paste the SCIM bearer token from the admin UI
-- Click "Test Connection" — Entra will hit your `/ServiceProviderConfig` endpoint
-- Save
-
-**5. Configure attribute mappings:**
-- Entra auto-maps most attributes
-- Verify: `userPrincipalName` → `userName`, `displayName` → `displayName`
-- Remove any mappings for attributes you don't support
-
-**6. Start provisioning:**
+  - Tenant URL: `https://<ngrok-url>/api/sso/scim/v2` (SCIM requires public URL — use ngrok)
+  - Secret Token: SCIM bearer token from Open Mercato admin UI
+- Click "Test Connection" → validates `/ServiceProviderConfig`
+- Configure attribute mappings (verify defaults work)
 - Set Provisioning Status to "On"
-- Entra will run an initial sync (may take 20-40 minutes for the first cycle)
-- Monitor the provisioning logs in both Entra and your admin UI
+
+**4. Test the provisioning flow:**
+- Use "Provision on demand" for instant testing (no 40-minute wait)
+- Assign a user → user should appear in Open Mercato
+- Update the user's name → change should propagate
+- Block sign-in → user should be deactivated in Open Mercato, sessions revoked
+
+**5. Test OIDC + SCIM together:**
+- Assign a user in Entra → SCIM creates them in Open Mercato (pre-provisioned)
+- User logs in via OIDC → existing SCIM-provisioned account is used (no JIT needed)
+- Block sign-in in Entra → SCIM deactivates them → user can no longer log in via OIDC
+
+**6. Validate Entra quirks during development:**
+- [ ] PascalCase `op` values handled (`"Replace"` instead of `"replace"`)
+- [ ] String booleans (`"False"`) parsed correctly
+- [ ] `externalId` reconciliation works
+- [ ] Mixed-case filter operators handled (`Eq` instead of `eq`)
 
 ---
 
@@ -590,7 +582,6 @@ This is the best real-world test. Instructions for M4 (Entra ID milestone), but 
 - API keys module (token pattern): `packages/core/src/modules/api_keys/`
 - Auth entities: `packages/core/src/modules/auth/data/entities.ts`
 - Session deletion pattern: `packages/core/src/modules/auth/commands/users.ts:273`
-- Rate limiting: `packages/shared/src/lib/ratelimit/`
 - Spec: `.ai/specs/enterprise/SPEC-ENT-002-2026-02-19-sso-directory-sync.md`
 
 ### External
@@ -598,5 +589,4 @@ This is the best real-world test. Instructions for M4 (Entra ID milestone), but 
 - [RFC 7644 — SCIM Protocol](https://www.rfc-editor.org/rfc/rfc7644)
 - [Microsoft Entra ID — Known SCIM Compliance Issues](https://learn.microsoft.com/en-us/entra/identity/app-provisioning/application-provisioning-config-problem-scim-compatibility)
 - [Microsoft Entra ID — Develop a SCIM Endpoint](https://learn.microsoft.com/en-us/entra/identity/app-provisioning/use-scim-to-provision-users-and-groups)
-- [Zitadel SCIM v2 API](https://zitadel.com/docs/apis/scim2)
-- [Zitadel Outbound SCIM (Issue #6601)](https://github.com/zitadel/zitadel/issues/6601)
+- [Entra ID Setup Guide](docs/guides/entra-id-setup.md)
