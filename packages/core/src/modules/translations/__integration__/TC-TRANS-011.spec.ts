@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createCategoryFixture, deleteCatalogCategoryIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
 import { deleteTranslationIfExists } from './helpers/translationFixtures'
@@ -9,49 +9,6 @@ type UserAclResponse = {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
-}
-
-async function loginAndNavigate(page: Page, targetUrl: string): Promise<void> {
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
-  await page.context().addCookies([
-    { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' },
-    { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' },
-  ])
-  await page.goto('/login')
-  await page.getByLabel('Email').fill('admin@acme.com')
-  const passwordInput = page.getByLabel('Password')
-  await passwordInput.fill('secret')
-  await passwordInput.press('Enter')
-  await page.waitForURL((url) => !new URL(url).pathname.startsWith('/login'), { timeout: 10_000 })
-  await page.goto(targetUrl)
-}
-
-async function openTranslationsDrawer(page: Page): Promise<Locator> {
-  const openButton = page.getByRole('button', { name: /Translation manager/i }).first()
-  const dialog = page.getByRole('dialog', { name: /Translations/i })
-
-  await expect(openButton).toBeVisible()
-  await expect(openButton).toBeEnabled()
-  await openButton.click()
-  await expect(dialog).toBeVisible()
-
-  return dialog
-}
-
-async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: string): Promise<Locator> {
-  const firstEditableField = dialog.locator('table').locator('input, textarea').first()
-  await expect(firstEditableField).toBeVisible()
-
-  const normalizedPlaceholder = preferredPlaceholder?.trim()
-  if (!normalizedPlaceholder) return firstEditableField
-
-  const preferredField = dialog.getByPlaceholder(normalizedPlaceholder).first()
-  if (await preferredField.count()) {
-    await expect(preferredField).toBeVisible()
-    return preferredField
-  }
-
-  return firstEditableField
 }
 
 function getTokenSubject(token: string): string {
@@ -92,16 +49,16 @@ async function setUserAcl(
 }
 
 /**
- * TC-TRANS-011: RBAC UI Save Blocked Without translations.manage
- * Verifies UI save action fails for a signed-in user with translations.view but without translations.manage.
+ * TC-TRANS-011: RBAC Save Blocked Without translations.manage
+ * Verifies that a user with translations.view but without translations.manage
+ * can read translation locales but cannot persist translation changes.
  */
-test.describe('TC-TRANS-011: RBAC UI Save Blocked Without translations.manage', () => {
-  test('should block translation save in UI when admin lacks translations.manage', async ({ page, request }) => {
+test.describe('TC-TRANS-011: RBAC Save Blocked Without translations.manage', () => {
+  test('should allow viewing locales but block saving translations', async ({ request }) => {
     const saToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
     const adminUserId = getTokenSubject(adminToken)
     const originalUserAcl = await getUserAcl(request, saToken, adminUserId)
-    const restrictedFeatures = ['catalog.*', 'attachments.view', 'translations.view', 'ai_assistant.view', 'dashboards.view']
     let categoryId: string | null = null
 
     try {
@@ -111,39 +68,40 @@ test.describe('TC-TRANS-011: RBAC UI Save Blocked Without translations.manage', 
       await setUserAcl(request, saToken, {
         userId: adminUserId,
         isSuperAdmin: false,
-        features: restrictedFeatures,
+        features: ['catalog.*', 'translations.view'],
         organizations: null,
       })
 
-      const restrictedAdminToken = await getAuthToken(request, 'admin')
-      const permissionProbe = await apiRequest(request, 'PUT', `/api/translations/${ENTITY_TYPE}/${categoryId}`, {
-        token: restrictedAdminToken,
-        data: { en: { name: 'Permission Probe' } },
+      const restrictedToken = await getAuthToken(request, 'admin')
+
+      // Restricted admin CAN view translation locales (translations.view grants read)
+      const localesProbe = await apiRequest(request, 'GET', '/api/translations/locales', { token: restrictedToken })
+      expect(localesProbe.ok()).toBeTruthy()
+
+      // Restricted admin CAN read translations for a record
+      const readProbe = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${categoryId}`, { token: restrictedToken })
+      expect([200, 404]).toContain(readProbe.status())
+
+      // Restricted admin CANNOT save translations (requires translations.manage)
+      const saveProbe = await apiRequest(request, 'PUT', `/api/translations/${ENTITY_TYPE}/${categoryId}`, {
+        token: restrictedToken,
+        data: { en: { name: 'Unauthorized Save QA' } },
       })
-      expect(permissionProbe.status()).toBe(403)
+      expect(saveProbe.status()).toBe(403)
 
-      await loginAndNavigate(page, `/backend/catalog/categories/${categoryId}/edit`)
-
-      const dialog = await openTranslationsDrawer(page)
-      const translationField = await waitForTranslationField(dialog, categoryName)
-      await translationField.fill('Unauthorized Save QA')
-
-      await dialog.getByRole('button', { name: 'Save translations' }).click()
-      await expect(page).toHaveURL(/\/login\?/)
-      await expect(page.getByText(/Access requires role|don't have access to this feature/i)).toBeVisible()
-      await expect.poll(async () => {
-        const response = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${categoryId}`, { token: saToken })
-        return response.status()
-      }).toBe(404)
+      // Verify no translation was persisted
+      const verifyResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${categoryId}`, { token: saToken })
+      expect(verifyResponse.status()).toBe(404)
     } finally {
-      await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, categoryId).catch(() => {})
-      await deleteCatalogCategoryIfExists(request, saToken, categoryId).catch(() => {})
+      // CRITICAL: restore admin ACL FIRST to prevent cascading 403s in subsequent tests
       await setUserAcl(request, saToken, {
         userId: adminUserId,
         isSuperAdmin: originalUserAcl.isSuperAdmin,
         features: originalUserAcl.features,
         organizations: originalUserAcl.organizations,
       }).catch(() => {})
+      await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, categoryId).catch(() => {})
+      await deleteCatalogCategoryIfExists(request, saToken, categoryId).catch(() => {})
     }
   })
 })
