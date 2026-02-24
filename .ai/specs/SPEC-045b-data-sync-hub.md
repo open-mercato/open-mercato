@@ -186,7 +186,7 @@ packages/core/src/modules/data_sync/
 │   ├── rate-limiter.ts          # Token-bucket rate limiter for external API throttling
 │   └── entity-writer.ts         # Generic entity upsert using mapping
 ├── data/
-│   ├── entities.ts              # SyncRun, SyncCursor, SyncMapping, SyncExternalIdMapping
+│   ├── entities.ts              # SyncRun, SyncCursor, SyncMapping, SyncExternalIdMapping, SyncSchedule
 │   └── validators.ts
 ├── api/
 │   ├── post/data-sync/run.ts    # Start a sync run
@@ -199,7 +199,14 @@ packages/core/src/modules/data_sync/
 │   └── post/data-sync/validate.ts     # Validate connection + mapping
 ├── workers/
 │   ├── sync-import.ts           # Import worker — drives streamImport
-│   └── sync-export.ts           # Export worker — drives streamExport
+│   ├── sync-export.ts           # Export worker — drives streamExport
+│   └── sync-scheduler.ts        # Scheduled worker — checks SyncSchedule, enqueues due syncs
+├── widgets/
+│   ├── injection-table.ts       # Injects scheduler widget into all data_sync integrations
+│   └── injection/
+│       └── scheduler/
+│           ├── widget.ts        # Widget metadata
+│           └── widget.client.tsx # Scheduler configuration UI
 ├── backend/
 │   └── data-sync/
 │       ├── page.tsx             # /backend/data-sync — sync runs dashboard
@@ -1458,9 +1465,488 @@ T6                                    Staff processes refund            LOCAL
 
 ---
 
-## 6. Performance Considerations
+## 6. Widget Injection — Configuration & Scheduler
 
-### 6.1 Batch Size Tuning
+Every data sync integration needs two things beyond credentials: **field mapping configuration** and **schedule configuration**. Both are delivered as injected React widgets on the integration detail page (see [SPEC-045a §9](./SPEC-045a-foundation.md#9-widget-injection-for-integration-configuration)).
+
+### 6.1 Scheduler Widget — `data_sync.injection.scheduler`
+
+The `data_sync` hub module provides a **shared scheduler widget** that injects into every data sync integration's detail page. Admin can configure periodic sync schedules per integration.
+
+#### SyncSchedule Entity
+
+```typescript
+@Entity({ tableName: 'sync_schedules' })
+export class SyncSchedule extends BaseEntity {
+  @Property()
+  integrationId!: string  // e.g., 'sync_medusa_products'
+
+  @Property()
+  entityType!: string  // e.g., 'catalog.product'
+
+  @Property({ length: 20 })
+  direction!: 'import' | 'export'
+
+  @Property({ default: false })
+  isEnabled!: boolean
+
+  /** Cron expression for scheduling (e.g., '0 */6 * * *' for every 6 hours) */
+  @Property({ length: 100 })
+  cronExpression!: string
+
+  /** Human-readable label (e.g., 'Every 6 hours', 'Daily at 2am') */
+  @Property({ nullable: true })
+  label?: string
+
+  /** Whether to run a full sync or delta sync */
+  @Property({ default: false })
+  fullSync!: boolean
+
+  @Property({ nullable: true })
+  lastRunAt?: Date
+
+  @Property({ nullable: true })
+  nextRunAt?: Date
+
+  @Property()
+  organizationId!: string
+
+  @Property()
+  tenantId!: string
+
+  @Unique({ properties: ['integrationId', 'entityType', 'direction', 'organizationId', 'tenantId'] })
+  _unique!: never
+}
+```
+
+#### Scheduler Widget UI
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ── Sync Schedule ──────────────────────────────────────────────── │
+│                                                                     │
+│  Import Products                              [Enabled ●]           │
+│                                                                     │
+│  Frequency: [Every 6 hours ▾]                                      │
+│                                                                     │
+│  Presets:                                                           │
+│  ( ) Every 15 minutes    ( ) Every hour    (●) Every 6 hours       │
+│  ( ) Every 12 hours      ( ) Daily at 2am  ( ) Custom cron         │
+│                                                                     │
+│  Custom cron: [0 */6 * * *                  ]                       │
+│                                                                     │
+│  Sync mode:                                                         │
+│  (●) Delta sync — only changes since last run                      │
+│  ( ) Full sync — reimport everything                                │
+│                                                                     │
+│  Last run: 2 hours ago (12,340 items, 0 failures)                  │
+│  Next run: in 4 hours                                               │
+│                                                                     │
+│  [Run Now]                                            [Save]        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Injection Table — Hub Level
+
+The scheduler widget is injected by the `data_sync` **hub** module, so it appears on every data sync integration's detail page automatically:
+
+```typescript
+// data_sync/widgets/injection-table.ts
+
+export const injectionTable: ModuleInjectionTable = {
+  'integrations.detail.data_sync:tabs': [
+    {
+      widgetId: 'data_sync.injection.scheduler',
+      kind: 'tab',
+      groupLabel: 'data_sync.tabs.scheduler',
+      priority: 80,
+    },
+  ],
+}
+```
+
+#### Scheduler Worker
+
+A scheduled worker runs every minute, checks which `SyncSchedule` entries are due, and enqueues sync jobs:
+
+```typescript
+// data_sync/workers/sync-scheduler.ts
+
+export const metadata: WorkerMeta = {
+  queue: 'data-sync-scheduler',
+  id: 'data-sync-scheduler',
+  concurrency: 1,
+  schedule: '* * * * *',  // Every minute
+}
+
+export default async function handler(job: Job, ctx: WorkerContext) {
+  const now = new Date()
+  const dueSchedules = await ctx.em.find(SyncSchedule, {
+    isEnabled: true,
+    nextRunAt: { $lte: now },
+  })
+
+  for (const schedule of dueSchedules) {
+    // Create a SyncRun + enqueue to the import/export worker
+    const syncRun = await createSyncRun({
+      integrationId: schedule.integrationId,
+      entityType: schedule.entityType,
+      direction: schedule.direction,
+      triggeredBy: 'scheduler',
+      cursor: schedule.fullSync ? undefined : await getLastCursor(schedule, ctx.em),
+      organizationId: schedule.organizationId,
+      tenantId: schedule.tenantId,
+    }, ctx)
+
+    await ctx.enqueueJob(`data-sync-${schedule.direction}`, {
+      syncRunId: syncRun.id,
+      organizationId: schedule.organizationId,
+    })
+
+    // Update schedule — calculate next run from cron
+    schedule.lastRunAt = now
+    schedule.nextRunAt = getNextCronDate(schedule.cronExpression, now)
+  }
+
+  await ctx.em.flush()
+}
+```
+
+#### Scheduler API
+
+```
+GET  /api/data-sync/schedules?integrationId=sync_medusa_products
+POST /api/data-sync/schedules                     # Create/update schedule
+PUT  /api/data-sync/schedules/:id                 # Update schedule
+DELETE /api/data-sync/schedules/:id               # Remove schedule
+POST /api/data-sync/schedules/:id/run-now         # Trigger immediate sync
+```
+
+### 6.2 Mapping Configuration Widget
+
+Each data sync **provider** module injects its own mapping configuration widget. The mapping widget is provider-specific because different sources have different schemas and field discovery mechanisms.
+
+```typescript
+// sync_medusa/widgets/injection-table.ts
+
+export const injectionTable: ModuleInjectionTable = {
+  'integrations.detail:tabs': [
+    {
+      widgetId: 'sync_medusa.injection.mapping-config',
+      kind: 'tab',
+      groupLabel: 'integrations.tabs.settings',
+      priority: 100,
+    },
+  ],
+}
+```
+
+The mapping widget reads the adapter's default mapping via `GET /api/data-sync/mappings?integrationId=...`, lets the admin customize it, and saves via `PUT /api/data-sync/mappings/:id`. The `SyncMapping` entity (§4.4) stores the customized mapping.
+
+---
+
+## 7. Reference Implementation 2 — `sync_excel` (File Upload)
+
+The MedusaJS bundle demonstrates API-based sync. The `sync_excel` module is a **zero-dependency example** that demonstrates **file-upload-based sync** — admin uploads an Excel/CSV file, configures column mapping, and imports data. No external API keys required, making it ideal for testing and demos.
+
+### 7.1 How It Works
+
+```
+Admin uploads file → Preview rows → Configure mapping → Start import
+     ▲                                                       │
+     │                                                       ▼
+     │                                          Queue worker processes
+     │                                          rows via DataSyncAdapter
+     │                                          with ProgressService
+     │                                                       │
+     └───────────────────────────────────────────────────────┘
+                        View progress in ProgressTopBar
+```
+
+### 7.2 Module Structure
+
+```
+packages/core/src/modules/sync_excel/
+├── index.ts
+├── integration.ts                    # Single integration, no bundle needed
+├── setup.ts                          # Register adapter
+├── di.ts
+├── lib/
+│   ├── adapters/
+│   │   ├── products.ts               # DataSyncAdapter for products
+│   │   └── customers.ts              # DataSyncAdapter for customers
+│   ├── parser.ts                     # Excel/CSV file parser (xlsx + csv)
+│   ├── column-detector.ts            # Auto-detect column → field mapping
+│   └── health.ts                     # Always healthy (no external API)
+├── data/
+│   ├── entities.ts                   # ExcelUpload (tracks uploaded files)
+│   └── validators.ts
+├── api/
+│   ├── post/sync-excel/upload.ts     # Upload file + store temporarily
+│   ├── get/sync-excel/preview.ts     # Preview first N rows + detected columns
+│   ├── post/sync-excel/import.ts     # Start import from uploaded file
+│   └── get/sync-excel/templates.ts   # Download template files
+├── widgets/
+│   ├── injection-table.ts
+│   └── injection/
+│       └── upload-config/
+│           ├── widget.ts             # Widget metadata + event handlers
+│           └── widget.client.tsx     # File upload + mapping UI
+└── i18n/
+    ├── en.ts
+    └── pl.ts
+```
+
+### 7.3 Integration Definition
+
+```typescript
+// sync_excel/integration.ts
+
+export const integration: IntegrationDefinition = {
+  id: 'sync_excel',
+  title: 'Excel / CSV Import',
+  description: 'Import products, customers, and other data from Excel (.xlsx) or CSV files.',
+  category: 'data_sync',
+  hub: 'data_sync',
+  providerKey: 'excel',
+  icon: 'file-spreadsheet',
+  version: '1.0.0',
+  author: 'Open Mercato Team',
+  license: 'MIT',
+  tags: ['excel', 'csv', 'file-upload', 'import', 'spreadsheet'],
+  credentials: { fields: [] },  // No credentials needed — file upload only
+}
+```
+
+### 7.4 File Upload API
+
+```typescript
+// sync_excel/api/post/sync-excel/upload.ts
+
+/** Accept multipart/form-data with a single file */
+export const openApi = {
+  summary: 'Upload Excel or CSV file for import',
+  tags: ['Data Sync', 'Excel'],
+  requestBody: { content: { 'multipart/form-data': { /* file field */ } } },
+}
+
+export default async function handler(req: ApiRequest) {
+  const file = await parseMultipartFile(req, {
+    maxSize: 50 * 1024 * 1024,  // 50MB limit
+    allowedTypes: [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  // .xlsx
+      'text/csv',  // .csv
+      'application/vnd.ms-excel',  // .xls (legacy)
+    ],
+  })
+
+  // Store file temporarily (local storage, cleaned up after 24h)
+  const upload = await storeTemporaryUpload(file, ctx)
+
+  // Parse headers and first 5 rows for preview
+  const preview = await parsePreview(file, { maxRows: 5 })
+
+  return Response.json({
+    uploadId: upload.id,
+    filename: file.name,
+    fileSize: file.size,
+    sheetNames: preview.sheetNames,
+    columns: preview.columns,        // Detected column names
+    sampleRows: preview.sampleRows,  // First 5 rows
+    totalRows: preview.totalRows,    // Estimated row count
+    detectedMapping: preview.detectedMapping,  // Auto-detected field mapping
+  })
+}
+```
+
+### 7.5 Mapping Configuration Widget
+
+The `sync_excel` module injects a configuration widget with a file upload UI + column mapping editor:
+
+```typescript
+// sync_excel/widgets/injection-table.ts
+
+export const injectionTable: ModuleInjectionTable = {
+  'integrations.detail:tabs': [
+    {
+      widgetId: 'sync_excel.injection.upload-config',
+      kind: 'tab',
+      groupLabel: 'sync_excel.tabs.import',
+      priority: 100,
+    },
+  ],
+}
+```
+
+#### Upload & Mapping Widget UI
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ── Import from Excel / CSV ───────────────────────────────────── │
+│                                                                     │
+│  Entity: [Products ▾]                                               │
+│                                                                     │
+│  ┌─ Step 1: Upload File ──────────────────────────────────────┐    │
+│  │                                                             │    │
+│  │  [📄 Drop file here or click to browse]                    │    │
+│  │                                                             │    │
+│  │  Accepted: .xlsx, .csv (max 50MB)                          │    │
+│  │  [Download Template: Products.xlsx]                         │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ┌─ Step 2: Configure Mapping ────────────────────────────────┐    │
+│  │  File: products-2026.xlsx (Sheet 1, 1,234 rows)            │    │
+│  │                                                             │    │
+│  │  Excel Column        →    Local Field       Transform      │    │
+│  │  ─────────────────────────────────────────────────────────  │    │
+│  │  "Product Name"      →    [Title ▾]         [— none — ▾]  │    │
+│  │  "SKU"               →    [SKU ▾]           [— none — ▾]  │    │
+│  │  "Price"             →    [Base Price ▾]    [— none — ▾]  │    │
+│  │  "Description"       →    [Description ▾]   [— none — ▾]  │    │
+│  │  "Category"          →    [— skip — ▾]      [— none — ▾]  │    │
+│  │  "Image URL"         →    [Image URL ▾]     [— none — ▾]  │    │
+│  │                                                             │    │
+│  │  Match existing by: (●) SKU  ( ) External ID  ( ) Name    │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ┌─ Step 3: Preview ──────────────────────────────────────────┐    │
+│  │  │ Title       │ SKU    │ Price  │ Description │ Action   │    │
+│  │  ├─────────────┼────────┼────────┼─────────────┼──────────│    │
+│  │  │ Widget Pro  │ WP-001 │ 29.99  │ A nice...   │ Create   │    │
+│  │  │ Gadget Max  │ GM-002 │ 49.99  │ Best...     │ Update   │    │
+│  │  │ Thingamajig │ TM-003 │ 9.99   │ Small...    │ Create   │    │
+│  │  Showing 3 of 1,234 rows                                   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│                                              [Start Import]         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 7.6 DataSyncAdapter — File-Based Import
+
+```typescript
+// sync_excel/lib/adapters/products.ts
+
+export const excelProductsAdapter: DataSyncAdapter = {
+  providerKey: 'excel_products',
+  direction: 'import',
+  supportedEntities: ['catalog.product'],
+
+  async *streamImport(input: StreamImportInput): AsyncIterable<ImportBatch> {
+    // The file is referenced via input.credentials.uploadId
+    const uploadId = input.credentials.uploadId as string
+    const parser = await openFileParser(uploadId)
+    let batchIndex = 0
+    let rowOffset = 0
+
+    // Resume from cursor (row number)
+    if (input.cursor) {
+      rowOffset = parseInt(input.cursor, 10)
+      await parser.skipRows(rowOffset)
+    }
+
+    while (parser.hasMore()) {
+      const rows = await parser.readBatch(input.batchSize)
+
+      const items: ImportItem[] = rows.map(row => ({
+        externalId: row[input.mapping.matchField ?? 'sku'] ?? `row-${rowOffset + rows.indexOf(row)}`,
+        data: row,
+        action: 'create',  // Determined later by entity writer using match strategy
+        hash: computeRowHash(row),
+      }))
+
+      rowOffset += rows.length
+
+      yield {
+        items,
+        cursor: String(rowOffset),
+        hasMore: parser.hasMore(),
+        totalEstimate: parser.totalRows,
+        batchIndex: batchIndex++,
+      }
+    }
+  },
+
+  async getMapping(): Promise<DataMapping> {
+    return {
+      entityType: 'catalog.product',
+      matchStrategy: 'sku',
+      matchField: 'sku',
+      fields: [
+        { externalField: 'Product Name', localField: 'title' },
+        { externalField: 'SKU', localField: 'sku' },
+        { externalField: 'Price', localField: 'basePrice' },
+        { externalField: 'Description', localField: 'description' },
+        { externalField: 'Image URL', localField: 'imageUrl' },
+      ],
+    }
+  },
+
+  async validateConnection(): Promise<ValidationResult> {
+    return { valid: true, message: 'File upload — no connection needed.' }
+  },
+}
+```
+
+### 7.7 Column Auto-Detection
+
+The parser detects column names from the first row and suggests mappings using fuzzy matching:
+
+```typescript
+// sync_excel/lib/column-detector.ts
+
+const FIELD_ALIASES: Record<string, string[]> = {
+  title: ['product name', 'name', 'title', 'product title', 'item name'],
+  sku: ['sku', 'product code', 'code', 'article number', 'item number'],
+  basePrice: ['price', 'unit price', 'base price', 'retail price', 'cost'],
+  description: ['description', 'product description', 'details', 'info'],
+  imageUrl: ['image', 'image url', 'photo', 'picture', 'thumbnail'],
+  isActive: ['active', 'status', 'enabled', 'published', 'visible'],
+}
+
+export function detectMapping(columns: string[], entityType: string): FieldMapping[] {
+  return columns.map(col => {
+    const normalized = col.toLowerCase().trim()
+    for (const [localField, aliases] of Object.entries(FIELD_ALIASES)) {
+      if (aliases.includes(normalized)) {
+        return { externalField: col, localField }
+      }
+    }
+    return { externalField: col, localField: '' }  // Unmapped — admin configures
+  })
+}
+```
+
+### 7.8 Template Downloads
+
+Admin can download a pre-formatted template file for the entity type they want to import:
+
+```
+GET /api/sync-excel/templates?entityType=catalog.product
+
+→ 200: Excel file with correct column headers and 3 example rows
+```
+
+### 7.9 Integration Tests (sync_excel)
+
+| Test | Method | Assert |
+|------|--------|--------|
+| Upload valid Excel file | POST `/api/sync-excel/upload` | Returns uploadId, columns, sample rows, detected mapping |
+| Upload valid CSV file | POST `/api/sync-excel/upload` | Same as Excel — parser handles both |
+| Reject oversized file | POST `/api/sync-excel/upload` (60MB) | 413 error |
+| Reject invalid file type | POST `/api/sync-excel/upload` (.pdf) | 422 error |
+| Preview with auto-detected mapping | GET `/api/sync-excel/preview?uploadId=...` | Columns matched to local fields |
+| Import from uploaded file | POST `/api/sync-excel/import` | SyncRun created, items imported, ProgressJob tracks progress |
+| Resume after failure | Import with cursor | Skips already-processed rows |
+| Download template | GET `/api/sync-excel/templates?entityType=catalog.product` | Returns .xlsx with correct headers |
+| Column detection | Service | Known column names mapped to correct local fields |
+| Scheduler creates Excel sync run | Worker | Schedule with `integrationId: sync_excel` triggers import |
+
+---
+
+## 8. Performance Considerations
+
+### 8.1 Batch Size Tuning
 
 | Entity Type | Default Batch | Rationale |
 |-------------|--------------|-----------|
@@ -1469,7 +1955,7 @@ T6                                    Staff processes refund            LOCAL
 | Orders | 50 | Large payloads with line items, payments |
 | Inventory | 500 | Tiny payloads (warehouse + qty) |
 
-### 6.2 Concurrency Control
+### 8.2 Concurrency Control
 
 ```typescript
 // Worker concurrency settings
@@ -1484,7 +1970,7 @@ export const metadata: WorkerMeta = {
 - Entity writer uses `em.transactional()` per batch — not per item
 - Batches are flushed to DB in a single transaction (all-or-nothing per batch)
 
-### 6.3 Memory Efficiency
+### 8.3 Memory Efficiency
 
 The async iterable pattern ensures only **one batch is in memory at a time**:
 
@@ -1493,7 +1979,7 @@ External API  →  [Batch 1]  →  process  →  flush to DB  →  GC  →  [Bat
                   ↑ only this is in memory at any time
 ```
 
-### 6.4 Rate Limiting
+### 8.4 Rate Limiting
 
 The adapter is responsible for respecting external API rate limits. The hub provides a utility:
 
@@ -1507,7 +1993,7 @@ export function createRateLimiter(requestsPerSecond: number) {
 
 ---
 
-## 7. Integration Test Coverage
+## 9. Integration Test Coverage
 
 | Test | Method | Assert |
 |------|--------|--------|
@@ -1531,3 +2017,9 @@ export function createRateLimiter(requestsPerSecond: number) {
 | Save custom mapping | PUT `/api/data-sync/mappings/:id` | SyncMapping persisted, used by subsequent sync runs |
 | External ID mapping store + lookup | Service | `storeExternalIdMapping` → `lookupLocalId` / `lookupExternalId` roundtrip |
 | Loop prevention via origin tagging | Subscriber + Worker | Inbound webhook sets `_syncOrigin`, outbound subscriber skips matching origin |
+| Create sync schedule | POST `/api/data-sync/schedules` | Schedule created with cron expression, `nextRunAt` calculated |
+| Scheduler worker fires due sync | Worker | SyncRun created + enqueued when `nextRunAt <= now`, `nextRunAt` updated |
+| Scheduler delta sync uses last cursor | Worker | Scheduled sync reads last `SyncCursor` for delta, not full sync |
+| Scheduler full sync ignores cursor | Worker | Schedule with `fullSync: true` starts from zero |
+| Disable schedule | PUT `/api/data-sync/schedules/:id` with `isEnabled: false` | Scheduler worker skips disabled schedules |
+| Run Now from schedule | POST `/api/data-sync/schedules/:id/run-now` | Immediate SyncRun created, schedule `lastRunAt` updated |

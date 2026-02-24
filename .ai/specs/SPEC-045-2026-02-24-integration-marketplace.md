@@ -105,9 +105,10 @@ The full spec is split into focused phase documents:
 
 ### Provider-Specific Specifications
 
-| Spec | Provider | Goal |
-|------|----------|------|
-| [SPEC-045g — Google Workspace](./SPEC-045g-google-workspace.md) | Google | Spreadsheet product import with field mapping, Google OAuth, step-by-step setup guide |
+| Spec | Provider | Category | Goal |
+|------|----------|----------|------|
+| [SPEC-045g — Google Workspace](./SPEC-045g-google-workspace.md) | Google | Data Sync | Spreadsheet product import with field mapping, Google OAuth, step-by-step setup guide |
+| [SPEC-045h — Stripe Payment Gateway](./SPEC-045h-stripe-payment-gateway.md) | Stripe | Payment | Reference payment gateway: versioned adapters, webhook processing, widget injection for config |
 
 ---
 
@@ -297,3 +298,8 @@ Becomes `communication_channels` hub. WhatsApp becomes first spoke. See [SPEC-04
 | 2026-02-24 | Added OAuth 2.0 credential type (SPEC-045a §8): per-integration OAuth apps, authorization code + PKCE flow, encrypted token storage, background refresh worker, re-auth detection |
 | 2026-02-24 | Added SSH key credential type (SPEC-045a §10): key-pair generation, public key display, private key encrypted storage, fingerprint tracking |
 | 2026-02-24 | Added SPEC-045g — Google Workspace provider spec: end-to-end OAuth + Sheets product import with field mapping |
+| 2026-02-24 | Added widget injection for integration configuration (SPEC-045a §9): provider modules inject React config widgets into the integration detail page via standard injection spots |
+| 2026-02-24 | Added scheduler widget to SPEC-045b (§6.1): `SyncSchedule` entity, cron-based periodic sync, scheduler worker, scheduler API, "Run Now" action |
+| 2026-02-24 | Added Excel/CSV file upload example (SPEC-045b §7): zero-dependency `sync_excel` module demonstrating file-upload-based data sync with column auto-detection, preview, and mapping UI |
+| 2026-02-24 | Added SPEC-045h — Stripe Payment Gateway: reference provider implementation with versioned adapters, webhook processing, config widget injection, health check, and full integration test coverage |
+| 2026-02-24 | Updated SPEC-045b to use progress module (SPEC-004 / PR #645): `SyncRun` delegates progress tracking to `ProgressJob` via `progressJobId`, sync engine uses `ProgressService` for percent/ETA/heartbeat/stale detection, progress visible in `ProgressTopBar` automatically |

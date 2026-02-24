@@ -1586,6 +1586,140 @@ Utilities in `integrations/lib/ssh-utils.ts`: `generateSshKeypair()`, `computeSs
 
 ---
 
+## 9. Widget Injection for Integration Configuration
+
+### 9.1 Problem
+
+The credential fields (`text`, `secret`, `select`, `boolean`, `oauth`, `ssh_keypair`) handle authentication. But many integrations need **custom configuration UI** beyond credentials — field mapping for data sync, scheduler setup for periodic imports, payment capture mode selectors, shipping service pickers, etc.
+
+Hard-coding configuration UIs in the integrations module would couple it to every category. Instead, each provider module **injects** a React configuration widget into the integration detail page via the standard **widget injection** system.
+
+### 9.2 Solution — Injection Spots on Integration Detail Page
+
+The integration detail page (`/backend/integrations/[id]`) exposes widget injection spots. Provider modules inject their configuration widgets using `injection-table.ts`. The host page renders them as **tabs** on the integration detail page.
+
+#### Spot ID Convention
+
+```
+integrations.detail:settings          # General settings section (all integrations)
+integrations.detail:tabs              # Additional tabs on the detail page
+integrations.detail.[category]:settings  # Category-specific (e.g., integrations.detail.data_sync:settings)
+```
+
+The host page passes an `IntegrationDetailContext` to all injected widgets:
+
+```typescript
+interface IntegrationDetailContext {
+  integrationId: string       // e.g., 'sync_medusa_products'
+  bundleId?: string           // e.g., 'sync_medusa' (if part of a bundle)
+  category: string            // e.g., 'data_sync', 'payment', 'shipping'
+  hub: string                 // e.g., 'data_sync', 'payment_gateways'
+  providerKey: string         // e.g., 'medusa_products', 'stripe'
+  isEnabled: boolean
+  credentials: Record<string, unknown>  // Masked credentials (secrets replaced with ••••)
+  organizationId: string
+  tenantId: string
+}
+```
+
+### 9.3 Integration Detail Page — Tab Layout with Injected Widgets
+
+The detail page renders fixed tabs (Credentials, Version, Health, Logs) plus **injected tabs** from provider modules:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ← Back to Integrations                                             │
+│                                                                     │
+│  [Medusa Icon]  MedusaJS — Products             [Enabled ●]        │
+│                                                                     │
+│  [Credentials] [Settings] [Scheduler] [Version] [Health] [Logs]    │
+│                  ▲           ▲                                      │
+│                  │           └── Injected by data_sync hub          │
+│                  └── Injected by sync_medusa provider               │
+│                                                                     │
+│  ── Settings (injected widget) ─────────────────────────────────── │
+│  [Provider-specific configuration UI rendered here]                 │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.4 Widget Injection Examples by Category
+
+**Data Sync providers** inject:
+- **Mapping widget** — field mapping editor (source fields → local fields, transforms)
+- **Scheduler widget** — cron schedule configuration for periodic syncs (see SPEC-045b)
+
+**Payment providers** inject:
+- **Capture mode** — automatic vs manual capture selector
+- **Payment types** — which payment methods to accept (cards, wallets, bank transfers)
+
+**Shipping providers** inject:
+- **Service picker** — which shipping services to enable (express, standard, etc.)
+- **Label format** — PDF vs ZPL vs PNG preference
+- **Warehouse addresses** — pickup locations
+
+**Storage providers** inject:
+- **Bucket config** — bucket name, region, path prefix
+- **Upload limits** — max file size, allowed MIME types
+
+### 9.5 Example — Data Sync Provider Injection Table
+
+```typescript
+// sync_medusa/widgets/injection-table.ts
+
+export const injectionTable: ModuleInjectionTable = {
+  'integrations.detail:tabs': [
+    {
+      widgetId: 'sync_medusa.injection.mapping-config',
+      kind: 'tab',
+      groupLabel: 'integrations.tabs.settings',
+      priority: 100,
+    },
+  ],
+}
+```
+
+```typescript
+// sync_medusa/widgets/injection/mapping-config/widget.ts
+
+const widget: InjectionWidgetModule<IntegrationDetailContext> = {
+  metadata: {
+    id: 'sync_medusa.injection.mapping-config',
+    title: 'Medusa Sync Settings',
+    features: ['data_sync.configure'],
+    priority: 100,
+  },
+  Widget: MedusaMappingConfigWidget,
+  eventHandlers: {
+    onBeforeSave: async (data, context) => {
+      // Validate mapping configuration
+      if (!data.fields?.length) {
+        return { ok: false, message: 'At least one field mapping is required' }
+      }
+      return { ok: true }
+    },
+    onSave: async (data, context) => {
+      // Save mapping via PUT /api/data-sync/mappings/:id
+    },
+  },
+}
+```
+
+### 9.6 Bundle-Level vs Integration-Level Settings
+
+For **bundles**, there are two levels of widget injection:
+
+1. **Bundle detail page** (`/backend/integrations/bundle/[id]`) — widgets injected here apply to the whole bundle (e.g., shared API settings)
+2. **Per-integration detail page** — widgets injected here apply to a single integration within the bundle (e.g., product-specific mapping)
+
+The spot IDs distinguish them:
+```
+integrations.bundle:tabs              # Bundle-level tabs
+integrations.detail:tabs              # Integration-level tabs
+```
+
+---
+
 ## 11. Implementation Steps
 
 1. Create `@open-mercato/shared/modules/integrations/types.ts` — all shared types including `IntegrationBundle`, `ApiVersionDefinition`, `CredentialFieldOAuth`, `CredentialFieldSshKeypair`

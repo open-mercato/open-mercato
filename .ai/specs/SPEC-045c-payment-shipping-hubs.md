@@ -13,6 +13,8 @@ Align the existing `payment_gateways` hub (SPEC-044) with the integration framew
 
 ## 1. Payment Gateways — Marketplace Alignment
 
+**Reference implementation**: [SPEC-045h — Stripe Payment Gateway](./SPEC-045h-stripe-payment-gateway.md) — full end-to-end example with versioned adapters, webhook processing, widget injection for config, and integration tests.
+
 See SPEC-044 §17 for full details. Summary of changes:
 
 1. Provider modules (`gateway_stripe`, `gateway_payu`, `gateway_przelewy24`) declare `integration.ts`
