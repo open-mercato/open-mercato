@@ -1,15 +1,15 @@
-name: Develop Release
+name: Snapshot Release
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
 
 permissions:
   contents: read
 
 jobs:
-  develop:
-    name: Publish Develop
+  snapshot:
+    name: Publish Snapshot
     runs-on: ubuntu-latest
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -38,5 +38,5 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Release develop
-        run: ./scripts/release-develop.sh
+      - name: Release snapshot
+        run: ./scripts/release-snapshot.sh
