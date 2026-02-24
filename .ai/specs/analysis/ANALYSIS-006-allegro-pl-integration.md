@@ -1,4 +1,4 @@
-# ANALYSIS-001 — Allegro.pl Integration Feasibility
+# ANALYSIS-006 — Allegro.pl Integration Feasibility
 
 | Field | Value |
 |-------|-------|
