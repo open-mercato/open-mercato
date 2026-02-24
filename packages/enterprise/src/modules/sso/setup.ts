@@ -5,7 +5,7 @@ import { SsoConfig } from './data/entities'
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     superadmin: ['sso.*'],
-    admin: ['sso.config.view', 'sso.config.manage'],
+    admin: ['sso.config.view', 'sso.config.manage', 'sso.scim.manage'],
   },
 
   async seedDefaults({ em, tenantId, organizationId, container }) {
