@@ -471,6 +471,7 @@ const updateProductUnitConversionCommand: CommandHandler<
       CatalogProductUnitConversion,
       { id: before.id, deletedAt: null },
     );
+    let undoAction: "updated" | "created" = "updated";
     if (!record) {
       record = em.create(CatalogProductUnitConversion, {
         id: before.id,
@@ -488,6 +489,7 @@ const updateProductUnitConversionCommand: CommandHandler<
         updatedAt: new Date(before.updatedAt),
       });
       em.persist(record);
+      undoAction = "created";
     }
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
@@ -496,7 +498,7 @@ const updateProductUnitConversionCommand: CommandHandler<
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitConversionCrudUndoChange({
       dataEngine,
-      action: "updated",
+      action: undoAction,
       conversion: record,
     });
   },
