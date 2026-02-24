@@ -2,7 +2,7 @@
 
 **Parent**: [SPEC-045 — Integration Marketplace](./SPEC-045-2026-02-24-integration-marketplace.md)
 **Phase**: 2 of 6
-**Depends on**: [SPEC-004 — Progress Module](./SPEC-004-2026-01-23-progress-module.md)
+**Depends on**: [SPEC-004 — Progress Module](./SPEC-004-2026-01-23-progress-module.md), `packages/scheduler` (SchedulerService)
 
 ---
 
@@ -186,7 +186,7 @@ packages/core/src/modules/data_sync/
 │   ├── rate-limiter.ts          # Token-bucket rate limiter for external API throttling
 │   └── entity-writer.ts         # Generic entity upsert using mapping
 ├── data/
-│   ├── entities.ts              # SyncRun, SyncCursor, SyncMapping, SyncExternalIdMapping, SyncSchedule
+│   ├── entities.ts              # SyncRun, SyncCursor, SyncMapping, SyncExternalIdMapping, SyncSchedule (links to ScheduledJob via scheduledJobId)
 │   └── validators.ts
 ├── api/
 │   ├── post/data-sync/run.ts    # Start a sync run
@@ -197,10 +197,13 @@ packages/core/src/modules/data_sync/
 │   ├── get/data-sync/mappings.ts      # List configured mappings
 │   ├── put/data-sync/mappings/[id].ts # Save mapping config
 │   └── post/data-sync/validate.ts     # Validate connection + mapping
+├── lib/
+│   ├── ...
+│   └── sync-schedule-service.ts # SyncSchedule CRUD + schedulerService.register() sync
 ├── workers/
 │   ├── sync-import.ts           # Import worker — drives streamImport
 │   ├── sync-export.ts           # Export worker — drives streamExport
-│   └── sync-scheduler.ts        # Scheduled worker — checks SyncSchedule, enqueues due syncs
+│   └── sync-scheduled.ts        # Receives scheduler dispatch, creates SyncRun, enqueues import/export
 ├── widgets/
 │   ├── injection-table.ts       # Injects scheduler widget into all data_sync integrations
 │   └── injection/
@@ -1469,11 +1472,59 @@ T6                                    Staff processes refund            LOCAL
 
 Every data sync integration needs two things beyond credentials: **field mapping configuration** and **schedule configuration**. Both are delivered as injected React widgets on the integration detail page (see [SPEC-045a §9](./SPEC-045a-foundation.md#9-widget-injection-for-integration-configuration)).
 
-### 6.1 Scheduler Widget — `data_sync.injection.scheduler`
+### 6.1 Scheduler Integration — `data_sync.injection.scheduler`
 
-The `data_sync` hub module provides a **shared scheduler widget** that injects into every data sync integration's detail page. Admin can configure periodic sync schedules per integration.
+The `data_sync` hub module provides a **shared scheduler widget** that injects into every data sync integration's detail page. Admin can configure periodic sync schedules per integration. The scheduler uses the platform's `packages/scheduler` infrastructure — it does NOT implement its own cron polling loop.
+
+#### Architecture — How the Scheduler Runs Data Sync Tasks
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│  HOW A SCHEDULED SYNC RUNS — END TO END                                    │
+│                                                                            │
+│  1. CONFIGURATION (Admin UI)                                               │
+│     Admin enables schedule on integration detail page                      │
+│     → POST /api/data-sync/schedules saves SyncSchedule entity             │
+│     → syncScheduleService.syncToScheduler() registers with                │
+│       schedulerService.register() from packages/scheduler                 │
+│     → ScheduledJob row created in scheduled_jobs table                    │
+│     → BullMQ repeatable job registered (async strategy)                   │
+│       or polling picks it up (local strategy)                              │
+│                                                                            │
+│  2. TRIGGER (packages/scheduler)                                           │
+│     When cron fires (e.g., every 6 hours):                                 │
+│     → Scheduler dispatches to queue: 'data-sync-scheduled'                │
+│     → Payload: { syncScheduleId, organizationId, tenantId }               │
+│                                                                            │
+│  3. EXECUTION (data_sync worker)                                           │
+│     sync-scheduled worker picks up job:                                    │
+│     → Loads SyncSchedule from DB                                           │
+│     → Resolves cursor (delta or full sync)                                 │
+│     → Creates a new SyncRun entity                                         │
+│     → Enqueues to 'data-sync-import' or 'data-sync-export' queue          │
+│     → Updates SyncSchedule.lastRunAt                                       │
+│                                                                            │
+│  4. SYNC (existing import/export workers)                                  │
+│     Import/export worker processes the SyncRun:                            │
+│     → Resolves adapter, credentials, mapping                               │
+│     → Creates ProgressJob for progress tracking                            │
+│     → Streams batches, persists cursors, logs progress                    │
+│     → Completes/fails — same flow as manual sync                           │
+│                                                                            │
+│  ┌─────────┐    ┌────────────┐    ┌──────────────┐    ┌───────────────┐   │
+│  │  Admin   │───►│ Scheduler  │───►│ sync-sched   │───►│ sync-import   │   │
+│  │  Widget  │    │  Package   │    │   worker     │    │   worker      │   │
+│  └─────────┘    └────────────┘    └──────────────┘    └───────────────┘   │
+│   saves          fires cron        creates SyncRun     streams batches    │
+│   SyncSchedule   dispatches job    enqueues import     updates progress   │
+│   + registers    to queue          or export           persists cursors   │
+│   ScheduledJob                                                             │
+└───────────────────────────────────────────────────────────────────────────┘
+```
 
 #### SyncSchedule Entity
+
+Tracks the admin-configured schedule. This is the data_sync module's own entity — it acts as the **source of truth** for sync schedule configuration. Each `SyncSchedule` maps 1:1 to a `ScheduledJob` in the `packages/scheduler` system via `scheduledJobId`.
 
 ```typescript
 @Entity({ tableName: 'sync_schedules' })
@@ -1490,9 +1541,17 @@ export class SyncSchedule extends BaseEntity {
   @Property({ default: false })
   isEnabled!: boolean
 
-  /** Cron expression for scheduling (e.g., '0 */6 * * *' for every 6 hours) */
+  /** Schedule type: 'cron' for cron expressions, 'interval' for fixed intervals */
+  @Property({ length: 20, default: 'cron' })
+  scheduleType!: 'cron' | 'interval'
+
+  /** Cron expression (e.g., '0 */6 * * *') or interval string (e.g., '6h', '15m') */
   @Property({ length: 100 })
-  cronExpression!: string
+  scheduleValue!: string
+
+  /** Timezone for cron evaluation (default: 'UTC') */
+  @Property({ length: 50, default: 'UTC' })
+  timezone!: string
 
   /** Human-readable label (e.g., 'Every 6 hours', 'Daily at 2am') */
   @Property({ nullable: true })
@@ -1502,11 +1561,19 @@ export class SyncSchedule extends BaseEntity {
   @Property({ default: false })
   fullSync!: boolean
 
+  /** Reference to the ScheduledJob in packages/scheduler (for lifecycle sync) */
+  @Property({ nullable: true })
+  scheduledJobId?: string
+
   @Property({ nullable: true })
   lastRunAt?: Date
 
   @Property({ nullable: true })
   nextRunAt?: Date
+
+  /** Last SyncRun ID created by this schedule (for status display) */
+  @Property({ nullable: true })
+  lastSyncRunId?: string
 
   @Property()
   organizationId!: string
@@ -1519,6 +1586,415 @@ export class SyncSchedule extends BaseEntity {
 }
 ```
 
+> **Why a separate entity from `ScheduledJob`?** The `SyncSchedule` owns sync-specific semantics (entity type, direction, full vs delta sync, integration ID, last sync run reference). The `ScheduledJob` (from `packages/scheduler`) owns generic scheduling semantics (cron parsing, next-run calculation, BullMQ repeatable job registration, distributed locking). The `scheduledJobId` links the two — CRUD operations on `SyncSchedule` automatically sync to `ScheduledJob` via the `syncScheduleService`.
+
+#### Scheduler Integration — Registration Flow
+
+When a `SyncSchedule` is created or updated, the `syncScheduleService` registers (or updates) a corresponding `ScheduledJob` via the platform's `schedulerService`:
+
+```typescript
+// data_sync/lib/sync-schedule-service.ts
+
+export function createSyncScheduleService({
+  em,
+  schedulerService,
+  integrationLog,
+}: Dependencies) {
+  return {
+    /**
+     * Create or update a SyncSchedule and sync it to the platform scheduler.
+     * This is the only way schedules should be created — never insert SyncSchedule directly.
+     */
+    async upsert(input: SyncScheduleInput, scope: TenantScope): Promise<SyncSchedule> {
+      // 1. Upsert the SyncSchedule entity
+      let schedule = await em.findOne(SyncSchedule, {
+        integrationId: input.integrationId,
+        entityType: input.entityType,
+        direction: input.direction,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      })
+
+      if (schedule) {
+        wrap(schedule).assign(input)
+      } else {
+        schedule = em.create(SyncSchedule, {
+          ...input,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        })
+      }
+
+      await em.flush()
+
+      // 2. Sync to the platform scheduler
+      await this.syncToScheduler(schedule, scope)
+
+      return schedule
+    },
+
+    /**
+     * Register or update the corresponding ScheduledJob in packages/scheduler.
+     * Called after every SyncSchedule mutation (create, update, enable, disable).
+     */
+    async syncToScheduler(schedule: SyncSchedule, scope: TenantScope): Promise<void> {
+      const scheduledJobId = buildScheduledJobId(schedule)
+
+      await schedulerService.register({
+        id: scheduledJobId,
+        name: `Sync: ${schedule.integrationId} — ${schedule.entityType} (${schedule.direction})`,
+
+        // Scope — scheduler uses this for tenant isolation + RBAC
+        scopeType: 'tenant',
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+
+        // Schedule configuration — supports both cron and interval
+        scheduleType: schedule.scheduleType,      // 'cron' | 'interval'
+        scheduleValue: schedule.scheduleValue,     // e.g., '0 */6 * * *' or '6h'
+        timezone: schedule.timezone,               // e.g., 'UTC', 'Europe/Warsaw'
+
+        // Target — where the scheduler dispatches when the cron fires
+        targetType: 'queue',
+        targetQueue: 'data-sync-scheduled',       // The data_sync module's scheduling queue
+        targetPayload: {
+          syncScheduleId: schedule.id,
+          integrationId: schedule.integrationId,
+          entityType: schedule.entityType,
+          direction: schedule.direction,
+          fullSync: schedule.fullSync,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        },
+
+        // RBAC gate — only executes if tenant has the data_sync.run feature
+        requireFeature: 'data_sync.run',
+
+        // Metadata for scheduler UI and debugging
+        sourceType: 'module',
+        sourceModule: 'data_sync',
+
+        // Enable/disable — mirrors the SyncSchedule.isEnabled flag
+        isEnabled: schedule.isEnabled,
+      })
+
+      // Store the ScheduledJob reference for lifecycle sync
+      schedule.scheduledJobId = scheduledJobId
+      await em.flush()
+    },
+
+    /**
+     * Toggle a schedule on/off. Updates both SyncSchedule and ScheduledJob.
+     */
+    async setEnabled(scheduleId: string, isEnabled: boolean, scope: TenantScope): Promise<void> {
+      const schedule = await em.findOneOrFail(SyncSchedule, {
+        id: scheduleId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      })
+
+      schedule.isEnabled = isEnabled
+      await em.flush()
+
+      // Sync the enabled state to the platform scheduler
+      await this.syncToScheduler(schedule, scope)
+
+      const log = integrationLog.scoped(schedule.integrationId, schedule.id, scope)
+      await log.info(
+        isEnabled ? 'schedule.enabled' : 'schedule.disabled',
+        `Schedule ${isEnabled ? 'enabled' : 'disabled'}: ${schedule.scheduleValue} (${schedule.scheduleType})`,
+      )
+    },
+
+    /**
+     * Delete a schedule. Removes both SyncSchedule and the ScheduledJob.
+     */
+    async remove(scheduleId: string, scope: TenantScope): Promise<void> {
+      const schedule = await em.findOneOrFail(SyncSchedule, {
+        id: scheduleId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      })
+
+      // Remove the ScheduledJob from the platform scheduler
+      if (schedule.scheduledJobId) {
+        await schedulerService.remove(schedule.scheduledJobId)
+      }
+
+      await em.removeAndFlush(schedule)
+    },
+
+    /**
+     * Trigger an immediate "Run Now" — bypasses the scheduler, enqueues directly.
+     */
+    async runNow(scheduleId: string, scope: TenantScope): Promise<SyncRun> {
+      const schedule = await em.findOneOrFail(SyncSchedule, {
+        id: scheduleId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      })
+
+      return await this.createAndEnqueueSyncRun(schedule, scope, 'manual')
+    },
+
+    /**
+     * Create a SyncRun from a schedule and enqueue it.
+     * Used by both the scheduled worker and "Run Now".
+     */
+    async createAndEnqueueSyncRun(
+      schedule: SyncSchedule,
+      scope: TenantScope,
+      triggeredBy: 'scheduler' | 'manual',
+    ): Promise<SyncRun> {
+      // Resolve cursor: null for full sync, last cursor for delta
+      const cursor = schedule.fullSync
+        ? undefined
+        : await getLastCursor(schedule.integrationId, schedule.entityType, schedule.direction, em)
+
+      const syncRun = em.create(SyncRun, {
+        integrationId: schedule.integrationId,
+        entityType: schedule.entityType,
+        direction: schedule.direction,
+        status: 'pending',
+        cursor,
+        initialCursor: cursor,
+        triggeredBy,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      })
+
+      await em.flush()
+
+      // Enqueue to the existing import/export worker
+      await enqueueJob(`data-sync-${schedule.direction}`, {
+        syncRunId: syncRun.id,
+        organizationId: scope.organizationId,
+      })
+
+      // Update schedule tracking fields
+      schedule.lastRunAt = new Date()
+      schedule.lastSyncRunId = syncRun.id
+      await em.flush()
+
+      return syncRun
+    },
+  }
+}
+
+/** Deterministic ID for the ScheduledJob — ensures upsert works correctly */
+function buildScheduledJobId(schedule: SyncSchedule): string {
+  return `data_sync.schedule.${schedule.integrationId}.${schedule.entityType}.${schedule.direction}`
+}
+```
+
+#### Scheduled Execution Worker
+
+When the platform scheduler fires a cron trigger, it enqueues a job to the `data-sync-scheduled` queue. This worker picks it up, creates a `SyncRun`, and delegates to the existing import/export workers:
+
+```typescript
+// data_sync/workers/sync-scheduled.ts
+
+export const metadata: WorkerMeta = {
+  queue: 'data-sync-scheduled',
+  id: 'data-sync-scheduled-worker',
+  concurrency: 3,  // Allow up to 3 scheduled syncs to start simultaneously
+}
+
+export default async function handler(job: Job, ctx: WorkerContext) {
+  const { syncScheduleId, organizationId, tenantId } = job.data
+  const scope = { organizationId, tenantId }
+
+  // 1. Load the SyncSchedule (fresh — may have been modified since dispatch)
+  const schedule = await ctx.em.findOne(SyncSchedule, {
+    id: syncScheduleId,
+    organizationId,
+    tenantId,
+  })
+
+  if (!schedule) {
+    // Schedule was deleted between dispatch and execution — skip silently
+    return
+  }
+
+  if (!schedule.isEnabled) {
+    // Schedule was disabled between dispatch and execution — skip
+    return
+  }
+
+  // 2. Overlap prevention — check if a sync is already running for this schedule
+  const runningSync = await ctx.em.findOne(SyncRun, {
+    integrationId: schedule.integrationId,
+    entityType: schedule.entityType,
+    direction: schedule.direction,
+    status: { $in: ['pending', 'running'] },
+    organizationId,
+    tenantId,
+  })
+
+  if (runningSync) {
+    const log = ctx.integrationLog.scoped(schedule.integrationId, schedule.id, scope)
+    await log.info('schedule.skipped_overlap', `Skipped: a ${schedule.direction} sync is already ${runningSync.status}`, {
+      existingSyncRunId: runningSync.id,
+      existingStatus: runningSync.status,
+    })
+    return  // Don't stack up — skip this trigger
+  }
+
+  // 3. Create SyncRun and enqueue to the import/export worker
+  const syncScheduleService = ctx.container.resolve('syncScheduleService')
+  const syncRun = await syncScheduleService.createAndEnqueueSyncRun(schedule, scope, 'scheduler')
+
+  const log = ctx.integrationLog.scoped(schedule.integrationId, syncRun.id, scope)
+  await log.info('schedule.triggered', `Scheduled ${schedule.direction} sync started`, {
+    syncRunId: syncRun.id,
+    scheduleType: schedule.scheduleType,
+    scheduleValue: schedule.scheduleValue,
+    fullSync: schedule.fullSync,
+    cursor: syncRun.cursor ?? 'full-sync',
+  })
+}
+```
+
+#### Execution Flow — Step by Step
+
+Here's what happens when a scheduled sync fires:
+
+```
+TIME   COMPONENT                         ACTION
+─────  ─────────                         ──────
+T0     packages/scheduler                Cron '0 */6 * * *' fires for ScheduledJob
+       (BullMQ or local polling)         'data_sync.schedule.sync_medusa_products.catalog.product.import'
+
+T1     packages/scheduler                Dispatches job to queue: 'data-sync-scheduled'
+       execute-schedule.worker.ts        Payload: { syncScheduleId, integrationId, entityType, ... }
+       (concurrency: 5)                  Checks: isEnabled, requireFeature('data_sync.run'), scope integrity
+
+T2     data_sync module                  sync-scheduled worker picks up job
+       sync-scheduled.ts                 Loads SyncSchedule from DB (fresh read)
+       (concurrency: 3)                  Checks: schedule still enabled? overlap prevention?
+                                         If running sync exists → skip (log 'schedule.skipped_overlap')
+
+T3     data_sync module                  Creates new SyncRun (status: 'pending')
+       syncScheduleService               Resolves cursor: delta (from SyncCursor) or null (full sync)
+                                         Enqueues to 'data-sync-import' queue
+                                         Updates schedule.lastRunAt, schedule.lastSyncRunId
+
+T4     data_sync module                  Import worker picks up SyncRun job
+       sync-import.ts                    Creates ProgressJob (visible in ProgressTopBar)
+       (concurrency: 3)                  Resolves adapter, credentials, mapping
+
+T5     data_sync module                  Streams batches from adapter
+       sync-engine                       Per batch: process items, persist cursor, update progress
+                                         Item-level errors logged, sync continues
+
+T6     data_sync module                  Sync completes or fails
+       sync-engine                       SyncRun.status → 'completed' | 'failed'
+                                         ProgressJob → completed/failed
+                                         Event: 'data_sync.run.completed' | 'data_sync.run.failed'
+```
+
+#### Two Scheduler Strategies — How They Work
+
+The platform scheduler operates in two modes depending on the `QUEUE_STRATEGY` environment variable. The data_sync module is **unaware** of which strategy is active — it registers via `schedulerService.register()` and the scheduler handles the rest:
+
+**Local strategy** (development, no Redis):
+```
+SyncSchedule ──► schedulerService.register() ──► scheduled_jobs table
+                                                       │
+                                              LocalSchedulerService
+                                              polls every 30s
+                                              (SCHEDULER_POLL_INTERVAL_MS)
+                                                       │
+                                              PostgreSQL advisory lock
+                                              prevents duplicate firing
+                                                       │
+                                              enqueue to 'data-sync-scheduled'
+                                                       │
+                                              sync-scheduled worker processes
+```
+
+**Async strategy** (production, Redis + BullMQ):
+```
+SyncSchedule ──► schedulerService.register() ──► scheduled_jobs table
+                                                       │
+                                              BullMQSchedulerService
+                                              registers BullMQ repeatable job
+                                              in 'scheduler-execution' queue
+                                                       │
+                                              BullMQ handles timing,
+                                              distributed locking,
+                                              multi-instance dedup
+                                                       │
+                                              execute-schedule.worker.ts
+                                              enqueues to 'data-sync-scheduled'
+                                                       │
+                                              sync-scheduled worker processes
+```
+
+**Key difference**: In production (async), BullMQ guarantees that even if multiple Open Mercato instances are running, each cron trigger fires **exactly once** — no advisory locks or polling needed. In development (local), PostgreSQL advisory locks provide the same guarantee with polling.
+
+#### Overlap Prevention
+
+A critical concern for scheduled syncs: what happens if a sync takes longer than the schedule interval? E.g., a 6-hour sync scheduled every 6 hours.
+
+The `sync-scheduled` worker prevents overlap at **two levels**:
+
+1. **Skip if running**: Before creating a new SyncRun, the worker checks if a `SyncRun` with status `pending` or `running` already exists for the same integration + entity type + direction. If so, it logs `schedule.skipped_overlap` and returns — the next trigger will try again.
+
+2. **Idempotent scheduler dispatch**: The `packages/scheduler` uses an idempotency key per dispatch (based on `ScheduledJob.id` + trigger timestamp). Even if BullMQ delivers the same trigger twice, the worker's overlap check prevents duplicate SyncRuns.
+
+```
+Scenario: Sync takes 8 hours, schedule is every 6 hours
+
+T=0h   Trigger fires → SyncRun A created (status: running)
+T=6h   Trigger fires → Existing SyncRun A is 'running' → SKIP (logged)
+T=8h   SyncRun A completes → status: 'completed'
+T=12h  Trigger fires → No running sync → SyncRun B created ✓
+```
+
+#### DI Registration
+
+The `data_sync` module registers the `syncScheduleService` in its DI container and ensures the scheduler is wired up at startup:
+
+```typescript
+// data_sync/di.ts
+
+export function register(container: AwilixContainer) {
+  container.register({
+    syncScheduleService: asFunction(createSyncScheduleService).singleton(),
+    syncEngine: asFunction(createSyncEngine).singleton(),
+    syncRunService: asFunction(createSyncRunService).singleton(),
+  })
+}
+```
+
+```typescript
+// data_sync/setup.ts (addition)
+
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    superadmin: ['data_sync.*'],
+    admin: ['data_sync.view', 'data_sync.run', 'data_sync.configure'],
+  },
+
+  async onTenantCreated({ container, scope }) {
+    // Re-register all existing SyncSchedule entries with the platform scheduler.
+    // This handles app restart, new tenant creation, and scheduler cold-start sync.
+    const syncScheduleService = container.resolve('syncScheduleService')
+    const em = container.resolve('em')
+
+    const schedules = await em.find(SyncSchedule, {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    })
+
+    for (const schedule of schedules) {
+      await syncScheduleService.syncToScheduler(schedule, scope)
+    }
+  },
+}
+```
+
 #### Scheduler Widget UI
 
 ```
@@ -1527,24 +2003,29 @@ export class SyncSchedule extends BaseEntity {
 │                                                                     │
 │  Import Products                              [Enabled ●]           │
 │                                                                     │
-│  Frequency: [Every 6 hours ▾]                                      │
+│  Schedule type: (●) Cron  ( ) Interval                              │
 │                                                                     │
 │  Presets:                                                           │
 │  ( ) Every 15 minutes    ( ) Every hour    (●) Every 6 hours       │
-│  ( ) Every 12 hours      ( ) Daily at 2am  ( ) Custom cron         │
+│  ( ) Every 12 hours      ( ) Daily at 2am  ( ) Custom              │
 │                                                                     │
-│  Custom cron: [0 */6 * * *                  ]                       │
+│  Cron expression: [0 */6 * * *             ]                        │
+│  Timezone: [UTC ▾]                                                  │
 │                                                                     │
 │  Sync mode:                                                         │
 │  (●) Delta sync — only changes since last run                      │
 │  ( ) Full sync — reimport everything                                │
 │                                                                     │
-│  Last run: 2 hours ago (12,340 items, 0 failures)                  │
-│  Next run: in 4 hours                                               │
+│  ── Status ──────────────────────────────────────────────────────  │
+│  Last run: 2 hours ago (12,340 items, 0 failures) [View →]         │
+│  Next run: in 4 hours (2026-02-24 20:00 UTC)                       │
+│  Scheduled job: Active (data_sync.schedule.sync_medusa_products...) │
 │                                                                     │
 │  [Run Now]                                            [Save]        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+The widget reads and writes via the scheduler API (below). The "View" link navigates to the SyncRun detail page for the last run. The "Scheduled job" status reflects whether the `ScheduledJob` is registered and active in the platform scheduler.
 
 #### Injection Table — Hub Level
 
@@ -1565,62 +2046,47 @@ export const injectionTable: ModuleInjectionTable = {
 }
 ```
 
-#### Scheduler Worker
-
-A scheduled worker runs every minute, checks which `SyncSchedule` entries are due, and enqueues sync jobs:
-
-```typescript
-// data_sync/workers/sync-scheduler.ts
-
-export const metadata: WorkerMeta = {
-  queue: 'data-sync-scheduler',
-  id: 'data-sync-scheduler',
-  concurrency: 1,
-  schedule: '* * * * *',  // Every minute
-}
-
-export default async function handler(job: Job, ctx: WorkerContext) {
-  const now = new Date()
-  const dueSchedules = await ctx.em.find(SyncSchedule, {
-    isEnabled: true,
-    nextRunAt: { $lte: now },
-  })
-
-  for (const schedule of dueSchedules) {
-    // Create a SyncRun + enqueue to the import/export worker
-    const syncRun = await createSyncRun({
-      integrationId: schedule.integrationId,
-      entityType: schedule.entityType,
-      direction: schedule.direction,
-      triggeredBy: 'scheduler',
-      cursor: schedule.fullSync ? undefined : await getLastCursor(schedule, ctx.em),
-      organizationId: schedule.organizationId,
-      tenantId: schedule.tenantId,
-    }, ctx)
-
-    await ctx.enqueueJob(`data-sync-${schedule.direction}`, {
-      syncRunId: syncRun.id,
-      organizationId: schedule.organizationId,
-    })
-
-    // Update schedule — calculate next run from cron
-    schedule.lastRunAt = now
-    schedule.nextRunAt = getNextCronDate(schedule.cronExpression, now)
-  }
-
-  await ctx.em.flush()
-}
-```
-
 #### Scheduler API
+
+All schedule operations go through the `syncScheduleService` which keeps both `SyncSchedule` and `ScheduledJob` in sync:
 
 ```
 GET  /api/data-sync/schedules?integrationId=sync_medusa_products
-POST /api/data-sync/schedules                     # Create/update schedule
-PUT  /api/data-sync/schedules/:id                 # Update schedule
-DELETE /api/data-sync/schedules/:id               # Remove schedule
-POST /api/data-sync/schedules/:id/run-now         # Trigger immediate sync
+     → Returns schedules with next run time, last run status, and ScheduledJob state
+
+POST /api/data-sync/schedules
+     Body: { integrationId, entityType, direction, scheduleType, scheduleValue,
+             timezone?, fullSync?, isEnabled? }
+     → Creates SyncSchedule + registers ScheduledJob via schedulerService.register()
+
+PUT  /api/data-sync/schedules/:id
+     Body: { scheduleType?, scheduleValue?, timezone?, fullSync?, isEnabled? }
+     → Updates SyncSchedule + re-registers ScheduledJob with new schedule
+
+PUT  /api/data-sync/schedules/:id/toggle
+     Body: { isEnabled: boolean }
+     → Toggles schedule on/off in both SyncSchedule and ScheduledJob
+
+DELETE /api/data-sync/schedules/:id
+     → Removes SyncSchedule + removes ScheduledJob from platform scheduler
+
+POST /api/data-sync/schedules/:id/run-now
+     → Bypasses scheduler, immediately creates SyncRun + enqueues to import/export worker
+     → Updates lastRunAt but does NOT affect the regular schedule cadence
 ```
+
+#### Schedule Presets
+
+The widget offers common presets that map to cron expressions or interval strings:
+
+| Preset | Schedule Type | Schedule Value | Human Label |
+|--------|--------------|----------------|-------------|
+| Every 15 minutes | `interval` | `15m` | Every 15 minutes |
+| Every hour | `cron` | `0 * * * *` | Every hour |
+| Every 6 hours | `cron` | `0 */6 * * *` | Every 6 hours |
+| Every 12 hours | `cron` | `0 */12 * * *` | Every 12 hours |
+| Daily at 2am | `cron` | `0 2 * * *` | Daily at 2:00 AM |
+| Custom | `cron` | _(admin enters)_ | Custom cron |
 
 ### 6.2 Mapping Configuration Widget
 
@@ -2017,9 +2483,19 @@ export function createRateLimiter(requestsPerSecond: number) {
 | Save custom mapping | PUT `/api/data-sync/mappings/:id` | SyncMapping persisted, used by subsequent sync runs |
 | External ID mapping store + lookup | Service | `storeExternalIdMapping` → `lookupLocalId` / `lookupExternalId` roundtrip |
 | Loop prevention via origin tagging | Subscriber + Worker | Inbound webhook sets `_syncOrigin`, outbound subscriber skips matching origin |
-| Create sync schedule | POST `/api/data-sync/schedules` | Schedule created with cron expression, `nextRunAt` calculated |
-| Scheduler worker fires due sync | Worker | SyncRun created + enqueued when `nextRunAt <= now`, `nextRunAt` updated |
-| Scheduler delta sync uses last cursor | Worker | Scheduled sync reads last `SyncCursor` for delta, not full sync |
-| Scheduler full sync ignores cursor | Worker | Schedule with `fullSync: true` starts from zero |
-| Disable schedule | PUT `/api/data-sync/schedules/:id` with `isEnabled: false` | Scheduler worker skips disabled schedules |
-| Run Now from schedule | POST `/api/data-sync/schedules/:id/run-now` | Immediate SyncRun created, schedule `lastRunAt` updated |
+| Create sync schedule | POST `/api/data-sync/schedules` | `SyncSchedule` created with cron expression, `schedulerService.register()` called with correct `targetQueue: 'data-sync-scheduled'`, `ScheduledJob` row exists in `scheduled_jobs` table |
+| Schedule registers ScheduledJob | Service | `syncScheduleService.upsert()` creates `ScheduledJob` with matching `scheduleType`, `scheduleValue`, `timezone`, `targetPayload` containing `syncScheduleId` |
+| Update schedule re-registers | PUT `/api/data-sync/schedules/:id` | Changing `scheduleValue` from `'0 */6 * * *'` to `'0 */12 * * *'` calls `schedulerService.register()` with updated cron |
+| Scheduled worker creates SyncRun | Worker (`sync-scheduled`) | Job dispatched from scheduler → `SyncRun` created with `triggeredBy: 'scheduler'`, enqueued to `data-sync-import` or `data-sync-export` queue |
+| Scheduler delta sync uses last cursor | Worker (`sync-scheduled`) | Scheduled sync with `fullSync: false` reads last `SyncCursor` for delta import |
+| Scheduler full sync ignores cursor | Worker (`sync-scheduled`) | Schedule with `fullSync: true` creates `SyncRun` with `cursor: null` |
+| Overlap prevention skips running sync | Worker (`sync-scheduled`) | When a `SyncRun` with status `'running'` exists for the same integration + entity + direction, scheduled trigger is skipped and `schedule.skipped_overlap` logged |
+| Disabled schedule skipped | Worker (`sync-scheduled`) | If `schedule.isEnabled = false` at execution time, worker returns without creating a SyncRun |
+| Deleted schedule skipped | Worker (`sync-scheduled`) | If `SyncSchedule` was deleted between dispatch and execution, worker returns silently |
+| Disable schedule | PUT `/api/data-sync/schedules/:id/toggle` with `isEnabled: false` | `SyncSchedule.isEnabled = false`, `schedulerService.register()` called with `isEnabled: false`, scheduler stops firing |
+| Enable schedule | PUT `/api/data-sync/schedules/:id/toggle` with `isEnabled: true` | `SyncSchedule.isEnabled = true`, `schedulerService.register()` called with `isEnabled: true`, scheduler resumes |
+| Delete schedule removes ScheduledJob | DELETE `/api/data-sync/schedules/:id` | `SyncSchedule` removed, `schedulerService.remove()` called, `ScheduledJob` removed from `scheduled_jobs` table |
+| Run Now from schedule | POST `/api/data-sync/schedules/:id/run-now` | Immediate `SyncRun` created with `triggeredBy: 'manual'`, enqueued directly (not via scheduler), `schedule.lastRunAt` updated, regular schedule cadence unaffected |
+| Run Now uses current schedule config | POST `.../run-now` | Uses current `fullSync` setting and resolves cursor accordingly |
+| onTenantCreated re-registers schedules | Setup | After app restart, `onTenantCreated` calls `syncToScheduler()` for all existing `SyncSchedule` entries, ensuring `ScheduledJob` records are in sync |
+| Interval schedule type | POST `/api/data-sync/schedules` with `scheduleType: 'interval'` | `ScheduledJob` registered with `scheduleType: 'interval'`, `scheduleValue: '15m'` |
