@@ -47,8 +47,9 @@ function readLine(items: Array<Record<string, unknown>> | undefined): Record<str
 }
 
 function readSnapshotFactor(snapshot: unknown): number {
-  if (!snapshot || typeof snapshot !== 'object') return Number.NaN
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return Number.NaN
   const payload = snapshot as Record<string, unknown>
+  if (payload.version !== 1) return Number.NaN
   return Number(payload.toBaseFactor ?? payload.to_base_factor ?? Number.NaN)
 }
 

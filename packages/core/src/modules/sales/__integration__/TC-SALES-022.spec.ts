@@ -23,8 +23,8 @@ test.describe("TC-SALES-022: Quote line unit switch recalculates manual price am
     let conversionBoxId: string | null = null;
     let initialUnitPriceNet = Number.NaN;
     let initialUnitPriceGross = Number.NaN;
-    const pkgToBaseFactor = 10;
-    const boxToBaseFactor = 120;
+    const pkgToBaseFactor = 10; // 1 pkg = 10 base units (pc)
+    const boxToBaseFactor = 120; // 1 box = 120 base units (pc)
 
     try {
       token = await getAuthToken(request);
