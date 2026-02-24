@@ -8,7 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const entryPoints = await glob('src/**/*.{ts,tsx}', {
   cwd: __dirname,
-  ignore: ['**/__tests__/**', '**/__integration__/**', '**/*.test.ts', '**/*.test.tsx'],
+  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx'],
   absolute: true,
 })
 
