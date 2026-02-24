@@ -26,7 +26,7 @@ const listSchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
     productId: z.string().uuid().optional(),
-    unitCode: z.string().optional(),
+    unitCode: z.string().trim().max(50).optional(),
     isActive: z.coerce.boolean().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(["asc", "desc"]).optional(),
@@ -60,8 +60,6 @@ const crud = makeCrudRoute({
     fields: [
       "id",
       "product_id",
-      "organization_id",
-      "tenant_id",
       "unit_code",
       "to_base_factor",
       "sort_order",

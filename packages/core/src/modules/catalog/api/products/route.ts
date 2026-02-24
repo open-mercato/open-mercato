@@ -688,7 +688,7 @@ async function decorateProductsAfterList(
       }
     }
   } catch (error) {
-    console.error("catalog.products.decorate.after_list_failed", error);
+    console.error("[decorateProductsAfterList] Failed to load unit conversions", error);
   }
 }
 

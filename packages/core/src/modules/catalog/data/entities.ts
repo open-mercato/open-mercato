@@ -15,6 +15,7 @@ import type {
   CatalogProductRelationType,
   CatalogProductType,
 } from './types'
+import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
 
 @Entity({ tableName: 'catalog_product_option_schemas' })
 @Index({
@@ -137,7 +138,7 @@ export class CatalogProduct {
   unitPriceEnabled: boolean = false
 
   @Property({ name: 'unit_price_reference_unit', type: 'text', nullable: true })
-  unitPriceReferenceUnit?: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+  unitPriceReferenceUnit?: ReferenceUnitCode | null
 
   @Property({ name: 'unit_price_base_quantity', type: 'numeric', precision: 18, scale: 6, nullable: true })
   unitPriceBaseQuantity?: string | null
@@ -216,7 +217,7 @@ export class CatalogProduct {
   properties: ['product', 'unitCode'],
 })
 export class CatalogProductUnitConversion {
-  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'sortOrder' | 'isActive'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

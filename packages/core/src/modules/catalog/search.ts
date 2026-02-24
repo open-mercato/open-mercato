@@ -480,6 +480,7 @@ export const searchConfig: SearchModuleConfig = {
       },
       fieldPolicy: {
         searchable: ['unit_code'],
+        excluded: ['metadata'],
       },
     },
     {
