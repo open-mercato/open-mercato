@@ -250,12 +250,20 @@ export class AccountLinkingService {
         deletedAt: null,
       } as any)
       if (userRole) {
-        userRole.deletedAt = new Date()
+        em.remove(userRole)
       }
       em.remove(grant)
     }
 
-    if (toAdd.length > 0 || toRemove.length > 0) {
+    // Clean up orphaned soft-deleted UserRole rows (ghost rows from previous soft-delete logic)
+    const allUserRoles = await em.find(UserRole, { user: user.id } as any)
+    for (const ur of allUserRoles) {
+      if (ur.deletedAt) {
+        em.remove(ur)
+      }
+    }
+
+    if (toAdd.length > 0 || toRemove.length > 0 || allUserRoles.some((ur) => ur.deletedAt)) {
       await em.flush()
     }
   }
