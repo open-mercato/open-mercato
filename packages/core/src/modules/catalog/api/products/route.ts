@@ -190,15 +190,23 @@ export async function buildProductFilters(
   if (query.productType) {
     filters.product_type = { $eq: query.productType };
   }
+  const scope = {
+    organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    tenantId: ctx.auth?.tenantId ?? null,
+  };
+
   const channelFilterIds = parseIdList(query.channelIds);
   if (channelFilterIds.length) {
-    const offerRows = await em.find(
+    const offerRows = await findWithDecryption(
+      em,
       CatalogOffer,
       {
         channelId: { $in: channelFilterIds },
         deletedAt: null,
+        ...scope,
       },
       { fields: ["id", "product"] },
+      scope,
     );
     const productIds = offerRows
       .map((offer) =>
@@ -212,10 +220,12 @@ export async function buildProductFilters(
 
   const categoryFilterIds = parseIdList(query.categoryIds);
   if (categoryFilterIds.length) {
-    const assignments = await em.find(
+    const assignments = await findWithDecryption(
+      em,
       CatalogProductCategoryAssignment,
-      { category: { $in: categoryFilterIds } },
+      { category: { $in: categoryFilterIds }, ...scope },
       { fields: ["id", "product"] },
+      scope,
     );
     const productIds = assignments
       .map((assignment) =>
@@ -229,10 +239,12 @@ export async function buildProductFilters(
 
   const tagFilterIds = parseIdList(query.tagIds);
   if (tagFilterIds.length) {
-    const assignments = await em.find(
+    const assignments = await findWithDecryption(
+      em,
       CatalogProductTagAssignment,
-      { tag: { $in: tagFilterIds } },
+      { tag: { $in: tagFilterIds }, ...scope },
       { fields: ["id", "product"] },
+      scope,
     );
     const productIds = assignments
       .map((assignment) =>
@@ -334,10 +346,16 @@ async function decorateProductsAfterList(
   if (!productIds.length) return;
   try {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const offers = await em.find(
+    const scope = {
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+    };
+    const offers = await findWithDecryption(
+      em,
       CatalogOffer,
-      { product: { $in: productIds }, deletedAt: null },
+      { product: { $in: productIds }, deletedAt: null, ...scope },
       { orderBy: { createdAt: "asc" } },
+      scope,
     );
     const channelIds = Array.from(
       new Set(
@@ -397,10 +415,12 @@ async function decorateProductsAfterList(
       offersByProduct.set(productId, entry);
     }
 
-    const categoryAssignments = await em.find(
+    const categoryAssignments = await findWithDecryption(
+      em,
       CatalogProductCategoryAssignment,
-      { product: { $in: productIds } },
+      { product: { $in: productIds }, ...scope },
       { populate: ["category"], orderBy: { position: "asc" } },
+      scope,
     );
     const parentIds = new Set<string>();
     for (const assignment of categoryAssignments) {
@@ -413,10 +433,12 @@ async function decorateProductsAfterList(
       if (parentId) parentIds.add(parentId);
     }
     const parentCategories = parentIds.size
-      ? await em.find(
+      ? await findWithDecryption(
+          em,
           CatalogProductCategory,
-          { id: { $in: Array.from(parentIds) } },
+          { id: { $in: Array.from(parentIds) }, ...scope },
           { fields: ["id", "name"] },
+          scope,
         )
       : [];
     const parentNameById = new Map<string, string | null>();
@@ -489,10 +511,12 @@ async function decorateProductsAfterList(
       tagsByProduct.set(productId, bucket);
     }
 
-    const variants = await em.find(
+    const variants = await findWithDecryption(
+      em,
       CatalogProductVariant,
-      { product: { $in: productIds }, deletedAt: null },
+      { product: { $in: productIds }, deletedAt: null, ...scope },
       { fields: ["id", "product"] },
+      scope,
     );
     const variantToProduct = new Map<string, string>();
     for (const variant of variants) {
@@ -513,9 +537,13 @@ async function decorateProductsAfterList(
             ],
           }
         : { product: { $in: productIds } };
-    const priceRows = await em.find(CatalogProductPrice, priceWhere, {
-      populate: ["offer", "variant", "product", "priceKind"],
-    });
+    const priceRows = await findWithDecryption(
+      em,
+      CatalogProductPrice,
+      { ...priceWhere, ...scope },
+      { populate: ["offer", "variant", "product", "priceKind"] },
+      scope,
+    );
     const pricesByProduct = new Map<string, PriceRow[]>();
     for (const price of priceRows) {
       let productId: string | null = null;
