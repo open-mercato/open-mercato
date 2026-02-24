@@ -119,6 +119,96 @@ type LineFormState = {
 
 type FieldRenderProps = CrudCustomFieldRenderProps;
 
+type ApiPriceKind = {
+  title?: string | null;
+  name?: string | null;
+  code?: string | null;
+};
+
+type ApiPriceItem = Record<string, unknown> & {
+  unit_price_net?: number | null;
+  unit_price_gross?: number | null;
+  currency_code?: string | null;
+  currencyCode?: string | null;
+  display_mode?: string | null;
+  displayMode?: string | null;
+  tax_rate?: number | null;
+  price_kind_id?: string | null;
+  priceKindId?: string | null;
+  price_kind_title?: string | null;
+  priceKindTitle?: string | null;
+  price_kind_code?: string | null;
+  priceKindCode?: string | null;
+  price_kind?: ApiPriceKind | null;
+  kind?: string | null;
+};
+
+type ApiTaxRateItem = Record<string, unknown> & {
+  rate?: number | null;
+  code?: string | null;
+  isDefault?: boolean;
+  is_default?: boolean;
+  min_quantity?: number | null;
+  max_quantity?: number | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+};
+
+type ApiProductItem = Record<string, unknown> & {
+  name?: string;
+  sku?: string;
+  default_media_url?: string;
+  defaultMediaUrl?: string;
+  pricing?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  tax_rate?: number | null;
+  taxRate?: number | null;
+};
+
+type ApiVariantItem = Record<string, unknown> & {
+  sku?: string;
+  default_media_url?: string;
+  thumbnailUrl?: string;
+  metadata?: Record<string, unknown> | null;
+  tax_rate?: number | null;
+  taxRate?: number | null;
+};
+
+type ApiPricingMetadata = {
+  tax_rate_id?: string;
+  taxRateId?: string;
+  tax_rate?: number | null;
+  taxRate?: number | null;
+};
+
+type LineMetadataRecord = {
+  lineMode?: string;
+  customLine?: boolean | null;
+  priceMode?: string;
+  taxRateId?: string;
+  priceId?: string;
+  productTitle?: string;
+  productSku?: string;
+  productThumbnail?: string;
+  variantTitle?: string;
+  variantSku?: string;
+  variantThumbnail?: string;
+};
+
+type CatalogSnapshotRecord = Record<string, unknown> & {
+  product?: Record<string, unknown> | null;
+  variant?: Record<string, unknown> | null;
+};
+
+type SnapshotEntity = {
+  title?: string;
+  sku?: string;
+  thumbnailUrl?: string;
+  thumbnail_url?: string;
+  taxRate?: number | null;
+  taxRateId?: string;
+};
+
 type SalesLineDialogProps = {
   open: boolean;
   kind: "order" | "quote";
@@ -174,12 +264,12 @@ function buildPriceScopeReason(
     add(t("sales.documents.items.priceScope.userGroup", "User group"));
   if (item.user_id || item.userId)
     add(t("sales.documents.items.priceScope.user", "User"));
-  const minQty = normalizeNumber((item as any).min_quantity, Number.NaN);
-  const maxQty = normalizeNumber((item as any).max_quantity, Number.NaN);
+  const minQty = normalizeNumber((item as ApiPriceItem).min_quantity, Number.NaN);
+  const maxQty = normalizeNumber((item as ApiPriceItem).max_quantity, Number.NaN);
   if (Number.isFinite(minQty) || Number.isFinite(maxQty)) {
     add(t("sales.documents.items.priceScope.quantity", "Quantity"));
   }
-  if ((item as any).starts_at || (item as any).ends_at) {
+  if ((item as ApiPriceItem).starts_at || (item as ApiPriceItem).ends_at) {
     add(t("sales.documents.items.priceScope.schedule", "Scheduled"));
   }
   if (tags.length === 0) return { reason: null, tags };
@@ -405,14 +495,14 @@ export function LineItemDialog({
                 ? item.code
                 : null;
           if (!id || !name) return null;
-          const rate = normalizeNumber((item as any).rate);
+          const rate = normalizeNumber((item as ApiTaxRateItem).rate);
           const code =
-            typeof (item as any).code === "string" &&
-            (item as any).code.trim().length
-              ? (item as any).code.trim()
+            typeof (item as ApiTaxRateItem).code === "string" &&
+            (item as ApiTaxRateItem).code?.trim().length
+              ? (item as ApiTaxRateItem).code?.trim() ?? null
               : null;
           const isDefault = Boolean(
-            (item as any).isDefault ?? (item as any).is_default,
+            (item as ApiTaxRateItem).isDefault ?? (item as ApiTaxRateItem).is_default,
           );
           return {
             id,
@@ -453,49 +543,52 @@ export function LineItemDialog({
         .map((item) => {
           const id = typeof item.id === "string" ? item.id : null;
           if (!id) return null;
+          const productItem = item as ApiProductItem;
           const title =
             typeof item.title === "string"
               ? item.title
-              : typeof (item as any).name === "string"
-                ? (item as any).name
+              : typeof productItem.name === "string"
+                ? productItem.name
                 : id;
           const sku =
-            typeof (item as any).sku === "string" ? (item as any).sku : null;
+            typeof productItem.sku === "string" ? productItem.sku : null;
           const thumbnail =
-            typeof (item as any).default_media_url === "string"
-              ? (item as any).default_media_url
-              : typeof (item as any).defaultMediaUrl === "string"
-                ? (item as any).defaultMediaUrl
+            typeof productItem.default_media_url === "string"
+              ? productItem.default_media_url
+              : typeof productItem.defaultMediaUrl === "string"
+                ? productItem.defaultMediaUrl
                 : null;
           const pricing =
-            typeof (item as any).pricing === "object" && (item as any).pricing
-              ? (item as any).pricing
+            typeof productItem.pricing === "object" && productItem.pricing
+              ? productItem.pricing
               : null;
           const metadata =
-            typeof (item as any).metadata === "object" && (item as any).metadata
-              ? (item as any).metadata
+            typeof productItem.metadata === "object" && productItem.metadata
+              ? productItem.metadata
               : null;
+          const pricingMeta = pricing as ApiPricingMetadata | null;
+          const metaMeta = metadata as ApiPricingMetadata | null;
           const pricingTaxRateId =
-            typeof (pricing as any)?.tax_rate_id === "string" &&
-            (pricing as any).tax_rate_id.trim().length
-              ? (pricing as any).tax_rate_id.trim()
-              : typeof (pricing as any)?.taxRateId === "string" &&
-                  (pricing as any).taxRateId.trim().length
-                ? (pricing as any).taxRateId.trim()
+            typeof pricingMeta?.tax_rate_id === "string" &&
+            pricingMeta.tax_rate_id.trim().length
+              ? pricingMeta.tax_rate_id.trim()
+              : typeof pricingMeta?.taxRateId === "string" &&
+                  pricingMeta.taxRateId.trim().length
+                ? pricingMeta.taxRateId.trim()
                 : null;
           const metaTaxRateId =
-            typeof (metadata as any)?.taxRateId === "string" &&
-            (metadata as any).taxRateId.trim().length
-              ? (metadata as any).taxRateId.trim()
-              : typeof (metadata as any)?.tax_rate_id === "string" &&
-                  (metadata as any).tax_rate_id.trim().length
-                ? (metadata as any).tax_rate_id.trim()
+            typeof metaMeta?.taxRateId === "string" &&
+            metaMeta.taxRateId.trim().length
+              ? metaMeta.taxRateId.trim()
+              : typeof metaMeta?.tax_rate_id === "string" &&
+                  metaMeta.tax_rate_id.trim().length
+                ? metaMeta.tax_rate_id.trim()
                 : null;
           const taxRateValue = normalizeNumber(
-            (pricing as any)?.tax_rate ??
-              (pricing as any)?.taxRate ??
-              (item as any).tax_rate ??
-              (item as any).taxRate,
+            pricingMeta?.tax_rate ??
+              pricingMeta?.taxRate ??
+              productItem.tax_rate ??
+              productItem.taxRate,
             Number.NaN,
           );
           const uomFields = getUomProductFields(item);
@@ -570,32 +663,34 @@ export function LineItemDialog({
           const id = typeof item.id === "string" ? item.id : null;
           if (!id) return null;
           const title = typeof item.name === "string" ? item.name : id;
+          const variantItem = item as ApiVariantItem;
           const sku =
-            typeof (item as any).sku === "string" ? (item as any).sku : null;
+            typeof variantItem.sku === "string" ? variantItem.sku : null;
           const metadata =
-            typeof (item as any).metadata === "object" && (item as any).metadata
-              ? (item as any).metadata
+            typeof variantItem.metadata === "object" && variantItem.metadata
+              ? variantItem.metadata
               : null;
+          const variantMeta = metadata as ApiPricingMetadata | null;
           const variantTaxRateId =
-            typeof (metadata as any)?.taxRateId === "string" &&
-            (metadata as any).taxRateId.trim().length
-              ? (metadata as any).taxRateId.trim()
-              : typeof (metadata as any)?.tax_rate_id === "string" &&
-                  (metadata as any).tax_rate_id.trim().length
-                ? (metadata as any).tax_rate_id.trim()
+            typeof variantMeta?.taxRateId === "string" &&
+            variantMeta.taxRateId.trim().length
+              ? variantMeta.taxRateId.trim()
+              : typeof variantMeta?.tax_rate_id === "string" &&
+                  variantMeta.tax_rate_id.trim().length
+                ? variantMeta.tax_rate_id.trim()
                 : null;
           const variantTaxRate = normalizeNumber(
-            (item as any).tax_rate ??
-              (item as any).taxRate ??
-              (metadata as any)?.tax_rate ??
-              (metadata as any)?.taxRate,
+            variantItem.tax_rate ??
+              variantItem.taxRate ??
+              variantMeta?.tax_rate ??
+              variantMeta?.taxRate,
             Number.NaN,
           );
           const thumbnail =
-            typeof (item as any).default_media_url === "string"
-              ? (item as any).default_media_url
-              : typeof (item as any).thumbnailUrl === "string"
-                ? (item as any).thumbnailUrl
+            typeof variantItem.default_media_url === "string"
+              ? variantItem.default_media_url
+              : typeof variantItem.thumbnailUrl === "string"
+                ? variantItem.thumbnailUrl
                 : (fallbackThumbnail ?? null);
           return {
             id,
@@ -751,11 +846,11 @@ export function LineItemDialog({
             const id = typeof item.id === "string" ? item.id : null;
             if (!id) return null;
             const amountNetRaw = normalizeNumber(
-              (item as any).unit_price_net,
+              (item as ApiPriceItem).unit_price_net,
               Number.NaN,
             );
             const amountGrossRaw = normalizeNumber(
-              (item as any).unit_price_gross,
+              (item as ApiPriceItem).unit_price_gross,
               Number.NaN,
             );
             const amountNet = Number.isFinite(amountNetRaw)
@@ -765,59 +860,59 @@ export function LineItemDialog({
               ? amountGrossRaw
               : null;
             const currency =
-              typeof (item as any).currency_code === "string"
-                ? (item as any).currency_code
-                : typeof (item as any).currencyCode === "string"
-                  ? (item as any).currencyCode
+              typeof (item as ApiPriceItem).currency_code === "string"
+                ? (item as ApiPriceItem).currency_code
+                : typeof (item as ApiPriceItem).currencyCode === "string"
+                  ? (item as ApiPriceItem).currencyCode
                   : null;
             const displayMode =
-              (item as any).display_mode === "including-tax" ||
-              (item as any).display_mode === "excluding-tax"
-                ? (item as any).display_mode
-                : (item as any).displayMode === "including-tax" ||
-                    (item as any).displayMode === "excluding-tax"
-                  ? (item as any).displayMode
+              (item as ApiPriceItem).display_mode === "including-tax" ||
+              (item as ApiPriceItem).display_mode === "excluding-tax"
+                ? (item as ApiPriceItem).display_mode
+                : (item as ApiPriceItem).displayMode === "including-tax" ||
+                    (item as ApiPriceItem).displayMode === "excluding-tax"
+                  ? (item as ApiPriceItem).displayMode
                   : null;
             const taxRateRaw = normalizeNumber(
-              (item as any).tax_rate,
+              (item as ApiPriceItem).tax_rate,
               Number.NaN,
             );
             const taxRate = Number.isFinite(taxRateRaw) ? taxRateRaw : null;
             const priceKindId =
-              typeof (item as any).price_kind_id === "string"
-                ? (item as any).price_kind_id
-                : typeof (item as any).priceKindId === "string"
-                  ? (item as any).priceKindId
+              typeof (item as ApiPriceItem).price_kind_id === "string"
+                ? (item as ApiPriceItem).price_kind_id
+                : typeof (item as ApiPriceItem).priceKindId === "string"
+                  ? (item as ApiPriceItem).priceKindId
                   : null;
             const priceKindTitle =
-              typeof (item as any).price_kind_title === "string"
-                ? (item as any).price_kind_title
-                : typeof (item as any).priceKindTitle === "string"
-                  ? (item as any).priceKindTitle
-                  : typeof (item as any).price_kind === "object" &&
+              typeof (item as ApiPriceItem).price_kind_title === "string"
+                ? (item as ApiPriceItem).price_kind_title
+                : typeof (item as ApiPriceItem).priceKindTitle === "string"
+                  ? (item as ApiPriceItem).priceKindTitle
+                  : typeof (item as ApiPriceItem).price_kind === "object" &&
                       item &&
-                      typeof (item as any).price_kind?.title === "string"
-                    ? (item as any).price_kind.title
-                    : typeof (item as any).price_kind === "object" &&
+                      typeof (item as ApiPriceItem).price_kind?.title === "string"
+                    ? (item as ApiPriceItem).price_kind!.title
+                    : typeof (item as ApiPriceItem).price_kind === "object" &&
                         item &&
-                        typeof (item as any).price_kind?.name === "string"
-                      ? (item as any).price_kind.name
+                        typeof (item as ApiPriceItem).price_kind?.name === "string"
+                      ? (item as ApiPriceItem).price_kind!.name
                       : null;
             const priceKindCode =
-              typeof (item as any).price_kind_code === "string"
-                ? (item as any).price_kind_code
-                : typeof (item as any).priceKindCode === "string"
-                  ? (item as any).priceKindCode
-                  : typeof (item as any).price_kind === "object" &&
+              typeof (item as ApiPriceItem).price_kind_code === "string"
+                ? (item as ApiPriceItem).price_kind_code
+                : typeof (item as ApiPriceItem).priceKindCode === "string"
+                  ? (item as ApiPriceItem).priceKindCode
+                  : typeof (item as ApiPriceItem).price_kind === "object" &&
                       item &&
-                      typeof (item as any).price_kind?.code === "string"
-                    ? (item as any).price_kind.code
+                      typeof (item as ApiPriceItem).price_kind?.code === "string"
+                    ? (item as ApiPriceItem).price_kind!.code
                     : null;
             const resolvedPriceKindTitle =
               priceKindTitle ??
               priceKindCode ??
-              (typeof (item as any).kind === "string"
-                ? (item as any).kind
+              (typeof (item as ApiPriceItem).kind === "string"
+                ? (item as ApiPriceItem).kind
                 : null);
             const labelParts = [
               displayMode === "including-tax" &&
@@ -1607,7 +1702,7 @@ export function LineItemDialog({
                       } else if (prevSnapshot) {
                         const snapshot = { ...prevSnapshot };
                         if ("variant" in snapshot)
-                          delete (snapshot as any).variant;
+                          delete (snapshot as CatalogSnapshotRecord).variant;
                         setFormValue?.(
                           "catalogSnapshot",
                           Object.keys(snapshot).length ? snapshot : null,
@@ -1937,7 +2032,7 @@ export function LineItemDialog({
           const resolvedValue =
             typeof value === "string" && value.trim().length
               ? value
-              : findTaxRateIdByValue((values as any)?.taxRate);
+              : findTaxRateIdByValue((values as Record<string, unknown>)?.taxRate as number | null | undefined);
           const handleChange = (
             event: React.ChangeEvent<HTMLSelectElement>,
           ) => {
@@ -2297,30 +2392,30 @@ export function LineItemDialog({
     const snapshotProduct =
       snapshot &&
       typeof snapshot === "object" &&
-      typeof (snapshot as any).product === "object" &&
-      (snapshot as any).product
-        ? ((snapshot as any).product as Record<string, unknown>)
+      typeof (snapshot as CatalogSnapshotRecord).product === "object" &&
+      (snapshot as CatalogSnapshotRecord).product
+        ? ((snapshot as CatalogSnapshotRecord).product as Record<string, unknown>)
         : null;
     const snapshotVariant =
       snapshot &&
       typeof snapshot === "object" &&
-      typeof (snapshot as any).variant === "object" &&
-      (snapshot as any).variant
-        ? ((snapshot as any).variant as Record<string, unknown>)
+      typeof (snapshot as CatalogSnapshotRecord).variant === "object" &&
+      (snapshot as CatalogSnapshotRecord).variant
+        ? ((snapshot as CatalogSnapshotRecord).variant as Record<string, unknown>)
         : null;
+    const metaRec = (typeof meta === "object" && meta ? meta : null) as LineMetadataRecord | null;
     const metaLineMode =
-      typeof (meta as any)?.lineMode === "string" &&
-      ((meta as any).lineMode === "custom" ||
-        (meta as any).lineMode === "catalog")
-        ? ((meta as any).lineMode as "custom" | "catalog")
-        : (meta as any)?.customLine
+      typeof metaRec?.lineMode === "string" &&
+      (metaRec.lineMode === "custom" || metaRec.lineMode === "catalog")
+        ? (metaRec.lineMode as "custom" | "catalog")
+        : metaRec?.customLine
           ? "custom"
           : undefined;
     nextForm.productId = initialLine.productId;
     nextForm.variantId = initialLine.productVariantId;
     nextForm.quantity = initialLine.quantity.toString();
     nextForm.quantityUnit = normalizeUnitCode(initialLine.quantityUnit) ?? null;
-    const metaMode = (meta as any)?.priceMode;
+    const metaMode = metaRec?.priceMode;
     const resolvedPriceMode =
       metaMode === "net" || metaMode === "gross"
         ? metaMode
@@ -2343,8 +2438,8 @@ export function LineItemDialog({
         ? "catalog"
         : "custom");
     const metaTaxRateId =
-      typeof (meta as any).taxRateId === "string"
-        ? ((meta as any).taxRateId as string)
+      typeof metaRec?.taxRateId === "string"
+        ? metaRec.taxRateId
         : null;
     const fallbackTaxRateId = findTaxRateIdByValue(nextForm.taxRate);
     nextForm.taxRateId =
@@ -2362,8 +2457,9 @@ export function LineItemDialog({
     }
     let resolvedProductOption: ProductOption | null = null;
     let resolvedVariantOption: VariantOption | null = null;
-    if (typeof meta === "object" && meta) {
-      const mode = (meta as any).priceMode;
+    if (metaRec) {
+      const metaRecord = metaRec;
+      const mode = metaRecord.priceMode;
       if (mode === "net" || mode === "gross") {
         nextForm.priceMode = mode;
         nextForm.unitPrice =
@@ -2372,20 +2468,20 @@ export function LineItemDialog({
             : initialLine.unitPriceGross.toString();
       }
       nextForm.priceId =
-        typeof (meta as any).priceId === "string"
-          ? ((meta as any).priceId as string)
+        typeof metaRecord.priceId === "string"
+          ? metaRecord.priceId
           : null;
       const productTitle =
-        typeof (meta as any).productTitle === "string"
-          ? (meta as any).productTitle
+        typeof metaRecord.productTitle === "string"
+          ? metaRecord.productTitle
           : initialLine.name;
       const productSku =
-        typeof (meta as any).productSku === "string"
-          ? (meta as any).productSku
+        typeof metaRecord.productSku === "string"
+          ? metaRecord.productSku
           : null;
       const productThumbnail =
-        typeof (meta as any).productThumbnail === "string"
-          ? (meta as any).productThumbnail
+        typeof metaRecord.productThumbnail === "string"
+          ? metaRecord.productThumbnail
           : null;
       if (productTitle && initialLine.productId) {
         const option = {
@@ -2398,16 +2494,16 @@ export function LineItemDialog({
         resolvedProductOption = option;
       }
       const variantTitle =
-        typeof (meta as any).variantTitle === "string"
-          ? (meta as any).variantTitle
+        typeof metaRecord.variantTitle === "string"
+          ? metaRecord.variantTitle
           : null;
       const variantSku =
-        typeof (meta as any).variantSku === "string"
-          ? (meta as any).variantSku
+        typeof metaRecord.variantSku === "string"
+          ? metaRecord.variantSku
           : null;
       const variantThumb =
-        typeof (meta as any).variantThumbnail === "string"
-          ? (meta as any).variantThumbnail
+        typeof metaRecord.variantThumbnail === "string"
+          ? metaRecord.variantThumbnail
           : productThumbnail;
       if (variantTitle && initialLine.productVariantId) {
         const option = {
@@ -2421,35 +2517,28 @@ export function LineItemDialog({
       }
     }
     if (!resolvedProductOption && initialLine.productId && snapshotProduct) {
+      const sp = snapshotProduct as SnapshotEntity;
       const snapshotTitle =
-        typeof (snapshotProduct as any).title === "string" &&
-        (snapshotProduct as any).title.trim().length
-          ? (snapshotProduct as any).title
+        typeof sp.title === "string" && sp.title.trim().length
+          ? sp.title
           : (initialLine.name ?? initialLine.productId);
       const snapshotSku =
-        typeof (snapshotProduct as any).sku === "string" &&
-        (snapshotProduct as any).sku.trim().length
-          ? (snapshotProduct as any).sku
+        typeof sp.sku === "string" && sp.sku.trim().length
+          ? sp.sku
           : null;
       const snapshotThumb =
-        typeof (snapshotProduct as any).thumbnailUrl === "string"
-          ? (snapshotProduct as any).thumbnailUrl
-          : typeof (snapshotProduct as any).thumbnail_url === "string"
-            ? (snapshotProduct as any).thumbnail_url
+        typeof sp.thumbnailUrl === "string"
+          ? sp.thumbnailUrl
+          : typeof sp.thumbnail_url === "string"
+            ? sp.thumbnail_url
             : null;
-      const snapshotTaxRate = normalizeNumber(
-        (snapshotProduct as any).taxRate,
-        Number.NaN,
-      );
-      const option = {
+      const snapshotTaxRate = normalizeNumber(sp.taxRate, Number.NaN);
+      const option: ProductOption = {
         id: initialLine.productId,
         title: snapshotTitle,
         sku: snapshotSku,
         thumbnailUrl: snapshotThumb,
-        taxRateId:
-          typeof (snapshotProduct as any).taxRateId === "string"
-            ? (snapshotProduct as any).taxRateId
-            : null,
+        taxRateId: typeof sp.taxRateId === "string" ? sp.taxRateId : null,
         taxRate: Number.isFinite(snapshotTaxRate) ? snapshotTaxRate : null,
       };
       productOptionsRef.current.set(initialLine.productId, option);
@@ -2460,38 +2549,31 @@ export function LineItemDialog({
       initialLine.productVariantId &&
       snapshotVariant
     ) {
+      const sv = snapshotVariant as SnapshotEntity;
       const snapshotTitle =
-        typeof (snapshotVariant as any).title === "string" &&
-        (snapshotVariant as any).title.trim().length
-          ? (snapshotVariant as any).title
+        typeof sv.title === "string" && sv.title.trim().length
+          ? sv.title
           : (initialLine.name ?? initialLine.productVariantId);
       const snapshotSku =
-        typeof (snapshotVariant as any).sku === "string" &&
-        (snapshotVariant as any).sku.trim().length
-          ? (snapshotVariant as any).sku
+        typeof sv.sku === "string" && sv.sku.trim().length
+          ? sv.sku
           : null;
       const snapshotThumb =
-        typeof (snapshotVariant as any).thumbnailUrl === "string"
-          ? (snapshotVariant as any).thumbnailUrl
-          : typeof (snapshotVariant as any).thumbnail_url === "string"
-            ? (snapshotVariant as any).thumbnail_url
+        typeof sv.thumbnailUrl === "string"
+          ? sv.thumbnailUrl
+          : typeof sv.thumbnail_url === "string"
+            ? sv.thumbnail_url
             : (resolvedProductOption?.thumbnailUrl ??
               productOptionsRef.current.get(initialLine.productId ?? "")
                 ?.thumbnailUrl ??
               null);
-      const snapshotTaxRate = normalizeNumber(
-        (snapshotVariant as any).taxRate,
-        Number.NaN,
-      );
-      const option = {
+      const snapshotTaxRate = normalizeNumber(sv.taxRate, Number.NaN);
+      const option: VariantOption = {
         id: initialLine.productVariantId,
         title: snapshotTitle,
         sku: snapshotSku,
         thumbnailUrl: snapshotThumb,
-        taxRateId:
-          typeof (snapshotVariant as any).taxRateId === "string"
-            ? (snapshotVariant as any).taxRateId
-            : null,
+        taxRateId: typeof sv.taxRateId === "string" ? sv.taxRateId : null,
         taxRate: Number.isFinite(snapshotTaxRate) ? snapshotTaxRate : null,
       };
       variantOptionsRef.current.set(initialLine.productVariantId, option);
