@@ -106,7 +106,7 @@ const toRow = (currency: Currency): CurrencyRow => ({
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
   }
 
@@ -131,9 +131,11 @@ export async function GET(req: Request) {
 
   const { id, page, pageSize, search, sortField, sortDir, isBase, isActive, code } = parsed.data
   const filter: FilterQuery<Currency> = {
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
     deletedAt: null,
+  }
+  if (auth.orgId) {
+    filter.organizationId = auth.orgId
   }
   
   if (id) filter.id = id
