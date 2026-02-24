@@ -10,7 +10,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-type Tab = 'general' | 'domains' | 'activity'
+type Tab = 'general' | 'domains' | 'roles' | 'scim' | 'activity'
 
 interface SsoConfigDetail {
   id: string
@@ -26,7 +26,7 @@ interface SsoConfigDetail {
   autoLinkByEmail: boolean
   isActive: boolean
   ssoRequired: boolean
-  defaultRoleId: string | null
+  appRoleMappings: Record<string, string>
   createdAt: string
   updatedAt: string
 }
@@ -240,6 +240,8 @@ export default function SsoConfigDetailPage() {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'general', label: t('sso.admin.tab.general', 'General') },
     { id: 'domains', label: t('sso.admin.tab.domains', 'Domains') },
+    { id: 'roles', label: t('sso.admin.tab.roles', 'Role Mappings') },
+    { id: 'scim', label: t('sso.admin.tab.scim', 'Provisioning') },
     { id: 'activity', label: t('sso.admin.tab.activity', 'Activity') },
   ]
 
@@ -447,6 +449,18 @@ export default function SsoConfigDetailPage() {
             </div>
           )}
 
+          {activeTab === 'roles' && config && (
+            <RoleMappingsTab
+              configId={configId}
+              appRoleMappings={config.appRoleMappings ?? {}}
+              onSaved={fetchConfig}
+            />
+          )}
+
+          {activeTab === 'scim' && (
+            <ScimProvisioningTab configId={configId} />
+          )}
+
           {activeTab === 'activity' && (
             <SsoActivityTab configId={configId} />
           )}
@@ -454,6 +468,420 @@ export default function SsoConfigDetailPage() {
         {ConfirmDialogElement}
       </PageBody>
     </Page>
+  )
+}
+
+function RoleMappingsTab({
+  configId,
+  appRoleMappings,
+  onSaved,
+}: {
+  configId: string
+  appRoleMappings: Record<string, string>
+  onSaved: () => void
+}) {
+  const t = useT()
+  const [mappings, setMappings] = React.useState<Record<string, string>>(appRoleMappings)
+  const [idpRoleInput, setIdpRoleInput] = React.useState('')
+  const [localRoleInput, setLocalRoleInput] = React.useState('')
+  const [roleOptions, setRoleOptions] = React.useState<{ value: string; label: string }[]>([])
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [inputError, setInputError] = React.useState('')
+
+  React.useEffect(() => {
+    setMappings(appRoleMappings)
+  }, [appRoleMappings])
+
+  React.useEffect(() => {
+    const loadRoles = async () => {
+      const call = await apiCall<{ items?: Array<{ id?: string | null; name?: string | null }> }>(
+        '/api/auth/roles?page=1&pageSize=50',
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (call.ok && Array.isArray(call.result?.items)) {
+        const options = call.result.items
+          .map((item) => {
+            const name = typeof item?.name === 'string' ? item.name.trim() : ''
+            if (!name || name === 'superadmin') return null
+            return { value: name, label: name }
+          })
+          .filter((opt): opt is { value: string; label: string } => !!opt)
+        setRoleOptions(options)
+        if (options.length > 0 && !localRoleInput) {
+          setLocalRoleInput(options[0].value)
+        }
+      }
+    }
+    loadRoles()
+  }, [])
+
+  const handleAdd = () => {
+    const trimmed = idpRoleInput.trim()
+    if (!trimmed) {
+      setInputError(t('sso.admin.roles.error.emptyIdpRole', 'IdP role name is required'))
+      return
+    }
+    if (!localRoleInput) {
+      setInputError(t('sso.admin.roles.error.emptyLocalRole', 'Select a local role'))
+      return
+    }
+    if (mappings[trimmed]) {
+      setInputError(t('sso.admin.roles.error.duplicate', 'This IdP role is already mapped'))
+      return
+    }
+    setMappings({ ...mappings, [trimmed]: localRoleInput })
+    setIdpRoleInput('')
+    setInputError('')
+  }
+
+  const handleRemove = (idpRole: string) => {
+    const updated = { ...mappings }
+    delete updated[idpRole]
+    setMappings(updated)
+  }
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    try {
+      await apiCallOrThrow(
+        `/api/sso/config/${configId}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ appRoleMappings: mappings }),
+        },
+        { errorMessage: t('sso.admin.roles.error.saveFailed', 'Failed to save role mappings') },
+      )
+      flash(t('sso.admin.roles.saved', 'Role mappings saved'), 'success')
+      onSaved()
+    } catch {
+      // handled by apiCallOrThrow
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const mappingEntries = Object.entries(mappings)
+
+  return (
+    <div>
+      <p className="text-sm text-muted-foreground mb-4">
+        {t('sso.admin.roles.description', 'Map IdP app role names to local roles. On each SSO login, SSO-sourced roles are synced — roles no longer sent by the IdP are removed, while manually-assigned roles are preserved.')}
+      </p>
+      <div className="flex items-end gap-2 mb-4">
+        <div className="flex-1">
+          <label className="block text-xs font-medium mb-1">{t('sso.admin.roles.idpRole', 'IdP Role Name')}</label>
+          <input
+            type="text"
+            className="w-full rounded-md border px-3 py-2 text-sm"
+            placeholder={t('sso.admin.roles.idpRolePlaceholder', 'e.g. OpenMercato.Admin')}
+            value={idpRoleInput}
+            onChange={(e) => { setIdpRoleInput(e.target.value); setInputError('') }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }}
+          />
+        </div>
+        <div className="flex-1">
+          <label className="block text-xs font-medium mb-1">{t('sso.admin.roles.localRole', 'Local Role')}</label>
+          <select
+            className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+            value={localRoleInput}
+            onChange={(e) => setLocalRoleInput(e.target.value)}
+          >
+            {roleOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <Button variant="outline" onClick={handleAdd}>
+          {t('common.add', 'Add')}
+        </Button>
+      </div>
+      {inputError && <p className="text-sm text-destructive mb-2">{inputError}</p>}
+
+      {mappingEntries.length > 0 ? (
+        <div className="space-y-2 mb-4">
+          {mappingEntries.map(([idpRole, localRole]) => (
+            <div key={idpRole} className="flex items-center justify-between p-3 border rounded-md">
+              <div className="flex items-center gap-2">
+                <code className="text-sm font-mono">{idpRole}</code>
+                <span className="text-muted-foreground text-sm">&rarr;</span>
+                <span className="text-sm font-medium">{localRole}</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => handleRemove(idpRole)}>
+                {t('common.remove', 'Remove')}
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground py-4 text-center mb-4">
+          {t('sso.admin.roles.empty', 'No role mappings configured. IdP role names will be matched directly against local role names.')}
+        </p>
+      )}
+
+      <Button onClick={handleSave} disabled={isSaving}>
+        {isSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
+      </Button>
+    </div>
+  )
+}
+
+interface ScimTokenRow {
+  id: string
+  ssoConfigId: string
+  name: string
+  tokenPrefix: string
+  isActive: boolean
+  createdAt: string
+}
+
+interface ScimLogRow {
+  id: string
+  operation: string
+  resourceType: string
+  resourceId: string | null
+  scimExternalId: string | null
+  responseStatus: number
+  errorMessage: string | null
+  createdAt: string
+}
+
+function ScimProvisioningTab({ configId }: { configId: string }) {
+  const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
+  const [tokens, setTokens] = React.useState<ScimTokenRow[]>([])
+  const [logs, setLogs] = React.useState<ScimLogRow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [showCreateForm, setShowCreateForm] = React.useState(false)
+  const [tokenName, setTokenName] = React.useState('')
+  const [isCreating, setIsCreating] = React.useState(false)
+  const [newlyCreatedToken, setNewlyCreatedToken] = React.useState<string | null>(null)
+
+  const fetchData = React.useCallback(async () => {
+    setIsLoading(true)
+    const [tokensCall, logsCall] = await Promise.all([
+      apiCall<{ items: ScimTokenRow[] }>(`/api/sso/scim/tokens?ssoConfigId=${configId}`),
+      apiCall<{ items: ScimLogRow[] }>(`/api/sso/scim/logs?ssoConfigId=${configId}`),
+    ])
+    if (tokensCall.ok && tokensCall.result) setTokens(tokensCall.result.items)
+    if (logsCall.ok && logsCall.result) setLogs(logsCall.result.items)
+    setIsLoading(false)
+  }, [configId])
+
+  React.useEffect(() => { fetchData() }, [fetchData])
+
+  const handleCreateToken = async () => {
+    if (!tokenName.trim()) return
+    setIsCreating(true)
+    try {
+      const result = await apiCallOrThrow<{ id: string; token: string; prefix: string; name: string }>(
+        '/api/sso/scim/tokens',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ssoConfigId: configId, name: tokenName.trim() }),
+        },
+        { errorMessage: t('sso.admin.scim.error.createFailed', 'Failed to create SCIM token') },
+      )
+      if (result.result) {
+        setNewlyCreatedToken(result.result.token)
+        setShowCreateForm(false)
+        setTokenName('')
+        fetchData()
+      }
+    } catch {
+      // handled by apiCallOrThrow
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  const handleRevokeToken = async (tokenId: string) => {
+    const confirmed = await confirm({
+      title: t('sso.admin.scim.revoke.title', 'Revoke Token'),
+      text: t('sso.admin.scim.revoke.confirm', 'Are you sure? This token will no longer authenticate SCIM requests.'),
+      confirmText: t('sso.admin.scim.revoke.action', 'Revoke'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    try {
+      await apiCallOrThrow(`/api/sso/scim/tokens/${tokenId}`, { method: 'DELETE' }, {
+        errorMessage: t('sso.admin.scim.error.revokeFailed', 'Failed to revoke token'),
+      })
+      flash(t('sso.admin.scim.revoked', 'Token revoked'), 'success')
+      fetchData()
+    } catch {
+      // handled
+    }
+  }
+
+  const handleCopyEndpoint = () => {
+    const url = `${window.location.origin}/api/sso/scim/v2`
+    navigator.clipboard.writeText(url).then(() => {
+      flash(t('sso.admin.scim.endpointCopied', 'SCIM endpoint URL copied'), 'success')
+    })
+  }
+
+  const handleCopyToken = () => {
+    if (!newlyCreatedToken) return
+    navigator.clipboard.writeText(newlyCreatedToken).then(() => {
+      flash(t('sso.admin.scim.tokenCopied', 'Token copied to clipboard'), 'success')
+    })
+  }
+
+  if (isLoading) return <LoadingMessage label={t('common.loading', 'Loading...')} />
+
+  return (
+    <div className="space-y-6">
+      {/* SCIM Endpoint URL */}
+      <div>
+        <h3 className="text-sm font-medium mb-2">{t('sso.admin.scim.endpointUrl', 'SCIM Endpoint URL')}</h3>
+        <div className="flex items-center gap-2">
+          <code className="flex-1 rounded-md border bg-muted px-3 py-2 text-sm font-mono">
+            {typeof window !== 'undefined' ? `${window.location.origin}/api/sso/scim/v2` : '/api/sso/scim/v2'}
+          </code>
+          <Button variant="outline" size="sm" onClick={handleCopyEndpoint}>
+            {t('common.copy', 'Copy')}
+          </Button>
+        </div>
+      </div>
+
+      {/* Newly created token banner */}
+      {newlyCreatedToken && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-medium text-amber-900 mb-2">
+            {t('sso.admin.scim.tokenCreated', 'Your SCIM token has been created. Copy it now — it will not be shown again.')}
+          </p>
+          <div className="flex items-center gap-2 mb-2">
+            <code className="flex-1 rounded-md border bg-white px-3 py-2 text-xs font-mono break-all">
+              {newlyCreatedToken}
+            </code>
+            <Button variant="outline" size="sm" onClick={handleCopyToken}>
+              {t('common.copy', 'Copy')}
+            </Button>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setNewlyCreatedToken(null)}>
+            {t('common.dismiss', 'Dismiss')}
+          </Button>
+        </div>
+      )}
+
+      {/* Token management */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium">{t('sso.admin.scim.tokens', 'Bearer Tokens')}</h3>
+          {!showCreateForm && (
+            <Button variant="outline" size="sm" onClick={() => setShowCreateForm(true)}>
+              {t('sso.admin.scim.generateToken', 'Generate Token')}
+            </Button>
+          )}
+        </div>
+
+        {showCreateForm && (
+          <div className="flex items-center gap-2 mb-4">
+            <input
+              type="text"
+              className="flex-1 rounded-md border px-3 py-2 text-sm"
+              placeholder={t('sso.admin.scim.tokenNamePlaceholder', 'Token name (e.g., Entra ID Production)')}
+              value={tokenName}
+              onChange={(e) => setTokenName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateToken() } }}
+              autoFocus
+            />
+            <Button size="sm" onClick={handleCreateToken} disabled={isCreating || !tokenName.trim()}>
+              {isCreating ? t('common.creating', 'Creating...') : t('common.create', 'Create')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowCreateForm(false); setTokenName('') }}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+          </div>
+        )}
+
+        {tokens.length === 0 ? (
+          <div className="text-center py-8 border rounded-md">
+            <p className="text-sm text-muted-foreground">
+              {t('sso.admin.scim.noTokens', 'SCIM provisioning is not configured. Generate a bearer token to enable your identity provider to sync users automatically.')}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {tokens.map((token) => (
+              <div key={token.id} className="flex items-center justify-between p-3 border rounded-md">
+                <div className="flex items-center gap-3">
+                  <div>
+                    <span className="text-sm font-medium">{token.name}</span>
+                    <span className="text-xs text-muted-foreground ml-2 font-mono">{token.tokenPrefix}...</span>
+                  </div>
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                    token.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {token.isActive ? t('sso.admin.scim.tokenActive', 'Active') : t('sso.admin.scim.tokenRevoked', 'Revoked')}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(token.createdAt).toLocaleDateString()}
+                  </span>
+                  {token.isActive && (
+                    <Button variant="ghost" size="sm" onClick={() => handleRevokeToken(token.id)} className="text-destructive">
+                      {t('sso.admin.scim.revoke.action', 'Revoke')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Provisioning log */}
+      {logs.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium mb-3">{t('sso.admin.scim.recentActivity', 'Recent Provisioning Activity')}</h3>
+          <div className="border rounded-md overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.time', 'Time')}</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.operation', 'Operation')}</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.resource', 'Resource')}</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.status', 'Status')}</th>
+                  <th className="text-left px-3 py-2 font-medium">{t('sso.admin.scim.log.error', 'Error')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => (
+                  <tr key={log.id} className="border-t">
+                    <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-muted">
+                        {log.operation}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs">{log.resourceType}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-xs font-medium ${log.responseStatus < 300 ? 'text-green-700' : 'text-red-600'}`}>
+                        {log.responseStatus}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted-foreground truncate max-w-[200px]">
+                      {log.errorMessage || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {ConfirmDialogElement}
+    </div>
   )
 }
 

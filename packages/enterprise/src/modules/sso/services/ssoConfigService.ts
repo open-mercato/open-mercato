@@ -28,7 +28,7 @@ export interface SsoConfigPublic {
   autoLinkByEmail: boolean
   isActive: boolean
   ssoRequired: boolean
-  defaultRoleId: string | null
+  appRoleMappings: Record<string, string>
   createdAt: Date
   updatedAt: Date
 }
@@ -122,7 +122,7 @@ export class SsoConfigService {
       autoLinkByEmail: input.autoLinkByEmail,
       isActive: false,
       ssoRequired: false,
-      defaultRoleId: input.defaultRoleId ?? null,
+      appRoleMappings: input.appRoleMappings ?? {},
     } as any)
 
     await this.em.persistAndFlush(config)
@@ -145,7 +145,7 @@ export class SsoConfigService {
     if (input.clientId !== undefined) config.clientId = input.clientId
     if (input.jitEnabled !== undefined) config.jitEnabled = input.jitEnabled
     if (input.autoLinkByEmail !== undefined) config.autoLinkByEmail = input.autoLinkByEmail
-    if (input.defaultRoleId !== undefined) config.defaultRoleId = input.defaultRoleId
+    if (input.appRoleMappings !== undefined) config.appRoleMappings = input.appRoleMappings
 
     if (input.clientSecret !== undefined) {
       const encrypted = await this.tenantEncryptionService.encryptEntityPayload(
@@ -284,7 +284,7 @@ export class SsoConfigService {
       autoLinkByEmail: config.autoLinkByEmail,
       isActive: config.isActive,
       ssoRequired: config.ssoRequired,
-      defaultRoleId: config.defaultRoleId ?? null,
+      appRoleMappings: config.appRoleMappings ?? {},
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     }

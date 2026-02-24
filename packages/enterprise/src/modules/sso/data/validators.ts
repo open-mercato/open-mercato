@@ -16,7 +16,7 @@ export const ssoConfigCreateSchema = z.object({
   autoLinkByEmail: z.boolean().default(true),
   isActive: z.boolean().default(false),
   ssoRequired: z.boolean().default(false),
-  defaultRoleId: uuid().nullable().optional(),
+  appRoleMappings: z.record(z.string().min(1).max(255), z.string().min(1).max(255)).default({}),
 })
 
 export const ssoConfigUpdateSchema = z
@@ -54,7 +54,7 @@ export const ssoConfigAdminCreateSchema = z.object({
   allowedDomains: z.array(z.string().trim().min(1).max(253)).default([]),
   jitEnabled: z.boolean().default(true),
   autoLinkByEmail: z.boolean().default(true),
-  defaultRoleId: uuid().nullable().optional(),
+  appRoleMappings: z.record(z.string().min(1).max(255), z.string().min(1).max(255)).default({}),
 })
 
 export const ssoConfigAdminUpdateSchema = z.object({
@@ -65,7 +65,7 @@ export const ssoConfigAdminUpdateSchema = z.object({
   clientSecret: z.string().min(1).optional(),
   jitEnabled: z.boolean().optional(),
   autoLinkByEmail: z.boolean().optional(),
-  defaultRoleId: uuid().nullable().optional(),
+  appRoleMappings: z.record(z.string().min(1).max(255), z.string().min(1).max(255)).optional(),
 })
 
 export const ssoConfigListQuerySchema = z.object({
@@ -84,6 +84,17 @@ export const ssoActivateSchema = z.object({
   active: z.boolean(),
 })
 
+// --- SCIM Token schemas ---
+
+export const createScimTokenSchema = z.object({
+  ssoConfigId: uuid(),
+  name: z.string().min(1).max(100),
+})
+
+export const scimTokenListSchema = z.object({
+  ssoConfigId: uuid(),
+})
+
 // --- Type exports ---
 
 export type SsoConfigCreateInput = z.infer<typeof ssoConfigCreateSchema>
@@ -94,3 +105,5 @@ export type SsoConfigListQuery = z.infer<typeof ssoConfigListQuerySchema>
 export type HrdRequestInput = z.infer<typeof hrdRequestSchema>
 export type SsoInitiateInput = z.infer<typeof ssoInitiateSchema>
 export type OidcCallbackInput = z.infer<typeof oidcCallbackSchema>
+export type CreateScimTokenInput = z.infer<typeof createScimTokenSchema>
+export type ScimTokenListInput = z.infer<typeof scimTokenListSchema>
