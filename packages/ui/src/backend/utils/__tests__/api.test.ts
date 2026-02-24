@@ -1,3 +1,6 @@
+/**
+ * @jest-environment jsdom
+ */
 jest.mock('../../FlashMessages', () => ({
   flash: jest.fn(),
 }))
