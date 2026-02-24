@@ -2535,53 +2535,113 @@ When enrichers are active, responses include metadata:
 
 ## 17. Integration Test Coverage
 
-### Phase 1 — UI Extension Slots
-| Test ID | Scenario | Path |
-|---------|----------|------|
-| TC-UMES-001 | Widget injected into `crud-form:*` wildcard renders on all CRUD forms | Widget injection |
-| TC-UMES-002 | `onFieldChange` handler receives field updates and can set side-effects | CrudForm field change |
-| TC-UMES-003 | `transformFormData` pipeline applies multiple widget transformations in priority order | CrudForm save |
-| TC-UMES-004 | `onBeforeNavigate` guard blocks navigation when returning `ok: false` | Detail page navigation |
+Tests are organized by PR (see §21 for PR definitions). Each PR ships its own integration tests.
 
-### Phase 2 — Component Replacement
-| Test ID | Scenario | Path |
-|---------|----------|------|
-| TC-UMES-005 | `replaceComponent` swaps original component with replacement | Component registry |
-| TC-UMES-006 | `wrapper` mode wraps original component preserving its behavior | Component registry |
-| TC-UMES-007 | Component replacement is ACL-gated (disabled without required feature) | RBAC |
-| TC-UMES-008 | Highest priority replacement wins when multiple modules replace same component | Priority resolution |
+### PR 1 — Foundation
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-F01 | Headless menu item widget renders in sidebar navigation | UI | Playwright |
+| TC-UMES-F02 | `InjectionPosition` enum values resolve correctly (Before, After, First, Last) | Unit | Vitest |
 
-### Phase 3 — Response Enrichment
-| Test ID | Scenario | Path |
-|---------|----------|------|
-| TC-UMES-009 | Response enricher adds fields to GET single entity response | `/api/customers/people/:id` |
-| TC-UMES-010 | `enrichMany` is called for list endpoints with batched IDs | `/api/customers/people` |
-| TC-UMES-011 | Enricher respects ACL features (disabled without permission) | RBAC |
-| TC-UMES-012 | Enricher cannot modify existing core fields (additive only) | Data integrity |
-| TC-UMES-013 | Slow enricher is logged with timing warning | Dev mode |
+### PR 2 — Menu Item Injection
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-M01 | Menu item injected into profile dropdown appears between existing items | UI | Playwright |
+| TC-UMES-M02 | Sidebar group created by injected menu item appears in correct order | UI | Playwright |
+| TC-UMES-M03 | Menu item respects ACL features (hidden when feature disabled) | UI | Playwright |
+| TC-UMES-M04 | Menu item with `href` navigates correctly on click | UI | Playwright |
 
-### Phase 4 — API Interceptors
-| Test ID | Scenario | Path |
-|---------|----------|------|
-| TC-UMES-014 | API interceptor `before` rejects invalid mutation with 422 | `/api/sales/orders` POST |
-| TC-UMES-015 | API interceptor `before` allows valid mutation to proceed | `/api/sales/orders` POST |
-| TC-UMES-016 | API interceptor `after` merges additional data into response | `/api/sales/orders` POST |
-| TC-UMES-017 | Interceptor respects route pattern matching with wildcards | Route matching |
+### PR 3 — Events + DOM Bridge
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-E01 | `clientBroadcast: true` event arrives at client via SSE within 2 seconds | API+UI | Playwright |
+| TC-UMES-E02 | Widget `onAppEvent` handler fires when matching event is dispatched | UI | Playwright |
+| TC-UMES-E03 | `onFieldChange` handler receives field updates and can set side-effects | UI | Playwright |
+| TC-UMES-E04 | `transformFormData` pipeline applies multiple widget transformations in priority order | UI | Playwright |
+| TC-UMES-E05 | Events without `clientBroadcast: true` do NOT arrive at client | API+UI | Playwright |
+| TC-UMES-E06 | `useAppEvent` wildcard pattern `example.todo.*` matches `example.todo.created` | Unit | Vitest |
 
-### Phase 5 — DataTable & CrudForm Extensions
-| Test ID | Scenario | Path |
-|---------|----------|------|
-| TC-UMES-018 | Injected column renders in DataTable at correct position | DataTable rendering |
-| TC-UMES-019 | Injected row action appears in row actions menu | DataTable row actions |
-| TC-UMES-020 | Injected filter appears in filter bar and sends correct query param | DataTable filtering |
-| TC-UMES-021 | Injected form field renders at correct position within group | CrudForm field injection |
-| TC-UMES-022 | Injected form field's `onSave` handler is called with correct data | CrudForm save |
+### PR 4 — Response Enrichers
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-R01 | GET single customer includes `_example.todoCount` from enricher | API | Playwright |
+| TC-UMES-R02 | GET customer list — `enrichMany` batches fetch (verify via response timing or query count) | API | Playwright |
+| TC-UMES-R03 | Enricher respects ACL features (admin sees enriched data, employee without feature does not) | API | Playwright |
+| TC-UMES-R04 | Enricher fields are `_` prefixed and additive (core fields unchanged) | API | Playwright |
+| TC-UMES-R05 | Enriched `_meta.enrichedBy` includes enricher ID | API | Playwright |
 
-### Phase 6 — Recursive Widget Extension
-| Test ID | Scenario | Path |
-|---------|----------|------|
-| TC-UMES-023 | Widget-level injection spot renders child widgets | Widget composition |
-| TC-UMES-024 | Widget behavior extension runs alongside original handler | Widget event pipeline |
+### PR 5 — API Interceptors
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-I01 | Interceptor `before` rejects POST with 422 when title contains "BLOCKED" | API | Playwright |
+| TC-UMES-I02 | Interceptor `before` allows valid POST to proceed | API | Playwright |
+| TC-UMES-I03 | Interceptor `after` merges `_example.serverTimestamp` into GET response | API | Playwright |
+| TC-UMES-I04 | Interceptor with wildcard `example/*` matches `example/todos` and `example/tags` | API | Playwright |
+| TC-UMES-I05 | Interceptor `before` modifying body — modified body is re-validated through Zod | API | Playwright |
+| TC-UMES-I06 | `metadata` passthrough between `before` and `after` hooks works | API | Playwright |
+
+### PR 6 — DataTable Deep Extensibility
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-D01 | Injected "Todos" column appears in customers DataTable at correct position (after "Email") | UI | Playwright |
+| TC-UMES-D02 | Injected column cell renders enriched data (`_example.todoCount`) | UI | Playwright |
+| TC-UMES-D03 | Injected "View Todos" row action appears in row action dropdown | UI | Playwright |
+| TC-UMES-D04 | Injected row action click navigates to correct URL | UI | Playwright |
+| TC-UMES-D05 | Injected column respects ACL features | UI | Playwright |
+
+### PR 7 — CrudForm Field Injection
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-CF01 | Injected "Priority" field appears in customer edit form within "Details" group | UI | Playwright |
+| TC-UMES-CF02 | Injected field loads initial value from enriched response (`_example.priority`) | UI | Playwright |
+| TC-UMES-CF03 | Editing injected field and saving persists via example module's API | UI+API | Playwright |
+| TC-UMES-CF04 | Widget `onBeforeSave` validation blocks save on invalid injected field value | UI | Playwright |
+| TC-UMES-CF05 | Core customer fields are unchanged (injected field data not sent to customer API) | API | Playwright |
+
+### PR 8 — Component Replacement
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-CR01 | Replaced component renders instead of original | UI | Playwright |
+| TC-UMES-CR02 | Wrapper mode renders original component with extra content | UI | Playwright |
+| TC-UMES-CR03 | Component replacement respects ACL features | UI | Playwright |
+| TC-UMES-CR04 | Highest priority replacement wins when multiple exist | UI | Playwright |
+
+### PR 9 — Detail Page Bindings
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-DP01 | Injected field renders in customer detail page "Details" section | UI | Playwright |
+| TC-UMES-DP02 | `runSectionSave` triggers widget `onSave` handlers alongside core save | UI+API | Playwright |
+| TC-UMES-DP03 | Enriched data accessible via `ext.getEnrichedData('_example')` | UI | Playwright |
+| TC-UMES-DP04 | Injected tab renders in customer detail tabs | UI | Playwright |
+
+### PR 10 — Recursive Widgets
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-RW01 | Widget-level injection spot renders child widgets | UI | Playwright |
+| TC-UMES-RW02 | Nested widget's `onBeforeSave` handler participates in save lifecycle | UI | Playwright |
+
+### PR 11 — DevTools + Conflict Detection
+| Test ID | Scenario | Path | Type |
+|---------|----------|------|------|
+| TC-UMES-DT01 | DevTools panel lists all active extensions on current page (dev mode) | UI | Playwright |
+| TC-UMES-DT02 | Build-time conflict detection warns on duplicate priority replacements | CLI | Script |
+
+### Test Totals
+
+| PR | Count |
+|----|-------|
+| PR 1 — Foundation | 2 |
+| PR 2 — Menus | 4 |
+| PR 3 — Events + DOM Bridge | 6 |
+| PR 4 — Enrichers | 5 |
+| PR 5 — Interceptors | 6 |
+| PR 6 — DataTable | 5 |
+| PR 7 — CrudForm Fields | 5 |
+| PR 8 — Component Replacement | 4 |
+| PR 9 — Detail Bindings | 4 |
+| PR 10 — Recursive Widgets | 2 |
+| PR 11 — DevTools | 2 |
+| **Total** | **45** |
 
 ---
 
@@ -2808,3 +2868,1182 @@ From `CrudForm.tsx` lines 1100-1332, the exact save flow:
 | 2026-02-24 | Added: Tier 3 post-query merge filter (§8.4) — interceptor `after` hook filters/merges results when API can't accept ID rewrites; `replace` + `metadata` fields on interceptor types |
 | 2026-02-24 | Added: Application chrome injection (§4.3) — `InjectionMenuItemWidget` type, profile menu/topbar/sidebar nav slots, SSO and carrier integration examples, ProfileDropdown implementation guide |
 | 2026-02-24 | Added reference to SPEC-043 (Reactive Notification Handlers) — extends UMES with `notification:<type>:handler` extension points for client-side reactive effects (toasts, popups, state refreshes) triggered on notification arrival, eliminating module-specific polling loops |
+| 2026-02-24 | Added: §19 DOM Event Bridge, §20 AGENTS.md Changes Required, §21 PR Delivery Plan with phased implementation, example module usage for every mechanism, expanded integration tests |
+
+---
+
+## 19. DOM Event Bridge — Widget ↔ App Event Unification
+
+### 19.1 Current State: Ad-Hoc DOM Events
+
+The codebase already uses `om:` prefixed DOM events for widget communication, but they are **ad-hoc** — each feature invents its own:
+
+| Event | Origin | Purpose |
+|-------|--------|---------|
+| `om:backend-mutation-error` | `packages/ui/src/backend/injection/mutationEvents.ts` | CrudForm/GuardedMutation → widgets (save error channel) |
+| `om:crud-save-error` | `packages/ui/src/backend/CrudForm.tsx` | CrudForm → widgets (duplicate error channel) |
+| `om:refresh-sidebar` | `packages/ui/src/backend/AppShell.tsx` | Internal → sidebar (trigger nav refresh) |
+| `om:record-lock-owner-changed` | `packages/enterprise/.../record-locking/widget.client.tsx` | Widget → widget (instance election) |
+
+**Problem**: Module events (from `events.ts` — e.g., `example.todo.created`) are **server-side only**. They flow through the event bus, into persistent/ephemeral subscribers, but **never reach the browser**. A widget injected into a customer detail page cannot know that a todo was just created — it must poll the API or use a manual refresh button.
+
+### 19.2 The DOM Event Bridge
+
+Introduce a **unidirectional bridge** that emits every app event as a DOM `CustomEvent` on the client side. This gives widgets instant notification of any app event without polling.
+
+#### Architecture
+
+```
+Server-side event bus                         Browser
+─────────────────────                         ───────
+
+example.todo.created ──► event bus
+  │                        │
+  ├── subscribers/*.ts     │ (existing)
+  │                        │
+  └── SSE/WebSocket ──────►│ DOM Event Bridge
+      push to client       │
+                           ▼
+                    window.dispatchEvent(
+                      new CustomEvent(
+                        'om:event',
+                        { detail: {
+                          id: 'example.todo.created',
+                          payload: { ... },
+                          timestamp: ...,
+                        }}
+                      )
+                    )
+                           │
+                    ┌──────┴──────────┐
+                    │  Any widget or  │
+                    │  component can  │
+                    │  addEventListener│
+                    └─────────────────┘
+```
+
+#### Transport Layer
+
+The bridge uses the **existing notification SSE channel** (`/api/auth/notifications/stream`). Instead of creating a new transport, extend the notification stream to include app events:
+
+```typescript
+// packages/core/src/modules/auth/api/notifications/stream.ts
+// Existing SSE endpoint — extended to include app events
+
+// Current: sends notification payloads
+// NEW: also sends event payloads when the event is flagged as `clientBroadcast: true`
+```
+
+**Not all events are bridged.** Only events declared with `clientBroadcast: true` in `events.ts` are pushed to the client. This prevents flooding the browser with high-frequency internal events (search reindex, cache invalidation).
+
+#### Event Declaration Extension
+
+```typescript
+// In module's events.ts
+const events = [
+  {
+    id: 'example.todo.created',
+    label: 'Todo Created',
+    entity: 'todo',
+    category: 'crud',
+    clientBroadcast: true,  // NEW: bridge this event to the browser
+  },
+  {
+    id: 'example.todo.updated',
+    label: 'Todo Updated',
+    entity: 'todo',
+    category: 'crud',
+    clientBroadcast: true,
+  },
+] as const
+```
+
+#### Client-Side Reception
+
+```typescript
+// packages/ui/src/backend/injection/useAppEvent.ts
+
+/**
+ * Subscribe to app events in any widget or component.
+ * Events arrive via the notification SSE channel.
+ */
+function useAppEvent(
+  eventPattern: string,           // e.g., 'example.todo.created', 'example.todo.*', '*'
+  handler: (payload: AppEventPayload) => void,
+  deps?: unknown[],
+): void {
+  useEffect(() => {
+    const listener = (e: Event) => {
+      const detail = (e as CustomEvent<AppEventPayload>).detail
+      if (matchesPattern(eventPattern, detail.id)) {
+        handler(detail)
+      }
+    }
+    window.addEventListener('om:event', listener)
+    return () => window.removeEventListener('om:event', listener)
+  }, [eventPattern, ...(deps ?? [])])
+}
+
+interface AppEventPayload {
+  id: string                      // Event ID (e.g., 'example.todo.created')
+  payload: Record<string, unknown>// Event-specific data
+  timestamp: number               // Server-side emission time
+  organizationId: string          // Scoped to current org
+}
+```
+
+#### Wildcard Matching
+
+Uses the same pattern matching as the server-side event bus:
+
+```typescript
+function matchesPattern(pattern: string, eventId: string): boolean {
+  if (pattern === '*') return true
+  const regex = new RegExp('^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
+  return regex.test(eventId)
+}
+```
+
+### 19.3 Widget Event Handler: `onAppEvent`
+
+Widgets can declare an `onAppEvent` handler alongside existing lifecycle handlers:
+
+```typescript
+// In widget.ts
+export default {
+  metadata: { id: 'example.injection.sales-todos', ... },
+  Widget: SalesTodosWidget,
+  eventHandlers: {
+    onLoad: async (context) => { /* ... */ },
+    onBeforeSave: async (data, context) => { /* ... */ },
+
+    // NEW: React to app events
+    onAppEvent: async (event: AppEventPayload, context) => {
+      if (event.id === 'example.todo.created' || event.id === 'example.todo.updated') {
+        // Refresh the widget's data
+        context.refresh?.()
+      }
+    },
+  },
+} satisfies InjectionWidgetModule
+```
+
+The `InjectionSpot` component subscribes to `om:event` and dispatches `onAppEvent` to all mounted widgets, filtering by the widget's declared interest pattern.
+
+### 19.4 Existing om: Events — Unified Under the Bridge
+
+The existing ad-hoc events are preserved but **also emitted through the bridge** for consistency:
+
+| Existing Event | Bridge Event ID | Change |
+|---------------|----------------|--------|
+| `om:backend-mutation-error` | `om.mutation.error` | Aliased (both fire) |
+| `om:crud-save-error` | `om.crud.save-error` | Aliased (both fire) |
+| `om:refresh-sidebar` | `om.ui.sidebar-refresh` | Aliased (both fire) |
+
+New code should use the `useAppEvent` hook; existing code continues to work via the `om:` DOM events.
+
+### 19.5 Performance & Security
+
+- **Scoping**: Events are only bridged to clients within the same `organizationId`. The SSE channel is already org-scoped.
+- **Payload size**: Event payloads pushed to the client are limited to 4KB. Larger payloads send only `{ id, entityId, entityType }` — the widget fetches the full data via API.
+- **Deduplication**: The bridge includes a 500ms deduplication window for identical event IDs (prevents rapid fire from bulk operations).
+- **Opt-in**: Modules must explicitly set `clientBroadcast: true`. Default is `false` — zero behavior change for existing modules.
+
+### 19.6 Example Module: Widget Reacting to App Events
+
+The `example.injection.sales-todos` widget on the sales order detail page auto-refreshes when a todo is created/updated:
+
+```typescript
+// example/widgets/injection/sales-todos/widget.client.tsx
+"use client"
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+
+export default function SalesTodosWidget({ context, data }: WidgetProps) {
+  const [todos, setTodos] = useState<Todo[]>([])
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Auto-refresh when any todo event fires
+  useAppEvent('example.todo.*', (event) => {
+    setRefreshKey(k => k + 1)
+  })
+
+  useEffect(() => {
+    loadTodos(context.record?.id).then(setTodos)
+  }, [context.record?.id, refreshKey])
+
+  return <TodoList todos={todos} />
+}
+```
+
+**Before UMES**: Widget needs a manual "Refresh" button or polls every 5 seconds.
+**After UMES**: Widget updates instantly when any todo event fires — zero polling, zero manual refresh.
+
+---
+
+## 20. AGENTS.md Changes Required for UMES
+
+This section specifies **exactly what must change** in each AGENTS.md file to make UMES a first-class documented pattern that LLMs and developers can follow.
+
+### 20.1 Root `AGENTS.md` — Task Router Additions
+
+**Add rows to the Task Router table:**
+
+```markdown
+| Adding response enrichers to another module's API, data federation | `packages/core/AGENTS.md` → Response Enrichers |
+| Adding API interceptors (before/after hooks on routes), cross-module validation | `packages/core/AGENTS.md` → API Interceptors |
+| Replacing or wrapping another module's UI component | `packages/core/AGENTS.md` → Component Replacement |
+| Injecting columns, row actions, bulk actions into another module's DataTable | `packages/ui/AGENTS.md` → DataTable Extension Injection |
+| Injecting fields into another module's CrudForm groups | `packages/ui/AGENTS.md` → CrudForm Field Injection |
+| Adding menu items to sidebar, profile dropdown, topbar, settings nav | `packages/core/AGENTS.md` → Menu Item Injection |
+| Bridging server events to client-side widgets, using `useAppEvent` | `packages/events/AGENTS.md` → DOM Event Bridge |
+| Using `useExtensibleDetail` for detail page extensions | `packages/ui/src/backend/AGENTS.md` → Extensible Detail Pages |
+```
+
+**Add to the "Optional Module Files" table:**
+
+```markdown
+| `data/enrichers.ts` | `enrichers` | Response enrichers for other modules' entities |
+| `api/interceptors.ts` | `interceptors` | API route interceptors (before/after hooks) |
+| `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper declarations |
+```
+
+**Add to the "When You Need an Import" table:**
+
+```markdown
+| Response enricher types | `import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'` |
+| API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
+| Injection position enum | `import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'` |
+| App event hook | `import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'` |
+| Extensible detail hook | `import { useExtensibleDetail } from '@open-mercato/ui/backend/injection/useExtensibleDetail'` |
+| Injected menu items hook | `import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'` |
+```
+
+**Add to "Key Rules":**
+
+```markdown
+- Response enrichers MUST implement `enrichMany` for list endpoints (N+1 prevention)
+- Response enrichers MUST NOT modify or remove existing fields (additive only)
+- API interceptors that modify request body MUST return data that passes the route's Zod schema
+- Injected columns read data from response enrichers — pair every column injection with an enricher
+- `clientBroadcast: true` on events enables the DOM Event Bridge — use for events widgets need to react to
+```
+
+**Add to "Critical Rules → Architecture":**
+
+```markdown
+- **NO direct entity import from another module's enricher** — enrichers access data via EntityManager, not by importing entities
+- Response enrichers run AFTER `CrudHooks.afterList` — they do not change what existing hooks receive
+- API interceptor `before` hooks run AFTER Zod validation; modified body is re-validated through Zod
+- Component replacements MUST maintain the original component's props contract (enforced via `propsSchema`)
+```
+
+### 20.2 `packages/core/AGENTS.md` — New Sections
+
+**Add section: "Response Enrichers"**
+
+```markdown
+## Response Enrichers
+
+Enrichers add data to another module's API responses without modifying core code (GraphQL Federation-style `@extends`).
+
+### File Convention
+
+`src/modules/<module>/data/enrichers.ts` — export `enrichers: ResponseEnricher[]`
+
+### MUST Rules
+
+- MUST implement `enrichMany` for list endpoints (batch-fetch, no N+1)
+- MUST NOT modify or remove existing fields — additive only
+- MUST NOT perform writes — enricher EntityManager is read-only
+- MUST filter by `ctx.organizationId` (tenant isolation)
+- MUST prefix enriched fields with `_<module>` namespace (e.g., `_loyalty.tier`)
+- Run `npm run modules:prepare` after adding enrichers
+
+### Template
+
+\`\`\`typescript
+// src/modules/<module>/data/enrichers.ts
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+export const enrichers: ResponseEnricher[] = [
+  {
+    id: '<module>.<enricher-name>',
+    targetEntity: '<target-module>.<entity>',
+    features: ['<module>.view'],
+    priority: 50,
+
+    async enrichOne(record, ctx) {
+      const related = await ctx.em.findOne(MyEntity, {
+        foreignId: record.id,
+        organizationId: ctx.organizationId,
+      })
+      return { ...record, _<module>: { field: related?.value ?? null } }
+    },
+
+    async enrichMany(records, ctx) {
+      const ids = records.map(r => r.id)
+      const all = await ctx.em.find(MyEntity, {
+        foreignId: { $in: ids },
+        organizationId: ctx.organizationId,
+      })
+      const map = new Map(all.map(e => [e.foreignId, e]))
+      return records.map(r => ({
+        ...r,
+        _<module>: { field: map.get(r.id)?.value ?? null },
+      }))
+    },
+  },
+]
+\`\`\`
+
+### Execution Order in CRUD Factory
+
+1. Core query (existing)
+2. `CrudHooks.afterList` (existing — receives raw results)
+3. **Enrichers run** (NEW — receive post-hook results, add fields)
+4. Return HTTP response
+
+### Caching (Optional)
+
+\`\`\`typescript
+{
+  cache: {
+    strategy: 'read-through',
+    ttl: 60,
+    tags: ['<module>', '<target-entity>'],
+    invalidateOn: ['<module>.<entity>.updated'],
+  },
+}
+\`\`\`
+```
+
+**Add section: "API Interceptors"**
+
+```markdown
+## API Interceptors
+
+Interceptors hook into other modules' API routes — validate, transform, or augment requests and responses.
+
+### File Convention
+
+`src/modules/<module>/api/interceptors.ts` — export `interceptors: ApiInterceptor[]`
+
+### MUST Rules
+
+- `before` hooks MUST NOT bypass Zod validation — modified body is re-validated
+- `before` hooks that reject MUST include a descriptive `message` and appropriate `statusCode`
+- `after` hooks MUST NOT remove existing response fields (additive `merge` or full `replace`)
+- Use `metadata` to pass data between `before` and `after` hooks
+- Run `npm run modules:prepare` after adding interceptors
+
+### Execution Order in CRUD Mutation Pipeline
+
+1. Zod schema validation (existing)
+2. **API interceptor `before` hooks** (NEW)
+3. CrudHooks.beforeCreate/Update/Delete (existing)
+4. validateCrudMutationGuard (existing)
+5. Entity mutation + ORM flush (existing)
+6. CrudHooks.afterCreate/Update/Delete (existing)
+7. runCrudMutationGuardAfterSuccess (existing)
+8. **API interceptor `after` hooks** (NEW)
+9. Response enrichers (Phase 3)
+10. Return HTTP response
+
+### When to Use What
+
+| Concern | Use | NOT |
+|---------|-----|-----|
+| Block/validate from UI | Widget `onBeforeSave` | Interceptor |
+| Block/validate from API | API interceptor `before` | Widget handler |
+| Add data to response | Response enricher | Interceptor `after` |
+| React to completed mutation | Event subscriber | Interceptor `after` |
+| Transform request before processing | Interceptor `before` | Subscriber |
+
+### Template
+
+\`\`\`typescript
+// src/modules/<module>/api/interceptors.ts
+import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+
+export const interceptors: ApiInterceptor[] = [
+  {
+    id: '<module>.validate-<action>',
+    targetRoute: '<target-module>/<entity>',
+    methods: ['POST', 'PUT'],
+    features: ['<module>.manage'],
+    priority: 100,
+
+    async before(request, ctx) {
+      const violations = await validate(request.body, ctx)
+      if (violations.length > 0) {
+        return { ok: false, message: violations.join(', '), statusCode: 422 }
+      }
+      return { ok: true }
+    },
+  },
+]
+\`\`\`
+```
+
+**Add section: "Component Replacement"**
+
+```markdown
+## Component Replacement
+
+Replace or wrap another module's UI component without forking.
+
+### File Convention
+
+`src/modules/<module>/widgets/components.ts` — export `componentOverrides: ComponentOverride[]`
+
+### Modes
+
+| Mode | Use Case | Risk |
+|------|----------|------|
+| **Replace** | Complete swap (new UI, new behavior) | High — must maintain props contract |
+| **Wrapper** | Decorate (add behavior around existing) | Low — original preserved |
+| **Props Override** | Modify props passed to existing | Low — original preserved |
+
+### Template
+
+\`\`\`typescript
+// src/modules/<module>/widgets/components.ts
+export const componentOverrides: ComponentOverride[] = [
+  {
+    target: { componentId: '<target-module>.<component-id>' },
+    replacement: lazy(() => import('./components/MyReplacement')),
+    priority: 100,
+    features: ['<module>.view'],
+  },
+]
+\`\`\`
+
+### Usage in Core (Making a Component Replaceable)
+
+\`\`\`typescript
+// In the component that should be replaceable
+const ShipmentDialog = useRegisteredComponent<ShipmentDialogProps>(
+  'sales.order.shipment-dialog'
+)
+\`\`\`
+```
+
+**Add section: "Menu Item Injection"**
+
+```markdown
+## Menu Item Injection
+
+Add items to any application menu surface (sidebar, profile dropdown, settings nav, topbar actions).
+
+### Menu Surface IDs
+
+| Surface | ID |
+|---------|-------|
+| Main sidebar | `menu:sidebar:main` |
+| Settings sidebar | `menu:sidebar:settings` |
+| Profile sidebar | `menu:sidebar:profile` |
+| Profile dropdown | `menu:topbar:profile-dropdown` |
+| Topbar actions | `menu:topbar:actions` |
+| Specific sidebar group | `menu:sidebar:main:<groupId>` |
+| Specific settings section | `menu:sidebar:settings:<sectionId>` |
+
+### File Convention
+
+Declare in `widgets/injection-table.ts` with a headless `InjectionMenuItemWidget` in `widgets/injection/`.
+
+### Template
+
+\`\`\`typescript
+// widgets/injection/menus/widget.ts
+export default {
+  metadata: { id: '<module>.injection.menus', features: ['<module>.view'] },
+  menuItems: [
+    {
+      id: '<item-id>',
+      label: '<module>.menu.<item>',
+      icon: 'IconName',
+      href: '/backend/<path>',
+      groupId: '<group>',
+      groupLabel: '<group label>',
+      placement: { position: InjectionPosition.Last },
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+\`\`\`
+```
+
+**Add section: "DOM Event Bridge"**
+
+```markdown
+## DOM Event Bridge
+
+Bridge server-side events to client-side widgets for instant reaction (no polling).
+
+### Enabling
+
+In `events.ts`, add `clientBroadcast: true` to events that widgets need:
+
+\`\`\`typescript
+{ id: 'example.todo.created', label: 'Todo Created', clientBroadcast: true, ... }
+\`\`\`
+
+### Subscribing in Widgets
+
+\`\`\`typescript
+// In widget.client.tsx
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+
+useAppEvent('example.todo.*', (event) => {
+  // event.id, event.payload, event.timestamp
+  refreshData()
+})
+\`\`\`
+
+### In Widget Event Handlers
+
+\`\`\`typescript
+// In widget.ts
+eventHandlers: {
+  onAppEvent: async (event, context) => {
+    if (event.id === 'example.todo.created') {
+      context.refresh?.()
+    }
+  },
+}
+\`\`\`
+
+### Rules
+
+- Only events with `clientBroadcast: true` reach the browser
+- Payload limit: 4KB; larger payloads send entity reference only
+- Deduplication: 500ms window for identical event IDs
+- Scoped to current `organizationId`
+```
+
+### 20.3 `packages/ui/AGENTS.md` — New Sections
+
+**Add section: "DataTable Extension Injection"**
+
+```markdown
+## DataTable Extension Injection
+
+Inject columns, row actions, bulk actions, and filters into another module's DataTable.
+
+### Injection Spot IDs
+
+| Spot ID | Widget Type |
+|---------|-------------|
+| `data-table:<tableId>:columns` | `InjectionColumnWidget` |
+| `data-table:<tableId>:row-actions` | `InjectionRowActionWidget` |
+| `data-table:<tableId>:bulk-actions` | `InjectionBulkActionWidget` |
+| `data-table:<tableId>:filters` | `InjectionFilterWidget` |
+
+### MUST Rules
+
+- Injected columns MUST pair with a response enricher (Phase 3) for data
+- Injected columns use `accessorKey` dot-path to read enriched data (e.g., `_loyalty.points`)
+- Injected row actions MUST have stable `id` values
+- Injected filters with `strategy: 'server'` MUST pair with an API interceptor
+- Use `InjectionPosition` for column/action ordering
+
+### Column Injection Template
+
+\`\`\`typescript
+export default {
+  metadata: { id: '<module>.injection.<table>-columns', features: ['<module>.view'] },
+  columns: [
+    {
+      id: '<columnId>',
+      header: '<module>.column.<name>',
+      accessorKey: '_<module>.<field>',
+      cell: ({ getValue }) => <Badge>{getValue()}</Badge>,
+      size: 100,
+      sortable: false,
+      placement: { position: InjectionPosition.After, relativeTo: '<existing-column>' },
+    },
+  ],
+} satisfies InjectionColumnWidget
+\`\`\`
+```
+
+**Add section: "CrudForm Field Injection"**
+
+```markdown
+## CrudForm Field Injection
+
+Inject fields into another module's CrudForm groups — the "Triad Pattern": Enricher loads → Field renders → onSave persists.
+
+### Injection Spot ID
+
+`crud-form:<entityId>:fields` — targets the CrudForm's field groups
+
+### The Triad Pattern
+
+1. **Response Enricher** (`data/enrichers.ts`): adds data to API response under `_<module>` namespace
+2. **Field Widget** (`widgets/injection/`): renders field in target form group using enriched data
+3. **onSave Handler**: saves field value via module's own API (NOT via core API)
+
+### MUST Rules
+
+- Injected field IDs MUST use dot-path matching the enricher namespace (e.g., `_loyalty.tier`)
+- Injected fields MUST specify `group` (existing form group ID) and `placement`
+- Core API never sees injected field values — each widget saves its own data
+- Use `onBeforeSave` for validation of injected fields
+
+### Template
+
+\`\`\`typescript
+export default {
+  metadata: { id: '<module>.injection.<form>-fields', features: ['<module>.manage'] },
+  fields: [
+    {
+      id: '_<module>.<field>',
+      label: '<module>.field.<name>',
+      type: 'select',
+      options: [...],
+      group: '<existing-group-id>',
+      placement: { position: InjectionPosition.After, relativeTo: '<existing-field>' },
+    },
+  ],
+  eventHandlers: {
+    onSave: async (data, context) => {
+      const value = data['_<module>.<field>']
+      await apiCallOrThrow('/api/<module>/<endpoint>', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value }),
+      })
+    },
+  },
+} satisfies InjectionFieldWidget
+\`\`\`
+```
+
+### 20.4 `packages/ui/src/backend/AGENTS.md` — New Section
+
+**Add section: "Extensible Detail Pages"**
+
+```markdown
+## Extensible Detail Pages
+
+For hand-built detail pages (customer, sales document), use `useExtensibleDetail` to bind UMES features.
+
+### Usage
+
+\`\`\`typescript
+const ext = useExtensibleDetail({
+  entityId: 'customers.person',
+  data,
+  setData,
+  injectionContext,
+  guardedMutation,
+})
+
+// Injected tabs
+const allTabs = [...builtInTabs, ...ext.injectedTabs]
+
+// Injected fields in a section
+ext.getFieldsForSection('details').map(field => <InjectedField ... />)
+
+// Injected columns in embedded DataTable
+ext.getColumnsForTable('customers.person.deals')
+
+// Component replacement
+const Dialog = ext.getComponent<DialogProps>('customers.person.merge-dialog')
+
+// Section-level save with widget hooks
+await ext.runSectionSave('details', () => apiCallOrThrow(...), sectionData)
+\`\`\`
+
+### MUST Rules
+
+- MUST pass existing `useGuardedMutation` instance (not create a new one)
+- MUST pass existing `injectionContext` (not rebuild)
+- Use `runSectionSave` for all mutation operations to trigger widget lifecycle
+```
+
+### 20.5 `packages/events/AGENTS.md` — New Section
+
+**Add section: "DOM Event Bridge"**
+
+```markdown
+## DOM Event Bridge
+
+Server-side events can be bridged to client-side widgets for instant UI updates.
+
+### Declaring Bridged Events
+
+In `events.ts`, add `clientBroadcast: true`:
+
+\`\`\`typescript
+{ id: 'module.entity.action', clientBroadcast: true, ... }
+\`\`\`
+
+### MUST Rules
+
+- Only events with `clientBroadcast: true` are bridged — default is `false`
+- Keep payload under 4KB for bridged events; send entity references for larger data
+- Bridged events are org-scoped (only received by clients in the same organization)
+- Use `useAppEvent(pattern, handler)` to subscribe in components/widgets
+- Deduplication window: 500ms — rapid-fire events from bulk ops are coalesced
+```
+
+### 20.6 `.ai/qa/AGENTS.md` — New Section
+
+**Add section: "Testing UMES Extension Points"**
+
+```markdown
+## Testing UMES Extension Points
+
+Integration tests for UMES features should verify cross-module extension behavior.
+
+### Patterns
+
+1. **Extension activation**: Verify widget/enricher/interceptor activates when feature is enabled
+2. **ACL filtering**: Verify extension is hidden when user lacks required feature
+3. **Priority ordering**: When multiple extensions target the same point, verify correct ordering
+4. **Data lifecycle**: For field injection, verify load → render → edit → save → persist cycle
+5. **Error handling**: Verify interceptor rejection returns proper error message/code
+
+### Test Structure
+
+\`\`\`typescript
+test('response enricher adds loyalty data to customer response', async ({ request }) => {
+  // 1. Create fixture (customer via API)
+  // 2. Call GET /api/customers/people/:id
+  // 3. Assert response includes _loyalty namespace
+  // 4. Clean up fixture
+})
+
+test('API interceptor rejects invalid mutation', async ({ request }) => {
+  // 1. Create fixture
+  // 2. Call POST /api/sales/orders with invalid data
+  // 3. Assert 422 with interceptor message
+  // 4. Clean up fixture
+})
+
+test('injected column renders in DataTable', async ({ page }) => {
+  // 1. Navigate to list page
+  // 2. Assert injected column header is visible
+  // 3. Assert enriched data renders in column cells
+})
+\`\`\`
+```
+
+### 20.7 Summary: All AGENTS.md Changes
+
+| File | Action | Sections |
+|------|--------|----------|
+| **Root `AGENTS.md`** | Add rows to Task Router, Optional Module Files, Import table, Key Rules, Critical Rules | 8 Task Router rows, 3 optional files, 6 imports, 5 key rules, 4 critical rules |
+| **`packages/core/AGENTS.md`** | Add 5 new sections | Response Enrichers, API Interceptors, Component Replacement, Menu Item Injection, DOM Event Bridge |
+| **`packages/ui/AGENTS.md`** | Add 2 new sections | DataTable Extension Injection, CrudForm Field Injection |
+| **`packages/ui/src/backend/AGENTS.md`** | Add 1 new section | Extensible Detail Pages |
+| **`packages/events/AGENTS.md`** | Add 1 new section | DOM Event Bridge |
+| **`.ai/qa/AGENTS.md`** | Add 1 new section | Testing UMES Extension Points |
+
+**Total**: 10 new sections across 6 files. All existing content is preserved — changes are purely additive.
+
+---
+
+## 21. PR Delivery Plan — Phased Implementation
+
+Each phase is a **separate PR** that is fully testable, independently mergeable, and adds working example module demonstrations + integration tests. Phases can be developed in parallel where noted.
+
+### PR 1: Foundation — `InjectionPosition` + Headless Widget Infrastructure
+
+**Branch**: `feat/umes-foundation`
+
+**Scope**:
+- Create `packages/shared/src/modules/widgets/injection-position.ts` with `InjectionPosition` enum + `InjectionPlacement` interface
+- Create `loadInjectionDataWidgetById` / `loadInjectionDataWidgets` in injection-loader (headless widget loading path)
+- Create `useInjectionDataWidgets` hook in `packages/ui/src/backend/injection/`
+- Add `InjectionColumnWidget`, `InjectionRowActionWidget`, `InjectionBulkActionWidget`, `InjectionFilterWidget`, `InjectionFieldWidget`, `InjectionMenuItemWidget` type definitions to `packages/shared/src/modules/widgets/injection.ts`
+- Update `yarn generate` to discover and register headless widget types
+
+**Example module additions**:
+- `example/widgets/injection/todo-menu-items/widget.ts` — headless `InjectionMenuItemWidget` adding "Example Todos" to sidebar under the Example group
+
+**Integration tests**:
+- TC-UMES-F01: Headless menu item widget renders in sidebar navigation
+- TC-UMES-F02: `InjectionPosition` enum values resolve correctly (Before, After, First, Last)
+
+**Files touched**: ~8 new files, ~3 modified files
+
+**Estimated scope**: Small — type definitions + loader extension + one example widget
+
+**Depends on**: Nothing
+
+---
+
+### PR 2: Menu Item Injection — Application Chrome Extensibility
+
+**Branch**: `feat/umes-menu-injection`
+
+**Scope**:
+- Create `useInjectedMenuItems(surfaceId)` hook
+- Create `mergeMenuItems(builtIn, injected)` utility
+- Modify `ProfileDropdown.tsx` to call `useInjectedMenuItems('menu:topbar:profile-dropdown')`
+- Modify `AppShell.tsx` sidebar to call `useInjectedMenuItems('menu:sidebar:main')` and merge with `groups[]`
+- Modify `SectionNav.tsx` to call `useInjectedMenuItems` for settings/profile
+- Modify `layout.tsx` header to call `useInjectedMenuItems('menu:topbar:actions')`
+
+**Example module additions**:
+- `example/widgets/injection/example-menus/widget.ts` — adds "Quick Add Todo" to topbar actions area, adds "Example Dashboard" external link to sidebar
+- Update `example/widgets/injection-table.ts` with menu surface mappings
+
+**Integration tests**:
+- TC-UMES-M01: Menu item injected into profile dropdown appears between existing items
+- TC-UMES-M02: Sidebar group created by injected menu item appears in correct order
+- TC-UMES-M03: Menu item respects ACL features (hidden when feature disabled)
+- TC-UMES-M04: Menu item with `href` navigates correctly on click
+
+**Files touched**: ~4 new files, ~5 modified files
+
+**Estimated scope**: Medium — 4 component modifications + hook + utility
+
+**Depends on**: PR 1
+
+---
+
+### PR 3: Extended Widget Event Handlers + DOM Event Bridge
+
+**Branch**: `feat/umes-event-bridge`
+
+**Scope**:
+- Add `onFieldChange`, `onBeforeNavigate`, `onVisibilityChange`, `onAppEvent` to `WidgetInjectionEventHandlers` type
+- Add `transformFormData`, `transformDisplayData`, `transformValidation` transformer events
+- Implement dual-mode dispatch in `useInjectionSpotEvents` (action vs transformer pipeline)
+- Add `clientBroadcast` field to event declaration type in `createModuleEvents`
+- Create `useAppEvent` hook in `packages/ui/src/backend/injection/`
+- Extend notification SSE channel to push `clientBroadcast: true` events
+- Create `om:event` DOM event dispatching in the SSE listener
+
+**Example module additions**:
+- Update `example/events.ts` — add `clientBroadcast: true` to todo CRUD events
+- Update `example/widgets/injection/sales-todos/widget.client.tsx` — use `useAppEvent('example.todo.*', ...)` for auto-refresh instead of manual refresh button
+- Add `example/widgets/injection/crud-validation/widget.ts` — demonstrate `onFieldChange` handler that shows a warning when product name contains "TEST"
+- Add `transformFormData` example — widget that auto-trims whitespace from text fields before save
+
+**Integration tests**:
+- TC-UMES-E01: `clientBroadcast: true` event arrives at client via SSE within 2 seconds
+- TC-UMES-E02: Widget `onAppEvent` handler fires when matching event is dispatched
+- TC-UMES-E03: `onFieldChange` handler receives field updates and can set side-effects
+- TC-UMES-E04: `transformFormData` pipeline applies multiple widget transformations in priority order
+- TC-UMES-E05: Events without `clientBroadcast: true` do NOT arrive at client
+- TC-UMES-E06: `useAppEvent` wildcard pattern `example.todo.*` matches `example.todo.created`
+
+**Files touched**: ~6 new files, ~5 modified files
+
+**Estimated scope**: Large — SSE extension + new event types + dual dispatch
+
+**Depends on**: PR 1 (types), independent of PR 2
+
+---
+
+### PR 4: Response Enrichers
+
+**Branch**: `feat/umes-response-enrichers`
+
+**Scope**:
+- Create `packages/shared/src/lib/crud/response-enricher.ts` — types + registry
+- Create `applyEnrichers(records, enrichers, ctx)` function
+- Modify `makeCrudRoute` GET handler to call `applyEnrichers` after `CrudHooks.afterList`
+- Update `yarn generate` to discover `data/enrichers.ts` and generate `enrichers.generated.ts`
+- Add bootstrap registration for enricher registry
+
+**Example module additions**:
+- `example/data/enrichers.ts` — enricher that adds `_example.todoCount` and `_example.latestTodo` to customer person responses (fetches todo count per customer from example module's todos table)
+
+**Integration tests**:
+- TC-UMES-R01: GET single customer includes `_example.todoCount` from enricher
+- TC-UMES-R02: GET customer list — `enrichMany` batches fetch (verify single query for all rows via timing/query count)
+- TC-UMES-R03: Enricher respects ACL features (admin user sees enriched data, employee without feature does not)
+- TC-UMES-R04: Enricher fields are `_` prefixed and additive (core fields unchanged)
+- TC-UMES-R05: Enriched `_meta.enrichedBy` includes enricher ID
+
+**Files touched**: ~5 new files, ~3 modified files (CRUD factory, generator, bootstrap)
+
+**Estimated scope**: Medium — CRUD factory modification is the critical path
+
+**Depends on**: Nothing (independent of PR 1-3)
+
+---
+
+### PR 5: API Interceptors
+
+**Branch**: `feat/umes-api-interceptors`
+
+**Scope**:
+- Create `packages/shared/src/lib/crud/api-interceptor.ts` — types + registry
+- Create `runInterceptorsBefore(request, ctx)` / `runInterceptorsAfter(request, response, ctx)` functions
+- Modify `makeCrudRoute` to call interceptors at correct pipeline positions (after Zod, before hooks; after response, before enrichers)
+- Implement route pattern matching with wildcards
+- Implement body re-validation when interceptor modifies body
+- Update `yarn generate` to discover `api/interceptors.ts`
+
+**Example module additions**:
+- `example/api/interceptors.ts`:
+  1. Interceptor that logs all POST/PUT operations to todos with a console message (demonstrates `before` hook passthrough)
+  2. Interceptor that rejects todo creation if title contains "BLOCKED" (demonstrates rejection)
+  3. Interceptor that adds `_example.serverTimestamp` to all todo GET responses (demonstrates `after` hook merge)
+
+**Integration tests**:
+- TC-UMES-I01: Interceptor `before` rejects POST with 422 when title contains "BLOCKED"
+- TC-UMES-I02: Interceptor `before` allows valid POST to proceed
+- TC-UMES-I03: Interceptor `after` merges `_example.serverTimestamp` into GET response
+- TC-UMES-I04: Interceptor with wildcard `example/*` matches `example/todos` and `example/tags`
+- TC-UMES-I05: Interceptor `before` modifying body — modified body is re-validated through Zod
+- TC-UMES-I06: `metadata` passthrough between `before` and `after` hooks works
+
+**Files touched**: ~5 new files, ~3 modified files (CRUD factory, generator, bootstrap)
+
+**Estimated scope**: Medium-Large — CRUD factory pipeline modification
+
+**Depends on**: PR 4 (enrichers must exist for execution order)
+
+---
+
+### PR 6: DataTable Deep Extensibility (Columns, Row Actions, Bulk Actions, Filters)
+
+**Branch**: `feat/umes-datatable-extensions`
+
+**Scope**:
+- Create `useInjectedTableExtensions(tableId)` hook
+- Modify `DataTable.tsx` to merge injected columns at correct positions using `InjectionPlacement`
+- Modify `RowActions` component to merge injected row actions
+- Modify `FilterBar`/`FilterOverlay` to merge injected filters
+- Add bulk action injection to DataTable toolbar
+
+**Example module additions**:
+- `example/widgets/injection/customer-todo-count-column/widget.ts` — injects a "Todos" column into the customers people DataTable showing `_example.todoCount` (from PR 4's enricher)
+- `example/widgets/injection/customer-todo-actions/widget.ts` — injects a "View Todos" row action into the customers people DataTable
+- Update `example/widgets/injection-table.ts` with new DataTable spot mappings
+
+**Integration tests**:
+- TC-UMES-D01: Injected "Todos" column appears in customers DataTable at correct position (after "Email")
+- TC-UMES-D02: Injected column cell renders enriched data (`_example.todoCount`)
+- TC-UMES-D03: Injected "View Todos" row action appears in row action dropdown
+- TC-UMES-D04: Injected row action click navigates to correct URL
+- TC-UMES-D05: Injected column respects ACL features
+
+**Files touched**: ~4 new files, ~4 modified files (DataTable, RowActions, FilterBar, injection-table)
+
+**Estimated scope**: Large — DataTable is a complex component
+
+**Depends on**: PR 1 (types + headless loading), PR 4 (enrichers for column data)
+
+---
+
+### PR 7: CrudForm Field Injection
+
+**Branch**: `feat/umes-crudform-fields`
+
+**Scope**:
+- Modify `CrudForm.tsx` to read `fields` from injection widgets and insert into specified groups at specified positions
+- Implement `InjectedField` component in `packages/ui/src/backend/injection/`
+- CrudForm populates injected field initial values from enriched response data via dot-path accessor
+- Injected field values excluded from core Zod schema validation
+- Widget `onSave` handlers persist injected field data through module's own API
+
+**Example module additions**:
+- `example/widgets/injection/customer-priority-field/widget.ts` — injects a "Priority" select field into the customer person edit form's "Details" group, with `onSave` that persists to example module's own table
+- `example/data/entities.ts` — add `ExampleCustomerPriority` entity (FK to customer ID)
+- `example/api/customer-priorities/route.ts` — CRUD endpoint for customer priorities
+
+**Integration tests**:
+- TC-UMES-CF01: Injected "Priority" field appears in customer edit form within "Details" group
+- TC-UMES-CF02: Injected field loads initial value from enriched response (`_example.priority`)
+- TC-UMES-CF03: Editing injected field and saving persists via example module's API
+- TC-UMES-CF04: Widget `onBeforeSave` validation blocks save on invalid injected field value
+- TC-UMES-CF05: Core customer fields are unchanged (injected field data not sent to customer API)
+
+**Files touched**: ~5 new files, ~2 modified files (CrudForm, injection system)
+
+**Estimated scope**: Large — CrudForm modification is delicate
+
+**Depends on**: PR 1 (types), PR 4 (enrichers for loading data)
+
+---
+
+### PR 8: Component Replacement
+
+**Branch**: `feat/umes-component-replacement`
+
+**Scope**:
+- Create `packages/shared/src/modules/widgets/component-registry.ts` — registry + `registerComponent` / `replaceComponent`
+- Create `useRegisteredComponent(componentId)` hook
+- Create `ComponentOverrideProvider` context provider
+- Update `yarn generate` to discover `widgets/components.ts`
+- Wrap app shell in `ComponentOverrideProvider`
+
+**Example module additions**:
+- `example/widgets/components.ts` — register a wrapper around the todo edit dialog that adds a "Quick Notes" panel below the form (demonstrates wrapper mode)
+- Core: register the todo create/edit dialog as replaceable (in example module itself, since this is a demo)
+
+**Integration tests**:
+- TC-UMES-CR01: Replaced component renders instead of original
+- TC-UMES-CR02: Wrapper mode renders original component with extra content
+- TC-UMES-CR03: Component replacement respects ACL features
+- TC-UMES-CR04: Highest priority replacement wins when multiple exist
+
+**Files touched**: ~5 new files, ~3 modified files (generator, bootstrap, app shell)
+
+**Estimated scope**: Medium
+
+**Depends on**: PR 1 (types)
+
+---
+
+### PR 9: Detail Page Bindings (`useExtensibleDetail`)
+
+**Branch**: `feat/umes-detail-bindings`
+
+**Scope**:
+- Create `useExtensibleDetail` hook in `packages/ui/src/backend/injection/`
+- Create `InjectedField` component for detail pages
+- Create `runSectionSave` helper
+- Modify customer person detail page to use `useExtensibleDetail`
+- Modify customer company detail page
+- Modify sales document detail page
+
+**Example module additions**:
+- `example/widgets/injection/customer-detail-fields/widget.ts` — injects a read-only "Todo Summary" section into customer detail page showing todo count + latest todo title (uses enricher from PR 4)
+
+**Integration tests**:
+- TC-UMES-DP01: Injected field renders in customer detail page "Details" section
+- TC-UMES-DP02: `runSectionSave` triggers widget `onSave` handlers alongside core save
+- TC-UMES-DP03: Enriched data accessible via `ext.getEnrichedData('_example')`
+- TC-UMES-DP04: Injected tab renders in customer detail tabs
+
+**Files touched**: ~4 new files, ~3 modified files (3 detail pages)
+
+**Estimated scope**: Medium — detail page modifications are well-scoped
+
+**Depends on**: PR 4 (enrichers), PR 7 (InjectedField component)
+
+---
+
+### PR 10: Recursive Widget Extensibility
+
+**Branch**: `feat/umes-recursive-widgets`
+
+**Scope**:
+- Allow widgets to declare `InjectionSpot` in their client component (already possible, formalize)
+- Document `widget:<widgetId>:<spot>` naming convention
+- Add widget-level behavior extension via injection-table `widget:*:events` pattern
+
+**Example module additions**:
+- `example/widgets/injection/crud-validation/widget.client.tsx` — add a nested `InjectionSpot` inside the validation widget, demonstrating recursive extension
+- `example/widgets/injection/crud-validation-addon/widget.ts` — widget that injects into the validation widget's nested spot
+
+**Integration tests**:
+- TC-UMES-RW01: Widget-level injection spot renders child widgets
+- TC-UMES-RW02: Nested widget's `onBeforeSave` handler participates in save lifecycle
+
+**Files touched**: ~3 new files, ~2 modified files
+
+**Estimated scope**: Small — mostly documentation + example
+
+**Depends on**: PR 1
+
+---
+
+### PR 11: UMES DevTools + Conflict Detection
+
+**Branch**: `feat/umes-devtools`
+
+**Scope**:
+- Create UMES DevTools panel (dev mode only)
+- Add build-time conflict detection to `yarn generate`
+- Log enricher timing, interceptor execution, widget event flow
+
+**Example module additions**: None (infrastructure only)
+
+**Integration tests**:
+- TC-UMES-DT01: DevTools panel lists all active extensions on current page
+- TC-UMES-DT02: Build-time conflict detection warns on duplicate priority replacements
+
+**Files touched**: ~4 new files, ~2 modified files
+
+**Estimated scope**: Medium
+
+**Depends on**: All previous PRs
+
+---
+
+### 21.1 Dependency Graph
+
+```
+PR 1 (Foundation) ──────┬──────────────────────────────────────────────────────┐
+  │                      │                                                      │
+  ├── PR 2 (Menus)       ├── PR 3 (Events + DOM Bridge)                        │
+  │                      │                                                      │
+  │                      │          PR 4 (Enrichers) ── independent ────────────┤
+  │                      │            │                                         │
+  │                      │            ├── PR 5 (Interceptors)                   │
+  │                      │            │                                         │
+  │                      │            ├── PR 6 (DataTable Deep Ext.)            │
+  │                      │            │                                         │
+  │                      │            ├── PR 7 (CrudForm Fields)               │
+  │                      │            │     │                                   │
+  │                      │            │     └── PR 9 (Detail Bindings)          │
+  │                      │            │                                         │
+  │                      ├── PR 8 (Component Replacement) ─────────────────────┤
+  │                      │                                                      │
+  │                      └── PR 10 (Recursive Widgets) ────────────────────────┤
+  │                                                                             │
+  └─────────────────────────────────── PR 11 (DevTools) ◄──────────────────────┘
+```
+
+### 21.2 Parallelization Opportunities
+
+These PRs can be developed **in parallel**:
+- PR 2 (Menus) + PR 3 (Events) + PR 4 (Enrichers) + PR 8 (Component Replacement) — all independent after PR 1
+- PR 5 (Interceptors) + PR 6 (DataTable) + PR 7 (CrudForm Fields) — all depend only on PR 4
+
+### 21.3 Minimum Viable UMES (PRs 1 + 4 + 6)
+
+For teams wanting the highest-impact subset:
+1. **PR 1** — Foundation types + headless loading
+2. **PR 4** — Response enrichers (data federation)
+3. **PR 6** — DataTable column/action injection
+
+This gives: cross-module data enrichment + injected columns + injected row actions — the most requested features.
+
+### 21.4 Example Module — Complete UMES Showcase After All PRs
+
+After all PRs, the example module demonstrates every UMES mechanism:
+
+| Mechanism | Example Module File | What It Does |
+|-----------|-------------------|--------------|
+| **Menu Injection** | `widgets/injection/example-menus/widget.ts` | Adds "Quick Add Todo" to topbar, "Example Dashboard" external link to sidebar |
+| **DOM Event Bridge** | `events.ts` + `widgets/injection/sales-todos/widget.client.tsx` | Todo CRUD events broadcast to client; sales-todos widget auto-refreshes |
+| **Widget Event Handlers** | `widgets/injection/crud-validation/widget.ts` | `onFieldChange` warns when product name contains "TEST"; `transformFormData` trims whitespace |
+| **Response Enricher** | `data/enrichers.ts` | Adds `_example.todoCount` + `_example.latestTodo` to customer person responses |
+| **API Interceptor** | `api/interceptors.ts` | Rejects todo creation with "BLOCKED" title; adds `_example.serverTimestamp` to responses |
+| **DataTable Columns** | `widgets/injection/customer-todo-count-column/widget.ts` | "Todos" column in customers DataTable showing `_example.todoCount` |
+| **DataTable Row Actions** | `widgets/injection/customer-todo-actions/widget.ts` | "View Todos" row action in customers DataTable |
+| **CrudForm Field Injection** | `widgets/injection/customer-priority-field/widget.ts` | "Priority" select field in customer edit form |
+| **Component Replacement** | `widgets/components.ts` | Wrapper around todo edit dialog adding "Quick Notes" panel |
+| **Detail Page Binding** | `widgets/injection/customer-detail-fields/widget.ts` | Read-only "Todo Summary" in customer detail |
+| **Recursive Widgets** | `widgets/injection/crud-validation-addon/widget.ts` | Widget injected into validation widget's nested spot |
+| **Existing (unchanged)** | `widgets/injection/crud-validation/widget.ts` | CRUD form validation hooks (onBeforeSave) |
+| **Existing (unchanged)** | `widgets/injection/sales-todos/widget.ts` | Sales document tab injection |
+| **Existing (unchanged)** | `widgets/injection/catalog-seo-report/widget.ts` | DataTable header injection |
+
+### 21.5 Integration Test Summary Per PR
+
+| PR | Tests | Total |
+|----|-------|-------|
+| PR 1 — Foundation | TC-UMES-F01, F02 | 2 |
+| PR 2 — Menus | TC-UMES-M01–M04 | 4 |
+| PR 3 — Events + DOM Bridge | TC-UMES-E01–E06 | 6 |
+| PR 4 — Response Enrichers | TC-UMES-R01–R05 | 5 |
+| PR 5 — API Interceptors | TC-UMES-I01–I06 | 6 |
+| PR 6 — DataTable Extensions | TC-UMES-D01–D05 | 5 |
+| PR 7 — CrudForm Fields | TC-UMES-CF01–CF05 | 5 |
+| PR 8 — Component Replacement | TC-UMES-CR01–CR04 | 4 |
+| PR 9 — Detail Bindings | TC-UMES-DP01–DP04 | 4 |
+| PR 10 — Recursive Widgets | TC-UMES-RW01–RW02 | 2 |
+| PR 11 — DevTools | TC-UMES-DT01–DT02 | 2 |
+| **Total** | | **45** |

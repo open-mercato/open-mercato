@@ -236,7 +236,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 
 ## 21. Backward Compatibility (Critical)
 
-Every item below refers to the Backward Compatibility Contract in root `AGENTS.md`. A violation is **Critical** unless the deprecation protocol is fully followed.
+Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS.md`). A violation is **Critical** unless the deprecation protocol is fully followed.
 
 ### Convention Files & Auto-Discovery
 - [ ] No convention file renamed or removed (`index.ts`, `acl.ts`, `setup.ts`, `ce.ts`, `search.ts`, `events.ts`, `translations.ts`, `notifications.ts`, `di.ts`, `cli.ts`, etc.)
