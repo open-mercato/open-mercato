@@ -72,20 +72,20 @@ function resolveUnitPriceReference(
 
   if (!ref || !isPlainObject(ref)) return null;
 
-  const r = ref as Record<string, unknown>;
+  const refRecord = ref as Record<string, unknown>;
   const grossPerReference = normalizeNumber(
-    r.grossPerReference ?? r.gross_per_reference,
+    refRecord.grossPerReference ?? refRecord.gross_per_reference,
     Number.NaN,
   );
   if (!Number.isFinite(grossPerReference)) return null;
 
   const referenceUnitCode =
-    typeof r.referenceUnitCode === "string"
-      ? r.referenceUnitCode
-      : typeof r.reference_unit_code === "string"
-        ? r.reference_unit_code
-        : typeof r.referenceUnit === "string"
-          ? r.referenceUnit
+    typeof refRecord.referenceUnitCode === "string"
+      ? refRecord.referenceUnitCode
+      : typeof refRecord.reference_unit_code === "string"
+        ? refRecord.reference_unit_code
+        : typeof refRecord.referenceUnit === "string"
+          ? refRecord.referenceUnit
           : null;
   if (!referenceUnitCode) return null;
 
@@ -185,7 +185,7 @@ export function SalesDocumentItemsSection({
             const id = typeof item.id === "string" ? item.id : null;
             if (!id) return [];
             const taxRate = normalizeNumber(
-              (item as any).tax_rate ?? (item as any).taxRate,
+              item.tax_rate ?? item.taxRate,
               0,
             );
             const customFields = extractCustomFieldValues(
@@ -196,8 +196,8 @@ export function SalesDocumentItemsSection({
                 ? item.name
                 : typeof item.catalog_snapshot === "object" &&
                     item.catalog_snapshot &&
-                    typeof (item.catalog_snapshot as any).name === "string"
-                  ? (item.catalog_snapshot as any).name
+                    typeof (item.catalog_snapshot as Record<string, unknown>).name === "string"
+                  ? (item.catalog_snapshot as Record<string, unknown>).name as string
                   : null;
             const quantity = normalizeNumber(item.quantity, 0);
             const uomFields = getUomFields(item);
@@ -210,11 +210,11 @@ export function SalesDocumentItemsSection({
               canonicalizeUnitCode(uomFields.normalizedUnit) ?? quantityUnit;
             const uomSnapshot = uomFields.uomSnapshot;
             const unitPriceNetRaw = normalizeNumber(
-              (item as any).unit_price_net ?? (item as any).unitPriceNet,
+              item.unit_price_net ?? item.unitPriceNet,
               Number.NaN,
             );
             const unitPriceGrossRaw = normalizeNumber(
-              (item as any).unit_price_gross ?? (item as any).unitPriceGross,
+              item.unit_price_gross ?? item.unitPriceGross,
               Number.NaN,
             );
             const unitPriceNet = Number.isFinite(unitPriceNetRaw)
@@ -228,7 +228,7 @@ export function SalesDocumentItemsSection({
                 ? unitPriceNetRaw * (1 + taxRate / 100)
                 : 0;
             const totalNetRaw = normalizeNumber(
-              (item as any).total_net_amount ?? (item as any).totalNetAmount,
+              item.total_net_amount ?? item.totalNetAmount,
               Number.NaN,
             );
             const totalGrossRaw = normalizeNumber(
@@ -248,16 +248,16 @@ export function SalesDocumentItemsSection({
                 : null;
             const priceMode = priceModeRaw === "net" ? "net" : "gross";
             const customFieldSetId =
-              typeof (item as any).custom_field_set_id === "string"
-                ? (item as any).custom_field_set_id
-                : typeof (item as any).customFieldSetId === "string"
-                  ? (item as any).customFieldSetId
+              typeof item.custom_field_set_id === "string"
+                ? item.custom_field_set_id
+                : typeof item.customFieldSetId === "string"
+                  ? item.customFieldSetId
                   : null;
             const statusEntryId =
-              typeof (item as any).status_entry_id === "string"
-                ? (item as any).status_entry_id
-                : typeof (item as any).statusEntryId === "string"
-                  ? (item as any).statusEntryId
+              typeof item.status_entry_id === "string"
+                ? item.status_entry_id
+                : typeof item.statusEntryId === "string"
+                  ? item.statusEntryId
                   : null;
             const status = typeof item.status === "string" ? item.status : null;
             const record: SalesLineRecord = {
@@ -338,18 +338,18 @@ export function SalesDocumentItemsSection({
       if (response.ok && Array.isArray(response.result?.items)) {
         const totals = new Map<string, number>();
         response.result.items.forEach((shipment) => {
-          const entries = Array.isArray((shipment as any).items)
-            ? ((shipment as any).items as Array<Record<string, unknown>>)
+          const entries = Array.isArray(shipment.items)
+            ? (shipment.items as Array<Record<string, unknown>>)
             : [];
           entries.forEach((entry) => {
             const lineId =
-              typeof (entry as any).orderLineId === "string"
-                ? (entry as any).orderLineId
-                : typeof (entry as any).order_line_id === "string"
-                  ? (entry as any).order_line_id
+              typeof entry.orderLineId === "string"
+                ? entry.orderLineId
+                : typeof entry.order_line_id === "string"
+                  ? entry.order_line_id
                   : null;
             if (!lineId) return;
-            const quantity = normalizeNumber((entry as any).quantity, 0);
+            const quantity = normalizeNumber(entry.quantity, 0);
             if (!Number.isFinite(quantity) || quantity <= 0) return;
             const current = totals.get(lineId) ?? 0;
             totals.set(lineId, current + quantity);
@@ -427,16 +427,16 @@ export function SalesDocumentItemsSection({
         ? (snapshot.variant as Record<string, unknown>)
         : null;
     const variantTitle =
-      meta && typeof (meta as any).variantTitle === "string"
-        ? (meta as any).variantTitle
-        : variantSnapshot && typeof (variantSnapshot as any).name === "string"
-          ? (variantSnapshot as any).name
+      meta && typeof meta.variantTitle === "string"
+        ? meta.variantTitle
+        : variantSnapshot && typeof variantSnapshot.name === "string"
+          ? variantSnapshot.name
           : null;
     const variantSku =
-      meta && typeof (meta as any).variantSku === "string"
-        ? (meta as any).variantSku
-        : variantSnapshot && typeof (variantSnapshot as any).sku === "string"
-          ? (variantSnapshot as any).sku
+      meta && typeof meta.variantSku === "string"
+        ? meta.variantSku
+        : variantSnapshot && typeof variantSnapshot.sku === "string"
+          ? variantSnapshot.sku
           : null;
 
     return { variantTitle, variantSku };
@@ -526,11 +526,11 @@ export function SalesDocumentItemsSection({
       {};
     const productSnapshot =
       typeof snapshot === "object" && snapshot
-        ? ((snapshot as any).product ?? {})
+        ? (snapshot.product ?? {})
         : {};
     const variantSnapshot =
       typeof snapshot === "object" && snapshot
-        ? ((snapshot as any).variant ?? {})
+        ? (snapshot.variant ?? {})
         : {};
     const productThumb =
       (meta &&
