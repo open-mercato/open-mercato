@@ -128,14 +128,14 @@ const optionalBoundedIntegerInput = (min: number, max: number) =>
 
 export const productFormSchema = z
   .object({
-    title: z.string().trim().min(1, "Title is required"),
+    title: z.string().trim().min(1, "catalog.products.validation.titleRequired"),
     subtitle: z.string().optional(),
     handle: z
       .string()
       .trim()
       .regex(
         /^[a-z0-9\-_]*$/,
-        "Handle must include lowercase letters, digits, hyphen, or underscore",
+        "catalog.products.validation.handleFormat",
       )
       .max(150)
       .optional(),
@@ -198,11 +198,11 @@ export const productFormSchema = z
   .passthrough()
   .refine(
     (data) => !data.unitPriceEnabled || (data.unitPriceReferenceUnit != null && data.unitPriceReferenceUnit.length > 0),
-    { message: 'Reference unit is required when unit price display is enabled.', path: ['unitPriceReferenceUnit'] }
+    { message: 'catalog.products.validation.referenceUnitRequired', path: ['unitPriceReferenceUnit'] }
   )
   .refine(
     (data) => !data.defaultSalesUnit || (data.defaultUnit != null && data.defaultUnit.length > 0),
-    { message: 'Base unit is required when a default sales unit is set.', path: ['defaultUnit'] }
+    { message: 'catalog.products.validation.baseUnitRequired', path: ['defaultUnit'] }
   );
 
 export const PRODUCT_FORM_STEPS = [

@@ -333,7 +333,13 @@ async function resolveScopedTaxRate(
     deletedAt: null,
   });
   if (!record) {
-    throw new CrudHttpError(400, { error: "Tax class not found" });
+    const { translate } = await resolveTranslations();
+    throw new CrudHttpError(400, {
+      error: translate(
+        "catalog.products.errors.taxClassNotFound",
+        "Tax class not found",
+      ),
+    });
   }
   return { taxRateId, taxRate: record.rate ?? normalizedRate };
 }
