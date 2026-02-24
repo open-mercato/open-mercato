@@ -13,6 +13,8 @@ permissions:
 jobs:
   snapshot:
     name: Publish Snapshot
+    outputs:
+      snapshot_version: ${{ steps.release.outputs.version }}
     runs-on: ubuntu-latest
     # Skip PRs from forks (no access to secrets)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
@@ -56,6 +58,9 @@ jobs:
         id: release
         run: |
           ./scripts/release-snapshot.sh "${{ steps.suffix.outputs.value }}"
+
+          # Extract published version for downstream jobs
+          echo "version=$(jq -r '.version' packages/shared/package.json)" >> $GITHUB_OUTPUT
 
           # Build packages list for PR comment
           PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
@@ -122,3 +127,126 @@ jobs:
                 body: body
               });
             }
+
+  standalone-integration:
+    name: Standalone App Integration Tests
+    runs-on: ubuntu-latest
+    needs: snapshot
+    if: needs.snapshot.outputs.snapshot_version != ''
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mercato
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: mercato_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      # --- Monorepo setup (for test infrastructure) ---
+      - name: Checkout monorepo
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install monorepo dependencies
+        run: yarn install --immutable
+
+      - name: Build monorepo packages
+        run: |
+          yarn build:packages
+          yarn generate
+          yarn build:packages
+
+      # --- Wait for npm propagation ---
+      - name: Wait for npm registry propagation
+        run: |
+          VERSION="${{ needs.snapshot.outputs.snapshot_version }}"
+          echo "Waiting for @open-mercato/shared@${VERSION} on npm..."
+          for i in $(seq 1 30); do
+            if npm view "@open-mercato/shared@${VERSION}" version 2>/dev/null; then
+              echo "Available after attempt ${i}"
+              exit 0
+            fi
+            echo "Attempt ${i}/30: waiting 10s..."
+            sleep 10
+          done
+          echo "Package not available after 5 minutes"
+          exit 1
+
+      # --- Scaffold & build standalone app ---
+      - name: Scaffold standalone app
+        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app
+
+      - name: Configure standalone app environment
+        working-directory: /tmp/standalone-app
+        run: |
+          cp .env.example .env
+          cat >> .env << 'EOF'
+          DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
+          JWT_SECRET=ci-standalone-test-jwt-secret
+          NODE_ENV=production
+          AUTO_SPAWN_WORKERS=false
+          AUTO_SPAWN_SCHEDULER=false
+          TENANT_DATA_ENCRYPTION=no
+          OM_SEARCH_ENABLED=false
+          CACHE_STRATEGY=memory
+          EOF
+
+      - name: Install standalone app dependencies
+        working-directory: /tmp/standalone-app
+        run: yarn install
+
+      - name: Generate standalone app modules
+        working-directory: /tmp/standalone-app
+        run: yarn generate
+
+      - name: Initialize standalone app database
+        working-directory: /tmp/standalone-app
+        run: yarn initialize
+
+      - name: Build standalone app
+        working-directory: /tmp/standalone-app
+        run: yarn build
+
+      - name: Start standalone app
+        working-directory: /tmp/standalone-app
+        run: |
+          PORT=3001 yarn start &
+          echo "Waiting for standalone app to be ready..."
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:3001/login > /dev/null 2>&1; then
+              echo "App ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "App failed to start within 90s"
+          exit 1
+
+      # --- Run integration tests ---
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run integration tests
+        run: BASE_URL=http://localhost:3001 yarn test:integration
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-integration-results
+          path: .ai/qa/test-results/
+          if-no-files-found: ignore
