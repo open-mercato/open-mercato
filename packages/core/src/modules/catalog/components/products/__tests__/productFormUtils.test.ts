@@ -2,7 +2,7 @@ jest.mock("../../../lib/unitCodes", () => ({
   canonicalizeUnitCode: (value: unknown) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
-    return trimmed.length ? trimmed : null;
+    return trimmed.length ? trimmed.toLowerCase() : null;
   },
 }));
 

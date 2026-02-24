@@ -48,12 +48,11 @@ export async function resolveCanonicalUnitCode(
   if (!unitCode) {
     throw new CrudHttpError(400, { error: "uom.unit_not_found" });
   }
-  const normalized = unitCode.toLowerCase();
   const entry = await findOneWithDecryption(em, DictionaryEntry, {
     dictionary,
     organizationId: dictionary.organizationId,
     tenantId: dictionary.tenantId,
-    $or: [{ normalizedValue: normalized }, { value: unitCode }],
+    $or: [{ normalizedValue: unitCode }, { value: unitCode }],
   });
   if (!entry) {
     throw new CrudHttpError(400, { error: "uom.unit_not_found" });
