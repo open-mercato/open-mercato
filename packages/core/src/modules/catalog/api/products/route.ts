@@ -576,7 +576,8 @@ async function decorateProductsAfterList(
       conversionOrganizationId &&
       conversionTenantId
     ) {
-      const conversionRows = await em.find(
+      const conversionRows = await findWithDecryption(
+        em,
         CatalogProductUnitConversion,
         {
           product: { $in: productIds },
@@ -586,6 +587,7 @@ async function decorateProductsAfterList(
           isActive: true,
         },
         { fields: ["id", "product", "unitCode", "toBaseFactor"] },
+        { organizationId: conversionOrganizationId, tenantId: conversionTenantId },
       );
       for (const row of conversionRows) {
         const productId =

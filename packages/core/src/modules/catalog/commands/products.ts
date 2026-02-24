@@ -1432,19 +1432,20 @@ const updateProductCommand: CommandHandler<
     ensureOrganizationScope(ctx, organizationId);
     ensureSameScope(record, organizationId, tenantId);
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
-    record.organizationId = organizationId;
-    record.tenantId = tenantId;
+    const lookupEm = em.fork();
     const taxRateProvided =
       parsed.taxRateId !== undefined || parsed.taxRate !== undefined;
     const resolvedTaxRate = taxRateProvided
       ? await resolveScopedTaxRate(
-          em,
+          lookupEm,
           parsed.taxRateId ?? null,
           parsed.taxRate,
           organizationId,
           tenantId,
         )
       : null;
+    record.organizationId = organizationId;
+    record.tenantId = tenantId;
 
     if (parsed.title !== undefined) record.title = parsed.title;
     if (parsed.subtitle !== undefined)
@@ -1472,7 +1473,7 @@ const updateProductCommand: CommandHandler<
       parsed.organizationId !== undefined ||
       parsed.tenantId !== undefined;
     if (uomDefaultsTouched) {
-      const resolvedUnits = await resolveProductUnitDefaults(em, {
+      const resolvedUnits = await resolveProductUnitDefaults(lookupEm, {
         organizationId,
         tenantId,
         defaultUnit: hasDefaultUnit
@@ -1486,7 +1487,7 @@ const updateProductCommand: CommandHandler<
             ? parsed.defaultSalesUnit
             : record.defaultSalesUnit,
       });
-      await ensureBaseUnitCanBeRemoved(em, {
+      await ensureBaseUnitCanBeRemoved(lookupEm, {
         productId: record.id,
         organizationId,
         tenantId,
