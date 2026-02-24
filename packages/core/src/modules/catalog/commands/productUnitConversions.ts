@@ -223,9 +223,9 @@ function resolveConversionUniqueConstraint(error: unknown): boolean {
   return false;
 }
 
-async function rethrowConversionUniqueConstraint(
+function rethrowConversionUniqueConstraint(
   error: unknown,
-): Promise<never> {
+): never {
   if (resolveConversionUniqueConstraint(error)) {
     throw new CrudHttpError(409, { error: "uom.duplicate_conversion" });
   }
@@ -243,10 +243,11 @@ const createProductUnitConversionCommand: CommandHandler<
     ensureOrganizationScope(ctx, parsed.organizationId);
 
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const { translate } = await resolveTranslations();
     const product = await requireProduct(
       em,
       parsed.productId,
-      "Catalog product not found",
+      translate("catalog.errors.productNotFound", "Catalog product not found"),
     );
     ensureSameScope(product, parsed.organizationId, parsed.tenantId);
     const canonicalUnitCode = await resolveCanonicalUnitCode(em, {
@@ -359,6 +360,7 @@ const updateProductUnitConversionCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = productUnitConversionUpdateSchema.parse(rawInput);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const { translate } = await resolveTranslations();
     const record = await findOneWithDecryption(
       em,
       CatalogProductUnitConversion,
@@ -367,11 +369,11 @@ const updateProductUnitConversionCommand: CommandHandler<
     );
     if (!record)
       throw new CrudHttpError(404, {
-        error: "Catalog product unit conversion not found",
+        error: translate("catalog.errors.conversionNotFound", "Catalog product unit conversion not found"),
       });
     const product =
       typeof record.product === "string"
-        ? await requireProduct(em, record.product, "Catalog product not found")
+        ? await requireProduct(em, record.product, translate("catalog.errors.productNotFound", "Catalog product not found"))
         : record.product;
     ensureTenantScope(ctx, record.tenantId);
     ensureOrganizationScope(ctx, record.organizationId);
@@ -410,11 +412,9 @@ const updateProductUnitConversionCommand: CommandHandler<
         : null;
     }
     try {
-      await em.transactional(async () => {
-        await em.flush();
-      });
+      await em.flush();
     } catch (error) {
-      await rethrowConversionUniqueConstraint(error);
+      rethrowConversionUniqueConstraint(error);
     }
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
@@ -526,6 +526,7 @@ const deleteProductUnitConversionCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const parsed = productUnitConversionDeleteSchema.parse(rawInput);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const { translate } = await resolveTranslations();
     const record = await findOneWithDecryption(
       em,
       CatalogProductUnitConversion,
@@ -534,7 +535,7 @@ const deleteProductUnitConversionCommand: CommandHandler<
     );
     if (!record)
       throw new CrudHttpError(404, {
-        error: "Catalog product unit conversion not found",
+        error: translate("catalog.errors.conversionNotFound", "Catalog product unit conversion not found"),
       });
     ensureTenantScope(ctx, record.tenantId);
     ensureOrganizationScope(ctx, record.organizationId);
