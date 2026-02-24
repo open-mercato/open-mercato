@@ -206,7 +206,6 @@ test.describe('TC-CAT-013: Product UoM conversions and normalized pricing filter
           // ignore cleanup failures
         }
       }
-      await deleteCatalogProductIfExists(request, token, productId)
       if (token && conversionId) {
         try {
           await apiRequest(
@@ -219,6 +218,7 @@ test.describe('TC-CAT-013: Product UoM conversions and normalized pricing filter
           // ignore cleanup failures
         }
       }
+      await deleteCatalogProductIfExists(request, token, productId)
     }
   })
 })
