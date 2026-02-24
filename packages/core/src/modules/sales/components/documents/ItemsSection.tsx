@@ -524,13 +524,13 @@ export function SalesDocumentItemsSection({
     const snapshot =
       (record.catalogSnapshot as Record<string, unknown> | null | undefined) ??
       {};
-    const productSnapshot =
+    const productSnapshot: Record<string, unknown> =
       typeof snapshot === "object" && snapshot
-        ? (snapshot.product ?? {})
+        ? ((snapshot.product as Record<string, unknown>) ?? {})
         : {};
-    const variantSnapshot =
+    const variantSnapshot: Record<string, unknown> =
       typeof snapshot === "object" && snapshot
-        ? (snapshot.variant ?? {})
+        ? ((snapshot.variant as Record<string, unknown>) ?? {})
         : {};
     const productThumb =
       (meta &&
