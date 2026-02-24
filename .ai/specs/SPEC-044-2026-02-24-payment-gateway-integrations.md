@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-02-24 |
-| **Related** | SPEC-041 (Universal Module Extension System), Sales module, Payment Provider Registry |
+| **Related** | SPEC-041 (UMES), SPEC-045 (Integration Marketplace), Sales module, Payment Provider Registry |
 
 ## TLDR
 
@@ -31,10 +31,11 @@ Define a **two-layer payment architecture**: a thin core `payment_gateways` modu
 14. [Data Models](#14-data-models)
 15. [API Contracts](#15-api-contracts)
 16. [Security & Compliance](#16-security--compliance)
-17. [SPEC-041 Improvement Suggestions](#17-spec-041-improvement-suggestions)
-18. [Risks & Mitigations](#18-risks--mitigations)
-19. [Integration Test Coverage](#19-integration-test-coverage)
-20. [Changelog](#20-changelog)
+17. [Integration Marketplace Alignment (SPEC-045)](#17-integration-marketplace-alignment-spec-045)
+18. [SPEC-041 Improvement Suggestions](#18-spec-041-improvement-suggestions)
+19. [Risks & Mitigations](#19-risks--mitigations)
+20. [Integration Test Coverage](#20-integration-test-coverage)
+21. [Changelog](#21-changelog)
 
 ---
 
@@ -1577,37 +1578,94 @@ Open Mercato **never handles card data directly**. All integrations use redirect
 
 ---
 
-## 17. SPEC-041 Improvement Suggestions
+## 17. Integration Marketplace Alignment (SPEC-045)
+
+This spec is the **first hub module** in the Integration Marketplace framework defined by SPEC-045. The following changes apply:
+
+### 17.1 `integration.ts` Convention File
+
+Each provider module (`gateway_stripe`, `gateway_payu`, `gateway_przelewy24`) MUST declare an `integration.ts` file alongside its `index.ts`. This file registers the provider in the centralized integration marketplace at `/backend/integrations`.
+
+```typescript
+// gateway_stripe/integration.ts
+export const integration: IntegrationDefinition = {
+  id: 'gateway_stripe',
+  title: 'Stripe',
+  description: 'Accept card payments, Apple Pay, and Google Pay via Stripe Checkout.',
+  category: 'payment',
+  hub: 'payment_gateways',
+  providerKey: 'stripe',
+  icon: 'stripe',
+  package: '@open-mercato/gateway-stripe',
+  tags: ['cards', 'apple-pay', 'google-pay', 'checkout'],
+  credentials: {
+    fields: [
+      { key: 'publishableKey', label: 'Publishable Key', type: 'text', required: true },
+      { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
+      { key: 'webhookSecret', label: 'Webhook Secret', type: 'secret', required: true },
+    ],
+  },
+}
+```
+
+### 17.2 Credential Storage Migration
+
+API keys and webhook secrets move from `SalesPaymentMethod.providerSettings` to the unified `IntegrationCredentials` entity (SPEC-045 §7). Provider adapters resolve credentials via the `integrationCredentials` DI service:
+
+```typescript
+const creds = await integrationCredentials.resolve('gateway_stripe', { organizationId, tenantId })
+const stripe = new Stripe(creds.secretKey as string)
+```
+
+`SalesPaymentMethod.providerSettings` continues to hold per-method configuration (capture method, enabled payment types, success/cancel URLs) that is not a secret.
+
+### 17.3 Enable/Disable via Marketplace
+
+The `IntegrationState` entity (SPEC-045 §12.2) provides per-tenant enable/disable. When an integration is disabled, `getGatewayAdapter()` returns `undefined` for that provider, and the core module gracefully skips it in UI, webhooks, and API calls.
+
+### 17.4 Health Check
+
+Each provider module MAY implement `HealthCheckable` to validate API key connectivity. For Stripe, this calls `stripe.accounts.retrieve()` with the configured secret key. The health status is displayed on the integration detail page in the marketplace.
+
+### 17.5 Admin Panel Integration
+
+- **Credentials**: Configured at `/backend/integrations/gateway_stripe` (marketplace detail page)
+- **Per-method config**: Configured at `/backend/sales/payment-methods` (existing page, unchanged)
+- **Cross-link**: The integration detail page links to the payment methods page
+
+---
+
+## 18. SPEC-041 Improvement Suggestions
 
 Based on analyzing how this payment architecture uses UMES:
 
-### 17.1 Webhook Extension Point (Missing)
+### 18.1 Webhook Extension Point (Missing)
 
 UMES covers UI, data enrichment, and API interception but has no pattern for **incoming webhooks from external services**. Consider adding a standardized webhook declaration with auto-discovery, shared verification utilities, and a common idempotency layer.
 
-### 17.2 Enricher Caching (Performance)
+### 18.2 Enricher Caching (Performance)
 
 If many modules add enrichers to the same entity, cumulative latency adds up. Add an optional `cache` property to `ResponseEnricher` with TTL and tag-based invalidation via the existing `@open-mercato/cache` package.
 
-### 17.3 Interceptor Data Dependencies
+### 18.3 Interceptor Data Dependencies
 
 API interceptors often need to load related entities (e.g., payment method settings). Consider a `preload` declaration on `ApiInterceptor` to avoid manual entity queries in every interceptor.
 
-### 17.4 Worker Extension Point
+### 18.4 Worker Extension Point
 
 UMES has no way for one module to extend another module's background processing. Consider adding worker-level extension points for post-processing hooks.
 
-### 17.5 Lazy Enrichment Mode
+### 18.5 Lazy Enrichment Mode
 
 Some enrichment data is expensive but rarely viewed. Add `mode: 'eager' | 'lazy'` to enrichers so clients opt-in to expensive data via `?enrich=gateway`.
 
-### 17.6 Typed Extension Point Discovery
+### 18.6 Typed Extension Point Discovery
 
 Generate a typed manifest of all extension points during `yarn generate` for IDE autocompletion when writing injection tables.
 
 ---
 
-## 18. Risks & Mitigations
+## 19. Risks & Mitigations
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
@@ -1623,9 +1681,9 @@ Generate a typed manifest of all extension points during `yarn generate` for IDE
 
 ---
 
-## 19. Integration Test Coverage
+## 20. Integration Test Coverage
 
-### 19.1 Core Module Tests
+### 20.1 Core Module Tests
 
 | Test | Method | Path | Assert |
 |------|--------|------|--------|
@@ -1643,7 +1701,7 @@ Generate a typed manifest of all extension points during `yarn generate` for IDE
 | Status polling | Worker | — | Stale transactions updated via adapter.getStatus() |
 | Enricher | GET | `/api/sales/payments` | `_gateway` field present on enriched payments |
 
-### 19.2 Per-Provider Module Tests
+### 20.2 Per-Provider Module Tests
 
 Each provider module should include tests for:
 
@@ -1660,9 +1718,10 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 
 ---
 
-## 20. Changelog
+## 21. Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-02-24 | Initial draft |
 | 2026-02-24 | Split from monolithic to core + plugin architecture — provider modules are independent |
+| 2026-02-24 | Added §17 Integration Marketplace Alignment — credentials move to SPEC-045 `IntegrationCredentials`, provider modules declare `integration.ts` |
