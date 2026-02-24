@@ -171,8 +171,6 @@ export async function buildPriceFilters(
   return filters;
 }
 
-const normalizedQuantityByCtx = new WeakMap<object, number>();
-
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -253,8 +251,11 @@ const crud = makeCrudRoute({
           quantity: query.quantity,
           quantityUnit: query.quantityUnit,
         });
-        normalizedQuantityByCtx.set(ctx, normalizedQuantity);
         filters.min_quantity = { $lte: normalizedQuantity };
+        filters.$or = [
+          { max_quantity: null },
+          { max_quantity: { $gte: normalizedQuantity } },
+        ];
       }
       return filters;
     },
@@ -266,37 +267,6 @@ const crud = makeCrudRoute({
         if (key.startsWith("cf:")) delete normalized[key];
       }
       return { ...normalized, ...cfEntries };
-    },
-  },
-  hooks: {
-    afterList: async (payload, ctx) => {
-      const query = ctx.query as PriceQuery;
-      if (!Array.isArray(payload.items)) return;
-      if (
-        typeof query.quantity !== "number" ||
-        !Number.isFinite(query.quantity) ||
-        query.quantity <= 0
-      )
-        return;
-      const normalizedQuantity = normalizedQuantityByCtx.get(ctx) ?? null;
-      if (normalizedQuantity === null) return;
-      payload.items = payload.items.filter((item: unknown) => {
-        const record = item as Record<string, unknown>;
-        const rawMin = record.min_quantity ?? record.minQuantity;
-        const rawMax = record.max_quantity ?? record.maxQuantity;
-        const minQuantity = Number(rawMin ?? 0);
-        const maxQuantity =
-          rawMax === null || rawMax === undefined || rawMax === ""
-            ? null
-            : Number(rawMax);
-        if (!Number.isFinite(minQuantity)) return false;
-        if (maxQuantity !== null && !Number.isFinite(maxQuantity)) return false;
-        return (
-          minQuantity <= normalizedQuantity &&
-          (maxQuantity === null || maxQuantity >= normalizedQuantity)
-        );
-      });
-      payload.total = payload.items.length;
     },
   },
   actions: {

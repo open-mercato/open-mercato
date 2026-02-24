@@ -381,7 +381,7 @@ async function decorateProductsAfterList(
           tenantId: ctx.auth?.tenantId ?? null,
         },
       );
-      const channels = await em.find(SalesChannel, scopedChannelsWhere, {
+      const channels = await findWithDecryption(em, SalesChannel, scopedChannelsWhere, {
         fields: ["id", "name", "code"],
       });
       for (const channel of channels) {
@@ -642,8 +642,7 @@ async function decorateProductsAfterList(
         const productConversions = conversionsByProduct.get(id);
         const factor = productConversions?.get(requestQuantityUnitKey) ?? null;
         if (!factor || !Number.isFinite(factor) || factor <= 0) {
-          // eslint-disable-next-line no-console
-          console.warn(`[catalog.products] Invalid conversion factor for product=${id} unit=${requestQuantityUnitKey} factor=${factor}`);
+          if (process.env.NODE_ENV === 'development') console.warn(`[catalog.products] Invalid conversion factor for product=${id} unit=${requestQuantityUnitKey} factor=${factor}`);
           return pricingContext.quantity;
         }
         const normalized = pricingContext.quantity * factor;
