@@ -36,6 +36,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
+  { id: 'inbox_ops', from: '@open-mercato/core' },
 ]
 
 if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {

@@ -1,4 +1,4 @@
-# ADR: SSO & Directory Sync Module for @open-mercato/enterprise
+# SPEC-ENT-004: SSO & Directory Sync Module for @open-mercato/enterprise
 
 **Status:** Draft
 **Date:** 2026-02-19

@@ -17,3 +17,4 @@ Enterprise specifications are numbered independently from OSS specs and use the 
 | [SPEC-ENT-001](SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md) | 2026-02-17 | Security Module (Enterprise MFA, Sudo, Enforcement) | Enterprise security module with pluggable MFA providers, enforcement policies, and sudo challenge flows |
 | [SPEC-ENT-002](SPEC-ENT-002-2026-02-20-enterprise-record-lock-extensibility.md) | 2026-02-20 | Enterprise Record Lock Extensibility (Moved) | Historical pointer. Canonical mutation guard spec moved to OSS: [`SPEC-035`](../SPEC-035-2026-02-22-mutation-guard-mechanism.md) |
 | [SPEC-ENT-003](SPEC-ENT-003-2026-01-23-record-locking-module.md) | 2026-01-23 | Enterprise Record Locking Module | Current implementation-accurate record locking specification |
+| [SPEC-ENT-004](SPEC-ENT-004-2026-02-19-sso-directory-sync.md) | 2026-02-19 | SSO & Directory Sync Module | Enterprise SSO (OIDC/SAML) and SCIM directory sync architecture specification |

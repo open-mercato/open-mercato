@@ -1,9 +1,9 @@
-# SPEC-034: Document Parser Module — Schema-Driven AI Extraction with Preview and Human-in-the-Loop Editing
+# SPEC-040: Document Parser Module — Schema-Driven AI Extraction with Preview and Human-in-the-Loop Editing
 
 **Date**: 2026-02-22
 **Status**: Draft
 **Module**: `document_parser` (`packages/core/src/modules/document_parser/`)
-**Related**: Issue #574, SPEC-024 (Financial Module / #260), SPEC-029 (InboxOps / #573)
+**Related**: Issue #574, SPEC-024 (Financial Module / #260), SPEC-037 (InboxOps / #573)
 
 ---
 
@@ -602,8 +602,8 @@ Full-text search indexing via `search.ts`:
 ## Changelog
 
 ### 2026-02-22
-- Created SPEC-034 from issue #574
-- Renumbered from issue's SPEC-023 (already taken) to SPEC-034
+- Created SPEC-040 from issue #574
+- Renumbered from issue's SPEC-023 (already taken) to SPEC-040
 
 ### 2026-02-16
 - Initial specification (in issue #574)
