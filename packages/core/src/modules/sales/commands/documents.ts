@@ -3227,9 +3227,13 @@ function buildTagChange(
   return { from: beforeIds, to: afterIds };
 }
 
-function buildOrderUpdateChangeKeys(input: DocumentUpdateInput): string[] {
+function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentUpdateInput): string[] {
   const keys = new Set<string>();
-  if (input.orderNumber !== undefined) keys.add("orderNumber");
+  if (kind === "order") {
+    if (input.orderNumber !== undefined) keys.add("orderNumber");
+  } else {
+    if (input.quoteNumber !== undefined) keys.add("quoteNumber");
+  }
   if (input.statusEntryId !== undefined) {
     keys.add("statusEntryId");
     keys.add("status");
@@ -3252,70 +3256,10 @@ function buildOrderUpdateChangeKeys(input: DocumentUpdateInput): string[] {
   if (input.comment !== undefined) keys.add("comments");
   if (input.currencyCode !== undefined) keys.add("currencyCode");
   if (input.channelId !== undefined) keys.add("channelId");
-  if (input.placedAt !== undefined) keys.add("placedAt");
-  if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
-  if (
-    input.shippingAddressId !== undefined ||
-    input.shippingAddressSnapshot !== undefined
-  ) {
-    keys.add("shippingAddressId");
-    keys.add("shippingAddressSnapshot");
+  if (kind === "order") {
+    if (input.placedAt !== undefined) keys.add("placedAt");
+    if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
   }
-  if (
-    input.billingAddressId !== undefined ||
-    input.billingAddressSnapshot !== undefined
-  ) {
-    keys.add("billingAddressId");
-    keys.add("billingAddressSnapshot");
-  }
-  if (
-    input.shippingMethodId !== undefined ||
-    input.shippingMethodCode !== undefined ||
-    input.shippingMethodSnapshot !== undefined
-  ) {
-    keys.add("shippingMethodId");
-    keys.add("shippingMethodCode");
-    keys.add("shippingMethodSnapshot");
-  }
-  if (
-    input.paymentMethodId !== undefined ||
-    input.paymentMethodCode !== undefined ||
-    input.paymentMethodSnapshot !== undefined
-  ) {
-    keys.add("paymentMethodId");
-    keys.add("paymentMethodCode");
-    keys.add("paymentMethodSnapshot");
-  }
-  if (input.customFieldSetId !== undefined) keys.add("customFieldSetId");
-  if (input.customFields !== undefined) keys.add("customFields");
-  return Array.from(keys);
-}
-
-function buildQuoteUpdateChangeKeys(input: DocumentUpdateInput): string[] {
-  const keys = new Set<string>();
-  if (input.quoteNumber !== undefined) keys.add("quoteNumber");
-  if (input.statusEntryId !== undefined) {
-    keys.add("statusEntryId");
-    keys.add("status");
-  }
-  if (input.customerEntityId !== undefined) {
-    keys.add("customerEntityId");
-    keys.add("customerContactId");
-    keys.add("customerSnapshot");
-    keys.add("billingAddressId");
-    keys.add("shippingAddressId");
-    keys.add("billingAddressSnapshot");
-    keys.add("shippingAddressSnapshot");
-  }
-  if (input.customerContactId !== undefined) {
-    keys.add("customerContactId");
-    keys.add("customerSnapshot");
-  }
-  if (input.customerSnapshot !== undefined) keys.add("customerSnapshot");
-  if (input.metadata !== undefined) keys.add("metadata");
-  if (input.comment !== undefined) keys.add("comments");
-  if (input.currencyCode !== undefined) keys.add("currencyCode");
-  if (input.channelId !== undefined) keys.add("channelId");
   if (
     input.shippingAddressId !== undefined ||
     input.shippingAddressSnapshot !== undefined
@@ -4206,7 +4150,9 @@ const createQuoteCommand: CommandHandler<
       em,
       parsed.statusEntryId ?? null,
     );
+    const quoteId = randomUUID();
     const quote = em.create(SalesQuote, {
+      id: quoteId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       quoteNumber: ensuredQuoteNumber,
@@ -4799,7 +4745,7 @@ const updateQuoteCommand: CommandHandler<
       ? buildChanges(
           before.quote as unknown as Record<string, unknown>,
           after.quote as unknown as Record<string, unknown>,
-          buildQuoteUpdateChangeKeys(parsed),
+          buildDocumentUpdateChangeKeys("quote", parsed),
         )
       : {};
     if (parsed.tags !== undefined) {
@@ -5015,7 +4961,7 @@ const updateOrderCommand: CommandHandler<
       ? buildChanges(
           before.order as unknown as Record<string, unknown>,
           after.order as unknown as Record<string, unknown>,
-          buildOrderUpdateChangeKeys(parsed),
+          buildDocumentUpdateChangeKeys("order", parsed),
         )
       : {};
     if (parsed.tags !== undefined) {
@@ -5092,10 +5038,14 @@ const createOrderCommand: CommandHandler<
       paymentMethod,
     } = await resolveDocumentReferences(em, parsed);
 
+    const orderId = randomUUID()
     const order = em.create(SalesOrder, {
+      id: orderId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       orderNumber: ensuredOrderNumber,
+      externalReference: parsed.externalReference ?? null,
+      customerReference: parsed.customerReference ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       fulfillmentStatusEntryId: parsed.fulfillmentStatusEntryId ?? null,
