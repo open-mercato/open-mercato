@@ -1,7 +1,6 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createCategoryFixture, deleteCatalogCategoryIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { deleteTranslationIfExists } from './helpers/translationFixtures'
 
 const ENTITY_TYPE = 'catalog:catalog_product_category'
@@ -10,6 +9,21 @@ type UserAclResponse = {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
+}
+
+async function loginAndNavigate(page: Page, targetUrl: string): Promise<void> {
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+  await page.context().addCookies([
+    { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' },
+    { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' },
+  ])
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('admin@acme.com')
+  const passwordInput = page.getByLabel('Password')
+  await passwordInput.fill('secret')
+  await passwordInput.press('Enter')
+  await page.waitForURL((url) => !new URL(url).pathname.startsWith('/login'), { timeout: 10_000 })
+  await page.goto(targetUrl)
 }
 
 async function openTranslationsDrawer(page: Page): Promise<Locator> {
@@ -82,8 +96,6 @@ async function setUserAcl(
  * Verifies UI save action fails for a signed-in user with translations.view but without translations.manage.
  */
 test.describe('TC-TRANS-011: RBAC UI Save Blocked Without translations.manage', () => {
-  test.use({ actionTimeout: 30_000 })
-
   test('should block translation save in UI when admin lacks translations.manage', async ({ page, request }) => {
     const saToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
@@ -110,8 +122,7 @@ test.describe('TC-TRANS-011: RBAC UI Save Blocked Without translations.manage', 
       })
       expect(permissionProbe.status()).toBe(403)
 
-      await login(page, 'admin')
-      await page.goto(`/backend/catalog/categories/${categoryId}/edit`)
+      await loginAndNavigate(page, `/backend/catalog/categories/${categoryId}/edit`)
 
       const dialog = await openTranslationsDrawer(page)
       const translationField = await waitForTranslationField(dialog, categoryName)
@@ -127,21 +138,12 @@ test.describe('TC-TRANS-011: RBAC UI Save Blocked Without translations.manage', 
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, categoryId).catch(() => {})
       await deleteCatalogCategoryIfExists(request, saToken, categoryId).catch(() => {})
-      if (originalUserAcl.hasCustomAcl) {
-        await setUserAcl(request, saToken, {
-          userId: adminUserId,
-          isSuperAdmin: originalUserAcl.isSuperAdmin,
-          features: originalUserAcl.features,
-          organizations: originalUserAcl.organizations,
-        }).catch(() => {})
-      } else {
-        await setUserAcl(request, saToken, {
-          userId: adminUserId,
-          isSuperAdmin: false,
-          features: [],
-          organizations: null,
-        }).catch(() => {})
-      }
+      await setUserAcl(request, saToken, {
+        userId: adminUserId,
+        isSuperAdmin: originalUserAcl.isSuperAdmin,
+        features: originalUserAcl.features,
+        organizations: originalUserAcl.organizations,
+      }).catch(() => {})
     }
   })
 })
