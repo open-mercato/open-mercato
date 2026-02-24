@@ -1,4 +1,4 @@
-# ANALYSIS-001 — Amazon.de (SP-API) Integration Feasibility
+# ANALYSIS-003 — Amazon.de (SP-API) Integration Feasibility
 
 | Field | Value |
 |-------|-------|
