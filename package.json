@@ -39,6 +39,7 @@
     "registry:setup-user": "./scripts/registry/setup-user.sh",
     "registry:publish": "./scripts/registry/publish.sh",
     "release:canary": "./scripts/release-canary.sh",
+    "release:develop": "./scripts/release-develop.sh",
     "release:patch": "./scripts/release-patch.sh",
     "release:minor": "./scripts/release-minor.sh",
     "release:major": "./scripts/release-major.sh",
