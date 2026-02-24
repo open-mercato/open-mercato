@@ -281,7 +281,7 @@ const createProductUnitConversionCommand: CommandHandler<
     try {
       await em.flush();
     } catch (error) {
-      await rethrowConversionUniqueConstraint(error);
+      rethrowConversionUniqueConstraint(error);
     }
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;

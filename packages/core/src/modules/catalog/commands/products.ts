@@ -327,7 +327,7 @@ async function resolveScopedTaxRate(
   if (!taxRateId) {
     return { taxRateId: null, taxRate: normalizedRate };
   }
-  const record = await em.findOne(SalesTaxRate, {
+  const record = await findOneWithDecryption(em, SalesTaxRate, {
     id: taxRateId,
     organizationId,
     tenantId,
@@ -456,10 +456,10 @@ function convertLegacyOptionSchema(
         ? (source["values"] as unknown[])
             .map((value: unknown) => {
               if (!value || typeof value !== "object") return null;
-              const v = value as Record<string, unknown>;
+              const choice = value as Record<string, unknown>;
               const label =
-                typeof v.label === "string" && (v.label as string).trim().length
-                  ? (v.label as string).trim()
+                typeof choice.label === "string" && (choice.label as string).trim().length
+                  ? (choice.label as string).trim()
                   : null;
               if (!label) return null;
               return { code: slugifyCode(label), label };
@@ -1658,11 +1658,14 @@ const updateProductCommand: CommandHandler<
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       changes: buildChanges(before, after, [
-        "name",
+        "title",
         "sku",
         "productType",
         "defaultUnit",
         "defaultSalesUnit",
+        "defaultSalesUnitQuantity",
+        "uomRoundingScale",
+        "uomRoundingMode",
         "unitPriceEnabled",
         "unitPriceReferenceUnit",
         "unitPriceBaseQuantity",
@@ -1782,8 +1785,15 @@ const deleteProductCommand: CommandHandler<
       { id },
       { populate: ["optionSchemaTemplate"] },
     );
-    if (!record)
-      throw new CrudHttpError(404, { error: "Catalog product not found" });
+    if (!record) {
+      const { translate } = await resolveTranslations();
+      throw new CrudHttpError(404, {
+        error: translate(
+          "catalog.products.errors.notFound",
+          "Catalog product not found",
+        ),
+      });
+    }
     const baseEm = ctx.container.resolve("em") as EntityManager;
     const snapshot = await loadProductSnapshot(baseEm, id);
     ensureTenantScope(ctx, record.tenantId);
