@@ -46,7 +46,7 @@ test.describe('TC-CRM-007: Create Deal', () => {
 
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i);
       await page.getByRole('textbox', { name: /Search deals/i }).fill(dealTitle);
-      const dealRow = page.getByRole('row', { name: new RegExp(dealTitle) });
+      const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
       await expect(dealRow).toBeVisible();
       await dealRow.click();
 

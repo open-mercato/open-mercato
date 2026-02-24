@@ -78,13 +78,15 @@ export async function createPersonFixture(
 export async function createDealFixture(
   request: APIRequestContext,
   token: string,
-  input: { title: string; companyIds?: string[]; personIds?: string[]; pipelineId?: string; pipelineStageId?: string },
+  input: { title: string; companyIds?: string[]; personIds?: string[]; pipelineId?: string; pipelineStageId?: string; valueAmount?: number; valueCurrency?: string },
 ): Promise<string> {
   const data: Record<string, unknown> = { title: input.title };
   if (input.companyIds?.length) data.companyIds = input.companyIds;
   if (input.personIds?.length) data.personIds = input.personIds;
   if (input.pipelineId) data.pipelineId = input.pipelineId;
   if (input.pipelineStageId) data.pipelineStageId = input.pipelineStageId;
+  if (input.valueAmount !== undefined) data.valueAmount = input.valueAmount;
+  if (input.valueCurrency) data.valueCurrency = input.valueCurrency;
   return createEntity(request, token, '/api/customers/deals', data, ['dealId', 'id', 'entityId']);
 }
 

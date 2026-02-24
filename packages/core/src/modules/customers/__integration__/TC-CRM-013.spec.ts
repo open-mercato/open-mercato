@@ -30,11 +30,16 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
         companyIds: [companyId],
         pipelineId,
         pipelineStageId: opportunityStageId,
+        valueAmount: 5000,
+        valueCurrency: 'USD',
       });
 
       await login(page, 'admin');
       await page.goto('/backend/customers/deals/pipeline');
       await expect(page.getByRole('heading', { name: 'Sales Pipeline' })).toBeVisible();
+
+      await page.getByLabel('Pipeline').selectOption(pipelineId!);
+
       await expect(page.getByText('Opportunity', { exact: true })).toBeVisible();
       await expect(page.getByText('Win', { exact: true })).toBeVisible();
 
@@ -52,7 +57,7 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       await page.goto('/backend/customers/deals');
       await expect(page.getByRole('heading', { name: 'Deals' })).toBeVisible();
       await page.getByRole('textbox', { name: /Search deals/i }).fill(dealTitle);
-      await expect(page.getByRole('row', { name: new RegExp(dealTitle) })).toBeVisible();
+      await expect(page.locator('tr').filter({ hasText: dealTitle }).first()).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

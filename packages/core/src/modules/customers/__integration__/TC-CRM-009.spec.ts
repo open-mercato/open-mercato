@@ -46,6 +46,7 @@ test.describe('TC-CRM-009: Update Deal Pipeline Stage', () => {
       await expect(page.getByText(/Win/i).first()).toBeVisible();
 
       await page.goto('/backend/customers/deals/pipeline');
+      await page.getByLabel('Pipeline').selectOption(pipelineId!);
       const winLane = page.locator('main').locator('div').filter({ has: page.getByText('Win', { exact: true }) }).first();
       await expect(winLane.getByText(dealTitle, { exact: true })).toBeVisible();
     } finally {
