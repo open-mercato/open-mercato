@@ -442,6 +442,16 @@ Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado
 
 Open Mercato let the module developers to expose the custom CLI commands for variouse maintenance tasks. Read more on the [CLI documentation](https://docs.openmercato.com/cli/overview)
 
+## Considering a project on Open Mercato?
+
+If you're planning to build on Open Mercato, don’t go it alone.
+
+### Certified Partner Agencies
+
+**Reach out to us** - we will connect you with one of our Certified Partner Agencies. Our Partnership Program certifies software consultancies that actively use and contribute to Open Mercato.
+
+Our mission is simple: ensure every Open Mercato deployment is successful, secure, and scalable.
+
 ## License
 
 - MIT — see `LICENSE` for details. Enterprise licensing details are documented in [`packages/enterprise/README.md`](packages/enterprise/README.md).
@@ -450,11 +460,23 @@ Open Mercato let the module developers to expose the custom CLI commands for var
 
 Open Mercato Core is and always will be MIT Licensed, fully Open Source.
 
-Open Mercato Enterprise Edition is available for teams that need production scaling support, SLA options, hosting/configuration support, trainings, and advanced enterprise features.
+### Open Mercato Enterprise Subscription
+
+The Open Mercato Enterprise Subscription helps ensure your deployment is secure, scalable, and production-ready without surprises before go-live.
+
+It combines certification, expert reviews, and ongoing advisory support for teams building serious systems on Open Mercato.
+
+What’s included:
+- Architecture & Production Readiness
+- Pre-deployment architecture audit
+- Production approval before go-live
+- Hosting and deployment best practices
+- Security & Quality (monthly reviews)
+- Customer Success Manager (pre-go-live)
+- Priority technical support channel
+- Platform Continuity - access to security patches and new features
+
+Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
 
-Summary:
-- Enterprise Edition includes production readiness standards, architecture/security review workflow, and production approval support.
-- Certified partner agencies deliver projects while Open Mercato provides platform standards and certification path.
-- Full commercial and partnership details: [`packages/enterprise/README.md`](packages/enterprise/README.md).
