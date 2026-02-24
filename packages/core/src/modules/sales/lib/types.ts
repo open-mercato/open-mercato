@@ -45,7 +45,7 @@ export type SalesLineSnapshot = {
   quantityUnit?: string | null
   normalizedQuantity?: number | null
   normalizedUnit?: string | null
-  uomSnapshot?: SalesLineUomSnapshot | Record<string, unknown> | null
+  uomSnapshot?: SalesLineUomSnapshot | null
   currencyCode: string
   unitPriceNet?: number | null
   unitPriceGross?: number | null
