@@ -148,6 +148,8 @@ Import/export via `AsyncIterable<ImportBatch>` — streaming, resumable, queue-b
 | `IntegrationLog` | `integration_logs` | `integrations` | Structured operation logs |
 | `SyncRun` | `sync_runs` | `data_sync` | Import/export run with progress |
 | `SyncCursor` | `sync_cursors` | `data_sync` | Last delta cursor per entity type |
+| `SyncExternalIdMapping` | `sync_external_id_mappings` | `data_sync` | Local ↔ external entity ID mapping for bidirectional sync |
+| `SyncMapping` | `sync_mappings` | `data_sync` | Persisted field mapping configuration per integration + entity type |
 | `GatewayTransaction` | `gateway_transactions` | `payment_gateways` | Payment gateway state (SPEC-044) |
 | `CarrierShipment` | `carrier_shipments` | `shipping_carriers` | Shipping carrier state |
 
@@ -194,7 +196,7 @@ Becomes `communication_channels` hub. WhatsApp becomes first spoke. See [SPEC-04
 
 #### Data Sync Failure Mid-Import
 - **Scenario**: Network error at batch 345 of a 500-batch import
-- **Mitigation**: Cursor persisted after each batch. Resume from batch 345, not from zero. Item-level errors don't stop the sync. See [SPEC-045b §4.8](./SPEC-045b-data-sync-hub.md#48-retry--resume).
+- **Mitigation**: Cursor persisted after each batch. Resume from batch 345, not from zero. Item-level errors don't stop the sync. See [SPEC-045b §4.9](./SPEC-045b-data-sync-hub.md#49-retry--resume).
 - **Residual risk**: External API state may have changed between failure and retry.
 
 #### Credential Encryption Key Loss
@@ -268,3 +270,4 @@ Becomes `communication_channels` hub. WhatsApp becomes first spoke. See [SPEC-04
 | 2026-02-24 | Added shared Operation Logs mechanism (IntegrationLog + scoped logger) |
 | 2026-02-24 | Redesigned DataSyncAdapter with delta streaming, queue processing, resumability, progress tracking |
 | 2026-02-24 | Split into 6 phase files (SPEC-045a through SPEC-045f) |
+| 2026-02-24 | Consistency audit: added missing `SyncExternalIdMapping` and `SyncMapping` entities to data models table, fixed §4 subsection numbering in SPEC-045b, added `id-mapping.ts` and `rate-limiter.ts` to module structure, added 3 missing integration tests |

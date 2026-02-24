@@ -180,10 +180,12 @@ packages/core/src/modules/data_sync/
 │   ├── adapter-registry.ts      # registerDataSyncAdapter / getAdapter
 │   ├── sync-engine.ts           # Orchestrates streaming, batching, cursor persistence
 │   ├── sync-run-service.ts      # CRUD for SyncRun entity
+│   ├── id-mapping.ts            # lookupLocalId / lookupExternalId / storeExternalIdMapping
 │   ├── transforms.ts            # Built-in field transforms
+│   ├── rate-limiter.ts          # Token-bucket rate limiter for external API throttling
 │   └── entity-writer.ts         # Generic entity upsert using mapping
 ├── data/
-│   ├── entities.ts              # SyncRun, SyncCursor, SyncMapping
+│   ├── entities.ts              # SyncRun, SyncCursor, SyncMapping, SyncExternalIdMapping
 │   └── validators.ts
 ├── api/
 │   ├── post/data-sync/run.ts    # Start a sync run
@@ -316,7 +318,45 @@ export class SyncCursor extends BaseEntity {
 }
 ```
 
-### 4.4 Sync Engine — Streaming Orchestration
+### 4.4 SyncMapping Entity
+
+Persists a configured field mapping for a given integration + entity type. Admin can customize the default mapping returned by `adapter.getMapping()`:
+
+```typescript
+@Entity({ tableName: 'sync_mappings' })
+export class SyncMapping extends BaseEntity {
+  @Property()
+  integrationId!: string  // e.g., 'sync_medusa_products'
+
+  @Property()
+  entityType!: string  // e.g., 'catalog.product'
+
+  @Property({ type: 'jsonb' })
+  fields!: FieldMapping[]  // Customized field mappings
+
+  @Property({ length: 30 })
+  matchStrategy!: 'externalId' | 'sku' | 'email' | 'custom'
+
+  @Property({ nullable: true })
+  matchField?: string  // The field used for matching (e.g., 'sku' for products)
+
+  @Property({ default: true })
+  isActive!: boolean
+
+  @Property()
+  organizationId!: string
+
+  @Property()
+  tenantId!: string
+
+  @Unique({ properties: ['integrationId', 'entityType', 'organizationId', 'tenantId'] })
+  _unique!: never
+}
+```
+
+When the sync engine needs a mapping, it checks for a persisted `SyncMapping` first. If none exists, it falls back to the adapter's `getMapping()` default. This allows admin to customize field transforms, add/remove fields, or change the match strategy via the admin UI.
+
+### 4.5 Sync Engine — Streaming Orchestration
 
 The sync engine is the heart of the hub. It drives the adapter's async iterable, persists cursors, updates progress, and logs every step.
 
@@ -429,7 +469,7 @@ export function createSyncEngine({ em, integrationLog, eventBus }: Dependencies)
 }
 ```
 
-### 4.5 Import Worker
+### 4.6 Import Worker
 
 ```typescript
 // data_sync/workers/sync-import.ts
@@ -471,7 +511,7 @@ export default async function handler(job: Job, ctx: WorkerContext) {
 }
 ```
 
-### 4.6 Progress API
+### 4.7 Progress API
 
 ```
 GET /api/data-sync/runs/abc123
@@ -497,7 +537,7 @@ GET /api/data-sync/runs/abc123
 }
 ```
 
-### 4.7 Progress UI — Sync Run Detail Page
+### 4.8 Progress UI — Sync Run Detail Page
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -522,7 +562,7 @@ GET /api/data-sync/runs/abc123
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.8 Retry & Resume
+### 4.9 Retry & Resume
 
 **Resume after failure**: When a sync run fails mid-way (e.g., network error at batch 345), the `cursor` is already persisted at batch 344. Clicking "Retry" creates a new `SyncRun` with `initialCursor = syncRun.cursor`, so it picks up where it left off.
 
@@ -550,7 +590,7 @@ POST /api/data-sync/run
 }
 ```
 
-### 4.9 Events
+### 4.10 Events
 
 ```typescript
 export const eventsConfig = createModuleEvents('data_sync', [
@@ -1412,3 +1452,6 @@ export function createRateLimiter(requestsPerSecond: number) {
 | Bundle credential resolution | Adapter in bundle module | Credentials resolved from bundle, not from individual integration |
 | Export streaming | Export worker | Items streamed to mock external API, results logged |
 | Validate connection | POST `/api/data-sync/validate` | Returns connection validation result |
+| Save custom mapping | PUT `/api/data-sync/mappings/:id` | SyncMapping persisted, used by subsequent sync runs |
+| External ID mapping store + lookup | Service | `storeExternalIdMapping` → `lookupLocalId` / `lookupExternalId` roundtrip |
+| Loop prevention via origin tagging | Subscriber + Worker | Inbound webhook sets `_syncOrigin`, outbound subscriber skips matching origin |
