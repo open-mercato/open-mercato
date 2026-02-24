@@ -84,7 +84,15 @@ async function runModuleCommand(
     }
     throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
   }
-  await cmd.run(args)
+  if (options.optional) {
+    try {
+      await cmd.run(args)
+    } catch (err) {
+      console.warn(`⚠️  Optional command "${moduleName}:${commandName}" failed:`, (err as Error)?.message || err)
+    }
+  } else {
+    await cmd.run(args)
+  }
 }
 
 // Build all CLI modules (registered + built-in)

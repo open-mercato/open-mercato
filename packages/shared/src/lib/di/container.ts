@@ -45,9 +45,13 @@ export async function createRequestContainer(): Promise<AppContainer> {
   const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
   const em = baseEm.fork({ clear: true, freshEventManager: true, useContext: true }) as unknown as EntityManager
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-  // Core registrations
+  // Pre-register eventBus as null so module DI factories that optionally depend
+  // on it (sales, catalog, notifications) can resolve via Awilix CLASSIC mode
+  // without crashing if bootstrap() hasn't run yet or fails.
+  // bootstrap() overwrites this with the real event bus.
   container.register({
     em: asValue(em),
+    eventBus: asValue(null),
     queryEngine: asValue(new BasicQueryEngine(em, undefined, () => {
       try { return container.resolve('tenantEncryptionService') as any } catch { return null }
     })),
@@ -63,13 +67,15 @@ export async function createRequestContainer(): Promise<AppContainer> {
   try {
     const { bootstrap } = await import('@open-mercato/core/bootstrap') as any
     if (bootstrap && typeof bootstrap === 'function') {
-      // Avoid double bootstrap if caller already wired it
-      const alreadyBootstrapped = !!container.registrations?.eventBus
-      if (!alreadyBootstrapped) {
+      // Check if a real (non-null) eventBus is already registered — skip if so
+      const existingBus = (() => { try { return container.resolve('eventBus') } catch { return null } })()
+      if (!existingBus) {
         await bootstrap(container)
       }
     }
-  } catch { /* optional */ }
+  } catch (err) {
+    console.warn('[di] Core bootstrap failed — eventBus and other services may be unavailable:', (err as Error)?.message || err)
+  }
   // App-level DI override (last chance)
   // This import path resolves only in the app context, not in packages
   try {

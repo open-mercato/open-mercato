@@ -518,7 +518,14 @@ async function reindexCommand(rest: string[]): Promise<void> {
   }
 
   try {
-    const searchIndexer = container.resolve<SearchIndexer>('searchIndexer')
+    let searchIndexer: SearchIndexer
+    try {
+      searchIndexer = container.resolve<SearchIndexer>('searchIndexer')
+    } catch {
+      console.error('[search.cli] SearchIndexer not available in DI container. Search module may not be configured.')
+      await disposeContainer()
+      return
+    }
     const enabledEntities = new Set(searchIndexer.listEnabledEntities())
     const baseEventBus = (() => {
       try {

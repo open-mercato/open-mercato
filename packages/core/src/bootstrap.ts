@@ -56,7 +56,11 @@ export async function bootstrap(container: AwilixContainer) {
     cache = createCacheService()
   } catch (err: any) {
     console.warn('Cache service initialization failed; falling back to memory strategy:', err?.message || err)
-    cache = createCacheService({ strategy: 'memory' })
+    try {
+      cache = createCacheService({ strategy: 'memory' })
+    } catch {
+      cache = null
+    }
   }
   container.register({ cache: asValue(cache) })
 
@@ -99,7 +103,13 @@ export async function bootstrap(container: AwilixContainer) {
   }
 
   // KMS + tenant encryption
-  const kmsService = createKmsService()
+  let kmsService: ReturnType<typeof createKmsService>
+  try {
+    kmsService = createKmsService()
+  } catch (err: any) {
+    console.warn('[encryption] KMS service creation failed:', err?.message || err)
+    kmsService = { isHealthy: () => false, generateDek: async () => { throw new Error('KMS unavailable') }, decryptDek: async () => { throw new Error('KMS unavailable') } } as any
+  }
   container.register({ kmsService: asValue(kmsService) })
   try {
     const em = container.resolve('em') as EntityManager

@@ -55,7 +55,10 @@ export async function register(container: AppContainer) {
   try {
     // Call core bootstrap to setup eventBus and auto-register subscribers.
     // Guard against duplicate bootstrap when core bootstrap already ran in createRequestContainer.
-    if (!container.registrations?.eventBus) {
+    // Check the resolved value (not just registration existence) because container.ts
+    // pre-registers eventBus as null for Awilix CLASSIC mode compatibility.
+    const existingBus = (() => { try { return container.resolve('eventBus') } catch { return null } })()
+    if (!existingBus) {
       await bootstrap(container)
     }
   } catch (error) {
