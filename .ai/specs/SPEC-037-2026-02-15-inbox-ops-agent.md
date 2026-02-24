@@ -1,4 +1,4 @@
-﻿# SPEC-029: InboxOps Agent — Email-to-ERP Action Proposals
+# SPEC-037: InboxOps Agent — Email-to-ERP Action Proposals
 
 **Date**: 2026-02-15
 **Updated**: 2026-02-21
@@ -1916,7 +1916,7 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 
 ### 2026-02-23
 
-- **Spec sync with implementation**: Updated inline entity definitions to match code — added `workingLanguage` to `InboxSettings` and `InboxProposal`, `translations` to `InboxProposal`, `create_product` to action type union, `processing` to action status union, `needs_review` to email status union. Added `createProductPayloadSchema` to section 8.1, `create_product` feature row to section 8.2. Added 3 missing API endpoints to section 9.1 (`PATCH settings`, `POST translate`, `POST complete`). Clarified dual webhook verification (Svix + HMAC) in sections 9.2 and 14.3. Fixed spec heading number (SPEC-028→SPEC-029).
+- **Spec sync with implementation**: Updated inline entity definitions to match code — added `workingLanguage` to `InboxSettings` and `InboxProposal`, `translations` to `InboxProposal`, `create_product` to action type union, `processing` to action status union, `needs_review` to email status union. Added `createProductPayloadSchema` to section 8.1, `create_product` feature row to section 8.2. Added 3 missing API endpoints to section 9.1 (`PATCH settings`, `POST translate`, `POST complete`). Clarified dual webhook verification (Svix + HMAC) in sections 9.2 and 14.3. Fixed spec heading number (SPEC-028→SPEC-037).
 
 ### 2026-02-21
 

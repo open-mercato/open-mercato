@@ -1,4 +1,4 @@
-# SPEC-034: DatePicker, DateTimePicker & TimePicker UI Components
+# SPEC-039: DatePicker, DateTimePicker & TimePicker UI Components
 
 **Created:** 2026-02-22
 **Status:** Implemented — Phases 1–4 complete. Unit tests added (49 tests, all passing). Integration tests deferred to migration phase.
@@ -704,7 +704,7 @@ Unit tests are **implemented**. All 49 tests pass (`yarn test` in `packages/ui`)
 | File | Status | Coverage |
 |------|--------|----------|
 | `src/backend/inputs/__tests__/TimeInput.test.tsx` | ✅ 14 tests | Rendering, hour/minute ArrowUp/Down with boundary wrap, `minuteStep` stepping and snapping, clamp on direct numeric input, NaN guard, disabled state |
-| `src/backend/inputs/__tests__/DateTimePicker.logic.test.ts` | ✅ 13 tests | `extractTime` (pad, midnight, end-of-day), `applyTimeToDate` (date preservation, seconds zeroed, immutability), ISO round-trip (SPEC-034 Timezone Contract), `extractTime + applyTimeToDate` composition (day select preserves time) |
+| `src/backend/inputs/__tests__/DateTimePicker.logic.test.ts` | ✅ 13 tests | `extractTime` (pad, midnight, end-of-day), `applyTimeToDate` (date preservation, seconds zeroed, immutability), ISO round-trip (SPEC-039 Timezone Contract), `extractTime + applyTimeToDate` composition (day select preserves time) |
 | `src/backend/inputs/__tests__/DatePicker.test.tsx` | ✅ 8 tests | Placeholder vs value display, formatted date in trigger, aria/focus attributes, disabled state, midnight contract, `parseISO` round-trip (no UTC shift) |
 | `src/backend/inputs/__tests__/TimePicker.test.tsx` | ✅ 6 tests | Placeholder vs value display, HH:MM in trigger, aria/focus attributes, disabled state |
 | `src/backend/__tests__/CrudForm.datetime.test.tsx` | ✅ 8 tests | `type: 'datepicker'` renders DatePicker, `type: 'datetime'` renders DateTimePicker, `type: 'time'` renders TimePicker, `initialValues` value display, `type: 'datetime-local'` backward compatibility, `type: 'date'` backward compatibility |

@@ -416,7 +416,7 @@ features: [
 ## References
 
 ### Related Specs
-- [SPEC-001: UI Reusable Components](.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md) - Dashboard widget patterns
+- [SPEC-001: UI Reusable Components](SPEC-001-2026-01-21-ui-reusable-components.md) - Dashboard widget patterns
 
 ### Code References
 - Dashboard widget types: [packages/shared/src/modules/dashboard/widgets.ts](../../packages/shared/src/modules/dashboard/widgets.ts)

@@ -1,4 +1,4 @@
-# SPEC-029: User Invite via Email
+# SPEC-038: User Invite via Email
 
 ## TLDR
 **Key Points:**
