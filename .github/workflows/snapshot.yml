@@ -197,10 +197,14 @@ jobs:
           cat >> .env << 'EOF'
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
           JWT_SECRET=ci-standalone-test-jwt-secret
-          NODE_ENV=production
+          TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
+          NODE_ENV=test
+          OM_TEST_MODE=1
+          OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
+          OM_DISABLE_EMAIL_DELIVERY=1
+          ENABLE_CRUD_API_CACHE=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
-          TENANT_DATA_ENCRYPTION=no
           OM_SEARCH_ENABLED=false
           CACHE_STRATEGY=memory
           EOF
