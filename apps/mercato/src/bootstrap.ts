@@ -43,6 +43,7 @@ import { searchModuleConfigs } from '@/.mercato/generated/search.generated'
 import { eventModuleConfigs, allEvents } from '@/.mercato/generated/events.generated'
 import { registerEventModuleConfigs } from '@open-mercato/shared/modules/events'
 import { analyticsModuleConfigs } from '@/.mercato/generated/analytics.generated'
+import { enricherEntries } from '@/.mercato/generated/enrichers.generated'
 
 // Register event configs globally (similar to search)
 registerEventModuleConfigs(eventModuleConfigs)
@@ -62,6 +63,7 @@ export const bootstrap = createBootstrap({
   injectionTables,
   searchModuleConfigs,
   analyticsModuleConfigs,
+  enricherEntries,
 })
 
 export { isBootstrapped }

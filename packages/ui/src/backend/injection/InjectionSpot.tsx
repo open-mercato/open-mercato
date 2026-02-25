@@ -214,7 +214,14 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       event: keyof WidgetInjectionEventHandlers<TContext, TData>,
       data: TData,
       context: TContext,
-      meta?: { error?: unknown }
+      meta?: {
+        error?: unknown
+        fieldId?: string
+        fieldValue?: unknown
+        target?: unknown
+        visible?: boolean
+        appEvent?: unknown
+      }
     ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown; data?: TData }> => {
       const normalizeBeforeSave = (
         result: WidgetBeforeSaveResult,

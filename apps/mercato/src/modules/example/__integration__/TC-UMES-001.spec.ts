@@ -11,14 +11,14 @@ test.describe('TC-UMES-001: Foundation and Menu Injection', () => {
     const sidebarItem = page.locator('[data-menu-item-id="example-todos-shortcut"]').first()
     await expect(sidebarItem).toBeVisible()
     await sidebarItem.click()
-    await expect(page).toHaveURL(/\/backend\/example\/todos(?:\?.*)?$/)
+    await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
   })
 
   test('should render injected topbar action item', async ({ page }) => {
     const topbarAction = page.locator('header [data-menu-item-id="example-quick-add-todo"]').first()
     await expect(topbarAction).toBeVisible()
     await topbarAction.click()
-    await expect(page).toHaveURL(/\/backend\/example\/todos\/create(?:\?.*)?$/)
+    await expect(page).toHaveURL(/\/backend\/todos\/create(?:\?.*)?$/)
   })
 
   test('should render injected profile dropdown item', async ({ page }) => {
@@ -28,6 +28,6 @@ test.describe('TC-UMES-001: Foundation and Menu Injection', () => {
     const injectedItem = dropdown.locator('[data-menu-item-id="example-quick-add-todo"]').first()
     await expect(injectedItem).toBeVisible()
     await injectedItem.click()
-    await expect(page).toHaveURL(/\/backend\/example\/todos\/create(?:\?.*)?$/)
+    await expect(page).toHaveURL(/\/backend\/todos\/create(?:\?.*)?$/)
   })
 })

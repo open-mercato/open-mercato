@@ -2,7 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronUp, ChevronDown } from 'lucide-react'
+import { ChevronUp, ChevronDown, CheckSquare, PlusSquare, List, Settings, Folder, User, Bell } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
@@ -86,6 +86,31 @@ type SidebarGroup = AppShellProps['groups'][number]
 type SidebarItem = SidebarGroup['items'][number]
 type SidebarRoleTarget = { id: string; name: string; hasPreference: boolean }
 
+function resolveInjectedMenuIcon(icon?: string): React.ReactNode | undefined {
+  if (!icon) return undefined
+  const normalized = icon.trim()
+  if (!normalized) return undefined
+
+  const iconMap: Record<string, React.ReactNode> = {
+    CheckSquare: <CheckSquare className="size-4" />,
+    'check-square': <CheckSquare className="size-4" />,
+    PlusSquare: <PlusSquare className="size-4" />,
+    'plus-square': <PlusSquare className="size-4" />,
+    List: <List className="size-4" />,
+    list: <List className="size-4" />,
+    Settings: <Settings className="size-4" />,
+    settings: <Settings className="size-4" />,
+    Folder: <Folder className="size-4" />,
+    folder: <Folder className="size-4" />,
+    User: <User className="size-4" />,
+    user: <User className="size-4" />,
+    Bell: <Bell className="size-4" />,
+    bell: <Bell className="size-4" />,
+  }
+
+  return iconMap[normalized]
+}
+
 function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: string): SidebarItem | null {
   if (!item.href) return null
   return {
@@ -93,6 +118,7 @@ function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: st
     href: item.href,
     title,
     defaultTitle: title,
+    icon: resolveInjectedMenuIcon(item.icon),
     enabled: true,
     hidden: false,
     pageContext: 'main',
@@ -143,6 +169,7 @@ function mergeSidebarItemsWithInjected(
       {
         id: entry.id,
         label: translatedLabel,
+        icon: entry.icon,
         href: entry.href,
       },
       translatedLabel,
