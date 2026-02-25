@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -15,6 +14,8 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 function print(value: unknown) {
   return JSON.stringify(value ?? null)
 }
+
+const hintClassName = 'inline-flex items-center rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-xs text-amber-100/90'
 
 type CustomerRecord = {
   id?: string
@@ -74,16 +75,27 @@ export default function UmesHandlersPage() {
   const [enricherProbeStatus, setEnricherProbeStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [enricherProbeError, setEnricherProbeError] = React.useState<string | null>(null)
   const [enricherProbeResult, setEnricherProbeResult] = React.useState<EnricherProbeResult | null>(null)
+  const [autoRunStatus, setAutoRunStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
+  const [autoRunError, setAutoRunError] = React.useState<string | null>(null)
+  const [phaseASpotWidgetDetected, setPhaseASpotWidgetDetected] = React.useState(false)
   const { items: sidebarMenuItems, isLoading: sidebarMenuLoading } = useInjectedMenuItems('menu:sidebar:main')
   const { items: profileMenuItems, isLoading: profileMenuLoading } = useInjectedMenuItems('menu:topbar:profile-dropdown')
-  const {
-    widgets: phaseCSpotWidgets,
-    isLoading: phaseCSpotWidgetsLoading,
-    error: phaseCSpotWidgetsError,
-  } = useInjectionDataWidgets('example:phase-c-handlers')
 
   useAppEvent('example.todo.*', (event) => {
     setAppEventResult(event)
+  }, [])
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const update = () => {
+      const hasWidget = Boolean(document.querySelector('[data-testid="widget-field-change"]'))
+      setPhaseASpotWidgetDetected(hasWidget)
+    }
+    update()
+    const interval = window.setInterval(update, 500)
+    return () => {
+      window.clearInterval(interval)
+    }
   }, [])
 
   const dispatchMockEvent = React.useCallback(() => {
@@ -169,8 +181,7 @@ export default function UmesHandlersPage() {
     [profileMenuItems],
   )
   const appEventId = React.useMemo(() => readEventId(appEventResult), [appEventResult])
-  const phaseAOk = !phaseCSpotWidgetsLoading && !phaseCSpotWidgetsError &&
-    phaseCSpotWidgets.some((widget) => widget.metadata.id === 'example.injection.crud-validation')
+  const phaseAOk = phaseASpotWidgetDetected
   const phaseBOk = phaseASidebarItems.some((item) => item.id === 'example-todos-shortcut') &&
     phaseBProfileItems.some((item) => item.id === 'example-quick-add-todo')
   const phaseCOk = submittedData != null && serverEmitStatus === 'ok' && appEventId === 'example.todo.created'
@@ -185,9 +196,7 @@ export default function UmesHandlersPage() {
         ok: phaseAOk,
         label: t('example.umes.handlers.phaseAD.phaseA'),
         signal: {
-          loading: phaseCSpotWidgetsLoading,
-          error: phaseCSpotWidgetsError,
-          widgetIds: phaseCSpotWidgets.map((widget) => widget.metadata.id),
+          spotWidgetDetected: phaseASpotWidgetDetected,
         },
       },
       {
@@ -225,13 +234,11 @@ export default function UmesHandlersPage() {
       enricherProbeResult,
       enricherProbeStatus,
       phaseAOk,
+      phaseASpotWidgetDetected,
       phaseASidebarItems,
       phaseBOk,
       phaseBProfileItems,
       phaseCOk,
-      phaseCSpotWidgets,
-      phaseCSpotWidgetsError,
-      phaseCSpotWidgetsLoading,
       phaseDOk,
       serverEmitStatus,
       submittedData,
@@ -242,6 +249,25 @@ export default function UmesHandlersPage() {
     () => phaseRows.filter((row) => !row.ok).map((row) => row.id),
     [phaseRows],
   )
+  const runAllChecks = React.useCallback(async () => {
+    setAutoRunStatus('pending')
+    setAutoRunError(null)
+    try {
+      if (submittedData == null) {
+        setSubmittedData({ title: draftTitle, note: '' })
+      }
+      await emitServerTodoCreated()
+      if (readEventId(appEventResult) !== 'example.todo.created') {
+        dispatchMockEvent()
+      }
+      await runEnricherProbe()
+      setAutoRunStatus('ok')
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : t('example.umes.handlers.phaseAD.auto.error')
+      setAutoRunError(message)
+      setAutoRunStatus('error')
+    }
+  }, [appEventResult, dispatchMockEvent, draftTitle, emitServerTodoCreated, runEnricherProbe, submittedData, t])
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -267,20 +293,32 @@ export default function UmesHandlersPage() {
 
   const contentHeader = (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button data-testid="phase-c-trigger-app-event" type="button" onClick={dispatchMockEvent}>
-          {t('example.umes.handlers.actions.onAppEvent')}
-        </Button>
-        <Button data-testid="phase-c-trigger-server-event" type="button" onClick={() => void emitServerTodoCreated()}>
-          {t('example.umes.handlers.actions.emitServerEvent')}
-        </Button>
-        <Button asChild data-testid="phase-c-link-blocked" type="button" variant="outline">
-          <Link href="/backend/blocked">{t('example.umes.handlers.actions.navigateBlocked')}</Link>
-        </Button>
-        <Button asChild data-testid="phase-c-link-allowed" type="button" variant="outline">
-          <Link href="/backend/umes-handlers?allowed=1">{t('example.umes.handlers.actions.navigateAllowed')}</Link>
-        </Button>
-      </div>
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button data-testid="phase-c-trigger-app-event" type="button" onClick={dispatchMockEvent}>
+              {t('example.umes.handlers.actions.onAppEvent')}
+            </Button>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.expect.mockAppEvent')}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button data-testid="phase-c-trigger-server-event" type="button" onClick={() => void emitServerTodoCreated()}>
+              {t('example.umes.handlers.actions.emitServerEvent')}
+            </Button>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.expect.serverEvent')}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild data-testid="phase-c-link-blocked" type="button" variant="outline">
+              <Link href="/backend/blocked">{t('example.umes.handlers.actions.navigateBlocked')}</Link>
+            </Button>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.expect.navigateBlocked')}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild data-testid="phase-c-link-allowed" type="button" variant="outline">
+              <Link href="/backend/umes-handlers?allowed=1">{t('example.umes.handlers.actions.navigateAllowed')}</Link>
+            </Button>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.expect.navigateAllowed')}</span>
+          </div>
+        </div>
       <div data-testid="phase-c-server-emit-status" className="text-xs text-muted-foreground">
         serverEmitStatus={serverEmitStatus}
       </div>
@@ -304,6 +342,20 @@ export default function UmesHandlersPage() {
           <div>
             <h2 className="text-lg font-semibold">{t('example.umes.handlers.phaseAD.title')}</h2>
             <p className="text-sm text-muted-foreground">{t('example.umes.handlers.phaseAD.description')}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button data-testid="phase-ad-run-all" type="button" onClick={() => void runAllChecks()}>
+              {t('example.umes.handlers.phaseAD.auto.run')}
+            </Button>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.expect.autoRun')}</span>
+            <div data-testid="phase-ad-auto-status" className="text-xs text-muted-foreground">
+              autoRunStatus={autoRunStatus}
+            </div>
+            {autoRunError ? (
+              <div data-testid="phase-ad-auto-error" className="text-xs text-destructive">
+                {autoRunError}
+              </div>
+            ) : null}
           </div>
           <div data-testid="phase-ad-missing" className="text-xs text-muted-foreground">
             missingPhases={print(missingPhaseIds)}
@@ -342,6 +394,20 @@ export default function UmesHandlersPage() {
             setSubmittedData(values)
           }}
         />
+        <div className="grid gap-1 rounded border border-border p-3 text-xs text-muted-foreground">
+          <div>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.action.save')}</span> {t('example.umes.handlers.guide.expect.save')}
+          </div>
+          <div>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.action.cancel')}</span> {t('example.umes.handlers.guide.expect.cancel')}
+          </div>
+          <div>
+            <span className={hintClassName}>{t('example.umes.handlers.fields.title')}</span> {t('example.umes.handlers.guide.expect.fieldTitle')}
+          </div>
+          <div>
+            <span className={hintClassName}>{t('example.umes.handlers.fields.note')}</span> {t('example.umes.handlers.guide.expect.fieldNote')}
+          </div>
+        </div>
 
         <div className="grid gap-1 rounded border border-border p-4 text-xs">
           <div data-testid="phase-c-submit-result">submitResult={print(submittedData)}</div>
@@ -368,15 +434,24 @@ export default function UmesHandlersPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button asChild data-testid="phase-ab-open-backend" type="button" variant="outline">
-              <Link href="/backend">{t('example.umes.handlers.phaseAB.openBackend')}</Link>
-            </Button>
-            <Button asChild data-testid="phase-ab-open-todos" type="button" variant="outline">
-              <Link href="/backend/todos">{t('example.umes.handlers.phaseAB.openTodos')}</Link>
-            </Button>
-            <Button asChild data-testid="phase-ab-open-todo-create" type="button" variant="outline">
-              <Link href="/backend/todos/create">{t('example.umes.handlers.phaseAB.openTodoCreate')}</Link>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild data-testid="phase-ab-open-backend" type="button" variant="outline">
+                <Link href="/backend">{t('example.umes.handlers.phaseAB.openBackend')}</Link>
+              </Button>
+              <span className={hintClassName}>{t('example.umes.handlers.guide.expect.openBackend')}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild data-testid="phase-ab-open-todos" type="button" variant="outline">
+                <Link href="/backend/todos">{t('example.umes.handlers.phaseAB.openTodos')}</Link>
+              </Button>
+              <span className={hintClassName}>{t('example.umes.handlers.guide.expect.openTodos')}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild data-testid="phase-ab-open-todo-create" type="button" variant="outline">
+                <Link href="/backend/todos/create">{t('example.umes.handlers.phaseAB.openTodoCreate')}</Link>
+              </Button>
+              <span className={hintClassName}>{t('example.umes.handlers.guide.expect.openTodoCreate')}</span>
+            </div>
           </div>
         </div>
 
@@ -395,6 +470,7 @@ export default function UmesHandlersPage() {
                 className="h-9 rounded border border-input bg-background px-3 text-sm"
                 placeholder={t('example.umes.handlers.phaseD.fields.personIdPlaceholder')}
               />
+              <span className={hintClassName}>{t('example.umes.handlers.guide.expect.personId')}</span>
             </label>
             <label className="grid gap-1 text-sm">
               <span>{t('example.umes.handlers.phaseD.fields.probeTodoTitle')}</span>
@@ -405,15 +481,22 @@ export default function UmesHandlersPage() {
                 className="h-9 rounded border border-input bg-background px-3 text-sm"
                 placeholder={t('example.umes.handlers.phaseD.fields.probeTodoTitlePlaceholder')}
               />
+              <span className={hintClassName}>{t('example.umes.handlers.guide.expect.probeTodoTitle')}</span>
             </label>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button data-testid="phase-d-run-probe" type="button" onClick={() => void runEnricherProbe()}>
-              {t('example.umes.handlers.phaseD.actions.runProbe')}
-            </Button>
-            <Button asChild data-testid="phase-d-open-people" type="button" variant="outline">
-              <Link href="/backend/customers/people">{t('example.umes.handlers.phaseD.actions.openPeople')}</Link>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button data-testid="phase-d-run-probe" type="button" onClick={() => void runEnricherProbe()}>
+                {t('example.umes.handlers.phaseD.actions.runProbe')}
+              </Button>
+              <span className={hintClassName}>{t('example.umes.handlers.guide.expect.runProbe')}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button asChild data-testid="phase-d-open-people" type="button" variant="outline">
+                <Link href="/backend/customers/people">{t('example.umes.handlers.phaseD.actions.openPeople')}</Link>
+              </Button>
+              <span className={hintClassName}>{t('example.umes.handlers.guide.expect.openPeople')}</span>
+            </div>
           </div>
           <div data-testid="phase-d-status" className="text-xs text-muted-foreground">
             enricherProbeStatus={enricherProbeStatus}

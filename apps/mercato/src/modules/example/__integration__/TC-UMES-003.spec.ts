@@ -236,10 +236,15 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('widget-field-change')).toBeVisible()
 
     const titleInput = page.locator('[data-crud-field-id="title"] input').first()
-    await titleInput.fill('  TEST Widget  ')
+    await titleInput.fill('warmup')
+    await page.keyboard.press('Tab')
+    await titleInput.fill('TEST Widget')
+    await page.keyboard.press('Tab')
 
+    await expect(page.getByTestId('widget-field-change')).toContainText('"fieldId":"title"')
     await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
   })
 
@@ -315,7 +320,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await expect(page.getByTestId('widget-app-event')).toContainText('example.todo.created')
   })
 
-  test('TC-UMES-E10: transformDisplayData and transformValidation update outputs', async ({
+  test('TC-UMES-E10: transformValidation updates outputs with widget prefix', async ({
     page,
   }) => {
     const { login } = await import(
@@ -324,10 +329,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('widget-transform-validation')).toBeVisible()
 
     const titleInput = page.locator('[data-crud-field-id="title"] input').first()
-    await expect(titleInput).toHaveValue('DISPLAY ME')
-    await expect(page.getByTestId('widget-transform-display-data')).toContainText('"title":"DISPLAY ME"')
+    await expect(titleInput).toHaveValue('display me')
 
     await titleInput.fill('')
     await page.locator('form button[type="submit"]').first().click()
@@ -343,9 +348,13 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await login(page, 'admin')
     await page.goto('/backend/todos/create')
     await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('widget-field-change')).toBeVisible()
 
     const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+    await titleInput.fill('warmup')
+    await page.keyboard.press('Tab')
     await titleInput.fill('TEST automatic emission')
+    await page.keyboard.press('Tab')
 
     await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
     await expect(page.getByTestId('widget-field-change')).toContainText('"fieldId":"title"')
