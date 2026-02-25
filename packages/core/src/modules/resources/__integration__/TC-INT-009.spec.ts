@@ -6,6 +6,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
  * TC-INT-009: Resources list page — renders table, shows created resource, supports navigation to detail
  */
 test.describe('TC-INT-009: Resources list page', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'admin');
+  });
+
   test('should render the resources table and allow navigating to a resource detail page', async ({ page, request }) => {
     const stamp = Date.now();
     const resourceName = `QA Resource ${stamp}`;
@@ -15,7 +19,6 @@ test.describe('TC-INT-009: Resources list page', () => {
 
     try {
       token = await getAuthToken(request, 'admin');
-      await login(page, 'admin');
 
       const createResponse = await apiRequest(request, 'POST', '/api/resources/resources', {
         token,
@@ -42,7 +45,9 @@ test.describe('TC-INT-009: Resources list page', () => {
 
       await page.goto(`/backend/resources/resources/${encodeURIComponent(resourceId ?? '')}`);
 
-      await expect(page.locator(`input[value="${resourceName}"]`)).toBeVisible();
+      await expect(
+        page.locator('[data-crud-field-id="name"]').getByRole('textbox'),
+      ).toHaveValue(resourceName);
     } finally {
       if (token && resourceId) {
         await apiRequest(request, 'DELETE', `/api/resources/resources?id=${encodeURIComponent(resourceId)}`, {

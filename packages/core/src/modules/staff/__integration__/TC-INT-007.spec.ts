@@ -6,6 +6,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
  * TC-INT-007: Team Members list page — renders table, shows created member, supports navigation to detail
  */
 test.describe('TC-INT-007: Team Members list page', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'admin');
+  });
+
   test('should render the team members table and allow navigating to a member detail page', async ({ page, request }) => {
     const stamp = Date.now();
     const memberName = `QA Member ${stamp}`;
@@ -15,7 +19,6 @@ test.describe('TC-INT-007: Team Members list page', () => {
 
     try {
       token = await getAuthToken(request, 'admin');
-      await login(page, 'admin');
 
       const createResponse = await apiRequest(request, 'POST', '/api/staff/team-members', {
         token,
@@ -42,7 +45,9 @@ test.describe('TC-INT-007: Team Members list page', () => {
 
       await page.goto(`/backend/staff/team-members/${encodeURIComponent(memberId ?? '')}`);
 
-      await expect(page.getByText(memberName)).toBeVisible();
+      await expect(
+        page.locator('[data-crud-field-id="displayName"]').getByRole('textbox'),
+      ).toHaveValue(memberName);
     } finally {
       if (token && memberId) {
         await apiRequest(request, 'DELETE', `/api/staff/team-members?id=${encodeURIComponent(memberId)}`, {

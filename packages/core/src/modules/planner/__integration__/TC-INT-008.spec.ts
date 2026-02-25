@@ -6,6 +6,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
  * TC-INT-008: Availability Rulesets list page — renders table, shows created schedule, supports navigation to detail
  */
 test.describe('TC-INT-008: Availability Rulesets list page', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'admin');
+  });
+
   test('should render the availability schedules table and allow navigating to a ruleset detail page', async ({ page, request }) => {
     const stamp = Date.now();
     const scheduleName = `QA Schedule ${stamp}`;
@@ -15,7 +19,6 @@ test.describe('TC-INT-008: Availability Rulesets list page', () => {
 
     try {
       token = await getAuthToken(request, 'admin');
-      await login(page, 'admin');
 
       const createResponse = await apiRequest(request, 'POST', '/api/planner/availability-rule-sets', {
         token,
@@ -42,7 +45,9 @@ test.describe('TC-INT-008: Availability Rulesets list page', () => {
 
       await page.goto(`/backend/planner/availability-rulesets/${encodeURIComponent(rulesetId ?? '')}`);
 
-      await expect(page.locator(`input[value="${scheduleName}"]`)).toBeVisible();
+      await expect(
+        page.locator('[data-crud-field-id="name"]').getByRole('textbox'),
+      ).toHaveValue(scheduleName);
     } finally {
       if (token && rulesetId) {
         await apiRequest(request, 'DELETE', `/api/planner/availability-rule-sets?id=${encodeURIComponent(rulesetId)}`, {
