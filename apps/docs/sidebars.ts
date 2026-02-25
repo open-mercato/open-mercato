@@ -11,7 +11,15 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Installation",
-      items: ["installation/prerequisites", "installation/setup"],
+      items: [
+        "installation/prerequisites",
+        "installation/setup",
+        {
+          type: "link",
+          label: "Standalone App (create-mercato-app)",
+          href: "/customization/standalone-app",
+        },
+      ],
     },
     {
       type: "category",
@@ -335,6 +343,7 @@ const sidebars: SidebarsConfig = {
             "framework/operations/system-status",
           ],
         },
+        "framework/progress/overview",
         {
           type: "category",
           label: "Scheduler",

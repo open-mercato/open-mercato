@@ -1,4 +1,4 @@
-# SPEC-041m — Mutation Lifecycle Hooks (Guard Registry + Sync Event Subscribers)
+# SPEC-041m — Mutation Lifecycle Hooks (Overview)
 
 | Field | Value |
 |-------|-------|
@@ -9,17 +9,29 @@
 | **Related** | [SPEC-035 — Mutation Guard](./SPEC-035-2026-02-22-mutation-guard-mechanism.md) |
 | **Status** | Draft |
 
+## Sub-Specs
+
+| Sub-Spec | Scope |
+|----------|-------|
+| [SPEC-041m1 — Mutation Guard Registry](./SPEC-041m1-mutation-guard-registry.md) | Multi-guard registry, entity matching, legacy bridge |
+| [SPEC-041m2 — Sync Event Subscribers](./SPEC-041m2-sync-event-subscribers.md) | Lifecycle events (`*.creating`/`*.created`), sync subscriber contract, event runner |
+| [SPEC-041m3 — Client-Side Event Filtering](./SPEC-041m3-client-side-event-filtering.md) | Widget operation filter, CrudForm integration |
+| [SPEC-041m4 — Command Interceptors](./SPEC-041m4-command-interceptors.md) | Command bus before/after execute + undo hooks, customer save example |
+
+---
+
 ## Goal
 
 Evolve the mutation pipeline into a fully extensible, filterable lifecycle system that **reuses the existing event system** as the filtering and discovery mechanism. Solve three gaps:
 
-1. **Mutation Guard is singleton** — only one DI service can validate mutations (currently record-locks). Evolve to a multi-guard registry via auto-discovery (`data/guards.ts`).
-2. **Guards can only block, not modify** — guards should be able to transform the mutation payload (e.g., inject default values, normalize data).
-3. **CRUD events are async-only** — event subscribers (`subscribers/*.ts`) are fire-and-forget and cannot prevent or modify operations. Extend the existing subscriber pattern with **sync lifecycle events** (`sync: true`) that run inside the mutation pipeline, can block operations, and can modify data.
+1. **Mutation Guard is singleton** — only one DI service can validate mutations (currently record-locks). Evolve to a multi-guard registry via auto-discovery (`data/guards.ts`). → [SPEC-041m1](./SPEC-041m1-mutation-guard-registry.md)
+2. **Guards can only block, not modify** — guards should be able to transform the mutation payload (e.g., inject default values, normalize data). → [SPEC-041m1](./SPEC-041m1-mutation-guard-registry.md)
+3. **CRUD events are async-only** — event subscribers (`subscribers/*.ts`) are fire-and-forget and cannot prevent or modify operations. Extend the existing subscriber pattern with **sync lifecycle events** (`sync: true`) that run inside the mutation pipeline, can block operations, and can modify data. → [SPEC-041m2](./SPEC-041m2-sync-event-subscribers.md)
 
-Also fixes:
-- **Guard missing on POST (create)** — the CRUD factory only calls guards for PUT/DELETE, not POST.
-- **Inconsistent guard ordering** — PUT calls `beforeUpdate` BEFORE guard; DELETE calls `beforeDelete` AFTER guard. Normalize to a consistent pipeline.
+Also:
+- **Command bus is closed** — third-party modules cannot modify how commands (with undo/redo) work. Command Interceptors add before/after hooks for execute and undo. → [SPEC-041m4](./SPEC-041m4-command-interceptors.md)
+- **Guard missing on POST (create)** — the CRUD factory only calls guards for PUT/DELETE, not POST. → Fixed in factory modifications below.
+- **Inconsistent guard ordering** — PUT calls `beforeUpdate` BEFORE guard; DELETE calls `beforeDelete` AFTER guard. Normalize to a consistent pipeline. → Fixed in factory modifications below.
 
 ### Design Principle: Events ARE the Mechanism
 
@@ -32,442 +44,220 @@ Instead of creating a separate `data/crud-handlers.ts` file convention, this spe
 
 ---
 
-## Scope
+## Unified Mutation Pipeline — Full Annotated Data Flow
 
-### 1. Mutation Guard Registry
+The complete data flow from UI form to async side-effects, with every extension point annotated by environment, prevent capability, and modify capability. This covers **all three operations** (create, update, delete) unless noted.
 
-Evolve the singleton `crudMutationGuardService` DI token into a multi-guard registry with auto-discovery. Guards are for **cross-cutting policy enforcement** (locks, limits, compliance rules).
-
-#### Guard Contract
-
-```typescript
-// packages/shared/src/lib/crud/mutation-guard-registry.ts
-
-interface MutationGuard {
-  /** Unique guard ID (e.g., 'record_locks.lock-check', 'example.todo-limit') */
-  id: string
-
-  /** Target entity or '*' for all entities */
-  targetEntity: string | '*'
-
-  /** Which operations this guard applies to */
-  operations: ('create' | 'update' | 'delete')[]
-
-  /** Execution priority (lower = earlier). Default: 50 */
-  priority?: number
-
-  /** ACL feature gating — guard only runs if user has these features */
-  features?: string[]
-
-  /** Validate before mutation. Return ok:false to block, modifiedPayload to transform. */
-  validate(input: MutationGuardInput): Promise<MutationGuardResult>
-
-  /** Optional post-mutation callback (for cleanup, cache invalidation, etc.) */
-  afterSuccess?(input: MutationGuardAfterInput): Promise<void>
-}
-
-interface MutationGuardInput {
-  tenantId: string
-  organizationId: string | null
-  userId: string
-  resourceKind: string
-  resourceId: string | null          // null for create
-  operation: 'create' | 'update' | 'delete'
-  requestMethod: string
-  requestHeaders: Headers
-  mutationPayload?: Record<string, unknown> | null
-}
-
-interface MutationGuardResult {
-  ok: boolean
-  /** HTTP status for rejection (default: 422) */
-  status?: number
-  /** Error message for rejection */
-  message?: string
-  /** Full error body for rejection (overrides message) */
-  body?: Record<string, unknown>
-  /** Modified payload — merged into mutation data if ok:true */
-  modifiedPayload?: Record<string, unknown>
-  /** Should afterSuccess run? (default: false) */
-  shouldRunAfterSuccess?: boolean
-  /** Arbitrary metadata passed to afterSuccess */
-  metadata?: Record<string, unknown>
-}
-
-interface MutationGuardAfterInput {
-  tenantId: string
-  organizationId: string | null
-  userId: string
-  resourceKind: string
-  resourceId: string
-  operation: 'create' | 'update' | 'delete'
-  requestMethod: string
-  requestHeaders: Headers
-  metadata?: Record<string, unknown> | null
-}
-```
-
-#### Guard Runner
-
-```typescript
-/** Run all matching guards in priority order. Stops on first rejection. */
-async function runMutationGuards(
-  guards: MutationGuard[],
-  input: MutationGuardInput,
-  context: { userFeatures: string[] },
-): Promise<{
-  ok: boolean
-  response?: Response
-  modifiedPayload?: Record<string, unknown>
-  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
-}> {
-  const matching = guards
-    .filter(g => matchesEntity(g.targetEntity, input.resourceKind))
-    .filter(g => g.operations.includes(input.operation))
-    .filter(g => !g.features?.length || g.features.every(f => context.userFeatures.includes(f)))
-    .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50))
-
-  let payload = input.mutationPayload
-  const afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
-
-  for (const guard of matching) {
-    const result = await guard.validate({ ...input, mutationPayload: payload })
-    if (!result.ok) {
-      const body = result.body ?? { error: result.message ?? 'Operation blocked by guard', guardId: guard.id }
-      return { ok: false, response: json(body, { status: result.status ?? 422 }), afterSuccessCallbacks: [] }
-    }
-    if (result.modifiedPayload) payload = { ...payload, ...result.modifiedPayload }
-    if (result.shouldRunAfterSuccess && guard.afterSuccess) {
-      afterSuccessCallbacks.push({ guard, metadata: result.metadata ?? null })
-    }
-  }
-
-  return { ok: true, modifiedPayload: payload !== input.mutationPayload ? payload : undefined, afterSuccessCallbacks }
-}
-```
-
-#### Auto-Discovery
-
-```typescript
-// In module's data/guards.ts (new auto-discovered file)
-import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
-
-export const guards: MutationGuard[] = [...]
-```
-
-`yarn generate` discovers `data/guards.ts` and generates `guards.generated.ts`.
-
-### 2. Sync Event Subscribers — Lifecycle Events
-
-Extend the existing event subscriber system to support **synchronous lifecycle events** that run inside the mutation pipeline. This reuses the existing `subscribers/*.ts` auto-discovery and event ID filtering.
-
-#### Lifecycle Event Naming Convention
-
-The CRUD factory auto-derives **before-events** from existing event config using present continuous tense:
-
-| Existing After-Event (past tense) | Auto-Derived Before-Event (present continuous) |
-|-----------------------------------|-------------------------------------------------|
-| `customers.person.created` | `customers.person.creating` |
-| `customers.person.updated` | `customers.person.updating` |
-| `customers.person.deleted` | `customers.person.deleting` |
-| `example.todo.created` | `example.todo.creating` |
-| `sales.order.updated` | `sales.order.updating` |
-
-**Rule**: Before-event IDs are NOT declared in `events.ts`. They are auto-derived by the CRUD factory from the existing event config: `{module}.{entity}.created` → `{module}.{entity}.creating`. This keeps `events.ts` clean — modules only declare the after-events they already have.
-
-#### Extended Subscriber Metadata
-
-```typescript
-// Existing metadata fields (unchanged):
-export const metadata = {
-  event: 'customers.person.creating',  // Event ID to subscribe to (including lifecycle events)
-  persistent: false,                    // Queue-backed vs in-process (not applicable for sync)
-  id: 'my-subscriber',                 // Optional unique identifier
-  // New fields:
-  sync: true,                          // NEW: Run synchronously in mutation pipeline
-  priority: 50,                        // NEW: Execution order (lower = earlier). Default: 50
-}
-```
-
-| Field | Type | Default | Purpose |
-|-------|------|---------|---------|
-| `event` | string | required | Event ID — supports lifecycle events (`*.creating`, `*.updating`, `*.deleting`) |
-| `persistent` | boolean | `false` | Ignored when `sync: true` (sync always runs in-process) |
-| `id` | string | — | Optional unique subscriber identifier |
-| `sync` | boolean | `false` | **NEW**: Run synchronously in the CRUD factory pipeline |
-| `priority` | number | `50` | **NEW**: Execution order for sync subscribers (lower = earlier) |
-
-#### Sync Subscriber Handler Contract
-
-Sync subscribers receive a richer payload than async subscribers and can return a result:
-
-```typescript
-// packages/shared/src/lib/crud/sync-event-types.ts
-
-interface SyncCrudEventPayload {
-  /** The full event ID (e.g., 'customers.person.creating') */
-  eventId: string
-  /** Entity identifier (e.g., 'customers.person') */
-  entity: string
-  /** CRUD operation */
-  operation: 'create' | 'update' | 'delete'
-  /** 'before' for *.creating/*.updating/*.deleting, 'after' for *.created/*.updated/*.deleted */
-  timing: 'before' | 'after'
-  /** Resource ID (null for create before-events) */
-  resourceId?: string | null
-  /** Mutation payload (the data being created/updated) */
-  payload?: Record<string, unknown>
-  /** For updates: entity data before the mutation */
-  previousData?: Record<string, unknown>
-  /** The mutated entity (only available for after-events) */
-  entity_data?: Record<string, unknown>
-  /** Current user ID */
-  userId: string
-  /** Current organization ID */
-  organizationId: string | null
-  /** Current tenant ID */
-  tenantId: string
-  /** Entity manager (read-only recommended) */
-  em: EntityManager
-  /** Original HTTP request */
-  request: Request
-}
-
-interface SyncCrudEventResult {
-  /** If false, blocks the operation (before-events only). Default: true */
-  ok?: boolean
-  /** Error message when blocking */
-  message?: string
-  /** HTTP status code when blocking (default: 422) */
-  status?: number
-  /** Error body when blocking (overrides message) */
-  body?: Record<string, unknown>
-  /** Modified payload — merged into mutation data (before-events only) */
-  modifiedPayload?: Record<string, unknown>
-}
-```
-
-**Handler signature** — same default export as existing subscribers, with enriched types:
-
-```typescript
-// Sync before-subscriber:
-export default async function handle(
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<SyncCrudEventResult | void> {
-  // Return { ok: false } to block
-  // Return { modifiedPayload } to transform
-  // Return void or { ok: true } to pass through
-}
-
-// Sync after-subscriber:
-export default async function handle(
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<void> {
-  // After-subscribers cannot block or modify
-}
-```
-
-#### Sync Event Runner
-
-```typescript
-// packages/shared/src/lib/crud/sync-event-runner.ts
-
-/** Collect sync subscribers matching an event ID, sorted by priority */
-function collectSyncSubscribers(
-  allSyncSubscribers: SyncSubscriberEntry[],
-  eventId: string,
-): SyncSubscriberEntry[] {
-  return allSyncSubscribers
-    .filter(s => matchesEventPattern(s.metadata.event, eventId))
-    .sort((a, b) => (a.metadata.priority ?? 50) - (b.metadata.priority ?? 50))
-}
-
-/** Run sync before-event subscribers. Stops on first rejection. */
-async function runSyncBeforeEvent(
-  subscribers: SyncSubscriberEntry[],
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<{ ok: boolean; response?: Response; modifiedPayload?: Record<string, unknown> }> {
-  let currentPayload = payload.payload
-
-  for (const subscriber of subscribers) {
-    const result = await subscriber.handler({ ...payload, payload: currentPayload }, ctx)
-
-    if (result?.ok === false) {
-      const body = result.body ?? { error: result.message ?? 'Operation blocked', subscriberId: subscriber.metadata.id }
-      return { ok: false, response: json(body, { status: result.status ?? 422 }) }
-    }
-
-    if (result?.modifiedPayload) {
-      currentPayload = { ...currentPayload, ...result.modifiedPayload }
-    }
-  }
-
-  return { ok: true, modifiedPayload: currentPayload !== payload.payload ? currentPayload : undefined }
-}
-
-/** Run sync after-event subscribers (cannot block). */
-async function runSyncAfterEvent(
-  subscribers: SyncSubscriberEntry[],
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<void> {
-  for (const subscriber of subscribers) {
-    try {
-      await subscriber.handler(payload, ctx)
-    } catch (error) {
-      console.error(`[sync-event] after-subscriber failed: ${subscriber.metadata.id}`, error)
-      // After-subscribers don't block — swallow errors
-    }
-  }
-}
-```
-
-#### Event Pattern Matching
-
-Reuses the same wildcard matching as the existing event bus and `useAppEvent`:
-
-```typescript
-function matchesEventPattern(pattern: string, eventId: string): boolean {
-  if (pattern === eventId) return true
-  if (pattern === '*') return true
-  const regex = new RegExp('^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
-  return regex.test(eventId)
-}
-```
-
-This allows subscribers to match broadly:
-- `customers.person.creating` — exact match
-- `customers.*.creating` — all customer entity before-creates
-- `*.creating` — all before-create events across all modules
-
-#### Bootstrap: Sync Subscriber Registry
-
-At bootstrap, sync subscribers are separated from async subscribers and indexed for fast lookup:
-
-```typescript
-// In bootstrap
-const allSubscribers = discoveredSubscribers // from generated files
-const syncSubscribers = allSubscribers.filter(s => s.metadata.sync === true)
-const asyncSubscribers = allSubscribers.filter(s => !s.metadata.sync)
-
-// syncSubscribers are passed to the CRUD factory
-// asyncSubscribers continue to work via event bus (unchanged)
-```
-
-No new generated file is needed. The existing subscriber discovery and `subscribers.generated.ts` already handles all subscribers. The `sync` flag is just metadata — the bootstrap code splits them.
-
-### 3. Client-Side Event Filtering
-
-Widget event handlers can declare an operation filter to control when they fire. This allows a widget to say "only run my `onBeforeSave` for updates, not creates."
-
-```typescript
-// Added to packages/shared/src/modules/widgets/injection.ts
-
-interface WidgetInjectionEventFilter {
-  /** Only run handlers for these operations. Omit to run for all. */
-  operations?: ('create' | 'update' | 'delete')[]
-}
-
-// Extended WidgetInjectionEventHandlers
-interface WidgetInjectionEventHandlers<TContext, TData> {
-  /** Filter which operations trigger these event handlers */
-  filter?: WidgetInjectionEventFilter
-  // ... all existing handlers unchanged ...
-}
-```
-
-#### CrudForm Integration
-
-The CrudForm save pipeline already knows the current operation (create vs update). When invoking widget event handlers, it checks the `filter`:
-
-```typescript
-// In CrudForm save pipeline (pseudocode)
-for (const widget of injectedWidgets) {
-  const filter = widget.eventHandlers?.filter
-  if (filter?.operations && !filter.operations.includes(currentOperation)) {
-    continue  // Skip this widget's handlers for this operation
-  }
-  await widget.eventHandlers?.onBeforeSave?.(data, context)
-}
-```
-
-The `InjectionContext` is extended to include the current operation:
-
-```typescript
-interface InjectionContext {
-  // ... existing fields ...
-  /** Current CRUD operation being performed */
-  operation: 'create' | 'update' | 'delete'
-}
-```
-
-### 4. Unified Mutation Pipeline
-
-The complete, normalized pipeline with all extension points labeled:
+### Full Pipeline (19 Steps)
 
 ```
-CLIENT SIDE:
-  1. [UI]    Client-side Zod validation                         (existing)
-  2. [UI]    Widget onBeforeSave handlers                       (existing — NEW: filtered by operation)
-  3. [UI]    Widget transformFormData pipeline                   (Phase C — NEW: filtered by operation)
-
-SERVER SIDE:
-  4. [API]   Server-side Zod validation                         (existing)
-  5. [API]   API Interceptor before hooks                       (Phase E — cross-module, route-level)
-  6. [API]   Sync before-event subscribers (*.creating/etc.)    (Phase M — cross-module, event-driven) ← NEW
-  7. [API]   CrudHooks.beforeCreate/Update/Delete               (existing — module-local, per-route)
-  8. [API]   Mutation Guard Registry validate                   (Phase M — cross-module, entity-level) ← EVOLVED
-  9. [Core]  Entity mutation + ORM flush                        (existing)
- 10. [API]   CrudHooks.afterCreate/Update/Delete                (existing — module-local, per-route)
- 11. [API]   Mutation Guard Registry afterSuccess               (Phase M — cross-module) ← EVOLVED
- 12. [API]   Sync after-event subscribers (*.created/etc.)      (Phase M — cross-module, event-driven) ← NEW
- 13. [API]   API Interceptor after hooks                        (Phase E — cross-module, route-level)
- 14. [API]   Response Enrichers                                 (Phase D)
- 15. [UI]    Widget onAfterSave handlers                        (existing — filtered by operation)
- 16. [Async] Event Subscribers (persistent: true/false)         (existing — fire-and-forget, unchanged)
+ #  │ Env    │ Step                                        │ Prevent? │ Modify? │ Phase
+────┼────────┼─────────────────────────────────────────────┼──────────┼─────────┼──────────────
+ 1  │ CLIENT │ Required field validation (HTML5)            │ ✅ Yes    │ —       │ existing
+ 2  │ CLIENT │ Custom field validation                      │ ✅ Yes    │ —       │ existing
+ 3  │ CLIENT │ Client-side Zod schema validation            │ ✅ Yes    │ —       │ existing
+ 4  │ CLIENT │ Widget onBeforeSave handlers                 │ ✅ Yes    │ headers │ existing (NEW: op filter)
+ 5  │ CLIENT │ Widget transformFormData pipeline             │ —        │ ✅ Yes   │ Phase C (NEW: op filter)
+ 6  │ CLIENT │ Widget onSave (custom HTTP logic)            │ ✅ Yes    │ ✅ Yes   │ existing (NEW: op filter)
+    │        │                                             │          │         │
+    │        │ ═══ HTTP Request ══════════════════════════  │          │         │
+    │        │                                             │          │         │
+ 7  │ SERVER │ Server-side Zod schema validation            │ ✅ Yes    │ —       │ existing
+ 8  │ SERVER │ API Interceptor `before` hooks               │ ✅ Yes    │ ✅ Yes   │ Phase E
+ 9  │ SERVER │ Sync before-event subscribers                │ ✅ Yes    │ ✅ Yes   │ Phase M ← NEW
+    │        │   (*.creating / *.updating / *.deleting)    │          │         │
+10  │ SERVER │ CrudHooks.beforeCreate/Update/Delete         │ ✅ throw  │ ✅ Yes   │ existing
+11  │ SERVER │ Mutation Guard Registry `validate`           │ ✅ Yes    │ ✅ Yes   │ Phase M ← EVOLVED
+    │        │                                             │          │         │
+12  │ SERVER │ ══ Entity Mutation + ORM Flush ════════════  │  —       │ —       │ existing (core)
+    │        │                                             │          │         │
+13  │ SERVER │ CrudHooks.afterCreate/Update/Delete          │ —        │ —       │ existing
+14  │ SERVER │ Mutation Guard Registry `afterSuccess`       │ —        │ —       │ Phase M ← EVOLVED
+15  │ SERVER │ Sync after-event subscribers                 │ —        │ —       │ Phase M ← NEW
+    │        │   (*.created / *.updated / *.deleted)       │          │         │
+16  │ SERVER │ API Interceptor `after` hooks                │ —        │ ✅ resp  │ Phase E
+17  │ SERVER │ Response Enrichers                           │ —        │ ✅ resp  │ Phase D
+    │        │                                             │          │         │
+    │        │ ═══ HTTP Response ═════════════════════════  │          │         │
+    │        │                                             │          │         │
+18  │ CLIENT │ Widget onAfterSave handlers                  │ —        │ —       │ existing (NEW: op filter)
+19  │ ASYNC  │ Event Subscribers (persistent: true/false)   │ —        │ —       │ existing (fire-and-forget)
 ```
 
-#### Layering Model
+**Legend**:
+- **Prevent?** = Can this step block the operation entirely?
+- **Modify?** = Can this step change the mutation payload? `headers` = can only modify request headers. `resp` = modifies the HTTP response body, not the entity. `throw` = blocks by throwing an error (not returning ok:false).
+- **op filter** = Widget event handlers now support `filter: { operations: ['create', 'update'] }` ([SPEC-041m3](./SPEC-041m3-client-side-event-filtering.md)).
+
+### Capability Matrix
+
+| # | Step | Env | Can Prevent? | Can Modify Payload? | Can Modify Response? | Scope |
+|---|------|-----|-------------|--------------------|--------------------|-------|
+| 1 | HTML5 required validation | Client | ✅ | — | — | Form-local |
+| 2 | Custom field validation | Client | ✅ | — | — | Form-local |
+| 3 | Client Zod validation | Client | ✅ | — | — | Form-local |
+| 4 | Widget `onBeforeSave` | Client | ✅ | Headers only | — | Cross-module (widget) |
+| 5 | Widget `transformFormData` | Client | — | ✅ | — | Cross-module (widget) |
+| 6 | Widget `onSave` | Client | ✅ (skip default) | ✅ (custom request) | — | Cross-module (widget) |
+| 7 | Server Zod validation | Server | ✅ | — | — | Route-local |
+| 8 | API Interceptor `before` | Server | ✅ | ✅ (re-validated) | — | Cross-module (route) |
+| 9 | Sync before-event subscriber | Server | ✅ | ✅ (`modifiedPayload`) | — | Cross-module (event) |
+| 10 | CrudHooks.before* | Server | ✅ (throw) | ✅ (return modified) | — | Module-local (route) |
+| 11 | Mutation Guard `validate` | Server | ✅ | ✅ (`modifiedPayload`) | — | Cross-module (entity) |
+| 12 | Entity mutation + flush | Server | — | — | — | Core |
+| 13 | CrudHooks.after* | Server | — | — | — | Module-local (route) |
+| 14 | Guard `afterSuccess` | Server | — | — | — | Cross-module (entity) |
+| 15 | Sync after-event subscriber | Server | — | — | — | Cross-module (event) |
+| 16 | API Interceptor `after` | Server | — | — | ✅ (merge/replace) | Cross-module (route) |
+| 17 | Response Enricher | Server | — | — | ✅ (additive) | Cross-module (data) |
+| 18 | Widget `onAfterSave` | Client | — | — | — | Cross-module (widget) |
+| 19 | Async event subscriber | Async | — | — | — | Cross-module (event) |
+
+### Per-Operation Event Coverage
+
+All three CRUD operations emit both before and after lifecycle events. The CRUD factory auto-derives before-events from the existing event config:
+
+| Operation | Before-Event ID | After-Event ID | Guard `operations` |
+|-----------|----------------|----------------|-------------------|
+| **Create** | `{module}.{entity}.creating` | `{module}.{entity}.created` | `'create'` |
+| **Update** | `{module}.{entity}.updating` | `{module}.{entity}.updated` | `'update'` |
+| **Delete** | `{module}.{entity}.deleting` | `{module}.{entity}.deleted` | `'delete'` |
+
+**What each step receives per operation**:
+
+| Step | Create | Update | Delete |
+|------|--------|--------|--------|
+| Sync before-event | `payload` (new data), `resourceId: null` | `payload` (changed fields), `previousData`, `resourceId` | `resourceId`, `previousData` |
+| CrudHooks.before* | `input` (new data) | `input` (changed fields), entity loaded | entity loaded |
+| Mutation Guard | `mutationPayload`, `resourceId: null` | `mutationPayload`, `resourceId` | `resourceId`, `mutationPayload: null` |
+| Sync after-event | `entity_data` (created entity), `resourceId` | `entity_data` (updated entity), `previousData`, `resourceId` | `resourceId`, `previousData` |
+| CrudHooks.after* | created entity | updated entity | deleted entity ref |
+
+### Layering Model
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  HTTP Layer (API Interceptors)                       │  Route-level, cross-module
-│  ┌─────────────────────────────────────────────────┐ │
-│  │  Event Layer (Sync Subscribers)                  │ │  Event-driven, cross-module
-│  │  ┌─────────────────────────────────────────────┐ │ │
-│  │  │  Module Layer (CrudHooks)                    │ │ │  Per-route, module-local
-│  │  │  ┌─────────────────────────────────────────┐ │ │ │
-│  │  │  │  Gate Layer (Mutation Guards)            │ │ │ │  Final validation gate
-│  │  │  │  ┌─────────────────────────────────────┐ │ │ │ │
-│  │  │  │  │  Core (Entity Mutation + Flush)      │ │ │ │ │
-│  │  │  │  └─────────────────────────────────────┘ │ │ │ │
-│  │  │  └─────────────────────────────────────────┘ │ │ │
-│  │  └─────────────────────────────────────────────┘ │ │
-│  └─────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│  Client Layer (Widget handlers + Zod)                      │  Browser — can prevent + modify
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  HTTP Layer (API Interceptors)                         │ │  Route-level, cross-module
+│  │  ┌───────────────────────────────────────────────────┐ │ │
+│  │  │  Event Layer (Sync Subscribers)                    │ │ │  Event-driven, cross-module
+│  │  │  ┌───────────────────────────────────────────────┐ │ │ │
+│  │  │  │  Module Layer (CrudHooks)                      │ │ │ │  Per-route, module-local
+│  │  │  │  ┌───────────────────────────────────────────┐ │ │ │ │
+│  │  │  │  │  Gate Layer (Mutation Guards)              │ │ │ │ │  Final validation gate
+│  │  │  │  │  ┌───────────────────────────────────────┐ │ │ │ │ │
+│  │  │  │  │  │  Core (Entity Mutation + ORM Flush)    │ │ │ │ │ │
+│  │  │  │  │  └───────────────────────────────────────┘ │ │ │ │ │
+│  │  │  │  └───────────────────────────────────────────┘ │ │ │ │
+│  │  │  └───────────────────────────────────────────────┘ │ │ │
+│  │  └───────────────────────────────────────────────────┘ │ │
+│  └───────────────────────────────────────────────────────┘ │
+│  Async Layer (Event Bus — fire-and-forget)                  │  Post-response, non-blocking
+└───────────────────────────────────────────────────────────┘
 ```
 
-#### When to Use What
+**Key insight**: Both client-side (widget `onBeforeSave`, `transformFormData`) and server-side (sync subscribers, guards) can prevent AND modify mutations — but through different mechanisms. The client path requires a widget injection; the server path works without any UI component (purely via `subscribers/*.ts` with `sync: true`).
 
-| I want to... | Mechanism | Layer | Can Block? | Can Modify Data? |
-|-------------|-----------|-------|------------|-----------------|
-| Validate/reject from UI before save | Widget `onBeforeSave` | Client | Yes | No (headers only) |
-| Transform form data before submission | Widget `transformFormData` | Client | No | Yes |
-| Validate at HTTP route level, any method | API Interceptor `before` | HTTP | Yes | Yes (re-validated) |
-| React cross-module before entity mutation | Sync subscriber for `*.creating` | Event | Yes | Yes |
-| React cross-module after entity mutation (sync) | Sync subscriber for `*.created` | Event | No | No |
-| Prepare/normalize data in owning module | CrudHooks.beforeCreate/Update | Module | Yes (throw) | Yes |
-| Final validation gate (locks, policies) | Mutation Guard | Gate | Yes | Yes |
-| Side-effect after mutation in owning module | CrudHooks.afterCreate/Update | Module | No | No |
-| Cross-module cleanup after mutation | Mutation Guard afterSuccess | Gate | No | No |
-| Transform response at HTTP level | API Interceptor `after` | HTTP | No | Yes |
-| Enrich response with cross-module data | Response Enricher | Data | No | Yes (additive) |
-| Async fire-and-forget reaction | Event Subscriber (`sync: false`) | Async | No | No |
+### When to Use What
 
-### 5. Factory Modifications
+| I want to... | Mechanism | Layer | Env | Can Block? | Can Modify? |
+|-------------|-----------|-------|-----|------------|-------------|
+| **Prevent / Validate** | | | | | |
+| Validate from UI before HTTP request | Widget `onBeforeSave` | Client | Browser | ✅ | Headers only |
+| Validate at HTTP route level (cross-module) | API Interceptor `before` | HTTP | Server | ✅ | ✅ (re-validated) |
+| Validate cross-module before entity save | Sync subscriber `*.creating` | Event | Server | ✅ | ✅ |
+| Validate cross-module before entity update | Sync subscriber `*.updating` | Event | Server | ✅ | ✅ |
+| Validate cross-module before entity delete | Sync subscriber `*.deleting` | Event | Server | ✅ | ✅ |
+| Validate inside owning module | CrudHooks.beforeCreate/Update/Delete | Module | Server | ✅ (throw) | ✅ |
+| Policy enforcement (locks, limits, compliance) | Mutation Guard `validate` | Gate | Server | ✅ | ✅ |
+| **Modify Data** | | | | | |
+| Transform form data before HTTP request | Widget `transformFormData` | Client | Browser | — | ✅ |
+| Custom HTTP request (skip default) | Widget `onSave` | Client | Browser | ✅ (skip) | ✅ |
+| Transform request at route level | API Interceptor `before` | HTTP | Server | ✅ | ✅ (re-validated) |
+| Inject defaults / normalize before save | Sync subscriber `*.creating` | Event | Server | ✅ | ✅ |
+| Inject/normalize data without widget | Sync subscriber `*.updating` | Event | Server | ✅ | ✅ |
+| Prepare data in owning module | CrudHooks.before* | Module | Server | ✅ (throw) | ✅ |
+| Policy-driven data injection | Mutation Guard `validate` | Gate | Server | ✅ | ✅ |
+| **Command-Level** | | | | | |
+| Modify input before a command runs | Command Interceptor `beforeExecute` | Command | Server | ✅ | ✅ |
+| Block undo of a specific command | Command Interceptor `beforeUndo` | Command | Server | ✅ | — |
+| Add side-effects after command undo | Command Interceptor `afterUndo` | Command | Server | — | — |
+| **React After Mutation** | | | | | |
+| Side-effect in owning module (sync) | CrudHooks.after* | Module | Server | — | — |
+| Cross-module cleanup/cache invalidation (sync) | Mutation Guard `afterSuccess` | Gate | Server | — | — |
+| Cross-module reaction (sync, before response) | Sync subscriber `*.created/updated/deleted` | Event | Server | — | — |
+| Transform HTTP response | API Interceptor `after` | HTTP | Server | — | ✅ (response) |
+| Enrich response with cross-module data | Response Enricher | Data | Server | — | ✅ (additive) |
+| UI-side reaction after save completes | Widget `onAfterSave` | Client | Browser | — | — |
+| Async fire-and-forget reaction | Event Subscriber (`sync: false`) | Async | Worker | — | — |
+
+**Two paths to server-side interception**:
+- **With widget**: Use widget `onBeforeSave` / `transformFormData` / `onSave` — requires defining a widget injection into a form spot.
+- **Without widget**: Use sync event subscribers (`subscribers/*.ts` with `sync: true`) — works purely server-side, no UI component needed. This is the primary mechanism for cross-module logic that should work regardless of which UI renders the form.
+
+### End-to-End Example: Updating a Customer Person
+
+This traces a single `PUT /api/customers/people/:id` through **all 19 steps**, showing which extension points fire and what each module contributes. In this scenario:
+- The **example** module injects a "Priority" widget into the customer form
+- The **example** module has a sync subscriber that validates email format on customer updates
+- The **example** module has a mutation guard that enforces a VIP downgrade policy
+- The **sales** module has an async subscriber that recalculates order quotes when a customer changes
+
+```
+USER clicks Save on Customer Person form with:
+  { firstName: "Jane", primaryEmail: "Jane@Example.COM", _example: { priority: "critical" } }
+
+ #  │ Step                          │ What happens in this example
+────┼───────────────────────────────┼──────────────────────────────────────────────────
+ 1  │ Required field validation      │ ✅ firstName present — passes
+ 2  │ Custom field validation        │ ✅ No custom field constraints violated
+ 3  │ Client Zod validation          │ ✅ Email format ok (Zod just checks string)
+ 4  │ Widget onBeforeSave            │ example priority widget: filter.operations=['update'] → RUNS
+    │                               │   priority="critical" but notes are filled → ✅ passes
+    │                               │   Returns { ok: true, headers: { 'X-Priority': 'critical' } }
+ 5  │ Widget transformFormData       │ example priority widget: strips _example.priority from body,
+    │                               │   moves it to a custom field key: { "cf:priority": "critical" }
+ 6  │ Widget onSave                  │ (not defined — default HTTP request proceeds)
+    │                               │
+    │ ═══ PUT /api/customers/people/:id  { firstName: "Jane", primaryEmail: "Jane@Example.COM", "cf:priority": "critical" }
+    │                               │
+ 7  │ Server Zod validation          │ ✅ All fields match CustomerPersonUpdateSchema
+ 8  │ API Interceptor before         │ example.log-customer-mutations: logs "PUT /api/customers/people/:id by user X" → passthrough
+ 9  │ Sync before-event subscriber   │ Event: customers.person.updating
+    │                               │   example.validate-customer-email (priority 100):
+    │                               │     email "Jane@Example.COM" → valid, returns { modifiedPayload: { primaryEmail: "jane@example.com" } }
+    │                               │     Payload is now: { ..., primaryEmail: "jane@example.com" }
+10  │ CrudHooks.beforeUpdate         │ customers module: loads current entity, computes diff, runs module-specific prep
+11  │ Mutation Guard validate         │ example.vip-downgrade-guard: checks if priority changed from VIP to non-VIP
+    │                               │   Current priority is "normal", new is "critical" (upgrade) → ✅ ok
+    │                               │   record_locks bridge (priority 0): no active lock → ✅ ok
+    │                               │
+12  │ Entity mutation + ORM flush    │ Entity saved: { firstName: "Jane", primaryEmail: "jane@example.com", cf:priority: "critical" }
+    │                               │
+13  │ CrudHooks.afterUpdate          │ customers module: triggers fulltext reindex for this person
+14  │ Guard afterSuccess             │ (no guards requested afterSuccess in this case)
+15  │ Sync after-event subscriber    │ Event: customers.person.updated
+    │                               │   example.audit-customer-change: logs "Person X updated by user Y" to audit table
+16  │ API Interceptor after          │ example.add-server-timestamp: merges { _example: { serverTimestamp: "...", processingTimeMs: 42 } }
+17  │ Response Enrichers             │ example response enricher: adds _example.todoCount for this customer
+    │                               │
+    │ ═══ HTTP 200 { id: "...", firstName: "Jane", primaryEmail: "jane@example.com", _example: { serverTimestamp: "...", todoCount: 3 } }
+    │                               │
+18  │ Widget onAfterSave             │ example priority widget: shows flash "Priority updated to Critical"
+19  │ Async event subscriber         │ sales.recalculate-quotes: fires in background, re-prices open quotes for this customer
+```
+
+**What this demonstrates**:
+- Steps 4-5 (client): Widget validates + transforms data **before** the HTTP request
+- Step 9 (server): Sync subscriber normalizes email **without** any widget — purely server-side
+- Step 11 (server): Guard enforces a business policy (VIP downgrade) — also purely server-side
+- Step 15 (server): Sync after-subscriber writes audit log **before** the HTTP response is sent
+- Step 19 (async): Sales module reacts **after** the response — no delay to the user
+
+---
+
+## Factory Modifications
 
 Precise changes required in `packages/shared/src/lib/crud/factory.ts`.
 
@@ -487,7 +277,7 @@ function deriveLifecycleEventIds(events: CrudEventsConfig) {
 }
 ```
 
-#### 5.1 POST (Create) — Add Guard + Sync Event Calls
+### POST (Create) — Add Guard + Sync Event Calls
 
 Currently: POST has NO mutation guard call and no lifecycle events. Add both:
 
@@ -533,7 +323,7 @@ if (opts.events) {
 // Existing: de.markOrmEntityChange + flushOrmEntityChanges (async events — unchanged)
 ```
 
-#### 5.2 PUT (Update) — Add Sync Events, Normalize Guard Position
+### PUT (Update) — Add Sync Events, Normalize Guard Position
 
 ```typescript
 // New order:
@@ -548,7 +338,7 @@ if (opts.events) {
 // 9. Async events                        ← existing: unchanged
 ```
 
-#### 5.3 DELETE — Normalize Pipeline + Add Sync Events
+### DELETE — Normalize Pipeline + Add Sync Events
 
 Currently: guard runs BEFORE `beforeDelete`. **Normalize** to match PUT ordering:
 
@@ -572,7 +362,7 @@ Currently: guard runs BEFORE `beforeDelete`. **Normalize** to match PUT ordering
 - `beforeDelete` typically does validation/preparation, not side-effects
 - This aligns DELETE with PUT behavior, reducing surprise for module authors
 
-#### 5.4 Sync After-Events vs Async Events
+### Sync After-Events vs Async Events
 
 The sync after-event subscribers run BEFORE async event emission. This guarantees:
 - Sync after-subscribers see the committed entity data
@@ -590,280 +380,38 @@ Entity mutation + ORM flush
   → Async event subscribers             (existing — fire-and-forget)
 ```
 
-### 6. Entity Matching (Guards)
-
-Guards use entity pattern matching:
-
-```typescript
-function matchesEntity(pattern: string, entity: string): boolean {
-  if (pattern === '*') return true
-  if (pattern === entity) return true
-  if (pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -2)
-    return entity.startsWith(prefix + '.')
-  }
-  return false
-}
-```
-
-Sync event subscribers use event ID matching (same as existing event bus — see §2).
-
----
-
-## Backward Compatibility
-
-### Existing Singleton Guard Bridge
-
-The existing `crudMutationGuardService` DI token continues to work unchanged. The factory wraps it as a registry entry:
-
-```typescript
-function bridgeLegacyGuard(container: AwilixContainer): MutationGuard | null {
-  const legacyService = resolveCrudMutationGuardService(container)
-  if (!legacyService) return null
-
-  return {
-    id: '_legacy.crud-mutation-guard-service',
-    targetEntity: '*',
-    operations: ['update', 'delete'],  // Legacy only covered PUT/DELETE
-    priority: 0,                        // Runs first (lowest priority number)
-
-    async validate(input) {
-      const result = await legacyService.validateMutation({
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-        userId: input.userId,
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId ?? '',
-        operation: input.operation,
-        requestMethod: input.requestMethod,
-        requestHeaders: input.requestHeaders,
-        mutationPayload: input.mutationPayload,
-      })
-      if (!result) return { ok: true }
-      if (!result.ok) return { ok: false, status: result.status, body: result.body }
-      return { ok: true, shouldRunAfterSuccess: result.shouldRunAfterSuccess, metadata: result.metadata ?? null }
-    },
-
-    async afterSuccess(input) {
-      await legacyService.afterMutationSuccess({
-        tenantId: input.tenantId, organizationId: input.organizationId,
-        userId: input.userId, resourceKind: input.resourceKind, resourceId: input.resourceId,
-        operation: input.operation, requestMethod: input.requestMethod, requestHeaders: input.requestHeaders,
-        metadata: input.metadata,
-      })
-    },
-  }
-}
-```
-
-### Existing Async Subscribers
-
-Async subscribers (`sync: false`, which is the default) are completely unchanged. They continue to fire via the event bus after the mutation, as today. The `sync` metadata flag defaults to `false` — existing subscribers never opt in.
-
-### Compatibility Matrix
-
-| Existing Code | Impact | Action Required |
-|--------------|--------|----------------|
-| `crudMutationGuardService` DI token | **None** — auto-bridged to registry | None |
-| Enterprise record-locks adapter | **None** — bridged via legacy guard | None |
-| `CrudHooks.before*` / `CrudHooks.after*` | **None** — same position in pipeline | None |
-| `validateCrudMutationGuard()` / `runCrudMutationGuardAfterSuccess()` | **Deprecated** — still works via registry | Add `@deprecated` JSDoc |
-| Existing async subscribers (`subscribers/*.ts`) | **None** — `sync` defaults to `false` | None |
-| Existing event declarations (`events.ts`) | **None** — before-events auto-derived by factory | None |
-| DELETE `beforeDelete` ordering | **Changed** — now runs before guard (was after) | See note in §5.3 |
-| POST (create) | **New behavior** — guards now run on create | Guards must handle `resourceId: null` |
-| Widget `onBeforeSave` handlers | **None** — new `filter` field is optional | None |
-
----
-
-## Example Module Additions
-
-### `example/subscribers/auto-default-priority.ts` (Sync Before-Create)
-
-```typescript
-// packages/core/src/modules/example/subscribers/auto-default-priority.ts
-import type { SyncCrudEventPayload, SyncCrudEventResult } from '@open-mercato/shared/lib/crud/sync-event-types'
-
-export const metadata = {
-  event: 'example.todo.creating',   // Before-create lifecycle event
-  sync: true,                        // Run in mutation pipeline
-  priority: 50,
-  id: 'example.auto-default-priority',
-}
-
-export default async function handle(
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<SyncCrudEventResult | void> {
-  if (!payload.payload?.priority) {
-    return {
-      ok: true,
-      modifiedPayload: { priority: 'normal' },
-    }
-  }
-}
-```
-
-### `example/subscribers/prevent-uncomplete.ts` (Sync Before-Update)
-
-```typescript
-// packages/core/src/modules/example/subscribers/prevent-uncomplete.ts
-import type { SyncCrudEventPayload, SyncCrudEventResult } from '@open-mercato/shared/lib/crud/sync-event-types'
-
-export const metadata = {
-  event: 'example.todo.updating',   // Before-update lifecycle event
-  sync: true,
-  priority: 60,
-  id: 'example.prevent-uncomplete',
-}
-
-export default async function handle(
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<SyncCrudEventResult | void> {
-  if (payload.previousData?.status === 'completed' && payload.payload?.status === 'pending') {
-    return {
-      ok: false,
-      status: 422,
-      message: 'Cannot revert a completed todo back to pending.',
-    }
-  }
-}
-```
-
-### `example/subscribers/audit-delete.ts` (Sync After-Delete)
-
-```typescript
-// packages/core/src/modules/example/subscribers/audit-delete.ts
-import type { SyncCrudEventPayload } from '@open-mercato/shared/lib/crud/sync-event-types'
-
-export const metadata = {
-  event: 'example.todo.deleted',   // After-delete event (sync = runs before response)
-  sync: true,
-  priority: 50,
-  id: 'example.audit-delete',
-}
-
-export default async function handle(
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<void> {
-  console.log(`[UMES Audit] Todo ${payload.resourceId} deleted by user ${payload.userId}`)
-  // In real implementation: write to audit log table via ctx.resolve('em')
-}
-```
-
-### Cross-Module Example: Validate Customer Email on Update
-
-A module subscribing to another module's lifecycle events:
-
-```typescript
-// packages/core/src/modules/example/subscribers/validate-customer-email.ts
-import type { SyncCrudEventPayload, SyncCrudEventResult } from '@open-mercato/shared/lib/crud/sync-event-types'
-
-export const metadata = {
-  event: 'customers.person.updating',  // Subscribing to ANOTHER module's event
-  sync: true,
-  priority: 100,   // Run after core validators
-  id: 'example.validate-customer-email',
-}
-
-export default async function handle(
-  payload: SyncCrudEventPayload,
-  ctx: { resolve: <T=any>(name: string) => T },
-): Promise<SyncCrudEventResult | void> {
-  const email = payload.payload?.email as string | undefined
-  if (email && !email.includes('@')) {
-    return {
-      ok: false,
-      status: 422,
-      message: 'Invalid email address format.',
-    }
-  }
-  // Normalize email to lowercase
-  if (email) {
-    return { modifiedPayload: { email: email.toLowerCase() } }
-  }
-}
-```
-
-### `example/data/guards.ts` (Mutation Guard)
-
-Guards are for policy enforcement, separate from event subscribers:
-
-```typescript
-// packages/core/src/modules/example/data/guards.ts
-import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
-
-export const guards: MutationGuard[] = [
-  {
-    id: 'example.todo-limit',
-    targetEntity: 'example.todo',
-    operations: ['create'],
-    features: ['example.view'],
-    priority: 50,
-
-    async validate(input) {
-      // Guards don't receive em directly — use DI container if needed
-      if (input.operation !== 'create') return { ok: true }
-      // Policy check: max 100 todos
-      return { ok: true }  // Simplified — full implementation uses container
-    },
-  },
-]
-```
-
-### Updated Widget with Client-Side Event Filter
-
-```typescript
-// packages/core/src/modules/example/widgets/injection/customer-priority-field/widget.ts
-export default {
-  metadata: { id: 'example.injection.customer-priority-field', title: 'Customer Priority', features: ['example.create'] },
-  fields: [ /* ... existing fields ... */ ],
-  eventHandlers: {
-    filter: { operations: ['update'] },   // Only run validation on update, not create
-    onBeforeSave: async (data, context) => {
-      const priority = data['_example.priority']
-      if (priority === 'critical') {
-        const notes = data['notes'] ?? ''
-        if (!notes || (notes as string).length < 5) {
-          return { ok: false, message: 'Critical priority requires a note explaining why.', fieldErrors: { notes: 'Required for critical priority' } }
-        }
-      }
-      return { ok: true }
-    },
-    onSave: async (data, context) => { /* ... existing save logic ... */ },
-  },
-} satisfies InjectionFieldWidget
-```
-
 ---
 
 ## Where to Modify — File-by-File Reference
 
 ### New Files
 
-| File | Purpose |
-|------|---------|
-| `packages/shared/src/lib/crud/mutation-guard-registry.ts` | `MutationGuard` interface, `MutationGuardInput`, `MutationGuardResult`, `runMutationGuards()`, `matchesEntity()`, `bridgeLegacyGuard()` |
-| `packages/shared/src/lib/crud/sync-event-types.ts` | `SyncCrudEventPayload`, `SyncCrudEventResult` types |
-| `packages/shared/src/lib/crud/sync-event-runner.ts` | `collectSyncSubscribers()`, `runSyncBeforeEvent()`, `runSyncAfterEvent()`, `matchesEventPattern()`, `deriveLifecycleEventIds()` |
-| `packages/core/src/modules/example/data/guards.ts` | Example guard: todo-limit |
-| `packages/core/src/modules/example/subscribers/auto-default-priority.ts` | Sync before-create subscriber |
-| `packages/core/src/modules/example/subscribers/prevent-uncomplete.ts` | Sync before-update subscriber |
-| `packages/core/src/modules/example/subscribers/audit-delete.ts` | Sync after-delete subscriber |
+| File | Purpose | Sub-Spec |
+|------|---------|----------|
+| `packages/shared/src/lib/crud/mutation-guard-registry.ts` | `MutationGuard` interface, `runMutationGuards()`, `matchesEntity()`, `bridgeLegacyGuard()` | [m1](./SPEC-041m1-mutation-guard-registry.md) |
+| `packages/shared/src/lib/crud/sync-event-types.ts` | `SyncCrudEventPayload`, `SyncCrudEventResult` types | [m2](./SPEC-041m2-sync-event-subscribers.md) |
+| `packages/shared/src/lib/crud/sync-event-runner.ts` | `collectSyncSubscribers()`, `runSyncBeforeEvent()`, `runSyncAfterEvent()` | [m2](./SPEC-041m2-sync-event-subscribers.md) |
+| `packages/shared/src/lib/commands/command-interceptor.ts` | `CommandInterceptor` interface, types | [m4](./SPEC-041m4-command-interceptors.md) |
+| `packages/shared/src/lib/commands/command-interceptor-runner.ts` | `runCommandInterceptorsBefore`, `runCommandInterceptorsAfter`, undo variants | [m4](./SPEC-041m4-command-interceptors.md) |
+| `packages/shared/src/lib/commands/errors.ts` | `CommandInterceptorError` | [m4](./SPEC-041m4-command-interceptors.md) |
+| `packages/core/src/modules/example/data/guards.ts` | Example guard: todo-limit | [m1](./SPEC-041m1-mutation-guard-registry.md) |
+| `packages/core/src/modules/example/subscribers/auto-default-priority.ts` | Sync before-create subscriber | [m2](./SPEC-041m2-sync-event-subscribers.md) |
+| `packages/core/src/modules/example/subscribers/prevent-uncomplete.ts` | Sync before-update subscriber | [m2](./SPEC-041m2-sync-event-subscribers.md) |
+| `packages/core/src/modules/example/subscribers/audit-delete.ts` | Sync after-delete subscriber | [m2](./SPEC-041m2-sync-event-subscribers.md) |
+| `packages/core/src/modules/example/commands/interceptors.ts` | Example command interceptors | [m4](./SPEC-041m4-command-interceptors.md) |
 
 ### Modified Files
 
 | File | What Changes | Lines Affected |
 |------|-------------|----------------|
 | **`packages/shared/src/lib/crud/factory.ts`** | Add guard registry calls to POST, add sync lifecycle event emission to POST/PUT/DELETE, normalize DELETE ordering | POST: ~1302-1401, PUT: ~1492-1586, DELETE: ~1687-1756 |
-| **`packages/shared/src/lib/crud/mutation-guard.ts`** | Add `@deprecated` JSDoc to `validateCrudMutationGuard` and `runCrudMutationGuardAfterSuccess` | Lines 60-86 |
-| **`packages/shared/src/modules/widgets/injection.ts`** | Add `WidgetInjectionEventFilter` interface; add optional `filter` field | Type definition section |
+| **`packages/shared/src/lib/commands/command-bus.ts`** | Add command interceptor calls in `execute()` and `undo()` | execute: ~171-217, undo: ~219-235 |
+| **`packages/shared/src/lib/crud/mutation-guard.ts`** | Add `@deprecated` JSDoc | Lines 60-86 |
+| **`packages/shared/src/modules/widgets/injection.ts`** | Add `WidgetInjectionEventFilter` interface | Type definition section |
 | **`packages/ui/src/backend/injection/InjectionSpot.tsx`** | Check `filter.operations` before invoking widget event handlers | Event dispatch logic |
 | **`packages/ui/src/backend/CrudForm.tsx`** | Pass current operation to injection context; filter widget handlers | Save pipeline |
-| **Bootstrap registration** | Split sync/async subscribers at bootstrap; pass sync subscribers to factory | Bootstrap init file |
-| **Generator scripts** (`packages/cli/`) | Discover `data/guards.ts`; generate `guards.generated.ts` | Generator module discovery |
+| **Bootstrap registration** | Split sync/async subscribers; register command interceptors | Bootstrap init file |
+| **Generator scripts** (`packages/cli/`) | Discover `data/guards.ts` and `commands/interceptors.ts` | Generator module discovery |
 
 ### What Is NOT Needed (vs previous draft)
 
@@ -894,110 +442,24 @@ export async function runCrudMutationGuardAfterSuccess(...)
 
 ---
 
-## Integration Tests
+## Backward Compatibility (Consolidated)
 
-### TC-UMES-ML01: Guard registry blocks create when todo limit reached
+| Existing Code | Impact | Action Required |
+|--------------|--------|----------------|
+| `crudMutationGuardService` DI token | **None** — auto-bridged to registry | None |
+| Enterprise record-locks adapter | **None** — bridged via legacy guard | None |
+| `CrudHooks.before*` / `CrudHooks.after*` | **None** — same position in pipeline | None |
+| `validateCrudMutationGuard()` / `runCrudMutationGuardAfterSuccess()` | **Deprecated** — still works via registry | Add `@deprecated` JSDoc |
+| Existing async subscribers (`subscribers/*.ts`) | **None** — `sync` defaults to `false` | None |
+| Existing event declarations (`events.ts`) | **None** — before-events auto-derived by factory | None |
+| DELETE `beforeDelete` ordering | **Changed** — now runs before guard (was after) | See note in factory mods |
+| POST (create) | **New behavior** — guards now run on create | Guards must handle `resourceId: null` |
+| Widget `onBeforeSave` handlers | **None** — new `filter` field is optional | None |
+| `CommandHandler` interface | **None** — interceptors wrap, not modify | None |
+| `commandBus.execute()` callers | **None** — `CommandInterceptorError` extends `Error` | None |
+| `commandBus.undo()` callers | **None** — same error propagation | None |
+| New `data/guards.ts` | Purely additive | None |
+| New `commands/interceptors.ts` | Purely additive | None |
+| New sync subscribers | Purely additive — via existing `subscribers/*.ts` | None |
 
-**Type**: API (Playwright)
-
-**Steps**:
-1. Create 100 todos via API
-2. Attempt to create todo #101
-3. Assert 422 with limit message
-
-### TC-UMES-ML02: Sync before-subscriber modifies create payload
-
-**Type**: API (Playwright)
-
-**Steps**:
-1. POST `/api/example/todos` without `priority`
-2. GET the created todo
-3. Assert `priority` is `'normal'` (auto-set by sync subscriber)
-
-### TC-UMES-ML03: Sync before-subscriber blocks update with 422
-
-**Type**: API (Playwright)
-
-**Steps**:
-1. Create todo with `status: 'pending'`
-2. Update to `status: 'completed'` — success
-3. Update back to `status: 'pending'` — expect 422
-
-### TC-UMES-ML04: Sync after-subscriber runs on delete without blocking
-
-**Type**: API (Playwright)
-
-**Steps**:
-1. Create and delete a todo
-2. Verify deletion succeeded (GET returns 404)
-
-### TC-UMES-ML05: Legacy `crudMutationGuardService` bridge still works
-
-**Type**: API (Playwright) — backward compat validation
-
-### TC-UMES-ML06: Guard runs on POST (create) — previously skipped
-
-**Type**: API (Playwright)
-
-### TC-UMES-ML07: Client-side event filter skips handler for filtered operation
-
-**Type**: UI (Playwright)
-
-**Steps**:
-1. Create customer with Critical priority + empty notes → succeeds (filter skips 'create')
-2. Edit same customer, set Critical + empty notes → fails (filter includes 'update')
-
-### TC-UMES-ML08: Multiple guards run in priority order, first rejection wins
-
-**Type**: API (Playwright)
-
-### TC-UMES-ML09: Guard `modifiedPayload` transforms mutation data
-
-**Type**: API (Playwright)
-
-### TC-UMES-ML10: Cross-module sync subscriber (example subscribing to customers.person.updating)
-
-**Type**: API (Playwright)
-
-**Steps**:
-1. Update a customer person with invalid email
-2. Assert 422 from the example module's sync subscriber
-3. Update with valid email — success, email normalized to lowercase
-
----
-
-## Files Touched Summary
-
-| Action | File |
-|--------|------|
-| **NEW** | `packages/shared/src/lib/crud/mutation-guard-registry.ts` |
-| **NEW** | `packages/shared/src/lib/crud/sync-event-types.ts` |
-| **NEW** | `packages/shared/src/lib/crud/sync-event-runner.ts` |
-| **NEW** | `packages/core/src/modules/example/data/guards.ts` |
-| **NEW** | `packages/core/src/modules/example/subscribers/auto-default-priority.ts` |
-| **NEW** | `packages/core/src/modules/example/subscribers/prevent-uncomplete.ts` |
-| **NEW** | `packages/core/src/modules/example/subscribers/audit-delete.ts` |
-| **MODIFY** | `packages/shared/src/lib/crud/factory.ts` (add guards + sync events to POST/PUT/DELETE, normalize pipeline) |
-| **MODIFY** | `packages/shared/src/lib/crud/mutation-guard.ts` (add @deprecated) |
-| **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add WidgetInjectionEventFilter) |
-| **MODIFY** | `packages/ui/src/backend/injection/InjectionSpot.tsx` (filter by operation) |
-| **MODIFY** | `packages/ui/src/backend/CrudForm.tsx` (pass operation, filter handlers) |
-| **MODIFY** | Generator scripts (discover data/guards.ts) |
-| **MODIFY** | Bootstrap registration (split sync/async subscribers) |
-
-**Estimated scope**: Large — CRUD factory pipeline modification is the critical path
-
----
-
-## Backward Compatibility
-
-- Existing `crudMutationGuardService` DI token: **auto-bridged** to registry entry with `priority: 0`
-- Existing `validateCrudMutationGuard()` / `runCrudMutationGuardAfterSuccess()`: **deprecated** but fully functional
-- Existing `CrudHooks.before*` / `CrudHooks.after*`: **unchanged** — same pipeline position
-- Existing async subscribers: **unchanged** — `sync` defaults to `false`, no opt-in needed
-- Existing event declarations: **unchanged** — before-events auto-derived by factory, not declared
-- Existing widget handlers: **unchanged** — new `filter` field is optional
-- New `data/guards.ts`: purely additive — modules without it have zero change
-- New sync subscribers: purely additive — discovered via existing `subscribers/*.ts` pattern
-- DELETE `beforeDelete` ordering: **normalized** to match PUT behavior
-- POST (create): **new guard coverage** — guards must handle `resourceId: null`
+**Estimated scope**: Large — CRUD factory pipeline + CommandBus modifications are the critical path

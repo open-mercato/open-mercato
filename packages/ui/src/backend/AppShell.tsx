@@ -10,6 +10,7 @@ import { FlashMessages } from './FlashMessages'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -1481,6 +1482,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             )}
           </div>
         </header>
+        <ProgressTopBar t={t} className="sticky top-0 z-10" />
         <main className="flex-1 p-4 lg:p-6">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
