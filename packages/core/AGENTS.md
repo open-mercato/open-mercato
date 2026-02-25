@@ -422,6 +422,58 @@ Output to `apps/mercato/.mercato/generated/`. Never edit manually. Never import 
 
 Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
 
+## Response Enrichers
+
+Response enrichers let a module add computed fields to another module's CRUD API responses (similar to GraphQL Federation).
+
+### Creating an Enricher
+
+Create `data/enrichers.ts` in your module:
+
+```typescript
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const myEnricher: ResponseEnricher = {
+  id: 'mymodule.customer-metrics',
+  targetEntity: 'customers.person',     // entity to enrich
+  features: ['mymodule.view'],           // required ACL features
+  priority: 10,                          // higher runs first
+  timeout: 2000,                         // ms, default 2000
+  fallback: { _mymodule: { count: 0 } },// returned on failure
+  critical: false,                       // true = error propagates to client
+  async enrichOne(record, context) {
+    // Add fields to a single record
+    return { ...record, _mymodule: { count: 42 } }
+  },
+  async enrichMany(records, context) {
+    // Batch enrichment (prevents N+1)
+    return records.map(r => ({ ...r, _mymodule: { count: 42 } }))
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [myEnricher]
+```
+
+### Opt-in on CRUD routes
+
+Target entity routes must opt in via `enrichers` option:
+```typescript
+const crud = makeCrudRoute({
+  // ...
+  enrichers: { entityId: 'customers.person' },
+})
+```
+
+### Key Rules
+
+- MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
+- MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)
+- MUST use `features` array for ACL gating — enricher runs only if user has all listed features
+- Export fields are stripped: `_meta` and `_`-prefixed fields are removed from CSV/Excel exports
+- Enrichers run after `CrudHooks.afterList`, before HTTP response serialization
+- `critical: true` propagates errors to the HTTP response; `false` (default) uses fallback silently
+- Run `yarn generate` after adding `data/enrichers.ts` to auto-discover
+
 ## Upgrade Actions
 
 Declare once per version in `src/modules/configs/lib/upgrade-actions.ts`. Keep them idempotent, reuse module helpers. Access guarded by `configs.manage`.

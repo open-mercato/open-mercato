@@ -464,3 +464,39 @@ export default {
 - `onEvent` callback prop union updated to include new event names (additive)
 - Events without `clientBroadcast: true` have zero behavior change
 - Existing `om:` DOM events (mutation error, sidebar refresh) continue to work alongside the bridge
+
+## Implementation Notes (2026-02-25)
+
+### SSE Endpoint
+- Implemented at `packages/events/src/modules/events/api/stream/route.ts`
+- Uses `ReadableStream` with SSE format (`text/event-stream`)
+- Heartbeat every 30s (`:heartbeat\n\n`)
+- Global connection registry pattern: single `*` event bus handler broadcasts to all SSE connections
+- Tenant-scoped: filters by `tenantId` from auth context
+- Organization-scoped: if event carries `organizationId`, only matching connections receive it
+- Max payload: 4096 bytes per event
+
+### Client-Side
+- `eventBridge.ts` — `useEventBridge()` hook with auto-reconnect (exponential backoff, 1s–30s)
+- `useAppEvent.ts` — wildcard pattern matching using regex (`*` → `.*`)
+- `useOperationProgress.ts` — tracks async operation status with elapsed time ticker
+- Events dispatched as `om:event` CustomEvents on `window`
+- 500ms deduplication window on client
+
+### Widget Event Dispatch
+- Dual-mode dispatch in `InjectionSpot.tsx`:
+  - **Transformer events** (`transformFormData`, `transformDisplayData`, `transformValidation`): pipeline where output of widget N flows to widget N+1
+  - **Action events** (`onFieldChange`, `onBeforeNavigate`, `onVisibilityChange`, `onAppEvent`): fire-and-forget, results accumulated
+- `TRANSFORMER_EVENTS` Set classifies event types
+- New event arguments passed via `meta` parameter
+
+### Files Created/Modified
+- `packages/shared/src/modules/widgets/injection.ts` — new event handler types
+- `packages/shared/src/modules/events/types.ts` — `clientBroadcast` field
+- `packages/shared/src/modules/widgets/injection-progress.ts` — OperationProgressEvent type
+- `packages/ui/src/backend/injection/useAppEvent.ts`
+- `packages/ui/src/backend/injection/useOperationProgress.ts`
+- `packages/ui/src/backend/injection/eventBridge.ts`
+- `packages/ui/src/backend/injection/InjectionSpot.tsx` — dual-mode dispatch
+- `packages/events/src/modules/events/api/stream/route.ts` — SSE endpoint
+- `packages/shared/src/modules/events/factory.ts` — `isBroadcastEvent()` helper

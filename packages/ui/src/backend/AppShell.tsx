@@ -2,7 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ChevronUp, ChevronDown, CheckSquare, PlusSquare, List, Settings, Folder, User, Bell } from 'lucide-react'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
@@ -21,6 +21,8 @@ import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/inj
 import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
 import { mergeMenuItems } from './injection/mergeMenuItems'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
+import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
+import { useEventBridge } from './injection/eventBridge'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -87,31 +89,6 @@ type SidebarGroup = AppShellProps['groups'][number]
 type SidebarItem = SidebarGroup['items'][number]
 type SidebarRoleTarget = { id: string; name: string; hasPreference: boolean }
 
-function resolveInjectedMenuIcon(icon?: string): React.ReactNode | undefined {
-  if (!icon) return undefined
-  const normalized = icon.trim()
-  if (!normalized) return undefined
-
-  const iconMap: Record<string, React.ReactNode> = {
-    CheckSquare: <CheckSquare className="size-4" />,
-    'check-square': <CheckSquare className="size-4" />,
-    PlusSquare: <PlusSquare className="size-4" />,
-    'plus-square': <PlusSquare className="size-4" />,
-    List: <List className="size-4" />,
-    list: <List className="size-4" />,
-    Settings: <Settings className="size-4" />,
-    settings: <Settings className="size-4" />,
-    Folder: <Folder className="size-4" />,
-    folder: <Folder className="size-4" />,
-    User: <User className="size-4" />,
-    user: <User className="size-4" />,
-    Bell: <Bell className="size-4" />,
-    bell: <Bell className="size-4" />,
-  }
-
-  return iconMap[normalized]
-}
-
 function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: string): SidebarItem | null {
   if (!item.href) return null
   return {
@@ -119,7 +96,7 @@ function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: st
     href: item.href,
     title,
     defaultTitle: title,
-    icon: resolveInjectedMenuIcon(item.icon),
+    icon: resolveInjectedIcon(item.icon) ?? undefined,
     enabled: true,
     hidden: false,
     pageContext: 'main',
@@ -380,6 +357,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const { items: settingsSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:settings')
   const { items: profileSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:profile')
   const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
+  useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker

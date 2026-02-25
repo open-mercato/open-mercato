@@ -90,3 +90,49 @@ Workers in `modules/events/workers/` handle async event processing. Follow the s
 - **Declaring events in a module**: `packages/core/AGENTS.md` → Events
 - **Adding subscribers in a module**: `packages/core/AGENTS.md` → Events → Event Subscribers
 - **Queue worker contract**: `packages/queue/AGENTS.md`
+
+## DOM Event Bridge (SSE)
+
+The DOM Event Bridge streams server-side events to the browser via Server-Sent Events (SSE).
+
+### How It Works
+
+1. Module declares events with `clientBroadcast: true` in `events.ts`
+2. SSE endpoint at `/api/events/stream` subscribes to the event bus
+3. Client-side `eventBridge.ts` connects via `EventSource` with auto-reconnect
+4. Events are dispatched as `om:event` CustomEvents on `window`
+5. Widgets/components listen via `useAppEvent(pattern, handler)` hook
+
+### Enabling Broadcast on Events
+
+In your module's `events.ts`:
+```typescript
+const events = [
+  { id: 'mymod.entity.created', label: 'Created', category: 'crud', clientBroadcast: true },
+] as const
+```
+
+### Consuming Events in Components
+
+```typescript
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+
+// Wildcard: listen to all events from a module
+useAppEvent('mymod.*', (event) => {
+  console.log(event.id, event.payload)
+}, [])
+
+// Exact match
+useAppEvent('mymod.entity.created', (event) => {
+  // refresh data
+}, [])
+```
+
+### Key Rules
+
+- Events are tenant-scoped: only clients with matching `tenantId` receive them
+- SSE sends heartbeats every 30s; client auto-reconnects if no heartbeat within 45s
+- Max payload size is 4096 bytes per event
+- Client deduplicates events within a 500ms window
+- `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
+- The `useEventBridge()` hook must be mounted once in the app shell to start receiving events

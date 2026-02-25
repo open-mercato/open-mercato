@@ -9,6 +9,7 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { mergeMenuItems, type MergedMenuItem } from './injection/mergeMenuItems'
+import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 
 export type ProfileDropdownProps = {
   email?: string
@@ -127,6 +128,7 @@ export function ProfileDropdown({
   const renderInjectedItem = React.useCallback(
     (item: MergedMenuItem) => {
       const label = resolveMenuLabel(item)
+      const icon = resolveInjectedIcon(item.icon)
       if (item.href) {
         return (
           <Link
@@ -137,6 +139,7 @@ export function ProfileDropdown({
             data-menu-item-id={item.id}
             onClick={() => setOpen(false)}
           >
+            {icon}
             <span>{label}</span>
           </Link>
         )
@@ -155,6 +158,7 @@ export function ProfileDropdown({
             setOpen(false)
           }}
         >
+          {icon}
           <span>{label}</span>
         </Button>
       )

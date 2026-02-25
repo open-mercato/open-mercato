@@ -39,6 +39,51 @@ import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInje
 import { mergeMenuItems } from '@open-mercato/ui/backend/injection/mergeMenuItems'
 ```
 
+## Widget Event Hooks
+
+### useAppEvent
+
+Subscribe to server-side events bridged to the browser via the DOM Event Bridge:
+
+```typescript
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+
+// Supports wildcards: 'module.*', 'module.entity.*', '*'
+useAppEvent('example.todo.*', (event) => {
+  // event.id, event.payload, event.timestamp, event.organizationId
+}, [dependencies])
+```
+
+### useOperationProgress
+
+Track long-running async operations:
+
+```typescript
+import { useOperationProgress } from '@open-mercato/ui/backend/injection/useOperationProgress'
+
+const progress = useOperationProgress('mymod.import.*')
+// progress.status: 'idle' | 'running' | 'completed' | 'failed'
+// progress.progress: 0-100
+// progress.processedCount, progress.totalCount
+// progress.currentStep, progress.errors, progress.elapsedMs
+```
+
+### Widget Event Handlers (Phase C)
+
+Widgets can declare additional event handlers beyond the original CRUD lifecycle:
+
+| Handler | Type | Description |
+|---------|------|-------------|
+| `onFieldChange` | Action | Called when a specific form field changes |
+| `onBeforeNavigate` | Action | Called before navigation; return `{ ok: false }` to block |
+| `onVisibilityChange` | Action | Called when widget visibility changes |
+| `onAppEvent` | Action | Called when a matching DOM Event Bridge event arrives |
+| `transformFormData` | Transformer | Pipeline: modify form data before save |
+| `transformDisplayData` | Transformer | Pipeline: modify data before display |
+| `transformValidation` | Transformer | Pipeline: modify validation results |
+
+Action events fire independently; transformer events form a pipeline where each widget's output feeds the next.
+
 ## When Building Backend Pages
 
 - Use `CrudForm` for create/edit flows — see `packages/ui/AGENTS.md` → CrudForm Guidelines

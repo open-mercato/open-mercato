@@ -41,6 +41,10 @@ export const injectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.example-menus',
     priority: 50,
   },
+  'menu:topbar:profile-dropdown': {
+    widgetId: 'example.injection.example-profile-menu',
+    priority: 50,
+  },
 }
 
 export default injectionTable
