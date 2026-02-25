@@ -246,6 +246,22 @@ Use 2 meta-tools instead of individual endpoint/schema tools. The AI writes Java
 
 **When modifying Code Mode tools**: Edit `lib/codemode-tools.ts` for tool definitions, `lib/sandbox.ts` for the sandbox engine, `lib/truncate.ts` for response size limiting.
 
+## MANDATORY: Use AskUserQuestion for Confirmations
+
+> **This is the MOST IMPORTANT rule. NEVER skip this.**
+
+Before ANY operation that modifies data (CREATE, UPDATE, DELETE):
+
+1. **YOU MUST USE** the `AskUserQuestion` tool
+2. Do NOT just write "Proceed?" in text
+3. The `AskUserQuestion` tool will show buttons and WAIT for user response
+4. Only proceed after user selects confirmation option
+
+**Why This Matters:**
+- Text like "Shall I proceed?" does NOT pause execution
+- Only the `AskUserQuestion` tool actually waits for user input
+- Without it, the AI may proceed without real confirmation
+
 ## Rules for the Chat Flow
 
 Follow this sequence when modifying the chat pipeline — MUST NOT reorder these steps:
