@@ -453,6 +453,7 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 | `data/enrichers.ts` | `enrichers` | Response enrichers for other modules' entities |
 | `data/guards.ts` | `guards` | Mutation guards (entity-level validation/blocking) |
 | `api/interceptors.ts` | `interceptors` | API route interceptors (before/after hooks) |
+| `commands/interceptors.ts` | `interceptors` | Command bus interceptors (before/after execute + undo hooks) |
 | `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper declarations |
 
 **Imports to add:**
@@ -463,6 +464,7 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 | Mutation guard types | `import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'` |
 | Sync event subscriber types | `import type { SyncCrudEventPayload, SyncCrudEventResult } from '@open-mercato/shared/lib/crud/sync-event-types'` |
 | API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
+| Command interceptor types | `import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'` |
 | Injection position enum | `import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'` |
 | App event hook | `import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'` |
 | Extensible detail hook | `import { useExtensibleDetail } from '@open-mercato/ui/backend/injection/useExtensibleDetail'` |
@@ -478,6 +480,9 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 - Sync after-event subscribers MUST NOT return `ok: false` (after-subscribers cannot block)
 - Guards targeting `'*'` and sync subscribers matching broad patterns MUST be lightweight — they run on every mutation
 - Sync event subscribers use `sync: true` + `priority` in existing `subscribers/*.ts` metadata — no new file convention
+- Command interceptors use `commands/interceptors.ts` auto-discovery — symmetric with `api/interceptors.ts`
+- Command interceptor `beforeExecute` can block (return `ok: false`) or modify input (`modifiedInput`) — no Zod re-validation since the command owns its schema
+- Command interceptor `beforeUndo` can block undo — **only mechanism** for undo interception
 
 **Critical Rules → Architecture to add:**
 - NO direct entity import from another module's enricher — use EntityManager
@@ -489,7 +494,7 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 
 | File | New Sections |
 |------|-------------|
-| `packages/core/AGENTS.md` | Response Enrichers, API Interceptors, Mutation Guards, Sync Event Subscribers, Component Replacement, Menu Item Injection, UMES Scaffolding Guide |
+| `packages/core/AGENTS.md` | Response Enrichers, API Interceptors, Command Interceptors, Mutation Guards, Sync Event Subscribers, Component Replacement, Menu Item Injection, UMES Scaffolding Guide |
 | `packages/ui/AGENTS.md` | DataTable Extension Injection, CrudForm Field Injection |
 | `packages/ui/src/backend/AGENTS.md` | Extensible Detail Pages |
 | `packages/events/AGENTS.md` | DOM Event Bridge |
@@ -574,6 +579,19 @@ When asked to react to or modify another module's entity operations cross-module
 6. Before-events are auto-derived from existing `events.ts` config — NOT declared separately
 7. Run `yarn generate` to register the subscriber (uses existing subscriber auto-discovery)
 
+### Scaffolding a Command Interceptor
+
+When asked to hook into another module's command execute/undo lifecycle:
+
+1. Create `commands/interceptors.ts` in the module root
+2. Export an array of `CommandInterceptor` objects with: `id`, `targetCommand`, `priority`, optional `features`
+3. `beforeExecute` can return `{ ok: false, message }` to block, `{ ok: true, modifiedInput }` to transform command input
+4. `afterExecute` receives the result and can return `{ modifiedResult }` to augment it
+5. `beforeUndo` can block undo — this is the **only mechanism** for undo interception
+6. `afterUndo` runs cleanup after successful undo (cannot block)
+7. Target command patterns: exact (`customers.people.update`), module wildcard (`customers.*`), global (`*`)
+8. Run `yarn generate` to register the interceptor
+
 ### Scaffolding a Field Injection (Triad Pattern)
 
 When asked to add fields to another module's CrudForm:
@@ -601,7 +619,7 @@ Key implementation details from deep-diving into the actual codebase:
 3. **CRUD Factory Hooks**: `CrudHooks` (before/afterList, before/afterCreate, before/afterUpdate, before/afterDelete) + mutation guards already exist; UMES interceptors compose with them at precise pipeline positions
 4. **Bootstrap Order**: New registries follow existing pattern — generated files → bootstrap registration → `globalThis` for HMR
 5. **Record-Locking Patterns**: Primary instance election (global Map), client-side state store (pub/sub), beacon-based cleanup, portal rendering — UMES should formalize these as standard widget utilities
-6. **Command Bus Integration**: API interceptors should hook into the command bus pipeline (`prepare` → `execute` → `captureAfter` → `buildLog`) for audit coverage
+6. **Command Bus Integration**: Command Interceptors (Phase M) hook into the command bus pipeline (`beforeExecute` → `prepare` → `execute` → `captureAfter` → `buildLog` → `afterExecute`) and undo (`beforeUndo` → `undo` → `markUndone` → `afterUndo`). See [SPEC-041m4](./SPEC-041m4-command-interceptors.md)
 7. **Event System**: Ephemeral (in-process) vs persistent (queue) subscribers; interceptors are synchronous and can modify, subscribers are async and react
 8. **DataTable Current Gaps**: Supports header/footer injection spots but no column, row action, filter, or bulk action injection — Phase F fills this
 9. **CrudForm Save Flow**: `handleSubmit` → blur flush → required validation → CE validation → Zod → widget `onBeforeSave` → `withScopedApiRequestHeaders` → `onSubmit` → widget `onAfterSave`
