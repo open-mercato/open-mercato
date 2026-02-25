@@ -9,17 +9,19 @@ const widget: InjectionMenuItemWidget = {
   menuItems: [
     {
       id: 'example-todos-shortcut',
-      label: 'example.menu.todosShortcut',
+      labelKey: 'example.menu.todosShortcut',
+      label: 'Example Todos',
       href: '/backend/example/todos',
       groupId: 'example.nav.group',
       groupLabelKey: 'example.nav.group',
-      placement: { position: InjectionPosition.Last },
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
     {
       id: 'example-quick-add-todo',
-      label: 'example.menu.quickAddTodo',
+      labelKey: 'example.menu.quickAddTodo',
+      label: 'Quick Add Todo',
       href: '/backend/example/todos/create',
-      placement: { position: InjectionPosition.Last },
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
   ],
 }

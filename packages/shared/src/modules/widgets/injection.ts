@@ -2,9 +2,51 @@ import type { ComponentType, LazyExoticComponent, ReactNode } from 'react'
 import type { InjectionPlacement } from './injection-position'
 
 /**
- * Widget injection event handlers for lifecycle management
+ * Result returned by `onFieldChange` handlers.
+ */
+export type FieldChangeResult = {
+  /** Override the field value */
+  value?: unknown
+  /** Set other fields as side effects */
+  sideEffects?: Record<string, unknown>
+  /** Display a message to the user near the field */
+  message?: { text: string; severity: 'info' | 'warning' | 'error' }
+}
+
+/**
+ * Result returned by `onBeforeNavigate` handlers.
+ */
+export type NavigateGuardResult = {
+  /** Whether navigation should proceed */
+  ok: boolean
+  /** Reason shown to the user when navigation is blocked */
+  message?: string
+}
+
+/**
+ * Payload delivered by the DOM Event Bridge for server-side app events.
+ */
+export type AppEventPayload = {
+  /** Event identifier (e.g., 'example.todo.created') */
+  id: string
+  /** Event-specific payload data */
+  payload: Record<string, unknown>
+  /** Server timestamp when the event was emitted */
+  timestamp: number
+  /** Organization the event belongs to */
+  organizationId: string
+}
+
+/**
+ * Widget injection event handlers for lifecycle management.
+ *
+ * Handlers are classified into two categories:
+ * - **Action events**: Fire-and-forget or gate handlers (accumulate requestHeaders, check ok boolean)
+ * - **Transformer events**: Pipeline handlers where output of widget N becomes input of widget N+1
  */
 export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = {
+  // === Existing: Lifecycle Actions ===
+
   /**
    * Called when the widget is first loaded/mounted
    */
@@ -48,6 +90,52 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
    * Called when delete action fails.
    */
   onDeleteError?: (data: TData, context: TContext, error: unknown) => void | Promise<void>
+
+  // === New: DOM-Inspired Lifecycle (Phase C) ===
+
+  /**
+   * Called when a form field value changes. Can return side-effects and user messages.
+   * Action event — called for each widget independently.
+   */
+  onFieldChange?: (fieldId: string, value: unknown, data: TData, context: TContext) => Promise<FieldChangeResult | void>
+
+  /**
+   * Called before navigating away from the current page. Can block navigation.
+   * Action event — first widget returning `ok: false` stops navigation.
+   */
+  onBeforeNavigate?: (target: string, context: TContext) => Promise<NavigateGuardResult>
+
+  /**
+   * Called when the widget's visibility changes (e.g., tab switches).
+   * Action event — fire-and-forget.
+   */
+  onVisibilityChange?: (visible: boolean, context: TContext) => Promise<void>
+
+  /**
+   * Called when an app event matching the widget's subscription arrives via the DOM Event Bridge.
+   * Action event — fire-and-forget.
+   */
+  onAppEvent?: (event: AppEventPayload, context: TContext) => Promise<void>
+
+  // === New: Data Transformation Pipelines (Phase C) ===
+
+  /**
+   * Transform form data before submission. Output of widget N becomes input of widget N+1.
+   * Transformer event — pipeline dispatch.
+   */
+  transformFormData?: (data: TData, context: TContext) => Promise<TData>
+
+  /**
+   * Transform data for display purposes. Output of widget N becomes input of widget N+1.
+   * Transformer event — pipeline dispatch.
+   */
+  transformDisplayData?: (data: TData, context: TContext) => Promise<TData>
+
+  /**
+   * Transform validation errors. Output of widget N becomes input of widget N+1.
+   * Transformer event — pipeline dispatch.
+   */
+  transformValidation?: (errors: Record<string, string>, data: TData, context: TContext) => Promise<Record<string, string>>
 }
 
 /**

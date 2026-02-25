@@ -20,6 +20,11 @@ type FeatureCheckResponse = {
   granted?: string[]
 }
 
+type ProfileResponse = {
+  email?: string
+  roles?: string[]
+}
+
 function collectRequiredFeatures(items: InjectionMenuItem[]): string[] {
   const set = new Set<string>()
   for (const item of items) {
@@ -42,12 +47,20 @@ async function readGrantedFeatures(features: string[]): Promise<Set<string>> {
   return new Set(call.result?.granted ?? [])
 }
 
+async function readUserRoles(): Promise<Set<string>> {
+  const call = await apiCall<ProfileResponse>('/api/auth/profile')
+  if (!call.ok) return new Set()
+  const roles = Array.isArray(call.result?.roles) ? call.result.roles : []
+  return new Set(roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0))
+}
+
 export function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
   items: InjectionMenuItem[]
   isLoading: boolean
 } {
   const { widgets, isLoading } = useInjectionDataWidgets(surfaceId)
   const [grantedFeatures, setGrantedFeatures] = React.useState<Set<string>>(new Set())
+  const [userRoles, setUserRoles] = React.useState<Set<string>>(new Set())
 
   const rawItems = React.useMemo(() => {
     const entries: InjectionMenuItem[] = []
@@ -56,8 +69,12 @@ export function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
       const metadataFeatures = widget.metadata.features ?? []
       for (const menuItem of widget.menuItems) {
         const features = [...metadataFeatures, ...(menuItem.features ?? [])]
+        const normalizedLabelKey =
+          menuItem.labelKey ??
+          (typeof menuItem.label === 'string' && menuItem.label.includes('.') ? menuItem.label : undefined)
         entries.push({
           ...menuItem,
+          labelKey: normalizedLabelKey,
           features,
         })
       }
@@ -79,14 +96,29 @@ export function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
     }
   }, [rawItems])
 
+  React.useEffect(() => {
+    let mounted = true
+    const run = async () => {
+      const roles = await readUserRoles()
+      if (!mounted) return
+      setUserRoles(roles)
+    }
+    void run()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   const items = React.useMemo(
     () =>
       rawItems.filter((item) => {
         const features = item.features ?? []
-        if (features.length === 0) return true
-        return features.every((feature) => grantedFeatures.has(feature))
+        const roles = item.roles ?? []
+        const featuresOk = features.length === 0 || features.every((feature) => grantedFeatures.has(feature))
+        const rolesOk = roles.length === 0 || roles.some((role) => userRoles.has(role))
+        return featuresOk && rolesOk
       }),
-    [rawItems, grantedFeatures],
+    [rawItems, grantedFeatures, userRoles],
   )
 
   return { items, isLoading }

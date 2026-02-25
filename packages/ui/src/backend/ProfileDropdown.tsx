@@ -99,6 +99,16 @@ export function ProfileDropdown({
   const menuItemClass =
     'w-full text-left text-sm cursor-pointer px-3 py-2 rounded hover:bg-accent inline-flex items-center gap-2.5 outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
+  const resolveMenuLabel = React.useCallback(
+    (item: Pick<MergedMenuItem, 'id' | 'label' | 'labelKey'>): string => {
+      if (item.labelKey && item.label) return t(item.labelKey, item.label)
+      if (item.labelKey) return t(item.labelKey, item.id)
+      if (item.label && item.label.includes('.')) return t(item.label, item.id)
+      return item.label ?? item.id
+    },
+    [t],
+  )
+
   const builtInMenuItems = React.useMemo(
     () => {
       const items: Array<{ id: string; separator?: boolean }> = [{ id: 'change-password' }]
@@ -116,6 +126,7 @@ export function ProfileDropdown({
 
   const renderInjectedItem = React.useCallback(
     (item: MergedMenuItem) => {
+      const label = resolveMenuLabel(item)
       if (item.href) {
         return (
           <Link
@@ -126,7 +137,7 @@ export function ProfileDropdown({
             data-menu-item-id={item.id}
             onClick={() => setOpen(false)}
           >
-            <span>{item.labelKey ? t(item.labelKey, item.label ?? item.id) : (item.label ?? item.id)}</span>
+            <span>{label}</span>
           </Link>
         )
       }
@@ -144,11 +155,11 @@ export function ProfileDropdown({
             setOpen(false)
           }}
         >
-          <span>{item.labelKey ? t(item.labelKey, item.label ?? item.id) : (item.label ?? item.id)}</span>
+          <span>{label}</span>
         </Button>
       )
     },
-    [menuItemClass, t],
+    [menuItemClass, resolveMenuLabel],
   )
 
   const renderBuiltInItem = React.useCallback(
@@ -323,7 +334,9 @@ export function ProfileDropdown({
           {mergedMenuItems.map((item) => (
             <React.Fragment key={item.id}>
               {item.separator ? <div className="my-1 border-t" /> : null}
-              {item.source === 'injected' ? renderInjectedItem(item) : renderBuiltInItem(item.id)}
+              {item.source === 'injected'
+                ? (item.href || item.onClick || item.label || item.labelKey ? renderInjectedItem(item) : null)
+                : renderBuiltInItem(item.id)}
             </React.Fragment>
           ))}
         </div>

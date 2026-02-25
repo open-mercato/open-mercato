@@ -99,6 +99,16 @@ function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: st
   }
 }
 
+function resolveInjectedMenuLabel(
+  item: { id: string; label?: string; labelKey?: string },
+  t: (key: string, fallback?: string) => string,
+): string {
+  if (item.labelKey && item.label) return t(item.labelKey, item.label)
+  if (item.labelKey) return t(item.labelKey, item.id)
+  if (item.label && item.label.includes('.')) return t(item.label, item.id)
+  return item.label ?? item.id
+}
+
 function mergeSidebarItemsWithInjected(
   items: SidebarItem[],
   injectedItems: InjectionMenuItem[],
@@ -125,9 +135,10 @@ function mergeSidebarItemsWithInjected(
       if (original) result.push(original)
       continue
     }
-    const translatedLabel = entry.labelKey
-      ? t(entry.labelKey, entry.label ?? entry.id)
-      : (entry.label ?? entry.id)
+    const translatedLabel = resolveInjectedMenuLabel(
+      { id: entry.id, label: entry.label, labelKey: entry.labelKey },
+      t,
+    )
     const converted = convertInjectedMenuItemToSidebarItem(
       {
         id: entry.id,
@@ -220,7 +231,7 @@ function mergeSectionGroupsWithInjected(
         return original ? [original] : []
       }
       if (!item.href) return []
-      const label = item.labelKey ? t(item.labelKey, item.label ?? item.id) : (item.label ?? item.id)
+      const label = resolveInjectedMenuLabel(item, t)
       return [{
         id: item.id,
         label,
@@ -242,7 +253,7 @@ function mergeSectionGroupsWithInjected(
       : (first.groupLabel ?? sectionId)
     const items = sectionItems.flatMap((item) => {
       if (!item.href) return []
-      const itemLabel = item.labelKey ? t(item.labelKey, item.label) : item.label
+      const itemLabel = resolveInjectedMenuLabel(item, t)
       return [{ id: item.id, label: itemLabel, href: item.href }]
     })
     if (items.length === 0) continue
@@ -256,6 +267,12 @@ function resolveGroupKey(group: SidebarGroup): string {
   if (group.id && group.id.length) return group.id
   if (group.defaultName && group.defaultName.length) return slugifySidebarId(group.defaultName)
   return slugifySidebarId(group.name)
+}
+
+function resolveItemKey(item: { id?: string; href: string }): string {
+  const candidate = item.id?.trim()
+  if (candidate && candidate.length > 0) return candidate
+  return item.href
 }
 
 const HeaderContext = React.createContext<{
@@ -467,8 +484,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       }
       const responseHiddenItems = Array.isArray(rawSettings?.hiddenItems)
         ? rawSettings.hiddenItems
-            .map((href: unknown) => (typeof href === 'string' ? href.trim() : ''))
-            .filter((href: string) => href.length > 0)
+            .map((itemId: unknown) => (typeof itemId === 'string' ? itemId.trim() : ''))
+            .filter((itemId: string) => itemId.length > 0)
         : []
       const canManageRoles = data?.canApplyToRoles === true
       setCanApplyToRoles(canManageRoles)
@@ -491,9 +508,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       const order = mergeGroupOrder(responseOrder, currentIds)
       const { itemDefaults } = collectSidebarDefaults(baseSnapshot)
       const hiddenItemIds: Record<string, boolean> = {}
-      for (const href of responseHiddenItems) {
-        if (!itemDefaults.has(href)) continue
-        hiddenItemIds[href] = true
+      for (const itemId of responseHiddenItems) {
+        if (!itemDefaults.has(itemId)) continue
+        hiddenItemIds[itemId] = true
       }
       const draft: SidebarCustomizationDraft = {
         order,
@@ -554,17 +571,17 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         if (trimmed !== base) sanitizedGroupLabels[key] = trimmed
       }
       const sanitizedItemLabels: Record<string, string> = {}
-      for (const [href, value] of Object.entries(customDraft.itemLabels)) {
+      for (const [itemId, value] of Object.entries(customDraft.itemLabels)) {
         const trimmed = value.trim()
-        const base = itemDefaults.get(href)
+        const base = itemDefaults.get(itemId)
         if (!trimmed || !base) continue
-        if (trimmed !== base) sanitizedItemLabels[href] = trimmed
+        if (trimmed !== base) sanitizedItemLabels[itemId] = trimmed
       }
       const sanitizedHiddenItems: string[] = []
-      for (const [href, hidden] of Object.entries(customDraft.hiddenItemIds)) {
+      for (const [itemId, hidden] of Object.entries(customDraft.hiddenItemIds)) {
         if (!hidden) continue
-        if (!itemDefaults.has(href)) continue
-        sanitizedHiddenItems.push(href)
+        if (!itemDefaults.has(itemId)) continue
+        sanitizedHiddenItems.push(itemId)
       }
       const applyToRolesPayload = canApplyToRoles ? [...selectedRoleIds] : []
       const clearRoleIdsPayload = canApplyToRoles
@@ -642,19 +659,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     })
   }, [updateDraft])
 
-  const setItemLabel = React.useCallback((href: string, value: string) => {
+  const setItemLabel = React.useCallback((itemId: string, value: string) => {
     updateDraft((draft) => {
       const next = { ...draft.itemLabels }
-      if (value.trim().length === 0) delete next[href]
-      else next[href] = value
+      if (value.trim().length === 0) delete next[itemId]
+      else next[itemId] = value
       return { ...draft, itemLabels: next }
     })
   }, [updateDraft])
-  const setItemHidden = React.useCallback((href: string, hidden: boolean) => {
+  const setItemHidden = React.useCallback((itemId: string, hidden: boolean) => {
     updateDraft((draft) => {
       const next = { ...draft.hiddenItemIds }
-      if (hidden) next[href] = true
-      else delete next[href]
+      if (hidden) next[itemId] = true
+      else delete next[itemId]
       return { ...draft, hiddenItemIds: next }
     })
   }, [updateDraft])
@@ -960,13 +977,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     const renderEditableItems = (baseItems: SidebarItem[], currentItems: SidebarItem[], depth = 0): React.ReactNode => {
       if (!customDraft) return null
       return baseItems.map((baseItem) => {
+        const itemKey = resolveItemKey(baseItem)
         const current = currentItems.find((item) => item.href === baseItem.href) ?? baseItem
         const placeholder = baseItem.defaultTitle ?? baseItem.title
-        const value = customDraft.itemLabels[baseItem.href] ?? ''
-        const hidden = customDraft.hiddenItemIds[baseItem.href] === true
+        const value = customDraft.itemLabels[itemKey] ?? ''
+        const hidden = customDraft.hiddenItemIds[itemKey] === true
         return (
           <div
-            key={baseItem.href}
+            key={itemKey}
             className={`flex flex-col gap-1 ${hidden ? 'opacity-60' : ''}`}
             style={depth ? { marginLeft: depth * 16 } : undefined}
           >
@@ -976,14 +994,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 type="checkbox"
                 className="h-4 w-4 accent-foreground"
                 checked={!hidden}
-                onChange={(event) => setItemHidden(baseItem.href, !event.target.checked)}
+                onChange={(event) => setItemHidden(itemKey, !event.target.checked)}
                 disabled={savingPreferences}
                 aria-label={t('appShell.sidebarCustomizationShowItem')}
                 title={t('appShell.sidebarCustomizationShowItem')}
               />
               <input
                 value={value}
-                onChange={(event) => setItemLabel(baseItem.href, event.target.value)}
+                onChange={(event) => setItemLabel(itemKey, event.target.value)}
                 placeholder={placeholder}
                 disabled={savingPreferences}
                 className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
@@ -1334,7 +1352,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const renderedTopbarInjectedActions = React.useMemo(
     () =>
       topbarInjectedMenuItems.map((item) => {
-        const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+        const label = resolveInjectedMenuLabel(item, t)
         if (item.href) {
           return (
             <Link
@@ -1544,13 +1562,14 @@ function applyCustomizationDraft(baseGroups: SidebarGroup[], draft: SidebarCusto
 }
 
 function applyItemDraft(item: SidebarItem, draft: SidebarCustomizationDraft): SidebarItem {
+  const itemKey = resolveItemKey(item)
   const baseTitle = item.defaultTitle ?? item.title
-  const override = draft.itemLabels[item.href]?.trim()
+  const override = draft.itemLabels[itemKey]?.trim()
   const children = item.children
     ? item.children
         .map((child) => applyItemDraft(child, draft))
     : undefined
-  const hidden = draft.hiddenItemIds[item.href] === true
+  const hidden = draft.hiddenItemIds[itemKey] === true
   return {
     ...item,
     title: override && override.length > 0 ? override : baseTitle,
@@ -1582,7 +1601,10 @@ function collectSidebarDefaults(groups: SidebarGroup[]) {
 
   const visitItems = (items: SidebarItem[]) => {
     for (const item of items) {
+      const key = resolveItemKey(item)
       const baseTitle = item.defaultTitle ?? item.title
+      itemDefaults.set(key, baseTitle)
+      // Backward-compatible alias for legacy stored href-based preferences.
       itemDefaults.set(item.href, baseTitle)
       if (item.children && item.children.length > 0) visitItems(item.children)
     }
