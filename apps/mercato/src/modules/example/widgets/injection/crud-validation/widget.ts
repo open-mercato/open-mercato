@@ -3,9 +3,9 @@ import ValidationWidget from './widget.client'
 
 function readSharedState(context: unknown) {
   if (!context || typeof context !== 'object') return null
-  const candidate = (context as { sharedState?: { set?: unknown } }).sharedState
+  const candidate = (context as { sharedState?: { get?: unknown; set?: unknown } }).sharedState
   if (!candidate || typeof candidate.set !== 'function') return null
-  return candidate as { set: (key: string, value: unknown) => void }
+  return candidate as { get?: (key: string) => unknown; set: (key: string, value: unknown) => void }
 }
 
 const widget: InjectionWidgetModule<any, any> = {
@@ -28,6 +28,7 @@ const widget: InjectionWidgetModule<any, any> = {
       const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
       const title = typeof record.title === 'string' ? record.title : ''
       const normalizedTitle = title.toLowerCase()
+      const confirmRequested = normalizedTitle.includes('[confirm]') || sharedState?.get?.('lastConfirmRequested') === true
       if (normalizedTitle.includes('[block]')) {
         const message = 'Save blocked by widget rule. Remove [block] from title to continue.'
         sharedState?.set('lastSaveGuard', { ok: false, reason: 'rule:block-tag', message })
@@ -39,16 +40,19 @@ const widget: InjectionWidgetModule<any, any> = {
           },
         }
       }
-      if (normalizedTitle.includes('[confirm]') && typeof window !== 'undefined') {
+      if (confirmRequested && typeof window !== 'undefined') {
         const shouldContinue = window.confirm('Widget confirmation: apply transform and continue saving?')
         if (!shouldContinue) {
           const message = 'Save canceled in confirmation dialog.'
           sharedState?.set('lastSaveGuard', { ok: false, reason: 'dialog:cancel', message })
+          sharedState?.set('lastConfirmRequested', false)
           return { ok: false, message }
         }
         sharedState?.set('lastSaveGuard', { ok: true, reason: 'dialog:accepted' })
+        sharedState?.set('lastConfirmRequested', false)
         return true
       }
+      sharedState?.set('lastConfirmRequested', false)
       sharedState?.set('lastSaveGuard', { ok: true, reason: 'pass' })
       return true
     },
@@ -106,6 +110,8 @@ const widget: InjectionWidgetModule<any, any> = {
         }
         const title = typeof trimmed.title === 'string' ? trimmed.title : ''
         const note = typeof trimmed.note === 'string' ? trimmed.note : ''
+        const confirmRequested = title.toLowerCase().includes('[confirm]')
+        sharedState?.set('lastConfirmRequested', confirmRequested)
         const shouldTransform =
           title.toLowerCase().includes('[transform]') ||
           note.toLowerCase().startsWith('transform:')

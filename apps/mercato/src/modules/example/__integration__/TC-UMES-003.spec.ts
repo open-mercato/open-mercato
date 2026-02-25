@@ -569,4 +569,49 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
     }
   })
+
+  test('TC-UMES-E18: blocked-save example prevents submit and reports save guard reason', async ({
+    page,
+  }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('widget-save-guard')).toBeVisible()
+
+    await page.getByTestId('phase-c-load-blocked-save-example').click()
+    await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue('[block] save demo')
+    await page.locator('form button[type="submit"]').first().click()
+
+    await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":false')
+    await expect(page.getByTestId('widget-save-guard')).toContainText('rule:block-tag')
+    await expect(page.getByTestId('widget-save-guard')).toContainText('Remove [block] from title')
+  })
+
+  test('TC-UMES-E19: transform-save example confirms and transforms payload before submit', async ({
+    page,
+  }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('widget-save-guard')).toBeVisible()
+
+    await page.getByTestId('phase-c-load-transform-save-example').click()
+    await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue('[confirm][transform] transform demo')
+
+    page.once('dialog', (dialog) => {
+      void dialog.accept()
+    })
+    await page.locator('form button[type="submit"]').first().click()
+
+    await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":true')
+    await expect(page.getByTestId('widget-save-guard')).toContainText('dialog:accepted')
+    await expect(page.getByTestId('widget-transform-form-data')).toContainText('"title":"transform demo (transformed)"')
+    await expect(page.getByTestId('widget-transform-form-data')).toContainText('"note":"MAKE ME UPPERCASE"')
+  })
 })
