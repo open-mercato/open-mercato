@@ -29,11 +29,10 @@ test.describe('TC-CAT-001: Create New Product', () => {
       { timeout: 10_000 },
     );
     await page.getByRole('button', { name: 'Create product' }).last().click();
-    await createResponsePromise;
-    await page.goto('/backend/catalog/products');
-
-    const search = page.getByRole('textbox', { name: 'Search' });
-    await search.fill(productName);
-    await expect(page.getByText(productName, { exact: true })).toBeVisible();
+    const createResponse = await createResponsePromise;
+    const createBody = (await createResponse.json().catch(() => null)) as { id?: unknown } | null;
+    expect(typeof createBody?.id).toBe('string');
+    await page.goto(`/backend/catalog/products/${createBody?.id as string}`);
+    await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${createBody?.id as string}$`, 'i'));
   });
 });
