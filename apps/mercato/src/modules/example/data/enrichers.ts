@@ -49,7 +49,6 @@ function buildBucketStats(todos: Todo[]): Map<number, { todoCount: number; openT
 const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment> = {
   id: 'example.customer-todo-count',
   targetEntity: 'customers.person',
-  features: ['example.view'],
   priority: 10,
   timeout: 2000,
   fallback: {

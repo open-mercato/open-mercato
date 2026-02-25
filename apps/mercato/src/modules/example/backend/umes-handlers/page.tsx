@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -35,6 +36,18 @@ type CustomersResponse = {
   }
 }
 
+type EnricherProbeResult = {
+  selectedRecord: CustomerRecord | null
+  meta: CustomersResponse['_meta'] | null
+  inspectedCount: number
+}
+
+function readEventId(event: unknown): string | null {
+  if (!event || typeof event !== 'object') return null
+  const id = (event as { id?: unknown }).id
+  return typeof id === 'string' ? id : null
+}
+
 function readCustomerItems(payload: CustomersResponse | null): CustomerRecord[] {
   if (!payload) return []
   if (Array.isArray(payload.items)) return payload.items
@@ -60,9 +73,14 @@ export default function UmesHandlersPage() {
   const [probeTodoTitle, setProbeTodoTitle] = React.useState('UMES enricher probe')
   const [enricherProbeStatus, setEnricherProbeStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [enricherProbeError, setEnricherProbeError] = React.useState<string | null>(null)
-  const [enricherProbeResult, setEnricherProbeResult] = React.useState<unknown>(null)
+  const [enricherProbeResult, setEnricherProbeResult] = React.useState<EnricherProbeResult | null>(null)
   const { items: sidebarMenuItems, isLoading: sidebarMenuLoading } = useInjectedMenuItems('menu:sidebar:main')
   const { items: profileMenuItems, isLoading: profileMenuLoading } = useInjectedMenuItems('menu:topbar:profile-dropdown')
+  const {
+    widgets: phaseCSpotWidgets,
+    isLoading: phaseCSpotWidgetsLoading,
+    error: phaseCSpotWidgetsError,
+  } = useInjectionDataWidgets('example:phase-c-handlers')
 
   useAppEvent('example.todo.*', (event) => {
     setAppEventResult(event)
@@ -150,6 +168,80 @@ export default function UmesHandlersPage() {
     () => profileMenuItems.filter((item) => item.id.startsWith('example-')),
     [profileMenuItems],
   )
+  const appEventId = React.useMemo(() => readEventId(appEventResult), [appEventResult])
+  const phaseAOk = !phaseCSpotWidgetsLoading && !phaseCSpotWidgetsError &&
+    phaseCSpotWidgets.some((widget) => widget.metadata.id === 'example.injection.crud-validation')
+  const phaseBOk = phaseASidebarItems.some((item) => item.id === 'example-todos-shortcut') &&
+    phaseBProfileItems.some((item) => item.id === 'example-quick-add-todo')
+  const phaseCOk = submittedData != null && serverEmitStatus === 'ok' && appEventId === 'example.todo.created'
+  const phaseDOk = enricherProbeStatus === 'ok' &&
+    enricherProbeResult?.selectedRecord?._example != null &&
+    Array.isArray(enricherProbeResult.meta?.enrichedBy) &&
+    enricherProbeResult.meta.enrichedBy.includes('example.customer-todo-count')
+  const phaseRows = React.useMemo(
+    () => [
+      {
+        id: 'A',
+        ok: phaseAOk,
+        label: t('example.umes.handlers.phaseAD.phaseA'),
+        signal: {
+          loading: phaseCSpotWidgetsLoading,
+          error: phaseCSpotWidgetsError,
+          widgetIds: phaseCSpotWidgets.map((widget) => widget.metadata.id),
+        },
+      },
+      {
+        id: 'B',
+        ok: phaseBOk,
+        label: t('example.umes.handlers.phaseAD.phaseB'),
+        signal: {
+          sidebarIds: phaseASidebarItems.map((item) => item.id),
+          profileIds: phaseBProfileItems.map((item) => item.id),
+        },
+      },
+      {
+        id: 'C',
+        ok: phaseCOk,
+        label: t('example.umes.handlers.phaseAD.phaseC'),
+        signal: {
+          submitSeen: submittedData != null,
+          serverEmitStatus,
+          appEventId,
+        },
+      },
+      {
+        id: 'D',
+        ok: phaseDOk,
+        label: t('example.umes.handlers.phaseAD.phaseD'),
+        signal: {
+          probeStatus: enricherProbeStatus,
+          enrichedBy: enricherProbeResult?.meta?.enrichedBy ?? [],
+          hasExampleNamespace: enricherProbeResult?.selectedRecord?._example != null,
+        },
+      },
+    ],
+    [
+      appEventId,
+      enricherProbeResult,
+      enricherProbeStatus,
+      phaseAOk,
+      phaseASidebarItems,
+      phaseBOk,
+      phaseBProfileItems,
+      phaseCOk,
+      phaseCSpotWidgets,
+      phaseCSpotWidgetsError,
+      phaseCSpotWidgetsLoading,
+      phaseDOk,
+      serverEmitStatus,
+      submittedData,
+      t,
+    ],
+  )
+  const missingPhaseIds = React.useMemo(
+    () => phaseRows.filter((row) => !row.ok).map((row) => row.id),
+    [phaseRows],
+  )
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -206,6 +298,34 @@ export default function UmesHandlersPage() {
         <div>
           <h1 className="text-xl font-semibold">{t('example.umes.handlers.page.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('example.umes.handlers.page.description')}</p>
+        </div>
+
+        <div className="space-y-3 rounded border border-border p-4">
+          <div>
+            <h2 className="text-lg font-semibold">{t('example.umes.handlers.phaseAD.title')}</h2>
+            <p className="text-sm text-muted-foreground">{t('example.umes.handlers.phaseAD.description')}</p>
+          </div>
+          <div data-testid="phase-ad-missing" className="text-xs text-muted-foreground">
+            missingPhases={print(missingPhaseIds)}
+          </div>
+          <div className="grid gap-2">
+            {phaseRows.map((row) => (
+              <div key={row.id} className="grid gap-2 rounded border border-border p-3 md:grid-cols-[120px_120px_1fr]">
+                <div className="text-sm font-medium">
+                  {row.id}: {row.label}
+                </div>
+                <div
+                  data-testid={`phase-ad-status-${row.id.toLowerCase()}`}
+                  className={row.ok ? 'text-sm text-green-700' : 'text-sm text-amber-700'}
+                >
+                  {row.ok ? t('example.umes.handlers.phaseAD.status.ok') : t('example.umes.handlers.phaseAD.status.missing')}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  signal={print(row.signal)}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <CrudForm<{ title: string; note?: string }>
