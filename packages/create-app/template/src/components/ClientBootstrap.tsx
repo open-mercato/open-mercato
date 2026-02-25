@@ -23,6 +23,7 @@ function clientBootstrap() {
 
   // Register dashboard widgets
   registerDashboardWidgets(dashboardWidgetEntries)
+
 }
 
 export function ClientBootstrapProvider({ children }: { children: React.ReactNode }) {

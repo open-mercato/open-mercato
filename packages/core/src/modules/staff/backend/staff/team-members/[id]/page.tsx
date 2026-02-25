@@ -2,9 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
-import type { PluggableList } from 'unified'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -23,6 +21,7 @@ import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@
 import { createStaffNotesAdapter } from '@open-mercato/core/modules/staff/components/detail/notesAdapter'
 import { createStaffActivitiesAdapter } from '@open-mercato/core/modules/staff/components/detail/activitiesAdapter'
 import { createStaffAddressAdapter, createStaffAddressTypesAdapter } from '@open-mercato/core/modules/staff/components/detail/addressesAdapter'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import {
   createStaffDictionaryEntry,
   loadStaffDictionary,
@@ -33,30 +32,8 @@ import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictiona
 import { Plus } from 'lucide-react'
 import { TranslationDrawerAction } from '@open-mercato/core/modules/translations/components/TranslationDrawerAction'
 
-const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
 const MARKDOWN_CLASSNAME =
   'text-sm text-muted-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
-
-type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
-
-const MarkdownPreview: React.ComponentType<MarkdownPreviewProps> = isTestEnv
-  ? ({ children, className }) => <div className={className}>{children}</div>
-  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
-      ssr: false,
-      loading: () => null,
-    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
-
-let markdownPluginsPromise: Promise<PluggableList> | null = null
-
-async function loadMarkdownPlugins(): Promise<PluggableList> {
-  if (isTestEnv) return []
-  if (!markdownPluginsPromise) {
-    markdownPluginsPromise = import('remark-gfm')
-      .then((mod) => [mod.default ?? mod] as PluggableList)
-      .catch(() => [])
-  }
-  return markdownPluginsPromise
-}
 
 type TeamMemberRecord = {
   id: string
@@ -98,17 +75,12 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
   const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
-  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
   const flashShownRef = React.useRef(false)
 
   const notesAdapter = React.useMemo(() => createStaffNotesAdapter(detailTranslator), [detailTranslator])
   const activitiesAdapter = React.useMemo(() => createStaffActivitiesAdapter(detailTranslator), [detailTranslator])
   const addressesAdapter = React.useMemo(() => createStaffAddressAdapter(detailTranslator), [detailTranslator])
   const addressTypesAdapter = React.useMemo(() => createStaffAddressTypesAdapter(detailTranslator), [detailTranslator])
-
-  React.useEffect(() => {
-    void loadMarkdownPlugins().then((plugins) => setMarkdownPlugins(plugins))
-  }, [])
 
   const activityTypeLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('staff.teamMembers.detail.activities.dictionary.placeholder', 'Select an activity type'),
@@ -527,9 +499,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                     </h2>
                     <div className="space-y-2">
                       {memberRecord?.description ? (
-                        <MarkdownPreview remarkPlugins={markdownPlugins} className={MARKDOWN_CLASSNAME}>
-                          {memberRecord.description}
-                        </MarkdownPreview>
+                        <MarkdownContent body={memberRecord.description} format="markdown" className={MARKDOWN_CLASSNAME} />
                       ) : (
                         <p className="text-sm text-muted-foreground">
                           {t('staff.teamMembers.detail.descriptionEmpty', 'No description provided.')}

@@ -45,6 +45,7 @@
   "scheduler.error.trigger_failed": "Nie udało się uruchomić harmonogramu",
   "scheduler.error.unauthorized": "Brak autoryzacji",
   "scheduler.error.update_failed": "Nie udało się zaktualizować harmonogramu",
+  "scheduler.errors.id_required": "Identyfikator harmonogramu jest wymagany.",
   "scheduler.execution.actions": "Akcje",
   "scheduler.execution.completed_message": "To wykonanie zakończyło się pomyślnie bez błędów.",
   "scheduler.execution.details_title": "Szczegóły wykonania",
