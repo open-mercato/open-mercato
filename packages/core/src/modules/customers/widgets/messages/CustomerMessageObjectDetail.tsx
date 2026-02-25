@@ -1,0 +1,57 @@
+"use client"
+
+import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { ObjectDetailProps } from '@open-mercato/shared/modules/messages/types'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { CustomerMessageObjectPreview } from './CustomerMessageObjectPreview'
+
+export function CustomerMessageObjectDetail(props: ObjectDetailProps) {
+  const t = useT()
+  const [executingActionId, setExecutingActionId] = React.useState<string | null>(null)
+
+  return (
+    <div className="space-y-3 rounded border p-3">
+      <CustomerMessageObjectPreview
+        entityId={props.entityId}
+        entityModule={props.entityModule}
+        entityType={props.entityType}
+        snapshot={props.snapshot}
+        previewData={props.previewData}
+        actionRequired={props.actionRequired}
+        actionType={props.actionType}
+        actionLabel={props.actionLabel}
+      />
+
+      {props.actions.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {props.actions.map((action) => (
+            <Button
+              key={action.id}
+              type="button"
+              size="sm"
+              variant={action.variant ?? 'default'}
+              disabled={executingActionId !== null}
+              onClick={async () => {
+                if (executingActionId) return
+                setExecutingActionId(action.id)
+                try {
+                  await props.onAction(action.id, { id: props.entityId })
+                } finally {
+                  setExecutingActionId(null)
+                }
+              }}
+            >
+              {executingActionId === action.id
+                ? t('messages.actions.executing', 'Executing...')
+                : t(action.labelKey ?? action.id, action.id)}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export default CustomerMessageObjectDetail
+
