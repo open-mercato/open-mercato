@@ -81,15 +81,24 @@ export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | 
 }
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-  const baseFetch: FetchType = (typeof window !== 'undefined' && (window as any).__omOriginalFetch)
-    ? ((window as any).__omOriginalFetch as FetchType)
-    : fetch;
+  type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  const originalFetch =
+    typeof window !== 'undefined'
+      ? (window as Window & { __omOriginalFetch?: FetchType }).__omOriginalFetch
+      : undefined
+  const fallbackFetch = (globalThis as typeof globalThis & { fetch?: FetchType }).fetch
+  const baseFetch = originalFetch ?? fallbackFetch
+  if (!baseFetch) {
+    return new Response(
+      JSON.stringify({ error: 'Fetch API is not available in this runtime' }),
+      { status: 503, headers: { 'content-type': 'application/json' } },
+    )
+  }
   const scoped = scopedHeaders.resolveScopedHeaders()
   const mergedInit = Object.keys(scoped).length
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
     : init
-  const res = await baseFetch(input, mergedInit);
+  const res = await baseFetch(input, mergedInit)
   const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
