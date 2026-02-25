@@ -2,10 +2,14 @@ import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
+export const integrationMeta = {
+  dependsOnModules: ['resources'],
+}
+
 /**
- * TC-INT-009: Resources list page — renders table, shows created resource, supports navigation to detail
+ * TC-RESO-001: Resources list page — renders table, shows created resource, supports navigation to detail
  */
-test.describe('TC-INT-009: Resources list page', () => {
+test.describe('TC-RESO-001: Resources list page', () => {
   test.beforeEach(async ({ page }) => {
     await login(page, 'admin');
   });

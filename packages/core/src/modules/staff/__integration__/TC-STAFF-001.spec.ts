@@ -2,10 +2,14 @@ import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
+export const integrationMeta = {
+  dependsOnModules: ['staff'],
+}
+
 /**
- * TC-INT-007: Team Members list page — renders table, shows created member, supports navigation to detail
+ * TC-STAFF-001: Team Members list page — renders table, shows created member, supports navigation to detail
  */
-test.describe('TC-INT-007: Team Members list page', () => {
+test.describe('TC-STAFF-001: Team Members list page', () => {
   test.beforeEach(async ({ page }) => {
     await login(page, 'admin');
   });
