@@ -26,7 +26,7 @@ Catalog / Products / Create Form / Organize Step
 - UUID should remain internal value only, never displayed as user-facing label.
 
 ## Evidence
-- Failing test: `packages/core/src/modules/catalog/__integration__/TC-CAT-020.spec.ts`
+- Failing test: `packages/core/src/modules/catalog/__integration__/TC-CAT-015.spec.ts`
 - Failure message confirms UUID rendered in categories section instead of fixture name.
 - Error context shows both fields as UUID:
   - Categories: `645406ec-a2d9-45cc-b9d6-2defe7cce484`
@@ -36,6 +36,4 @@ Catalog / Products / Create Form / Organize Step
 
 ## Triage Classification
 - Type: Product bug
-- Proposed owner: User/Product team
-- Regression test: `packages/core/src/modules/catalog/__integration__/TC-CAT-020.spec.ts`
-
+- Regression test: `packages/core/src/modules/catalog/__integration__/TC-CAT-015.spec.ts`

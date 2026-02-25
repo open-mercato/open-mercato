@@ -7,14 +7,14 @@ import {
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
- * TC-CAT-020: Organize Step Keeps Human-Readable Labels After Step Navigation
+ * TC-CAT-015: Organize Step Keeps Human-Readable Labels After Step Navigation
  */
-test.describe('TC-CAT-020: Organize Step Keeps Human-Readable Labels After Step Navigation', () => {
+test.describe('TC-CAT-015: Organize Step Keeps Human-Readable Labels After Step Navigation', () => {
   test('should keep category and sales channel labels after Continue -> Previous', async ({ page, request }) => {
     const base = Date.now();
-    const categoryName = `QA TC-CAT-020 Category ${base}`;
-    const channelName = `QA TC-CAT-020 Channel ${base}`;
-    const channelCode = `qa-cat-020-${base}`;
+    const categoryName = `QA TC-CAT-015 Category ${base}`;
+    const channelName = `QA TC-CAT-015 Channel ${base}`;
+    const channelCode = `qa-cat-015-${base}`;
     let token: string | null = null;
     let categoryId: string | null = null;
     let channelId: string | null = null;
@@ -56,17 +56,17 @@ test.describe('TC-CAT-020: Organize Step Keeps Human-Readable Labels After Step 
 
       await page.goto('/backend/catalog/products/create');
 
-      const productTitle = `QA TC-CAT-020 Product ${base}`;
+      const productTitle = `QA TC-CAT-015 Product ${base}`;
       const titleInput = page.getByRole('textbox', { name: 'e.g., Summer sneaker' });
       for (let attempt = 0; attempt < 3; attempt++) {
         await titleInput.fill(productTitle);
         const currentValue = await titleInput.inputValue();
         if (currentValue === productTitle) break;
-        await page.waitForTimeout(200);
+        await page.waitForTimeout(150);
       }
       await expect(titleInput).toHaveValue(productTitle);
       await page.getByRole('textbox', { name: 'Describe the product...' }).fill(
-        'QA TC-CAT-020 regression check for organize labels after step navigation.',
+        'QA TC-CAT-015 regression check for organize labels after step navigation.',
       );
 
       await page.getByRole('button', { name: 'Continue' }).click();
