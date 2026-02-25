@@ -191,9 +191,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       function matchesPattern(pattern: string, eventId: string): boolean {
         if (pattern === '*') return true
         if (!pattern.includes('*')) return pattern === eventId
-        const regex = new RegExp(
-          '^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$',
-        )
+        const escaped = pattern
+          .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+          .replace(/\*/g, '.*')
+        const regex = new RegExp('^' + escaped + '$')
         return regex.test(eventId)
       }
 
