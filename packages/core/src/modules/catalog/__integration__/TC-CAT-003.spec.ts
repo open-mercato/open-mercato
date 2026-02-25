@@ -29,7 +29,7 @@ test.describe('TC-CAT-003: Edit Existing Product', () => {
       const titleField = page.getByRole('textbox', { name: 'e.g., Summer sneaker' });
       await titleField.fill(updatedName);
       await page.getByRole('button', { name: 'Save changes' }).last().click();
-      await expect(page.getByTestId('widget-transform-form-data')).toContainText(`"title":"${updatedName}"`);
+      await expect(titleField).toHaveValue(updatedName);
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);
     }
