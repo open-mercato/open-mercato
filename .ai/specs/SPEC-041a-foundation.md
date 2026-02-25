@@ -130,13 +130,56 @@ type InjectionFieldWidget = {
   fields: {
     id: string                  // Dot-path (e.g., '_loyalty.tier')
     label: string               // i18n key
-    type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea'
+    type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea' | 'custom'
     options?: { value: string; label: string }[]
+    optionsLoader?: (context: FieldContext) => Promise<{ value: string; label: string }[]>
+    optionsCacheTtl?: number    // Cache duration in seconds (default: 60)
+    customComponent?: React.LazyExoticComponent<React.ComponentType<CustomFieldProps>>
     group: string               // Existing form group ID
     placement?: InjectionPlacement
     readOnly?: boolean
+    visibleWhen?: FieldVisibilityCondition  // Conditional visibility
   }[]
   eventHandlers?: WidgetInjectionEventHandlers<any, any>
+}
+
+// InjectionWizardWidget — for multi-step setup flows (Phase L)
+type InjectionWizardWidget = {
+  metadata: { id: string; title?: string; features?: string[] }
+  kind: 'wizard'
+  steps: {
+    id: string
+    label: string               // i18n key
+    fields?: InjectionFieldWidget['fields']  // reuse existing field types
+    customComponent?: React.LazyExoticComponent<React.ComponentType<WizardStepProps>>
+    validate?: (data: Record<string, unknown>, context: InjectionContext) => Promise<{ ok: boolean; message?: string }>
+  }[]
+  onComplete?: (stepData: Record<string, unknown>, context: InjectionContext) => Promise<void>
+  eventHandlers?: WidgetInjectionEventHandlers<any, any>
+}
+
+// InjectionStatusBadgeWidget — for persistent status indicators (Phase L)
+type InjectionStatusBadgeWidget = {
+  metadata: { id: string; features?: string[] }
+  kind: 'status-badge'
+  badge: {
+    label: string               // i18n key
+    statusLoader: (context: StatusBadgeContext) => Promise<StatusBadgeResult>
+    href?: string               // click to navigate to details
+    pollInterval?: number       // refresh interval in seconds (default: 60)
+  }
+}
+
+interface StatusBadgeResult {
+  status: 'healthy' | 'warning' | 'error' | 'unknown'
+  tooltip?: string
+  count?: number                // optional numeric badge (e.g., "3 errors")
+}
+
+interface StatusBadgeContext {
+  organizationId: string
+  tenantId: string
+  userId: string
 }
 
 // InjectionMenuItemWidget — for menu injection (Phase B)
@@ -165,14 +208,59 @@ interface InjectionMenuItem {
 }
 ```
 
-### 5. Generator Update
+### 5. Widget Shared State
+
+Integration modules often have multiple related widgets (credentials, field mapping, sync status, logs) that need to share state without tight coupling. The `WidgetSharedState` mechanism provides a module-scoped key-value store accessible from any widget's context.
+
+```typescript
+// packages/ui/src/backend/injection/WidgetSharedState.ts
+
+interface WidgetSharedState {
+  /** Read a value by key (returns undefined if not set) */
+  get<T>(key: string): T | undefined
+
+  /** Write a value by key (notifies all subscribers) */
+  set<T>(key: string, value: T): void
+
+  /** Subscribe to changes on a key. Returns unsubscribe function. */
+  subscribe(key: string, handler: (value: unknown) => void): () => void
+}
+```
+
+Available in widget injection context:
+
+```typescript
+interface InjectionContext {
+  // ... existing fields ...
+  sharedState: WidgetSharedState  // Scoped to module namespace
+}
+```
+
+**Scoping**: Each module gets its own namespace. Widget `example.injection.foo` accessing `sharedState.get('connectionStatus')` reads from `example:connectionStatus`. Modules cannot read other modules' shared state.
+
+**React hook** for convenient access in client widgets:
+
+```typescript
+// packages/ui/src/backend/injection/useWidgetSharedState.ts
+
+function useWidgetSharedState<T>(key: string): [T | undefined, (value: T) => void]
+```
+
+This uses `useSyncExternalStore` under the hood for safe React integration.
+
+**Use cases:**
+- Integration bundle: credentials widget sets `connectionStatus`, sync status widget reads it
+- Multi-widget form: wizard widget sets `selectedProvider`, field widget adjusts options
+- Progress tracking: sync worker updates `syncProgress` via SSE event, progress widget reads it
+
+### 6. Generator Update
 
 Update `yarn generate` to discover and register headless widget types. The generator must:
 - Detect widget modules that export `columns`, `rowActions`, `bulkActions`, `filters`, `fields`, or `menuItems` (instead of or in addition to `Widget`)
 - Register them in the headless widget registry alongside the existing visual widget registry
 - Generated files follow the same `loader: () => import(...)` pattern
 
-### 6. Standardized Slot Categories
+### 7. Standardized Slot Categories
 
 Every backend page automatically gets slots at predictable positions:
 
@@ -211,9 +299,14 @@ Every backend page automatically gets slots at predictable positions:
 'backend:topbar:actions'                  // Topbar action buttons (left of profile)
 'backend:sidebar:nav'                     // Sidebar navigation items
 'backend:sidebar:nav:footer'              // Sidebar navigation footer items
+
+// NEW: Status badge injection spots (Phase L)
+'global:sidebar:status-badges'            // Sidebar footer — persistent status indicators
+'global:header:status-indicators'         // Top bar — health/sync status badges
+'detail:<entityId>:status-badges'         // Detail page header — entity-scoped badges
 ```
 
-### 7. Wildcard & Pattern Matching (Existing — Formalized)
+### 8. Wildcard & Pattern Matching (Existing — Formalized)
 
 ```typescript
 'crud-form:*'                    // All CRUD forms (record-locking uses this)
@@ -317,8 +410,10 @@ Add the menu spot mapping:
 |--------|------|
 | **NEW** | `packages/shared/src/modules/widgets/injection-position.ts` |
 | **NEW** | `packages/ui/src/backend/injection/useInjectionDataWidgets.ts` |
+| **NEW** | `packages/ui/src/backend/injection/WidgetSharedState.ts` |
+| **NEW** | `packages/ui/src/backend/injection/useWidgetSharedState.ts` |
 | **NEW** | `packages/core/src/modules/example/widgets/injection/todo-menu-items/widget.ts` |
-| **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add headless types) |
+| **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add headless types, custom field, wizard, status badge, visibility) |
 | **MODIFY** | `packages/shared/src/modules/widgets/injection-loader.ts` (add headless loading path) |
 | **MODIFY** | `packages/core/src/modules/example/widgets/injection-table.ts` (add menu spot) |
 | **MODIFY** | Generator scripts (discover headless widgets) |

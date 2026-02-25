@@ -62,21 +62,116 @@ interface InjectedFieldProps {
   field: {
     id: string
     label: string       // i18n key
-    type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea'
+    type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea' | 'custom'
     options?: { value: string; label: string }[]
+    optionsLoader?: (context: FieldContext) => Promise<{ value: string; label: string }[]>
+    optionsCacheTtl?: number  // Cache duration in seconds (default: 60)
+    customComponent?: React.LazyExoticComponent<React.ComponentType<CustomFieldProps>>
     readOnly?: boolean
     group?: string
     placement?: InjectionPlacement
+    visibleWhen?: FieldVisibilityCondition
   }
   value: unknown
   onChange: (fieldId: string, value: unknown) => void
   isLoading?: boolean
 }
+
+interface CustomFieldProps {
+  value: unknown
+  onChange: (value: unknown) => void
+  field: InjectedFieldProps['field']
+  context: FieldContext
+  readOnly: boolean
+}
+
+interface FieldContext {
+  resourceId?: string
+  organizationId: string
+  tenantId: string
+  formData: Record<string, unknown>
+}
+
+interface FieldVisibilityCondition {
+  field: string           // dot-path to another field in the form
+  operator: 'eq' | 'neq' | 'in' | 'notIn' | 'truthy' | 'falsy'
+  value?: unknown         // required for eq, neq, in, notIn
+}
+```
 ```
 
 Renders the appropriate input based on `field.type`, using the same UI primitives as CrudForm for visual consistency.
 
-### 3. Field Value Reading via Dot-Path
+### 3. Dynamic Options (`optionsLoader`)
+
+When a field declares `optionsLoader` instead of (or alongside) static `options`, the `InjectedField` component calls the loader on mount and caches results for `optionsCacheTtl` seconds (default: 60). This enables integration modules to populate select options from external APIs (e.g., HubSpot pipelines, Akeneo attribute groups, BambooHR custom fields, Shopify locations).
+
+```typescript
+// Example: field with dynamic options from external API
+{
+  id: '_hubspot.pipeline',
+  label: 'hubspot.field.pipeline',
+  type: 'select',
+  optionsLoader: async (context) => {
+    const res = await apiCallOrThrow('/api/hubspot/pipelines', {
+      headers: { 'x-organization-id': context.organizationId },
+    })
+    return res.items.map((p: any) => ({ value: p.id, label: p.label }))
+  },
+  optionsCacheTtl: 300,  // Cache for 5 minutes
+  group: 'details',
+}
+```
+
+If both `options` (static) and `optionsLoader` (dynamic) are provided, `optionsLoader` takes precedence. If the loader fails, the component falls back to `options` (if defined) and shows a console warning.
+
+### 4. Custom Field Component (`type: 'custom'`)
+
+When `type` is `'custom'`, the `InjectedField` renders `customComponent` instead of a built-in input. The custom component receives `CustomFieldProps` and must handle its own rendering and state. This unlocks field mapping widgets, media gallery pickers, template editors, and other complex UIs.
+
+```typescript
+// Example: integration field mapping widget as a custom field
+{
+  id: '_sync.fieldMapping',
+  label: 'sync.field.fieldMapping',
+  type: 'custom',
+  customComponent: lazy(() => import('./FieldMappingEditor')),
+  group: 'sync-settings',
+}
+```
+
+The custom component is lazy-loaded and only imported when the field is rendered. It receives the full `FieldContext` including current form data, which allows it to react to other field values.
+
+### 5. Conditional Field Visibility (`visibleWhen`)
+
+Fields can declare `visibleWhen` to conditionally show/hide based on another field's value. The `InjectedField` evaluates the condition reactively — when the referenced field changes, the conditional field shows/hides immediately.
+
+```typescript
+// Example: show OAuth fields only when authMethod is 'oauth2'
+{
+  id: '_integration.oauthClientId',
+  label: 'integration.field.oauthClientId',
+  type: 'text',
+  group: 'credentials',
+  visibleWhen: {
+    field: 'authMethod',
+    operator: 'eq',
+    value: 'oauth2',
+  },
+}
+```
+
+**Operator semantics:**
+- `eq`: `formData[field] === value`
+- `neq`: `formData[field] !== value`
+- `in`: `(value as unknown[]).includes(formData[field])`
+- `notIn`: `!(value as unknown[]).includes(formData[field])`
+- `truthy`: `Boolean(formData[field])`
+- `falsy`: `!formData[field]`
+
+Hidden fields are excluded from save payloads (not sent to `onSave`). The condition is evaluated in the component — no server roundtrip.
+
+### 6. Field Value Reading via Dot-Path
 
 Injected fields use dot-path accessors to read from enriched data:
 - Field `id: '_example.priority'` reads from `record._example.priority`

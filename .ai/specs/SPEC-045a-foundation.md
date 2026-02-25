@@ -1002,11 +1002,14 @@ interface OAuthConfig {
   /** OAuth provider identifier — used for callback routing */
   provider: string  // e.g., 'google', 'microsoft', 'github', 'slack'
 
-  /** Authorization endpoint URL */
-  authorizationUrl: string
+  /** Authorization endpoint URL — string or template function that receives other credential field values.
+   *  Use a function when the URL contains tenant-specific parts (e.g., BambooHR: `{company}.bamboohr.com`).
+   *  Example: `(fields) => \`https://${fields.subdomain}.bamboohr.com/authorize.php\``
+   */
+  authorizationUrl: string | ((fields: Record<string, string>) => string)
 
-  /** Token endpoint URL */
-  tokenUrl: string
+  /** Token endpoint URL — string or template function (same pattern as authorizationUrl) */
+  tokenUrl: string | ((fields: Record<string, string>) => string)
 
   /** Scopes to request during authorization */
   scopes: string[]
@@ -1492,11 +1495,18 @@ interface SshKeypairSet {
 Extended `CredentialField` union (full):
 
 ```typescript
+/** Conditional visibility for credential fields — show/hide based on other field values */
+interface CredentialFieldVisibility {
+  field: string           // key of another credential field
+  operator: 'eq' | 'neq' | 'in' | 'notIn' | 'truthy' | 'falsy'
+  value?: unknown         // required for eq, neq, in, notIn
+}
+
 type CredentialField =
-  | { key: string; label: string; type: 'text' | 'url'; required?: boolean; placeholder?: string }
-  | { key: string; label: string; type: 'secret'; required?: boolean }
-  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[] }
-  | { key: string; label: string; type: 'boolean' }
+  | { key: string; label: string; type: 'text' | 'url'; required?: boolean; placeholder?: string; visibleWhen?: CredentialFieldVisibility }
+  | { key: string; label: string; type: 'secret'; required?: boolean; visibleWhen?: CredentialFieldVisibility }
+  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[]; visibleWhen?: CredentialFieldVisibility }
+  | { key: string; label: string; type: 'boolean'; visibleWhen?: CredentialFieldVisibility }
   | CredentialFieldOAuth
   | CredentialFieldSshKeypair
 ```
@@ -1586,7 +1596,70 @@ Utilities in `integrations/lib/ssh-utils.ts`: `generateSshKeypair()`, `computeSs
 
 ---
 
-## 9. Widget Injection for Integration Configuration
+## 9. Credential Field Enhancements (Integration-Driven)
+
+### 9.1 Conditional Field Visibility (`visibleWhen`)
+
+Credential forms often have fields that should only appear based on other field values. For example:
+- Show OAuth fields only when `authMethod` is `'oauth2'`
+- Show subdomain field only when `provider` is `'bamboohr'`
+- Show sandbox URL only when `environment` is `'sandbox'`
+
+Every `CredentialField` type (except `oauth` and `ssh_keypair`) supports an optional `visibleWhen` condition:
+
+```typescript
+credentials: {
+  fields: [
+    { key: 'environment', label: 'Environment', type: 'select', options: [
+      { value: 'production', label: 'Production' },
+      { value: 'sandbox', label: 'Sandbox' },
+    ]},
+    { key: 'sandboxUrl', label: 'Sandbox API URL', type: 'url', required: true,
+      visibleWhen: { field: 'environment', operator: 'eq', value: 'sandbox' },
+    },
+    { key: 'productionUrl', label: 'Production API URL', type: 'url', required: true,
+      visibleWhen: { field: 'environment', operator: 'eq', value: 'production' },
+    },
+  ],
+}
+```
+
+Hidden fields are not validated (even if `required: true`). The UI evaluates visibility reactively — changing the controlling field immediately shows/hides dependent fields.
+
+### 9.2 Dynamic OAuth URL Templates
+
+Some providers have tenant-specific OAuth endpoints (BambooHR: `{company}.bamboohr.com`, Shopify: `{shop}.myshopify.com`). The `authorizationUrl` and `tokenUrl` fields accept either a static string or a function that receives all other credential field values:
+
+```typescript
+credentials: {
+  fields: [
+    { key: 'companySubdomain', label: 'Company Subdomain', type: 'text', required: true,
+      placeholder: 'your-company',
+    },
+    { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
+    {
+      key: 'oauthTokens',
+      label: 'BambooHR Account',
+      type: 'oauth',
+      required: true,
+      oauth: {
+        provider: 'bamboohr',
+        authorizationUrl: (fields) => `https://${fields.companySubdomain}.bamboohr.com/authorize.php`,
+        tokenUrl: (fields) => `https://${fields.companySubdomain}.bamboohr.com/token.php`,
+        scopes: ['read', 'write'],
+        usePkce: true,
+        refreshStrategy: 'background',
+      },
+    },
+  ],
+}
+```
+
+The OAuth start endpoint resolves the URL function at redirect time using the tenant's saved credential values. If the referenced credential fields are empty, the OAuth flow returns a 422 error asking the admin to fill in the required fields first.
+
+---
+
+## 10. Widget Injection for Integration Configuration
 
 ### 9.1 Problem
 
@@ -1720,7 +1793,7 @@ integrations.detail:tabs              # Integration-level tabs
 
 ---
 
-## 11. Implementation Steps
+## 12. Implementation Steps
 
 1. Create `@open-mercato/shared/modules/integrations/types.ts` — all shared types including `IntegrationBundle`, `ApiVersionDefinition`, `CredentialFieldOAuth`, `CredentialFieldSshKeypair`
 2. Add `integration.ts` to CLI module auto-discovery scanner (support both single `export const integration` and array `export const integrations` + `export const bundle`)

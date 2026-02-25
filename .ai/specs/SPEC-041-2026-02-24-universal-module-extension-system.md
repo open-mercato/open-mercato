@@ -31,6 +31,7 @@ Each phase is a separate PR, independently mergeable, with example module demons
 | **I** | [SPEC-041i — Detail Page Bindings](./SPEC-041i-detail-page-bindings.md) | `feat/umes-detail-bindings` | `useExtensibleDetail`, `InjectedField`, `runSectionSave` | D, G |
 | **J** | [SPEC-041j — Recursive Widgets](./SPEC-041j-recursive-widgets.md) | `feat/umes-recursive-widgets` | Widget-level `InjectionSpot`, nested event handlers | A |
 | **K** | [SPEC-041k — DevTools](./SPEC-041k-devtools.md) | `feat/umes-devtools` | UMES DevTools panel, build-time conflict detection | All |
+| **L** | [SPEC-041l — Integration Extensions](./SPEC-041l-integration-extensions.md) | `feat/umes-integration-extensions` | Wizard widgets, status badges, external ID mapping display | A, C, D, G |
 
 ### Dependency Graph
 

@@ -85,6 +85,75 @@ When enrichers are active, responses include metadata:
 - Enrichers can be disabled per-tenant via module config
 - Total enricher execution time is logged; slow enrichers flagged in dev mode (100ms warn, 500ms error)
 
+### 5.1 Timeout & Fallback Strategy
+
+Integration enrichers depend on cached external data or external API calls — they can be slow or fail. A failed enricher MUST NOT break the entire response.
+
+```typescript
+interface ResponseEnricher<TRecord = any, TEnriched = any> {
+  // ... existing fields ...
+
+  /** Maximum execution time in ms before the enricher is skipped (default: 2000) */
+  timeout?: number
+
+  /** Fallback value to merge into the record when the enricher times out or throws */
+  fallback?: Record<string, unknown>
+
+  /** If true, enricher errors propagate as HTTP errors. If false (default), enricher is silently skipped on failure. */
+  critical?: boolean
+}
+```
+
+**Execution behavior:**
+
+```typescript
+// Enricher runner (simplified)
+for (const enricher of sortedEnrichers) {
+  try {
+    const result = await Promise.race([
+      enricher.enrichOne(record, context),
+      timeoutPromise(enricher.timeout ?? 2000),
+    ])
+    record = result
+  } catch (err) {
+    if (enricher.critical) throw err  // Propagate — HTTP 500
+    // Non-critical: apply fallback and continue
+    if (enricher.fallback) {
+      record = { ...record, ...enricher.fallback }
+    }
+    console.warn(`[UMES] Enricher ${enricher.id} failed: ${err.message}`)
+    // Add to _meta.enricherErrors for observability
+  }
+}
+```
+
+**Integration enricher example with fallback:**
+
+```typescript
+{
+  id: 'hubspot.contact-company',
+  targetEntity: 'customers.person',
+  features: ['hubspot.view'],
+  timeout: 1500,   // External API — shorter timeout
+  critical: false,  // Don't break the response if HubSpot is down
+  fallback: { _hubspot: { company: null, lastSyncedAt: null, syncStatus: 'unavailable' } },
+  async enrichOne(record, ctx) { /* ... */ },
+  async enrichMany(records, ctx) { /* ... */ },
+}
+```
+
+When an enricher times out or fails, `_meta.enricherErrors` lists which enrichers failed:
+
+```json
+{
+  "data": { /* record with fallback data */ },
+  "_meta": {
+    "enrichedBy": ["loyalty.points"],
+    "enricherErrors": ["hubspot.contact-company"]
+  }
+}
+```
+
 ### 6. Caching (Optional)
 
 ```typescript

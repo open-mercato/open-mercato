@@ -150,7 +150,108 @@ function matchesPattern(pattern: string, eventId: string): boolean {
 }
 ```
 
-### 5. Performance & Security
+### 5. Async Operation Progress Pattern
+
+Long-running operations (data sync imports, bulk exports, webhook replay) need real-time progress tracking within widgets. This pattern leverages the DOM Event Bridge to deliver structured progress events.
+
+#### Standard Progress Event Contract
+
+```typescript
+// packages/shared/src/modules/widgets/injection-progress.ts
+
+interface OperationProgressEvent {
+  operationId: string         // Unique operation ID (e.g., syncRunId)
+  operationType: string       // e.g., 'sync.import', 'bulk.export', 'webhook.replay'
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number            // 0-100
+  processedCount: number
+  totalCount: number
+  currentStep?: string        // Human-readable step name
+  errors: number
+  startedAt: number           // timestamp
+  metadata?: Record<string, unknown>
+}
+```
+
+Server-side workers emit progress via standard events with `clientBroadcast: true`:
+
+```typescript
+// In module's events.ts
+{
+  id: 'integration.sync.progress',
+  label: 'Sync Progress Update',
+  entity: 'sync_run',
+  category: 'system',
+  clientBroadcast: true,  // Bridges to browser via SSE
+}
+```
+
+#### `useOperationProgress` Hook
+
+```typescript
+// packages/ui/src/backend/injection/useOperationProgress.ts
+
+function useOperationProgress(
+  operationPattern: string,     // e.g., 'integration.sync.progress'
+  operationId?: string,         // Filter to specific operation (optional)
+): {
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number              // 0-100
+  processedCount: number
+  totalCount: number
+  currentStep?: string
+  errors: number
+  startedAt?: number
+  elapsedMs: number
+}
+```
+
+The hook listens to `om:event` DOM events matching the pattern and aggregates state. When `operationId` is provided, only events for that operation are tracked.
+
+#### Usage Example — Data Sync Widget
+
+```typescript
+"use client"
+import { useOperationProgress } from '@open-mercato/ui/backend/injection/useOperationProgress'
+
+export default function SyncStatusWidget({ context }: WidgetProps) {
+  const progress = useOperationProgress('integration.sync.progress', context.record?.activeSyncRunId)
+
+  if (progress.status === 'idle') return <Badge>No active sync</Badge>
+
+  return (
+    <div>
+      <ProgressBar value={progress.progress} />
+      <span>{progress.processedCount} / {progress.totalCount} records</span>
+      {progress.currentStep && <span>Step: {progress.currentStep}</span>}
+      {progress.errors > 0 && <Badge variant="error">{progress.errors} errors</Badge>}
+    </div>
+  )
+}
+```
+
+#### Worker-Side Emission
+
+Workers emit progress at regular intervals (every batch or every N records):
+
+```typescript
+// In sync worker
+await emitEvent('integration.sync.progress', {
+  operationId: syncRunId,
+  operationType: 'sync.import',
+  status: 'running',
+  progress: Math.round((processed / total) * 100),
+  processedCount: processed,
+  totalCount: total,
+  currentStep: 'Importing products',
+  errors: failedCount,
+  startedAt,
+})
+```
+
+**Throttling**: Progress events are throttled server-side (max 1 per second per operation) to avoid overwhelming the SSE channel. The 4KB payload limit (from existing SSE bridge) is sufficient for progress payloads.
+
+### 6. Performance & Security
 
 - Events scoped to `organizationId` (SSE channel is already org-scoped)
 - Payload limit: 4KB; larger payloads send only entity reference
@@ -330,6 +431,8 @@ export default {
 | Action | File |
 |--------|------|
 | **NEW** | `packages/ui/src/backend/injection/useAppEvent.ts` |
+| **NEW** | `packages/ui/src/backend/injection/useOperationProgress.ts` |
+| **NEW** | `packages/shared/src/modules/widgets/injection-progress.ts` |
 | **NEW** | `packages/core/src/modules/example/widgets/injection/crud-validation/widget.ts` |
 | **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add new event handler types) |
 | **MODIFY** | `packages/ui/src/backend/injection/InjectionSpot.tsx` (dual dispatch in `useInjectionSpotEvents`) |
