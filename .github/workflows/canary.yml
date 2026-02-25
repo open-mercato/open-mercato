@@ -14,8 +14,11 @@ jobs:
   canary:
     name: Publish Canary
     runs-on: ubuntu-latest
-    # Only run on push to develop, or PRs from the same repo (not forks)
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Only run when we can publish (same-repo context, non-Dependabot actor, npm token present)
+    if: |
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      github.actor != 'dependabot[bot]' &&
+      secrets.NPM_TOKEN != ''
     env:
       YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
