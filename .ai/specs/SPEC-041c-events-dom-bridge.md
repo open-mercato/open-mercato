@@ -20,6 +20,10 @@ Expand widget event handlers with DOM-inspired lifecycle events and transformer 
 
 ```typescript
 interface WidgetInjectionEventHandlers<TContext, TData> {
+  // === Operation Filter (Phase M) ===
+  /** Filter which operations trigger these handlers. Omit for all operations. */
+  filter?: WidgetInjectionEventFilter
+
   // === Existing (unchanged) ===
   onLoad?(context: TContext): Promise<void>
   onBeforeSave?(data: TData, context: TContext): Promise<WidgetBeforeSaveResult>
@@ -54,16 +58,25 @@ interface NavigateGuardResult {
   ok: boolean
   message?: string
 }
+
+// Phase M addition: operation-level event filtering
+interface WidgetInjectionEventFilter {
+  /** Only run handlers for these operations. Omit to run for all. */
+  operations?: ('create' | 'update' | 'delete')[]
+}
 ```
+
+**Operation Filter** (Phase M): When `filter.operations` is specified, the CrudForm save pipeline checks the current operation (create/update/delete) before invoking each widget's event handlers. Handlers for filtered-out operations are skipped entirely. See [SPEC-041m](./SPEC-041m-mutation-lifecycle.md) for the full pipeline and filtering details.
 
 ### 2. Dual-Mode Event Dispatch
 
 The existing `triggerEvent` function dispatches **action events** (fire handler, accumulate `requestHeaders`, check `ok` boolean). Transformer events require a **pipeline** dispatch (output of widget N becomes input of widget N+1).
 
 ```typescript
-// Existing behavior — unchanged for action events
+// Existing behavior — unchanged for action events (with operation filter check)
 if (isActionEvent(event)) {
   // Current logic: iterate widgets, accumulate requestHeaders, check ok
+  // Phase M addition: skip widget if filter.operations excludes current operation
 }
 
 // New behavior — pipeline for transformer events
@@ -446,7 +459,7 @@ export default {
 
 ## Backward Compatibility
 
-- All existing `WidgetInjectionEventHandlers` remain unchanged
+- All existing `WidgetInjectionEventHandlers` remain unchanged (new `filter` field is optional — Phase M)
 - Delete-to-save fallback chain explicitly preserved
 - `onEvent` callback prop union updated to include new event names (additive)
 - Events without `clientBroadcast: true` have zero behavior change

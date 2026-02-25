@@ -182,7 +182,25 @@ Guard failure response is always passed through exactly as returned by the adapt
 ### Verdict
 Fully compliant. Approved.
 
+## Evolution: UMES Mutation Lifecycle (SPEC-041m)
+
+[SPEC-041m](./SPEC-041m-mutation-lifecycle.md) evolves this singleton guard mechanism into a multi-guard registry:
+
+- **Singleton → Registry**: The DI token `crudMutationGuardService` is auto-bridged to a `MutationGuard` registry entry with `priority: 0`, so existing adapters (enterprise record-locks) continue to work without changes.
+- **Multi-Guard**: Multiple modules can register guards via `data/guards.ts` auto-discovery, each targeting specific entities and operations.
+- **Data Modification**: Guards can now return `modifiedPayload` to transform mutation data (not just block).
+- **POST Coverage**: Guards now run on POST (create) in addition to PUT/DELETE.
+- **Synchronous CRUD Events**: A parallel `CrudEventHandler` mechanism adds cross-module before/after entity-level hooks.
+- **Deprecation**: `validateCrudMutationGuard()` and `runCrudMutationGuardAfterSuccess()` are deprecated with `@deprecated` JSDoc but remain functional through the registry bridge.
+
+**No action required** for existing code using the singleton pattern. Migration to the registry is opt-in and can be done incrementally.
+
+---
+
 ## Changelog
+### 2026-02-25
+- Added forward reference to SPEC-041m (Mutation Lifecycle) — evolution from singleton to multi-guard registry.
+
 ### 2026-02-22
 - Added OSS specification for the generic mutation guard mechanism.
 - Documented current integrations in CRUD factory and Sales custom mutation routes.

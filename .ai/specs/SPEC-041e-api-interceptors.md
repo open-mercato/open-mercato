@@ -85,17 +85,21 @@ interface InterceptorContext {
 ### 2. Execution Order in CRUD Mutation Pipeline
 
 ```
-1. Zod schema validation (existing)
-2. API Interceptor `before` hooks  ← NEW
-3. CrudHooks.beforeCreate/Update/Delete (existing)
-4. validateCrudMutationGuard (existing)
-5. Entity mutation + ORM flush (existing)
-6. CrudHooks.afterCreate/Update/Delete (existing)
-7. runCrudMutationGuardAfterSuccess (existing)
-8. API Interceptor `after` hooks  ← NEW
-9. Response Enrichers (Phase D)
-10. Return HTTP response
+ 1. Zod schema validation (existing)
+ 2. API Interceptor `before` hooks               ← THIS PHASE (outermost cross-module layer)
+ 3. CRUD Event Handler (before)                   (Phase M — entity-level cross-module)
+ 4. CrudHooks.beforeCreate/Update/Delete          (existing — module-local)
+ 5. Mutation Guard Registry validate              (Phase M — final gate, multi-guard)
+ 6. Entity mutation + ORM flush                   (existing)
+ 7. CrudHooks.afterCreate/Update/Delete           (existing — module-local)
+ 8. Mutation Guard Registry afterSuccess          (Phase M)
+ 9. CRUD Event Handler (after)                    (Phase M — entity-level cross-module)
+10. API Interceptor `after` hooks                 ← THIS PHASE (outermost cross-module layer)
+11. Response Enrichers (Phase D)
+12. Return HTTP response
 ```
+
+**Layering**: API Interceptors operate at the HTTP/route level (outermost). CRUD Event Handlers and Mutation Guards operate at the entity level (inner). See [SPEC-041m](./SPEC-041m-mutation-lifecycle.md) for the full layering model.
 
 **Key constraint**: Interceptor `before` runs AFTER Zod validation. If an interceptor modifies the request body, the modified body is **re-validated through the route's Zod schema**:
 
@@ -120,9 +124,12 @@ Supports wildcards:
 | Concern | Use | NOT |
 |---------|-----|-----|
 | Block/validate from UI | Widget `onBeforeSave` | Interceptor |
-| Block/validate from API | API interceptor `before` | Widget handler |
+| Block/validate at HTTP route level | API interceptor `before` | CRUD Event Handler |
+| Block/validate at entity level (cross-module) | CRUD Event Handler `before` (Phase M) | Interceptor |
+| Final validation gate (locks, policies) | Mutation Guard (Phase M) | Interceptor |
 | Add data to response | Response enricher | Interceptor `after` |
-| React to completed mutation | Event subscriber | Interceptor `after` |
+| React to completed mutation (async) | Event subscriber | Interceptor `after` |
+| React to completed mutation (sync, cross-module) | CRUD Event Handler `after` (Phase M) | Interceptor `after` |
 | Transform request before processing | Interceptor `before` | Subscriber |
 
 ### 5. `metadata` Passthrough
@@ -316,5 +323,6 @@ export const interceptors: ApiInterceptor[] = [
 - Interceptor `before` runs AFTER existing Zod validation — existing validation unchanged
 - `CrudHooks.before*` receive the same (or re-validated) input as before
 - `CrudHooks.after*` run before interceptor `after` — see same data as today
-- `validateCrudMutationGuard` position unchanged
+- `validateCrudMutationGuard` position unchanged (deprecated in Phase M, bridged to guard registry)
 - New `api/interceptors.ts` is purely additive — modules without it have zero change
+- Phase M adds CRUD Event Handlers and multi-guard registry between interceptors and CrudHooks — interceptor contract unchanged

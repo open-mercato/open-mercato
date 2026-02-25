@@ -32,6 +32,7 @@ Each phase is a separate PR, independently mergeable, with example module demons
 | **J** | [SPEC-041j — Recursive Widgets](./SPEC-041j-recursive-widgets.md) | `feat/umes-recursive-widgets` | Widget-level `InjectionSpot`, nested event handlers | A |
 | **K** | [SPEC-041k — DevTools](./SPEC-041k-devtools.md) | `feat/umes-devtools` | UMES DevTools panel, build-time conflict detection | All |
 | **L** | [SPEC-041l — Integration Extensions](./SPEC-041l-integration-extensions.md) | `feat/umes-integration-extensions` | Wizard widgets, status badges, external ID mapping display | A, C, D, G |
+| **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, synchronous CRUD event handlers, client-side event filtering | E |
 
 ### Dependency Graph
 
@@ -43,6 +44,8 @@ A (Foundation) ──────┬──────────────�
   │                  │          D (Enrichers) ── independent ─────────┤
   │                  │            │                                   │
   │                  │            ├── E (Interceptors)                │
+  │                  │            │     │                             │
+  │                  │            │     └── M (Mutation Lifecycle) ◄──┤
   │                  │            │                                   │
   │                  │            ├── F (DataTable Ext.)              │
   │                  │            │                                   │
@@ -63,7 +66,7 @@ A (Foundation) ──────┬──────────────�
 
 - **Wave 1** (after A): B, C, D, H, J — all independent
 - **Wave 2** (after D): E, F, G — all depend only on D
-- **Wave 3** (after G+C): I, L — I depends on G; L depends on A, C, D, G
+- **Wave 3** (after E+G+C): I, L, M — I depends on G; L depends on A, C, D, G; M depends on E
 - **Wave 4** (after all): K — integrates everything
 
 ### Minimum Viable UMES
@@ -183,6 +186,11 @@ Examples:
 | Dynamic field options from external APIs | `optionsLoader` on field | G |
 | Custom field component (mapping editor, etc.) | `type: 'custom'` field | G |
 | Conditional field visibility | `visibleWhen` on field | G |
+| Block/modify mutation cross-module (entity-level) | CRUD Event Handler (before) | M |
+| Post-mutation side-effect cross-module (entity-level) | CRUD Event Handler (after) | M |
+| Final validation gate (locks, policies, limits) | Mutation Guard Registry | M |
+| Post-mutation cleanup (multi-guard) | Mutation Guard afterSuccess | M |
+| Filter widget handlers by operation (create/update) | Widget event filter | M |
 | Validate/block a form save from UI | Widget `onBeforeSave` | Existing |
 | React to a completed operation | Event Subscriber | Existing |
 | Add data model relations | Entity Extension | Existing |
@@ -195,7 +203,7 @@ Examples:
 | Event subscribers (`subscribers/*.ts`) | **Unchanged** — remain the pattern for async side-effects |
 | Entity extensions (`data/extensions.ts`) | **Unchanged** — remain the pattern for data model links |
 | Custom fields/entities (`ce.ts`) | **Unchanged** — remain the pattern for user-defined attributes |
-| Mutation guards (`mutation-guard.ts`) | **Integrated** — interceptors complement, not replace |
+| Mutation guards (`mutation-guard.ts`) | **Evolved** — singleton bridged to registry; interceptors complement at different layer |
 | Widget injection (current) | **Extended** — all existing APIs preserved, new capabilities added |
 
 ### Complete Event Flow
@@ -203,19 +211,22 @@ Examples:
 ```
 User clicks Save
   │
-  ├─ 1. [UI] Client-side Zod validation (existing)
-  ├─ 2. [UI] Widget onBeforeSave handlers (client-side validation)
-  ├─ 3. [API] Server-side Zod validation (existing)
-  ├─ 4. [API] API Interceptor before hooks (Phase E)
-  ├─ 5. [API] CrudHooks.beforeCreate/Update (existing)
-  ├─ 6. [API] Mutation Guard check (existing)
-  ├─ 7. [Core] Entity mutation + ORM flush (existing)
-  ├─ 8. [API] CrudHooks.afterCreate/Update (existing)
-  ├─ 9. [API] Mutation Guard afterSuccess (existing)
-  ├─ 10. [API] API Interceptor after hooks (Phase E)
-  ├─ 11. [API] Response Enrichers (Phase D)
-  ├─ 12. [UI] Widget onAfterSave handlers (Phase A)
-  └─ 13. [Async] Event Subscribers (existing)
+  ├─  1. [UI]    Client-side Zod validation              (existing)
+  ├─  2. [UI]    Widget onBeforeSave handlers             (existing — filtered by operation, Phase M)
+  ├─  3. [UI]    Widget transformFormData pipeline         (Phase C — filtered by operation, Phase M)
+  ├─  4. [API]   Server-side Zod validation               (existing)
+  ├─  5. [API]   API Interceptor before hooks             (Phase E — cross-module, route-level)
+  ├─  6. [API]   CRUD Event Handler (before)              (Phase M — cross-module, entity-level)
+  ├─  7. [API]   CrudHooks.beforeCreate/Update/Delete     (existing — module-local)
+  ├─  8. [API]   Mutation Guard Registry validate         (Phase M — cross-module, multi-guard)
+  ├─  9. [Core]  Entity mutation + ORM flush              (existing)
+  ├─ 10. [API]   CrudHooks.afterCreate/Update/Delete      (existing — module-local)
+  ├─ 11. [API]   Mutation Guard Registry afterSuccess     (Phase M — cross-module, multi-guard)
+  ├─ 12. [API]   CRUD Event Handler (after)               (Phase M — cross-module, entity-level)
+  ├─ 13. [API]   API Interceptor after hooks              (Phase E — cross-module, route-level)
+  ├─ 14. [API]   Response Enrichers                       (Phase D)
+  ├─ 15. [UI]    Widget onAfterSave handlers              (existing — filtered by operation, Phase M)
+  └─ 16. [Async] Event Subscribers                        (existing — fire-and-forget)
 ```
 
 ---
@@ -232,7 +243,9 @@ src/modules/<module>/
 ├── data/
 │   ├── entities.ts        # Existing
 │   ├── extensions.ts      # Existing: entity extensions
-│   └── enrichers.ts       # NEW (Phase D): response enrichers
+│   ├── enrichers.ts       # NEW (Phase D): response enrichers
+│   ├── guards.ts          # NEW (Phase M): mutation guards
+│   └── crud-handlers.ts   # NEW (Phase M): synchronous CRUD event handlers
 ├── api/
 │   ├── <routes>           # Existing
 │   └── interceptors.ts    # NEW (Phase E): API interceptors
@@ -250,6 +263,8 @@ src/modules/<module>/
 - `interceptors.generated.ts` — interceptor registry (Phase E)
 - `component-overrides.generated.ts` — component override registry (Phase H)
 - `status-badges.generated.ts` — status badge widget registry (Phase L)
+- `guards.generated.ts` — mutation guard registry (Phase M)
+- `crud-handlers.generated.ts` — CRUD event handler registry (Phase M)
 
 ---
 
@@ -269,7 +284,8 @@ src/modules/<module>/
 | J — Recursive Widgets | TC-UMES-RW01–RW02 | 2 |
 | K — DevTools | TC-UMES-DT01–DT02 | 2 |
 | L — Integration Extensions | TC-UMES-L01–L06 | 6 |
-| **Total** | | **53** |
+| M — Mutation Lifecycle | TC-UMES-ML01–ML10 | 10 |
+| **Total** | | **63** |
 
 See each phase sub-spec for detailed test scenarios, example module additions, and testing notes.
 
@@ -293,6 +309,7 @@ This matrix links each phase test pack to the primary API paths and key UI surfa
 | J — Recursive Widgets | Existing CRUD save/delete routes reached by nested widgets | Nested `InjectionSpot` rendering and nested lifecycle hooks |
 | K — DevTools | Dev-only extension inspection endpoint(s) and generator conflict checks | DevTools panel toggle, extension inspection UI |
 | L — Integration Extensions | Integration health check routes, sync external ID mapping routes, wizard data persistence routes | Wizard step navigation, status badge polling, external ID section on detail pages |
+| M — Mutation Lifecycle | All CRUD mutation routes (POST/PUT/DELETE) for guarded entities, guard registry bootstrap | CrudForm save pipeline with filtered widget handlers, guard rejection error display |
 
 ---
 
@@ -364,6 +381,8 @@ Kill switches MUST exist for:
 - DataTable/CrudForm extension rendering
 - Status badge polling
 - Widget shared state
+- Mutation guard registry (fallback: legacy singleton only)
+- CRUD event handlers
 
 ---
 
@@ -375,8 +394,8 @@ UMES changes several public contract surfaces and therefore follows the deprecat
 
 - Type definitions and interfaces in shared/widget and CRUD extension contracts
 - Function signatures and hooks in CRUD factory + injection hooks
-- Auto-discovery conventions (`data/enrichers.ts`, `api/interceptors.ts`, `widgets/components.ts`) as additive files
-- Generated bootstrap contracts (`enrichers.generated.ts`, `interceptors.generated.ts`, `component-overrides.generated.ts`)
+- Auto-discovery conventions (`data/enrichers.ts`, `data/guards.ts`, `data/crud-handlers.ts`, `api/interceptors.ts`, `widgets/components.ts`) as additive files
+- Generated bootstrap contracts (`enrichers.generated.ts`, `interceptors.generated.ts`, `component-overrides.generated.ts`, `guards.generated.ts`, `crud-handlers.generated.ts`)
 
 ### Compatibility Rules
 
@@ -407,6 +426,8 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 
 | Task | Guide |
 |------|-------|
+| Adding mutation guards, entity-level validation/blocking | `packages/core/AGENTS.md` → Mutation Guards |
+| Adding synchronous CRUD event handlers, cross-module before/after hooks | `packages/core/AGENTS.md` → CRUD Event Handlers |
 | Adding response enrichers, data federation | `packages/core/AGENTS.md` → Response Enrichers |
 | Adding API interceptors, cross-module validation | `packages/core/AGENTS.md` → API Interceptors |
 | Replacing or wrapping another module's component | `packages/core/AGENTS.md` → Component Replacement |
@@ -422,6 +443,8 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 | File | Export | Purpose |
 |------|--------|---------|
 | `data/enrichers.ts` | `enrichers` | Response enrichers for other modules' entities |
+| `data/guards.ts` | `guards` | Mutation guards (entity-level validation/blocking) |
+| `data/crud-handlers.ts` | `crudHandlers` | Synchronous CRUD event handlers (before/after) |
 | `api/interceptors.ts` | `interceptors` | API route interceptors (before/after hooks) |
 | `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper declarations |
 
@@ -430,6 +453,8 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 | Need | Import |
 |------|--------|
 | Response enricher types | `import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'` |
+| Mutation guard types | `import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'` |
+| CRUD event handler types | `import type { CrudEventHandler } from '@open-mercato/shared/lib/crud/crud-event-handler'` |
 | API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
 | Injection position enum | `import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'` |
 | App event hook | `import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'` |
@@ -442,6 +467,9 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 - API interceptors that modify request body MUST return data that passes the route's Zod schema
 - Injected columns read data from response enrichers — pair every column injection with an enricher
 - `clientBroadcast: true` on events enables the DOM Event Bridge
+- Mutation guards MUST handle `resourceId: null` for create operations
+- CRUD event handlers with `timing: 'after'` MUST NOT return `ok: false` (after-handlers cannot block)
+- Guards and CRUD handlers targeting `'*'` MUST be lightweight — they run on every mutation
 
 **Critical Rules → Architecture to add:**
 - NO direct entity import from another module's enricher — use EntityManager
@@ -453,7 +481,7 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 
 | File | New Sections |
 |------|-------------|
-| `packages/core/AGENTS.md` | Response Enrichers, API Interceptors, Component Replacement, Menu Item Injection, UMES Scaffolding Guide |
+| `packages/core/AGENTS.md` | Response Enrichers, API Interceptors, Mutation Guards, CRUD Event Handlers, Component Replacement, Menu Item Injection, UMES Scaffolding Guide |
 | `packages/ui/AGENTS.md` | DataTable Extension Injection, CrudForm Field Injection |
 | `packages/ui/src/backend/AGENTS.md` | Extensible Detail Pages |
 | `packages/events/AGENTS.md` | DOM Event Bridge |
@@ -514,6 +542,28 @@ When asked to replace or wrap another module's component:
 5. For `propsTransform`: provide a function that transforms props before they reach the original component
 6. Include `propsSchema` (Zod) for runtime validation in dev mode
 7. Run `yarn generate` to register the override
+
+### Scaffolding a Mutation Guard
+
+When asked to validate, block, or transform another module's mutations:
+
+1. Create `data/guards.ts` in the module root
+2. Export an array of `MutationGuard` objects with: `id`, `targetEntity`, `operations`, `validate(input)`
+3. `validate` can return `{ ok: false, message }` to block, `{ ok: true, modifiedPayload }` to transform
+4. Guards for `create` operations must handle `resourceId: null`
+5. `afterSuccess` is optional — use for cleanup, cache invalidation, or audit logging
+6. Run `yarn generate` to register the guard
+
+### Scaffolding a CRUD Event Handler
+
+When asked to react to or modify another module's entity operations cross-module:
+
+1. Create `data/crud-handlers.ts` in the module root
+2. Export an array of `CrudEventHandler` objects with: `id`, `targetEntity`, `operations`, `timing`, `handle(event)`
+3. `before` handlers can block (`ok: false`) or modify data (`modifiedPayload`)
+4. `after` handlers are for side-effects only — they cannot block or modify
+5. Use `timing: 'before'` for validation/transformation, `timing: 'after'` for reactions/audit
+6. Run `yarn generate` to register the handler
 
 ### Scaffolding a Field Injection (Triad Pattern)
 
@@ -578,3 +628,4 @@ Key implementation details from deep-diving into the actual codebase:
 | 2026-02-24 | Replace CLI scaffolding commands with AGENTS.md scaffolding guide for LLM-driven scaffolding |
 | 2026-02-25 | Add API/UI coverage matrix, rollout strategy, migration/backward compatibility section, and measurable performance acceptance criteria |
 | 2026-02-25 | Add Phase L (Integration Extensions) — wizard widgets, status badges, external ID mapping display. Amend phases A, C, D, G with integration-driven improvements: widget shared state, async operation progress, enricher timeout/fallback, dynamic field options, custom field components, conditional field visibility |
+| 2026-02-25 | Add Phase M (Mutation Lifecycle) — mutation guard registry (evolve singleton to multi-guard), synchronous CRUD event handlers (before/after with entity+operation filtering), client-side widget event filtering, guard on POST/create, normalize DELETE pipeline ordering. Update complete event flow pipeline, dependency graph, auto-discovery paths, scaffolding guides. |
