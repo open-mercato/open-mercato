@@ -16,7 +16,7 @@ test.describe('TC-CAT-013: Category Create Requires Specific Organization Contex
     await expect(organizationSelect).toHaveValue('');
 
     await page.goto('/backend/catalog/categories/create');
-    await page.getByRole('textbox', { name: 'e.g., Footwear' }).fill(`QA TC-CAT-018 ${Date.now()}`);
+    await page.getByRole('textbox', { name: 'e.g., Footwear' }).fill(`QA TC-CAT-013 ${Date.now()}`);
 
     let categoryCreatePostCount = 0;
     await page.route('**/api/catalog/categories**', async (route) => {
