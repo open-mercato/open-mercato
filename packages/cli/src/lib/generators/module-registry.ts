@@ -321,6 +321,36 @@ function processTranslations(options: {
   return translations
 }
 
+/**
+ * Resolves a convention file and pushes its import + config entry to standalone arrays.
+ * Used for files that produce their own generated output (notifications, AI tools, events, analytics, enrichers, etc.).
+ *
+ * @returns The generated import name, or null if the file was not found.
+ */
+function processStandaloneConfig(options: {
+  roots: ModuleRoots
+  imps: ModuleImports
+  modId: string
+  relativePath: string
+  prefix: string
+  importIdRef: { value: number }
+  standaloneImports: string[]
+  standaloneConfigs: string[]
+  configExpr: (importName: string, modId: string) => string
+  /** Also push the import to the shared imports array (used by modules.generated.ts) */
+  sharedImports?: string[]
+}): string | null {
+  const { roots, imps, modId, relativePath, prefix, importIdRef, standaloneImports, standaloneConfigs, configExpr, sharedImports } = options
+  const resolved = resolveModuleFile(roots, imps, relativePath)
+  if (!resolved) return null
+  const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
+  const importStmt = `import * as ${importName} from '${resolved.importPath}'`
+  standaloneImports.push(importStmt)
+  if (sharedImports) sharedImports.push(importStmt)
+  standaloneConfigs.push(configExpr(importName, modId))
+  return importName
+}
+
 function resolveConventionFile(
   roots: ModuleRoots,
   imps: ModuleImports,
@@ -509,93 +539,78 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     }
 
     // 7. Notifications: notifications.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'notifications.ts')
-      if (resolved) {
-        const importName = `NOTIF_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        notificationImports.push(importStmt)
-        notificationTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? []) }`
-        )
-      }
-    }
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'notifications.ts',
+      prefix: 'NOTIF',
+      standaloneImports: notificationImports,
+      standaloneConfigs: notificationTypes,
+      configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? ${n}.notificationTypes ?? ${n}.types ?? []) }`,
+    })
 
-    // Notification client renderers: module root notifications.client.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'notifications.client.ts')
-      if (resolved) {
-        const importName = `NOTIF_CLIENT_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        notificationClientImports.push(importStmt)
-        notificationClientTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? []) }`
-        )
-      }
-    }
+    // Notification client renderers: notifications.client.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'notifications.client.ts',
+      prefix: 'NOTIF_CLIENT',
+      standaloneImports: notificationClientImports,
+      standaloneConfigs: notificationClientTypes,
+      configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? []) }`,
+    })
 
     // 8. AI Tools: ai-tools.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'ai-tools.ts')
-      if (resolved) {
-        const importName = `AI_TOOLS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        aiToolsImports.push(importStmt)
-        aiToolsConfigs.push(
-          `{ moduleId: '${modId}', tools: (${importName}.aiTools ?? ${importName}.default ?? []) }`
-        )
-      }
-    }
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'ai-tools.ts',
+      prefix: 'AI_TOOLS',
+      standaloneImports: aiToolsImports,
+      standaloneConfigs: aiToolsConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', tools: (${n}.aiTools ?? ${n}.default ?? []) }`,
+    })
 
-    // 9. Events: events.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'events.ts')
-      if (resolved) {
-        const importName = `EVENTS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        eventsImports.push(importStmt)
-        eventsImportName = importName
-      }
-    }
+    // 9. Events: events.ts (also referenced in module declarations)
+    eventsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'events.ts',
+      prefix: 'EVENTS',
+      standaloneImports: eventsImports,
+      standaloneConfigs: eventsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.eventsConfig ?? null) as EventModuleConfigBase | null }`,
+    })
 
-    // 10. Analytics: analytics.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'analytics.ts')
-      if (resolved) {
-        const importName = `ANALYTICS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        analyticsImports.push(importStmt)
-        analyticsImportName = importName
-      }
-    }
+    // 10. Analytics: analytics.ts (also referenced in module declarations)
+    analyticsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'analytics.ts',
+      prefix: 'ANALYTICS',
+      standaloneImports: analyticsImports,
+      standaloneConfigs: analyticsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.analyticsConfig ?? ${n}.config ?? null) }`,
+    })
 
     // 10b. Enrichers: data/enrichers.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'data/enrichers.ts')
-      if (resolved) {
-        const importName = `ENRICHERS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        enricherImports.push(importStmt)
-        enricherConfigs.push(
-          `{ moduleId: '${modId}', enrichers: ((${importName} as any).enrichers ?? (${importName} as any).default ?? []) }`
-        )
-      }
-    }
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'data/enrichers.ts',
+      prefix: 'ENRICHERS',
+      standaloneImports: enricherImports,
+      standaloneConfigs: enricherConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', enrichers: ((${n} as any).enrichers ?? (${n} as any).default ?? []) }`,
+    })
 
-    // Translatable fields: module root translations.ts
+    // Translatable fields: translations.ts (also referenced in module declarations)
     let transFieldsImportName: string | null = null
-    {
-      const resolved = resolveModuleFile(roots, imps, 'translations.ts')
-      if (resolved) {
-        const importName = `TRANS_FIELDS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        transFieldsImports.push(importStmt)
-        transFieldsImportName = importName
-      }
-    }
+    transFieldsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'translations.ts',
+      prefix: 'TRANS_FIELDS',
+      standaloneImports: transFieldsImports,
+      standaloneConfigs: transFieldsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
+    })
 
     // 11. Setup: setup.ts
     {
@@ -752,17 +767,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       searchConfigs.push(`{ moduleId: '${modId}', config: (${searchImportName}.default ?? ${searchImportName}.searchConfig ?? ${searchImportName}.config ?? null) }`)
     }
 
-    if (eventsImportName) {
-      eventsConfigs.push(`{ moduleId: '${modId}', config: (${eventsImportName}.default ?? ${eventsImportName}.eventsConfig ?? null) as EventModuleConfigBase | null }`)
-    }
-
-    if (analyticsImportName) {
-      analyticsConfigs.push(`{ moduleId: '${modId}', config: (${analyticsImportName}.default ?? ${analyticsImportName}.analyticsConfig ?? ${analyticsImportName}.config ?? null) }`)
-    }
-
-    if (transFieldsImportName) {
-      transFieldsConfigs.push(`{ moduleId: '${modId}', fields: (${transFieldsImportName}.default ?? ${transFieldsImportName}.translatableFields ?? {}) as Record<string, string[]> }`)
-    }
+    // Note: events, analytics, enrichers, notifications, AI tools, and translatable fields
+    // configs are pushed inside processStandaloneConfig() above — no separate push needed here.
 
     moduleDecls.push(`{
       id: '${modId}',
