@@ -102,5 +102,9 @@
   "dashboards.widgets.loading": "Ładowanie opcji widżetów…",
   "dashboards.widgets.mode.hint": "Ten użytkownik dziedziczy widżety z przypisanych ról. Wybierz nadpisanie, aby je dostosować.",
   "dashboards.widgets.mode.inherit": "Dziedzicz po rolach",
-  "dashboards.widgets.mode.override": "Nadpisz dla tego użytkownika"
+  "dashboards.widgets.mode.override": "Nadpisz dla tego użytkownika",
+  "dashboards.widgets.effective": "Aktywne widżety:",
+  "dashboards.widgets.reset": "Resetuj",
+  "dashboards.widgets.save": "Zapisz widżety",
+  "dashboards.widgets.saving": "Zapisywanie…"
 }
