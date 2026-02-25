@@ -50,12 +50,13 @@ function ensureBusSubscription(eventBus: EventBus): void {
     // Only bridge events with clientBroadcast: true
     if (!isBroadcastEvent(eventName)) return
 
-    const tenantId = typeof payload.tenantId === 'string' ? payload.tenantId : null
-    const organizationId = typeof payload.organizationId === 'string' ? payload.organizationId : null
+    const data = (payload ?? {}) as Record<string, unknown>
+    const tenantId = typeof data.tenantId === 'string' ? data.tenantId : null
+    const organizationId = typeof data.organizationId === 'string' ? data.organizationId : null
 
     const ssePayload = JSON.stringify({
       id: eventName,
-      payload: payload,
+      payload: data,
       timestamp: Date.now(),
       organizationId: organizationId ?? '',
     })

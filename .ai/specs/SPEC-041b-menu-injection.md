@@ -6,7 +6,7 @@
 | **Phase** | B (PR 2) |
 | **Branch** | `feat/umes-menu-injection` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-25) |
 
 ## Goal
 
@@ -290,32 +290,34 @@ Integrations               ← injected section
 ### `example/widgets/injection/example-menus/widget.ts`
 
 ```typescript
-// packages/core/src/modules/example/widgets/injection/example-menus/widget.ts
+// apps/mercato/src/modules/example/widgets/injection/example-menus/widget.ts
 import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
 import type { InjectionMenuItemWidget } from '@open-mercato/shared/modules/widgets/injection'
 
 export default {
   metadata: {
     id: 'example.injection.example-menus',
-    features: ['example.view'],
   },
   menuItems: [
     {
-      id: 'example-quick-add-todo',
-      label: 'example.menu.quickAddTodo',
-      icon: 'PlusSquare',
-      href: '/backend/example/todos/create',
-      // Topbar action button
-      placement: { position: InjectionPosition.Last },
+      id: 'example-todos-shortcut',
+      labelKey: 'example.menu.todosShortcut',
+      label: 'Example Todos',
+      icon: 'CheckSquare',
+      href: '/backend/todos',
+      features: ['example.todos.view'],
+      groupId: 'example.nav.group',
+      groupLabelKey: 'example.nav.group',
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
     {
-      id: 'example-external-dashboard',
-      label: 'example.menu.externalDashboard',
-      icon: 'ExternalLink',
-      href: 'https://example.com/dashboard',
-      // Sidebar item in the Example group
-      groupId: 'example',
-      placement: { position: InjectionPosition.Last },
+      id: 'example-quick-add-todo',
+      labelKey: 'example.menu.quickAddTodo',
+      label: 'Quick Add Todo',
+      icon: 'PlusSquare',
+      href: '/backend/todos/create',
+      features: ['example.todos.manage'],
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
   ],
 } satisfies InjectionMenuItemWidget
@@ -377,14 +379,14 @@ export default {
 **Type**: UI (Playwright)
 
 **Steps**:
-1. Log in as a user WITHOUT `example.view` feature
+1. Log in as a user WITHOUT `example.todos.view` feature
 2. Navigate to any backend page
 3. Inspect sidebar and profile dropdown
 
 **Expected**: Injected menu items are NOT visible when the user lacks the required feature.
 
 **Testing notes**:
-- Create a test user/role without `example.view`
+- Create a test user/role without `example.todos.view`
 - Verify absence: `expect(page.locator('[data-menu-item-id="example-todos-shortcut"]')).not.toBeVisible()`
 - Then switch to admin user and verify they ARE visible
 
@@ -397,11 +399,11 @@ export default {
 2. Navigate to backend
 3. Click the injected sidebar item "Example Todos"
 
-**Expected**: Browser navigates to `/backend/example/todos`
+**Expected**: Browser navigates to `/backend/todos`
 
 **Testing notes**:
 - `page.locator('[data-menu-item-id="example-todos-shortcut"]').click()`
-- `await page.waitForURL('**/backend/example/todos')`
+- `await page.waitForURL('**/backend/todos')`
 - For external links, verify `target="_blank"` or new tab behavior
 
 ---
@@ -412,12 +414,12 @@ export default {
 |--------|------|
 | **NEW** | `packages/ui/src/backend/injection/useInjectedMenuItems.ts` |
 | **NEW** | `packages/ui/src/backend/injection/mergeMenuItems.ts` |
-| **NEW** | `packages/core/src/modules/example/widgets/injection/example-menus/widget.ts` |
+| **NEW** | `apps/mercato/src/modules/example/widgets/injection/example-menus/widget.ts` |
 | **MODIFY** | `packages/ui/src/backend/ProfileDropdown.tsx` |
 | **MODIFY** | `packages/ui/src/backend/AppShell.tsx` |
 | **MODIFY** | `packages/ui/src/backend/section-page/SectionNav.tsx` |
 | **MODIFY** | `apps/mercato/src/app/(backend)/backend/layout.tsx` (header actions) |
-| **MODIFY** | `packages/core/src/modules/example/widgets/injection-table.ts` |
+| **MODIFY** | `apps/mercato/src/modules/example/widgets/injection-table.ts` |
 
 **Estimated scope**: Medium — 4 component modifications + hook + utility
 
@@ -433,3 +435,4 @@ export default {
 ## Changelog
 
 - **2026-02-25**: Implemented `useInjectedMenuItems`, `mergeMenuItems`, and menu-surface rendering for main/settings/profile sidebars, profile dropdown, and topbar actions with generated example module menu widgets and integration tests.
+- **2026-02-25**: Added phase A/B docs with menu surface catalog, `InjectionPosition` examples, placement guidance, and i18n contract in `apps/docs/docs/framework/widget-injection.md` and `apps/docs/src/framework/admin-ui/widget-injection.mdx`.

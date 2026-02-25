@@ -17,15 +17,6 @@ const widget: InjectionMenuItemWidget = {
       groupLabelKey: 'example.nav.group',
       placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
-    {
-      id: 'example-quick-add-todo',
-      labelKey: 'example.menu.quickAddTodo',
-      label: 'Quick Add Todo',
-      icon: 'PlusSquare',
-      href: '/backend/todos/create',
-      features: ['example.todos.manage'],
-      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
-    },
   ],
 }
 

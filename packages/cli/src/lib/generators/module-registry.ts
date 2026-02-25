@@ -577,10 +577,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       if (resolved) {
         const importName = `ENRICHERS_${toVar(modId)}_${importIdRef.value++}`
         const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
         enricherImports.push(importStmt)
         enricherConfigs.push(
-          `{ moduleId: '${modId}', enrichers: (${importName}.enrichers ?? ${importName}.default ?? []) }`
+          `{ moduleId: '${modId}', enrichers: ((${importName} as any).enrichers ?? (${importName} as any).default ?? []) }`
         )
       }
     }
