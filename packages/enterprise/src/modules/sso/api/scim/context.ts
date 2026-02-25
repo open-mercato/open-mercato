@@ -66,6 +66,13 @@ export async function resolveScimContext(req: Request): Promise<
     }
   }
 
+  if (config.jitEnabled) {
+    return {
+      ok: false,
+      response: scimJson(buildScimError(403, 'SCIM provisioning is unavailable — JIT provisioning is enabled on this configuration'), 403),
+    }
+  }
+
   return {
     ok: true,
     scope: {

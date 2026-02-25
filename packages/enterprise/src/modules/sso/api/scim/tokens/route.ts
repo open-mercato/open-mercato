@@ -91,6 +91,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid input' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Forbidden — requires sso.scim.manage' },
+        { status: 409, description: 'Conflict — cannot create SCIM token while JIT is enabled' },
       ],
     },
   },
