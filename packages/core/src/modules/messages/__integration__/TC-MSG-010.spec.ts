@@ -49,19 +49,23 @@ test.describe('TC-MSG-010: Draft Management UI', () => {
     } finally {
       // Find and delete the created draft via API
       if (adminToken) {
-        const draftsResponse = await apiRequest(
-          request,
-          'GET',
-          `/api/messages?folder=drafts&search=${encodeURIComponent(subject)}&pageSize=20`,
-          { token: adminToken },
-        );
-        if (draftsResponse.ok()) {
-          const draftsBody = (await draftsResponse.json()) as {
-            items?: Array<{ id?: unknown }>;
-          };
-          for (const item of draftsBody.items ?? []) {
-            await deleteMessageIfExists(request, adminToken, item.id as string);
+        try {
+          const draftsResponse = await apiRequest(
+            request,
+            'GET',
+            `/api/messages?folder=drafts&search=${encodeURIComponent(subject)}&pageSize=20`,
+            { token: adminToken },
+          );
+          if (draftsResponse.ok()) {
+            const draftsBody = (await draftsResponse.json()) as {
+              items?: Array<{ id?: unknown }>;
+            };
+            for (const item of draftsBody.items ?? []) {
+              await deleteMessageIfExists(request, adminToken, item.id as string);
+            }
           }
+        } catch {
+          // Ignore cleanup failures when the request context is already disposed after timeout/cancel.
         }
       }
     }

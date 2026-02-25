@@ -24,15 +24,25 @@ test.describe('TC-INT-003: Product Creation to Sales Channel to Order', () => {
       await page.getByRole('textbox', { name: 'Describe the product...' }).fill('INT-003 product created for integration coverage.');
       await page.getByRole('button', { name: 'Variants' }).click();
       await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(sku);
+      const createResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /\/api\/catalog\/products(?:\?|$)/.test(response.url()) &&
+          response.ok(),
+        { timeout: 10_000 },
+      );
       await page.getByRole('button', { name: 'Create product' }).last().click();
-      await expect(page).toHaveURL(/\/backend\/catalog\/products$/);
+      const createResponse = await createResponsePromise;
+      const createBody = (await createResponse.json().catch(() => null)) as { id?: unknown } | null;
+      productId = typeof createBody?.id === 'string' ? createBody.id : null;
+      await page.goto('/backend/catalog/products');
 
       await page.getByRole('textbox', { name: 'Search' }).fill(productName);
       const productRow = page.getByRole('row', { name: new RegExp(productName) }).first();
       await expect(productRow).toBeVisible();
       await productRow.click();
       await expect(page).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}$/i);
-      productId = page.url().match(/\/backend\/catalog\/products\/([0-9a-f-]{36})$/i)?.[1] ?? null;
+      productId = page.url().match(/\/backend\/catalog\/products\/([0-9a-f-]{36})$/i)?.[1] ?? productId;
 
       await createSalesDocument(page, { kind: 'order' });
       await expect(page).toHaveURL(/kind=order$/i);

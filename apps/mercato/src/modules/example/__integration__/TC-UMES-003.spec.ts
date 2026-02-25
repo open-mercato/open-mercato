@@ -262,10 +262,11 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     const noteInput = page.locator('[data-crud-field-id="note"] input').first()
     await titleInput.fill('  Trim Me  ')
     await noteInput.fill('  Keep Clean  ')
-    await page.locator('form button[type="submit"]').first().click()
+    const owningForm = titleInput.locator('xpath=ancestor::form[1]')
+    await owningForm.locator('button[type="submit"]').first().click()
 
-    await expect(page.getByTestId('widget-transform-form-data')).toContainText('"title":"Trim Me"')
-    await expect(page.getByTestId('widget-transform-form-data')).toContainText('"note":"Keep Clean"')
+    await expect.poll(async () => page.getByTestId('widget-transform-form-data').textContent()).toContain('"title":"Trim Me"')
+    await expect.poll(async () => page.getByTestId('widget-transform-form-data').textContent()).toContain('"note":"Keep Clean"')
   })
 
   test('TC-UMES-E07: onBeforeNavigate blocks blocked target and allows valid target', async ({
@@ -279,12 +280,12 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.waitForLoadState('domcontentloaded')
 
     await page.getByTestId('phase-c-link-blocked').click()
-    await expect(page).toHaveURL(/\/backend\/umes-handlers/)
-    await expect(page.getByTestId('widget-navigation')).toContainText('"ok":false')
+    await expect.poll(() => page.url()).toContain('/backend/umes-handlers')
+    await expect.poll(async () => page.getByTestId('widget-navigation').textContent()).toContain('"ok":false')
 
     await page.getByTestId('phase-c-link-allowed').click()
-    await expect(page).toHaveURL(/\/backend\/umes-handlers\?allowed=1/)
-    await expect(page.getByTestId('widget-navigation')).toContainText('"ok":true')
+    await expect.poll(() => page.url()).toContain('/backend/umes-handlers?allowed=1')
+    await expect.poll(async () => page.getByTestId('widget-navigation').textContent()).toContain('"ok":true')
   })
 
   test('TC-UMES-E08: onVisibilityChange updates widget visibility state', async ({
@@ -314,10 +315,9 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.waitForLoadState('domcontentloaded')
 
     await page.getByTestId('phase-c-trigger-server-event').click()
-    await expect(page.getByTestId('phase-c-server-emit-status')).toContainText('ok')
-
-    await expect(page.getByTestId('phase-c-app-event-result')).toContainText('example.todo.created')
-    await expect(page.getByTestId('widget-app-event')).toContainText('example.todo.created')
+    await expect.poll(async () => page.getByTestId('phase-c-server-emit-status').textContent()).toContain('ok')
+    await expect.poll(async () => page.getByTestId('phase-c-app-event-result').textContent()).toContain('example.todo.created')
+    await expect.poll(async () => page.getByTestId('widget-app-event').textContent()).toContain('example.todo.created')
   })
 
   test('TC-UMES-E10: transformValidation updates outputs with widget prefix', async ({
