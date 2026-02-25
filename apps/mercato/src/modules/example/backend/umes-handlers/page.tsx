@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 type DemoData = {
   title: string
@@ -35,6 +36,8 @@ export default function UmesHandlersPage() {
   const [displayTransformResult, setDisplayTransformResult] = React.useState<unknown>(null)
   const [validationTransformResult, setValidationTransformResult] = React.useState<unknown>(null)
   const [appEventResult, setAppEventResult] = React.useState<unknown>(null)
+  const [serverEmitStatus, setServerEmitStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
+  const [serverEmitError, setServerEmitError] = React.useState<string | null>(null)
 
   const injectionContext = React.useMemo(
     () => ({
@@ -104,6 +107,28 @@ export default function UmesHandlersPage() {
     )
   }, [demoData.title])
 
+  const emitServerTodoCreated = React.useCallback(async () => {
+    setServerEmitStatus('pending')
+    setServerEmitError(null)
+    try {
+      const title = demoData.title.trim().length > 0 ? demoData.title.trim() : `SSE Test ${Date.now()}`
+      await readApiResultOrThrow<{ id: string }>(
+        '/api/example/todos',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title }),
+        },
+        { allowNullResult: true },
+      )
+      setServerEmitStatus('ok')
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : t('example.umes.handlers.emitServer.error')
+      setServerEmitError(message)
+      setServerEmitStatus('error')
+    }
+  }, [demoData.title, t])
+
   return (
     <Page>
       <PageBody className="space-y-4">
@@ -168,7 +193,18 @@ export default function UmesHandlersPage() {
             <Button data-testid="phase-c-trigger-app-event" type="button" onClick={dispatchMockEvent}>
               {t('example.umes.handlers.actions.onAppEvent')}
             </Button>
+            <Button data-testid="phase-c-trigger-server-event" type="button" onClick={() => void emitServerTodoCreated()}>
+              {t('example.umes.handlers.actions.emitServerEvent')}
+            </Button>
           </div>
+          <div data-testid="phase-c-server-emit-status" className="text-xs text-muted-foreground">
+            serverEmitStatus={serverEmitStatus}
+          </div>
+          {serverEmitError ? (
+            <div data-testid="phase-c-server-emit-error" className="text-xs text-destructive">
+              {serverEmitError}
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-1 rounded border border-border p-4 text-xs">

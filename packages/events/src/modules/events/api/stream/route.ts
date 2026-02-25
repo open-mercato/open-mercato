@@ -10,7 +10,7 @@
 
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
-import type { EventBus } from '../../../../types'
+import { registerGlobalEventTap } from '../../../../bus'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -33,18 +33,17 @@ type SseConnection = {
  */
 const connections = new Set<SseConnection>()
 
-let busSubscribed = false
+let globalTapRegistered = false
 
 /**
- * Ensure the event bus wildcard handler is registered (once).
- * When a broadcast event fires, iterate all SSE connections for matching tenant.
+ * Ensure a process-wide event tap is registered (once).
+ * This captures emits from all request-scoped EventBus instances.
  */
-function ensureBusSubscription(eventBus: EventBus): void {
-  if (busSubscribed) return
-  busSubscribed = true
+function ensureGlobalTapSubscription(): void {
+  if (globalTapRegistered) return
+  globalTapRegistered = true
 
-  eventBus.on('*', async (payload, ctx) => {
-    const eventName = ctx.eventName
+  registerGlobalEventTap(async (eventName, payload) => {
     if (!eventName || connections.size === 0) return
 
     // Only bridge events with clientBroadcast: true
@@ -92,13 +91,7 @@ export async function GET(req: Request): Promise<Response> {
   const tenantId = ctx.auth.tenantId
   const organizationId = (ctx.selectedOrganizationId as string) ?? null
 
-  // Set up event bus subscription on first SSE connection
-  try {
-    const eventBus = ctx.container.resolve('eventBus') as EventBus
-    ensureBusSubscription(eventBus)
-  } catch {
-    console.warn('[events:stream] Event bus not available')
-  }
+  ensureGlobalTapSubscription()
 
   const encoder = new TextEncoder()
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null

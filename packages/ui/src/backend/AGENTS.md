@@ -84,6 +84,8 @@ Widgets can declare additional event handlers beyond the original CRUD lifecycle
 
 Action events fire independently; transformer events form a pipeline where each widget's output feeds the next.
 
+CrudForm emits these extended handlers by default. Disable automatic emission with `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=false`.
+
 ## When Building Backend Pages
 
 - Use `CrudForm` for create/edit flows — see `packages/ui/AGENTS.md` → CrudForm Guidelines

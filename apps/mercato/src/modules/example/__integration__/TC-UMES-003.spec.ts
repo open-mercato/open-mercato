@@ -244,4 +244,21 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.getByTestId('phase-c-trigger-transform-validation').click()
     await expect(page.getByTestId('phase-c-validation-transform-result')).toContainText('"title":"[widget]')
   })
+
+  test('TC-UMES-E11: CrudForm emits onFieldChange automatically on input change', async ({
+    page,
+  }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/todos/create')
+    await page.waitForLoadState('networkidle')
+
+    const titleInput = page.getByLabel(/title/i).first()
+    await titleInput.fill('TEST automatic emission')
+
+    await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
+    await expect(page.getByTestId('widget-field-change')).toContainText('"fieldId":"title"')
+  })
 })

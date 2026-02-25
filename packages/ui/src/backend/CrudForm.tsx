@@ -68,11 +68,16 @@ import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
 const FOCUSABLE_SELECTOR =
   '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
+  process.env.NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED,
+  true,
+)
 
 export type CrudFieldBase = {
   id: string
@@ -341,6 +346,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [values, setValues] = React.useState<CrudFormValues<TValues>>(
     () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
   )
+  const valuesRef = React.useRef(values)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
@@ -399,6 +405,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     isLoading,
     pending,
   }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, isLoading, pending])
+  const injectionContextRef = React.useRef(injectionContext)
+  React.useEffect(() => {
+    injectionContextRef.current = injectionContext
+  }, [injectionContext])
+  React.useEffect(() => {
+    valuesRef.current = values
+  }, [values])
   
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -406,6 +419,130 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   })
   
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
+  const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
+
+  const transformValidationErrors = React.useCallback(
+    async (fieldErrors: Record<string, string>): Promise<Record<string, string>> => {
+      if (!extendedInjectionEventsEnabled || !Object.keys(fieldErrors).length) return fieldErrors
+      try {
+        const result = await triggerInjectionEvent(
+          'transformValidation',
+          fieldErrors as unknown as TValues,
+          injectionContextRef.current,
+        )
+        const transformed = result.data
+        if (!transformed || typeof transformed !== 'object' || Array.isArray(transformed)) return fieldErrors
+        return Object.fromEntries(
+          Object.entries(transformed as Record<string, unknown>).map(([key, value]) => [key, String(value)]),
+        )
+      } catch (err) {
+        console.error('[CrudForm] Error in transformValidation:', err)
+        return fieldErrors
+      }
+    },
+    [extendedInjectionEventsEnabled, triggerInjectionEvent],
+  )
+
+  const canNavigateTo = React.useCallback(
+    async (target: string): Promise<boolean> => {
+      if (!extendedInjectionEventsEnabled) return true
+      try {
+        const result = await triggerInjectionEvent(
+          'onBeforeNavigate',
+          valuesRef.current as TValues,
+          injectionContextRef.current,
+          { target },
+        )
+        if (!result.ok) {
+          flash(result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return false
+        }
+        return true
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+        flash(message, 'error')
+        return false
+      }
+    },
+    [extendedInjectionEventsEnabled, t, triggerInjectionEvent],
+  )
+
+  const navigateWithGuard = React.useCallback(
+    async (target: string) => {
+      if (!target) return
+      const allowed = await canNavigateTo(target)
+      if (allowed) router.push(target)
+    },
+    [canNavigateTo, router],
+  )
+
+  React.useEffect(() => {
+    if (!extendedInjectionEventsEnabled || typeof window === 'undefined') return
+    const handleEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<unknown>
+      void triggerInjectionEvent('onAppEvent', valuesRef.current as TValues, injectionContextRef.current, {
+        appEvent: customEvent.detail,
+      }).catch((err) => {
+        console.error('[CrudForm] Error in onAppEvent:', err)
+      })
+    }
+    window.addEventListener('om:event', handleEvent as EventListener)
+    return () => {
+      window.removeEventListener('om:event', handleEvent as EventListener)
+    }
+  }, [extendedInjectionEventsEnabled, triggerInjectionEvent])
+
+  React.useEffect(() => {
+    if (!extendedInjectionEventsEnabled || typeof document === 'undefined') return
+    const emitVisibility = () => {
+      void triggerInjectionEvent('onVisibilityChange', valuesRef.current as TValues, injectionContextRef.current, {
+        visible: document.visibilityState === 'visible',
+      }).catch((err) => {
+        console.error('[CrudForm] Error in onVisibilityChange:', err)
+      })
+    }
+    document.addEventListener('visibilitychange', emitVisibility)
+    emitVisibility()
+    return () => {
+      document.removeEventListener('visibilitychange', emitVisibility)
+    }
+  }, [extendedInjectionEventsEnabled, triggerInjectionEvent])
+
+  React.useEffect(() => {
+    if (!extendedInjectionEventsEnabled) return
+    const root = rootRef.current
+    if (!root || typeof window === 'undefined') return
+    const handleClickCapture = (event: MouseEvent) => {
+      if (event.defaultPrevented) return
+      if (event.button !== 0) return
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const targetElement = event.target instanceof Element ? event.target : null
+      const linkElement = targetElement?.closest('a[href]')
+      if (!(linkElement instanceof HTMLAnchorElement)) return
+      if (!root.contains(linkElement)) return
+      if (linkElement.target && linkElement.target !== '_self') return
+      const rawHref = linkElement.getAttribute('href')
+      if (!rawHref || rawHref.startsWith('#')) return
+      let target = rawHref
+      if (rawHref.startsWith('http://') || rawHref.startsWith('https://')) {
+        try {
+          const parsed = new URL(rawHref)
+          if (parsed.origin !== window.location.origin) return
+          target = `${parsed.pathname}${parsed.search}${parsed.hash}`
+        } catch {
+          return
+        }
+      } else if (!rawHref.startsWith('/')) {
+        return
+      }
+      event.preventDefault()
+      void navigateWithGuard(target)
+    }
+    root.addEventListener('click', handleClickCapture, true)
+    return () => {
+      root.removeEventListener('click', handleClickCapture, true)
+    }
+  }, [extendedInjectionEventsEnabled, navigateWithGuard])
   
   React.useEffect(() => {
     const root = rootRef.current
@@ -468,7 +605,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               // ignore event dispatch failures
             }
             if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
-              setErrors(result.fieldErrors)
+              const transformedErrors = await transformValidationErrors(result.fieldErrors)
+              setErrors(transformedErrors)
             }
             const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
             flash(message, 'error')
@@ -511,7 +649,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       try { flash(deleteSuccessMessage, 'success') } catch {}
       // Redirect if requested by caller
       if (typeof deleteRedirect === 'string' && deleteRedirect) {
-        router.push(deleteRedirect)
+        await navigateWithGuard(deleteRedirect)
       }
     } catch (err) {
       if (resolvedInjectionSpotId) {
@@ -553,8 +691,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     injectionContext,
     onDelete,
     resolvedInjectionSpotId,
-    router,
+    navigateWithGuard,
     t,
+    transformValidationErrors,
     triggerInjectionEvent,
     values,
   ])
@@ -1036,11 +1175,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [errors, formId])
 
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
+    let nextData: CrudFormValues<TValues> | null = null
     setValues((prev) => {
       if (Object.is(prev[id], nextValue)) return prev
-      return { ...prev, [id]: nextValue } as CrudFormValues<TValues>
+      nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
+      return nextData
     })
-  }, [])
+    if (!nextData || !extendedInjectionEventsEnabled) return
+    void triggerInjectionEvent('onFieldChange', nextData as TValues, injectionContextRef.current, {
+      fieldId: id,
+      fieldValue: nextValue,
+    }).catch((err) => {
+      console.error('[CrudForm] Error in onFieldChange:', err)
+    })
+  }, [extendedInjectionEventsEnabled, triggerInjectionEvent])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -1068,8 +1216,32 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const snapshot = JSON.stringify(initialValues)
     if (initialValuesSnapshotRef.current === snapshot) return
     initialValuesSnapshotRef.current = snapshot
-    setValues((prev) => ({ ...prev, ...initialValues } as CrudFormValues<TValues>))
-  }, [initialValues])
+    let mergedValues: CrudFormValues<TValues> | null = null
+    setValues((prev) => {
+      mergedValues = { ...prev, ...initialValues } as CrudFormValues<TValues>
+      return mergedValues
+    })
+    if (!extendedInjectionEventsEnabled || !mergedValues) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        const result = await triggerInjectionEvent(
+          'transformDisplayData',
+          mergedValues as TValues,
+          injectionContextRef.current,
+        )
+        const transformed = result.data
+        if (cancelled || !transformed) return
+        setValues(transformed as CrudFormValues<TValues>)
+      } catch (err) {
+        console.error('[CrudForm] Error in transformDisplayData:', err)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [extendedInjectionEventsEnabled, initialValues, triggerInjectionEvent])
 
   const buildFieldsetEditorHref = React.useCallback(
     (includeViewParam: boolean) => {
@@ -1138,7 +1310,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (process.env.NODE_ENV !== 'production') {
         console.debug('[crud-form] Required field errors prevented submit', requiredErrors)
       }
-      setErrors(requiredErrors)
+      const transformedErrors = await transformValidationErrors(requiredErrors)
+      setErrors(transformedErrors)
       flash(highlightedMessage, 'error')
       return
     }
@@ -1168,9 +1341,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           if (customEntity) {
             const mapped: Record<string, string> = {}
             for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
-            setErrors((prev) => ({ ...prev, ...mapped }))
+            const transformedErrors = await transformValidationErrors(mapped)
+            setErrors((prev) => ({ ...prev, ...transformedErrors }))
           } else {
-            setErrors((prev) => ({ ...prev, ...result.fieldErrors }))
+            const transformedErrors = await transformValidationErrors(
+              Object.fromEntries(
+                Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
+              ),
+            )
+            setErrors((prev) => ({ ...prev, ...transformedErrors }))
           }
           flash(highlightedMessage, 'error')
           return
@@ -1191,7 +1370,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[crud-form] Schema validation failed', res.error.issues)
         }
-        setErrors(fieldErrors)
+        const transformedErrors = await transformValidationErrors(fieldErrors)
+        setErrors(transformedErrors)
         flash(highlightedMessage, 'error')
         return
       }
@@ -1199,12 +1379,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     } else {
       parsedValues = values as TValues
     }
+    let submitValues = parsedValues
+    if (extendedInjectionEventsEnabled) {
+      try {
+        const result = await triggerInjectionEvent('transformFormData', submitValues, injectionContext)
+        if (result.data) {
+          submitValues = result.data as TValues
+        }
+      } catch (err) {
+        console.error('[CrudForm] Error in transformFormData:', err)
+      }
+    }
 
     // Trigger onBeforeSave event for injection widgets
     let injectionRequestHeaders: Record<string, string> | undefined
     if (resolvedInjectionSpotId) {
       try {
-        const result = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
+        const result = await triggerInjectionEvent('onBeforeSave', submitValues, injectionContext)
         if (!result.ok) {
           try {
             if (typeof window !== 'undefined') {
@@ -1224,7 +1415,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             // ignore event dispatch failures
           }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
-            setErrors(result.fieldErrors)
+            const transformedErrors = await transformValidationErrors(result.fieldErrors)
+            setErrors(transformedErrors)
           }
           const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
@@ -1245,7 +1437,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     // Trigger onSave event for injection widgets
     if (resolvedInjectionSpotId) {
       try {
-        await triggerInjectionEvent('onSave', parsedValues, injectionContext)
+        await triggerInjectionEvent('onSave', submitValues, injectionContext)
       } catch (err) {
         console.error('[CrudForm] Error in onSave:', err)
         flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
@@ -1257,22 +1449,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     try {
       if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
         await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
-          await onSubmit?.(parsedValues)
+          await onSubmit?.(submitValues)
         })
       } else {
-        await onSubmit?.(parsedValues)
+        await onSubmit?.(submitValues)
       }
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {
         try {
-          await triggerInjectionEvent('onAfterSave', parsedValues, injectionContext)
+          await triggerInjectionEvent('onAfterSave', submitValues, injectionContext)
         } catch (err) {
           console.error('[CrudForm] Error in onAfterSave:', err)
         }
       }
       
-      if (successRedirect) router.push(successRedirect)
+      if (successRedirect) await navigateWithGuard(successRedirect)
     } catch (err: unknown) {
       try {
         if (typeof window !== 'undefined') {
@@ -1303,9 +1495,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           })()
         : null
       if (hasFieldErrors) {
-        setErrors(combinedFieldErrors)
+        const transformedErrors = await transformValidationErrors(combinedFieldErrors)
+        setErrors(transformedErrors)
         if (process.env.NODE_ENV !== 'production') {
-          console.debug('[crud-form] Submission failed with field errors', combinedFieldErrors)
+          console.debug('[crud-form] Submission failed with field errors', transformedErrors)
         }
       }
 

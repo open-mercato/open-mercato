@@ -244,6 +244,25 @@ How to run:
 npx playwright test --config .ai/qa/tests/playwright.config.ts apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts
 ```
 
+### CrudForm Env Toggle
+
+`CrudForm` emits Phase C handlers by default.
+
+Set this variable to disable automatic emission:
+
+```bash
+NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=false
+```
+
+When enabled (`true`, default), `CrudForm` emits:
+- `onFieldChange` on field writes (`setValue`)
+- `onBeforeNavigate` before guarded in-form navigation and CrudForm redirects
+- `onVisibilityChange` on browser `visibilitychange`
+- `onAppEvent` when `om:event` is received
+- `transformFormData` before save pipeline
+- `transformDisplayData` when initial form values are applied
+- `transformValidation` before setting form field errors
+
 ### Operation Progress Tracking
 
 Track long-running server operations in widgets:

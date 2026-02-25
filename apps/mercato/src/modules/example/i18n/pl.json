@@ -84,5 +84,7 @@
   "example.widgets.todo.settings.showCompleted": "Pokaż ukończone elementy",
   "example.widgets.todo.state.allCaughtUp": "Wszystko załatwione!",
   "example.widgets.todo.state.empty": "Nie znaleziono zadań.",
-  "example.workPlan.nav.group": "Plan pracy"
+  "example.workPlan.nav.group": "Plan pracy",
+  "example.umes.handlers.actions.emitServerEvent": "Wyemituj serwerowe todo.created",
+  "example.umes.handlers.emitServer.error": "Nie udało się wyemitować zdarzenia serwerowego."
 }

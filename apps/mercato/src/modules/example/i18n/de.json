@@ -84,5 +84,7 @@
   "example.widgets.todo.settings.showCompleted": "Erledigte Einträge anzeigen",
   "example.widgets.todo.state.allCaughtUp": "Alles erledigt!",
   "example.widgets.todo.state.empty": "Keine To-dos gefunden.",
-  "example.workPlan.nav.group": "Arbeitsplan"
+  "example.workPlan.nav.group": "Arbeitsplan",
+  "example.umes.handlers.actions.emitServerEvent": "Server todo.created auslösen",
+  "example.umes.handlers.emitServer.error": "Server-Ereignis konnte nicht ausgelöst werden."
 }

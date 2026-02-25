@@ -84,5 +84,7 @@
   "example.widgets.todo.settings.showCompleted": "Mostrar elementos completados",
   "example.widgets.todo.state.allCaughtUp": "¡Todo al día!",
   "example.widgets.todo.state.empty": "No se encontraron tareas.",
-  "example.workPlan.nav.group": "Plan de trabajo"
+  "example.workPlan.nav.group": "Plan de trabajo",
+  "example.umes.handlers.actions.emitServerEvent": "Emitir server todo.created",
+  "example.umes.handlers.emitServer.error": "No se pudo emitir el evento del servidor."
 }

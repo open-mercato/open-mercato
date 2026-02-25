@@ -95,7 +95,26 @@ if (isTransformerEvent(event)) {
 
 The delete-to-save fallback chain is preserved.
 
-### 3. DOM Event Bridge
+### 3. CrudForm Emission Toggle
+
+CrudForm automatic emission of Phase C extended events is controlled by:
+
+```bash
+NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=true
+```
+
+- Default: `true`
+- When `false`, CrudForm skips automatic emission for:
+  - `onFieldChange`
+  - `onBeforeNavigate`
+  - `onVisibilityChange`
+  - `onAppEvent`
+  - `transformFormData`
+  - `transformDisplayData`
+  - `transformValidation`
+- Core save/delete lifecycle handlers remain unchanged.
+
+### 4. DOM Event Bridge
 
 #### Architecture
 
@@ -135,7 +154,7 @@ const events = [
 
 Only events with `clientBroadcast: true` are bridged. Default is `false`.
 
-### 4. `useAppEvent` Hook
+### 5. `useAppEvent` Hook
 
 ```typescript
 // packages/ui/src/backend/injection/useAppEvent.ts
@@ -163,7 +182,7 @@ function matchesPattern(pattern: string, eventId: string): boolean {
 }
 ```
 
-### 5. Async Operation Progress Pattern
+### 6. Async Operation Progress Pattern
 
 Long-running operations (data sync imports, bulk exports, webhook replay) need real-time progress tracking within widgets. This pattern leverages the DOM Event Bridge to deliver structured progress events.
 
@@ -495,6 +514,8 @@ export default {
 | **NEW** | `packages/ui/src/backend/injection/useOperationProgress.ts` |
 | **NEW** | `packages/shared/src/modules/widgets/injection-progress.ts` |
 | **NEW** | `packages/core/src/modules/example/widgets/injection/crud-validation/widget.ts` |
+| **MODIFY** | `packages/ui/src/backend/CrudForm.tsx` (extended event emission + env toggle) |
+| **MODIFY** | `apps/mercato/.env.example` (`NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED`) |
 | **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add new event handler types) |
 | **MODIFY** | `packages/ui/src/backend/injection/InjectionSpot.tsx` (dual dispatch in `useInjectionSpotEvents`) |
 | **MODIFY** | `packages/core/src/modules/example/events.ts` (add clientBroadcast) |
@@ -537,6 +558,7 @@ export default {
   - **Action events** (`onFieldChange`, `onBeforeNavigate`, `onVisibilityChange`, `onAppEvent`): fire-and-forget, results accumulated
 - `TRANSFORMER_EVENTS` Set classifies event types
 - New event arguments passed via `meta` parameter
+- CrudForm emission gate: `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED` (default `true`)
 
 ### Files Created/Modified
 - `packages/shared/src/modules/widgets/injection.ts` — new event handler types
