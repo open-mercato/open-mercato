@@ -2,7 +2,7 @@ import { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { SsoConfig } from '../data/entities'
+import { SsoConfig, ScimToken } from '../data/entities'
 import type { SsoConfigAdminCreateInput, SsoConfigAdminUpdateInput, SsoConfigListQuery } from '../data/validators'
 import { emitSsoEvent } from '../events'
 import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
@@ -143,7 +143,15 @@ export class SsoConfigService {
     if (input.protocol !== undefined) config.protocol = input.protocol
     if (input.issuer !== undefined) config.issuer = input.issuer
     if (input.clientId !== undefined) config.clientId = input.clientId
-    if (input.jitEnabled !== undefined) config.jitEnabled = input.jitEnabled
+    if (input.jitEnabled !== undefined) {
+      if (input.jitEnabled) {
+        const activeScimCount = await this.em.count(ScimToken, { ssoConfigId: id, isActive: true })
+        if (activeScimCount > 0) {
+          throw new SsoConfigError('Cannot enable JIT provisioning while SCIM directory sync is active. Revoke all SCIM tokens first.', 409)
+        }
+      }
+      config.jitEnabled = input.jitEnabled
+    }
     if (input.autoLinkByEmail !== undefined) config.autoLinkByEmail = input.autoLinkByEmail
     if (input.appRoleMappings !== undefined) config.appRoleMappings = input.appRoleMappings
 

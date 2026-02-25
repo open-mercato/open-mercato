@@ -27,6 +27,7 @@ interface SsoConfigDetail {
   isActive: boolean
   ssoRequired: boolean
   appRoleMappings: Record<string, string>
+  hasActiveScimTokens: boolean
   createdAt: string
   updatedAt: string
 }
@@ -379,12 +380,15 @@ export default function SsoConfigDetailPage() {
                     type="checkbox"
                     checked={jitEnabled}
                     onChange={(e) => setJitEnabled(e.target.checked)}
+                    disabled={config.hasActiveScimTokens}
                     className="accent-primary"
                   />
                   <div>
                     <span className="text-sm font-medium">{t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}</span>
                     <span className="text-xs text-muted-foreground ml-2">
-                      {t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
+                      {config.hasActiveScimTokens
+                        ? t('sso.admin.field.jitDisabledByScim', 'Unavailable — SCIM directory sync is active. Revoke SCIM tokens to enable JIT.')
+                        : t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
                     </span>
                   </div>
                 </label>
@@ -458,7 +462,7 @@ export default function SsoConfigDetailPage() {
           )}
 
           {activeTab === 'scim' && (
-            <ScimProvisioningTab configId={configId} />
+            <ScimProvisioningTab configId={configId} jitEnabled={config.jitEnabled} onProvisioningChange={fetchConfig} />
           )}
 
           {activeTab === 'activity' && (
@@ -647,7 +651,7 @@ interface ScimLogRow {
   createdAt: string
 }
 
-function ScimProvisioningTab({ configId }: { configId: string }) {
+function ScimProvisioningTab({ configId, jitEnabled, onProvisioningChange }: { configId: string; jitEnabled: boolean; onProvisioningChange: () => void }) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -690,6 +694,7 @@ function ScimProvisioningTab({ configId }: { configId: string }) {
         setShowCreateForm(false)
         setTokenName('')
         fetchData()
+        onProvisioningChange()
       }
     } catch {
       // handled by apiCallOrThrow
@@ -713,6 +718,7 @@ function ScimProvisioningTab({ configId }: { configId: string }) {
       })
       flash(t('sso.admin.scim.revoked', 'Token revoked'), 'success')
       fetchData()
+      onProvisioningChange()
     } catch {
       // handled
     }
@@ -736,6 +742,15 @@ function ScimProvisioningTab({ configId }: { configId: string }) {
 
   return (
     <div className="space-y-6">
+      {/* JIT active banner */}
+      {jitEnabled && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm text-amber-900">
+            {t('sso.admin.scim.jitActiveWarning', 'SCIM provisioning is unavailable while JIT provisioning is enabled. Disable JIT in the General tab to configure SCIM.')}
+          </p>
+        </div>
+      )}
+
       {/* SCIM Endpoint URL */}
       <div>
         <h3 className="text-sm font-medium mb-2">{t('sso.admin.scim.endpointUrl', 'SCIM Endpoint URL')}</h3>
@@ -774,7 +789,7 @@ function ScimProvisioningTab({ configId }: { configId: string }) {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium">{t('sso.admin.scim.tokens', 'Bearer Tokens')}</h3>
           {!showCreateForm && (
-            <Button variant="outline" size="sm" onClick={() => setShowCreateForm(true)}>
+            <Button variant="outline" size="sm" onClick={() => setShowCreateForm(true)} disabled={jitEnabled}>
               {t('sso.admin.scim.generateToken', 'Generate Token')}
             </Button>
           )}

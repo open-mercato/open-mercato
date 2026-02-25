@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
-import { ScimToken } from '../data/entities'
+import { ScimToken, SsoConfig } from '../data/entities'
 import type { SsoAdminScope } from './ssoConfigService'
 
 const BCRYPT_COST = 10
@@ -32,6 +32,11 @@ export class ScimTokenService {
     name: string,
     scope: SsoAdminScope,
   ): Promise<ScimTokenCreateResult> {
+    const config = await this.em.findOne(SsoConfig, { id: ssoConfigId, deletedAt: null })
+    if (config?.jitEnabled) {
+      throw new ScimTokenError('Cannot create SCIM tokens while JIT provisioning is enabled. Disable JIT first.', 409)
+    }
+
     const raw = TOKEN_PREFIX + randomBytes(32).toString('hex')
     const tokenHash = await hash(raw, BCRYPT_COST)
     const tokenPrefix = raw.slice(0, 12)

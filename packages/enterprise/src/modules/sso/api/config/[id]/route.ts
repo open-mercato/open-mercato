@@ -4,6 +4,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoConfigService, SsoConfigError } from '../../../services/ssoConfigService'
 import { ssoConfigAdminUpdateSchema } from '../../../data/validators'
 import { resolveSsoAdminContext, SsoAdminAuthError } from '../../admin-context'
+import { ScimToken } from '../../../data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -26,7 +28,10 @@ export async function GET(req: Request, ctx: RouteContext) {
       return NextResponse.json({ error: 'SSO configuration not found' }, { status: 404 })
     }
 
-    return NextResponse.json(config)
+    const em = container.resolve<EntityManager>('em')
+    const activeScimCount = await em.count(ScimToken, { ssoConfigId: id, isActive: true })
+
+    return NextResponse.json({ ...config, hasActiveScimTokens: activeScimCount > 0 })
   } catch (err) {
     return handleError(err)
   }
@@ -101,6 +106,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid input' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Config not found' },
+        { status: 409, description: 'Conflict — JIT and SCIM are mutually exclusive' },
       ],
     },
     DELETE: {
