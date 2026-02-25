@@ -55,6 +55,11 @@ let endpointsCache: ApiEndpoint[] | null = null
 let endpointsByOperationId: Map<string, ApiEndpoint> | null = null
 
 /**
+ * In-memory cache of the raw OpenAPI spec document (for Code Mode search tool)
+ */
+let rawSpecCache: OpenApiDocument | null = null
+
+/**
  * Get all parsed API endpoints (cached)
  */
 export async function getApiEndpoints(): Promise<ApiEndpoint[]> {
@@ -74,6 +79,143 @@ export async function getApiEndpoints(): Promise<ApiEndpoint[]> {
 export async function getEndpointByOperationId(operationId: string): Promise<ApiEndpoint | null> {
   await getApiEndpoints() // Ensure cache is populated
   return endpointsByOperationId?.get(operationId) ?? null
+}
+
+/**
+ * Get the raw OpenAPI spec document (cached).
+ * Uses the same 3-tier loading strategy as parseApiEndpoints():
+ * generated JSON → module registry → HTTP fetch.
+ */
+export async function getRawOpenApiSpec(): Promise<OpenApiDocument | null> {
+  if (rawSpecCache) return rawSpecCache
+  rawSpecCache = await loadRawOpenApiSpec()
+  return rawSpecCache
+}
+
+/**
+ * Set the raw OpenAPI spec cache directly.
+ * Used by servers that want to inject a pre-built spec.
+ */
+export function setRawSpecCache(doc: OpenApiDocument): void {
+  rawSpecCache = doc
+}
+
+/**
+ * Clear the raw OpenAPI spec cache.
+ */
+export function clearRawSpecCache(): void {
+  rawSpecCache = null
+}
+
+/**
+ * Load the rich OpenAPI spec, skipping Tier 1 (static JSON) which lacks requestBody schemas.
+ * Prefers Tier 2 (runtime module registry) which has full Zod-converted schemas.
+ * Falls back to Tier 1 then Tier 3 if needed.
+ */
+export async function loadRichOpenApiSpec(): Promise<OpenApiDocument | null> {
+  if (rawSpecCache) return rawSpecCache
+
+  // Tier 2 first: Module registry (has full Zod-converted schemas)
+  try {
+    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
+    const modules: Module[] = getModules()
+    const modulesWithApis = modules.filter((m) => m.apis && m.apis.length > 0)
+
+    if (modulesWithApis.length > 0) {
+      const doc = buildOpenApiDocument(modules, {
+        title: 'Open Mercato API',
+        version: '1.0.0',
+        servers: [{ url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }],
+      })
+      console.error(`[API Index] Rich OpenAPI spec built from ${modulesWithApis.length} modules (Tier 2)`)
+      rawSpecCache = doc
+      return doc
+    }
+  } catch {
+    // Registry not available — fall through
+  }
+
+  // Fall back to standard 3-tier loading (Tier 1 → Tier 3)
+  rawSpecCache = await loadRawOpenApiSpec()
+  return rawSpecCache
+}
+
+/**
+ * Load raw OpenAPI spec using the 3-tier strategy.
+ */
+async function loadRawOpenApiSpec(): Promise<OpenApiDocument | null> {
+  // Tier 1: Generated JSON file
+  try {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const { findAppRoot, findAllApps } = await import('@open-mercato/shared/lib/bootstrap/appResolver')
+
+    let appRoot = findAppRoot()
+    if (!appRoot) {
+      let current = process.cwd()
+      while (current !== path.dirname(current)) {
+        const appsDir = path.join(current, 'apps')
+        if (fs.existsSync(appsDir)) {
+          const apps = findAllApps(current)
+          if (apps.length > 0) {
+            appRoot = apps[0]
+            break
+          }
+        }
+        current = path.dirname(current)
+      }
+    }
+
+    if (appRoot) {
+      const jsonPath = path.join(appRoot.generatedDir, 'openapi.generated.json')
+      if (fs.existsSync(jsonPath)) {
+        const doc = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as OpenApiDocument
+        console.error(`[API Index] Raw OpenAPI spec loaded from ${jsonPath}`)
+        return doc
+      }
+    }
+  } catch (error) {
+    console.error('[API Index] Raw spec from JSON failed:', error instanceof Error ? error.message : error)
+  }
+
+  // Tier 2: Module registry
+  try {
+    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
+    const modules: Module[] = getModules()
+    const modulesWithApis = modules.filter((m) => m.apis && m.apis.length > 0)
+
+    if (modulesWithApis.length > 0) {
+      const doc = buildOpenApiDocument(modules, {
+        title: 'Open Mercato API',
+        version: '1.0.0',
+        servers: [{ url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }],
+      })
+      console.error(`[API Index] Raw OpenAPI spec built from ${modulesWithApis.length} modules`)
+      return doc
+    }
+  } catch {
+    // Registry not available
+  }
+
+  // Tier 3: HTTP fetch
+  const baseUrl =
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    'http://localhost:3000'
+
+  try {
+    const response = await fetch(`${baseUrl}/api/docs/openapi`)
+    if (response.ok) {
+      const doc = (await response.json()) as OpenApiDocument
+      console.error('[API Index] Raw OpenAPI spec fetched via HTTP')
+      return doc
+    }
+  } catch (error) {
+    console.error('[API Index] Raw spec HTTP fetch failed:', error instanceof Error ? error.message : error)
+  }
+
+  return null
 }
 
 /**
@@ -484,6 +626,7 @@ function searchEndpointsFallback(
 export function clearEndpointCache(): void {
   endpointsCache = null
   endpointsByOperationId = null
+  rawSpecCache = null
 }
 
 /**

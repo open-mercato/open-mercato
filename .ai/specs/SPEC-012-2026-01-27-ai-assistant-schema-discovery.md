@@ -1,20 +1,29 @@
 # SPEC-012: AI Assistant Schema & API Discovery
 
+## TLDR
+
+- The MCP server exposes **2 Code Mode tools** (`search` + `execute`) plus `context_whoami` — total 3 tools
+- Replaces the previous 4 built-in tools (`find_api`, `call_api`, `discover_schema`, `context_whoami`) and all module-specific AI tools (6 from search)
+- The AI writes JavaScript that runs in a `node:vm` sandbox with injected globals (`spec`, `api.request()`, `context`)
+- Token savings: from ~10 tool schemas to exactly 2, with a fixed footprint regardless of API surface growth
+- Inspired by [Cloudflare's Code Mode pattern](https://blog.cloudflare.com/mcp-code-mode/)
+
 ## Overview
 
-The AI Assistant module provides MCP (Model Context Protocol) tools that enable AI to discover and interact with the system's database entities and API endpoints. This specification documents the current implementation of entity schema discovery and OpenAPI integration.
+The AI Assistant module provides MCP (Model Context Protocol) tools that enable AI to discover and interact with the system's database entities and API endpoints. Instead of exposing individual tools per operation, the server provides two programmable meta-tools where the AI writes JavaScript code to query the full OpenAPI spec and make authenticated API calls.
 
 ## Problem Statement
 
-AI assistants need to understand the data model and available APIs to effectively help users query and manipulate data. This requires:
+AI assistants need to understand the data model and available APIs to effectively help users query and manipulate data. The original approach exposed individual tools (`find_api`, `call_api`, `discover_schema`) plus module-specific tools — each with its own schema consuming context tokens. As the API surface grew (358 endpoints, 124 entities), the tool schema overhead grew proportionally.
 
-1. Discovering database entity schemas (fields, types, relationships)
-2. Finding relevant API endpoints for CRUD operations
-3. Executing API calls with proper authentication and context
+**Key problems solved:**
+1. Tool schema token overhead scales with API surface (O(n) → O(1))
+2. Multi-step discovery required 3 separate tool calls (discover → find → call)
+3. Module-specific tools duplicated patterns already available via the API
 
 ## Architecture
 
-The system uses two parallel discovery mechanisms:
+### Startup Sequence
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -22,62 +31,134 @@ The system uses two parallel discovery mechanisms:
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  MikroORM ──► extractEntityGraph() ──► EntityGraph (cached)    │
-│                                              │                  │
-│                                              ▼                  │
-│                                    indexEntitiesForSearch()     │
-│                                              │                  │
-│                                              ▼                  │
-│                                    Meilisearch (ai_assistant:   │
-│                                                entity_schema)   │
 │                                                                 │
-│  openapi.generated.json ──► parseApiEndpoints() ──► ApiEndpoint[]│
+│  openapi.generated.json ──► getRawOpenApiSpec() ──► OpenApiDoc │
 │  (or module registry)                               (cached)    │
-│                                              │                  │
-│                                              ▼                  │
-│                                    indexApiEndpoints()          │
-│                                              │                  │
-│                                              ▼                  │
-│                                    Meilisearch (ai_assistant:   │
-│                                                api_endpoint)    │
+│                                                                 │
+│  EntityGraph + OpenApiDoc ──► getCodeModeSpec() ──► merged spec│
+│                                                      (cached)   │
+│    spec.paths          = OpenAPI paths object                   │
+│    spec.entitySchemas  = [{ className, tableName, module,      │
+│                             fields, relationships }]            │
+│    spec.components     = OpenAPI components                     │
+│                                                                 │
+│  Tool registry: context_whoami + search + execute = 3 tools    │
+│                                                                 │
+│  (Search indexing still runs for Meilisearch if available)      │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
+```
 
+### Runtime Flow
+
+```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         AT RUNTIME                               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  AI calls discover_schema("Customer")                           │
+│  AI calls search({ code: "async () => ..." })                  │
 │       │                                                         │
 │       ▼                                                         │
-│  Search Meilisearch (or fallback to in-memory)                  │
+│  normalizeCode() — strip markdown fences, validate shape        │
 │       │                                                         │
 │       ▼                                                         │
-│  Return: entity fields + relationships                          │
+│  createSandbox({ spec }) — node:vm with whitelisted globals    │
+│       │                                                         │
+│       ▼                                                         │
+│  Execute in sandbox — AI code queries spec.paths,              │
+│                       spec.entitySchemas, spec.components       │
+│       │                                                         │
+│       ▼                                                         │
+│  truncateResult() — cap at 40K chars (~10K tokens)             │
+│       │                                                         │
+│       ▼                                                         │
+│  Return: { success, result, logs, durationMs }                 │
 │                                                                 │
-│  AI calls find_api("list customers")                            │
-│       │                                                         │
-│       ▼                                                         │
-│  Search Meilisearch (or fallback to in-memory)                  │
-│       │                                                         │
-│       ▼                                                         │
-│  Return: endpoint path + method + schema                        │
 │                                                                 │
-│  AI calls call_api({ method, path, body })                      │
+│  AI calls execute({ code: "async () => ..." })                 │
 │       │                                                         │
 │       ▼                                                         │
-│  Execute HTTP request with tenant context + auth                │
+│  createSandbox({ api: { request }, context })                  │
 │       │                                                         │
 │       ▼                                                         │
-│  Return: API response data                                      │
+│  AI code calls api.request({ method, path, query?, body? })    │
+│       │                                                         │
+│       ▼                                                         │
+│  api.request() closure (runs in HOST, not sandbox):            │
+│    - Build URL from env vars                                    │
+│    - Inject tenantId/organizationId into query or body          │
+│    - Set X-API-Key, X-Tenant-Id, X-Organization-Id headers     │
+│    - Call globalThis.fetch() (not sandbox fetch)                │
+│    - Track call count (max 50)                                  │
+│       │                                                         │
+│       ▼                                                         │
+│  Return: { success, result, logs, durationMs, apiCallCount }   │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Example AI Workflow
+
+```
+User: "Find all customers in New York"
+
+1. AI calls search:
+   async () => Object.keys(spec.paths).filter(p => p.includes('customer'))
+   → ["/api/customers/companies", "/api/customers/people", ...]
+
+2. AI calls search:
+   async () => spec.paths["/api/customers/companies"]?.get
+   → { operationId, parameters, ... }
+
+3. AI calls execute:
+   async () => api.request({
+     method: 'GET',
+     path: '/api/customers/companies',
+     query: { city: 'New York' }
+   })
+   → { success: true, statusCode: 200, data: { items: [...], total: 5 } }
+```
+
+## Sandbox Security Model
+
+The `node:vm` sandbox restricts what code can access:
+
+### Allowed Globals
+
+| Category | Globals |
+|----------|---------|
+| Data types | `JSON`, `Object`, `Array`, `Map`, `Set`, `Promise`, `Math`, `Date`, `RegExp`, `String`, `Number`, `Boolean` |
+| Parsing | `parseInt`, `parseFloat`, `isNaN`, `isFinite`, `encodeURIComponent`, `decodeURIComponent` |
+| Errors | `Error`, `TypeError`, `RangeError` |
+| Constants | `undefined`, `NaN`, `Infinity` |
+| Injected | `console` (captured to logs array), caller-provided globals (`spec`, `api`, `context`) |
+
+### Blocked Globals
+
+All set to `undefined`: `require`, `import`, `process`, `global`, `globalThis`, `fetch`, `XMLHttpRequest`, `WebSocket`, `Buffer`, `setTimeout`, `setInterval`, `__dirname`, `__filename`
+
+### Safety Limits
+
+| Limit | Default | Purpose |
+|-------|---------|---------|
+| Execution timeout | 30 seconds | Prevents infinite loops (vm.Script timeout + Promise.race) |
+| Max API calls | 50 per execution | Prevents runaway API flooding |
+| Max output size | 40,000 chars | ~10K tokens, prevents context window overflow |
+| Max log entries | 100 | Caps console.log capture |
+| Max log entry length | 1,000 chars | Prevents log flooding |
+
+### Code Validation
+
+`normalizeCode()` enforces:
+1. Strip markdown code fences (` ```javascript `, ` ```js `, ` ``` `)
+2. Must match pattern `async (` — rejects arbitrary code
+3. Wrapped as `(async () => { return (CODE)() })()` for execution
 
 ## Data Models
 
 ### Entity Graph
 
-Extracted from MikroORM metadata at startup:
+Extracted from MikroORM metadata at startup (unchanged from original):
 
 ```typescript
 interface EntityGraph {
@@ -113,31 +194,40 @@ type RelationshipType =
   | 'BELONGS_TO_MANY'  // ManyToMany (inverse)
 ```
 
-### API Endpoint
+### Code Mode Spec (Merged Object)
 
-Parsed from OpenAPI specification:
+The `spec` global injected into the `search` sandbox combines OpenAPI + entity graph:
 
 ```typescript
-interface ApiEndpoint {
-  id: string              // operationId
-  operationId: string     // "customers_put_people"
-  method: string          // "PUT"
-  path: string            // "/api/customers/people"
-  summary: string
-  description: string
-  tags: string[]          // ["Customers"]
-  requiredFeatures: string[]  // from x-require-features extension
-  parameters: ApiParameter[]   // path + query params only
-  requestBodySchema: Record<string, unknown> | null
-  deprecated: boolean
+{
+  paths: Record<string, OpenApiPathItem>  // From getRawOpenApiSpec()
+  components: OpenApiComponents           // From getRawOpenApiSpec()
+  info: OpenApiInfo                       // From getRawOpenApiSpec()
+  entitySchemas: Array<{                  // From getCachedEntityGraph()
+    className: string                     // "SalesOrder"
+    tableName: string                     // "sales_orders"
+    module: string                        // "sales"
+    fields: Array<{ name, type, nullable }>
+    relationships: Array<{ relationship, target, property, nullable }>
+  }>
+}
+```
+
+### Sandbox Types
+
+```typescript
+interface SandboxOptions {
+  timeout?: number        // ms, default 30_000
+  maxOutputSize?: number  // bytes, default 1_048_576
+  maxApiCalls?: number    // default 50
 }
 
-interface ApiParameter {
-  name: string
-  in: 'path' | 'query' | 'header'
-  required: boolean
-  type: string
-  description: string
+interface SandboxResult {
+  result: unknown
+  error?: string
+  logs: string[]          // Captured console output
+  durationMs: number
+  apiCallCount?: number   // Only for execute tool
 }
 ```
 
@@ -145,140 +235,88 @@ interface ApiParameter {
 
 ```typescript
 interface McpToolContext {
-  tenantId?: string
-  organizationId?: string
-  userId?: string
+  tenantId: string | null
+  organizationId: string | null
+  userId: string | null
   apiKeySecret?: string
-  container: AwilixContainer  // DI container for services
+  container: AwilixContainer
+  userFeatures: string[]
+  isSuperAdmin: boolean
 }
 ```
 
 ## MCP Tools
 
-### `discover_schema` - Entity Discovery
+### `search` — Spec Discovery
 
-**Purpose:** Search for database entity schemas by name or keyword
+**Purpose:** Run JavaScript to query the OpenAPI spec and entity schemas programmatically.
 
 **Input:**
 ```typescript
-{
-  query: string    // Entity name or keyword (e.g., "Company", "sales order")
-  limit?: number   // Maximum results (default: 5)
-}
+{ code: string }  // An async arrow function, e.g. "async () => spec.paths['/api/customers/companies']"
 ```
 
-**Search strategy:**
-1. Try Meilisearch hybrid search (fulltext + vector) on indexed entity schemas
-2. Fallback: In-memory fuzzy search on className, tableName, inferred module
+**Sandbox globals:** `spec` (merged OpenAPI + entity schemas)
 
 **Output:**
 ```json
 {
   "success": true,
-  "count": 1,
-  "entities": [{
-    "className": "CustomerCompanyProfile",
-    "tableName": "customer_company_profiles",
-    "module": "customers",
-    "fields": [
-      { "name": "id", "type": "uuid", "nullable": false },
-      { "name": "name", "type": "string", "nullable": false }
-    ],
-    "relationships": [
-      { "relationship": "BELONGS_TO", "target": "CustomerEntity", "property": "customer", "nullable": false }
-    ]
-  }]
+  "result": "[ ... serialized JSON ... ]",
+  "logs": ["optional console.log output"],
+  "durationMs": 1
 }
 ```
 
-**File:** `packages/ai-assistant/src/modules/ai_assistant/lib/entity-graph-tools.ts`
+**File:** `packages/ai-assistant/src/modules/ai_assistant/lib/codemode-tools.ts`
 
-### `find_api` - API Discovery
+### `execute` — API Execution
 
-**Purpose:** Search for API endpoints by natural language query
+**Purpose:** Run JavaScript that makes authenticated API calls via `api.request()`.
 
 **Input:**
 ```typescript
-{
-  query: string                     // Natural language query
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'  // Optional filter
-  limit?: number                    // Max results (default: 10)
-}
+{ code: string }  // An async arrow function using api.request()
 ```
 
-**Search strategy:**
-1. Try Meilisearch hybrid search on indexed endpoints
-2. Fallback: In-memory text matching on operationId, path, summary, description, tags
+**Sandbox globals:**
+- `api.request({ method, path, query?, body? })` — authenticated HTTP call (runs in host, not sandbox)
+- `context` — `{ tenantId, organizationId, userId }`
+
+**api.request() behavior:**
+1. Build URL: `baseUrl` from env vars + path (ensures `/api` prefix)
+2. For GET: inject `tenantId`/`organizationId` into query params
+3. For POST/PUT/PATCH: inject `tenantId`/`organizationId` into body
+4. Set headers: `Content-Type`, `X-API-Key`, `X-Tenant-Id`, `X-Organization-Id`
+5. Call `globalThis.fetch()` (host fetch, not sandbox)
+6. Return `{ success, statusCode, data }` or `{ success: false, statusCode, error, details }`
 
 **Output:**
 ```json
 {
   "success": true,
-  "message": "Found 2 matching endpoint(s)",
-  "endpoints": [{
-    "operationId": "customers_put_companies",
-    "method": "PUT",
-    "path": "/api/customers/companies",
-    "description": "Updates company details...",
-    "tags": ["Customers"],
-    "parameters": [
-      { "name": "id", "in": "query", "required": true, "type": "string" }
-    ],
-    "requestBody": {
-      "required": ["id"],
-      "properties": {
-        "name": { "type": "string" },
-        "email": { "type": "string", "format": "email" }
-      }
-    }
-  }],
-  "hint": "Use call_api with the method, path, and body structure shown above."
+  "result": "{ \"success\": true, \"statusCode\": 200, \"data\": { ... } }",
+  "logs": [],
+  "durationMs": 312,
+  "apiCallCount": 1
 }
 ```
 
-**File:** `packages/ai-assistant/src/modules/ai_assistant/lib/api-discovery-tools.ts`
+**File:** `packages/ai-assistant/src/modules/ai_assistant/lib/codemode-tools.ts`
 
-### `call_api` - API Execution
+### `context_whoami` — Authentication Context
 
-**Purpose:** Execute an API endpoint
-
-**Input:**
-```typescript
-{
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
-  path: string                          // e.g., "/api/customers/companies"
-  query?: Record<string, string>        // Query parameters
-  body?: Record<string, unknown>        // Request body
-}
-```
-
-**Execution:**
-1. Build URL from env vars (NEXT_PUBLIC_APP_URL, APP_URL, etc.)
-2. Add tenant/org context to query (GET) or body (mutations)
-3. Add auth headers (X-API-Key, X-Tenant-Id, X-Organization-Id)
-4. Execute fetch, return parsed JSON response
-
-**Output:**
-```json
-{
-  "success": true,
-  "statusCode": 200,
-  "data": { /* API response */ }
-}
-```
-
-**File:** `packages/ai-assistant/src/modules/ai_assistant/lib/api-discovery-tools.ts`
-
-### `context_whoami` - Authentication Context
-
-**Purpose:** Get current authentication context
+**Purpose:** Get current authentication context (unchanged).
 
 **Output:**
 ```json
 {
   "tenantId": "uuid",
   "organizationId": "uuid",
-  "userId": "uuid"
+  "userId": "uuid",
+  "isSuperAdmin": true,
+  "features": ["customers.*", "sales.*", "..."],
+  "featureCount": 42
 }
 ```
 
@@ -308,7 +346,7 @@ For each entity:
 Cache in memory as EntityGraph { nodes[], edges[], generatedAt }
 ```
 
-**When it runs:** At MCP server startup (`mcp-dev-server.ts` lines 254-266)
+**When it runs:** At MCP server startup in all 3 server modes (dev, production, stdio).
 
 ### Module Inference
 
@@ -319,40 +357,11 @@ Cache in memory as EntityGraph { nodes[], edges[], generatedAt }
 2. Class name prefix: `SalesOrder` → `sales` (via moduleMap)
 3. Default: `core`
 
-**Module mapping:**
-```typescript
-{
-  sales: 'sales',
-  customer: 'customers',
-  catalog: 'catalog',
-  product: 'catalog',
-  order: 'sales',
-  auth: 'auth',
-  user: 'auth',
-  workflow: 'workflows',
-  config: 'configs',
-  dictionary: 'dictionaries',
-  // ... etc
-}
-```
-
 ## OpenAPI Collection Process
 
 ### How Specs Are Collected
 
 **Source:** `openApi` exports from API route files
-
-**Example route file:** `packages/core/src/modules/customers/api/people/route.ts`
-```typescript
-export const openApi = createCustomersCrudOpenApi({
-  resourceName: 'Person',
-  querySchema: listSchema,
-  listResponseSchema: createPagedListResponseSchema(personListItemSchema),
-  create: { schema: personCreateSchema, responseSchema: personCreateResponseSchema },
-  update: { schema: personUpdateSchema, responseSchema: defaultOkResponseSchema },
-  del: { schema: z.object({ id: z.string().uuid() }), responseSchema: defaultOkResponseSchema },
-})
-```
 
 **Generator process:** (`packages/cli/src/lib/generators/module-registry.ts`)
 ```
@@ -364,54 +373,33 @@ For each route file:
   - Check if exports `openApi` via moduleHasExport()
   - If yes, include in generated module entry
     ↓
-Output: apps/mercato/.mercato/generated/modules.generated.ts
-        apps/mercato/.mercato/generated/openapi.generated.json
+Output: apps/mercato/.mercato/generated/openapi.generated.json
 ```
 
-### How Endpoints Are Parsed
+### How the Raw Spec Is Loaded
 
 **File:** `packages/ai-assistant/src/modules/ai_assistant/lib/api-endpoint-index.ts`
 
-**Parse order (first success wins):**
+**Function:** `getRawOpenApiSpec()` — returns the full `OpenApiDocument` object (not parsed endpoints).
+
+**Loading order (first success wins):**
 1. Generated JSON: `openapi.generated.json` (CLI context)
 2. Module registry: `getModules()` → `buildOpenApiDocument()` (Next.js context)
 3. HTTP fetch: `GET /api/docs/openapi` (requires running app)
 
-### OpenAPI Document Generation
-
-**File:** `packages/shared/src/lib/openapi/generator.ts`
-
-**Function:** `buildOpenApiDocument(modules, options)`
-
-```
-For each module in modules:
-  For each api in module.apis:
-    If api.docs exists (the openApi export):
-      - Convert Zod schemas → JSON Schema via zodToJsonSchema()
-      - Generate example values via generateExample()
-      - Build cURL code samples
-      - Merge method documentation
-        ↓
-Combine all into OpenAPI 3.1.0 paths object
-```
+The raw spec is cached in memory and merged with the entity graph by `getCodeModeSpec()` to produce the `spec` global for the `search` tool.
 
 ## Search Indexing
 
-### What Gets Indexed
+Search indexing still runs at startup for Meilisearch (used by other features). The Code Mode tools do not depend on it — they use the cached in-memory spec directly.
 
 **Entity schemas** (`entity-index-config.ts`):
 - Entity ID: `ai_assistant:entity_schema`
 - Indexed: className, tableName, module
-- Full schema stored as JSON (excluded from fulltext)
-- Checksum-based change detection
 
 **API endpoints** (`api-endpoint-index-config.ts`):
 - Entity ID: `ai_assistant:api_endpoint`
 - Indexed: method, path, operationId, summary, description, tags
-- Action words added per HTTP method for semantic matching
-- Checksum-based change detection
-
-**Search strategies:** fulltext + vector (hybrid)
 
 ## Authentication & Context
 
@@ -421,6 +409,7 @@ Combine all into OpenAPI 3.1.0 paths object
 |------|------|----------|
 | Dev (`yarn mcp:dev`) | API key at startup | Claude Code, local dev |
 | Production (`yarn mcp:serve`) | API key + session tokens | Web AI chat |
+| Stdio (`yarn mcp:serve --stdio`) | API key or manual context | Direct CLI usage |
 
 ### Session Management
 
@@ -432,17 +421,46 @@ Combine all into OpenAPI 3.1.0 paths object
 
 | File | Purpose |
 |------|---------|
+| `codemode-tools.ts` | `search` and `execute` tool definitions, spec merging |
+| `sandbox.ts` | `node:vm` sandbox executor, `normalizeCode()` |
+| `truncate.ts` | Response size limiter (`truncateResult()`) |
+| `api-endpoint-index.ts` | OpenAPI parsing, `getRawOpenApiSpec()` |
 | `entity-graph.ts` | Extracts entity metadata from MikroORM |
-| `entity-graph-tools.ts` | `discover_schema` MCP tool |
-| `entity-index-config.ts` | Search index config for entities |
-| `api-endpoint-index.ts` | Parses OpenAPI, caches endpoints |
-| `api-discovery-tools.ts` | `find_api` and `call_api` MCP tools |
-| `api-endpoint-index-config.ts` | Search index config for endpoints |
 | `tool-loader.ts` | Loads and registers all MCP tools |
-| `mcp-server.ts` | MCP server creation and request handling |
+| `tool-registry.ts` | Global tool registration singleton |
+| `mcp-server.ts` | Stdio MCP server |
 | `mcp-dev-server.ts` | Development MCP server with API key auth |
+| `http-server.ts` | Production MCP HTTP server |
+
+**Legacy files (kept, unused):**
+
+| File | Original Purpose |
+|------|-----------------|
+| `api-discovery-tools.ts` | Old `find_api` / `call_api` tools |
+| `entity-graph-tools.ts` | Old `discover_schema` tool |
 
 All files in: `packages/ai-assistant/src/modules/ai_assistant/lib/`
+
+## Verified Test Results (2026-02-22)
+
+Tested against live MCP dev server with 358 API endpoints and 124 entities:
+
+| Test | Result |
+|------|--------|
+| `search` — filter paths by keyword | 21 customer paths, 4ms |
+| `search` — filter entities by module | 25 sales entities, 1ms |
+| `search` — get endpoint spec details | Full GET/POST/PUT/DELETE spec, 1ms |
+| `search` — entity fields + relationships | SalesOrder: 58 fields, 13 relations, 1ms |
+| `execute` — GET API call | 200 with paginated response, 312ms |
+| `execute` — multi-step + console.log | Logs captured, context correct, 349ms |
+| `execute` — POST create + GET verify | Created company, total=1, 835ms |
+| `execute` — POST validation error | 400 with field-level details, 267ms |
+| Markdown code fence stripping | 182 paths returned correctly |
+| Security: `fetch()` blocked | `fetch is not a function` |
+| Security: `process.env` blocked | `Cannot read properties of undefined` |
+| Security: `require()` blocked | `require is not a function` |
+| Security: invalid code format | Clear error message |
+| Security: infinite loop timeout | Timed out after 30s |
 
 ## Runtime Endpoints
 
@@ -469,5 +487,13 @@ yarn mercato ai_assistant mcp:list-tools --verbose
 
 ## Changelog
 
+### 2026-02-22
+- Replaced `find_api`, `call_api`, `discover_schema` and module AI tools with Code Mode `search` + `execute`
+- Added `node:vm` sandbox with security restrictions
+- Added response truncation (40K chars)
+- Added raw OpenAPI spec caching (`getRawOpenApiSpec()`)
+- Updated architecture diagrams and tool documentation
+- Added verified test results
+
 ### 2026-01-27
-- Initial specification documenting current implementation
+- Initial specification documenting the original implementation (discover_schema, find_api, call_api, context_whoami)

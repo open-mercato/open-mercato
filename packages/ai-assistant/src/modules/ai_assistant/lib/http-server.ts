@@ -183,8 +183,8 @@ function createMcpServerForRequest(
           if (sessionToken) {
             const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
             if (sessionContext) {
-              // Session context includes the decrypted API key secret
-              effectiveContext = sessionContext
+              // Session context includes the decrypted API key secret + session ID for memory layer
+              effectiveContext = { ...sessionContext, sessionId: sessionToken }
             } else {
               // Session token expired - return user-friendly error for AI to relay
               return {
@@ -214,6 +214,15 @@ function createMcpServerForRequest(
                   },
                 ],
                 isError: true,
+              }
+            }
+
+            // Derive a fallback sessionId from the API key so all tool calls
+            // within the same MCP connection share a session memory cache
+            if (!effectiveContext.sessionId && effectiveContext.apiKeySecret) {
+              effectiveContext = {
+                ...effectiveContext,
+                sessionId: 'apikey_' + effectiveContext.apiKeySecret.slice(0, 16),
               }
             }
           }
@@ -356,6 +365,19 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
     console.error(`[MCP HTTP] Entity graph: ${graph.nodes.length} entities, ${graph.edges.length} relationships`)
   } catch (error) {
     console.error('[MCP HTTP] Entity graph generation skipped:', error instanceof Error ? error.message : error)
+  }
+
+  // Pre-cache rich OpenAPI spec for Code Mode search tool (prefers runtime module registry over static JSON)
+  try {
+    const { loadRichOpenApiSpec } = await import('./api-endpoint-index')
+    const spec = await loadRichOpenApiSpec()
+    if (spec) {
+      console.error('[MCP HTTP] Rich OpenAPI spec cached for Code Mode (with requestBody schemas)')
+    } else {
+      console.error('[MCP HTTP] OpenAPI spec not available')
+    }
+  } catch (error) {
+    console.error('[MCP HTTP] OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
   }
 
   // Index tools, API endpoints, and entity schemas for hybrid search discovery (if search service available)
