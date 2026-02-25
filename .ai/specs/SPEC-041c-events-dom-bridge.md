@@ -414,6 +414,54 @@ export default {
 
 **Expected**: Saved todo title is "My Todo" (whitespace trimmed by transformer)
 
+### TC-UMES-E07: `onBeforeNavigate` blocks restricted targets and allows valid targets
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers` (Phase C test harness)
+2. Set target to `/backend/blocked` and trigger `onBeforeNavigate`
+3. Set target to `/backend/todos` and trigger `onBeforeNavigate` again
+
+**Expected**:
+- First run returns `{ ok: false, message: "Navigation blocked..." }`
+- Second run returns `{ ok: true }`
+
+### TC-UMES-E08: `onVisibilityChange` persists visibility transitions
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers`
+2. Toggle visibility off, then on
+3. Verify the widget state reflects the latest `visible` value
+
+**Expected**: Shared widget state records visibility changes; final state is `visible: true`
+
+### TC-UMES-E09: `onAppEvent` receives bridged app event payload
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers`
+2. Dispatch a mock `om:event` with `id: "example.todo.created"`
+3. Verify widget `onAppEvent` state updates
+
+**Expected**: Captured event id equals `example.todo.created`
+
+### TC-UMES-E10: `transformDisplayData` and `transformValidation` pipelines mutate output
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers`
+2. Trigger `transformDisplayData` for title `display me`
+3. Trigger `transformValidation` for `{ title: "Title is required" }`
+
+**Expected**:
+- Display data title is transformed to `DISPLAY ME`
+- Validation output title is prefixed with `[widget]`
+
 ### TC-UMES-E05: Events without `clientBroadcast: true` do NOT arrive at client
 
 **Type**: API+UI (Playwright)

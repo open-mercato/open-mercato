@@ -10,6 +10,8 @@ import { IconButton } from '../primitives/icon-button'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { mergeMenuItems, type MergedMenuItem } from './injection/mergeMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
+import { InjectionSpot } from './injection/InjectionSpot'
+import { BACKEND_TOPBAR_PROFILE_MENU_INJECTION_SPOT_ID } from './injection/spotIds'
 
 export type ProfileDropdownProps = {
   email?: string
@@ -123,6 +125,14 @@ export function ProfileDropdown({
   const mergedMenuItems = React.useMemo(
     () => mergeMenuItems(builtInMenuItems, injectedItems),
     [builtInMenuItems, injectedItems],
+  )
+  const injectionContext = React.useMemo(
+    () => ({
+      email,
+      displayName,
+      locale: currentLocale,
+    }),
+    [currentLocale, displayName, email],
   )
 
   const renderInjectedItem = React.useCallback(
@@ -343,6 +353,10 @@ export function ProfileDropdown({
                 : renderBuiltInItem(item.id)}
             </React.Fragment>
           ))}
+          <InjectionSpot
+            spotId={BACKEND_TOPBAR_PROFILE_MENU_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
         </div>
       )}
     </div>

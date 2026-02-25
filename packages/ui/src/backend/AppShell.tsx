@@ -23,12 +23,18 @@ import { mergeMenuItems } from './injection/mergeMenuItems'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
+import { SseEventIndicator } from './injection/SseEventIndicator'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
   BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID,
   BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID,
   BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID,
+  BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID,
+  GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID,
+  GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
 
 export type AppShellProps = {
@@ -1197,6 +1203,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
               return (
                 <>
                   <nav className="flex flex-col gap-2" data-testid="sidebar">
+                    {shouldRenderSidebarInjectionSpots ? (
+                      <InjectionSpot
+                        spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
+                        context={injectionContext}
+                      />
+                    ) : null}
                     {mainGroups.map((g, gi) => {
                       const groupId = resolveGroupKey(g)
                       const open = openGroups[groupId] !== false
@@ -1281,6 +1293,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                     })}
                   </nav>
                   <div className="mt-4 pt-4 border-t">
+                    {shouldRenderSidebarInjectionSpots ? (
+                      <InjectionSpot
+                        spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
+                        context={injectionContext}
+                      />
+                    ) : null}
                     <Link
                       href="/backend/settings"
                       className={`relative text-sm rounded inline-flex items-center w-full ${
@@ -1312,6 +1330,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         </div>
         {!customizing && (
           <>
+          {shouldRenderSidebarInjectionSpots ? (
+            <InjectionSpot
+              spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          ) : null}
           {compact || isMobileVariant ? (
             <IconButton
               variant="outline"
@@ -1452,6 +1476,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
+            <InjectionSpot
+              spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+            <InjectionSpot
+              spotId={BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
             {renderedTopbarInjectedActions}
             {rightHeaderSlot ? (
               rightHeaderSlot
@@ -1464,6 +1496,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <main className="flex-1 p-4 lg:p-6">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
+          <SseEventIndicator />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />

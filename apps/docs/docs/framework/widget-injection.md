@@ -104,10 +104,247 @@ const widget: InjectionMenuItemWidget = {
 
 Use `separator: true` to render visual separators for dropdown-style hosts. Combine with placement to insert separators before/after specific built-in items.
 
+## UMES Phase C — Events & DOM Bridge
+
+Phase C adds real-time server-to-client event delivery and richer widget lifecycle handlers.
+
+### DOM Event Bridge (SSE)
+
+Server-side events marked with `clientBroadcast: true` are automatically bridged to the browser via Server-Sent Events (SSE). The flow:
+
+1. Server emits event via event bus (e.g., `example.todo.created`)
+2. SSE endpoint (`/api/events/stream`) broadcasts to connected browser tabs
+3. Client `useEventBridge()` hook (mounted in `AppShell`) receives the event
+4. Dispatches a `om:event` CustomEvent on `window`
+5. Widget `useAppEvent` hooks receive and react
+
+#### Enabling broadcast on events
+
+In your module's `events.ts`, add `clientBroadcast: true`:
+
+```ts
+export const eventsConfig = createModuleEvents('example', {
+  todo: {
+    created: { clientBroadcast: true },
+    updated: { clientBroadcast: true },
+    deleted: { clientBroadcast: true },
+  },
+} as const)
+```
+
+#### Consuming events in widgets
+
+```ts
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+
+// Wildcard — matches example.todo.created, example.todo.updated, etc.
+useAppEvent('example.todo.*', (event) => {
+  console.log('Todo event:', event.id, event.payload)
+  refreshData()
+})
+
+// Exact match
+useAppEvent('example.todo.created', (event) => {
+  flash('New todo created!', 'info')
+})
+```
+
+### Extended Widget Event Handlers (Phase C)
+
+Widgets now support additional lifecycle handlers beyond the original save/delete/load events:
+
+| Handler | Type | Description |
+|---------|------|-------------|
+| `onFieldChange` | Action | Fires when a form field changes. Can return a warning message. |
+| `onBeforeNavigate` | Action | Navigation guard — return `{ ok: false }` to block. |
+| `onVisibilityChange` | Action | Fires when widget visibility changes. |
+| `onAppEvent` | Action | Fires when a matching SSE event arrives. |
+| `transformFormData` | Transformer | Pipeline: transform data before save. |
+| `transformDisplayData` | Transformer | Pipeline: transform data before display. |
+| `transformValidation` | Transformer | Pipeline: transform validation errors. |
+
+**Action handlers** fire independently for each widget. **Transformer handlers** run as a pipeline — the output of widget N becomes the input of widget N+1.
+
+#### Example: Action handlers
+
+```ts
+const widget: InjectionWidgetModule = {
+  metadata: { id: 'example.injection.phase-c-actions', /* ... */ },
+  Widget: ActionWidget,
+  eventHandlers: {
+    onFieldChange: async (fieldId, value) => {
+      if (fieldId === 'title' && typeof value === 'string' && value.toUpperCase().includes('TEST')) {
+        return {
+          message: { text: 'Title contains "TEST" — is this intentional?', severity: 'warning' },
+        }
+      }
+    },
+    onBeforeNavigate: async (target) => {
+      if (target.includes('/blocked')) {
+        return { ok: false, message: 'Navigation blocked by widget policy' }
+      }
+      return { ok: true }
+    },
+    onVisibilityChange: async (visible, context) => {
+      context.sharedState?.set('lastVisibility', visible)
+    },
+    onAppEvent: async (event, context) => {
+      context.sharedState?.set('lastEventId', event.id)
+    },
+  },
+}
+```
+
+#### Example: Transformer handlers
+
+```ts
+const widget: InjectionWidgetModule = {
+  metadata: { id: 'example.injection.phase-c-transformers', /* ... */ },
+  Widget: TransformerWidget,
+  eventHandlers: {
+    transformFormData: async (data, context) => {
+      const trimmed = { ...data }
+      for (const [key, value] of Object.entries(trimmed)) {
+        if (typeof value === 'string') trimmed[key] = value.trim()
+      }
+      return trimmed
+    },
+    transformDisplayData: async (data) => {
+      return {
+        ...data,
+        title: typeof data.title === 'string' ? data.title.toUpperCase() : data.title,
+      }
+    },
+    transformValidation: async (errors) => {
+      if (!errors.title) return errors
+      return { ...errors, title: `[widget] ${errors.title}` }
+    },
+  },
+}
+```
+
+### Integration Test Coverage (Phase C)
+
+Use a small test harness page that mounts the widget and calls `useInjectionSpotEvents(...)` to trigger each handler deterministically.
+
+Recommended Playwright coverage:
+
+| Test ID | What to verify |
+|---------|----------------|
+| `TC-UMES-E03` | `onFieldChange` updates warning state when title contains `TEST`. |
+| `TC-UMES-E04` | `transformFormData` trims input (`"  x  "` → `"x"`). |
+| `TC-UMES-E07` | `onBeforeNavigate` blocks `/blocked` and allows safe targets. |
+| `TC-UMES-E08` | `onVisibilityChange` stores latest visibility state. |
+| `TC-UMES-E09` | `onAppEvent` runs when `om:event` (`example.todo.created`) is dispatched. |
+| `TC-UMES-E10` | `transformDisplayData` and `transformValidation` mutate output as expected. |
+
+How to run:
+
+```bash
+npx playwright test --config .ai/qa/tests/playwright.config.ts apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts
+```
+
+### Operation Progress Tracking
+
+Track long-running server operations in widgets:
+
+```ts
+import { useOperationProgress } from '@open-mercato/ui/backend/injection/useOperationProgress'
+
+function ImportProgressWidget() {
+  const progress = useOperationProgress('catalog.import.*')
+  if (progress.status === 'idle') return null
+  return <ProgressBar value={progress.progress} label={progress.currentStep} />
+}
+```
+
+## UMES Phase D — Response Enrichers
+
+Phase D adds a federation-like data enrichment system. Modules can inject computed fields into other modules' API responses without modifying core code.
+
+### How It Works
+
+1. Module defines enrichers in `data/enrichers.ts`
+2. Generator discovers and registers them at bootstrap
+3. CRUD factory calls enrichers after `afterList` hook, before HTTP response
+4. Enriched fields appear under a `_<moduleName>` namespace
+5. Response includes `_meta.enrichedBy` tracking which enrichers ran
+
+### Creating a Response Enricher
+
+Create `src/modules/<module>/data/enrichers.ts`:
+
+```ts
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const customerTodoCount: ResponseEnricher = {
+  id: 'example.customer-todo-count',
+  targetEntity: 'customers.person',      // which entity to enrich
+  features: ['example.view'],            // ACL gating
+  priority: 10,                          // higher = runs first
+  timeout: 2000,                         // max ms per enricher
+  fallback: { _example: { todoCount: 0 } }, // used on timeout/error
+
+  async enrichOne(record, context) {
+    const em = context.em.fork()
+    const count = await em.count(Todo, { organizationId: context.organizationId })
+    return { ...record, _example: { todoCount: count } }
+  },
+
+  // MUST implement for list endpoints (prevents N+1 queries)
+  async enrichMany(records, context) {
+    const em = context.em.fork()
+    const todos = await em.find(Todo, { organizationId: context.organizationId })
+    return records.map(r => ({ ...r, _example: { todoCount: todos.length } }))
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [customerTodoCount]
+```
+
+### Opting In on CRUD Routes
+
+Add `enrichers` to your `makeCrudRoute` call:
+
+```ts
+export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
+  // ... other config
+  enrichers: { entityId: 'customers.person' },
+})
+```
+
+### API Response Shape
+
+```json
+{
+  "items": [
+    {
+      "id": "abc-123",
+      "firstName": "John",
+      "_example": { "todoCount": 5, "openTodoCount": 3 }
+    }
+  ],
+  "_meta": {
+    "enrichedBy": ["example.customer-todo-count"]
+  }
+}
+```
+
+### Key Rules
+
+- Enriched fields **MUST** be namespaced under `_<moduleName>` (e.g., `_example.todoCount`)
+- Enrichers are **additive-only** — never modify or remove existing fields
+- `enrichMany()` is **mandatory** for list endpoints (batch queries prevent N+1)
+- EntityManager usage is **read-only** — no writes in enrichers
+- Non-critical enrichers fail silently (use `fallback`); set `critical: true` to propagate errors
+- Export paths automatically strip enricher fields (anything prefixed with `_`)
+
 ### Directory Structure
 
 ```
 src/modules/<module>/
+├── data/
+│   └── enrichers.ts          # Response enrichers (auto-discovered)
 ├── widgets/
 │   ├── injection/
 │   │   └── <widget-name>/

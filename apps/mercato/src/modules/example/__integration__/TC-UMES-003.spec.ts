@@ -9,35 +9,15 @@
 import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
-  apiRequest,
 } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
 test.describe('TC-UMES-003: Events & DOM Bridge', () => {
-  let token: string
-  let todoId: string | null = null
-
-  test.beforeAll(async ({ request }) => {
-    token = await getAuthToken(request, 'admin')
-  })
-
-  test.afterAll(async ({ request }) => {
-    if (todoId) {
-      try {
-        await apiRequest(request, 'DELETE', '/api/example/todos', {
-          token,
-          data: { id: todoId },
-        })
-      } catch {
-        // ignore cleanup failure
-      }
-    }
-  })
-
   test('TC-UMES-E01: SSE endpoint returns event stream headers', async ({
     request,
   }) => {
+    const token = await getAuthToken(request, 'admin')
     // Verify the SSE endpoint exists and returns correct content type
     // We use a short-lived fetch since we can't hold the stream open in Playwright API context
     const response = await request.fetch(`${BASE_URL}/api/events/stream`, {
@@ -160,71 +140,108 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     expect(results.partialWildcardMismatch).toBe(false)
   })
 
-  test('TC-UMES-E03: Widget onFieldChange handler shows warning for TEST title', async ({
+  test('TC-UMES-E03: onFieldChange updates widget warning state', async ({
     page,
   }) => {
-    // This test verifies the onFieldChange handler in the crud-validation widget.
-    // The handler warns when a title field contains "TEST".
-    // Since this is a widget event handler, we test it through the UI.
     const { login } = await import(
       '@open-mercato/core/modules/core/__integration__/helpers/auth'
     )
     await login(page, 'admin')
-
-    // Navigate to todo create page (injection widgets are active there)
-    await page.goto('/backend/todos/create')
+    await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('networkidle')
 
-    // Look for a title input field
-    const titleInput = page.getByLabel(/title/i).first()
-    if (await titleInput.isVisible()) {
-      // Type "TEST" to trigger the onFieldChange handler
-      await titleInput.fill('TEST item')
-      // The handler should show a warning message
-      // (implementation-specific: depends on how the widget renders warnings)
-      // Wait briefly for any async handler to fire
-      await page.waitForTimeout(500)
+    await page.getByTestId('phase-c-title-input').fill('  TEST Widget  ')
+    await page.getByTestId('phase-c-trigger-field-change').click()
 
-      // Verify the field was filled correctly
-      await expect(titleInput).toHaveValue('TEST item')
-    }
+    await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
   })
 
-  test('TC-UMES-E04: transformFormData trims whitespace on save', async ({
-    request,
+  test('TC-UMES-E04: transformFormData trims strings in pipeline output', async ({
+    page,
   }) => {
-    // Test that creating a todo with whitespace gets trimmed
-    // The transformFormData handler trims string fields
-    const testSuffix = Date.now()
-    const todoResponse = await apiRequest(request, 'POST', '/api/example/todos', {
-      token,
-      data: { title: `  QA Trimmed Todo ${testSuffix}  ` },
-    })
-    expect(todoResponse.ok()).toBeTruthy()
-    const todoBody = await todoResponse.json()
-    todoId = todoBody?.id ?? null
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('networkidle')
 
-    // Fetch the created todo to verify
-    if (todoId) {
-      const getResponse = await apiRequest(
-        request,
-        'GET',
-        `/api/example/todos?id=${todoId}`,
-        { token },
-      )
-      expect(getResponse.ok()).toBeTruthy()
-      const getBody = await getResponse.json()
-      const items = getBody?.items ?? getBody?.data ?? []
-      const todo = items.find((t: Record<string, unknown>) => t.id === todoId)
+    await page.getByTestId('phase-c-title-input').fill('  Trim Me  ')
+    await page.getByTestId('phase-c-note-input').fill('  Keep Clean  ')
+    await page.getByTestId('phase-c-trigger-transform-form').click()
 
-      if (todo) {
-        // Note: transformFormData runs on the client-side before save.
-        // The API doesn't trim server-side, so this test validates
-        // that the API accepts the data correctly.
-        // Full UI testing of transform pipeline requires a browser test.
-        expect(todo.title).toBeDefined()
-        expect(typeof todo.title).toBe('string')
-      }
-    }
+    await expect(page.getByTestId('phase-c-form-transform-result')).toContainText('"title":"Trim Me"')
+    await expect(page.getByTestId('phase-c-form-transform-result')).toContainText('"note":"Keep Clean"')
+  })
+
+  test('TC-UMES-E07: onBeforeNavigate blocks blocked target and allows valid target', async ({
+    page,
+  }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('networkidle')
+
+    await page.getByTestId('phase-c-target-input').fill('/backend/blocked')
+    await page.getByTestId('phase-c-trigger-before-navigate').click()
+    await expect(page.getByTestId('phase-c-before-navigate-result')).toContainText('"ok":false')
+    await expect(page.getByTestId('phase-c-before-navigate-result')).toContainText('Navigation blocked')
+
+    await page.getByTestId('phase-c-target-input').fill('/backend/todos')
+    await page.getByTestId('phase-c-trigger-before-navigate').click()
+    await expect(page.getByTestId('phase-c-before-navigate-result')).toContainText('"ok":true')
+  })
+
+  test('TC-UMES-E08: onVisibilityChange updates widget visibility state', async ({
+    page,
+  }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('networkidle')
+
+    await page.getByTestId('phase-c-trigger-visibility').click()
+    await expect(page.getByTestId('phase-c-widget-hidden')).toBeVisible()
+
+    await page.getByTestId('phase-c-trigger-visibility').click()
+    await expect(page.getByTestId('widget-visibility')).toContainText('"visible":true')
+  })
+
+  test('TC-UMES-E09: onAppEvent fires from DOM bridge event', async ({
+    page,
+  }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('networkidle')
+
+    await page.getByTestId('phase-c-trigger-app-event').click()
+
+    await expect(page.getByTestId('phase-c-app-event-result')).toContainText('example.todo.created')
+    await expect(page.getByTestId('widget-app-event')).toContainText('example.todo.created')
+  })
+
+  test('TC-UMES-E10: transformDisplayData and transformValidation update outputs', async ({
+    page,
+  }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('networkidle')
+
+    await page.getByTestId('phase-c-title-input').fill('display me')
+    await page.getByTestId('phase-c-trigger-transform-display').click()
+    await expect(page.getByTestId('phase-c-display-transform-result')).toContainText('"title":"DISPLAY ME"')
+
+    await page.getByTestId('phase-c-trigger-transform-validation').click()
+    await expect(page.getByTestId('phase-c-validation-transform-result')).toContainText('"title":"[widget]')
   })
 })

@@ -25,8 +25,11 @@ export const APP_EVENT_DOM_NAME = 'om:event'
 export function matchesPattern(pattern: string, eventId: string): boolean {
   if (pattern === '*') return true
   if (!pattern.includes('*')) return pattern === eventId
+  const escapedPattern = pattern
+    .replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+    .replace(/\*/g, '.*')
   const regex = new RegExp(
-    '^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$',
+    '^' + escapedPattern + '$',
   )
   return regex.test(eventId)
 }

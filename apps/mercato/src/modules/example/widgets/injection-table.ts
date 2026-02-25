@@ -12,6 +12,10 @@ export const injectionTable: ModuleInjectionTable = {
   // Can also inject into variant form
   'crud-form:catalog.variant': 'example.injection.crud-validation',
   'crud-form:catalog.catalog_variant': 'example.injection.crud-validation',
+  'crud-form:example.todo': 'example.injection.crud-validation',
+
+  // Dedicated Phase C test harness page
+  'example:phase-c-handlers': 'example.injection.crud-validation',
 
   // Add example todos tab to sales quote/order detail pages
   'sales.document.detail.quote:tabs': [
