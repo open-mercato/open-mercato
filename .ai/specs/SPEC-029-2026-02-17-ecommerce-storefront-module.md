@@ -1852,6 +1852,124 @@ TC-SF-014: Skip to content link visible on first Tab press
 
 ---
 
+## §A — SalesChannel: Mandatory Binding
+
+A store MUST have at least one `EcommerceStoreChannelBinding` with a non-null `salesChannelId` before it can operate as a checkout destination.
+
+**Validation rules:**
+- `PUT /api/ecommerce/stores/:id` with `status: 'active'` → API returns 400 if no active channel binding exists for that store
+- `POST /api/ecommerce/storefront/cart/checkout` → returns 400 with `{ error: 'Store has no sales channel configured' }` if `channelBinding?.salesChannelId` is null
+
+The `salesChannelId` from the binding is passed as `channelId` to the `sales.orders.create` command, ensuring every storefront order is correctly scoped to a sales channel.
+
+---
+
+## §B — Checkout Workflow Contract
+
+### Cart State Machine
+
+```
+active  ──[POST /checkout]──▶  locked (transient, during processing)
+                               │
+                   ┌───────────┴───────────┐
+                   ▼                       ▼
+              converted                abandoned
+           (convertedOrderId set)    (timeout/failure)
+```
+
+States:
+| State | Description |
+|---|---|
+| `active` | Cart is being built by the customer |
+| `locked` | Checkout is in progress — no mutations allowed |
+| `converted` | Order successfully created; `convertedOrderId` is set |
+| `abandoned` | Cart expired or checkout failed irrecoverably |
+
+### Checkout Flow
+
+1. Resolve store context (channel binding required)
+2. Validate cart token, cart is `active`, cart has lines
+3. Set `cart.status = 'locked'` and flush
+4. Call `commandBus.execute('sales.orders.create', { input, ctx })` — this emits `sales.order.created`, creates audit log, invalidates cache
+5. Set `cart.status = 'converted'`, `cart.convertedOrderId = orderId`
+6. Emit `ecommerce.cart.converted { cartId, orderId, storeId, organizationId, tenantId }`
+7. Return `{ orderId }`
+
+### Event Contract
+
+```typescript
+// Event ID: 'ecommerce.cart.converted'
+type CartConvertedPayload = {
+  id: string           // cartId
+  organizationId: string
+  tenantId: string
+  orderId: string      // created SalesOrder.id
+  storeId: string
+}
+```
+
+---
+
+## §C — Source of Truth: Prices
+
+**Rule**: `apps/storefront` NEVER calculates prices locally.
+
+- Price snapshots are taken server-side at `POST /api/ecommerce/storefront/cart/lines` via `pricingService.resolvePrice()`
+- Cart lines store `unitPriceNet`, `unitPriceGross`, `currencyCode` as immutable snapshots
+- React components read prices from cart line snapshots — no arithmetic in component code
+- Totals shown in UI are sums of server-provided line snapshots
+
+---
+
+## §D — Customer Identity: MVP (Guest Only)
+
+MVP scope is **guest checkout only**:
+
+- `customerEntityId` on `SalesOrder` is `null`
+- `customerSnapshot` is set to: `{ customer: { displayName, primaryEmail, primaryPhone } }`
+- No session-based customer tracking
+- No post-checkout account linking
+
+Phase 2 (out of scope for SPEC-029): customer account creation, order history, loyalty, address book.
+
+---
+
+## §E — Observability & Guardrails
+
+Public storefront endpoints (`/api/ecommerce/storefront/*`) MUST apply:
+
+| Endpoint pattern | Rate limit |
+|---|---|
+| `/cart/*` | 10 requests/second per IP |
+| `/products*` | 100 requests/minute per IP |
+
+**Checkout error logging** — on any error inside `POST /checkout`:
+```typescript
+console.error('[ecommerce:checkout] Checkout failed', {
+  cartId: cart?.id ?? null,
+  storeId: storeCtx?.store?.id ?? null,
+  error: err,
+})
+```
+
+**Checkout timeout**: The full checkout processing MUST complete within 10 seconds. If the command bus call exceeds this, return 504 and set cart back to `active`.
+
+---
+
+## §F — Host/Slug → Store Context: Precedence
+
+When resolving store context from an incoming request, the precedence order is:
+
+1. `X-Store-Slug` header (highest priority)
+2. `?storeSlug=` query parameter
+3. `Host` header → domain lookup via `EcommerceStoreDomain`
+
+Fallback: If none of the above match a known store, return **404** (no default store concept).
+
+Implementation: `resolveStoreFromRequest()` in `lib/storeContext.ts`.
+
+---
+
 ## 30) Changelog
 
 ### 2026-02-18
@@ -1866,6 +1984,18 @@ TC-SF-014: Skip to content link visible on first Tab press
   - Updated frontend checkout pattern (§19.4) with idempotency key lifecycle (`sessionStorage`, clear on submit) and version threading
   - Added DB-level conditional UPDATE note in security section
   - Updated `storefrontFetch()` client to support `method`, `body`, `idempotencyKey` options and typed 409 error
+
+### 2026-02-20
+
+- **v3**: Enterprise integration — 6 must-have gaps closed before production readiness
+  - Added §A: SalesChannel mandatory binding — store cannot be `active` without at least one `EcommerceStoreChannelBinding` with `salesChannelId`; checkout returns 400 if no channel
+  - Added §B: Checkout Workflow Contract — explicit cart state machine (`active → locked → converted | abandoned`), command bus integration (`sales.orders.create`), event `ecommerce.cart.converted`
+  - Added §C: Source of Truth for prices — storefront never calculates prices; snapshot is taken at `POST /cart/lines` via `pricingService.resolvePrice()`; no React-side recalculations
+  - Added §D: Customer Identity MVP — guest-only checkout; `customerEntityId` is null; `customerSnapshot` holds `{ displayName, primaryEmail, primaryPhone }`; customer account linking is Phase 2
+  - Added §E: Observability & guardrails — rate limiting on `/cart/*` (10 req/s per IP), on `/products` (100 req/min); checkout errors logged with cartId + storeId + stack trace; 10s checkout timeout
+  - Added §F: Host/Slug → Store Context precedence — `X-Store-Slug` header > `?storeSlug=` query > `Host` header domain lookup; fallback is 404 (no default store)
+  - Added public bootstrap endpoint `GET /api/ecommerce/storefront/me` for storefront initialization (`store`, `tenantId`, `organizationId`, `channelBinding`, `effectiveLocale`, `features.checkoutEnabled`, `auth`, `cart`)
+  - Added strict query validation for storefront bootstrap (`tenantId`, `cartToken`) with explicit 400 responses on invalid UUIDs
 
 ### 2026-02-17
 

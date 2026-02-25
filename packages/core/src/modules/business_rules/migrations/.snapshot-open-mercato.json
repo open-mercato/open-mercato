@@ -489,7 +489,6 @@
             "id"
           ],
           "referencedTableName": "public.business_rules",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -813,7 +812,6 @@
             "id"
           ],
           "referencedTableName": "public.rule_sets",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "rule_set_members_rule_id_foreign": {
@@ -826,7 +824,6 @@
             "id"
           ],
           "referencedTableName": "public.business_rules",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
