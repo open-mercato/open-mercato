@@ -32,9 +32,3 @@ Verify that category creation is blocked when global `All organizations` scope i
 ## Expected Results
 - No `POST /api/catalog/categories` is sent while organization scope is global.
 - User is required to switch to a specific organization before create.
-
-## Edge Cases / Error Scenarios
-- User with single organization (global option unavailable)
-- Organization selection changes while form is open
-- Direct URL access to create page with global scope cookie
-
