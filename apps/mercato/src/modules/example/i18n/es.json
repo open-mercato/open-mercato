@@ -5,6 +5,8 @@
   "example.audit.todos.update": "Actualizar tarea",
   "example.manageEntities": "Gestiona entidades de ejemplo.",
   "example.moduleTitle": "Módulo de ejemplo",
+  "example.menu.quickAddTodo": "Agregar tarea rápida",
+  "example.menu.todosShortcut": "Tareas de ejemplo",
   "example.nav.group": "Ejemplo",
   "example.publicPage": "Página pública de ejemplo.",
   "example.salesTodos.tabLabel": "Tareas (ejemplo)",

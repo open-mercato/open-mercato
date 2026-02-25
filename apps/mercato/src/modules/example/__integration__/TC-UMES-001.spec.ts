@@ -1,0 +1,33 @@
+import { expect, test } from '@playwright/test'
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+
+test.describe('TC-UMES-001: Foundation and Menu Injection', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'admin')
+    await page.goto('/backend')
+  })
+
+  test('should render injected sidebar item and navigate to todos page', async ({ page }) => {
+    const sidebarItem = page.locator('[data-menu-item-id="example-todos-shortcut"]').first()
+    await expect(sidebarItem).toBeVisible()
+    await sidebarItem.click()
+    await expect(page).toHaveURL(/\/backend\/example\/todos(?:\?.*)?$/)
+  })
+
+  test('should render injected topbar action item', async ({ page }) => {
+    const topbarAction = page.locator('header [data-menu-item-id="example-quick-add-todo"]').first()
+    await expect(topbarAction).toBeVisible()
+    await topbarAction.click()
+    await expect(page).toHaveURL(/\/backend\/example\/todos\/create(?:\?.*)?$/)
+  })
+
+  test('should render injected profile dropdown item', async ({ page }) => {
+    await page.getByTestId('profile-dropdown-trigger').click()
+    const dropdown = page.getByTestId('profile-dropdown')
+    await expect(dropdown).toBeVisible()
+    const injectedItem = dropdown.locator('[data-menu-item-id="example-quick-add-todo"]').first()
+    await expect(injectedItem).toBeVisible()
+    await injectedItem.click()
+    await expect(page).toHaveURL(/\/backend\/example\/todos\/create(?:\?.*)?$/)
+  })
+})

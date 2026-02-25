@@ -5,6 +5,8 @@
   "example.audit.todos.update": "To-do aktualisieren",
   "example.manageEntities": "Verwalte Beispiel-Entitäten.",
   "example.moduleTitle": "Beispielmodul",
+  "example.menu.quickAddTodo": "Schnell Aufgabe anlegen",
+  "example.menu.todosShortcut": "Beispielaufgaben",
   "example.nav.group": "Beispiel",
   "example.publicPage": "Öffentliche Beispielseite.",
   "example.salesTodos.tabLabel": "Aufgaben (Beispiel)",

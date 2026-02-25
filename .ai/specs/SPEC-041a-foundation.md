@@ -430,3 +430,7 @@ Add the menu spot mapping:
 - All existing `widget.ts` files that export `Widget` component unchanged
 - New headless loading path is additive — does not modify existing `loadInjectionWidgetById`
 - `InjectionPosition` is a new export — no existing code affected
+
+## Changelog
+
+- **2026-02-25**: Implemented `InjectionPosition`, `insertByInjectionPlacement`, headless injection loader path (`loadInjectionDataWidgetById`, `loadInjectionDataWidgetsForSpot`), `useInjectionDataWidgets`, widget shared state primitives, and foundational example widget coverage.

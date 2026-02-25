@@ -37,6 +37,18 @@ export const injectionTable: ModuleInjectionTable = {
     kind: 'stack',
     priority: 5,
   },
+  'menu:sidebar:main': {
+    widgetId: 'example.injection.example-menus',
+    priority: 50,
+  },
+  'menu:topbar:actions': {
+    widgetId: 'example.injection.example-menus',
+    priority: 50,
+  },
+  'menu:topbar:profile-dropdown': {
+    widgetId: 'example.injection.example-menus',
+    priority: 50,
+  },
 }
 
 export default injectionTable

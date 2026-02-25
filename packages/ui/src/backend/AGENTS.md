@@ -34,6 +34,9 @@ import { FormHeader, FormFooter } from '@open-mercato/ui/backend/forms'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
+import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'
+import { mergeMenuItems } from '@open-mercato/ui/backend/injection/mergeMenuItems'
 ```
 
 ## When Building Backend Pages

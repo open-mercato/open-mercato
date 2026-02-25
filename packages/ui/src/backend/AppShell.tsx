@@ -16,7 +16,10 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
+import { mergeMenuItems } from './injection/mergeMenuItems'
+import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -33,6 +36,7 @@ export type AppShellProps = {
     name: string
     defaultName?: string
     items: {
+      id?: string
       href: string
       title: string
       defaultTitle?: string
@@ -41,6 +45,7 @@ export type AppShellProps = {
       hidden?: boolean
       pageContext?: 'main' | 'admin' | 'settings' | 'profile'
       children?: {
+        id?: string
         href: string
         title: string
         defaultTitle?: string
@@ -80,6 +85,172 @@ type SidebarCustomizationDraft = {
 type SidebarGroup = AppShellProps['groups'][number]
 type SidebarItem = SidebarGroup['items'][number]
 type SidebarRoleTarget = { id: string; name: string; hasPreference: boolean }
+
+function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: string): SidebarItem | null {
+  if (!item.href) return null
+  return {
+    id: item.id,
+    href: item.href,
+    title,
+    defaultTitle: title,
+    enabled: true,
+    hidden: false,
+    pageContext: 'main',
+  }
+}
+
+function mergeSidebarItemsWithInjected(
+  items: SidebarItem[],
+  injectedItems: InjectionMenuItem[],
+  t: (key: string, fallback?: string) => string,
+): SidebarItem[] {
+  if (injectedItems.length === 0) return items
+
+  const builtInById = new Map<string, SidebarItem>()
+  for (const item of items) {
+    builtInById.set(item.id ?? item.href, item)
+  }
+
+  const merged = mergeMenuItems(
+    items.map((item) => ({
+      id: item.id ?? item.href,
+    })),
+    injectedItems,
+  )
+
+  const result: SidebarItem[] = []
+  for (const entry of merged) {
+    if (entry.source === 'built-in') {
+      const original = builtInById.get(entry.id)
+      if (original) result.push(original)
+      continue
+    }
+    const translatedLabel = entry.labelKey
+      ? t(entry.labelKey, entry.label ?? entry.id)
+      : (entry.label ?? entry.id)
+    const converted = convertInjectedMenuItemToSidebarItem(
+      {
+        id: entry.id,
+        label: translatedLabel,
+        href: entry.href,
+      },
+      translatedLabel,
+    )
+    if (converted) result.push(converted)
+  }
+
+  return result
+}
+
+function mergeSidebarGroupsWithInjected(
+  groups: SidebarGroup[],
+  injectedItems: InjectionMenuItem[],
+  t: (key: string, fallback?: string) => string,
+): SidebarGroup[] {
+  if (injectedItems.length === 0) return groups
+
+  const injectedByGroup = new Map<string, InjectionMenuItem[]>()
+  const ungrouped: InjectionMenuItem[] = []
+
+  for (const item of injectedItems) {
+    if (item.groupId && item.groupId.trim().length > 0) {
+      const groupItems = injectedByGroup.get(item.groupId) ?? []
+      groupItems.push(item)
+      injectedByGroup.set(item.groupId, groupItems)
+      continue
+    }
+    ungrouped.push(item)
+  }
+
+  const nextGroups = groups.map((group, index) => {
+    const groupId = group.id || resolveGroupKey(group)
+    const groupInjected = [
+      ...(injectedByGroup.get(groupId) ?? []),
+      ...(index === 0 ? ungrouped : []),
+    ]
+    return {
+      ...group,
+      items: mergeSidebarItemsWithInjected(group.items, groupInjected, t),
+    }
+  })
+
+  const existingIds = new Set(nextGroups.map((group) => group.id || resolveGroupKey(group)))
+  for (const [groupId, items] of injectedByGroup.entries()) {
+    if (existingIds.has(groupId)) continue
+    const first = items[0]
+    const label = first.groupLabelKey
+      ? t(first.groupLabelKey, first.groupLabel ?? groupId)
+      : (first.groupLabel ?? groupId)
+    const groupItems = mergeSidebarItemsWithInjected([], items, t)
+    if (groupItems.length === 0) continue
+    nextGroups.push({
+      id: groupId,
+      name: label,
+      defaultName: label,
+      items: groupItems,
+    })
+  }
+
+  return nextGroups
+}
+
+function mergeSectionGroupsWithInjected(
+  sections: SectionNavGroup[],
+  injectedItems: InjectionMenuItem[],
+  t: (key: string, fallback?: string) => string,
+): SectionNavGroup[] {
+  if (injectedItems.length === 0) return sections
+  const byGroup = new Map<string, InjectionMenuItem[]>()
+  for (const item of injectedItems) {
+    const groupId = item.groupId && item.groupId.trim().length > 0 ? item.groupId : 'injected'
+    const bucket = byGroup.get(groupId) ?? []
+    bucket.push(item)
+    byGroup.set(groupId, bucket)
+  }
+
+  const nextSections = sections.map((section) => {
+    const sectionItems = byGroup.get(section.id) ?? []
+    if (sectionItems.length === 0) return section
+    const mergedItems = mergeMenuItems(
+      section.items.map((item) => ({ id: item.id, item })),
+      sectionItems,
+    ).flatMap((item) => {
+      if (item.source === 'built-in') {
+        const original = section.items.find((entry) => entry.id === item.id)
+        return original ? [original] : []
+      }
+      if (!item.href) return []
+      const label = item.labelKey ? t(item.labelKey, item.label ?? item.id) : (item.label ?? item.id)
+      return [{
+        id: item.id,
+        label,
+        href: item.href,
+      }]
+    })
+    return {
+      ...section,
+      items: mergedItems,
+    }
+  })
+
+  for (const [sectionId, sectionItems] of byGroup.entries()) {
+    const exists = nextSections.some((section) => section.id === sectionId)
+    if (exists) continue
+    const first = sectionItems[0]
+    const label = first.groupLabelKey
+      ? t(first.groupLabelKey, first.groupLabel ?? sectionId)
+      : (first.groupLabel ?? sectionId)
+    const items = sectionItems.flatMap((item) => {
+      if (!item.href) return []
+      const itemLabel = item.labelKey ? t(item.labelKey, item.label) : item.label
+      return [{ id: item.id, label: itemLabel, href: item.href }]
+    })
+    if (items.length === 0) continue
+    nextSections.push({ id: sectionId, label, items })
+  }
+
+  return nextSections
+}
 
 function resolveGroupKey(group: SidebarGroup): string {
   if (group.id && group.id.length) return group.id
@@ -160,6 +331,10 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const searchParams = useSearchParams()
   const t = useT()
   const locale = useLocale()
+  const { items: mainSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:main')
+  const { items: settingsSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:settings')
+  const { items: profileSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:profile')
+  const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
   const resolvedProductName = productName ?? t('appShell.productName')
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
@@ -206,6 +381,11 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     isOnSettingsPath ? 'settings' :
     isOnProfilePath ? 'profile' :
     'main'
+
+  const mainNavGroupsWithInjected = React.useMemo(
+    () => mergeSidebarGroupsWithInjected(navGroups, mainSidebarInjectedMenuItems, t),
+    [mainSidebarInjectedMenuItems, navGroups, t],
+  )
 
   // Lock body scroll when mobile drawer is open so touch scroll stays in the drawer
   React.useEffect(() => {
@@ -703,6 +883,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                               : 'hover:bg-accent hover:text-accent-foreground'
                           }`}
                           title={compact ? label : undefined}
+                          data-menu-item-id={item.id}
                           onClick={() => setMobileOpen(false)}
                         >
                           {isActive && (
@@ -729,8 +910,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
   function renderSidebar(compact: boolean, hideHeader?: boolean) {
     if (sidebarMode === 'settings' && settingsSections && settingsSections.length > 0) {
-      return renderSectionSidebar(
+      const mergedSettingsSections = mergeSectionGroupsWithInjected(
         settingsSections,
+        settingsSidebarInjectedMenuItems,
+        t,
+      )
+      return renderSectionSidebar(
+        mergedSettingsSections,
         settingsSectionTitle ?? t('backend.nav.settings', 'Settings'),
         compact,
         hideHeader
@@ -738,8 +924,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
 
     if (sidebarMode === 'profile' && profileSections && profileSections.length > 0) {
-      return renderSectionSidebar(
+      const mergedProfileSections = mergeSectionGroupsWithInjected(
         profileSections,
+        profileSidebarInjectedMenuItems,
+        t,
+      )
+      return renderSectionSidebar(
+        mergedProfileSections,
         profileSectionTitle ?? t('backend.nav.profile', 'Profile'),
         compact,
         hideHeader
@@ -748,7 +939,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
     const isMobileVariant = !!hideHeader
     const shouldRenderSidebarInjectionSpots = !isMobileVariant
-    const baseGroupsForDefaults = originalNavRef.current ?? navGroups
+    const baseGroupsForDefaults = originalNavRef.current ?? mainNavGroupsWithInjected
     const baseGroupMap = new Map<string, SidebarGroup>()
     for (const group of baseGroupsForDefaults) {
       baseGroupMap.set(resolveGroupKey(group), group)
@@ -757,7 +948,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
     const orderedGroupIds = customDraft
       ? mergeGroupOrder(customDraft.order, Array.from(baseGroupMap.keys()))
-      : navGroups.map((group) => resolveGroupKey(group))
+      : mainNavGroupsWithInjected.map((group) => resolveGroupKey(group))
 
     const lastVisibleGroupIndex = (() => {
       for (let idx = navGroups.length - 1; idx >= 0; idx -= 1) {
@@ -967,7 +1158,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 return true
               }
 
-              const mainGroups = navGroups.map((g) => ({
+              const mainGroups = mainNavGroupsWithInjected.map((g) => ({
                 ...g,
                 items: g.items.filter((item) => isMainItem(item) && item.hidden !== true),
               })).filter((g) => g.items.length > 0)
@@ -981,7 +1172,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
               return (
                 <>
-                  <nav className="flex flex-col gap-2">
+                  <nav className="flex flex-col gap-2" data-testid="sidebar">
                     {mainGroups.map((g, gi) => {
                       const groupId = resolveGroupKey(g)
                       const open = openGroups[groupId] !== false
@@ -1015,6 +1206,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                       } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                       aria-disabled={i.enabled === false}
                                       title={compact ? i.title : undefined}
+                                      data-menu-item-id={i.id ?? i.href}
                                       onClick={() => setMobileOpen(false)}
                                     >
                                       {isParentActive ? (
@@ -1039,6 +1231,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                               } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                               aria-disabled={c.enabled === false}
                                               title={compact ? c.title : undefined}
+                                              data-menu-item-id={c.id ?? c.href}
                                               onClick={() => setMobileOpen(false)}
                                             >
                                               {childActive ? (
@@ -1138,6 +1331,38 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setBreadcrumb: setHeaderBreadcrumb,
     setTitle: setHeaderTitle,
   }), [])
+  const renderedTopbarInjectedActions = React.useMemo(
+    () =>
+      topbarInjectedMenuItems.map((item) => {
+        const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+        if (item.href) {
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              className="inline-flex items-center rounded border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
+              data-menu-item-id={item.id}
+            >
+              {label}
+            </Link>
+          )
+        }
+        return (
+          <Button
+            key={item.id}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            data-menu-item-id={item.id}
+            onClick={() => item.onClick?.()}
+          >
+            {label}
+          </Button>
+        )
+      }),
+    [t, topbarInjectedMenuItems],
+  )
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
@@ -1203,6 +1428,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
+            {renderedTopbarInjectedActions}
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
@@ -1274,6 +1500,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 // Helper: deep-clone minimal shape we mutate (children arrays)
 AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): AppShellProps['groups'] {
   const cloneItem = (item: SidebarItem): SidebarItem => ({
+    id: item.id,
     href: item.href,
     title: item.title,
     defaultTitle: item.defaultTitle,

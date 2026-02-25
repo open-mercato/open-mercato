@@ -247,6 +247,8 @@ Widget injection is the preferred way to build inter-module UI extensions. Avoid
 - Declare widgets under `widgets/injection/`
 - Map them to slots via `widgets/injection-table.ts`
 - Keep metadata in colocated `*.meta.ts` files
+- For headless widgets (menu items, field/column/action declarations), export declarative payloads from `widget.ts` without a React `Widget` component
+- Use `InjectionPosition` from `@open-mercato/shared/modules/widgets/injection-position` for deterministic before/after/first/last placement
 
 ### Spot IDs
 
@@ -254,8 +256,20 @@ Hosts expose consistent spot ids:
 - `crud-form:<entityId>` — forms
 - `data-table:<tableId>[:header|:footer]` — data tables
 - `admin.page:<path>:before|after` — admin pages
+- `menu:sidebar:main` — main sidebar items/groups
+- `menu:sidebar:settings` — settings sidebar
+- `menu:sidebar:profile` — profile sidebar
+- `menu:topbar:profile-dropdown` — user/profile dropdown
+- `menu:topbar:actions` — header action area
 
 Widgets can opt into grouped cards or tabs via `placement.kind`.
+
+### Menu Injection
+
+- Define menu widgets with `menuItems: InjectionMenuItem[]` and map them to one or more `menu:*` spots in `widgets/injection-table.ts`.
+- Prefer stable `menuItems[].id` values (`<module>-<feature>-<action>`) because sidebar customization and tests rely on these IDs.
+- Always use i18n keys for labels (`labelKey`), never hard-code user-facing text in widget payloads.
+- When placing relative to an existing item, provide `placement: { position: InjectionPosition.Before|After, relativeTo: '<target-id>' }`.
 
 ## Custom Fields
 

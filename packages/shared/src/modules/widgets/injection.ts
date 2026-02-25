@@ -1,4 +1,5 @@
-import type { ComponentType } from 'react'
+import type { ComponentType, LazyExoticComponent, ReactNode } from 'react'
+import type { InjectionPlacement } from './injection-position'
 
 /**
  * Widget injection event handlers for lifecycle management
@@ -54,7 +55,7 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
  */
 export type InjectionWidgetMetadata = {
   id: string
-  title: string
+  title?: string
   description?: string
   features?: string[]
   priority?: number
@@ -122,6 +123,194 @@ export type InjectionWidgetModule<TContext = unknown, TData = unknown> = {
   Widget: ComponentType<InjectionWidgetComponentProps<TContext, TData>>
   eventHandlers?: WidgetInjectionEventHandlers<TContext, TData>
 }
+
+export type InjectionColumnDefinition = {
+  id: string
+  header: string
+  accessorKey: string
+  cell?: (props: { getValue: () => unknown }) => ReactNode
+  size?: number
+  sortable?: boolean
+  placement?: InjectionPlacement
+}
+
+export type InjectionRowActionDefinition = {
+  id: string
+  label: string
+  icon?: string
+  onSelect: (row: unknown, context: unknown) => void
+  placement?: InjectionPlacement
+}
+
+export type InjectionBulkActionDefinition = {
+  id: string
+  label: string
+  icon?: string
+  onExecute: (selectedRows: unknown[], context: unknown) => Promise<void>
+}
+
+export type InjectionFilterDefinition = {
+  id: string
+  label: string
+  type: 'select' | 'text' | 'date-range' | 'boolean'
+  options?: { value: string; label: string }[]
+  strategy: 'server' | 'client'
+  queryParam?: string
+  enrichedField?: string
+}
+
+export type FieldVisibilityCondition<TContext = unknown> = (
+  values: Record<string, unknown>,
+  context: TContext,
+) => boolean
+
+export type CustomFieldProps<TContext = unknown> = {
+  value: unknown
+  onChange: (value: unknown) => void
+  context: TContext
+  disabled?: boolean
+}
+
+export type FieldContext = {
+  organizationId?: string | null
+  tenantId?: string | null
+  userId?: string | null
+  record?: Record<string, unknown>
+}
+
+export type InjectionFieldDefinition = {
+  id: string
+  label: string
+  type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea' | 'custom'
+  options?: { value: string; label: string }[]
+  optionsLoader?: (context: FieldContext) => Promise<{ value: string; label: string }[]>
+  optionsCacheTtl?: number
+  customComponent?: LazyExoticComponent<ComponentType<CustomFieldProps>>
+  group: string
+  placement?: InjectionPlacement
+  readOnly?: boolean
+  visibleWhen?: FieldVisibilityCondition
+}
+
+export type WizardStepProps<TContext = unknown> = {
+  data: Record<string, unknown>
+  setData: (next: Record<string, unknown>) => void
+  context: TContext
+}
+
+export type InjectionContext = {
+  organizationId?: string | null
+  tenantId?: string | null
+  userId?: string | null
+  path?: string
+  [k: string]: unknown
+}
+
+export type InjectionWizardStep = {
+  id: string
+  label: string
+  fields?: InjectionFieldDefinition[]
+  customComponent?: LazyExoticComponent<ComponentType<WizardStepProps>>
+  validate?: (
+    data: Record<string, unknown>,
+    context: InjectionContext,
+  ) => Promise<{ ok: boolean; message?: string }>
+}
+
+export type InjectionWizardWidget = {
+  metadata: InjectionWidgetMetadata
+  kind: 'wizard'
+  steps: InjectionWizardStep[]
+  onComplete?: (stepData: Record<string, unknown>, context: InjectionContext) => Promise<void>
+  eventHandlers?: WidgetInjectionEventHandlers<InjectionContext, Record<string, unknown>>
+}
+
+export type StatusBadgeResult = {
+  status: 'healthy' | 'warning' | 'error' | 'unknown'
+  tooltip?: string
+  count?: number
+}
+
+export type StatusBadgeContext = {
+  organizationId: string
+  tenantId: string
+  userId: string
+}
+
+export type InjectionStatusBadgeWidget = {
+  metadata: InjectionWidgetMetadata
+  kind: 'status-badge'
+  badge: {
+    label: string
+    statusLoader: (context: StatusBadgeContext) => Promise<StatusBadgeResult>
+    href?: string
+    pollInterval?: number
+  }
+}
+
+export type InjectionMenuItem = {
+  id: string
+  label: string
+  labelKey?: string
+  icon?: string
+  href?: string
+  onClick?: () => void
+  separator?: boolean
+  placement?: InjectionPlacement
+  features?: string[]
+  roles?: string[]
+  badge?: string | number
+  children?: Omit<InjectionMenuItem, 'children'>[]
+  groupId?: string
+  groupLabel?: string
+  groupLabelKey?: string
+  groupOrder?: number
+}
+
+export type InjectionMenuItemWidget = {
+  metadata: InjectionWidgetMetadata
+  menuItems: InjectionMenuItem[]
+}
+
+export type InjectionColumnWidget = {
+  metadata: InjectionWidgetMetadata
+  columns: InjectionColumnDefinition[]
+}
+
+export type InjectionRowActionWidget = {
+  metadata: InjectionWidgetMetadata
+  rowActions: InjectionRowActionDefinition[]
+}
+
+export type InjectionBulkActionWidget = {
+  metadata: InjectionWidgetMetadata
+  bulkActions: InjectionBulkActionDefinition[]
+}
+
+export type InjectionFilterWidget = {
+  metadata: InjectionWidgetMetadata
+  filters: InjectionFilterDefinition[]
+}
+
+export type InjectionFieldWidget = {
+  metadata: InjectionWidgetMetadata
+  fields: InjectionFieldDefinition[]
+  eventHandlers?: WidgetInjectionEventHandlers<InjectionContext, Record<string, unknown>>
+}
+
+export type InjectionDataWidgetModule =
+  | InjectionColumnWidget
+  | InjectionRowActionWidget
+  | InjectionBulkActionWidget
+  | InjectionFilterWidget
+  | InjectionFieldWidget
+  | InjectionWizardWidget
+  | InjectionStatusBadgeWidget
+  | InjectionMenuItemWidget
+
+export type InjectionAnyWidgetModule<TContext = unknown, TData = unknown> =
+  | InjectionWidgetModule<TContext, TData>
+  | InjectionDataWidgetModule
 
 /**
  * Injection spot identifier - uniquely identifies where widgets can be injected

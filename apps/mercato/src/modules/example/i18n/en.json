@@ -5,6 +5,8 @@
   "example.audit.todos.update": "Update todo",
   "example.manageEntities": "Manage example entities.",
   "example.moduleTitle": "Example Module",
+  "example.menu.quickAddTodo": "Quick Add Todo",
+  "example.menu.todosShortcut": "Example Todos",
   "example.nav.group": "Example",
   "example.publicPage": "Public example page.",
   "example.salesTodos.tabLabel": "Todos (example)",

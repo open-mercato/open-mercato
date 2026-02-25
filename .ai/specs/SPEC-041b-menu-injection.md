@@ -429,3 +429,7 @@ export default {
 - Existing sidebar navigation unchanged — injected items are merged at render time
 - Sidebar customization works on both built-in and injected items
 - No existing injection-table.ts entries affected
+
+## Changelog
+
+- **2026-02-25**: Implemented `useInjectedMenuItems`, `mergeMenuItems`, and menu-surface rendering for main/settings/profile sidebars, profile dropdown, and topbar actions with generated example module menu widgets and integration tests.
