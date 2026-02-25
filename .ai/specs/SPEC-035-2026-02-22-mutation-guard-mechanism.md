@@ -190,7 +190,7 @@ Fully compliant. Approved.
 - **Multi-Guard**: Multiple modules can register guards via `data/guards.ts` auto-discovery, each targeting specific entities and operations.
 - **Data Modification**: Guards can now return `modifiedPayload` to transform mutation data (not just block).
 - **POST Coverage**: Guards now run on POST (create) in addition to PUT/DELETE.
-- **Synchronous CRUD Events**: A parallel `CrudEventHandler` mechanism adds cross-module before/after entity-level hooks.
+- **Sync Event Subscribers**: Existing `subscribers/*.ts` with `sync: true` metadata enable cross-module before/after lifecycle hooks (e.g., `*.creating`, `*.created`) that run inside the mutation pipeline.
 - **Deprecation**: `validateCrudMutationGuard()` and `runCrudMutationGuardAfterSuccess()` are deprecated with `@deprecated` JSDoc but remain functional through the registry bridge.
 
 **No action required** for existing code using the singleton pattern. Migration to the registry is opt-in and can be done incrementally.
