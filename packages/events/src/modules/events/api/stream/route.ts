@@ -22,8 +22,82 @@ const MAX_PAYLOAD_BYTES = 4096
 type SseConnection = {
   tenantId: string
   organizationId: string | null
+  userId: string
+  roleIds: string[]
   send: (data: string) => void
   close: () => void
+}
+
+function collectStringValues(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  const values: string[] = []
+  for (const value of input) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    values.push(trimmed)
+  }
+  return values
+}
+
+function normalizeAudience(data: Record<string, unknown>): {
+  tenantId: string | null
+  organizationScopes: string[]
+  recipientUserScopes: string[]
+  recipientRoleScopes: string[]
+} {
+  const tenantId = typeof data.tenantId === 'string' ? data.tenantId : null
+  const organizationScopes = new Set<string>()
+  if (typeof data.organizationId === 'string' && data.organizationId.trim().length > 0) {
+    organizationScopes.add(data.organizationId.trim())
+  }
+  for (const organizationId of collectStringValues(data.organizationIds)) {
+    organizationScopes.add(organizationId)
+  }
+
+  const recipientUserScopes = new Set<string>()
+  if (typeof data.recipientUserId === 'string' && data.recipientUserId.trim().length > 0) {
+    recipientUserScopes.add(data.recipientUserId.trim())
+  }
+  for (const userId of collectStringValues(data.recipientUserIds)) {
+    recipientUserScopes.add(userId)
+  }
+
+  const recipientRoleScopes = new Set<string>()
+  if (typeof data.recipientRoleId === 'string' && data.recipientRoleId.trim().length > 0) {
+    recipientRoleScopes.add(data.recipientRoleId.trim())
+  }
+  for (const roleId of collectStringValues(data.recipientRoleIds)) {
+    recipientRoleScopes.add(roleId)
+  }
+
+  return {
+    tenantId,
+    organizationScopes: Array.from(organizationScopes),
+    recipientUserScopes: Array.from(recipientUserScopes),
+    recipientRoleScopes: Array.from(recipientRoleScopes),
+  }
+}
+
+function matchesAudience(conn: SseConnection, audience: ReturnType<typeof normalizeAudience>): boolean {
+  if (!audience.tenantId) return false
+  if (conn.tenantId !== audience.tenantId) return false
+
+  if (audience.organizationScopes.length > 0) {
+    if (!conn.organizationId) return false
+    if (!audience.organizationScopes.includes(conn.organizationId)) return false
+  }
+
+  if (audience.recipientUserScopes.length > 0 && !audience.recipientUserScopes.includes(conn.userId)) {
+    return false
+  }
+
+  if (audience.recipientRoleScopes.length > 0) {
+    const roleMatched = conn.roleIds.some((roleId) => audience.recipientRoleScopes.includes(roleId))
+    if (!roleMatched) return false
+  }
+
+  return true
 }
 
 /**
@@ -50,14 +124,13 @@ function ensureGlobalTapSubscription(): void {
     if (!isBroadcastEvent(eventName)) return
 
     const data = (payload ?? {}) as Record<string, unknown>
-    const tenantId = typeof data.tenantId === 'string' ? data.tenantId : null
-    const organizationId = typeof data.organizationId === 'string' ? data.organizationId : null
+    const audience = normalizeAudience(data)
 
     const ssePayload = JSON.stringify({
       id: eventName,
       payload: data,
       timestamp: Date.now(),
-      organizationId: organizationId ?? '',
+      organizationId: audience.organizationScopes[0] ?? '',
     })
 
     // Enforce max payload size
@@ -67,10 +140,7 @@ function ensureGlobalTapSubscription(): void {
     }
 
     for (const conn of connections) {
-      // Tenant-scoped: only send to connections matching the event's tenant
-      if (tenantId && conn.tenantId !== tenantId) continue
-      // Organization-scoped: if event has orgId, only send to matching connections
-      if (organizationId && conn.organizationId && conn.organizationId !== organizationId) continue
+      if (!matchesAudience(conn, audience)) continue
 
       try {
         conn.send(ssePayload)
@@ -89,7 +159,11 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   const tenantId = ctx.auth.tenantId
-  const organizationId = (ctx.selectedOrganizationId as string) ?? null
+  const organizationId = (ctx.selectedOrganizationId as string) ?? ctx.auth.orgId ?? null
+  const userId = ctx.auth.sub
+  const roleIds = Array.isArray(ctx.auth.roles)
+    ? ctx.auth.roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+    : []
 
   ensureGlobalTapSubscription()
 
@@ -106,6 +180,8 @@ export async function GET(req: Request): Promise<Response> {
       connection = {
         tenantId,
         organizationId,
+        userId,
+        roleIds,
         send,
         close: () => controller.close(),
       }
@@ -153,7 +229,7 @@ export async function GET(req: Request): Promise<Response> {
 export const openApi = {
   GET: {
     summary: 'Subscribe to server events via SSE (DOM Event Bridge)',
-    description: 'Long-lived SSE connection that receives server-side events marked with clientBroadcast: true. Events are tenant-scoped.',
+    description: 'Long-lived SSE connection that receives server-side events marked with clientBroadcast: true. Events are server-filtered by tenant, organization, recipient user, and recipient role.',
     tags: ['Events'],
     responses: {
       200: {
