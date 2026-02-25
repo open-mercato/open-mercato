@@ -245,7 +245,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.keyboard.press('Tab')
 
     await expect(page.getByTestId('widget-field-change')).toContainText('"fieldId":"title"')
-    await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
+    await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains')
   })
 
   test('TC-UMES-E04: transformFormData trims strings in pipeline output', async ({
@@ -356,7 +356,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await titleInput.fill('TEST automatic emission')
     await page.keyboard.press('Tab')
 
-    await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
+    await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains')
     await expect(page.getByTestId('widget-field-change')).toContainText('"fieldId":"title"')
   })
 

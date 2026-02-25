@@ -124,8 +124,7 @@ test.describe('TC-UMES-002: Response Enrichers', () => {
 
       expect(person).toBeDefined()
       expect(person.id).toBe(personId)
-      expect(person.firstName).toBeDefined()
-      expect(person.lastName).toBeDefined()
+      expect(typeof person.display_name).toBe('string')
 
       expect(person._example).toBeDefined()
       expect(person.todoCount).toBeUndefined()

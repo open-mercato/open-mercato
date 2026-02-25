@@ -24,8 +24,32 @@ const widget: InjectionWidgetModule<any, any> = {
     },
     onBeforeSave: async (data, context) => {
       console.log('[Example Widget] Before save validation:', data, context)
-      // Example: prevent save if some condition is not met
-      // return false to block the save
+      const sharedState = readSharedState(context)
+      const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+      const title = typeof record.title === 'string' ? record.title : ''
+      const normalizedTitle = title.toLowerCase()
+      if (normalizedTitle.includes('[block]')) {
+        const message = 'Save blocked by widget rule. Remove [block] from title to continue.'
+        sharedState?.set('lastSaveGuard', { ok: false, reason: 'rule:block-tag', message })
+        return {
+          ok: false,
+          message,
+          fieldErrors: {
+            title: 'Remove [block] marker from title',
+          },
+        }
+      }
+      if (normalizedTitle.includes('[confirm]') && typeof window !== 'undefined') {
+        const shouldContinue = window.confirm('Widget confirmation: apply transform and continue saving?')
+        if (!shouldContinue) {
+          const message = 'Save canceled in confirmation dialog.'
+          sharedState?.set('lastSaveGuard', { ok: false, reason: 'dialog:cancel', message })
+          return { ok: false, message }
+        }
+        sharedState?.set('lastSaveGuard', { ok: true, reason: 'dialog:accepted' })
+        return true
+      }
+      sharedState?.set('lastSaveGuard', { ok: true, reason: 'pass' })
       return true
     },
     onSave: async (data, context) => {
@@ -78,6 +102,23 @@ const widget: InjectionWidgetModule<any, any> = {
         for (const [key, value] of Object.entries(trimmed)) {
           if (typeof value === 'string') {
             trimmed[key] = value.trim()
+          }
+        }
+        const title = typeof trimmed.title === 'string' ? trimmed.title : ''
+        const note = typeof trimmed.note === 'string' ? trimmed.note : ''
+        const shouldTransform =
+          title.toLowerCase().includes('[transform]') ||
+          note.toLowerCase().startsWith('transform:')
+        if (shouldTransform) {
+          if (typeof trimmed.title === 'string') {
+            trimmed.title = trimmed.title
+              .replace(/\[transform\]/ig, '')
+              .replace(/\[confirm\]/ig, '')
+              .trim()
+            trimmed.title = `${trimmed.title} (transformed)`
+          }
+          if (typeof trimmed.note === 'string') {
+            trimmed.note = trimmed.note.replace(/^transform:\s*/i, '').toUpperCase()
           }
         }
         sharedState?.set('lastTransformFormData', trimmed)

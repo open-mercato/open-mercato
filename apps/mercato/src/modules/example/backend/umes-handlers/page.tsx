@@ -70,6 +70,7 @@ export default function UmesHandlersPage() {
   const [serverEmitStatus, setServerEmitStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [serverEmitError, setServerEmitError] = React.useState<string | null>(null)
   const [draftTitle, setDraftTitle] = React.useState('display me')
+  const [formSeed, setFormSeed] = React.useState({ nonce: 0, title: 'display me', note: '  draft note  ' })
   const [personId, setPersonId] = React.useState('')
   const [probeTodoTitle, setProbeTodoTitle] = React.useState('UMES enricher probe')
   const [enricherProbeStatus, setEnricherProbeStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
@@ -268,6 +269,16 @@ export default function UmesHandlersPage() {
       setAutoRunStatus('error')
     }
   }, [appEventResult, dispatchMockEvent, draftTitle, emitServerTodoCreated, runEnricherProbe, submittedData, t])
+  const loadBlockedSaveExample = React.useCallback(() => {
+    const title = '[block] save demo'
+    setFormSeed((prev) => ({ nonce: prev.nonce + 1, title, note: 'Should be blocked by onBeforeSave rule' }))
+    setDraftTitle(title)
+  }, [])
+  const loadTransformSaveExample = React.useCallback(() => {
+    const title = '[confirm][transform] transform demo'
+    setFormSeed((prev) => ({ nonce: prev.nonce + 1, title, note: 'transform: make me uppercase' }))
+    setDraftTitle(title)
+  }, [])
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -294,6 +305,18 @@ export default function UmesHandlersPage() {
   const contentHeader = (
     <div className="space-y-2">
         <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button data-testid="phase-c-load-blocked-save-example" type="button" variant="outline" onClick={loadBlockedSaveExample}>
+              {t('example.umes.handlers.actions.loadBlockedSaveExample')}
+            </Button>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.expect.loadBlockedSaveExample')}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button data-testid="phase-c-load-transform-save-example" type="button" variant="outline" onClick={loadTransformSaveExample}>
+              {t('example.umes.handlers.actions.loadTransformSaveExample')}
+            </Button>
+            <span className={hintClassName}>{t('example.umes.handlers.guide.expect.loadTransformSaveExample')}</span>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button data-testid="phase-c-trigger-app-event" type="button" onClick={dispatchMockEvent}>
               {t('example.umes.handlers.actions.onAppEvent')}
@@ -381,12 +404,13 @@ export default function UmesHandlersPage() {
         </div>
 
         <CrudForm<{ title: string; note?: string }>
+          key={`phase-c-form-${formSeed.nonce}`}
           schema={schema}
           title={t('example.umes.handlers.form.title')}
           fields={fields}
           groups={groups}
           injectionSpotId="example:phase-c-handlers"
-          initialValues={{ title: draftTitle, note: '  draft note  ' }}
+          initialValues={{ title: formSeed.title, note: formSeed.note }}
           contentHeader={contentHeader}
           cancelHref="/backend/blocked"
           onSubmit={async (values) => {

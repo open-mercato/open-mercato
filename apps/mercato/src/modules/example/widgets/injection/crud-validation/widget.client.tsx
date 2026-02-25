@@ -19,6 +19,7 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
     sharedState?.get?.('lastVisibilityChange') ?? null,
   )
   const [lastAppEvent, setLastAppEvent] = React.useState<unknown>(sharedState?.get?.('lastAppEvent') ?? null)
+  const [lastSaveGuard, setLastSaveGuard] = React.useState<unknown>(sharedState?.get?.('lastSaveGuard') ?? null)
   const [lastTransformFormData, setLastTransformFormData] = React.useState<unknown>(
     sharedState?.get?.('lastTransformFormData') ?? null,
   )
@@ -37,6 +38,7 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
       sharedState.subscribe('lastNavigationResult', setLastNavigationResult),
       sharedState.subscribe('lastVisibilityChange', setLastVisibilityChange),
       sharedState.subscribe('lastAppEvent', setLastAppEvent),
+      sharedState.subscribe('lastSaveGuard', setLastSaveGuard),
       sharedState.subscribe('lastTransformFormData', setLastTransformFormData),
       sharedState.subscribe('lastTransformDisplayData', setLastTransformDisplayData),
       sharedState.subscribe('lastTransformValidation', setLastTransformValidation),
@@ -60,6 +62,7 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
       <div data-testid="widget-navigation" className="text-xs text-blue-800">navigate={print(lastNavigationResult)}</div>
       <div data-testid="widget-visibility" className="text-xs text-blue-800">visibility={print(lastVisibilityChange)}</div>
       <div data-testid="widget-app-event" className="text-xs text-blue-800">appEvent={print(lastAppEvent)}</div>
+      <div data-testid="widget-save-guard" className="text-xs text-blue-800">saveGuard={print(lastSaveGuard)}</div>
       <div data-testid="widget-transform-form-data" className="text-xs text-blue-800">transformFormData={print(lastTransformFormData)}</div>
       <div data-testid="widget-transform-display-data" className="text-xs text-blue-800">transformDisplayData={print(lastTransformDisplayData)}</div>
       <div data-testid="widget-transform-validation" className="text-xs text-blue-800">transformValidation={print(lastTransformValidation)}</div>
