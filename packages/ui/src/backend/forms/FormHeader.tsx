@@ -42,6 +42,12 @@ export type FormHeaderDetailProps = FormHeaderBaseProps & {
   statusBadge?: React.ReactNode
   /** Context actions grouped into an "Actions" dropdown (preferred) */
   menuActions?: ActionItem[]
+  /** Optional label for actions dropdown trigger */
+  menuLabel?: string
+  /** Trigger style for actions dropdown */
+  menuTriggerMode?: 'label' | 'icon'
+  /** Accessible label used when trigger is icon-only */
+  menuAriaLabel?: string
   /** Optional utility actions (icon-only) displayed before menu actions */
   utilityActions?: React.ReactNode
   /** Delete action -- rendered as a standalone destructive button next to the dropdown */
@@ -116,6 +122,9 @@ function DetailHeader({
   subtitle,
   statusBadge,
   menuActions,
+  menuLabel,
+  menuTriggerMode,
+  menuAriaLabel,
   utilityActions,
   onDelete,
   deleteLabel,
@@ -161,7 +170,14 @@ function DetailHeader({
           {actionsContent ? actionsContent : (
             <>
               {utilityActions}
-              {menuActions?.length ? <ActionsDropdown items={menuActions} /> : null}
+              {menuActions?.length ? (
+                <ActionsDropdown
+                  items={menuActions}
+                  label={menuLabel}
+                  triggerMode={menuTriggerMode}
+                  ariaLabel={menuAriaLabel}
+                />
+              ) : null}
               {onDelete ? (
                 <Button
                   type="button"

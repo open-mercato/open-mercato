@@ -1,5 +1,10 @@
 import '@testing-library/jest-dom'
 
+jest.mock('react-markdown', () => ({
+  __esModule: true,
+  default: ({ children }: { children?: unknown }) => children ?? null,
+}))
+
 // Mock Response/Request/Headers for tests that need them in jsdom environment
 class MockResponse {
   body: string

@@ -102,5 +102,9 @@
   "dashboards.widgets.loading": "Loading widget options…",
   "dashboards.widgets.mode.hint": "This user currently inherits widgets from their assigned roles. Switch to override to customize.",
   "dashboards.widgets.mode.inherit": "Inherit from roles",
-  "dashboards.widgets.mode.override": "Override for this user"
+  "dashboards.widgets.mode.override": "Override for this user",
+  "dashboards.widgets.effective": "Effective widgets:",
+  "dashboards.widgets.reset": "Reset",
+  "dashboards.widgets.save": "Save widgets",
+  "dashboards.widgets.saving": "Saving…"
 }
