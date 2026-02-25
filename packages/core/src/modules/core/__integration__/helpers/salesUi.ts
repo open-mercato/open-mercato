@@ -171,9 +171,10 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   const channelQuery = fixtureContext.channelQuery;
 
   await page.goto(`/backend/sales/documents/create?kind=${options.kind}`);
-  
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(500);
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('button', { name: /^Create$/i }).first()).toBeVisible({
+    timeout: TEST_WAIT_TIMEOUT_MS,
+  });
 
 
   await page.getByText('Document type').click();

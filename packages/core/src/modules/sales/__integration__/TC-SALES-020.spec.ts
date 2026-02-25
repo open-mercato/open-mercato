@@ -45,7 +45,7 @@ test.describe('TC-SALES-020: Document History Widget', () => {
       // --- Navigate to order detail page ---
       await login(page, 'admin');
       await page.goto(`/backend/sales/documents/${orderId}?kind=order`);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
 
       // Open History tab
       const historyButton = page.getByRole('button', { name: 'History', exact: true });
