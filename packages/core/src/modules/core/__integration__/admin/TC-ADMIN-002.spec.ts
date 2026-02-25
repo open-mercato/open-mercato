@@ -44,13 +44,14 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       const keyRow = page.locator('table tbody tr').filter({ hasText: keyName }).first();
       await expect(keyRow).toBeVisible();
 
-      // Click the actions button on the row
+      // Hover over the row actions trigger to open the dropdown menu
+      // (RowActions opens on pointer-enter; clicking toggles it closed)
       const actionsButton = keyRow.getByRole('button').last();
-      await actionsButton.click();
+      await actionsButton.hover();
 
       // Look for a Revoke or Delete option in the dropdown menu
       const revokeButton = page.getByRole('menuitem', { name: /revoke|delete/i }).first();
-      await expect(revokeButton).toBeVisible({ timeout: 3_000 });
+      await expect(revokeButton).toBeVisible({ timeout: 5_000 });
       await revokeButton.click();
 
       // Handle confirmation dialog if present
