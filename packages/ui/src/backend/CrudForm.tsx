@@ -1062,9 +1062,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [buildCustomFieldsManageHref],
   )
 
-  // Apply initialValues when provided (reapply when initialValues change for edit forms)
+  const initialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
   React.useEffect(() => {
     if (!initialValues) return
+    const snapshot = JSON.stringify(initialValues)
+    if (initialValuesSnapshotRef.current === snapshot) return
+    initialValuesSnapshotRef.current = snapshot
     setValues((prev) => ({ ...prev, ...initialValues } as CrudFormValues<TValues>))
   }, [initialValues])
 

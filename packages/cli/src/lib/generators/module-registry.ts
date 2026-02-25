@@ -2,16 +2,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
 import {
-  calculateChecksum,
   calculateStructureChecksum,
-  readChecksumRecord,
-  writeChecksumRecord,
   toVar,
   moduleHasExport,
-  logGenerationResult,
   type GeneratorResult,
   createGeneratorResult,
+  writeGeneratedFile,
 } from '../utils'
+import {
+  scanModuleDir,
+  resolveModuleFile,
+  SCAN_CONFIGS,
+  type ModuleRoots,
+  type ModuleImports,
+} from './scanner'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
@@ -27,36 +31,16 @@ type DashboardWidgetEntry = {
   importPath: string
 }
 
-function scanDashboardWidgets(options: {
+function scanDashboardWidgetEntries(options: {
   modId: string
-  roots: { appBase: string; pkgBase: string }
+  roots: ModuleRoots
   appImportBase: string
   pkgImportBase: string
 }): DashboardWidgetEntry[] {
   const { modId, roots, appImportBase, pkgImportBase } = options
-  const widgetApp = path.join(roots.appBase, 'widgets', 'dashboard')
-  const widgetPkg = path.join(roots.pkgBase, 'widgets', 'dashboard')
-  if (!fs.existsSync(widgetApp) && !fs.existsSync(widgetPkg)) return []
-
-  const found: string[] = []
-  const walk = (dir: string, rel: string[] = []) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (entry.name === '__tests__' || entry.name === '__mocks__') continue
-        walk(path.join(dir, entry.name), [...rel, entry.name])
-      } else if (entry.isFile() && /^widget\.(t|j)sx?$/.test(entry.name)) {
-        found.push([...rel, entry.name].join('/'))
-      }
-    }
-  }
-  if (fs.existsSync(widgetPkg)) walk(widgetPkg)
-  if (fs.existsSync(widgetApp)) walk(widgetApp)
-
-  const files = Array.from(new Set(found)).sort()
-  return files.map((rel) => {
-    const appFile = path.join(widgetApp, ...rel.split('/'))
-    const fromApp = fs.existsSync(appFile)
-    const segs = rel.split('/')
+  const files = scanModuleDir(roots, SCAN_CONFIGS.dashboardWidgets)
+  return files.map(({ relPath, fromApp }) => {
+    const segs = relPath.split('/')
     const file = segs.pop()!
     const base = file.replace(/\.(t|j)sx?$/, '')
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/widgets/dashboard/${[...segs, base].join('/')}`
@@ -64,6 +48,298 @@ function scanDashboardWidgets(options: {
     const source = fromApp ? 'app' : 'package'
     return { moduleId: modId, key, source, importPath }
   })
+}
+
+function processPageFiles(options: {
+  files: Array<{ relPath: string; fromApp: boolean }>
+  type: 'frontend' | 'backend'
+  modId: string
+  appDir: string
+  pkgDir: string
+  appImportBase: string
+  pkgImportBase: string
+  imports: string[]
+  importIdRef: { value: number }
+}): string[] {
+  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, imports, importIdRef } = options
+  const prefix = type === 'frontend' ? 'C' : 'B'
+  const modPrefix = type === 'frontend' ? 'CM' : 'BM'
+  const metaPrefix = type === 'frontend' ? 'M' : 'BM'
+  const routes: string[] = []
+
+  // Next-style page.tsx files
+  for (const { relPath, fromApp } of files.filter(({ relPath: f }) => f.endsWith('/page.tsx') || f === 'page.tsx')) {
+    const segs = relPath.split('/')
+    segs.pop()
+    const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+    const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+    const sub = segs.length ? `${segs.join('/')}/page` : 'page'
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${sub}`
+    const routePath = type === 'frontend'
+      ? '/' + (segs.join('/') || '')
+      : '/backend/' + (segs.join('/') || modId)
+    const metaCandidates = [
+      path.join(fromApp ? appDir : pkgDir, ...segs, 'page.meta.ts'),
+      path.join(fromApp ? appDir : pkgDir, ...segs, 'meta.ts'),
+    ]
+    const metaPath = metaCandidates.find((p) => fs.existsSync(p))
+    let metaExpr = 'undefined'
+    if (metaPath) {
+      const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+      const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+      imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+      metaExpr = `(${metaImportName}.metadata as any)`
+      imports.push(`import ${importName} from '${importPath}'`)
+    } else {
+      metaExpr = `(${pageModName} as any).metadata`
+      imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
+    }
+    const baseProps = `pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb`
+    const extraProps = type === 'backend' ? `, pageContext: (${metaExpr})?.pageContext` : ''
+    routes.push(`{ ${baseProps}${extraProps}, Component: ${importName} }`)
+  }
+
+  // Back-compat direct files (old-style pages like login.tsx instead of login/page.tsx)
+  for (const { relPath, fromApp } of files.filter(({ relPath: f }) => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
+    const segs = relPath.split('/')
+    const file = segs.pop()!
+    const name = file.replace(/\.tsx$/, '')
+    const routeSegs = [...segs, name].filter(Boolean)
+    const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
+    const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
+    const routePath = type === 'frontend'
+      ? '/' + (routeSegs.join('/') || '')
+      : '/backend/' + [modId, ...segs, name].filter(Boolean).join('/')
+    const metaCandidates = [
+      path.join(fromApp ? appDir : pkgDir, ...segs, `${name}.meta.ts`),
+      path.join(fromApp ? appDir : pkgDir, ...segs, 'meta.ts'),
+    ]
+    const metaPath = metaCandidates.find((p) => fs.existsSync(p))
+    let metaExpr = 'undefined'
+    if (metaPath) {
+      const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
+      const metaBase = path.basename(metaPath)
+      const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
+      const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, metaImportSub].join('/')}`
+      imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+      metaExpr = type === 'frontend' ? `(${metaImportName}.metadata as any)` : `${metaImportName}.metadata`
+      imports.push(`import ${importName} from '${importPath}'`)
+    } else {
+      metaExpr = `(${pageModName} as any).metadata`
+      imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
+    }
+    const baseProps = `pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey`
+    const extraFe = type === 'frontend' ? `, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled` : `, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext`
+    routes.push(`{ ${baseProps}${extraFe}, Component: ${importName} }`)
+  }
+
+  return routes
+}
+
+async function processApiRoutes(options: {
+  roots: ModuleRoots
+  modId: string
+  appImportBase: string
+  pkgImportBase: string
+  imports: string[]
+  importIdRef: { value: number }
+}): Promise<string[]> {
+  const { roots, modId, appImportBase, pkgImportBase, imports, importIdRef } = options
+  const apiApp = path.join(roots.appBase, 'api')
+  const apiPkg = path.join(roots.pkgBase, 'api')
+  if (!fs.existsSync(apiApp) && !fs.existsSync(apiPkg)) return []
+
+  const apis: string[] = []
+
+  // route.ts aggregations
+  const routeFiles = scanModuleDir(roots, SCAN_CONFIGS.apiRoutes)
+  for (const { relPath, fromApp } of routeFiles) {
+    const segs = relPath.split('/')
+    segs.pop()
+    const reqSegs = [modId, ...segs]
+    const importName = `R${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+    const appFile = path.join(apiApp, ...segs, 'route.ts')
+    const apiSegPath = segs.join('/')
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
+    const routePath = '/' + reqSegs.filter(Boolean).join('/')
+    const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
+    const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
+    const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
+    imports.push(`import * as ${importName} from '${importPath}'`)
+    apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+  }
+
+  // Single files (plain .ts, not route.ts, not tests, skip method dirs)
+  const plainFiles = scanModuleDir(roots, SCAN_CONFIGS.apiPlainFiles)
+  for (const { relPath, fromApp } of plainFiles) {
+    const segs = relPath.split('/')
+    const file = segs.pop()!
+    const pathWithoutExt = file.replace(/\.ts$/, '')
+    const fullSegs = [...segs, pathWithoutExt]
+    const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
+    const importName = `R${importIdRef.value++}_${toVar(modId)}_${toVar(fullSegs.join('_') || 'index')}`
+    const appFile = path.join(apiApp, ...fullSegs) + '.ts'
+    const plainSegPath = fullSegs.join('/')
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
+    const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
+    const sourceFile = fromApp ? appFile : pkgFile
+    const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
+    const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
+    imports.push(`import * as ${importName} from '${importPath}'`)
+    apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+  }
+
+  // Legacy per-method
+  const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+  for (const method of methods) {
+    const coreMethodDir = path.join(apiPkg, method.toLowerCase())
+    const appMethodDir = path.join(apiApp, method.toLowerCase())
+    const methodDir = fs.existsSync(appMethodDir) ? appMethodDir : coreMethodDir
+    if (!fs.existsSync(methodDir)) continue
+    const methodRoots: ModuleRoots = { appBase: methodDir, pkgBase: methodDir }
+    const methodConfig = {
+      folder: '',
+      include: (name: string) => name.endsWith('.ts') && !/\.(test|spec)\.ts$/.test(name),
+    }
+    const apiFiles = scanModuleDir(methodRoots, methodConfig)
+    for (const { relPath } of apiFiles) {
+      const segs = relPath.split('/')
+      const file = segs.pop()!
+      const pathWithoutExt = file.replace(/\.ts$/, '')
+      const fullSegs = [...segs, pathWithoutExt]
+      const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
+      const importName = `H${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
+      const fromApp = methodDir === appMethodDir
+      const importPath = `${fromApp ? appImportBase : pkgImportBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
+      const metaName = `RM${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
+      const sourceFile = path.join(methodDir, ...segs, file)
+      const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
+      const docsPart = hasOpenApi ? `, docs: ${metaName}.openApi` : ''
+      imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+      apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
+    }
+  }
+
+  return apis
+}
+
+function processSubscribers(options: {
+  roots: ModuleRoots
+  modId: string
+  appImportBase: string
+  pkgImportBase: string
+  imports: string[]
+  importIdRef: { value: number }
+}): string[] {
+  const { roots, modId, appImportBase, pkgImportBase, imports, importIdRef } = options
+  const files = scanModuleDir(roots, SCAN_CONFIGS.subscribers)
+  const subscribers: string[] = []
+  for (const { relPath, fromApp } of files) {
+    const segs = relPath.split('/')
+    const file = segs.pop()!
+    const name = file.replace(/\.ts$/, '')
+    const importName = `Subscriber${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+    const metaName = `SubscriberMeta${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/subscribers/${[...segs, name].join('/')}`
+    imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+    const sid = [modId, ...segs, name].filter(Boolean).join(':')
+    subscribers.push(
+      `{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, handler: ${importName} }`
+    )
+  }
+  return subscribers
+}
+
+async function processWorkers(options: {
+  roots: ModuleRoots
+  modId: string
+  appImportBase: string
+  pkgImportBase: string
+  imports: string[]
+  importIdRef: { value: number }
+}): Promise<string[]> {
+  const { roots, modId, appImportBase, pkgImportBase, imports, importIdRef } = options
+  const files = scanModuleDir(roots, SCAN_CONFIGS.workers)
+  const workers: string[] = []
+  for (const { relPath, fromApp } of files) {
+    const segs = relPath.split('/')
+    const file = segs.pop()!
+    const name = file.replace(/\.ts$/, '')
+    const importPath = `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
+    if (!(await moduleHasExport(importPath, 'metadata'))) continue
+    const importName = `Worker${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+    const metaName = `WorkerMeta${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+    imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+    const wid = [modId, 'workers', ...segs, name].filter(Boolean).join(':')
+    workers.push(
+      `{ id: (${metaName}.metadata as { id?: string })?.id || '${wid}', queue: (${metaName}.metadata as { queue: string }).queue, concurrency: (${metaName}.metadata as { concurrency?: number })?.concurrency ?? 1, handler: ${importName} as (job: unknown, ctx: unknown) => Promise<void> }`
+    )
+  }
+  return workers
+}
+
+function processTranslations(options: {
+  roots: ModuleRoots
+  modId: string
+  appImportBase: string
+  pkgImportBase: string
+  imports: string[]
+}): string[] {
+  const { roots, modId, appImportBase, pkgImportBase, imports } = options
+  const i18nApp = path.join(roots.appBase, 'i18n')
+  const i18nCore = path.join(roots.pkgBase, 'i18n')
+  const locales = new Set<string>()
+  if (fs.existsSync(i18nCore))
+    for (const e of fs.readdirSync(i18nCore, { withFileTypes: true }))
+      if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
+  if (fs.existsSync(i18nApp))
+    for (const e of fs.readdirSync(i18nApp, { withFileTypes: true }))
+      if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
+  const translations: string[] = []
+  for (const locale of locales) {
+    const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
+    const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
+    if (coreHas && appHas) {
+      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
+      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
+      imports.push(`import ${cName} from '${pkgImportBase}/i18n/${locale}.json'`)
+      imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
+      translations.push(
+        `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
+      )
+    } else if (appHas) {
+      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
+      imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
+      translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
+    } else if (coreHas) {
+      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
+      imports.push(`import ${cName} from '${pkgImportBase}/i18n/${locale}.json'`)
+      translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
+    }
+  }
+  return translations
+}
+
+function resolveConventionFile(
+  roots: ModuleRoots,
+  imps: ModuleImports,
+  relativePath: string,
+  prefix: string,
+  modId: string,
+  importIdRef: { value: number },
+  imports: string[],
+  importStyle: 'namespace' | 'default' = 'namespace'
+): { importName: string; importPath: string; fromApp: boolean } | null {
+  const resolved = resolveModuleFile(roots, imps, relativePath)
+  if (!resolved) return null
+  const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
+  if (importStyle === 'default') {
+    imports.push(`import ${importName} from '${resolved.importPath}'`)
+  } else {
+    imports.push(`import * as ${importName} from '${resolved.importPath}'`)
+  }
+  return { importName, importPath: resolved.importPath, fromApp: resolved.fromApp }
 }
 
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
@@ -97,7 +373,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
   const moduleDecls: string[] = []
-  let importId = 0
+  // Mutable ref so extracted helper functions can increment the shared counter
+  const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const allDashboardWidgets = new Map<string, { moduleId: string; source: 'app' | 'package'; importPath: string }>()
@@ -121,14 +398,13 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   for (const entry of enabled) {
     const modId = entry.id
     const roots = resolver.getModulePaths(entry)
-    const imps = resolver.getModuleImportBase(entry)
+    const rawImps = resolver.getModuleImportBase(entry)
     trackedRoots.add(roots.appBase)
     trackedRoots.add(roots.pkgBase)
 
-    // For @app modules, use relative paths since @/ alias doesn't work in Node.js runtime
-    // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
     const isAppModule = entry.from === '@app'
-    const appImportBase = isAppModule ? `../../src/modules/${modId}` : imps.appBase
+    const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
+    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
 
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
@@ -151,15 +427,16 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     let injectionTableImportName: string | null = null
     let setupImportName: string | null = null
 
-    // Module metadata: index.ts (overrideable)
+    // === Processing order MUST match original import ID sequence ===
+
+    // 1. Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
     const pkgIndex = path.join(roots.pkgBase, 'index.ts')
     const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
     if (indexTs) {
-      infoImportName = `I${importId++}_${toVar(modId)}`
+      infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
       imports.push(`import * as ${infoImportName} from '${importPath}'`)
-      // Try to eagerly read ModuleInfo.requires for dependency validation
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require(indexTs)
@@ -169,121 +446,39 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       } catch {}
     }
 
-    // Pages: frontend
-    const feApp = path.join(roots.appBase, 'frontend')
-    const fePkg = path.join(roots.pkgBase, 'frontend')
-    if (fs.existsSync(feApp) || fs.existsSync(fePkg)) {
-      const found: string[] = []
-      const walkFe = (dir: string, rel: string[] = []) => {
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) {
-            if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walkFe(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name.endsWith('.tsx')) {
-            found.push([...rel, e.name].join('/'))
-          }
-        }
-      }
-      if (fs.existsSync(fePkg)) walkFe(fePkg)
-      if (fs.existsSync(feApp)) walkFe(feApp)
-      let files = Array.from(new Set(found))
-      // Ensure static routes win over dynamic ones (e.g., 'create' before '[id]')
-      const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
-      files.sort((a, b) => {
-        const ad = isDynamic(a) ? 1 : 0
-        const bd = isDynamic(b) ? 1 : 0
-        if (ad !== bd) return ad - bd // static first
-        // Longer, more specific paths later to not shadow peers
-        return a.localeCompare(b)
-      })
-      // Next-style page.tsx
-      for (const rel of files.filter((f) => f.endsWith('/page.tsx') || f === 'page.tsx')) {
-        const segs = rel.split('/')
-        segs.pop()
-        const importName = `C${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-        const pageModName = `CM${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-        const appFile = path.join(feApp, ...segs, 'page.tsx')
-        const fromApp = fs.existsSync(appFile)
-        const sub = segs.length ? `${segs.join('/')}/page` : 'page'
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${sub}`
-        const routePath = '/' + (segs.join('/') || '')
-        const metaCandidates = [
-          path.join(fromApp ? feApp : fePkg, ...segs, 'page.meta.ts'),
-          path.join(fromApp ? feApp : fePkg, ...segs, 'meta.ts'),
-        ]
-        const metaPath = metaCandidates.find((p) => fs.existsSync(p))
-        let metaExpr = 'undefined'
-        if (metaPath) {
-          const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
-          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
-          metaExpr = `(${metaImportName}.metadata as any)`
-          imports.push(`import ${importName} from '${importPath}'`)
-        } else {
-          metaExpr = `(${pageModName} as any).metadata`
-          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
-        }
-        frontendRoutes.push(
-          `{ pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, Component: ${importName} }`
-        )
-      }
-      // Back-compat direct files (old-style pages like login.tsx instead of login/page.tsx)
-      for (const rel of files.filter((f) => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
-        const segs = rel.split('/')
-        const file = segs.pop()!
-        const name = file.replace(/\.tsx$/, '')
-        const routeSegs = [...segs, name].filter(Boolean)
-        const importName = `C${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
-        const pageModName = `CM${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
-        const appFile = path.join(feApp, ...segs, `${name}.tsx`)
-        const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${[...segs, name].join('/')}`
-        const routePath = '/' + (routeSegs.join('/') || '')
-        const metaCandidates = [
-          path.join(fromApp ? feApp : fePkg, ...segs, `${name}.meta.ts`),
-          path.join(fromApp ? feApp : fePkg, ...segs, 'meta.ts'),
-        ]
-        const metaPath = metaCandidates.find((p) => fs.existsSync(p))
-        let metaExpr = 'undefined'
-        if (metaPath) {
-          const metaImportName = `M${importId++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
-          const metaBase = path.basename(metaPath)
-          const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
-          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/frontend/${[...segs, metaImportSub].join('/')}`
-          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
-          metaExpr = `(${metaImportName}.metadata as any)`
-          imports.push(`import ${importName} from '${importPath}'`)
-        } else {
-          metaExpr = `(${pageModName} as any).metadata`
-          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
-        }
-        frontendRoutes.push(
-          `{ pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, Component: ${importName} }`
-        )
-      }
-    }
-
-    // Entity extensions: src/modules/<module>/data/extensions.ts
+    // 2. Pages: frontend
     {
-      const appFile = path.join(roots.appBase, 'data', 'extensions.ts')
-      const pkgFile = path.join(roots.pkgBase, 'data', 'extensions.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `X_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        extensionsImportName = importName
+      const feApp = path.join(roots.appBase, 'frontend')
+      const fePkg = path.join(roots.pkgBase, 'frontend')
+      const feFiles = scanModuleDir(roots, SCAN_CONFIGS.frontendPages)
+      if (feFiles.length) {
+        frontendRoutes.push(...processPageFiles({
+          files: feFiles,
+          type: 'frontend',
+          modId,
+          appDir: feApp,
+          pkgDir: fePkg,
+          appImportBase,
+          pkgImportBase: imps.pkgBase,
+          imports,
+          importIdRef,
+        }))
       }
     }
 
-    // RBAC feature declarations: module root acl.ts
+    // 3. Entity extensions: data/extensions.ts
+    {
+      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports)
+      if (ext) extensionsImportName = ext.importName
+    }
+
+    // 4. RBAC: acl.ts
     {
       const rootApp = path.join(roots.appBase, 'acl.ts')
       const rootPkg = path.join(roots.pkgBase, 'acl.ts')
       const hasRoot = fs.existsSync(rootApp) || fs.existsSync(rootPkg)
       if (hasRoot) {
-        const importName = `ACL_${toVar(modId)}_${importId++}`
+        const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
         const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
         const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
         imports.push(`import * as ${importName} from '${importPath}'`)
@@ -291,63 +486,43 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
-    // Custom entities declarations: module root ce.ts
+    // 5. Custom entities: ce.ts
     {
-      const appFile = path.join(roots.appBase, 'ce.ts')
-      const pkgFile = path.join(roots.pkgBase, 'ce.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `CE_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/ce` : `${imps.pkgBase}/ce`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        customEntitiesImportName = importName
-      }
+      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports)
+      if (ce) customEntitiesImportName = ce.importName
     }
 
-    // Search module configuration: module root search.ts
+    // 6. Search: search.ts
     {
-      const appFile = path.join(roots.appBase, 'search.ts')
-      const pkgFile = path.join(roots.pkgBase, 'search.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `SEARCH_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/search` : `${imps.pkgBase}/search`
-        const importStmt = `import * as ${importName} from '${importPath}'`
+      const resolved = resolveModuleFile(roots, imps, 'search.ts')
+      if (resolved) {
+        const importName = `SEARCH_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
         imports.push(importStmt)
         searchImports.push(importStmt)
         searchImportName = importName
       }
     }
 
-    // Notification types: module root notifications.ts
+    // 7. Notifications: notifications.ts
     {
-      const appFile = path.join(roots.appBase, 'notifications.ts')
-      const pkgFile = path.join(roots.pkgBase, 'notifications.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `NOTIF_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/notifications` : `${imps.pkgBase}/notifications`
-        const importStmt = `import * as ${importName} from '${importPath}'`
+      const resolved = resolveModuleFile(roots, imps, 'notifications.ts')
+      if (resolved) {
+        const importName = `NOTIF_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
         notificationImports.push(importStmt)
         notificationTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? ${importName}.types ?? []) }`
+          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? []) }`
         )
       }
     }
 
     // Notification client renderers: module root notifications.client.ts
     {
-      const appFile = path.join(roots.appBase, 'notifications.client.ts')
-      const pkgFile = path.join(roots.pkgBase, 'notifications.client.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `NOTIF_CLIENT_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/notifications.client` : `${imps.pkgBase}/notifications.client`
-        const importStmt = `import * as ${importName} from '${importPath}'`
+      const resolved = resolveModuleFile(roots, imps, 'notifications.client.ts')
+      if (resolved) {
+        const importName = `NOTIF_CLIENT_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
         notificationClientImports.push(importStmt)
         notificationClientTypes.push(
           `{ moduleId: '${modId}', types: (${importName}.default ?? []) }`
@@ -355,16 +530,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
-    // AI Tools: module root ai-tools.ts
+    // 8. AI Tools: ai-tools.ts
     {
-      const appFile = path.join(roots.appBase, 'ai-tools.ts')
-      const pkgFile = path.join(roots.pkgBase, 'ai-tools.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `AI_TOOLS_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/ai-tools` : `${imps.pkgBase}/ai-tools`
-        const importStmt = `import * as ${importName} from '${importPath}'`
+      const resolved = resolveModuleFile(roots, imps, 'ai-tools.ts')
+      if (resolved) {
+        const importName = `AI_TOOLS_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
         aiToolsImports.push(importStmt)
         aiToolsConfigs.push(
           `{ moduleId: '${modId}', tools: (${importName}.aiTools ?? ${importName}.default ?? []) }`
@@ -372,32 +543,24 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
-    // Events module configuration: module root events.ts
+    // 9. Events: events.ts
     {
-      const appFile = path.join(roots.appBase, 'events.ts')
-      const pkgFile = path.join(roots.pkgBase, 'events.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `EVENTS_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/events` : `${imps.pkgBase}/events`
-        const importStmt = `import * as ${importName} from '${importPath}'`
+      const resolved = resolveModuleFile(roots, imps, 'events.ts')
+      if (resolved) {
+        const importName = `EVENTS_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
         imports.push(importStmt)
         eventsImports.push(importStmt)
         eventsImportName = importName
       }
     }
 
-    // Analytics module configuration: module root analytics.ts
+    // 10. Analytics: analytics.ts
     {
-      const appFile = path.join(roots.appBase, 'analytics.ts')
-      const pkgFile = path.join(roots.pkgBase, 'analytics.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `ANALYTICS_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/analytics` : `${imps.pkgBase}/analytics`
-        const importStmt = `import * as ${importName} from '${importPath}'`
+      const resolved = resolveModuleFile(roots, imps, 'analytics.ts')
+      if (resolved) {
+        const importName = `ANALYTICS_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
         imports.push(importStmt)
         analyticsImports.push(importStmt)
         analyticsImportName = importName
@@ -407,380 +570,101 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     // Translatable fields: module root translations.ts
     let transFieldsImportName: string | null = null
     {
-      const appFile = path.join(roots.appBase, 'translations.ts')
-      const pkgFile = path.join(roots.pkgBase, 'translations.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `TRANS_FIELDS_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/translations` : `${imps.pkgBase}/translations`
-        const importStmt = `import * as ${importName} from '${importPath}'`
+      const resolved = resolveModuleFile(roots, imps, 'translations.ts')
+      if (resolved) {
+        const importName = `TRANS_FIELDS_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
         imports.push(importStmt)
         transFieldsImports.push(importStmt)
         transFieldsImportName = importName
       }
     }
 
-    // Module setup configuration: module root setup.ts
+    // 11. Setup: setup.ts
     {
-      const appFile = path.join(roots.appBase, 'setup.ts')
-      const pkgFile = path.join(roots.pkgBase, 'setup.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `SETUP_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/setup` : `${imps.pkgBase}/setup`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        setupImportName = importName
-      }
+      const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
+      if (setup) setupImportName = setup.importName
     }
 
-    // Custom field declarations: src/modules/<module>/data/fields.ts
+    // 12. Custom fields: data/fields.ts
     {
-      const appFile = path.join(roots.appBase, 'data', 'fields.ts')
-      const pkgFile = path.join(roots.pkgBase, 'data', 'fields.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `F_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/data/fields` : `${imps.pkgBase}/data/fields`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        fieldsImportName = importName
-      }
+      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports)
+      if (fields) fieldsImportName = fields.importName
     }
 
-    // Pages: backend
-    const beApp = path.join(roots.appBase, 'backend')
-    const bePkg = path.join(roots.pkgBase, 'backend')
-    if (fs.existsSync(beApp) || fs.existsSync(bePkg)) {
-      const found: string[] = []
-      const walkBe = (dir: string, rel: string[] = []) => {
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) {
-            if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walkBe(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name.endsWith('.tsx')) {
-            found.push([...rel, e.name].join('/'))
-          }
-        }
-      }
-      if (fs.existsSync(bePkg)) walkBe(bePkg)
-      if (fs.existsSync(beApp)) walkBe(beApp)
-      let files = Array.from(new Set(found))
-      const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
-      files.sort((a, b) => {
-        const ad = isDynamic(a) ? 1 : 0
-        const bd = isDynamic(b) ? 1 : 0
-        if (ad !== bd) return ad - bd
-        return a.localeCompare(b)
-      })
-      // Next-style page.tsx
-      for (const rel of files.filter((f) => f.endsWith('/page.tsx') || f === 'page.tsx')) {
-        const segs = rel.split('/')
-        segs.pop()
-        const importName = `B${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-        const pageModName = `BM${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-        const appFile = path.join(beApp, ...segs, 'page.tsx')
-        const fromApp = fs.existsSync(appFile)
-        const sub = segs.length ? `${segs.join('/')}/page` : 'page'
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${sub}`
-        const basePath = segs.join('/') || modId
-        const routePath = '/backend/' + basePath
-        const metaCandidates = [
-          path.join(fromApp ? beApp : bePkg, ...segs, 'page.meta.ts'),
-          path.join(fromApp ? beApp : bePkg, ...segs, 'meta.ts'),
-        ]
-        const metaPath = metaCandidates.find((p) => fs.existsSync(p))
-        let metaExpr = 'undefined'
-        if (metaPath) {
-          const metaImportName = `BM${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
-          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
-          metaExpr = `(${metaImportName}.metadata as any)`
-          imports.push(`import ${importName} from '${importPath}'`)
-        } else {
-          metaExpr = `(${pageModName} as any).metadata`
-          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
-        }
-        backendRoutes.push(
-          `{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, Component: ${importName} }`
-        )
-      }
-      // Direct files (back-compat for old-style pages like login.tsx instead of login/page.tsx)
-      for (const rel of files.filter((f) => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
-        const segs = rel.split('/')
-        const file = segs.pop()!
-        const name = file.replace(/\.tsx$/, '')
-        const importName = `B${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-        const pageModName = `BM${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-        const appFile = path.join(beApp, ...segs, `${name}.tsx`)
-        const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${[...segs, name].join('/')}`
-        const routePath = '/backend/' + [modId, ...segs, name].filter(Boolean).join('/')
-        const metaCandidates = [
-          path.join(fromApp ? beApp : bePkg, ...segs, `${name}.meta.ts`),
-          path.join(fromApp ? beApp : bePkg, ...segs, 'meta.ts'),
-        ]
-        const metaPath = metaCandidates.find((p) => fs.existsSync(p))
-        let metaExpr = 'undefined'
-        if (metaPath) {
-          const metaImportName = `BM${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-          const metaBase = path.basename(metaPath)
-          const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
-          const metaImportPath = `${fromApp ? appImportBase : imps.pkgBase}/backend/${[...segs, metaImportSub].join('/')}`
-          imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
-          metaExpr = `${metaImportName}.metadata`
-          imports.push(`import ${importName} from '${importPath}'`)
-        } else {
-          metaExpr = `(${pageModName} as any).metadata`
-          imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
-        }
-        backendRoutes.push(
-          `{ pattern: '${routePath}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, Component: ${importName} }`
-        )
-      }
-    }
-
-    // APIs
-    const apiApp = path.join(roots.appBase, 'api')
-    const apiPkg = path.join(roots.pkgBase, 'api')
-    if (fs.existsSync(apiApp) || fs.existsSync(apiPkg)) {
-      // route.ts aggregations
-      const routeFiles: string[] = []
-      const walkApi = (dir: string, rel: string[] = []) => {
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) {
-            if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walkApi(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name === 'route.ts') routeFiles.push([...rel, e.name].join('/'))
-        }
-      }
-      if (fs.existsSync(apiPkg)) walkApi(apiPkg)
-      if (fs.existsSync(apiApp)) walkApi(apiApp)
-      const routeList = Array.from(new Set(routeFiles))
-      const isDynamicRoute = (p: string) => p.split('/').some((seg) => /\[|\[\[\.\.\./.test(seg))
-      routeList.sort((a, b) => {
-        const ad = isDynamicRoute(a) ? 1 : 0
-        const bd = isDynamicRoute(b) ? 1 : 0
-        if (ad !== bd) return ad - bd
-        return a.localeCompare(b)
-      })
-      for (const rel of routeList) {
-        const segs = rel.split('/')
-        segs.pop()
-        const reqSegs = [modId, ...segs]
-        const importName = `R${importId++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-        const appFile = path.join(apiApp, ...segs, 'route.ts')
-        const fromApp = fs.existsSync(appFile)
-        const apiSegPath = segs.join('/')
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
-        const routePath = '/' + reqSegs.filter(Boolean).join('/')
-        const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
-        const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
-        const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
-      }
-
-      // Single files
-      const plainFiles: string[] = []
-      const methodNames = new Set(['get', 'post', 'put', 'patch', 'delete'])
-      const walkPlain = (dir: string, rel: string[] = []) => {
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) {
-            if (methodNames.has(e.name.toLowerCase())) continue
-            if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walkPlain(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name.endsWith('.ts') && e.name !== 'route.ts') {
-            if (/\.(test|spec)\.ts$/.test(e.name)) continue
-            plainFiles.push([...rel, e.name].join('/'))
-          }
-        }
-      }
-      if (fs.existsSync(apiPkg)) walkPlain(apiPkg)
-      if (fs.existsSync(apiApp)) walkPlain(apiApp)
-      const plainList = Array.from(new Set(plainFiles))
-      for (const rel of plainList) {
-        const segs = rel.split('/')
-        const file = segs.pop()!
-        const pathWithoutExt = file.replace(/\.ts$/, '')
-        const fullSegs = [...segs, pathWithoutExt]
-        const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
-        const importName = `R${importId++}_${toVar(modId)}_${toVar(fullSegs.join('_') || 'index')}`
-        const appFile = path.join(apiApp, ...fullSegs) + '.ts'
-        const fromApp = fs.existsSync(appFile)
-        const plainSegPath = fullSegs.join('/')
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
-        const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
-        const sourceFile = fromApp ? appFile : pkgFile
-        const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
-        const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
-      }
-      // Legacy per-method
-      const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
-      for (const method of methods) {
-        const coreMethodDir = path.join(apiPkg, method.toLowerCase())
-        const appMethodDir = path.join(apiApp, method.toLowerCase())
-        const methodDir = fs.existsSync(appMethodDir) ? appMethodDir : coreMethodDir
-        const methodIsApp = fs.existsSync(appMethodDir)
-        if (!fs.existsSync(methodDir)) continue
-        const apiFiles: string[] = []
-        const walk2 = (dir: string, rel: string[] = []) => {
-          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) {
-              if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walk2(path.join(dir, e.name), [...rel, e.name])
-            } else if (e.isFile() && e.name.endsWith('.ts')) {
-              if (/\.(test|spec)\.ts$/.test(e.name)) continue
-              apiFiles.push([...rel, e.name].join('/'))
-            }
-          }
-        }
-        walk2(methodDir)
-        const methodList = Array.from(new Set(apiFiles))
-        for (const rel of methodList) {
-          const segs = rel.split('/')
-          const file = segs.pop()!
-          const pathWithoutExt = file.replace(/\.ts$/, '')
-          const fullSegs = [...segs, pathWithoutExt]
-          const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
-          const importName = `H${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
-          const fromApp = methodDir === appMethodDir
-          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
-          const metaName = `RM${importId++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
-          const sourceFile = path.join(methodDir, ...segs, file)
-          const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
-          const docsPart = hasOpenApi ? `, docs: ${metaName}.openApi` : ''
-          imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-          apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
-        }
-      }
-    }
-
-    // CLI
-    const cliApp = path.join(roots.appBase, 'cli.ts')
-    const cliPkg = path.join(roots.pkgBase, 'cli.ts')
-    const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
-    if (cliPath) {
-      const importName = `CLI_${toVar(modId)}`
-      const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
-      imports.push(`import ${importName} from '${importPath}'`)
-      cliImportName = importName
-    }
-
-    // Translations: merge core + app with app overriding
-    const i18nApp = path.join(roots.appBase, 'i18n')
-    const i18nCore = path.join(roots.pkgBase, 'i18n')
-    const locales = new Set<string>()
-    if (fs.existsSync(i18nCore))
-      for (const e of fs.readdirSync(i18nCore, { withFileTypes: true }))
-        if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
-    if (fs.existsSync(i18nApp))
-      for (const e of fs.readdirSync(i18nApp, { withFileTypes: true }))
-        if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
-    for (const locale of locales) {
-      const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
-      const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
-      if (coreHas && appHas) {
-        const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-        const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
-        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
-        translations.push(
-          `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
-        )
-      } else if (appHas) {
-        const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
-        translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
-      } else if (coreHas) {
-        const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
-        translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
-      }
-    }
-
-    // Subscribers: src/modules/<module>/subscribers/*.ts
-    const subApp = path.join(roots.appBase, 'subscribers')
-    const subPkg = path.join(roots.pkgBase, 'subscribers')
-    if (fs.existsSync(subApp) || fs.existsSync(subPkg)) {
-      const found: string[] = []
-      const walkSub = (dir: string, rel: string[] = []) => {
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) {
-            if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walkSub(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name.endsWith('.ts')) {
-            if (/\.(test|spec)\.ts$/.test(e.name)) continue
-            found.push([...rel, e.name].join('/'))
-          }
-        }
-      }
-      if (fs.existsSync(subPkg)) walkSub(subPkg)
-      if (fs.existsSync(subApp)) walkSub(subApp)
-      const files = Array.from(new Set(found))
-      for (const rel of files) {
-        const segs = rel.split('/')
-        const file = segs.pop()!
-        const name = file.replace(/\.ts$/, '')
-        const importName = `Subscriber${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-        const metaName = `SubscriberMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-        const appFile = path.join(subApp, ...segs, `${name}.ts`)
-        const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
-        imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-        const sid = [modId, ...segs, name].filter(Boolean).join(':')
-        subscribers.push(
-          `{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, handler: ${importName} }`
-        )
-      }
-    }
-
-    // Workers: src/modules/<module>/workers/*.ts
-    // Only includes files that export `metadata` with a `queue` property
+    // 13. Pages: backend
     {
-      const wrkApp = path.join(roots.appBase, 'workers')
-      const wrkPkg = path.join(roots.pkgBase, 'workers')
-      if (fs.existsSync(wrkApp) || fs.existsSync(wrkPkg)) {
-        const found: string[] = []
-        const walkWrk = (dir: string, rel: string[] = []) => {
-          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) {
-              if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walkWrk(path.join(dir, e.name), [...rel, e.name])
-            } else if (e.isFile() && e.name.endsWith('.ts')) {
-              if (/\.(test|spec)\.ts$/.test(e.name)) continue
-              found.push([...rel, e.name].join('/'))
-            }
-          }
-        }
-        if (fs.existsSync(wrkPkg)) walkWrk(wrkPkg)
-        if (fs.existsSync(wrkApp)) walkWrk(wrkApp)
-        const files = Array.from(new Set(found))
-        for (const rel of files) {
-          const segs = rel.split('/')
-          const file = segs.pop()!
-          const name = file.replace(/\.ts$/, '')
-          const appFile = path.join(wrkApp, ...segs, `${name}.ts`)
-          const fromApp = fs.existsSync(appFile)
-          // Use package import path for checking exports (file path fails due to relative imports)
-          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/workers/${[...segs, name].join('/')}`
-          // Only include files that export metadata with a queue property
-          if (!(await moduleHasExport(importPath, 'metadata'))) continue
-          const importName = `Worker${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-          const metaName = `WorkerMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-          imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-          const wid = [modId, 'workers', ...segs, name].filter(Boolean).join(':')
-          workers.push(
-            `{ id: (${metaName}.metadata as { id?: string })?.id || '${wid}', queue: (${metaName}.metadata as { queue: string }).queue, concurrency: (${metaName}.metadata as { concurrency?: number })?.concurrency ?? 1, handler: ${importName} as (job: unknown, ctx: unknown) => Promise<void> }`
-          )
-        }
+      const beApp = path.join(roots.appBase, 'backend')
+      const bePkg = path.join(roots.pkgBase, 'backend')
+      const beFiles = scanModuleDir(roots, SCAN_CONFIGS.backendPages)
+      if (beFiles.length) {
+        backendRoutes.push(...processPageFiles({
+          files: beFiles,
+          type: 'backend',
+          modId,
+          appDir: beApp,
+          pkgDir: bePkg,
+          appImportBase,
+          pkgImportBase: imps.pkgBase,
+          imports,
+          importIdRef,
+        }))
       }
     }
 
-    // Build combined customFieldSets expression from data/fields.ts and ce.ts (entities[].fields)
+    // 14. API routes
+    apis.push(...await processApiRoutes({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports,
+      importIdRef,
+    }))
+
+    // 15. CLI
+    {
+      const cliApp = path.join(roots.appBase, 'cli.ts')
+      const cliPkg = path.join(roots.pkgBase, 'cli.ts')
+      const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
+      if (cliPath) {
+        const importName = `CLI_${toVar(modId)}`
+        const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
+        imports.push(`import ${importName} from '${importPath}'`)
+        cliImportName = importName
+      }
+    }
+
+    // 16. Translations
+    translations.push(...processTranslations({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports,
+    }))
+
+    // 17. Subscribers
+    subscribers.push(...processSubscribers({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports,
+      importIdRef,
+    }))
+
+    // 18. Workers
+    workers.push(...await processWorkers({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports,
+      importIdRef,
+    }))
+
+    // Build combined customFieldSets expression
     {
       const parts: string[] = []
       if (fieldsImportName)
@@ -792,9 +676,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
     }
 
-    // Dashboard widgets: src/modules/<module>/widgets/dashboard/**/widget.ts(x)
+    // 19. Dashboard widgets
     {
-      const entries = scanDashboardWidgets({
+      const entries = scanDashboardWidgetEntries({
         modId,
         roots,
         appImportBase,
@@ -815,57 +699,35 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
-    // Injection widgets: src/modules/<module>/widgets/injection/**/widget.ts(x)
+    // 20. Injection widgets
     {
+      const files = scanModuleDir(roots, SCAN_CONFIGS.injectionWidgets)
       const widgetApp = path.join(roots.appBase, 'widgets', 'injection')
-      const widgetPkg = path.join(roots.pkgBase, 'widgets', 'injection')
-      if (fs.existsSync(widgetApp) || fs.existsSync(widgetPkg)) {
-        const found: string[] = []
-        const walk = (dir: string, rel: string[] = []) => {
-          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) {
-              if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walk(path.join(dir, e.name), [...rel, e.name])
-            } else if (e.isFile() && /^widget\.(t|j)sx?$/.test(e.name)) {
-              found.push([...rel, e.name].join('/'))
-            }
-          }
-        }
-        if (fs.existsSync(widgetPkg)) walk(widgetPkg)
-        if (fs.existsSync(widgetApp)) walk(widgetApp)
-        const files = Array.from(new Set(found)).sort()
-        for (const rel of files) {
-          const appFile = path.join(widgetApp, ...rel.split('/'))
-          const fromApp = fs.existsSync(appFile)
-          const segs = rel.split('/')
-          const file = segs.pop()!
-          const base = file.replace(/\.(t|j)sx?$/, '')
-          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
-          const key = [modId, ...segs, base].filter(Boolean).join(':')
-          const source = fromApp ? 'app' : 'package'
-          injectionWidgets.push(
-            `{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}').then((mod) => mod.default ?? mod) }`
-          )
-          const existing = allInjectionWidgets.get(key)
-          if (!existing || (existing.source !== 'app' && source === 'app')) {
-            allInjectionWidgets.set(key, { moduleId: modId, source, importPath })
-          }
+      for (const { relPath, fromApp } of files) {
+        const segs = relPath.split('/')
+        const file = segs.pop()!
+        const base = file.replace(/\.(t|j)sx?$/, '')
+        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
+        const key = [modId, ...segs, base].filter(Boolean).join(':')
+        const source = fromApp ? 'app' : 'package'
+        injectionWidgets.push(
+          `{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}').then((mod) => mod.default ?? mod) }`
+        )
+        const existing = allInjectionWidgets.get(key)
+        if (!existing || (existing.source !== 'app' && source === 'app')) {
+          allInjectionWidgets.set(key, { moduleId: modId, source, importPath })
         }
       }
     }
 
-    // Injection table: src/modules/<module>/widgets/injection-table.ts
+    // 21. Injection table
     {
-      const appFile = path.join(roots.appBase, 'widgets', 'injection-table.ts')
-      const pkgFile = path.join(roots.pkgBase, 'widgets', 'injection-table.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `InjTable_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/widgets/injection-table` : `${imps.pkgBase}/widgets/injection-table`
-        imports.push(`import * as ${importName} from '${importPath}'`)
+      const resolved = resolveModuleFile(roots, imps, 'widgets/injection-table.ts')
+      if (resolved) {
+        const importName = `InjTable_${toVar(modId)}_${importIdRef.value++}`
+        imports.push(`import * as ${importName} from '${resolved.importPath}'`)
         injectionTableImportName = importName
-        allInjectionTables.push({ moduleId: modId, importPath, importName })
+        allInjectionTables.push({ moduleId: modId, importPath: resolved.importPath, importName })
       }
     }
 
@@ -1074,36 +936,8 @@ export function getNotificationRenderers(): NotificationRenderers {
     ...Array.from(trackedRoots),
   ])
 
-  const modulesChecksum = { content: calculateChecksum(output), structure: structureChecksum }
-  const existingModulesChecksum = readChecksumRecord(checksumFile)
-  const shouldWriteModules =
-    !existingModulesChecksum ||
-    existingModulesChecksum.content !== modulesChecksum.content ||
-    existingModulesChecksum.structure !== modulesChecksum.structure
-  if (shouldWriteModules) {
-    fs.mkdirSync(path.dirname(outFile), { recursive: true })
-    fs.writeFileSync(outFile, output)
-    writeChecksumRecord(checksumFile, modulesChecksum)
-    result.filesWritten.push(outFile)
-  } else {
-    result.filesUnchanged.push(outFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), outFile), shouldWriteModules)
-
-  const widgetsChecksum = { content: calculateChecksum(widgetsOutput), structure: structureChecksum }
-  const existingWidgetsChecksum = readChecksumRecord(widgetsChecksumFile)
-  const shouldWriteWidgets =
-    !existingWidgetsChecksum ||
-    existingWidgetsChecksum.content !== widgetsChecksum.content ||
-    existingWidgetsChecksum.structure !== widgetsChecksum.structure
-  if (shouldWriteWidgets) {
-    fs.writeFileSync(widgetsOutFile, widgetsOutput)
-    writeChecksumRecord(widgetsChecksumFile, widgetsChecksum)
-    result.filesWritten.push(widgetsOutFile)
-  } else {
-    result.filesUnchanged.push(widgetsOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), widgetsOutFile), shouldWriteWidgets)
+  writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: widgetsOutFile, checksumFile: widgetsChecksumFile, content: widgetsOutput, structureChecksum, result, quiet })
 
   const injectionWidgetEntriesList = Array.from(allInjectionWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
   const injectionWidgetDecls = injectionWidgetEntriesList.map(
@@ -1132,50 +966,9 @@ export const injectionTables: Array<{ moduleId: string; table: ModuleInjectionTa
 ${injectionTableDecls.join(',\n')}
 ]
 `
-  const injectionWidgetsChecksum = { content: calculateChecksum(injectionWidgetsOutput), structure: structureChecksum }
-  const existingInjectionWidgetsChecksum = readChecksumRecord(injectionWidgetsChecksumFile)
-  const shouldWriteInjectionWidgets =
-    !existingInjectionWidgetsChecksum ||
-    existingInjectionWidgetsChecksum.content !== injectionWidgetsChecksum.content ||
-    existingInjectionWidgetsChecksum.structure !== injectionWidgetsChecksum.structure
-  if (shouldWriteInjectionWidgets) {
-    fs.writeFileSync(injectionWidgetsOutFile, injectionWidgetsOutput)
-    writeChecksumRecord(injectionWidgetsChecksumFile, injectionWidgetsChecksum)
-    result.filesWritten.push(injectionWidgetsOutFile)
-  } else {
-    result.filesUnchanged.push(injectionWidgetsOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), injectionWidgetsOutFile), shouldWriteInjectionWidgets)
-
-  const injectionTablesChecksum = { content: calculateChecksum(injectionTablesOutput), structure: structureChecksum }
-  const existingInjectionTablesChecksum = readChecksumRecord(injectionTablesChecksumFile)
-  const shouldWriteInjectionTables =
-    !existingInjectionTablesChecksum ||
-    existingInjectionTablesChecksum.content !== injectionTablesChecksum.content ||
-    existingInjectionTablesChecksum.structure !== injectionTablesChecksum.structure
-  if (shouldWriteInjectionTables) {
-    fs.writeFileSync(injectionTablesOutFile, injectionTablesOutput)
-    writeChecksumRecord(injectionTablesChecksumFile, injectionTablesChecksum)
-    result.filesWritten.push(injectionTablesOutFile)
-  } else {
-    result.filesUnchanged.push(injectionTablesOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), injectionTablesOutFile), shouldWriteInjectionTables)
-
-  const searchChecksum = { content: calculateChecksum(searchOutput), structure: structureChecksum }
-  const existingSearchChecksum = readChecksumRecord(searchChecksumFile)
-  const shouldWriteSearch =
-    !existingSearchChecksum ||
-    existingSearchChecksum.content !== searchChecksum.content ||
-    existingSearchChecksum.structure !== searchChecksum.structure
-  if (shouldWriteSearch) {
-    fs.writeFileSync(searchOutFile, searchOutput)
-    writeChecksumRecord(searchChecksumFile, searchChecksum)
-    result.filesWritten.push(searchOutFile)
-  } else {
-    result.filesUnchanged.push(searchOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), searchOutFile), shouldWriteSearch)
+  writeGeneratedFile({ outFile: injectionWidgetsOutFile, checksumFile: injectionWidgetsChecksumFile, content: injectionWidgetsOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: injectionTablesOutFile, checksumFile: injectionTablesChecksumFile, content: injectionTablesOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: searchOutFile, checksumFile: searchChecksumFile, content: searchOutput, structureChecksum, result, quiet })
 
   // AI Tools generated file
   const aiToolsOutput = `// AUTO-GENERATED by mercato generate registry
@@ -1187,95 +980,12 @@ ${aiToolsConfigs.length ? '  ' + aiToolsConfigs.join(',\n  ') + '\n' : ''}].filt
 
 export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
 `
-  const aiToolsChecksum = { content: calculateChecksum(aiToolsOutput), structure: structureChecksum }
-  const existingAiToolsChecksum = readChecksumRecord(aiToolsChecksumFile)
-  const shouldWriteAiTools =
-    !existingAiToolsChecksum ||
-    existingAiToolsChecksum.content !== aiToolsChecksum.content ||
-    existingAiToolsChecksum.structure !== aiToolsChecksum.structure
-  if (shouldWriteAiTools) {
-    fs.writeFileSync(aiToolsOutFile, aiToolsOutput)
-    writeChecksumRecord(aiToolsChecksumFile, aiToolsChecksum)
-    result.filesWritten.push(aiToolsOutFile)
-  } else {
-    result.filesUnchanged.push(aiToolsOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), aiToolsOutFile), shouldWriteAiTools)
-
-  const notificationsChecksum = { content: calculateChecksum(notificationsOutput), structure: structureChecksum }
-  const existingNotificationsChecksum = readChecksumRecord(notificationsChecksumFile)
-  const shouldWriteNotifications =
-    !existingNotificationsChecksum ||
-    existingNotificationsChecksum.content !== notificationsChecksum.content ||
-    existingNotificationsChecksum.structure !== notificationsChecksum.structure
-  if (shouldWriteNotifications) {
-    fs.writeFileSync(notificationsOutFile, notificationsOutput)
-    writeChecksumRecord(notificationsChecksumFile, notificationsChecksum)
-    result.filesWritten.push(notificationsOutFile)
-  } else {
-    result.filesUnchanged.push(notificationsOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), notificationsOutFile), shouldWriteNotifications)
-
-  const notificationsClientChecksum = { content: calculateChecksum(notificationsClientOutput), structure: structureChecksum }
-  const existingNotificationsClientChecksum = readChecksumRecord(notificationsClientChecksumFile)
-  const shouldWriteNotificationsClient =
-    !existingNotificationsClientChecksum ||
-    existingNotificationsClientChecksum.content !== notificationsClientChecksum.content ||
-    existingNotificationsClientChecksum.structure !== notificationsClientChecksum.structure
-  if (shouldWriteNotificationsClient) {
-    fs.writeFileSync(notificationsClientOutFile, notificationsClientOutput)
-    writeChecksumRecord(notificationsClientChecksumFile, notificationsClientChecksum)
-    result.filesWritten.push(notificationsClientOutFile)
-  } else {
-    result.filesUnchanged.push(notificationsClientOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), notificationsClientOutFile), shouldWriteNotificationsClient)
-
-  const eventsChecksum = { content: calculateChecksum(eventsOutput), structure: structureChecksum }
-  const existingEventsChecksum = readChecksumRecord(eventsChecksumFile)
-  const shouldWriteEvents =
-    !existingEventsChecksum ||
-    existingEventsChecksum.content !== eventsChecksum.content ||
-    existingEventsChecksum.structure !== eventsChecksum.structure
-  if (shouldWriteEvents) {
-    fs.writeFileSync(eventsOutFile, eventsOutput)
-    writeChecksumRecord(eventsChecksumFile, eventsChecksum)
-    result.filesWritten.push(eventsOutFile)
-  } else {
-    result.filesUnchanged.push(eventsOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), eventsOutFile), shouldWriteEvents)
-
-  const analyticsChecksum = { content: calculateChecksum(analyticsOutput), structure: structureChecksum }
-  const existingAnalyticsChecksum = readChecksumRecord(analyticsChecksumFile)
-  const shouldWriteAnalytics =
-    !existingAnalyticsChecksum ||
-    existingAnalyticsChecksum.content !== analyticsChecksum.content ||
-    existingAnalyticsChecksum.structure !== analyticsChecksum.structure
-  if (shouldWriteAnalytics) {
-    fs.writeFileSync(analyticsOutFile, analyticsOutput)
-    writeChecksumRecord(analyticsChecksumFile, analyticsChecksum)
-    result.filesWritten.push(analyticsOutFile)
-  } else {
-    result.filesUnchanged.push(analyticsOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), analyticsOutFile), shouldWriteAnalytics)
-
-  const transFieldsChecksum = { content: calculateChecksum(transFieldsOutput), structure: structureChecksum }
-  const existingTransFieldsChecksum = readChecksumRecord(transFieldsChecksumFile)
-  const shouldWriteTransFields =
-    !existingTransFieldsChecksum ||
-    existingTransFieldsChecksum.content !== transFieldsChecksum.content ||
-    existingTransFieldsChecksum.structure !== transFieldsChecksum.structure
-  if (shouldWriteTransFields) {
-    fs.writeFileSync(transFieldsOutFile, transFieldsOutput)
-    writeChecksumRecord(transFieldsChecksumFile, transFieldsChecksum)
-    result.filesWritten.push(transFieldsOutFile)
-  } else {
-    result.filesUnchanged.push(transFieldsOutFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), transFieldsOutFile), shouldWriteTransFields)
+  writeGeneratedFile({ outFile: aiToolsOutFile, checksumFile: aiToolsChecksumFile, content: aiToolsOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: notificationsOutFile, checksumFile: notificationsChecksumFile, content: notificationsOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: notificationsClientOutFile, checksumFile: notificationsClientChecksumFile, content: notificationsClientOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
 
   return result
 }
@@ -1299,21 +1009,21 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
   const moduleDecls: string[] = []
-  let importId = 0
+  // Mutable ref so extracted helper functions can increment the shared counter
+  const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
 
   for (const entry of enabled) {
     const modId = entry.id
     const roots = resolver.getModulePaths(entry)
-    const imps = resolver.getModuleImportBase(entry)
+    const rawImps = resolver.getModuleImportBase(entry)
     trackedRoots.add(roots.appBase)
     trackedRoots.add(roots.pkgBase)
 
-    // For @app modules, use relative paths since @/ alias doesn't work in Node.js runtime
-    // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
     const isAppModule = entry.from === '@app'
-    const appImportBase = isAppModule ? `../../src/modules/${modId}` : imps.appBase
+    const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
+    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
 
     let cliImportName: string | null = null
     const translations: string[] = []
@@ -1334,10 +1044,9 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     const pkgIndex = path.join(roots.pkgBase, 'index.ts')
     const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
     if (indexTs) {
-      infoImportName = `I${importId++}_${toVar(modId)}`
+      infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
       imports.push(`import * as ${infoImportName} from '${importPath}'`)
-      // Try to eagerly read ModuleInfo.requires for dependency validation
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require(indexTs)
@@ -1347,41 +1056,25 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       } catch {}
     }
 
-    // Module setup configuration: module root setup.ts
+    // Module setup configuration: setup.ts
     {
-      const appFile = path.join(roots.appBase, 'setup.ts')
-      const pkgFile = path.join(roots.pkgBase, 'setup.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `SETUP_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/setup` : `${imps.pkgBase}/setup`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        setupImportName = importName
-      }
+      const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
+      if (setup) setupImportName = setup.importName
     }
 
-    // Entity extensions: src/modules/<module>/data/extensions.ts
+    // Entity extensions: data/extensions.ts
     {
-      const appFile = path.join(roots.appBase, 'data', 'extensions.ts')
-      const pkgFile = path.join(roots.pkgBase, 'data', 'extensions.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `X_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        extensionsImportName = importName
-      }
+      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports)
+      if (ext) extensionsImportName = ext.importName
     }
 
-    // RBAC feature declarations: module root acl.ts
+    // RBAC: acl.ts
     {
       const rootApp = path.join(roots.appBase, 'acl.ts')
       const rootPkg = path.join(roots.pkgBase, 'acl.ts')
       const hasRoot = fs.existsSync(rootApp) || fs.existsSync(rootPkg)
       if (hasRoot) {
-        const importName = `ACL_${toVar(modId)}_${importId++}`
+        const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
         const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
         const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
         imports.push(`import * as ${importName} from '${importPath}'`)
@@ -1389,170 +1082,67 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       }
     }
 
-    // Custom entities declarations: module root ce.ts
+    // Custom entities: ce.ts
     {
-      const appFile = path.join(roots.appBase, 'ce.ts')
-      const pkgFile = path.join(roots.pkgBase, 'ce.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `CE_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/ce` : `${imps.pkgBase}/ce`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        customEntitiesImportName = importName
-      }
+      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports)
+      if (ce) customEntitiesImportName = ce.importName
     }
 
-    // Vector search configuration: module root vector.ts
+    // Vector search configuration: vector.ts
     {
-      const appFile = path.join(roots.appBase, 'vector.ts')
-      const pkgFile = path.join(roots.pkgBase, 'vector.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `VECTOR_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/vector` : `${imps.pkgBase}/vector`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        vectorImportName = importName
-      }
+      const vec = resolveConventionFile(roots, imps, 'vector.ts', 'VECTOR', modId, importIdRef, imports)
+      if (vec) vectorImportName = vec.importName
     }
 
-    // Custom field declarations: src/modules/<module>/data/fields.ts
+    // Custom fields: data/fields.ts
     {
-      const appFile = path.join(roots.appBase, 'data', 'fields.ts')
-      const pkgFile = path.join(roots.pkgBase, 'data', 'fields.ts')
-      const hasApp = fs.existsSync(appFile)
-      const hasPkg = fs.existsSync(pkgFile)
-      if (hasApp || hasPkg) {
-        const importName = `F_${toVar(modId)}_${importId++}`
-        const importPath = hasApp ? `${appImportBase}/data/fields` : `${imps.pkgBase}/data/fields`
-        imports.push(`import * as ${importName} from '${importPath}'`)
-        fieldsImportName = importName
-      }
+      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports)
+      if (fields) fieldsImportName = fields.importName
     }
 
     // CLI
-    const cliApp = path.join(roots.appBase, 'cli.ts')
-    const cliPkg = path.join(roots.pkgBase, 'cli.ts')
-    const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
-    if (cliPath) {
-      const importName = `CLI_${toVar(modId)}`
-      const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
-      imports.push(`import ${importName} from '${importPath}'`)
-      cliImportName = importName
-    }
-
-    // Translations: merge core + app with app overriding
-    const i18nApp = path.join(roots.appBase, 'i18n')
-    const i18nCore = path.join(roots.pkgBase, 'i18n')
-    const locales = new Set<string>()
-    if (fs.existsSync(i18nCore))
-      for (const e of fs.readdirSync(i18nCore, { withFileTypes: true }))
-        if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
-    if (fs.existsSync(i18nApp))
-      for (const e of fs.readdirSync(i18nApp, { withFileTypes: true }))
-        if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
-    for (const locale of locales) {
-      const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
-      const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
-      if (coreHas && appHas) {
-        const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-        const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
-        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
-        translations.push(
-          `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
-        )
-      } else if (appHas) {
-        const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-        imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
-        translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
-      } else if (coreHas) {
-        const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
-        translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
-      }
-    }
-
-    // Subscribers: src/modules/<module>/subscribers/*.ts
-    const subApp = path.join(roots.appBase, 'subscribers')
-    const subPkg = path.join(roots.pkgBase, 'subscribers')
-    if (fs.existsSync(subApp) || fs.existsSync(subPkg)) {
-      const found: string[] = []
-      const walkSub = (dir: string, rel: string[] = []) => {
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (e.isDirectory()) {
-            if (e.name === '__tests__' || e.name === '__mocks__') continue
-            walkSub(path.join(dir, e.name), [...rel, e.name])
-          } else if (e.isFile() && e.name.endsWith('.ts')) {
-            if (/\.(test|spec)\.ts$/.test(e.name)) continue
-            found.push([...rel, e.name].join('/'))
-          }
-        }
-      }
-      if (fs.existsSync(subPkg)) walkSub(subPkg)
-      if (fs.existsSync(subApp)) walkSub(subApp)
-      const files = Array.from(new Set(found))
-      for (const rel of files) {
-        const segs = rel.split('/')
-        const file = segs.pop()!
-        const name = file.replace(/\.ts$/, '')
-        const importName = `Subscriber${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-        const metaName = `SubscriberMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-        const appFile = path.join(subApp, ...segs, `${name}.ts`)
-        const fromApp = fs.existsSync(appFile)
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
-        imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-        const sid = [modId, ...segs, name].filter(Boolean).join(':')
-        subscribers.push(
-          `{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, handler: ${importName} }`
-        )
-      }
-    }
-
-    // Workers: src/modules/<module>/workers/*.ts
-    // Only includes files that export `metadata` with a `queue` property
     {
-      const wrkApp = path.join(roots.appBase, 'workers')
-      const wrkPkg = path.join(roots.pkgBase, 'workers')
-      if (fs.existsSync(wrkApp) || fs.existsSync(wrkPkg)) {
-        const found: string[] = []
-        const walkWrk = (dir: string, rel: string[] = []) => {
-          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (e.isDirectory()) {
-              if (e.name === '__tests__' || e.name === '__mocks__') continue
-              walkWrk(path.join(dir, e.name), [...rel, e.name])
-            } else if (e.isFile() && e.name.endsWith('.ts')) {
-              if (/\.(test|spec)\.ts$/.test(e.name)) continue
-              found.push([...rel, e.name].join('/'))
-            }
-          }
-        }
-        if (fs.existsSync(wrkPkg)) walkWrk(wrkPkg)
-        if (fs.existsSync(wrkApp)) walkWrk(wrkApp)
-        const files = Array.from(new Set(found))
-        for (const rel of files) {
-          const segs = rel.split('/')
-          const file = segs.pop()!
-          const name = file.replace(/\.ts$/, '')
-          const appFile = path.join(wrkApp, ...segs, `${name}.ts`)
-          const fromApp = fs.existsSync(appFile)
-          // Use package import path for checking exports (file path fails due to relative imports)
-          const importPath = `${fromApp ? appImportBase : imps.pkgBase}/workers/${[...segs, name].join('/')}`
-          // Only include files that export metadata with a queue property
-          if (!(await moduleHasExport(importPath, 'metadata'))) continue
-          const importName = `Worker${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-          const metaName = `WorkerMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
-          imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-          const wid = [modId, 'workers', ...segs, name].filter(Boolean).join(':')
-          workers.push(
-            `{ id: (${metaName}.metadata as { id?: string })?.id || '${wid}', queue: (${metaName}.metadata as { queue: string }).queue, concurrency: (${metaName}.metadata as { concurrency?: number })?.concurrency ?? 1, handler: ${importName} as (job: unknown, ctx: unknown) => Promise<void> }`
-          )
-        }
+      const cliApp = path.join(roots.appBase, 'cli.ts')
+      const cliPkg = path.join(roots.pkgBase, 'cli.ts')
+      const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
+      if (cliPath) {
+        const importName = `CLI_${toVar(modId)}`
+        const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
+        imports.push(`import ${importName} from '${importPath}'`)
+        cliImportName = importName
       }
     }
 
-    // Build combined customFieldSets expression from data/fields.ts and ce.ts (entities[].fields)
+    // Translations
+    translations.push(...processTranslations({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports,
+    }))
+
+    // Subscribers
+    subscribers.push(...processSubscribers({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports,
+      importIdRef,
+    }))
+
+    // Workers
+    workers.push(...await processWorkers({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports,
+      importIdRef,
+    }))
+
+    // Build combined customFieldSets expression
     {
       const parts: string[] = []
       if (fieldsImportName)
@@ -1564,9 +1154,9 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
     }
 
-    // Dashboard widgets: src/modules/<module>/widgets/dashboard/**/widget.ts(x)
+    // Dashboard widgets
     {
-      const entries = scanDashboardWidgets({
+      const entries = scanDashboardWidgetEntries({
         modId,
         roots,
         appImportBase,
@@ -1631,25 +1221,8 @@ export default modules
     }
   }
 
-  const structureChecksum = calculateStructureChecksum([
-    ...Array.from(trackedRoots),
-  ])
-
-  const checksum = { content: calculateChecksum(output), structure: structureChecksum }
-  const existingChecksum = readChecksumRecord(checksumFile)
-  const shouldWrite =
-    !existingChecksum ||
-    existingChecksum.content !== checksum.content ||
-    existingChecksum.structure !== checksum.structure
-  if (shouldWrite) {
-    fs.mkdirSync(path.dirname(outFile), { recursive: true })
-    fs.writeFileSync(outFile, output)
-    writeChecksumRecord(checksumFile, checksum)
-    result.filesWritten.push(outFile)
-  } else {
-    result.filesUnchanged.push(outFile)
-  }
-  if (!quiet) logGenerationResult(path.relative(process.cwd(), outFile), shouldWrite)
+  const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
+  writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
 
   return result
 }

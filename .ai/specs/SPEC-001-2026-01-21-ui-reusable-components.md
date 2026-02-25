@@ -388,4 +388,4 @@ const deleted = await deleteCrud('module/items', id)
 
 | Date | Summary |
 |------|---------|
-| 2026-02-23 | Added Popover, Calendar (primitives); DatePicker, DateTimePicker, TimePicker, TimeInput (inputs). Per [SPEC-034](SPEC-034-2026-02-22-date-pickers.md). |
+| 2026-02-23 | Added Popover, Calendar (primitives); DatePicker, DateTimePicker, TimePicker, TimeInput (inputs). Per [SPEC-039](SPEC-039-2026-02-22-date-pickers.md). |

@@ -1,10 +1,11 @@
-import { asFunction } from 'awilix'
+import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
+import { SalesOrder, SalesChannel, SalesShipment } from './data/entities'
 
 type AppCradle = AppContainer['cradle'] & {
   em: EntityManager
@@ -28,5 +29,8 @@ export function register(container: AppContainer) {
     })
       .singleton()
       .proxy(),
+    SalesOrder: asValue(SalesOrder),
+    SalesChannel: asValue(SalesChannel),
+    SalesShipment: asValue(SalesShipment),
   })
 }

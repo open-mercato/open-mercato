@@ -33,9 +33,11 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'staff', from: '@open-mercato/core' },
   { id: 'events', from: '@open-mercato/events' },
   { id: 'notifications', from: '@open-mercato/core' },
+  { id: 'progress', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
+  { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'example', from: '@app' }
 ]
 
