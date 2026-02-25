@@ -212,24 +212,20 @@ source.onopen = () => {
 
 ### Step 6: SSE Payload Security — Recipient Filtering
 
-**Critical**: The SSE endpoint broadcasts to all connections for a tenant. But notifications are per-user. Two options:
+**Critical**: Notifications are private. Server-side filtering is mandatory.
 
-**Option A (Recommended): Client-side filtering**
-- Include `recipientUserId` in the event payload
-- Client checks `payload.recipientUserId === currentUserId` before processing
-- Other users' events are silently ignored
-- Pro: Simple. Con: Tiny bandwidth waste (other users' notification events arrive but are filtered)
+**Required implementation**
+- Track `userId`, `roleIds`, `tenantId`, and `organizationId` in each `SseConnection`.
+- Filter in SSE bus handler before send:
+1. Tenant must match `tenantId`.
+2. If event has `organizationId`, connection organization must match.
+3. If event has `recipientUserId` or `recipientUserIds`, connection user must match.
+4. If event has `recipientRoleId` or `recipientRoleIds`, connection roles must intersect.
+- If any configured audience filter fails, do not send event to that connection.
 
-**Option B: Server-side per-user SSE filtering**
-- Track `userId` in each `SseConnection`
-- Filter by `recipientUserId` in the event bus handler
-- Pro: No wasted bandwidth. Con: Requires modifying the SSE connection registry
-
-Recommend **Option A** because:
-- Notification payloads are small (~200 bytes)
-- The SSE connection already filters by tenant
-- Adding per-user filtering to the bus handler adds complexity
-- Client filtering is simpler and easier to debug
+**Client-side filtering status**
+- Client checks remain optional defense-in-depth.
+- Client checks are not considered access control and do not satisfy privacy requirements.
 
 ### Step 7: Keep Polling as Fallback
 
@@ -280,7 +276,7 @@ Once SSE is stable, disable the polling interval. The `useNotificationsPoll` rem
 | SSE disconnects temporarily | Event bridge auto-reconnects; fires `om:bridge:reconnected`; hook re-fetches |
 | Browser doesn't support EventSource | Falls back to `useNotificationsPoll` (5s polling) |
 | Multiple notifications created rapidly | Each arrives as separate SSE event; state updates are batched by React |
-| Notification addressed to different user | Client-side filter: `recipientUserId !== currentUserId` → ignore |
+| Notification addressed to different user | Server-side filter drops event before delivery |
 | Batch notification (100 users) | Single `batch_created` event; each client does one REST fetch |
 | Group key deduplication | Server handles via advisory lock; client receives final notification state |
 | Notification dismissed in tab A | REST call updates server; no SSE event needed (local state handles it) |
@@ -355,3 +351,4 @@ Once SSE is stable, disable the polling interval. The `useNotificationsPoll` rem
 3. Multi-tab: notification appears in all tabs simultaneously
 4. SSE disconnect + reconnect: notifications catch up within 1s of reconnection
 5. Fallback: if `EventSource` unavailable, polling activates automatically
+6. A user never receives notification SSE payloads targeted to another user/role/organization

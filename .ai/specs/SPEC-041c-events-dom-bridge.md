@@ -285,10 +285,42 @@ await emitEvent('integration.sync.progress', {
 
 ### 6. Performance & Security
 
-- Events scoped to `organizationId` (SSE channel is already org-scoped)
+- Events MUST be server-filtered by audience before SSE send (tenant + organization + recipient user/role)
 - Payload limit: 4KB; larger payloads send only entity reference
 - Deduplication: 500ms window for identical event IDs
 - Opt-in: `clientBroadcast: true` required; default is `false`
+
+### 7. Audience Filtering Contract (Mandatory)
+
+`clientBroadcast: true` events are treated as potentially sensitive and MUST be filtered server-side in `packages/events/src/modules/events/api/stream/route.ts`.
+Client-side filtering (`useAppEvent`) is optional defense-in-depth only and MUST NOT be the primary access control.
+
+#### Supported audience fields in event payload
+
+```typescript
+interface BroadcastAudience {
+  tenantId: string                           // required for broadcast
+  organizationId?: string | null             // single org scope
+  organizationIds?: string[]                 // multi-org scope
+  recipientUserId?: string                   // single recipient user
+  recipientUserIds?: string[]                // multiple recipient users
+  recipientRoleId?: string                   // single recipient role
+  recipientRoleIds?: string[]                // multiple recipient roles
+}
+```
+
+#### Server-side matching rules
+
+1. `tenantId` MUST match connection tenant exactly; if missing, drop event.
+2. If event has `organizationId`/`organizationIds`, connection organization MUST match one of them; if connection has no organization selected, drop org-scoped event.
+3. If event has `recipientUserId`/`recipientUserIds`, connection `userId` MUST match one of them.
+4. If event has `recipientRoleId`/`recipientRoleIds`, connection role set MUST intersect the event role set.
+5. When multiple audience dimensions are present, treat them as logical AND.
+6. If no recipient field exists, event is tenant/org broadcast within allowed scope.
+
+#### Security requirement
+
+An authenticated user MUST NOT receive `om:event` payloads for another user/role/organization. "Receive then ignore on client" is not acceptable for notification-like events.
 
 ---
 
@@ -504,6 +536,45 @@ export default {
 
 **Expected**: All pattern matching assertions pass
 
+### TC-UMES-E11: Cross-user recipient isolation
+
+**Type**: API+UI (Playwright)
+
+**Steps**:
+1. Open two browser contexts in same tenant and organization (User A, User B)
+2. Emit a `clientBroadcast: true` event with `recipientUserId = UserA`
+3. Listen for `om:event` in both contexts
+
+**Expected**:
+- User A receives event
+- User B does not receive event payload at all
+
+### TC-UMES-E12: Role-based recipient isolation
+
+**Type**: API+UI (Playwright)
+
+**Steps**:
+1. Open two users in same tenant/org with non-overlapping roles
+2. Emit event with `recipientRoleIds` containing only Role X
+3. Listen for `om:event` in both contexts
+
+**Expected**:
+- User with Role X receives event
+- User without Role X does not receive event
+
+### TC-UMES-E13: Organization hard boundary
+
+**Type**: API+UI (Playwright)
+
+**Steps**:
+1. Open two users in same tenant but different selected organizations
+2. Emit event scoped to Organization A
+3. Listen for `om:event` in both contexts
+
+**Expected**:
+- User in Organization A receives event
+- User in Organization B does not receive event
+
 ---
 
 ## Files Touched
@@ -541,8 +612,8 @@ export default {
 - Uses `ReadableStream` with SSE format (`text/event-stream`)
 - Heartbeat every 30s (`:heartbeat\n\n`)
 - Global connection registry pattern: single `*` event bus handler broadcasts to all SSE connections
-- Tenant-scoped: filters by `tenantId` from auth context
-- Organization-scoped: if event carries `organizationId`, only matching connections receive it
+- Connection context MUST include `tenantId`, `organizationId`, `userId`, and `roleIds`
+- Server-side audience filtering MUST enforce tenant + organization + recipient user/role checks before enqueueing event to stream
 - Max payload: 4096 bytes per event
 
 ### Client-Side
