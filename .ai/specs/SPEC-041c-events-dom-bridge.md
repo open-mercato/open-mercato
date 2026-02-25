@@ -332,10 +332,10 @@ export default {
 | **NEW** | `packages/ui/src/backend/injection/useAppEvent.ts` |
 | **NEW** | `packages/core/src/modules/example/widgets/injection/crud-validation/widget.ts` |
 | **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add new event handler types) |
-| **MODIFY** | `packages/ui/src/backend/injection/useInjectionSpotEvents.ts` (dual dispatch) |
+| **MODIFY** | `packages/ui/src/backend/injection/InjectionSpot.tsx` (dual dispatch in `useInjectionSpotEvents`) |
 | **MODIFY** | `packages/core/src/modules/example/events.ts` (add clientBroadcast) |
 | **MODIFY** | `packages/core/src/modules/example/widgets/injection/sales-todos/widget.client.tsx` |
-| **MODIFY** | SSE notification stream endpoint (add event bridging) |
+| **MODIFY** | `packages/core/src/modules/notifications/api/stream/route.ts` (NEW stream endpoint for event bridging) |
 
 **Estimated scope**: Large — SSE extension + new event types + dual dispatch
 

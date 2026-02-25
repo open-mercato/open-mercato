@@ -413,10 +413,10 @@ export default {
 | **NEW** | `packages/ui/src/backend/injection/useInjectedMenuItems.ts` |
 | **NEW** | `packages/ui/src/backend/injection/mergeMenuItems.ts` |
 | **NEW** | `packages/core/src/modules/example/widgets/injection/example-menus/widget.ts` |
-| **MODIFY** | `ProfileDropdown.tsx` |
-| **MODIFY** | `AppShell.tsx` |
-| **MODIFY** | `SectionNav.tsx` |
-| **MODIFY** | `layout.tsx` (header) |
+| **MODIFY** | `packages/ui/src/backend/ProfileDropdown.tsx` |
+| **MODIFY** | `packages/ui/src/backend/AppShell.tsx` |
+| **MODIFY** | `packages/ui/src/backend/section-page/SectionNav.tsx` |
+| **MODIFY** | `apps/mercato/src/app/(backend)/backend/layout.tsx` (header actions) |
 | **MODIFY** | `packages/core/src/modules/example/widgets/injection-table.ts` |
 
 **Estimated scope**: Medium — 4 component modifications + hook + utility

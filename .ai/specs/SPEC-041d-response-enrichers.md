@@ -244,6 +244,23 @@ export const enrichers: ResponseEnricher[] = [
 
 **Expected**: `_meta.enrichedBy` array includes `'example.customer-todo-count'`
 
+### TC-UMES-R06: Enricher is tenant-safe (no cross-organization leakage)
+
+**Type**: API (Playwright)
+
+**Steps**:
+1. Create person A in organization A and person B in organization B
+2. Create todos in both organizations with distinct counts
+3. As org A user, GET person A and list `/api/customers/people`
+4. Assert `_example.todoCount` only reflects org A data
+5. Assert person B is not returned and never contributes to org A enrichment output
+
+**Expected**: Enrichment is scoped by `organization_id`; no cross-tenant rows or aggregates appear.
+
+**Testing notes**:
+- Use two auth contexts with different organization tokens
+- Add explicit assertion that `_example.latestTodo.id` never references org B records
+
 ---
 
 ## Files Touched

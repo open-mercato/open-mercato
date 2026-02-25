@@ -5,7 +5,7 @@
 | **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
 | **Phase** | E (PR 5) |
 | **Branch** | `feat/umes-api-interceptors` |
-| **Depends On** | Phase D (Response Enrichers — for execution order) |
+| **Depends On** | Phase D (Response Enrichers — for execution order), [SPEC-042](./SPEC-042-2026-02-24-multi-id-query-parameter.md) for multi-id query rewriting |
 | **Status** | Draft |
 
 ## Goal
@@ -278,6 +278,22 @@ export const interceptors: ApiInterceptor[] = [
 2. Assert `_example.processingTimeMs` is a positive number (proves `before` stored `requestReceivedAt` in metadata and `after` read it)
 
 **Expected**: `processingTimeMs` > 0 (metadata successfully passed from before to after)
+
+### TC-UMES-I07: Interceptor query/body rewrites remain tenant-safe
+
+**Type**: API (Playwright)
+
+**Steps**:
+1. Prepare records in organization A and organization B
+2. Run interceptor-enabled request from organization A that rewrites query/body (for example adds `ids`)
+3. Assert response contains only organization A records
+4. Repeat with organization B user and assert isolation is preserved
+
+**Expected**: Interceptor rewrites do not bypass `organization_id` isolation.
+
+**Testing notes**:
+- Use two authenticated contexts with distinct orgs
+- Include assertion that rewritten `ids` containing foreign-org IDs do not leak data
 
 ---
 

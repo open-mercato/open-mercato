@@ -248,17 +248,52 @@ src/modules/<module>/
 | A — Foundation | TC-UMES-F01–F02 | 2 |
 | B — Menus | TC-UMES-M01–M04 | 4 |
 | C — Events + DOM Bridge | TC-UMES-E01–E06 | 6 |
-| D — Response Enrichers | TC-UMES-R01–R05 | 5 |
-| E — API Interceptors | TC-UMES-I01–I06 | 6 |
+| D — Response Enrichers | TC-UMES-R01–R06 | 6 |
+| E — API Interceptors | TC-UMES-I01–I07 | 7 |
 | F — DataTable Extensions | TC-UMES-D01–D05 | 5 |
 | G — CrudForm Fields | TC-UMES-CF01–CF05 | 5 |
 | H — Component Replacement | TC-UMES-CR01–CR04 | 4 |
 | I — Detail Bindings | TC-UMES-DP01–DP04 | 4 |
 | J — Recursive Widgets | TC-UMES-RW01–RW02 | 2 |
 | K — DevTools | TC-UMES-DT01–DT02 | 2 |
-| **Total** | | **45** |
+| **Total** | | **47** |
 
 See each phase sub-spec for detailed test scenarios, example module additions, and testing notes.
+
+---
+
+## API & UI Coverage Matrix
+
+This matrix links each phase test pack to the primary API paths and key UI surfaces it must cover.
+
+| Phase | API Paths (minimum) | UI Paths (minimum) |
+|-------|----------------------|--------------------|
+| A — Foundation | Widget registry bootstrap + generated injection registries | Sidebar injection spots, generic injection host rendering |
+| B — Menus | Nav metadata endpoint consumption (existing path) | Profile dropdown, main sidebar, settings/profile section nav, backend header actions |
+| C — Events + DOM Bridge | SSE notifications stream + event broadcast transport | CrudForm widget handlers, `useAppEvent` listeners on data pages |
+| D — Response Enrichers | CRUD list/detail routes of target entities (e.g., `/api/customers/people`, `/api/customers/people/:id`) | DataTable/detail pages consuming enriched fields |
+| E — API Interceptors | Target CRUD routes for before/after interception (including wildcard route patterns) | Forms and flows that call intercepted APIs |
+| F — DataTable Extensions | List routes that power table rows and filter queries | `DataTable` columns, row actions, bulk actions, filter UI |
+| G — CrudForm Fields | Detail/read routes (load), field persistence routes (save) | `CrudForm` field groups, validation/save lifecycle |
+| H — Component Replacement | Any API route used by replaced/wrapped component | Target components and their host pages |
+| I — Detail Bindings | Detail page load + section save routes | Customer and sales detail pages using `useExtensibleDetail` |
+| J — Recursive Widgets | Existing CRUD save/delete routes reached by nested widgets | Nested `InjectionSpot` rendering and nested lifecycle hooks |
+| K — DevTools | Dev-only extension inspection endpoint(s) and generator conflict checks | DevTools panel toggle, extension inspection UI |
+
+---
+
+## Performance Acceptance Criteria
+
+These are release-gate thresholds for the first production rollout of UMES:
+
+| Area | Threshold | Gate |
+|------|-----------|------|
+| Response enrichers (`enrichMany`) | P95 enricher stage latency <= 100ms; hard fail threshold 500ms | Block release if hard threshold exceeded in integration profiling |
+| Interceptor chain | Added P95 request latency <= 50ms for routes with <=3 interceptors | Block release if exceeded without approved exception |
+| DataTable extension merge | Column/action/filter merge adds <= 16ms on client render for 100-row page | Block release if exceeded |
+| DevTools overhead | Production bundle impact = 0 (dev-only code path) | Block release if any devtools code ships to prod bundle |
+
+Profiling and measurement MUST be included in phase-level implementation PR notes.
 
 ---
 
@@ -295,6 +330,54 @@ See each phase sub-spec for detailed test scenarios, example module additions, a
 ## Feature-Gated Activation
 
 All extension types support `features?: string[]` for ACL-based activation. Extensions are only loaded when the current user has the required features. This reuses the existing RBAC system — no new permission model needed.
+
+---
+
+## Rollout Strategy
+
+Rollout is phased and reversible:
+
+1. Merge phases behind extension-type feature flags (default OFF for non-admin tenants).
+2. Enable Phase A + D in internal tenant first (minimum viable UMES path).
+3. Enable B/C/F/G/H/I/J incrementally with per-phase kill switch.
+4. Enable K (devtools) only in development mode and staging.
+5. Promote to general availability after latency, tenant isolation, and compatibility gates pass.
+
+Kill switches MUST exist for:
+- Response enrichers
+- API interceptors
+- Component overrides
+- DataTable/CrudForm extension rendering
+
+---
+
+## Migration & Backward Compatibility
+
+UMES changes several public contract surfaces and therefore follows the deprecation protocol from `BACKWARD_COMPATIBILITY.md`.
+
+### Contract Surfaces Affected
+
+- Type definitions and interfaces in shared/widget and CRUD extension contracts
+- Function signatures and hooks in CRUD factory + injection hooks
+- Auto-discovery conventions (`data/enrichers.ts`, `api/interceptors.ts`, `widgets/components.ts`) as additive files
+- Generated bootstrap contracts (`enrichers.generated.ts`, `interceptors.generated.ts`, `component-overrides.generated.ts`)
+
+### Compatibility Rules
+
+1. Existing spot IDs and existing widget contracts remain valid and unmodified.
+2. Existing CRUD hooks (`beforeList`, `afterList`, etc.) remain available with unchanged signatures.
+3. Existing APIs are additive-only: no route removals, no response field removals.
+4. Existing generated bootstrap fields remain intact; new fields/files are additive.
+5. Any future rename/removal of UMES contracts requires:
+   - `@deprecated` JSDoc
+   - compatibility bridge for at least one minor version
+   - RELEASE_NOTES entry with migration guidance
+
+### Migration Guidance for Module Authors
+
+- Existing injection widgets continue to work without migration.
+- New UMES extension types are opt-in and can be adopted incrementally.
+- Module authors should adopt `enrichMany` for list scenarios from day one to avoid N+1 regressions.
 
 ---
 
@@ -477,3 +560,4 @@ Key implementation details from deep-diving into the actual codebase:
 | 2026-02-24 | Initial draft — complete spec with all phases |
 | 2026-02-24 | Split into phased sub-specs (SPEC-041a through SPEC-041k) for LLM context management |
 | 2026-02-24 | Replace CLI scaffolding commands with AGENTS.md scaffolding guide for LLM-driven scaffolding |
+| 2026-02-25 | Add API/UI coverage matrix, rollout strategy, migration/backward compatibility section, and measurable performance acceptance criteria |
