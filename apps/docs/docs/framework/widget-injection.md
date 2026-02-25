@@ -20,6 +20,90 @@ The widget injection system allows modules to:
 3. **Injection Spots** - Locations where widgets can be injected
 4. **Event Handlers** - Lifecycle hooks for widget behavior
 
+## UMES Phase A and B
+
+Phase A and B add two foundational capabilities:
+
+- **Phase A (Foundation)**: typed placement (`InjectionPosition`) and headless widget loading (`useInjectionDataWidgets`) for non-visual extension payloads such as menu items.
+- **Phase B (Menu Injection)**: menu injection widgets (`InjectionMenuItemWidget`) rendered in app chrome without patching core navigation.
+
+### Menu surfaces (Phase B)
+
+Use these spot IDs in `widgets/injection-table.ts`:
+
+- `menu:sidebar:main`
+- `menu:sidebar:settings`
+- `menu:sidebar:profile`
+- `menu:topbar:profile-dropdown`
+- `menu:topbar:actions`
+
+You can also target scoped IDs such as `menu:sidebar:settings:<sectionId>`.
+
+### Positioning injected items
+
+Use `placement` on each menu item:
+
+```ts
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+
+placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' }
+```
+
+Supported positions:
+
+- `First`
+- `Last`
+- `Before` (requires `relativeTo`)
+- `After` (requires `relativeTo`)
+
+If `relativeTo` cannot be resolved, the item is appended.
+
+### i18n requirements for injected menus
+
+Every user-facing injected menu item should include:
+
+- `labelKey`: translation key
+- `label`: localized fallback text
+
+For grouped sidebar/profile items:
+
+- `groupLabelKey`: translation key for group label
+- `groupLabel`: optional fallback text
+
+Example:
+
+```ts
+const widget: InjectionMenuItemWidget = {
+  metadata: { id: 'example.injection.example-menus' },
+  menuItems: [
+    {
+      id: 'example-todos-shortcut',
+      labelKey: 'example.menu.todosShortcut',
+      label: 'Example Todos',
+      href: '/backend/todos',
+      icon: 'CheckSquare',
+      features: ['example.todos.view'],
+      groupId: 'example.nav.group',
+      groupLabelKey: 'example.nav.group',
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
+    },
+    {
+      id: 'example-quick-add-todo',
+      labelKey: 'example.menu.quickAddTodo',
+      label: 'Quick Add Todo',
+      href: '/backend/todos/create',
+      icon: 'PlusSquare',
+      features: ['example.todos.manage'],
+      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
+    },
+  ],
+}
+```
+
+### Separators and relative insertion
+
+Use `separator: true` to render visual separators for dropdown-style hosts. Combine with placement to insert separators before/after specific built-in items.
+
 ### Directory Structure
 
 ```

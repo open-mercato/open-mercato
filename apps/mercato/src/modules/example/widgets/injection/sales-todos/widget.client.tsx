@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 
 type TodoItem = {
   id: string
@@ -60,6 +61,11 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
   }, [organizationId, t])
 
   React.useEffect(() => {
+    void loadTodos()
+  }, [loadTodos])
+
+  // Auto-refresh when todo events arrive via DOM Event Bridge
+  useAppEvent('example.todo.*', () => {
     void loadTodos()
   }, [loadTodos])
 

@@ -4,7 +4,6 @@ import type { InjectionMenuItemWidget } from '@open-mercato/shared/modules/widge
 const widget: InjectionMenuItemWidget = {
   metadata: {
     id: 'example.injection.example-menus',
-    features: ['example.view'],
   },
   menuItems: [
     {
@@ -13,6 +12,7 @@ const widget: InjectionMenuItemWidget = {
       label: 'Example Todos',
       icon: 'CheckSquare',
       href: '/backend/todos',
+      features: ['example.todos.view'],
       groupId: 'example.nav.group',
       groupLabelKey: 'example.nav.group',
       placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
@@ -23,6 +23,7 @@ const widget: InjectionMenuItemWidget = {
       label: 'Quick Add Todo',
       icon: 'PlusSquare',
       href: '/backend/todos/create',
+      features: ['example.todos.manage'],
       placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
   ],

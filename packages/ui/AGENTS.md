@@ -133,6 +133,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - Use `useInjectedMenuItems(surfaceId)` to load declarative menu widgets for chrome surfaces (`menu:sidebar:*`, `menu:topbar:*`).
 - Merge built-in and injected items with `mergeMenuItems(builtIn, injected)` to preserve deterministic placement.
 - For relative positioning, rely on `InjectionPosition` + `relativeTo` IDs; if `relativeTo` is missing, insertion falls back to append.
+- Treat injected labels as i18n-first: prefer `labelKey` (with human fallback `label`) and `groupLabelKey` (with optional `groupLabel`) so keys never leak to UI.
 - Add stable attributes (`data-menu-item-id="<id>"`) when rendering merged items so integration tests can assert injected entries reliably.
 
 ## Loading, Empty, and Error States
