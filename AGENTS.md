@@ -186,6 +186,32 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files
 
+## Backward Compatibility Contract
+
+> **Full specification**: [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) — MUST be read before modifying any contract surface.
+
+Third-party module developers depend on stable platform APIs. Any change to a **contract surface** is a breaking change that blocks merge unless the deprecation protocol is followed.
+
+**Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in RELEASE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
+
+**13 contract surface categories** (details in `BACKWARD_COMPATIBILITY.md`):
+
+| # | Surface | Classification | Key Rule |
+|---|---------|---------------|----------|
+| 1 | Auto-discovery file conventions | FROZEN | File names, export names, routing algorithms immutable |
+| 2 | Type definitions & interfaces | STABLE | Required fields cannot be removed/narrowed; optional additive-only |
+| 3 | Function signatures | STABLE | Cannot remove/reorder params; new optional params OK |
+| 4 | Import paths | STABLE | Moved modules must re-export from old path |
+| 5 | Event IDs | FROZEN | Cannot rename/remove; payload fields additive-only |
+| 6 | Widget injection spot IDs | FROZEN | Cannot rename/remove; context fields additive-only |
+| 7 | API route URLs | STABLE | Cannot rename/remove; response fields additive-only |
+| 8 | Database schema | ADDITIVE-ONLY | No column/table rename/remove; new columns with defaults OK |
+| 9 | DI service names | STABLE | Cannot rename registration keys |
+| 10 | ACL feature IDs | FROZEN | Stored in DB; rename requires data migration |
+| 11 | Notification type IDs | FROZEN | Referenced by subscribers and stored in DB |
+| 12 | CLI commands | STABLE | Cannot rename/remove commands or required flags |
+| 13 | Generated file contracts | STABLE | Export names and `BootstrapData` shape immutable |
+
 ## Critical Rules
 
 ### Architecture
