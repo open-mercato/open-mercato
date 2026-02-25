@@ -37,3 +37,9 @@ Catalog / Products / Create Form / Organize Step
 ## Triage Classification
 - Type: Product bug
 - Regression test: `packages/core/src/modules/catalog/__integration__/TC-CAT-015.spec.ts`
+
+## Status
+Fixed. `categoryOptionsMap` / `channelOptionsMap` lifted to `ProductBuilder` via
+`onCategoryOptionsResolved` / `onChannelOptionsResolved` callbacks with upsert merge.
+Remount seeded via `initialCategoryOptions` / `initialChannelOptions` props + lazy `useState`
+initializer in `ProductCategorizeSection`. TC-CAT-015 passes.

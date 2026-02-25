@@ -24,6 +24,8 @@ type ProductCategorizeSectionProps = {
   initialCategoryOptions?: ProductCategorizePickerOption[]
   initialChannelOptions?: ProductCategorizePickerOption[]
   initialTagOptions?: ProductCategorizePickerOption[]
+  onCategoryOptionsResolved?: (options: ProductCategorizePickerOption[]) => void
+  onChannelOptionsResolved?: (options: ProductCategorizePickerOption[]) => void
 }
 
 export function ProductCategorizeSection({
@@ -33,10 +35,20 @@ export function ProductCategorizeSection({
   initialCategoryOptions,
   initialChannelOptions,
   initialTagOptions,
+  onCategoryOptionsResolved,
+  onChannelOptionsResolved,
 }: ProductCategorizeSectionProps) {
   const t = useT()
-  const [categoryOptionsMap, setCategoryOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>({})
-  const [channelOptionsMap, setChannelOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>({})
+  const [categoryOptionsMap, setCategoryOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>(() => {
+    const map: Record<string, ProductCategorizePickerOption> = {}
+    initialCategoryOptions?.forEach((opt) => { if (opt.value) map[opt.value] = opt })
+    return map
+  })
+  const [channelOptionsMap, setChannelOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>(() => {
+    const map: Record<string, ProductCategorizePickerOption> = {}
+    initialChannelOptions?.forEach((opt) => { if (opt.value) map[opt.value] = opt })
+    return map
+  })
   const [tagOptionsMap, setTagOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>({})
 
   const registerPickerOptions = React.useCallback(
@@ -127,12 +139,13 @@ export function ProductCategorizeSection({
             ): option is { value: string; label: string; description: string | null } => !!option,
           )
         registerPickerOptions(setCategoryOptionsMap, options)
+        onCategoryOptionsResolved?.(options)
         return options
       } catch {
         return []
       }
     },
-    [registerPickerOptions, t],
+    [registerPickerOptions, onCategoryOptionsResolved, t],
   )
 
   const loadChannelSuggestions = React.useCallback(
@@ -165,12 +178,13 @@ export function ProductCategorizeSection({
             ): option is { value: string; label: string; description: string | null } => !!option,
           )
         registerPickerOptions(setChannelOptionsMap, options)
+        onChannelOptionsResolved?.(options)
         return options
       } catch {
         return []
       }
     },
-    [registerPickerOptions, t],
+    [registerPickerOptions, onChannelOptionsResolved, t],
   )
 
   const loadTagSuggestions = React.useCallback(

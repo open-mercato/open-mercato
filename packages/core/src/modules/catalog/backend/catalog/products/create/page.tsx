@@ -19,7 +19,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
-import { ProductCategorizeSection } from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
+import { ProductCategorizeSection, type ProductCategorizePickerOption } from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
 import {
   PRODUCT_FORM_STEPS,
   type PriceKindSummary,
@@ -653,6 +653,29 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
 
   const currentStepKey = steps[currentStep] ?? steps[0]
 
+  const [savedCategoryOptions, setSavedCategoryOptions] = React.useState<ProductCategorizePickerOption[]>([])
+  const [savedChannelOptions, setSavedChannelOptions] = React.useState<ProductCategorizePickerOption[]>([])
+
+  const handleCategoryOptionsResolved = React.useCallback((options: ProductCategorizePickerOption[]) => {
+    if (!options.length) return
+    setSavedCategoryOptions((prev) => {
+      const map: Record<string, ProductCategorizePickerOption> = {}
+      prev.forEach((opt) => { if (opt.value) map[opt.value] = opt })
+      options.forEach((opt) => { if (opt.value) map[opt.value] = opt })
+      return Object.values(map)
+    })
+  }, [])
+
+  const handleChannelOptionsResolved = React.useCallback((options: ProductCategorizePickerOption[]) => {
+    if (!options.length) return
+    setSavedChannelOptions((prev) => {
+      const map: Record<string, ProductCategorizePickerOption> = {}
+      prev.forEach((opt) => { if (opt.value) map[opt.value] = opt })
+      options.forEach((opt) => { if (opt.value) map[opt.value] = opt })
+      return Object.values(map)
+    })
+  }, [])
+
   const mediaItems = Array.isArray(values.mediaItems) ? values.mediaItems : []
 
 
@@ -932,6 +955,10 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
+          initialCategoryOptions={savedCategoryOptions}
+          initialChannelOptions={savedChannelOptions}
+          onCategoryOptionsResolved={handleCategoryOptionsResolved}
+          onChannelOptionsResolved={handleChannelOptionsResolved}
         />
       ) : null}
 

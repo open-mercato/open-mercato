@@ -86,10 +86,7 @@ test.describe('TC-CAT-015: Organize Step Keeps Human-Readable Labels After Step 
       await expect(categoriesSection).toContainText(categoryName);
       await expect(channelsSection).toContainText(channelName);
 
-      await page.getByRole('button', { name: 'Continue' }).click();
-      if (await page.getByPlaceholder('Search categories').isVisible()) {
-        await page.getByRole('button', { name: 'Variants' }).click();
-      }
+      await page.getByRole('button', { name: 'Variants' }).click();
       await expect(page.getByRole('columnheader', { name: 'Default option' })).toBeVisible();
       await page.getByRole('button', { name: 'Previous' }).click();
       await expect(page.getByPlaceholder('Search categories')).toBeVisible();
