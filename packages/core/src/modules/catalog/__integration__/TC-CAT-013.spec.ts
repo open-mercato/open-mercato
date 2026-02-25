@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
- * TC-CAT-018: Category Create Requires Specific Organization Context
- * Source: .ai/qa/scenarios/TC-CAT-018-category-create-requires-specific-organization.md
+ * TC-CAT-013: Category Create Requires Specific Organization Context
+ * Source: .ai/qa/scenarios/TC-CAT-013-category-create-requires-specific-organization.md
  */
-test.describe('TC-CAT-018: Category Create Requires Specific Organization Context', () => {
+test.describe('TC-CAT-013: Category Create Requires Specific Organization Context', () => {
   test('should block submit while organization scope is All organizations', async ({ page }) => {
     await login(page, 'admin');
     await page.goto('/backend/catalog/categories');

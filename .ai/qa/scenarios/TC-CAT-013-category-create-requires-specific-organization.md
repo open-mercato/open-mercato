@@ -1,7 +1,7 @@
-# Test Scenario 23: Category Create Requires Specific Organization Context
+# Test Scenario 28: Category Create Requires Specific Organization Context
 
 ## Test ID
-TC-CAT-018
+TC-CAT-013
 
 ## Category
 Catalog Management

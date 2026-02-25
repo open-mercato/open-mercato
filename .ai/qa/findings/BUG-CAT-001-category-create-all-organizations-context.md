@@ -35,5 +35,5 @@ Catalog / Categories / Organization Scope
 ## Triage Classification
 - Type: Product bug
 - Proposed owner: User/Product team
-- Regression test: `packages/core/src/modules/catalog/__integration__/TC-CAT-018.spec.ts`
+- Regression test: `packages/core/src/modules/catalog/__integration__/TC-CAT-013.spec.ts`
 
