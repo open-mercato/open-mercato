@@ -53,10 +53,11 @@ export function DefaultMessageListItem({ message, onClick }: MessageListItemProp
       )}
       role="button"
       tabIndex={0}
-      aria-label={t(
-        'messages.openMessageA11y',
-        `Open message ${subject} from ${senderLabel}, sent ${absoluteSentAt}`,
-      )}
+      aria-label={t('messages.openMessageDetailedA11y', 'Open message {subject} from {sender}, sent {sentAt}', {
+        subject,
+        sender: senderLabel,
+        sentAt: absoluteSentAt,
+      })}
       onClick={onClick}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {

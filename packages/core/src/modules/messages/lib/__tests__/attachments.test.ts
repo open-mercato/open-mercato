@@ -1,4 +1,5 @@
 import {
+  copyAttachmentsForForwardMessages,
   copyAttachmentsForForward,
   getMessageAttachments,
   linkLibraryAttachmentsToMessage,
@@ -189,17 +190,15 @@ describe('messages attachments helpers', () => {
 
     const em = createEm({
       find: jest.fn(async (_entity, where) => {
-        if (where.recordId === 'source-msg') {
+        const ids = where.recordId?.$in as string[] | undefined
+        if (ids?.includes('source-msg')) {
           return [sourceAttachment]
         }
         return []
       }),
-      findOne: jest.fn(async (_entity, where) =>
-        where.id === 'att-1' ? sourceAttachment : null,
-      ),
     })
 
-    await copyAttachmentsForForward(
+    const copiedCount = await copyAttachmentsForForward(
       em as never,
       'source-msg',
       'target-msg',
@@ -207,6 +206,7 @@ describe('messages attachments helpers', () => {
       'tenant-1',
     )
 
+    expect(copiedCount).toBe(1)
     expect(em.create).toHaveBeenCalledWith(
       Attachment,
       expect.objectContaining({
@@ -218,6 +218,58 @@ describe('messages attachments helpers', () => {
       }),
     )
     expect(em.persist).toHaveBeenCalledTimes(1)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('copies and deduplicates attachments for forward across thread slice message ids', async () => {
+    const firstAttachment = {
+      id: 'att-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      fileName: 'one.txt',
+      mimeType: 'text/plain',
+      fileSize: 12,
+      storageDriver: 'local',
+      storagePath: '/tmp/one.txt',
+      storageMetadata: null,
+      url: '/f/one.txt',
+      partitionCode: 'messages',
+    }
+    const duplicateOfFirst = { ...firstAttachment }
+    const secondAttachment = {
+      ...firstAttachment,
+      id: 'att-2',
+      fileName: 'two.txt',
+      storagePath: '/tmp/two.txt',
+      url: '/f/two.txt',
+    }
+
+    const em = createEm({
+      find: jest.fn(async (_entity, where) => {
+        const ids = where.recordId?.$in as string[] | undefined
+        if (!ids?.includes('source-1') || !ids?.includes('source-2')) return []
+        return [firstAttachment, duplicateOfFirst, secondAttachment]
+      }),
+    })
+
+    const copiedCount = await copyAttachmentsForForwardMessages(
+      em as never,
+      ['source-1', 'source-2'],
+      'target-msg',
+      'org-1',
+      'tenant-1',
+    )
+
+    expect(copiedCount).toBe(2)
+    expect(em.find).toHaveBeenCalledWith(
+      Attachment,
+      expect.objectContaining({
+        entityId: 'messages:message',
+        recordId: { $in: ['source-1', 'source-2'] },
+        tenantId: 'tenant-1',
+      }),
+    )
+    expect(em.persist).toHaveBeenCalledTimes(2)
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 })

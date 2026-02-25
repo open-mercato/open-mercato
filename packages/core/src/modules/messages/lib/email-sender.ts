@@ -1,5 +1,6 @@
 import * as React from 'react'
 import crypto from 'node:crypto'
+import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
@@ -8,15 +9,13 @@ import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translat
 import type { Message, MessageObject } from '../data/entities'
 import { MessageAccessToken } from '../data/entities'
 import MessageEmail from '../emails/MessageEmail'
+import { resolveAttachmentAbsolutePath } from '../../attachments/lib/storage'
+import type { MessageEmailAttachment } from './attachments'
 
 const ACCESS_TOKEN_EXPIRY_HOURS = 24 * 7
 const DEBUG = process.env.MESSAGES_EMAIL_DEBUG === 'true'
-
-export type MessageAttachmentSummary = {
-  fileName: string
-  fileSize: number
-  mimeType: string
-}
+const MAX_EMAIL_ATTACHMENTS = 10
+const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024
 
 export type SenderIdentity = {
   name: string | null
@@ -52,6 +51,58 @@ function generateAccessToken(): string {
 
 function resolveObjectLabels(objects: MessageObject[]): string[] {
   return objects.map((item) => `${item.entityModule}.${item.entityType} (${item.entityId})`)
+}
+
+type ResendAttachment = {
+  filename: string
+  content: string
+  contentType?: string
+}
+
+async function mapAttachmentsForEmail(
+  messageId: string,
+  attachments: MessageEmailAttachment[],
+): Promise<ResendAttachment[]> {
+  const resendAttachments: ResendAttachment[] = []
+  let totalBytes = 0
+
+  for (const attachment of attachments.slice(0, MAX_EMAIL_ATTACHMENTS)) {
+    const absolutePath = resolveAttachmentAbsolutePath(
+      attachment.partitionCode,
+      attachment.storagePath,
+      attachment.storageDriver,
+    )
+
+    let buffer: Buffer
+    try {
+      buffer = await fs.readFile(absolutePath)
+    } catch (error) {
+      logDebug('Attachment skipped: file read failed', {
+        messageId,
+        fileName: attachment.fileName,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      continue
+    }
+
+    if ((totalBytes + buffer.length) > MAX_TOTAL_ATTACHMENT_BYTES) {
+      logDebug('Attachment skipped: total size limit exceeded', {
+        messageId,
+        fileName: attachment.fileName,
+        nextTotalBytes: totalBytes + buffer.length,
+      })
+      continue
+    }
+
+    totalBytes += buffer.length
+    resendAttachments.push({
+      filename: attachment.fileName,
+      content: buffer.toString('base64'),
+      contentType: attachment.mimeType || undefined,
+    })
+  }
+
+  return resendAttachments
 }
 
 async function renderMarkdownEmailBody(body: string) {
@@ -122,7 +173,7 @@ export async function sendMessageEmailToRecipient(params: {
   recipientEmail: string
   sender: SenderIdentity
   objects: MessageObject[]
-  attachments: MessageAttachmentSummary[]
+  attachments: MessageEmailAttachment[]
 }): Promise<void> {
   const { em, message, recipientUserId, recipientEmail, sender, objects, attachments } = params
   const token = await createMessageAccessToken(em, message.id, recipientUserId)
@@ -133,11 +184,13 @@ export async function sendMessageEmailToRecipient(params: {
   }
   const copy = await buildEmailCopy(message.sentAt ?? new Date())
   const bodyHtml = await buildEmailBodyHtml(message)
+  const resendAttachments = await mapAttachmentsForEmail(message.id, attachments)
   logDebug('Sending recipient email via Resend', {
     messageId: message.id,
     recipientUserId,
     recipientEmail,
     hasViewUrl: Boolean(viewUrl),
+    attachmentsCount: resendAttachments.length,
     hasApiKey: Boolean(process.env.RESEND_API_KEY),
     from: process.env.EMAIL_FROM ?? null,
   })
@@ -156,6 +209,7 @@ export async function sendMessageEmailToRecipient(params: {
       attachmentNames: attachments.map((item) => item.fileName),
       objectLabels: resolveObjectLabels(objects),
     }),
+    attachments: resendAttachments,
   })
 }
 
@@ -164,14 +218,16 @@ export async function sendMessageEmailToExternal(params: {
   email: string
   sender: SenderIdentity
   objects: MessageObject[]
-  attachments: MessageAttachmentSummary[]
+  attachments: MessageEmailAttachment[]
 }): Promise<void> {
   const { message, email, sender, objects, attachments } = params
   const copy = await buildEmailCopy(message.sentAt ?? new Date())
   const bodyHtml = await buildEmailBodyHtml(message)
+  const resendAttachments = await mapAttachmentsForEmail(message.id, attachments)
   logDebug('Sending external email via Resend', {
     messageId: message.id,
     email,
+    attachmentsCount: resendAttachments.length,
     hasApiKey: Boolean(process.env.RESEND_API_KEY),
     from: process.env.EMAIL_FROM ?? null,
   })
@@ -190,6 +246,7 @@ export async function sendMessageEmailToExternal(params: {
       attachmentNames: attachments.map((item) => item.fileName),
       objectLabels: resolveObjectLabels(objects),
     }),
+    attachments: resendAttachments,
   })
   logDebug('External email sent via Resend', {
     messageId: message.id,

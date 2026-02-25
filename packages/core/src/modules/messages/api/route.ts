@@ -8,7 +8,7 @@ import { User } from '../../auth/data/entities'
 import { MessageObject } from '../data/entities'
 import { composeMessageSchema, listMessagesSchema } from '../data/validators'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
-import { getMessageType, isMessageTypeCreateableByUser } from '../lib/message-types-registry'
+import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
@@ -296,9 +296,7 @@ export async function POST(req: Request) {
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
   const input = composeMessageSchema.parse(body)
-  if (!isMessageTypeCreateableByUser(input.type)) {
-    return Response.json({ error: 'Message type cannot be created by users' }, { status: 400 })
-  }
+
   const isPublicVisibility = input.visibility === 'public'
   const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
   if (sendViaEmail && !(await canUseMessageEmailFeature(ctx, scope))) {

@@ -3,7 +3,7 @@ import { Message, MessageRecipient } from '../../data/entities'
 import { User } from '../../../auth/data/entities'
 
 const findOneWithDecryptionMock = jest.fn()
-const getMessageAttachmentsMock = jest.fn()
+const getMessageEmailAttachmentsMock = jest.fn()
 const sendMessageEmailToRecipientMock = jest.fn(async () => {})
 const sendMessageEmailToExternalMock = jest.fn(async () => {})
 
@@ -12,7 +12,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../../lib/attachments', () => ({
-  getMessageAttachments: (...args: unknown[]) => getMessageAttachmentsMock(...args),
+  getMessageEmailAttachments: (...args: unknown[]) => getMessageEmailAttachmentsMock(...args),
 }))
 
 jest.mock('../../lib/email-sender', () => ({
@@ -32,7 +32,7 @@ describe('messages send-email worker handler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    getMessageAttachmentsMock.mockResolvedValue([])
+    getMessageEmailAttachmentsMock.mockResolvedValue([])
     findOneWithDecryptionMock.mockImplementation(async (_em, entity, where) => {
       if (entity === User && where.id === 'sender-1') return { id: 'sender-1', name: 'Sender', email: 'sender@example.com' }
       if (entity === User && where.id === 'recipient-1') return { id: 'recipient-1', email: 'recipient@example.com' }

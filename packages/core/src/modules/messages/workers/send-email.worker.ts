@@ -4,7 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
-import { getMessageAttachments } from '../lib/attachments'
+import { getMessageEmailAttachments } from '../lib/attachments'
 import {
   sendMessageEmailToExternal,
   sendMessageEmailToRecipient,
@@ -190,7 +190,7 @@ export default async function handle(
   }
 
   const objects = await em.find(MessageObject, { messageId: message.id })
-  const attachments = await getMessageAttachments(
+  const attachments = await getMessageEmailAttachments(
     em,
     message.id,
     message.organizationId ?? null,

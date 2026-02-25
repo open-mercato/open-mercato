@@ -3,15 +3,11 @@
 import * as React from 'react'
 import type { MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
-import { PriorityBadge } from './PriorityBadge'
 
 export function DefaultMessageContent({ message }: MessageContentProps) {
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <PriorityBadge priority={message.priority} />
-      </div>
-      <div className="max-h-[60vh] overflow-y-auto pr-1">
+      <div>
         <MarkdownContent
           body={message.body}
           format={message.bodyFormat}

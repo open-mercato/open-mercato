@@ -15,6 +15,49 @@ function collectDuplicateRecipientIds(
   return Array.from(duplicates)
 }
 
+function validateDefaultWithObjectsPayload(
+  value: {
+    type?: string
+    objects?: Array<{ actionRequired?: boolean; actionType?: string; actionLabel?: string }>
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.type !== 'messages.defaultWithObjects') return
+
+  if (!Array.isArray(value.objects) || value.objects.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['objects'],
+      message: 'at least one object is required for messages.defaultWithObjects',
+    })
+    return
+  }
+
+  value.objects.forEach((object, index) => {
+    if (object.actionRequired === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['objects', index, 'actionRequired'],
+        message: 'actionRequired must be false for messages.defaultWithObjects',
+      })
+    }
+    if (typeof object.actionType === 'string' && object.actionType.trim().length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['objects', index, 'actionType'],
+        message: 'actionType is not allowed for messages.defaultWithObjects',
+      })
+    }
+    if (typeof object.actionLabel === 'string' && object.actionLabel.trim().length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['objects', index, 'actionLabel'],
+        message: 'actionLabel is not allowed for messages.defaultWithObjects',
+      })
+    }
+  })
+}
+
 export const messageRecipientSchema = z.object({
   userId: z.string().uuid(),
   type: z.enum(['to', 'cc', 'bcc']).optional().default('to'),
@@ -123,6 +166,8 @@ export const composeMessageSchema = z.object({
       message: 'recipient user ids must be unique',
     })
   }
+
+  validateDefaultWithObjectsPayload(value, ctx)
 })
 
 export const updateDraftSchema = z.object({
@@ -142,15 +187,18 @@ export const updateDraftSchema = z.object({
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
 }).superRefine((value, ctx) => {
-  if (!value.recipients) return
-  const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
-  if (duplicateRecipientIds.length > 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['recipients'],
-      message: 'recipient user ids must be unique',
-    })
+  if (value.recipients) {
+    const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
+    if (duplicateRecipientIds.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recipients'],
+        message: 'recipient user ids must be unique',
+      })
+    }
   }
+
+  validateDefaultWithObjectsPayload(value, ctx)
 })
 
 export const listMessagesSchema = z.object({
@@ -173,6 +221,7 @@ export const listMessagesSchema = z.object({
 
 export const forwardMessageSchema = z.object({
   recipients: z.array(messageRecipientSchema).min(1).max(100),
+  body: z.string().max(50000).optional(),
   additionalBody: z.string().max(10000).optional(),
   includeAttachments: z.boolean().optional().default(true),
   sendViaEmail: z.boolean().optional().default(false),

@@ -1,7 +1,6 @@
 import { POST } from '@open-mercato/core/modules/messages/api/route'
 
 const resolveMessageContextMock = jest.fn()
-const isMessageTypeCreateableByUserMock = jest.fn()
 const canUseMessageEmailFeatureMock = jest.fn(async () => true)
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
@@ -11,7 +10,6 @@ jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
 
 jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () => ({
   getMessageType: jest.fn(),
-  isMessageTypeCreateableByUser: (...args: unknown[]) => isMessageTypeCreateableByUserMock(...args),
 }))
 
 describe('messages /api/messages POST', () => {
@@ -33,7 +31,6 @@ describe('messages /api/messages POST', () => {
       })),
     }
 
-    isMessageTypeCreateableByUserMock.mockReturnValue(true)
 
     resolveMessageContextMock.mockResolvedValue({
       ctx: {

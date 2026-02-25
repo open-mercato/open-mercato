@@ -7,7 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { SendEntityMessageDialog } from '@open-mercato/ui/backend/messages'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -179,8 +179,8 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
             allowMemberSelect={false}
             memberLabel={memberLabel}
             extraActions={record.id ? (
-              <SendEntityMessageDialog
-                entity={{
+              <SendObjectMessageDialog
+                object={{
                   entityModule: 'staff',
                   entityType: 'leave_request',
                   entityId: record.id,

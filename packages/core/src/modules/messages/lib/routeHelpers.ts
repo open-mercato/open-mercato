@@ -39,6 +39,16 @@ type RbacService = {
   ) => Promise<{ features?: string[]; isSuperAdmin?: boolean }>
 }
 
+export async function parseRequestBodySafe(req: Request): Promise<unknown> {
+  try {
+    const text = await req.text()
+    if (!text) return {}
+    return JSON.parse(text)
+  } catch {
+    return {}
+  }
+}
+
 export async function canUseMessageEmailFeature(
   ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
   scope: MessageScope,

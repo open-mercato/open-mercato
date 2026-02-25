@@ -171,6 +171,16 @@ export const forwardResponseSchema = z.object({
   id: z.string().uuid(),
 })
 
+export const forwardPreviewResponseSchema = z.object({
+  subject: z.string(),
+  body: z.string(),
+})
+
+export const conversationMutationResponseSchema = z.object({
+  ok: z.boolean(),
+  affectedCount: z.number().int().min(0),
+})
+
 export const composeResponseSchema = z.object({
   id: z.string().uuid(),
   threadId: z.string().uuid().nullable().optional(),
@@ -196,7 +206,6 @@ export const messageTypeResponseItemSchema = z.object({
   labelKey: z.string(),
   icon: z.string(),
   color: z.string().nullable().optional(),
-  isCreateableByUser: z.boolean(),
   allowReply: z.boolean(),
   allowForward: z.boolean(),
   actionsExpireAfterHours: z.number().int().nullable().optional(),

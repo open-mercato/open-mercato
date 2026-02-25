@@ -95,7 +95,6 @@ export type MessageTypeDefinition = {
   labelKey: string
   icon: string
   color?: string
-  isCreateableByUser: boolean
   ui?: {
     listItemComponent?: string
     contentComponent?: string

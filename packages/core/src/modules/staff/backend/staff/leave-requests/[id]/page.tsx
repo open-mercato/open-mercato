@@ -2,13 +2,13 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Leaf } from 'lucide-react'
+import { Send } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { SendEntityMessageDialog } from '@open-mercato/ui/backend/messages'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -232,8 +232,8 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
           allowMemberSelect
           memberLabel={memberLabel}
           extraActions={record.id ? (
-            <SendEntityMessageDialog
-              entity={{
+            <SendObjectMessageDialog
+              object={{
                 entityModule: 'staff',
                 entityType: 'leave_request',
                 entityId: record.id,
@@ -264,7 +264,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
                   aria-label={t('staff.leaveRequests.messages.compose.action', 'Send for review')}
                   title={t('staff.leaveRequests.messages.compose.action', 'Send for review')}
                 >
-                  <Leaf className="h-4 w-4" />
+                  <Send className="h-4 w-4" />
                 </Button>
               )}
             />

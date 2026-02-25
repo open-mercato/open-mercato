@@ -7,7 +7,7 @@ import { composeInternalMessage, deleteMessageIfExists } from './helpers';
  * Source: .ai/qa/scenarios/TC-MSG-003-reply-from-message-detail.md
  */
 test.describe('TC-MSG-003: Reply From Message Detail', () => {
-  test('should create a reply from detail and show it in thread timeline', async ({ page, request }) => {
+  test('should create a reply from detail and show it in unified conversation list', async ({ page, request }) => {
     let originalMessageId: string | null = null;
     let currentMessageId: string | null = null;
     let adminToken: string | null = null;
@@ -44,8 +44,8 @@ test.describe('TC-MSG-003: Reply From Message Detail', () => {
       }
       currentMessageId = match[1];
 
-      await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible();
       await expect(page.getByText(replyBody).first()).toBeVisible();
+      await expect(page.getByText('Latest message is always expanded')).toBeVisible();
     } finally {
       await deleteMessageIfExists(request, adminToken, currentMessageId);
       if (originalMessageId && currentMessageId !== originalMessageId) {

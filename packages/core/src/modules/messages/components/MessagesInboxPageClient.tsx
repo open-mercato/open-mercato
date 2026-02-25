@@ -13,8 +13,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
-import { resolveMessageListItemComponent } from './typeUiRegistry'
-import { DefaultMessageListItem } from './DefaultMessageListItem'
+import { resolveMessageListItemComponent } from './utils/typeUiRegistry'
+import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
 
 type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
 

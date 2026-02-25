@@ -51,12 +51,21 @@ export function MessageEmail({
         <title>{subject}</title>
       </Head>
       <Preview>{copy.preview}</Preview>
-      <Body style={{ backgroundColor: '#ffffff', fontFamily: 'Arial, Helvetica, sans-serif', padding: '12px 0' }}>
+      <Body
+        style={{
+          backgroundColor: '#ffffff',
+          fontFamily: 'Arial, Helvetica, sans-serif',
+          padding: '12px 0',
+          margin: 0,
+          textAlign: 'left',
+        }}
+      >
         <Container
           style={{
             padding: '0 16px',
-            margin: '0 auto',
+            margin: 0,
             maxWidth: '640px',
+            textAlign: 'left',
           }}
         >
           <Text style={{ margin: '0 0 8px', fontSize: '14px', color: '#202124' }}>{copy.heading}</Text>

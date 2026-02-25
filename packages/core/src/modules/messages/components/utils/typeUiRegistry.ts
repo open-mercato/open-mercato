@@ -8,8 +8,10 @@ import type {
   ObjectPreviewProps,
   ObjectDetailProps,
 } from '@open-mercato/shared/modules/messages/types'
-import { getAllMessageTypes } from '../lib/message-types-registry'
-import { getAllMessageObjectTypes } from '../lib/message-objects-registry'
+import { getAllMessageTypes } from '../../lib/message-types-registry'
+import { getAllMessageObjectTypes } from '../../lib/message-objects-registry'
+import { MessageRecordObjectDetail } from '../defaults/MessageRecordObjectDetail'
+import { MessageRecordObjectPreview } from './../defaults/MessageRecordObjectPreview'
 
 // Build complete registries from auto-discovered components
 const listItemComponents = new Map<string, ComponentType<MessageListItemProps>>()
@@ -139,8 +141,9 @@ export function resolveMessageObjectDetailComponent(
   entityModule: string | null | undefined,
   entityType: string | null | undefined,
 ): ComponentType<ObjectDetailProps> | null {
-  if (!entityModule || !entityType) return null
-  return objectDetailComponents.get(getObjectDetailComponentKey(entityModule, entityType)) ?? null
+  if (!entityModule || !entityType) return MessageRecordObjectDetail
+  return objectDetailComponents.get(getObjectDetailComponentKey(entityModule, entityType))
+    ?? MessageRecordObjectDetail
 }
 
 export function resolveMessageObjectPreviewComponent(
@@ -148,8 +151,8 @@ export function resolveMessageObjectPreviewComponent(
   entityType: string | null | undefined,
 ): ComponentType<ObjectPreviewProps> | null {
   if (!entityModule || !entityType) {
-    return objectPreviewComponents.get('messages:default') ?? null
+    return objectPreviewComponents.get('messages:default') ?? MessageRecordObjectPreview
   }
   const component = objectPreviewComponents.get(getObjectDetailComponentKey(entityModule, entityType))
-  return component ?? objectPreviewComponents.get('messages:default') ?? null
+  return component ?? objectPreviewComponents.get('messages:default') ?? MessageRecordObjectPreview
 }

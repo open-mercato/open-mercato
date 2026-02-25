@@ -5,7 +5,6 @@ import type { MessageContentProps } from '@open-mercato/shared/modules/messages/
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
-import { PriorityBadge } from './PriorityBadge'
 
 type MessageConfirmationResult = {
   messageId: string
@@ -65,9 +64,6 @@ export function MessageConfirmationContent({ message }: MessageContentProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <PriorityBadge priority={message.priority} />
-      </div>
       <div className="max-h-[60vh] overflow-y-auto pr-1">
         <MarkdownContent
           body={message.body}

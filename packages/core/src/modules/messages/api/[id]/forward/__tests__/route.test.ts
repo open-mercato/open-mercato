@@ -6,6 +6,7 @@ const canUseMessageEmailFeatureMock = jest.fn()
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   canUseMessageEmailFeature: (...args: unknown[]) => canUseMessageEmailFeatureMock(...args),
+  parseRequestBodySafe: async (req: Request) => req.json().catch(() => ({})),
 }))
 
 const VALID_USER_UUID = '550e8400-e29b-41d4-a716-446655440000'
@@ -63,6 +64,52 @@ describe('messages /api/messages/[id]/forward', () => {
           userId: 'user-1',
           tenantId: 'tenant-1',
           organizationId: 'org-1',
+        }),
+      }),
+    )
+  })
+
+  it('passes explicit body through to forward command', async () => {
+    const response = await POST(
+      new Request('http://localhost', {
+        method: 'POST',
+        body: JSON.stringify({
+          recipients: [{ userId: VALID_USER_UUID }],
+          body: 'thread-aware forwarded body',
+        }),
+      }),
+      { params: { id: 'message-1' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.forward',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          body: 'thread-aware forwarded body',
+        }),
+      }),
+    )
+  })
+
+  it('passes includeAttachments flag through to forward command', async () => {
+    const response = await POST(
+      new Request('http://localhost', {
+        method: 'POST',
+        body: JSON.stringify({
+          recipients: [{ userId: VALID_USER_UUID }],
+          includeAttachments: true,
+        }),
+      }),
+      { params: { id: 'message-1' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.forward',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          includeAttachments: true,
         }),
       }),
     )
@@ -127,6 +174,21 @@ describe('messages /api/messages/[id]/forward', () => {
 
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({ error: 'Forward is not allowed for this message type' })
+  })
+
+  it('returns 413 when generated forward body exceeds maximum length', async () => {
+    commandBus.execute.mockRejectedValueOnce(new Error('Forward body exceeds maximum length'))
+
+    const response = await POST(
+      new Request('http://localhost', {
+        method: 'POST',
+        body: JSON.stringify({ recipients: [{ userId: VALID_USER_UUID }] }),
+      }),
+      { params: { id: 'message-1' } },
+    )
+
+    expect(response.status).toBe(413)
+    await expect(response.json()).resolves.toEqual({ error: 'Forward body exceeds maximum length' })
   })
 
   it('rethrows unexpected errors', async () => {

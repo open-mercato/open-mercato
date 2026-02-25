@@ -37,6 +37,14 @@ describe('messages command registration', () => {
       expected: ['messages.tokens.consume'],
     },
     {
+      path: '../conversation',
+      expected: [
+        'messages.conversation.archive_for_actor',
+        'messages.conversation.mark_unread_for_actor',
+        'messages.conversation.delete_for_actor',
+      ],
+    },
+    {
       path: '../messages',
       expected: [
         'messages.messages.compose',

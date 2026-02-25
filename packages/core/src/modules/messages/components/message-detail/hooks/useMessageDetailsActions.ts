@@ -1,10 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import type { UseQueryResult } from '@tanstack/react-query'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { MessageActionsProps, MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -14,20 +12,36 @@ import type {
   MessageAttachment,
   MessageDetail,
   PendingActionConfirmation,
-} from './types'
-import { parseObjectActionId, toErrorMessage } from './utils'
+} from '../types'
+import { parseObjectActionId, toErrorMessage } from '../utils'
 
-export function useMessageDetailPage(id: string) {
-  const t = useT()
-  const router = useRouter()
-  const scopeVersion = useOrganizationScopeVersion()
-  const queryClient = useQueryClient()
+type RequestAndRefreshOptions = {
+  skipDetailAutoMarkRead?: boolean
+}
 
-  const detailQueryKey = React.useMemo(
-    () => ['messages', 'detail', id, scopeVersion],
-    [id, scopeVersion],
-  )
+type ConversationActionKind = 'archiveConversation' | 'deleteConversation' | 'markAllUnread'
 
+type UseMessageDetailsActionsInput = {
+  id: string
+  t: TranslateFn
+  detail: MessageDetail | null
+  detailQuery: UseQueryResult<MessageDetail, Error>
+  attachments: MessageAttachment[] | undefined
+  isArchived: boolean
+  onDeleted: () => void
+  refreshDetailWithoutAutoMarkRead: () => Promise<MessageDetail>
+}
+
+export function useMessageDetailsActions({
+  id,
+  t,
+  detail,
+  detailQuery,
+  attachments,
+  isArchived,
+  onDeleted,
+  refreshDetailWithoutAutoMarkRead,
+}: UseMessageDetailsActionsInput) {
   const [replyOpen, setReplyOpen] = React.useState(false)
   const [forwardOpen, setForwardOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
@@ -35,62 +49,7 @@ export function useMessageDetailPage(id: string) {
   const [executingActionId, setExecutingActionId] = React.useState<string | null>(null)
   const [pendingActionConfirmation, setPendingActionConfirmation] = React.useState<PendingActionConfirmation | null>(null)
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = React.useState(false)
-
-  const detailQuery = useQuery({
-    queryKey: detailQueryKey,
-    queryFn: async () => {
-      const call = await apiCall<MessageDetail>(`/api/messages/${encodeURIComponent(id)}`)
-      if (!call.ok || !call.result) {
-        throw new Error(
-          toErrorMessage(call.result)
-          ?? t('messages.errors.loadDetailFailed', 'Failed to load message details.'),
-        )
-      }
-      return call.result
-    },
-  })
-
-  const detail = detailQuery.data ?? null
-
-  const attachmentsQuery = useQuery({
-    queryKey: ['messages', 'detail', id, 'attachments', scopeVersion],
-    queryFn: async () => {
-      const call = await apiCall<{ attachments?: MessageAttachment[] }>(
-        `/api/messages/${encodeURIComponent(id)}/attachments`,
-      )
-
-      if (!call.ok) {
-        throw new Error(
-          toErrorMessage(call.result)
-          ?? t('messages.errors.loadDetailFailed', 'Failed to load message details.'),
-        )
-      }
-
-      return call.result?.attachments ?? []
-    },
-  })
-
-  const attachments = attachmentsQuery.data
-
-  const refreshDetailWithoutAutoMarkRead = React.useCallback(async () => {
-    const call = await apiCall<MessageDetail>(
-      `/api/messages/${encodeURIComponent(id)}?skipMarkRead=1`,
-    )
-
-    if (!call.ok || !call.result) {
-      throw new Error(
-        toErrorMessage(call.result)
-        ?? t('messages.errors.stateChangeFailed', 'Failed to update message state.'),
-      )
-    }
-
-    queryClient.setQueryData(detailQueryKey, call.result)
-    return call.result
-  }, [detailQueryKey, id, queryClient, t])
-
-  type RequestAndRefreshOptions = {
-    skipDetailAutoMarkRead?: boolean
-  }
+  const [activeConversationAction, setActiveConversationAction] = React.useState<ConversationActionKind | null>(null)
 
   const requestAndRefresh = React.useCallback(async (
     url: string,
@@ -121,7 +80,7 @@ export function useMessageDetailPage(id: string) {
     } finally {
       setUpdatingState(false)
     }
-  }, [detailQuery, detailQueryKey, refreshDetailWithoutAutoMarkRead, t])
+  }, [detailQuery, refreshDetailWithoutAutoMarkRead, t])
 
   const handleDelete = React.useCallback(async () => {
     setUpdatingState(true)
@@ -133,7 +92,7 @@ export function useMessageDetailPage(id: string) {
         throw new Error(toErrorMessage(call.result) ?? t('messages.errors.deleteFailed', 'Failed to delete message.'))
       }
       flash(t('messages.flash.deleted', 'Message deleted.'), 'success')
-      router.push('/backend/messages')
+      onDeleted()
     } catch (err) {
       flash(
         err instanceof Error
@@ -144,7 +103,80 @@ export function useMessageDetailPage(id: string) {
     } finally {
       setUpdatingState(false)
     }
-  }, [id, router, t])
+  }, [id, onDeleted, t])
+
+  const runConversationAction = React.useCallback(async (
+    action: ConversationActionKind,
+    options: {
+      url: string
+      method: 'PUT' | 'DELETE'
+      successMessage: string
+      skipDetailAutoMarkRead?: boolean
+      onSuccess?: () => void
+    },
+  ) => {
+    setActiveConversationAction(action)
+    try {
+      const call = await apiCall<{ ok?: boolean; affectedCount?: number }>(options.url, { method: options.method })
+      if (!call.ok) {
+        throw new Error(
+          toErrorMessage(call.result)
+          ?? t('messages.errors.conversationActionFailed', 'Failed to update conversation.'),
+        )
+      }
+
+      flash(options.successMessage, 'success')
+
+      if (options.onSuccess) {
+        options.onSuccess()
+        return
+      }
+
+      if (options.skipDetailAutoMarkRead) {
+        await refreshDetailWithoutAutoMarkRead()
+      } else {
+        await detailQuery.refetch()
+      }
+    } catch (err) {
+      flash(
+        err instanceof Error
+          ? err.message
+          : t('messages.errors.conversationActionFailed', 'Failed to update conversation.'),
+        'error',
+      )
+    } finally {
+      setActiveConversationAction(null)
+    }
+  }, [detailQuery, refreshDetailWithoutAutoMarkRead, t])
+
+  const archiveConversation = React.useCallback(async (messageId?: string) => {
+    const targetMessageId = messageId ?? id
+    await runConversationAction('archiveConversation', {
+      url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/archive`,
+      method: 'PUT',
+      successMessage: t('messages.flash.conversationArchived', 'Conversation archived.'),
+    })
+  }, [id, runConversationAction, t])
+
+  const markConversationUnread = React.useCallback(async (messageId?: string) => {
+    const targetMessageId = messageId ?? id
+    await runConversationAction('markAllUnread', {
+      url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation/read`,
+      method: 'DELETE',
+      successMessage: t('messages.flash.conversationMarkedUnread', 'Conversation marked unread.'),
+      skipDetailAutoMarkRead: true,
+    })
+  }, [id, runConversationAction, t])
+
+  const deleteConversation = React.useCallback(async (messageId?: string) => {
+    const targetMessageId = messageId ?? id
+    await runConversationAction('deleteConversation', {
+      url: `/api/messages/${encodeURIComponent(targetMessageId)}/conversation`,
+      method: 'DELETE',
+      successMessage: t('messages.flash.conversationDeleted', 'Conversation deleted.'),
+      onSuccess: onDeleted,
+    })
+  }, [id, onDeleted, runConversationAction, t])
 
   const handleDeleteDialogKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -287,15 +319,22 @@ export function useMessageDetailPage(id: string) {
     return byObjectId
   }, [detail?.actionData?.actions])
 
-  const isArchived = (detail?.recipients ?? []).some((item) => item.status === 'archived')
+  const toggleRead = React.useCallback(async () => {
+    await requestAndRefresh(
+      `/api/messages/${encodeURIComponent(id)}/read`,
+      detail?.isRead ? 'DELETE' : 'PUT',
+      detail?.isRead ? { skipDetailAutoMarkRead: true } : undefined,
+    )
+  }, [detail?.isRead, id, requestAndRefresh])
+
+  const toggleArchive = React.useCallback(async () => {
+    await requestAndRefresh(
+      `/api/messages/${encodeURIComponent(id)}/archive`,
+      isArchived ? 'DELETE' : 'PUT',
+    )
+  }, [id, isArchived, requestAndRefresh])
 
   return {
-    t,
-    router,
-    detailQuery,
-    detail,
-    attachmentsQuery,
-    attachments,
     replyOpen,
     setReplyOpen,
     forwardOpen,
@@ -308,6 +347,12 @@ export function useMessageDetailPage(id: string) {
     setPendingActionConfirmation,
     deleteConfirmationOpen,
     setDeleteConfirmationOpen,
+    activeConversationAction,
+    toggleRead,
+    toggleArchive,
+    archiveConversation,
+    deleteConversation,
+    markConversationUnread,
     requestAndRefresh,
     handleDelete,
     handleDeleteDialogKeyDown,
@@ -318,6 +363,5 @@ export function useMessageDetailPage(id: string) {
     handleExecuteActionById,
     messageActions,
     objectActionsByObjectId,
-    isArchived,
   }
 }

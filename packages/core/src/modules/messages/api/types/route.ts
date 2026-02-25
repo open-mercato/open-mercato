@@ -13,7 +13,6 @@ export async function GET() {
     labelKey: type.labelKey,
     icon: type.icon,
     color: type.color ?? null,
-    isCreateableByUser: type.isCreateableByUser,
     allowReply: type.allowReply ?? true,
     allowForward: type.allowForward ?? true,
     actionsExpireAfterHours: type.actionsExpireAfterHours ?? null,

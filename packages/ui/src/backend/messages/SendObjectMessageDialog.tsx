@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Leaf } from 'lucide-react'
+import { Send } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import {
@@ -11,8 +11,8 @@ import {
   type MessageComposerRequiredActionConfig,
 } from './MessageComposer'
 
-export type SendEntityMessageDialogProps = {
-  entity: MessageComposerContextObject
+export type SendObjectMessageDialogProps = {
+  object: MessageComposerContextObject
   defaultValues?: MessageComposerProps['defaultValues']
   lockedType?: string | null
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
@@ -23,17 +23,17 @@ export type SendEntityMessageDialogProps = {
   renderTrigger?: (params: { openComposer: () => void; disabled: boolean }) => React.ReactNode
 }
 
-export function SendEntityMessageDialog({
-  entity,
+export function SendObjectMessageDialog({
+  object,
   defaultValues,
-  lockedType = null,
+  lockedType = 'messages.defaultWithObjects',
   requiredActionConfig = null,
   disabled = false,
   contextPreview = null,
   children = null,
   onSuccess,
   renderTrigger,
-}: SendEntityMessageDialogProps) {
+}: SendObjectMessageDialogProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
 
@@ -41,6 +41,13 @@ export function SendEntityMessageDialog({
     if (disabled) return
     setOpen(true)
   }, [disabled])
+  const contextObject = React.useMemo(() => ({
+    entityModule: object.entityModule,
+    entityType: object.entityType,
+    entityId: object.entityId,
+    sourceEntityType: object.sourceEntityType ?? null,
+    sourceEntityId: object.sourceEntityId ?? null,
+  }), [object.entityId, object.entityModule, object.entityType, object.sourceEntityId, object.sourceEntityType])
 
   const trigger = renderTrigger
     ? renderTrigger({ openComposer, disabled })
@@ -54,10 +61,10 @@ export function SendEntityMessageDialog({
         aria-label={t('messages.compose', 'Compose message')}
         title={t('messages.compose', 'Compose message')}
       >
-        <Leaf className="h-4 w-4" />
+        <Send className="h-4 w-4" />
       </Button>
     )
-
+    
   return (
     <>
       {trigger}
@@ -66,7 +73,7 @@ export function SendEntityMessageDialog({
         open={open}
         onOpenChange={setOpen}
         lockedType={lockedType}
-        contextObject={entity}
+        contextObject={contextObject}
         requiredActionConfig={requiredActionConfig}
         contextPreview={contextPreview ?? children}
         defaultValues={defaultValues}

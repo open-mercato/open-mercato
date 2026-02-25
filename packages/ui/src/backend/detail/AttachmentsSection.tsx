@@ -22,6 +22,7 @@ type Props = {
   description?: string
   className?: string
   showHeader?: boolean
+  compact?: boolean
   onChanged?: () => void
 }
 
@@ -32,6 +33,7 @@ export function AttachmentsSection({
   description,
   className,
   showHeader = true,
+  compact = false,
   onChanged,
 }: Props) {
   const t = useT()
@@ -240,7 +242,10 @@ export function AttachmentsSection({
       {loading ? (
         <div className="text-sm text-muted-foreground">{t('attachments.library.loading', 'Loading attachments…')}</div>
       ) : items.length ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className={cn(
+          'grid gap-3',
+          compact ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+        )}>
           {items.map((item) => {
             return (
               <button
@@ -253,7 +258,7 @@ export function AttachmentsSection({
                   fileName={item.fileName}
                   mimeType={item.mimeType}
                   thumbnailUrl={item.thumbnailUrl}
-                  className="aspect-[4/3]"
+                  className={compact ? 'aspect-[2/1]' : 'aspect-[4/3]'}
                   overlay={(
                     <Button
                       type="button"
@@ -269,8 +274,8 @@ export function AttachmentsSection({
                     </Button>
                   )}
                 />
-                <div className="space-y-1 p-3">
-                  <div className="truncate text-sm font-medium" title={item.fileName}>
+                <div className={cn('space-y-1', compact ? 'p-2' : 'p-3')}>
+                  <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
                     {item.fileName}
                   </div>
                   <div className="text-xs text-muted-foreground">

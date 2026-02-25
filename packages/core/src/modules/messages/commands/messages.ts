@@ -10,10 +10,11 @@ import {
   replyMessageSchema,
   updateDraftSchema,
 } from '../data/validators'
-import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForward } from '../lib/attachments'
+import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
-import { getMessageTypeOrDefault, isMessageTypeCreateableByUser } from '../lib/message-types-registry'
+import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
+import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
   loadMessageAggregateSnapshot,
@@ -139,9 +140,6 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {
     const input = composeCommandSchema.parse(rawInput)
-    if (!isMessageTypeCreateableByUser(input.type)) {
-      throw new Error('Message type cannot be created by users')
-    }
     if (input.objects?.length) {
       const objectValidationError = validateMessageObjectsForType(input.type, input.objects)
       if (objectValidationError) throw new Error(objectValidationError)
@@ -189,11 +187,11 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         organizationId: input.organizationId,
       })
 
-      if (!threadId && !input.isDraft) {
-        message.threadId = message.id
-      }
-
       await trx.persistAndFlush(message)
+      if (!threadId && !input.isDraft && !message.threadId) {
+        message.threadId = message.id
+        await trx.flush()
+      }
 
       for (const recipient of input.recipients) {
         trx.persist(trx.create(MessageRecipient, {
@@ -317,9 +315,6 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     if (!message.isDraft) throw new Error('Only draft messages can be edited')
 
     const nextMessageType = input.type ?? message.type
-    if (input.type !== undefined && !isMessageTypeCreateableByUser(input.type)) {
-      throw new Error('Message type cannot be created by users')
-    }
     if (input.objects) {
       const objectValidationError = validateMessageObjectsForType(nextMessageType, input.objects)
       if (objectValidationError) throw new Error(objectValidationError)
@@ -609,9 +604,19 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     if (messageType.allowForward === false) throw new Error('Forward is not allowed for this message type')
 
     const originalObjects = await em.find(MessageObject, { messageId: input.messageId })
-    const forwardedBody = input.additionalBody
-      ? `${input.additionalBody}\n\n---------- Forwarded message ----------\n\n${original.body}`
-      : `---------- Forwarded message ----------\n\n${original.body}`
+    const forwardThreadSlice = await buildForwardThreadSlice(em, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: input.userId,
+    }, original)
+    const generatedPreview = await buildForwardPreviewFromThreadSlice(em, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      userId: input.userId,
+    }, original, forwardThreadSlice)
+    const forwardedBody = typeof input.body === 'string'
+      ? input.body
+      : buildForwardBodyFromLegacyInput(generatedPreview.body, input.additionalBody)
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
@@ -622,6 +627,8 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         sourceEntityId: original.sourceEntityId,
         externalEmail: original.externalEmail,
         externalName: original.externalName,
+        threadId: original.threadId ?? original.id,
+        parentMessageId: original.id,
         senderUserId: input.userId,
         subject: `Fwd: ${original.subject}`,
         body: forwardedBody,
@@ -634,7 +641,6 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      newMessage.threadId = newMessage.id
       await trx.persistAndFlush(newMessage)
       for (const recipient of input.recipients) {
         trx.persist(trx.create(MessageRecipient, {
@@ -658,9 +664,9 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
       }
       await trx.flush()
       if (input.includeAttachments !== false) {
-        await copyAttachmentsForForward(
+        await copyAttachmentsForForwardMessages(
           trx,
-          input.messageId,
+          forwardThreadSlice.map((item) => item.id),
           newMessage.id,
           input.organizationId,
           input.tenantId,

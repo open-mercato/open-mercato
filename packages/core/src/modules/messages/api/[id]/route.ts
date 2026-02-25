@@ -117,8 +117,20 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     },
     { orderBy: { sentAt: 'ASC' } }
   )
+  const threadMessageIds = threadMessages.map((item) => item.id)
+  const visibleRecipientRows = threadMessageIds.length > 0
+    ? await em.find(MessageRecipient, {
+      messageId: { $in: threadMessageIds },
+      recipientUserId: scope.userId,
+      deletedAt: null,
+    })
+    : []
+  const visibleRecipientMessageIds = new Set(visibleRecipientRows.map((item) => item.messageId))
+  const actorVisibleThreadMessages = threadMessages.filter((threadMessage) => (
+    threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
+  ))
 
-  const threadSenderIds = threadMessages
+  const threadSenderIds = actorVisibleThreadMessages
     .map((threadMessage) => threadMessage.senderUserId)
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
 
@@ -203,7 +215,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       snapshot: item.entitySnapshot,
       preview: objectPreviews[index] ?? null,
     })),
-    thread: threadMessages.map((threadMessage) => {
+    thread: actorVisibleThreadMessages.map((threadMessage) => {
       const sender = threadSenderMap.get(threadMessage.senderUserId)
       const threadSenderName = typeof sender?.name === 'string' && sender.name.trim().length
         ? sender.name.trim()
@@ -352,7 +364,11 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get message detail',
       responses: [
-        { status: 200, description: 'Message detail', schema: messageDetailResponseSchema },
+        {
+          status: 200,
+          description: 'Message detail with actor-visible thread items only',
+          schema: messageDetailResponseSchema,
+        },
       ],
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },

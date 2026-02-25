@@ -14,7 +14,7 @@ import { messageObjectTypes } from '@/.mercato/generated/message-objects.generat
 import {
   registerMessageObjectTypeUiComponents,
   registerMessageTypeUiComponents,
-} from '@open-mercato/core/modules/messages/components/typeUiRegistry'
+} from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 
 let _clientBootstrapped = false
 

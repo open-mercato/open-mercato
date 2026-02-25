@@ -89,6 +89,9 @@ describe('messages email sender', () => {
           fileName: 'invoice.pdf',
           fileSize: 100,
           mimeType: 'application/pdf',
+          partitionCode: 'private',
+          storagePath: 'org_shared/tenant_shared/invoice.pdf',
+          storageDriver: 'local',
         },
       ],
     })

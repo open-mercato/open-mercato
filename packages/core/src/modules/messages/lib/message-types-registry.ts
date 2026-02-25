@@ -32,11 +32,6 @@ export function getMessageType(type: string): MessageTypeDefinition | undefined 
   return registry.get(type)
 }
 
-export function isMessageTypeCreateableByUser(type: string): boolean {
-  const definition = getMessageType(type)
-  return Boolean(definition?.isCreateableByUser)
-}
-
 export function getMessageTypeOrDefault(type: string): MessageTypeDefinition {
   ensureDefaults()
   return registry.get(type) ?? registry.get('default') ?? defaultTypes[0]!

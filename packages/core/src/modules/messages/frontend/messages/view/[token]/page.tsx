@@ -11,14 +11,11 @@ import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownConte
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { MessageRecordObjectDetail } from '../../../../components/MessageRecordObjectDetail'
-import { MessageRecordObjectPreview } from '../../../../components/MessageRecordObjectPreview'
 import {
   resolveMessageActionsComponent,
   resolveMessageContentComponent,
   resolveMessageObjectDetailComponent,
-  resolveMessageObjectPreviewComponent,
-} from '../../../../components/typeUiRegistry'
+} from '../../../../components/utils/typeUiRegistry'
 import { getMessageObjectType } from '../../../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../../../lib/message-types-registry'
 
@@ -356,49 +353,9 @@ export default function MessageTokenPage({ params }: { params: { token: string }
               const objectType = getMessageObjectType(objectItem.entityModule, objectItem.entityType)
               const objectActions = toObjectActions(objectType?.actions ?? [])
               const DetailComponent = resolveMessageObjectDetailComponent(objectItem.entityModule, objectItem.entityType)
-              const PreviewComponent = resolveMessageObjectPreviewComponent(objectItem.entityModule, objectItem.entityType)
 
-              if (DetailComponent) {
-                return (
-                  <DetailComponent
-                    key={objectItem.id}
-                    entityId={objectItem.entityId}
-                    entityModule={objectItem.entityModule}
-                    entityType={objectItem.entityType}
-                    snapshot={objectItem.snapshot ?? undefined}
-                    previewData={undefined}
-                    actionRequired={objectItem.actionRequired}
-                    actionType={objectItem.actionType ?? undefined}
-                    actionLabel={objectItem.actionLabel ?? undefined}
-                    actions={objectActions}
-                    actionTaken={data.actionTaken ?? null}
-                    actionTakenAt={data.actionTakenAt ? new Date(data.actionTakenAt) : null}
-                    actionTakenByUserId={data.actionTakenByUserId ?? null}
-                    onAction={async () => {
-                      return
-                    }}
-                  />
-                )
-              }
-
-              if (PreviewComponent) {
-                return (
-                  <PreviewComponent
-                    key={objectItem.id}
-                    entityId={objectItem.entityId}
-                    entityModule={objectItem.entityModule}
-                    entityType={objectItem.entityType}
-                    snapshot={objectItem.snapshot ?? undefined}
-                    previewData={undefined}
-                    actionRequired={objectItem.actionRequired}
-                    actionType={objectItem.actionType ?? undefined}
-                    actionLabel={objectItem.actionLabel ?? undefined}
-                  />
-                )
-              }
-
-              return objectActions.length > 0 ? (
-                <MessageRecordObjectDetail
+              return DetailComponent ? (
+                <DetailComponent
                   key={objectItem.id}
                   entityId={objectItem.entityId}
                   entityModule={objectItem.entityModule}
@@ -416,19 +373,7 @@ export default function MessageTokenPage({ params }: { params: { token: string }
                     return
                   }}
                 />
-              ) : (
-                <MessageRecordObjectPreview
-                  key={objectItem.id}
-                  entityId={objectItem.entityId}
-                  entityModule={objectItem.entityModule}
-                  entityType={objectItem.entityType}
-                  snapshot={objectItem.snapshot ?? undefined}
-                  previewData={undefined}
-                  actionRequired={objectItem.actionRequired}
-                  actionType={objectItem.actionType ?? undefined}
-                  actionLabel={objectItem.actionLabel ?? undefined}
-                />
-              )
+              ) : null
             })}
           </div>
         )}

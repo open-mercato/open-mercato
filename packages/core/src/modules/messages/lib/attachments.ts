@@ -69,6 +69,40 @@ export async function getMessageAttachments(
   }))
 }
 
+export type MessageEmailAttachment = {
+  fileName: string
+  fileSize: number
+  mimeType: string
+  partitionCode: string
+  storagePath: string
+  storageDriver: string
+}
+
+export async function getMessageEmailAttachments(
+  em: EntityManager,
+  messageId: string,
+  organizationId: string | null,
+  tenantId: string,
+): Promise<MessageEmailAttachment[]> {
+  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+
+  const attachments = await em.find(Attachment, {
+    entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
+    recordId: messageId,
+    tenantId,
+    ...buildOrganizationScopeFilter(organizationId),
+  })
+
+  return attachments.map((attachment) => ({
+    fileName: attachment.fileName,
+    fileSize: attachment.fileSize,
+    mimeType: attachment.mimeType,
+    partitionCode: attachment.partitionCode,
+    storagePath: attachment.storagePath,
+    storageDriver: attachment.storageDriver,
+  }))
+}
+
 export async function linkLibraryAttachmentsToMessage(
   em: EntityManager,
   messageId: string,
@@ -103,37 +137,61 @@ export async function copyAttachmentsForForward(
   targetMessageId: string,
   organizationId: string | null,
   tenantId: string,
-): Promise<void> {
-  const sourceAttachments = await getMessageAttachments(em, sourceMessageId, organizationId, tenantId)
-  if (sourceAttachments.length === 0) return
+): Promise<number> {
+  return copyAttachmentsForForwardMessages(
+    em,
+    [sourceMessageId],
+    targetMessageId,
+    organizationId,
+    tenantId,
+  )
+}
+
+export async function copyAttachmentsForForwardMessages(
+  em: EntityManager,
+  sourceMessageIds: string[],
+  targetMessageId: string,
+  targetOrganizationId: string | null,
+  tenantId: string,
+): Promise<number> {
+  if (sourceMessageIds.length === 0) return 0
 
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+  const sourceAttachments = await em.find(Attachment, {
+    entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
+    recordId: { $in: sourceMessageIds },
+    tenantId,
+  })
+  if (sourceAttachments.length === 0) {
+    return 0
+  }
 
-  for (const source of sourceAttachments) {
-    const original = await em.findOne(Attachment, {
-      id: source.id,
-      tenantId,
-      ...buildOrganizationScopeFilter(organizationId),
-    })
-    if (!original) continue
+  const dedupedById = new Map<string, typeof sourceAttachments[number]>()
+  for (const sourceAttachment of sourceAttachments) {
+    if (!dedupedById.has(sourceAttachment.id)) {
+      dedupedById.set(sourceAttachment.id, sourceAttachment)
+    }
+  }
 
+  for (const sourceAttachment of dedupedById.values()) {
     const copy = em.create(Attachment, {
       entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
       recordId: targetMessageId,
-      organizationId,
+      organizationId: targetOrganizationId,
       tenantId,
-      fileName: original.fileName,
-      mimeType: original.mimeType,
-      fileSize: original.fileSize,
-      storageDriver: original.storageDriver,
-      storagePath: original.storagePath,
-      storageMetadata: original.storageMetadata,
-      url: original.url,
-      partitionCode: original.partitionCode,
+      fileName: sourceAttachment.fileName,
+      mimeType: sourceAttachment.mimeType,
+      fileSize: sourceAttachment.fileSize,
+      storageDriver: sourceAttachment.storageDriver,
+      storagePath: sourceAttachment.storagePath,
+      storageMetadata: sourceAttachment.storageMetadata,
+      url: sourceAttachment.url,
+      partitionCode: sourceAttachment.partitionCode,
     })
 
     em.persist(copy)
   }
 
   await em.flush()
+  return dedupedById.size
 }

@@ -7,7 +7,6 @@ export const messageTypes: MessageTypeDefinition[] = [
     labelKey: 'staff.messages.leaveRequestApproval',
     icon: 'calendar-clock',
     color: 'amber',
-    isCreateableByUser: true,
     ui: {
       listItemComponent: 'messages.default.listItem',
       contentComponent: 'messages.default.content',

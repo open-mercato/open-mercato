@@ -1,9 +1,9 @@
 import type { MessageTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-import { DefaultMessageActions } from './components/DefaultMessageActions'
-import { MessageConfirmationActions } from './components/MessageConfirmationActions'
-import { MessageConfirmationContent } from './components/MessageConfirmationContent'
-import { DefaultMessageContent } from './components/DefaultMessageContent'
-import { DefaultMessageListItem } from './components/DefaultMessageListItem'
+import { DefaultMessageActions } from './components/defaults/DefaultMessageActions'
+import { MessageConfirmationActions } from './components/confirmation/MessageConfirmationActions'
+import { MessageConfirmationContent } from './components/confirmation/MessageConfirmationContent'
+import { DefaultMessageContent } from './components/defaults/DefaultMessageContent'
+import { DefaultMessageListItem } from './components/defaults/DefaultMessageListItem'
 
 export const messageTypes: MessageTypeDefinition[] = [
   {
@@ -11,7 +11,6 @@ export const messageTypes: MessageTypeDefinition[] = [
     module: 'messages',
     labelKey: 'messages.types.default',
     icon: 'mail',
-    isCreateableByUser: true,
     ui: {
       listItemComponent: 'messages.default.listItem',
       contentComponent: 'messages.default.content',
@@ -29,7 +28,6 @@ export const messageTypes: MessageTypeDefinition[] = [
     labelKey: 'messages.types.confirmation',
     icon: 'badge-check',
     color: 'green',
-    isCreateableByUser: true,
     ui: {
       listItemComponent: 'messages.default.listItem',
       contentComponent: 'messages.confirmation.content',
@@ -52,7 +50,16 @@ export const messageTypes: MessageTypeDefinition[] = [
     ],
     allowReply: true,
     allowForward: true,
-  }
+  },
+  {
+    type: 'messages.defaultWithObjects',
+    module: 'messages',
+    labelKey: 'messages.types.defaultWithObjects',
+    icon: 'attachment',
+    color: 'blue',
+    allowReply: true,
+    allowForward: true,
+  },
 ]
 
 export default messageTypes

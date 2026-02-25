@@ -6,8 +6,8 @@ export type {
   MessageTypeItem,
 } from './MessageComposer'
 
-export { SendEntityMessageDialog } from './SendEntityMessageDialog'
-export type { SendEntityMessageDialogProps } from './SendEntityMessageDialog'
+export { SendObjectMessageDialog } from './SendObjectMessageDialog'
+export type { SendObjectMessageDialogProps } from './SendObjectMessageDialog'
 
 export { MessageObjectRecordPicker } from './MessageObjectRecordPicker'
 export type { MessageObjectRecordPickerProps } from './MessageObjectRecordPicker'

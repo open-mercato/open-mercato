@@ -48,6 +48,36 @@ describe('messages validators', () => {
     expect(result.success).toBe(true)
   })
 
+  it('requires at least one object for messages.defaultWithObjects', () => {
+    const result = composeMessageSchema.safeParse({
+      type: 'messages.defaultWithObjects',
+      recipients: [{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }],
+      subject: 'Subject',
+      body: 'Body',
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects action fields for messages.defaultWithObjects', () => {
+    const result = composeMessageSchema.safeParse({
+      type: 'messages.defaultWithObjects',
+      recipients: [{ userId: '11111111-1111-4111-8111-111111111111', type: 'to' }],
+      subject: 'Subject',
+      body: 'Body',
+      objects: [{
+        entityModule: 'sales',
+        entityType: 'order',
+        entityId: '11111111-1111-4111-8111-111111111112',
+        actionRequired: true,
+        actionType: 'approve',
+        actionLabel: 'Approve',
+      }],
+    })
+
+    expect(result.success).toBe(false)
+  })
+
   it('rejects duplicate recipients when forwarding', () => {
     const result = forwardMessageSchema.safeParse({
       recipients: [
