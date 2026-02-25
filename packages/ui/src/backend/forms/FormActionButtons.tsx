@@ -31,6 +31,8 @@ export type FormActionButtonsProps = {
     label?: string
     /** Label while saving */
     pendingLabel?: string
+    /** Optional icon for idle submit state */
+    icon?: React.ComponentType<{ className?: string }>
   }
   /** When true, hides all buttons */
   hidden?: boolean
@@ -55,6 +57,7 @@ export function FormActionButtons({
   const resolvedCancelLabel = cancelLabel ?? t('ui.forms.actions.cancel')
   const resolvedSubmitLabel = submit?.label ?? t('ui.forms.actions.save')
   const resolvedPendingLabel = submit?.pendingLabel ?? t('ui.forms.status.saving')
+  const SubmitIcon = submit?.icon ?? Save
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -86,7 +89,7 @@ export function FormActionButtons({
           form={submit.formId}
           disabled={submit.pending}
         >
-          <Save className="size-4 mr-2" />
+          {submit.pending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <SubmitIcon className="size-4 mr-2" />}
           {submit.pending ? resolvedPendingLabel : resolvedSubmitLabel}
         </Button>
       ) : null}

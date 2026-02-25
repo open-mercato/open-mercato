@@ -27,6 +27,7 @@ PACKAGES=(
   "content"
   "onboarding"
   "ai-assistant"
+  "scheduler"
   "cli"
   "create-app"
 )

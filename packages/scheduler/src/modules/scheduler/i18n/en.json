@@ -45,6 +45,7 @@
   "scheduler.error.trigger_failed": "Failed to trigger schedule",
   "scheduler.error.unauthorized": "Unauthorized",
   "scheduler.error.update_failed": "Failed to update schedule",
+  "scheduler.errors.id_required": "Schedule identifier is required.",
   "scheduler.execution.actions": "Actions",
   "scheduler.execution.completed_message": "This execution completed successfully without errors.",
   "scheduler.execution.details_title": "Execution Details",
