@@ -38,7 +38,7 @@ Each phase is a separate PR, independently mergeable, with example module demons
 ```
 A (Foundation) ──────┬────────────────────────────────────────────────┐
   │                  │                                                │
-  ├── B (Menus)      ├── C (Events + DOM Bridge)                      │
+  ├── B (Menus)      ├── C (Events + DOM Bridge) ────────────────────┤
   │                  │                                                │
   │                  │          D (Enrichers) ── independent ─────────┤
   │                  │            │                                   │
@@ -48,7 +48,9 @@ A (Foundation) ──────┬──────────────�
   │                  │            │                                   │
   │                  │            ├── G (CrudForm Fields)             │
   │                  │            │     │                             │
-  │                  │            │     └── I (Detail Bindings)       │
+  │                  │            │     ├── I (Detail Bindings)       │
+  │                  │            │     │                             │
+  │                  │            │     └── L (Integration Ext.) ◄── C
   │                  │            │                                   │
   │                  ├── H (Component Replacement) ──────────────────┤
   │                  │                                                │
@@ -61,7 +63,7 @@ A (Foundation) ──────┬──────────────�
 
 - **Wave 1** (after A): B, C, D, H, J — all independent
 - **Wave 2** (after D): E, F, G — all depend only on D
-- **Wave 3** (after G): I — depends on G
+- **Wave 3** (after G+C): I, L — I depends on G; L depends on A, C, D, G
 - **Wave 4** (after all): K — integrates everything
 
 ### Minimum Viable UMES
@@ -173,6 +175,14 @@ Examples:
 | Add fields to a form | Field Injection (triad pattern) | G |
 | Replace a component entirely | Component Replacement | H |
 | Extend detail pages (fields, columns, tabs) | `useExtensibleDetail` | I |
+| Multi-step setup wizards (OAuth, sync config) | Wizard Widget | L |
+| Persistent health/status badges | Status Badge Widget | L |
+| Display external ID mappings on entities | External ID Enricher + Widget | L |
+| Share state between widgets in same module | Widget Shared State | A |
+| Track long-running operation progress | `useOperationProgress` | C |
+| Dynamic field options from external APIs | `optionsLoader` on field | G |
+| Custom field component (mapping editor, etc.) | `type: 'custom'` field | G |
+| Conditional field visibility | `visibleWhen` on field | G |
 | Validate/block a form save from UI | Widget `onBeforeSave` | Existing |
 | React to a completed operation | Event Subscriber | Existing |
 | Add data model relations | Entity Extension | Existing |
@@ -239,6 +249,7 @@ src/modules/<module>/
 - `enrichers.generated.ts` — enricher registry (Phase D)
 - `interceptors.generated.ts` — interceptor registry (Phase E)
 - `component-overrides.generated.ts` — component override registry (Phase H)
+- `status-badges.generated.ts` — status badge widget registry (Phase L)
 
 ---
 
@@ -257,7 +268,8 @@ src/modules/<module>/
 | I — Detail Bindings | TC-UMES-DP01–DP04 | 4 |
 | J — Recursive Widgets | TC-UMES-RW01–RW02 | 2 |
 | K — DevTools | TC-UMES-DT01–DT02 | 2 |
-| **Total** | | **47** |
+| L — Integration Extensions | TC-UMES-L01–L06 | 6 |
+| **Total** | | **53** |
 
 See each phase sub-spec for detailed test scenarios, example module additions, and testing notes.
 
@@ -280,6 +292,7 @@ This matrix links each phase test pack to the primary API paths and key UI surfa
 | I — Detail Bindings | Detail page load + section save routes | Customer and sales detail pages using `useExtensibleDetail` |
 | J — Recursive Widgets | Existing CRUD save/delete routes reached by nested widgets | Nested `InjectionSpot` rendering and nested lifecycle hooks |
 | K — DevTools | Dev-only extension inspection endpoint(s) and generator conflict checks | DevTools panel toggle, extension inspection UI |
+| L — Integration Extensions | Integration health check routes, sync external ID mapping routes, wizard data persistence routes | Wizard step navigation, status badge polling, external ID section on detail pages |
 
 ---
 
