@@ -158,6 +158,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   fields: CrudField[]
   initialValues?: Partial<TValues>
   submitLabel?: string
+  submitIcon?: React.ComponentType<{ className?: string }>
   formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
@@ -293,6 +294,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   fields,
   initialValues,
   submitLabel,
+  submitIcon,
   formId: providedFormId,
   customFieldsLoadingMessage,
   cancelHref,
@@ -1953,7 +1955,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
         ) : null}
@@ -1995,7 +1997,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
                 }}
               />
             )}
@@ -2023,7 +2025,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
       ) : null}
@@ -2085,7 +2087,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
                 }}
               />
             )}
