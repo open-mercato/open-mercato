@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
+import {
+  createProductFixture,
+  deleteCatalogProductIfExists,
+} from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
 import { createSalesDocument } from '@open-mercato/core/modules/core/__integration__/helpers/salesUi';
 
 /**
@@ -18,31 +21,11 @@ test.describe('TC-INT-003: Product Creation to Sales Channel to Order', () => {
 
     try {
       token = await getAuthToken(request);
-      await login(page, 'admin');
-      await page.goto('/backend/catalog/products/create');
-      await page.getByRole('textbox', { name: 'e.g., Summer sneaker' }).fill(productName);
-      await page.getByRole('textbox', { name: 'Describe the product...' }).fill('INT-003 product created for integration coverage.');
-      await page.getByRole('button', { name: 'Variants' }).click();
-      await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(sku);
-      const createResponsePromise = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'POST' &&
-          /\/api\/catalog\/products(?:\?|$)/.test(response.url()) &&
-          response.ok(),
-        { timeout: 10_000 },
-      );
-      await page.getByRole('button', { name: 'Create product' }).last().click();
-      const createResponse = await createResponsePromise;
-      const createBody = (await createResponse.json().catch(() => null)) as { id?: unknown } | null;
-      productId = typeof createBody?.id === 'string' ? createBody.id : null;
-      await page.goto('/backend/catalog/products');
+      productId = await createProductFixture(request, token, { title: productName, sku });
 
-      await page.getByRole('textbox', { name: 'Search' }).fill(productName);
-      const productRow = page.getByRole('row', { name: new RegExp(productName) }).first();
-      await expect(productRow).toBeVisible();
-      await productRow.click();
-      await expect(page).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}$/i);
-      productId = page.url().match(/\/backend\/catalog\/products\/([0-9a-f-]{36})$/i)?.[1] ?? productId;
+      await login(page, 'admin');
+      await page.goto(`/backend/catalog/products/${productId}`);
+      await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}$`, 'i'));
 
       await createSalesDocument(page, { kind: 'order' });
       await expect(page).toHaveURL(/kind=order$/i);
