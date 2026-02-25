@@ -49,6 +49,12 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { SearchResult, SearchResultLink, SearchStrategyId } from '@open-mercato/shared/modules/search'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  getCurrentOrganizationScope,
+  subscribeOrganizationScopeChanged,
+} from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
 import { fetchGlobalSearchResults } from '../utils'
 
 const MIN_QUERY_LENGTH = 2
@@ -67,6 +73,16 @@ function pickPrimaryLink(result: SearchResult): string | null {
   if (!links.length) return null
   const primary = links.find((link) => link.kind === 'primary')
   return (primary ?? links[0]).href
+}
+
+function hasActiveOrganizationSelection(): boolean {
+  const fromEvent = getCurrentOrganizationScope().organizationId
+  if (typeof fromEvent === 'string' && fromEvent.trim().length > 0) return true
+
+  const cookieHeader = typeof document === 'undefined' ? null : document.cookie
+  const cookieValue = parseSelectedOrganizationCookie(cookieHeader)
+  if (!cookieValue) return false
+  return !isAllOrganizationsSelection(cookieValue);
 }
 
 function humanizeSegment(segment: string): string {
@@ -152,6 +168,14 @@ export function GlobalSearchDialog({
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
   const t = useT()
+  const [showScopeHint, setShowScopeHint] = React.useState<boolean>(() => hasActiveOrganizationSelection())
+
+  React.useEffect(() => {
+    setShowScopeHint(hasActiveOrganizationSelection())
+    return subscribeOrganizationScopeChanged((detail) => {
+      setShowScopeHint(Boolean(detail.organizationId && detail.organizationId.trim().length > 0))
+    })
+  }, [])
 
   // Use configured strategies or fall back to defaults
   const enabledStrategies = React.useMemo(() => {
@@ -334,9 +358,11 @@ export function GlobalSearchDialog({
             {showVectorWarning ? (
               <p className="rounded bg-amber-100 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{missingConfigMessage}</p>
             ) : null}
-            <p className="text-xs text-muted-foreground">
-              {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
-            </p>
+            {showScopeHint ? (
+              <p className="text-xs text-muted-foreground">
+                {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
+              </p>
+            ) : null}
           </div>
           <div className="max-h-96 overflow-y-auto px-2 pb-3">
             {results.length === 0 && !loading && !error ? (
