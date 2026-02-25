@@ -22,8 +22,13 @@ test.describe('TC-MSG-005: Archive And Unarchive Message', () => {
       await login(page, 'admin');
       await page.goto(`/backend/messages/${fixture.messageId}`);
 
-      await page.getByRole('button', { name: 'Archive' }).click();
-      await expect(page.getByRole('button', { name: 'Unarchive' })).toBeVisible();
+      // "Archive" is a menuitem inside the hover-triggered "Actions" dropdown on the individual message header.
+      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
+      await page.getByRole('menuitem', { name: /^Archive$|messages\.actions\.archive/i }).click();
+
+      // After archiving the menu label switches to "Unarchive".
+      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
+      await expect(page.getByRole('menuitem', { name: /Unarchive|messages\.actions\.unarchive/i })).toBeVisible();
 
       await page.goto('/backend/messages');
       await selectMessageFolder(page, 'Archived');
@@ -31,8 +36,13 @@ test.describe('TC-MSG-005: Archive And Unarchive Message', () => {
       await expect(messageRowBySubject(page, fixture.subject)).toBeVisible();
 
       await messageRowBySubject(page, fixture.subject).click();
-      await page.getByRole('button', { name: 'Unarchive' }).click();
-      await expect(page.getByRole('button', { name: 'Archive' })).toBeVisible();
+
+      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
+      await page.getByRole('menuitem', { name: /Unarchive|messages\.actions\.unarchive/i }).click();
+
+      // After unarchiving the menu label switches back to "Archive".
+      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
+      await expect(page.getByRole('menuitem', { name: /^Archive$|messages\.actions\.archive/i })).toBeVisible();
 
       await page.goto('/backend/messages');
       await selectMessageFolder(page, 'Inbox');

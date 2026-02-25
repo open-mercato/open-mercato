@@ -8,8 +8,7 @@ import { composeInternalMessage, deleteMessageIfExists } from './helpers';
  */
 test.describe('TC-MSG-003: Reply From Message Detail', () => {
   test('should create a reply from detail and show it in unified conversation list', async ({ page, request }) => {
-    let originalMessageId: string | null = null;
-    let currentMessageId: string | null = null;
+    let messageId: string | null = null;
     let adminToken: string | null = null;
 
     const replyBody = `QA TC-MSG-003 reply ${Date.now()}`;
@@ -20,37 +19,30 @@ test.describe('TC-MSG-003: Reply From Message Detail', () => {
         senderRole: 'superadmin',
         recipientRole: 'admin',
       });
-      originalMessageId = fixture.messageId;
-      currentMessageId = fixture.messageId;
+      messageId = fixture.messageId;
       adminToken = fixture.senderToken;
 
       await login(page, 'admin');
       await page.goto(`/backend/messages/${fixture.messageId}`);
 
-      await page.getByRole('button', { name: 'Reply' }).click();
+      // Two "Reply" IconButtons exist: MainMessageHeader utility action + MessageHeader utility action.
+      // .first() targets the MainMessageHeader button which opens the inline reply composer.
+      await page.getByRole('button', { name: 'Reply' }).first().click();
 
-      const dialog = page.getByRole('dialog', { name: 'Reply' });
-      await expect(dialog).toBeVisible();
-      await dialog.getByPlaceholder('Write your reply...').fill(replyBody);
-      await dialog.getByRole('button', { name: 'Reply' }).click();
+      // Inline composer opens — no dialog in the current UI.
+      await expect(page.getByPlaceholder('Write your reply...')).toBeVisible();
+      await page.getByPlaceholder('Write your reply...').fill(replyBody);
+      await page.getByPlaceholder('Write your reply...').press('Control+Enter');
 
       await expect(page.getByText('Reply sent.').first()).toBeVisible();
-      await expect(page).toHaveURL(/\/backend\/messages\/[0-9a-f-]{36}$/i);
 
-      const url = page.url();
-      const match = url.match(/\/backend\/messages\/([0-9a-f-]{36})$/i);
-      if (!match) {
-        throw new Error(`Could not parse message id from URL: ${url}`);
-      }
-      currentMessageId = match[1];
+      // Inline reply does not navigate; page stays on the original message URL.
+      await expect(page).toHaveURL(new RegExp(`/backend/messages/${fixture.messageId}$`, 'i'));
 
+      // After refetch, the reply body is visible in the conversation thread.
       await expect(page.getByText(replyBody).first()).toBeVisible();
-      await expect(page.getByText('Latest message is always expanded')).toBeVisible();
     } finally {
-      await deleteMessageIfExists(request, adminToken, currentMessageId);
-      if (originalMessageId && currentMessageId !== originalMessageId) {
-        await deleteMessageIfExists(request, adminToken, originalMessageId);
-      }
+      await deleteMessageIfExists(request, adminToken, messageId);
     }
   });
 });

@@ -176,12 +176,6 @@ function MarkdownBodySection({
 function ComposeModeFields({ compose }: ComposeProps) {
   return (
     <>
-      {compose.contextPreview ? (
-        <div className="rounded border bg-muted/30 p-3 text-sm">
-          {compose.contextPreview}
-        </div>
-      ) : null}
-
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-2">
@@ -364,6 +358,11 @@ function ReplyForwardOptionsRow({ compose }: ComposeProps) {
 function MessageComposeFormBody({ compose }: ComposeProps) {
   return (
     <div className="space-y-4" onKeyDown={compose.handleKeyDown}>
+      {compose.contextPreview ? (
+        <div className="rounded border bg-muted/30 p-3 text-sm">
+          {compose.contextPreview}
+        </div>
+      ) : null}
       {compose.variant === 'compose' ? <ComposeModeFields compose={compose} /> : null}
       {compose.variant === 'reply' ? <ReplyModeFields compose={compose} /> : null}
       {compose.variant === 'forward' ? <ForwardModeFields compose={compose} /> : null}

@@ -12,9 +12,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import {
-  resolveMessageActionsComponent,
-  resolveMessageContentComponent,
-  resolveMessageObjectDetailComponent,
+  getMessageUiComponentRegistry,
 } from '../../../../components/utils/typeUiRegistry'
 import { getMessageObjectType } from '../../../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../../../lib/message-types-registry'
@@ -160,6 +158,7 @@ function mergeTokenActions(
 
 export default function MessageTokenPage({ params }: { params: { token: string } }) {
   const t = useT()
+  const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
   const token = params?.token
 
   const [loading, setLoading] = React.useState(true)
@@ -257,8 +256,14 @@ export default function MessageTokenPage({ params }: { params: { token: string }
   }
 
   const messageType = getMessageTypeOrDefault(data.type)
-  const ContentComponent = resolveMessageContentComponent(messageType.ui?.contentComponent)
-  const ActionsComponent = resolveMessageActionsComponent(messageType.ui?.actionsComponent)
+  const contentComponentKey = messageType.ui?.contentComponent
+  const actionsComponentKey = messageType.ui?.actionsComponent
+  const ContentComponent = contentComponentKey
+    ? messageUiRegistry.contentComponents[contentComponentKey] ?? null
+    : null
+  const ActionsComponent = actionsComponentKey
+    ? messageUiRegistry.actionsComponents[actionsComponentKey] ?? null
+    : null
   const resolvedActionData = mergeTokenActions(data.actionData ?? null, messageType.defaultActions)
 
   const contentProps: MessageContentProps = {
@@ -352,7 +357,8 @@ export default function MessageTokenPage({ params }: { params: { token: string }
             {data.objects.map((objectItem) => {
               const objectType = getMessageObjectType(objectItem.entityModule, objectItem.entityType)
               const objectActions = toObjectActions(objectType?.actions ?? [])
-              const DetailComponent = resolveMessageObjectDetailComponent(objectItem.entityModule, objectItem.entityType)
+              const detailComponentKey = `${objectItem.entityModule}:${objectItem.entityType}`
+              const DetailComponent = messageUiRegistry.objectDetailComponents[detailComponentKey] ?? null
 
               return DetailComponent ? (
                 <DetailComponent

@@ -53,6 +53,12 @@ test.describe('TC-API-MSG-007: Conversation Header Mutation Endpoints', () => {
       latestMessageId = ((await latestResponse.json()) as { id?: string }).id ?? null;
       expect(typeof latestMessageId).toBe('string');
 
+      // Read all messages as the employee so they transition from unread→read before testing mark-unread.
+      // Without this, messages are already unread and the endpoint has nothing to change (affectedCount = 0).
+      await apiRequest(request, 'GET', `/api/messages/${rootMessageId}`, { token: employeeToken });
+      await apiRequest(request, 'GET', `/api/messages/${replyMessageId}`, { token: employeeToken });
+      await apiRequest(request, 'GET', `/api/messages/${latestMessageId}`, { token: employeeToken });
+
       const markUnreadResponse = await apiRequest(
         request,
         'DELETE',

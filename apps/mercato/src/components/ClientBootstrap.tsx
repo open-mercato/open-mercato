@@ -9,12 +9,8 @@ import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.g
 import { registerDashboardWidgets } from '@open-mercato/ui/backend/dashboard/widgetRegistry'
 // Side-effect: registers translatable fields for client-side TranslationManager
 import '@/.mercato/generated/translations-fields.generated'
-import { messageTypes } from '@/.mercato/generated/message-types.generated'
-import { messageObjectTypes } from '@/.mercato/generated/message-objects.generated'
-import {
-  registerMessageObjectTypeUiComponents,
-  registerMessageTypeUiComponents,
-} from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
+import { getMessageUiComponentRegistry } from '@/.mercato/generated/messages.client.generated'
+import { configureMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 
 let _clientBootstrapped = false
 
@@ -30,9 +26,8 @@ function clientBootstrap() {
   // Register dashboard widgets
   registerDashboardWidgets(dashboardWidgetEntries)
 
-  // Register message UI components declared by message type definitions
-  registerMessageTypeUiComponents(messageTypes)
-  registerMessageObjectTypeUiComponents(messageObjectTypes)
+  // Configure message UI components from generated client registry.
+  configureMessageUiComponentRegistry(getMessageUiComponentRegistry())
 }
 
 export function ClientBootstrapProvider({ children }: { children: React.ReactNode }) {

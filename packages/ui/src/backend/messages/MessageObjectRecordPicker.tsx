@@ -5,7 +5,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import { Input } from '../../primitives/input'
 import { Label } from '../../primitives/label'
-import { resolveMessageObjectPreviewComponent } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
+import { getMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 
 export type MessageObjectOptionItem = {
   id: string
@@ -42,6 +42,7 @@ export function MessageObjectRecordPicker({
   entityType,
 }: MessageObjectRecordPickerProps) {
   const t = useT()
+  const messageUiRegistry = getMessageUiComponentRegistry()
 
   return (
     <div className="space-y-2">
@@ -81,10 +82,14 @@ export function MessageObjectRecordPicker({
         )}
         <div className="space-y-2 max-h-64 overflow-y-auto">
           {items.map((item) => {
-            const PreviewComponent = resolveMessageObjectPreviewComponent(
-              item.entityModule || entityModule,
-              item.entityType || entityType
-            )
+            const resolvedModule = item.entityModule || entityModule
+            const resolvedEntityType = item.entityType || entityType
+            const componentKey = resolvedModule && resolvedEntityType
+              ? `${resolvedModule}:${resolvedEntityType}`
+              : null
+            const PreviewComponent = (componentKey
+              ? messageUiRegistry.objectPreviewComponents[componentKey]
+              : null) ?? messageUiRegistry.objectPreviewComponents['messages:default'] ?? null
 
             return (
               <div

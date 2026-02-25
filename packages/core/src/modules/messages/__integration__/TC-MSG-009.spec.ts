@@ -99,7 +99,8 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       const forwardPayload = (await forwardResponse.json()) as { id?: unknown };
       expect(typeof forwardPayload.id).toBe('string');
       forwardedMessageId = forwardPayload.id as string;
-      await expect(page).toHaveURL(new RegExp(`/backend/messages/${forwardedMessageId}$`, 'i'));
+      // Inline composer calls onSuccess → setActiveInlineComposer(null) + refetch; it does NOT navigate.
+      await expect(page.getByText('Message forwarded.').first()).toBeVisible();
 
       await page.goto(`/backend/messages/${fixture.messageId}`);
       await openReplyFromHeader(page);
@@ -116,7 +117,8 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       const inlineReplyPayload = (await inlineReplyResponse.json()) as { id?: unknown };
       expect(typeof inlineReplyPayload.id).toBe('string');
       sentReplyMessageId = inlineReplyPayload.id as string;
-      await expect(page).toHaveURL(new RegExp(`/backend/messages/${sentReplyMessageId}$`, 'i'));
+      // Inline reply also stays on the current URL; verify via flash message.
+      await expect(page.getByText('Reply sent.').first()).toBeVisible();
     } finally {
       await deleteMessageIfExists(request, adminToken, sentReplyMessageId);
       await deleteMessageIfExists(request, adminToken, forwardedMessageId);

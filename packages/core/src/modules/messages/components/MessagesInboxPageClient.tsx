@@ -13,7 +13,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
-import { resolveMessageListItemComponent } from './utils/typeUiRegistry'
+import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
 
 type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
@@ -97,6 +97,7 @@ export function MessagesInboxPageClient() {
   const [page, setPage] = React.useState(1)
   const pageSize = 20
   const folderMenuRef = React.useRef<HTMLDivElement | null>(null)
+  const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
 
   const listQuery = useQuery({
     queryKey: [
@@ -308,7 +309,10 @@ export function MessagesInboxPageClient() {
       },
       cell: ({ row }) => {
         const item = row.original
-        const ListItemComponent = resolveMessageListItemComponent(listItemComponentKeyByType[item.type])
+        const listItemComponentKey = listItemComponentKeyByType[item.type]
+        const ListItemComponent = listItemComponentKey
+          ? messageUiRegistry.listItemComponents[listItemComponentKey] ?? null
+          : null
         const ComponentToUse = ListItemComponent || DefaultMessageListItem
 
         return (
@@ -336,7 +340,7 @@ export function MessagesInboxPageClient() {
         )
       },
     },
-  ], [listItemComponentKeyByType, messageTypeLabelMap, router, t])
+  ], [listItemComponentKeyByType, messageTypeLabelMap, messageUiRegistry, router, t])
 
   const folderOptions = React.useMemo(() => [
     { id: 'inbox' as const, label: t('messages.folder.inbox', 'Inbox'), icon: Inbox },

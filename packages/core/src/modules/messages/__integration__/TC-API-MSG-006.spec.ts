@@ -65,7 +65,7 @@ test.describe('TC-API-MSG-006: Thread-Aware Forward Preview And Body Precedence'
       thirdMessageId = thirdPayload.id as string;
 
       await uploadAttachmentToMessage(request, adminToken, rootMessageId, { fileName: rootAttachmentName });
-      await uploadAttachmentToMessage(request, employeeToken, secondMessageId, { fileName: middleAttachmentName });
+      await uploadAttachmentToMessage(request, adminToken, secondMessageId, { fileName: middleAttachmentName });
       await uploadAttachmentToMessage(request, adminToken, thirdMessageId, { fileName: futureAttachmentName });
 
       const legacyForwardResponse = await apiRequest(request, 'POST', `/api/messages/${secondMessageId}/forward`, {

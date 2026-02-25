@@ -1,8 +1,8 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
 import { LeaveRequestDetail } from './components/LeaveRequestDetail'
 import { LeaveRequestPreview } from './components/LeaveRequestPreview'
-import { StaffMessageObjectDetail } from './components/StaffMessageObjectDetail'
-import { StaffMessageObjectPreview } from './components/StaffMessageObjectPreview'
+import { StaffMessageObjectDetail } from './widgets/messages/StaffMessageObjectDetail'
+import { StaffMessageObjectPreview } from './widgets/messages/StaffMessageObjectPreview'
 
 export const messageObjectTypes: MessageObjectTypeDefinition[] = [
   {

@@ -1,6 +1,6 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-import { CustomerMessageObjectDetail } from './components/CustomerMessageObjectDetail'
-import { CustomerMessageObjectPreview } from './components/CustomerMessageObjectPreview'
+import { CustomerMessageObjectDetail } from './widgets/messages/CustomerMessageObjectDetail'
+import { CustomerMessageObjectPreview } from './widgets/messages/CustomerMessageObjectPreview'
 
 const objectMessageTypes = ['default', 'messages.defaultWithObjects']
 

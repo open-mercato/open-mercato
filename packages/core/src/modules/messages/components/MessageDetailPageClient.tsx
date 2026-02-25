@@ -6,8 +6,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import {
-  resolveMessageActionsComponent,
-  resolveMessageContentComponent,
+  getMessageUiComponentRegistry,
 } from './utils/typeUiRegistry'
 import {
   MessageDetailActionsSection,
@@ -39,6 +38,7 @@ function MessageConversationDetailItem({
   onForward: (messageId: string) => void
 }) {
   const state = useMessageDetails(messageId)
+  const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
 
   if (state.isLoadingDetail) {
     return (
@@ -56,8 +56,12 @@ function MessageConversationDetailItem({
     )
   }
 
-  const ContentComponent = resolveMessageContentComponent(state.contentComponentKey)
-  const ActionsComponent = resolveMessageActionsComponent(state.actionsComponentKey)
+  const ContentComponent = state.contentComponentKey
+    ? messageUiRegistry.contentComponents[state.contentComponentKey] ?? null
+    : null
+  const ActionsComponent = state.actionsComponentKey
+    ? messageUiRegistry.actionsComponents[state.actionsComponentKey] ?? null
+    : null
 
   return (
     <section className="py-3">

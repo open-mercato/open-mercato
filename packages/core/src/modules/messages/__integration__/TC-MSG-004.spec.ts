@@ -50,7 +50,8 @@ test.describe('TC-MSG-004: Forward Message With Attachments', () => {
       expect(typeof selectedReplyPayload.id).toBe('string');
       selectedMessageId = selectedReplyPayload.id as string;
 
-      await uploadAttachmentToMessage(request, fixture.recipientToken, selectedMessageId, {
+      // recipientToken is the employee who lacks attachments.manage; use senderToken (admin) instead.
+      await uploadAttachmentToMessage(request, fixture.senderToken, selectedMessageId, {
         fileName: selectedAttachmentName,
       });
 

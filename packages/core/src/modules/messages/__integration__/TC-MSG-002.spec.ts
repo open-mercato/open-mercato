@@ -24,11 +24,15 @@ test.describe('TC-MSG-002: Inbox Open Mark Read And Mark Unread', () => {
       await messageRowBySubject(page, fixture.subject).click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/messages/${messageId}$`, 'i'));
-      await expect(page.getByRole('button', { name: 'Mark unread' })).toBeVisible();
 
-      await page.getByRole('button', { name: 'Mark unread' }).click();
-      await expect(page.getByText('Last operation:Mark message as unread')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+      // "Mark unread" is a menuitem inside the hover-triggered "Actions" dropdown on the message header.
+      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
+      await expect(page.getByRole('menuitem', { name: /Mark unread|messages\.actions\.markUnread/i })).toBeVisible();
+      await page.getByRole('menuitem', { name: /Mark unread|messages\.actions\.markUnread/i }).click();
+
+      // After marking unread the label switches to "Mark read", confirming state changed.
+      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
+      await expect(page.getByRole('menuitem', { name: /Mark read|messages\.actions\.markRead/i })).toBeVisible();
     } finally {
       await deleteMessageIfExists(request, adminToken, messageId);
     }
