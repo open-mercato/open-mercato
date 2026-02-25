@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
- * TC-CAT-019: Product Create Requires Specific Organization Context
+ * TC-CAT-014: Product Create Requires Specific Organization Context
  */
-test.describe('TC-CAT-019: Product Create Requires Specific Organization Context', () => {
+test.describe('TC-CAT-014: Product Create Requires Specific Organization Context', () => {
   test('should block submit while organization scope is All organizations', async ({ page }) => {
     await login(page, 'admin');
     await page.goto('/backend/catalog/products');
@@ -15,12 +15,12 @@ test.describe('TC-CAT-019: Product Create Requires Specific Organization Context
     await expect(organizationSelect).toHaveValue('');
 
     await page.goto('/backend/catalog/products/create');
-    await page.getByRole('textbox', { name: 'e.g., Summer sneaker' }).fill(`QA TC-CAT-019 ${Date.now()}`);
+    await page.getByRole('textbox', { name: 'e.g., Summer sneaker' }).fill(`QA TC-CAT-014 ${Date.now()}`);
     await page.getByRole('textbox', { name: 'Describe the product...' }).fill(
-      'QA TC-CAT-019 exploratory regression check for organization scope.',
+      'QA TC-CAT-014 exploratory regression check for organization scope.',
     );
     await page.getByRole('button', { name: 'Variants' }).click();
-    await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(`QA-CAT-019-${Date.now()}`);
+    await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(`QA-CAT-014-${Date.now()}`);
 
     let productCreatePostCount = 0;
     await page.route('**/api/catalog/products**', async (route) => {

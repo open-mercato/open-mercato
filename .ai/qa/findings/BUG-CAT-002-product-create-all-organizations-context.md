@@ -27,13 +27,12 @@ Catalog / Products / Organization Scope
 - `POST /api/catalog/products` should not be sent from global scope.
 
 ## Evidence
-- Failing test: `packages/core/src/modules/catalog/__integration__/TC-CAT-019.spec.ts`
+- Failing test: `packages/core/src/modules/catalog/__integration__/TC-CAT-014.spec.ts`
 - Assertion failure: expected `productCreatePostCount` = `0`, got `1`
 - Screenshot: `.ai/qa/tests/.ai/qa/test-results/artifacts/packages-core-src-modules--2351d--scope-is-All-organizations/test-failed-1.png`
 - Error context: `.ai/qa/tests/.ai/qa/test-results/artifacts/packages-core-src-modules--2351d--scope-is-All-organizations/error-context.md`
 
 ## Triage Classification
 - Type: Product bug
-- Proposed owner: User/Product team
-- Regression test: `packages/core/src/modules/catalog/__integration__/TC-CAT-019.spec.ts`
+- Regression test: `packages/core/src/modules/catalog/__integration__/TC-CAT-014.spec.ts`
 
