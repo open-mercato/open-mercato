@@ -43,7 +43,7 @@ async function readGrantedFeatures(features: string[]): Promise<Set<string>> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ features }),
   })
-  if (!call.ok) return new Set(features)
+  if (!call.ok) return new Set()
   return new Set(call.result?.granted ?? [])
 }
 

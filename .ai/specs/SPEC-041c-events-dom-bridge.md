@@ -6,7 +6,7 @@
 | **Phase** | C (PR 3) |
 | **Branch** | `feat/umes-event-bridge` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-25; Phase M operation filter remains in SPEC-041m) |
 
 ## Goal
 
@@ -286,8 +286,8 @@ await emitEvent('integration.sync.progress', {
 ### 6. Performance & Security
 
 - Events MUST be server-filtered by audience before SSE send (tenant + organization + recipient user/role)
-- Payload limit: 4KB; larger payloads send only entity reference
-- Deduplication: 500ms window for identical event IDs
+- Payload limit: 4KB; larger payloads send a truncated entity reference payload
+- Deduplication: 500ms window for identical event+payload fingerprints
 - Opt-in: `clientBroadcast: true` required; default is `false`
 
 ### 7. Audience Filtering Contract (Mandatory)

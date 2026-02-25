@@ -109,6 +109,36 @@ const connections = new Set<SseConnection>()
 
 let globalTapRegistered = false
 
+function buildSsePayload(eventName: string, data: Record<string, unknown>, organizationId: string): string {
+  return JSON.stringify({
+    id: eventName,
+    payload: data,
+    timestamp: Date.now(),
+    organizationId,
+  })
+}
+
+function buildTruncatedPayload(eventName: string, data: Record<string, unknown>, organizationId: string): string {
+  const entityRef: Record<string, unknown> = {
+    truncated: true,
+  }
+  if (typeof data.id === 'string' && data.id.trim().length > 0) {
+    entityRef.id = data.id.trim()
+  }
+  if (typeof data.entityId === 'string' && data.entityId.trim().length > 0) {
+    entityRef.entityId = data.entityId.trim()
+  }
+  if (typeof data.entityType === 'string' && data.entityType.trim().length > 0) {
+    entityRef.entityType = data.entityType.trim()
+  }
+  return JSON.stringify({
+    id: eventName,
+    payload: entityRef,
+    timestamp: Date.now(),
+    organizationId,
+  })
+}
+
 /**
  * Ensure a process-wide event tap is registered (once).
  * This captures emits from all request-scoped EventBus instances.
@@ -126,17 +156,16 @@ function ensureGlobalTapSubscription(): void {
     const data = (payload ?? {}) as Record<string, unknown>
     const audience = normalizeAudience(data)
 
-    const ssePayload = JSON.stringify({
-      id: eventName,
-      payload: data,
-      timestamp: Date.now(),
-      organizationId: audience.organizationScopes[0] ?? '',
-    })
+    const organizationId = audience.organizationScopes[0] ?? ''
+    let ssePayload = buildSsePayload(eventName, data, organizationId)
 
     // Enforce max payload size
     if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
-      console.warn(`[events:stream] Event ${eventName} payload exceeds ${MAX_PAYLOAD_BYTES} bytes, skipping`)
-      return
+      ssePayload = buildTruncatedPayload(eventName, data, organizationId)
+      if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
+        console.warn(`[events:stream] Event ${eventName} payload exceeds ${MAX_PAYLOAD_BYTES} bytes, skipping`)
+        return
+      }
     }
 
     for (const conn of connections) {

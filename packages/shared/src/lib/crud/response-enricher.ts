@@ -57,6 +57,17 @@ export interface ResponseEnricher<TRecord = any, TEnriched = any> {
   /** If true, enricher errors propagate as HTTP errors. Default: false */
   critical?: boolean
 
+  /** Tenant IDs where this enricher should be disabled. */
+  disabledTenantIds?: string[]
+
+  /** Optional cache configuration for read-through enrichment results. */
+  cache?: {
+    strategy: 'read-through'
+    ttl: number
+    tags?: string[]
+    invalidateOn?: string[]
+  }
+
   /** Enrich a single record. Used for detail endpoints. */
   enrichOne(record: TRecord, context: EnricherContext): Promise<TRecord & TEnriched>
 

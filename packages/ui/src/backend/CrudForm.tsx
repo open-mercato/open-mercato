@@ -429,6 +429,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           'transformValidation',
           fieldErrors as unknown as TValues,
           injectionContextRef.current,
+          { originalData: valuesRef.current as TValues },
         )
         const transformed = result.data
         if (!transformed || typeof transformed !== 'object' || Array.isArray(transformed)) return fieldErrors
@@ -1185,10 +1186,33 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     void triggerInjectionEvent('onFieldChange', nextData as TValues, injectionContextRef.current, {
       fieldId: id,
       fieldValue: nextValue,
+    }).then((result) => {
+      if (!result.ok) return
+      const change = result.fieldChange
+      if (!change) return
+      const updates: Record<string, unknown> = { ...(change.sideEffects ?? {}) }
+      if (change.value !== undefined) {
+        updates[id] = change.value
+      }
+      if (Object.keys(updates).length > 0) {
+        setValues((prev) => {
+          let changed = false
+          const next = { ...prev } as Record<string, unknown>
+          for (const [key, value] of Object.entries(updates)) {
+            if (Object.is(next[key], value)) continue
+            next[key] = value
+            changed = true
+          }
+          return changed ? (next as CrudFormValues<TValues>) : prev
+        })
+      }
+      for (const message of change.messages ?? []) {
+        flash(message.text, message.severity)
+      }
     }).catch((err) => {
       console.error('[CrudForm] Error in onFieldChange:', err)
     })
-  }, [extendedInjectionEventsEnabled, triggerInjectionEvent])
+  }, [extendedInjectionEventsEnabled, flash, triggerInjectionEvent])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {

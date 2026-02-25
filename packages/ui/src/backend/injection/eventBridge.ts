@@ -32,8 +32,8 @@ export function useEventBridge(): void {
   useEffect(() => {
     let mounted = true
 
-    function isDuplicate(eventId: string, timestamp: number): boolean {
-      const key = `${eventId}:${timestamp}`
+    function isDuplicate(eventPayload: AppEventPayload): boolean {
+      const key = `${eventPayload.id}:${JSON.stringify(eventPayload.payload ?? {})}`
       const lastSeen = recentEvents.current.get(key)
       if (lastSeen && Date.now() - lastSeen < DEDUP_WINDOW_MS) return true
       recentEvents.current.set(key, Date.now())
@@ -77,7 +77,7 @@ export function useEventBridge(): void {
             const parsed = JSON.parse(event.data) as AppEventPayload
             if (!parsed.id || typeof parsed.id !== 'string') return
 
-            if (isDuplicate(parsed.id, parsed.timestamp)) return
+            if (isDuplicate(parsed)) return
 
             window.dispatchEvent(
               new CustomEvent(APP_EVENT_DOM_NAME, { detail: parsed }),

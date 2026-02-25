@@ -218,11 +218,24 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
         error?: unknown
         fieldId?: string
         fieldValue?: unknown
+        originalData?: TData
         target?: unknown
         visible?: boolean
         appEvent?: unknown
       }
-    ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown; data?: TData }> => {
+    ): Promise<{
+      ok: boolean
+      message?: string
+      fieldErrors?: Record<string, string>
+      requestHeaders?: Record<string, string>
+      details?: unknown
+      data?: TData
+      fieldChange?: {
+        value?: unknown
+        sideEffects?: Record<string, unknown>
+        messages?: Array<{ text: string; severity: 'info' | 'warning' | 'error' }>
+      }
+    }> => {
       const normalizeBeforeSave = (
         result: WidgetBeforeSaveResult,
       ): { ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown } => {
@@ -283,7 +296,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
           try {
             const widgetContext = injectSharedStateIntoContext(context, widget.moduleId)
             if (event === 'transformValidation') {
-              pipelineData = await (handler as any)(pipelineData, data, widgetContext)
+              pipelineData = await (handler as any)(pipelineData, meta?.originalData ?? data, widgetContext)
             } else {
               pipelineData = await (handler as any)(pipelineData, widgetContext)
             }
@@ -297,6 +310,9 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       // --- Action events: sequential dispatch ---
       const mergedRequestHeaders: Record<string, string> = {}
       let hasRequestHeaders = false
+      let fieldValue = meta?.fieldValue
+      let fieldSideEffects: Record<string, unknown> | undefined
+      let fieldMessages: Array<{ text: string; severity: 'info' | 'warning' | 'error' }> | undefined
 
       for (const widget of widgets) {
         const eventHandlers = widget.module.eventHandlers
@@ -312,7 +328,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
               event === 'onDeleteError'
                 ? await (handler as any)(data, widgetContext, meta?.error)
                 : event === 'onFieldChange'
-                  ? await (handler as any)(meta?.fieldId, meta?.fieldValue, data, widgetContext)
+                  ? await (handler as any)(meta?.fieldId, fieldValue, data, widgetContext)
                   : event === 'onBeforeNavigate'
                     ? await (handler as any)(meta?.target, widgetContext)
                     : event === 'onVisibilityChange'
@@ -348,6 +364,18 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
                 return { ok: false, message: navResult.message }
               }
             }
+            if (event === 'onFieldChange') {
+              const changeResult = result as FieldChangeResult | void
+              if (changeResult?.value !== undefined) {
+                fieldValue = changeResult.value
+              }
+              if (changeResult?.sideEffects && typeof changeResult.sideEffects === 'object') {
+                fieldSideEffects = { ...(fieldSideEffects ?? {}), ...changeResult.sideEffects }
+              }
+              if (changeResult?.message?.text) {
+                fieldMessages = [...(fieldMessages ?? []), changeResult.message]
+              }
+            }
           } catch (err) {
             console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
             if (event === 'onBeforeSave' || event === 'onBeforeDelete' || event === 'onBeforeNavigate') {
@@ -364,6 +392,16 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       }
       if ((event === 'onBeforeSave' || event === 'onBeforeDelete') && hasRequestHeaders) {
         return { ok: true, requestHeaders: mergedRequestHeaders }
+      }
+      if (event === 'onFieldChange') {
+        return {
+          ok: true,
+          fieldChange: {
+            value: fieldValue,
+            sideEffects: fieldSideEffects,
+            messages: fieldMessages,
+          },
+        }
       }
       return { ok: true }
     },

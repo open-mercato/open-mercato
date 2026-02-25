@@ -10,6 +10,10 @@ import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
 } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import {
+  createPersonFixture,
+  deleteEntityIfExists,
+} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const OM_EVENT_NAME = 'om:event'
@@ -232,7 +236,8 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByLabel(/title/i).first().fill('  TEST Widget  ')
+    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+    await titleInput.fill('  TEST Widget  ')
 
     await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
   })
@@ -247,9 +252,11 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByLabel(/title/i).first().fill('  Trim Me  ')
-    await page.getByLabel(/note/i).first().fill('  Keep Clean  ')
-    await page.getByRole('button', { name: /save/i }).click()
+    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+    const noteInput = page.locator('[data-crud-field-id="note"] input').first()
+    await titleInput.fill('  Trim Me  ')
+    await noteInput.fill('  Keep Clean  ')
+    await page.locator('form button[type="submit"]').first().click()
 
     await expect(page.getByTestId('widget-transform-form-data')).toContainText('"title":"Trim Me"')
     await expect(page.getByTestId('widget-transform-form-data')).toContainText('"note":"Keep Clean"')
@@ -317,11 +324,12 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await expect(page.getByLabel(/title/i).first()).toHaveValue('DISPLAY ME')
+    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+    await expect(titleInput).toHaveValue('DISPLAY ME')
     await expect(page.getByTestId('widget-transform-display-data')).toContainText('"title":"DISPLAY ME"')
 
-    await page.getByLabel(/title/i).first().fill('')
-    await page.getByRole('button', { name: /save/i }).click()
+    await titleInput.fill('')
+    await page.locator('form button[type="submit"]').first().click()
     await expect(page.getByTestId('widget-transform-validation')).toContainText('"title":"[widget]')
   })
 
@@ -335,7 +343,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/todos/create')
     await page.waitForLoadState('domcontentloaded')
 
-    const titleInput = page.getByLabel(/title/i).first()
+    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
     await titleInput.fill('TEST automatic emission')
 
     await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
@@ -481,6 +489,74 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await expectProbeNotReceived(adminPage, probeId)
     } finally {
       await adminContext.close().catch(() => {})
+    }
+  })
+
+  test('TC-UMES-E15: Phase A/B harness shows injected menu items', async ({ page }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect(page.getByTestId('phase-ab-sidebar-items')).toContainText('example-todos-shortcut')
+    await expect(page.getByTestId('phase-ab-profile-items')).toContainText('example-quick-add-todo')
+  })
+
+  test('TC-UMES-E16: Phase A/B harness quick links navigate to target pages', async ({ page }) => {
+    const { login } = await import(
+      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+    )
+    await login(page, 'admin')
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('domcontentloaded')
+
+    await page.getByTestId('phase-ab-open-backend').click()
+    await expect(page).toHaveURL(/\/backend(?:\?.*)?$/)
+
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('domcontentloaded')
+    await page.getByTestId('phase-ab-open-todos').click()
+    await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
+
+    await page.goto('/backend/umes-handlers')
+    await page.waitForLoadState('domcontentloaded')
+    await page.getByTestId('phase-ab-open-todo-create').click()
+    await expect(page).toHaveURL(/\/backend\/todos\/create(?:\?.*)?$/)
+  })
+
+  test('TC-UMES-E17: Phase D harness probe returns enriched customer payload', async ({
+    page,
+    request,
+  }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    let personId: string | null = null
+
+    try {
+      personId = await createPersonFixture(request, adminToken, {
+        firstName: `QA-UMES-E17-${Date.now()}`,
+        lastName: 'Harness',
+        displayName: `QA UMES E17 ${Date.now()}`,
+      })
+
+      const { login } = await import(
+        '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      )
+      await login(page, 'admin')
+      await page.goto('/backend/umes-handlers')
+      await page.waitForLoadState('domcontentloaded')
+
+      await page.getByTestId('phase-d-person-id').fill(personId)
+      await page.getByTestId('phase-d-probe-title').fill('')
+      await page.getByTestId('phase-d-run-probe').click()
+
+      await expect(page.getByTestId('phase-d-status')).toContainText('ok')
+      await expect(page.getByTestId('phase-d-result')).toContainText(personId)
+      await expect(page.getByTestId('phase-d-result')).toContainText('_example')
+      await expect(page.getByTestId('phase-d-result')).toContainText('example.customer-todo-count')
+    } finally {
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
     }
   })
 })

@@ -248,13 +248,13 @@ export default function UmesHandlersPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button asChild type="button" variant="outline">
+            <Button asChild data-testid="phase-ab-open-backend" type="button" variant="outline">
               <Link href="/backend">{t('example.umes.handlers.phaseAB.openBackend')}</Link>
             </Button>
-            <Button asChild type="button" variant="outline">
+            <Button asChild data-testid="phase-ab-open-todos" type="button" variant="outline">
               <Link href="/backend/todos">{t('example.umes.handlers.phaseAB.openTodos')}</Link>
             </Button>
-            <Button asChild type="button" variant="outline">
+            <Button asChild data-testid="phase-ab-open-todo-create" type="button" variant="outline">
               <Link href="/backend/todos/create">{t('example.umes.handlers.phaseAB.openTodoCreate')}</Link>
             </Button>
           </div>
@@ -291,7 +291,7 @@ export default function UmesHandlersPage() {
             <Button data-testid="phase-d-run-probe" type="button" onClick={() => void runEnricherProbe()}>
               {t('example.umes.handlers.phaseD.actions.runProbe')}
             </Button>
-            <Button asChild type="button" variant="outline">
+            <Button asChild data-testid="phase-d-open-people" type="button" variant="outline">
               <Link href="/backend/customers/people">{t('example.umes.handlers.phaseD.actions.openPeople')}</Link>
             </Button>
           </div>

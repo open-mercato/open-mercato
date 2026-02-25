@@ -54,6 +54,16 @@ export function mergeMenuItems(
 
   for (const item of injected) {
     const nextItem = toMergedInjectedItem(item)
+    if (!item.placement && item.groupId) {
+      const existingGroupIndexes = merged
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => entry.groupId === item.groupId)
+      if (existingGroupIndexes.length > 0) {
+        const insertAfter = existingGroupIndexes[existingGroupIndexes.length - 1]?.index ?? -1
+        merged.splice(insertAfter + 1, 0, nextItem)
+        continue
+      }
+    }
     merged = insertByInjectionPlacement(merged, nextItem, item.placement, (entry) => entry.id)
   }
 

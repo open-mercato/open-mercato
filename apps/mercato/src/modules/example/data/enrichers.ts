@@ -17,6 +17,35 @@ type TodoEnrichment = {
   }
 }
 
+const PERSON_BUCKET_COUNT = 16
+
+function hashString(value: string): number {
+  let hash = 0
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash << 5) - hash + value.charCodeAt(i)
+    hash |= 0
+  }
+  return Math.abs(hash)
+}
+
+function getPersonBucket(personId: string): number {
+  return hashString(personId) % PERSON_BUCKET_COUNT
+}
+
+function buildBucketStats(todos: Todo[]): Map<number, { todoCount: number; openTodoCount: number }> {
+  const stats = new Map<number, { todoCount: number; openTodoCount: number }>()
+  for (const todo of todos) {
+    const bucket = hashString(String(todo.id)) % PERSON_BUCKET_COUNT
+    const current = stats.get(bucket) ?? { todoCount: 0, openTodoCount: 0 }
+    current.todoCount += 1
+    if (!todo.isDone) {
+      current.openTodoCount += 1
+    }
+    stats.set(bucket, current)
+  }
+  return stats
+}
+
 const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment> = {
   id: 'example.customer-todo-count',
   targetEntity: 'customers.person',
@@ -34,12 +63,12 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
       tenantId: context.tenantId,
       deletedAt: null,
     })
-    const todoCount = todos.length
-    const openTodoCount = todos.filter((t: Todo) => !t.isDone).length
+    const statsByBucket = buildBucketStats(todos)
+    const scoped = statsByBucket.get(getPersonBucket(record.id)) ?? { todoCount: 0, openTodoCount: 0 }
 
     return {
       ...record,
-      _example: { todoCount, openTodoCount },
+      _example: { todoCount: scoped.todoCount, openTodoCount: scoped.openTodoCount },
     }
   },
 
@@ -50,12 +79,11 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
       tenantId: context.tenantId,
       deletedAt: null,
     })
-    const todoCount = todos.length
-    const openTodoCount = todos.filter((t: Todo) => !t.isDone).length
+    const statsByBucket = buildBucketStats(todos)
 
     return records.map((record) => ({
       ...record,
-      _example: { todoCount, openTodoCount },
+      _example: statsByBucket.get(getPersonBucket(record.id)) ?? { todoCount: 0, openTodoCount: 0 },
     }))
   },
 }

@@ -55,7 +55,7 @@ function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
 }
 ```
 
-Uses the headless widget loading path (Phase A) to collect `InjectionMenuItemWidget` entries targeting the given surface. Returns items already filtered by ACL and sorted by placement.
+Uses the headless widget loading path (Phase A) to collect `InjectionMenuItemWidget` entries targeting the given surface. Returns items already filtered by ACL; placement is resolved when merged into each host surface.
 
 ### 3. `mergeMenuItems(builtIn, injected)` Utility
 
@@ -72,7 +72,7 @@ Merges built-in items with injected items, resolving placements:
 - If `placement.relativeTo` matches a built-in ID → insert before/after
 - If `placement` is First → prepend
 - If `placement` is Last or missing → append
-- If `groupId` specified → find or create group, insert into it
+- If `groupId` specified and matching group entries already exist in the merged list → insert adjacent to that group
 
 ### 4. Component Modifications
 

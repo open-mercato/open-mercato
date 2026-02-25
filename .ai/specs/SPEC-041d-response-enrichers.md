@@ -6,7 +6,7 @@
 | **Phase** | D (PR 4) |
 | **Branch** | `feat/umes-response-enrichers` |
 | **Depends On** | Nothing (independent) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-25) |
 
 ## Goal
 
@@ -81,7 +81,7 @@ When enrichers are active, responses include metadata:
 - Enrichers MUST NOT modify or remove existing fields (additive only)
 - Enrichers MUST NOT perform writes (read-only EntityManager)
 - Enrichers run after core query, not inside the transaction
-- `enrichMany` MUST be implemented for list endpoints (N+1 prevention)
+- `enrichMany` MUST be implemented for list endpoints (N+1 prevention); missing implementation fails list enrichment for that enricher
 - Enrichers can be disabled per-tenant via module config
 - Total enricher execution time is logged; slow enrichers flagged in dev mode (100ms warn, 500ms error)
 
