@@ -12,6 +12,7 @@ import { E as CoreEntities } from '#generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseCliArgs, cliLogger } from '@open-mercato/cli/lib/helpers'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -24,6 +25,8 @@ import {
   CustomerComment,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
+
+const logger = cliLogger.forModule('customers')
 
 type SeedArgs = {
   tenantId: string
@@ -1166,7 +1169,7 @@ function resolveCurrencyCodes(): string[] {
     uniqueSupported.push(code)
   }
   if (!uniqueSupported.length) {
-    console.warn('[customers.cli] Intl.supportedValuesOf("currency") unavailable; seeding minimal currency list.')
+    logger.warn('[customers.cli] Intl.supportedValuesOf("currency") unavailable; seeding minimal currency list.')
     return normalizedPriority
   }
   uniqueSupported.sort()
@@ -1188,7 +1191,7 @@ function resolveCurrencyLabel(code: string): string {
       }
     }
   } catch (err) {
-    console.warn('[customers.cli] Unable to resolve currency label for', code, err)
+    logger.warn(('[customers.cli] Unable to resolve currency label for', code, err))
   }
   return code
 }
@@ -1310,7 +1313,7 @@ async function seedCustomerExamples(
       logger: () => {},
     })
   } catch (err) {
-    console.warn('[customers.cli] Failed to install custom entities before seeding examples', err)
+    logger.warn(('[customers.cli] Failed to install custom entities before seeding examples', err))
   }
 
   try {
@@ -1320,7 +1323,7 @@ async function seedCustomerExamples(
       { organizationId: null, tenantId }
     )
   } catch (err) {
-    console.warn('[customers.cli] Failed to ensure customer custom field definitions', err)
+    logger.warn(('[customers.cli] Failed to ensure customer custom field definitions', err))
   }
 
   const dataEngine = new DefaultDataEngine(em, container)
@@ -1644,7 +1647,7 @@ async function seedCustomerExamples(
     try {
       await assign()
     } catch (err) {
-      console.warn('[customers.cli] Failed to set custom fields for seeded record', err)
+      logger.warn(('[customers.cli] Failed to set custom fields for seeded record', err))
     }
   }
 
@@ -1702,12 +1705,12 @@ async function seedCustomerStressTest(
         logger: () => {},
       })
     } catch (err) {
-      console.warn('[customers.cli] Failed to install custom entities before stress-test seeding', err)
+      logger.warn(('[customers.cli] Failed to install custom entities before stress-test seeding', err))
     }
     try {
       await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
     } catch (err) {
-      console.warn('[customers.cli] Failed to ensure custom field definitions for stress-test seeding', err)
+      logger.warn(('[customers.cli] Failed to ensure custom field definitions for stress-test seeding', err))
     }
   }
 
@@ -2503,7 +2506,7 @@ async function seedCustomerStressTest(
   options.onProgress?.({ completed: total, total })
   const elapsedMs = Math.max(1, Date.now() - startedAt)
   const recordsPerSecond = toCreate > 0 ? (toCreate / elapsedMs) * 1000 : 0
-  console.log(
+  logger.info(
     `⚡ Stress test seeding throughput: ${toCreate.toLocaleString()} records in ${(elapsedMs / 1000).toFixed(
       1
     )}s (${recordsPerSecond.toFixed(1)} records/s${includeExtras ? '' : ' - lite mode'})`
@@ -2648,11 +2651,11 @@ async function warnIfStressTestSchemaChanged(knex: any) {
       if (missing.length) warnings.push(`${table}: missing ${missing.join(', ')}`)
     }
     if (warnings.length) {
-      console.warn('[customers.cli] Warning: stress-test bulk seeder detected schema differences. Bulk insert path may need updates:')
-      warnings.forEach((warning) => console.warn(`  - ${warning}`))
+      logger.warn(('[customers.cli] Warning: stress-test bulk seeder detected schema differences. Bulk insert path may need updates:'))
+      warnings.forEach((warning) => logger.warn((`  - ${warning}`)))
     }
   } catch (err) {
-    console.warn('[customers.cli] Warning: unable to verify schema for stress-test bulk seeder', err)
+    logger.warn(('[customers.cli] Warning: unable to verify schema for stress-test bulk seeder', err))
   }
 }
 
@@ -2663,7 +2666,7 @@ const seedDictionaries: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato customers seed-dictionaries --tenant <tenantId> --org <organizationId>')
+      logger.error(('Usage: mercato customers seed-dictionaries --tenant <tenantId> --org <organizationId>'))
       return
     }
     const { resolve } = await createRequestContainer()
@@ -2673,7 +2676,7 @@ const seedDictionaries: ModuleCli = {
       await seedCurrencyDictionary(tem, { tenantId, organizationId })
       await tem.flush()
     })
-    console.log('📚 Customer dictionaries seeded for organization', organizationId)
+    logger.info(('📚 Customer dictionaries seeded for organization', organizationId))
   },
 }
 
@@ -2684,7 +2687,7 @@ const seedExamples: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato customers seed-examples --tenant <tenantId> --org <organizationId>')
+      logger.error(('Usage: mercato customers seed-examples --tenant <tenantId> --org <organizationId>'))
       return
     }
     const container = await createRequestContainer()
@@ -2693,9 +2696,9 @@ const seedExamples: ModuleCli = {
       seedCustomerExamples(tem, container, { tenantId, organizationId })
     )
     if (seeded) {
-      console.log('Customer example data seeded for organization', organizationId)
+      logger.info(('Customer example data seeded for organization', organizationId))
     } else {
-      console.log('Customer example data already present; skipping')
+      logger.info(('Customer example data already present; skipping'))
     }
   },
 }
@@ -2707,7 +2710,7 @@ const seedStressTest: ModuleCli = {
     const tenantId = String(args.tenantId ?? args.tenant ?? '')
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato customers seed-stresstest --tenant <tenantId> --org <organizationId> [--count <number>] [--lite]')
+      logger.error(('Usage: mercato customers seed-stresstest --tenant <tenantId> --org <organizationId> [--count <number>] [--lite]'))
       return
     }
     const defaultCount = 6000
@@ -2778,15 +2781,15 @@ const seedStressTest: ModuleCli = {
         })
       )
     } catch (err) {
-      console.warn('[customers.cli] Failed to refresh query index coverage after stress-test seeding', err)
+      logger.warn('Failed to refresh query index coverage after stress-test seeding', err)
     }
 
     if (result.created > 0) {
-      console.log(
+      logger.success(
         `Created ${result.created} stress test customer contacts (existing previously: ${result.existing})`
       )
     } else {
-      console.log(
+      logger.info(
         `Stress test dataset already satisfied (existing contacts: ${result.existing}, requested: ${count})`
       )
     }

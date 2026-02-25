@@ -1,7 +1,11 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import type { ModuleConfigService } from './lib/module-config-service'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+const logger = cliLogger.forModule('core')
 import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, NOTIFICATIONS_DELIVERY_CONFIG_KEY } from '../notifications/lib/deliveryConfig'
 
 function envDisablesAutoIndexing(): boolean {
@@ -11,6 +15,7 @@ function envDisablesAutoIndexing(): boolean {
 }
 
 const restoreDefaults: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'restore-defaults',
   async run() {
     const container = await createRequestContainer()
@@ -19,7 +24,7 @@ const restoreDefaults: ModuleCli = {
       try {
         service = (container.resolve('moduleConfigService') as ModuleConfigService)
       } catch {
-        console.error('[configs] moduleConfigService is not registered in the container.')
+        logger.error('[configs] moduleConfigService is not registered in the container.')
         return
       }
 
@@ -40,7 +45,7 @@ const restoreDefaults: ModuleCli = {
         ],
         { force: true },
       )
-      console.log(
+      logger.info(
         `[configs] Vector auto-indexing default set to ${defaultEnabled ? 'enabled' : 'disabled'}${
           disabledByEnv ? ' (forced by DISABLE_VECTOR_SEARCH_AUTOINDEXING)' : ''
         }.`,
@@ -55,10 +60,11 @@ const restoreDefaults: ModuleCli = {
 }
 
 const help: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'help',
   async run() {
-    console.log('Usage: yarn mercato configs restore-defaults')
-    console.log('  Ensures global module configuration defaults exist.')
+    logger.info('Usage: yarn mercato configs restore-defaults')
+    logger.info('  Ensures global module configuration defaults exist.')
   },
 }
 

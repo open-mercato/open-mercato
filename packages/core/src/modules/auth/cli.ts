@@ -2,6 +2,9 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+
+const logger = cliLogger.forModule('auth')
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -34,7 +37,7 @@ const addUser: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org)
     const rolesCsv = (args.roles ?? '').trim()
     if (!email || !password || !organizationId) {
-      console.error('Usage: mercato auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
+      logger.error('Usage: mercato auth add-user --email <email> --password <password> --organizationId <id> [--roles customer,employee]')
       return
     }
     if (!ensurePasswordPolicy(password)) return
@@ -78,7 +81,7 @@ const addUser: ModuleCli = {
         await em.persistAndFlush(link)
       }
     }
-    console.log('User created with id', u.id)
+    logger.info('User created with id', u.id)
   },
 }
 
@@ -112,7 +115,7 @@ function ensurePasswordPolicy(password: string): boolean {
   if (result.ok) return true
   const requirements = formatPasswordRequirements(policy, (_key, fallback) => fallback)
   const suffix = requirements ? `: ${requirements}` : ''
-  console.error(`Password does not meet the requirements${suffix}.`)
+  logger.error(`Password does not meet the requirements${suffix}.`)
   return false
 }
 
@@ -185,19 +188,19 @@ const seedRoles: ModuleCli = {
     const em = resolve<EntityManager>('em')
     if (tenantId) {
       await ensureRoles(em, { tenantId })
-      console.log('🛡️ Roles ensured for tenant', tenantId)
+      logger.info('🛡️ Roles ensured for tenant', tenantId)
       return
     }
     const tenants = await em.find(Tenant, {})
     if (!tenants.length) {
-      console.log('No tenants found; nothing to seed.')
+      logger.info('No tenants found; nothing to seed.')
       return
     }
     for (const tenant of tenants) {
       const id = tenant.id ? String(tenant.id) : null
       if (!id) continue
       await ensureRoles(em, { tenantId: id })
-      console.log('🛡️ Roles ensured for tenant', id)
+      logger.info('🛡️ Roles ensured for tenant', id)
     }
   },
 }
@@ -213,12 +216,12 @@ const rotateEncryptionKey: ModuleCli = {
     const debug = Boolean(args.debug)
     const rotate = Boolean(oldKey)
     if (rotate && !tenantId) {
-      console.warn(
+      logger.warn(
         '⚠️  Rotating with --old-key across all tenants. A single old key should normally target one tenant; consider --tenant.',
       )
     }
     if (!isTenantDataEncryptionEnabled()) {
-      console.error('TENANT_DATA_ENCRYPTION is disabled; aborting.')
+      logger.error('TENANT_DATA_ENCRYPTION is disabled; aborting.')
       return
     }
     const { resolve } = await createRequestContainer()
@@ -226,24 +229,24 @@ const rotateEncryptionKey: ModuleCli = {
     const encryptionService = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
     const oldKms = rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
     if (debug) {
-      console.log('[rotate-encryption-key]', {
+      logger.info('[rotate-encryption-key]', {
         hasOldKey: Boolean(oldKey),
         rotate,
         tenantId: tenantId ?? null,
         organizationId: organizationId ?? null,
       })
-      console.log('[rotate-encryption-key] key fingerprints', {
+      logger.info('[rotate-encryption-key] key fingerprints', {
         oldKey: hashSecret(oldKey),
         currentKey: hashSecret(process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY),
       })
     }
     if (!encryptionService.isEnabled()) {
-      console.error('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')
+      logger.error('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')
       return
     }
     const conn: any = (em as any).getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
-      console.error('Unable to access raw connection; aborting.')
+      logger.error('Unable to access raw connection; aborting.')
       return
     }
     const meta = (em as any)?.getMetadata?.()?.get?.(User)
@@ -264,7 +267,7 @@ const rotateEncryptionKey: ModuleCli = {
           oldKms?.getTenantDek(scopeTenantId) ?? Promise.resolve(null),
           encryptionService.getDek(scopeTenantId),
         ])
-        console.log('[rotate-encryption-key] dek fingerprints', {
+        logger.info('[rotate-encryption-key] dek fingerprints', {
           tenantId: scopeTenantId,
           oldKey: fingerprintDek(oldDek),
           currentKey: fingerprintDek(newDek),
@@ -279,7 +282,7 @@ const rotateEncryptionKey: ModuleCli = {
         ? rows
         : rows.filter((row: any) => !isEncryptedPayload(row?.email))
       if (!pending.length) return 0
-      console.log(
+      logger.info(
         `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
       )
       if (dryRun) return 0
@@ -309,7 +312,7 @@ const rotateEncryptionKey: ModuleCli = {
         let plainEmail = rawEmail
         if (rotate && isEncryptedPayload(rawEmail) && oldKms) {
           if (debug) {
-            console.log('[rotate-encryption-key] decrypting', {
+            logger.info('[rotate-encryption-key] decrypting', {
               userId: row.id,
               tenantId: scopeTenantId,
               organizationId: scopeOrganizationId,
@@ -348,16 +351,16 @@ const rotateEncryptionKey: ModuleCli = {
     if (tenantId && organizationId) {
       const updated = await processScope(String(tenantId), String(organizationId))
       if (!updated) {
-        console.log('All auth user emails already encrypted for the selected scope.')
+        logger.info('All auth user emails already encrypted for the selected scope.')
       } else {
-        console.log(`Encrypted ${updated} auth user email(s).`)
+        logger.info(`Encrypted ${updated} auth user email(s).`)
       }
       return
     }
 
     const organizations = await em.find(Organization, {})
     if (!organizations.length) {
-      console.log('No organizations found; nothing to encrypt.')
+      logger.info('No organizations found; nothing to encrypt.')
       return
     }
     let total = 0
@@ -368,9 +371,9 @@ const rotateEncryptionKey: ModuleCli = {
       total += await processScope(scopeTenantId, scopeOrganizationId)
     }
     if (total > 0) {
-      console.log(`Encrypted ${total} auth user email(s) across all organizations.`)
+      logger.info(`Encrypted ${total} auth user email(s) across all organizations.`)
     } else {
-      console.log('All auth user emails already encrypted across all organizations.')
+      logger.info('All auth user emails already encrypted across all organizations.')
     }
   },
 }
@@ -388,7 +391,7 @@ const addOrganization: ModuleCli = {
     }
     const name = args.name || args.orgName
     if (!name) {
-      console.error('Usage: mercato auth add-org --name <organization name>')
+      logger.error('Usage: mercato auth add-org --name <organization name>')
       return
     }
     const { resolve } = await createRequestContainer()
@@ -399,7 +402,7 @@ const addOrganization: ModuleCli = {
     const org = em.create(Organization, { name, tenant })
     await em.persistAndFlush(org)
     await rebuildHierarchyForTenant(em, String(tenant.id))
-    console.log('Organization created with id', org.id, 'in tenant', tenant.id)
+    logger.info('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }
 
@@ -426,12 +429,12 @@ const setupApp: ModuleCli = {
       ? skipPasswordPolicyRaw
       : parseBooleanToken(typeof skipPasswordPolicyRaw === 'string' ? skipPasswordPolicyRaw : null) ?? false
     if (!orgName || !email || !password) {
-      console.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee] [--skip-password-policy]')
+      logger.error('Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--roles superadmin,admin,employee] [--skip-password-policy]')
       return
     }
     if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) return
     if (skipPasswordPolicy) {
-      console.warn('⚠️  Password policy validation skipped for setup.')
+      logger.warn('⚠️  Password policy validation skipped for setup.')
     }
     const { resolve } = await createRequestContainer()
     const em = resolve<EntityManager>('em')
@@ -449,29 +452,29 @@ const setupApp: ModuleCli = {
       })
 
       if (result.reusedExistingUser) {
-        console.log('⚠️  Existing initial user detected during setup.')
-        console.log(`⚠️  Email: ${email}`)
-        console.log('⚠️  Updated roles if missing and reused tenant/organization.')
+        logger.info('⚠️  Existing initial user detected during setup.')
+        logger.info(`⚠️  Email: ${email}`)
+        logger.info('⚠️  Updated roles if missing and reused tenant/organization.')
       }
 
       if(env.NODE_ENV !== 'test') { 
         for (const snapshot of result.users) {
           if (snapshot.created) {
             if (snapshot.user.email === email && password) {
-              console.log('🎉 Created user', snapshot.user.email, 'password:', password)
+              logger.info('🎉 Created user', snapshot.user.email, 'password:', password)
             } else {
-              console.log('🎉 Created user', snapshot.user.email)
+              logger.info('🎉 Created user', snapshot.user.email)
             }
           } else {
-            console.log(`Updated user ${snapshot.user.email}`)
+            logger.info(`Updated user ${snapshot.user.email}`)
           }
         }
       }
 
-      if(env.NODE_ENV !== 'test')   console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
+      if(env.NODE_ENV !== 'test')   logger.info('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
     } catch (err) {
       if (err instanceof Error && err.message === 'USER_EXISTS') {
-        console.error('Setup aborted: user already exists with the provided email.')
+        logger.error('Setup aborted: user already exists with the provided email.')
         return
       }
       throw err
@@ -493,21 +496,21 @@ const listOrganizations: ModuleCli = {
     )
     
     if (orgs.length === 0) {
-      console.log('No organizations found')
+      logger.info('No organizations found')
       return
     }
     
-    console.log(`Found ${orgs.length} organization(s):`)
-    console.log('')
-    console.log('ID                                   | Name                    | Tenant ID                            | Created')
-    console.log('-------------------------------------|-------------------------|-------------------------------------|-------------------')
+    logger.info(`Found ${orgs.length} organization(s):`)
+    logger.info('')
+    logger.info('ID                                   | Name                    | Tenant ID                            | Created')
+    logger.info('-------------------------------------|-------------------------|-------------------------------------|-------------------')
     
     for (const org of orgs) {
       const created = org.createdAt ? new Date(org.createdAt).toLocaleDateString() : 'N/A'
       const id = org.id || 'N/A'
       const tenantId = org.tenant?.id || 'N/A'
       const name = (org.name || 'Unnamed').padEnd(23)
-      console.log(`${id.padEnd(35)} | ${name} | ${tenantId.padEnd(35)} | ${created}`)
+      logger.info(`${id.padEnd(35)} | ${name} | ${tenantId.padEnd(35)} | ${created}`)
     }
   },
 }
@@ -520,20 +523,20 @@ const listTenants: ModuleCli = {
     const tenants = await em.find(Tenant, {})
     
     if (tenants.length === 0) {
-      console.log('No tenants found')
+      logger.info('No tenants found')
       return
     }
     
-    console.log(`Found ${tenants.length} tenant(s):`)
-    console.log('')
-    console.log('ID                                   | Name                    | Created')
-    console.log('-------------------------------------|-------------------------|-------------------')
+    logger.info(`Found ${tenants.length} tenant(s):`)
+    logger.info('')
+    logger.info('ID                                   | Name                    | Created')
+    logger.info('-------------------------------------|-------------------------|-------------------')
     
     for (const tenant of tenants) {
       const created = tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : 'N/A'
       const id = tenant.id || 'N/A'
       const name = (tenant.name || 'Unnamed').padEnd(23)
-      console.log(`${id.padEnd(35)} | ${name} | ${created}`)
+      logger.info(`${id.padEnd(35)} | ${name} | ${created}`)
     }
   },
 }
@@ -563,14 +566,14 @@ const listUsers: ModuleCli = {
     const users = await em.find(User, where)
     
     if (users.length === 0) {
-      console.log('No users found')
+      logger.info('No users found')
       return
     }
     
-    console.log(`Found ${users.length} user(s):`)
-    console.log('')
-    console.log('ID                                   | Email                   | Name                    | Organization ID      | Tenant ID            | Roles')
-    console.log('-------------------------------------|-------------------------|-------------------------|---------------------|---------------------|-------------------')
+    logger.info(`Found ${users.length} user(s):`)
+    logger.info('')
+    logger.info('ID                                   | Email                   | Name                    | Organization ID      | Tenant ID            | Roles')
+    logger.info('-------------------------------------|-------------------------|-------------------------|---------------------|---------------------|-------------------')
     
     for (const user of users) {
       // Get user roles separately
@@ -601,7 +604,7 @@ const listUsers: ModuleCli = {
       const email = (user.email || 'N/A').padEnd(23)
       const name = (user.name || 'Unnamed').padEnd(23)
       
-      console.log(`${id.padEnd(35)} | ${email} | ${name} | ${orgName.padEnd(19)} | ${tenantName.padEnd(19)} | ${roles}`)
+      logger.info(`${id.padEnd(35)} | ${email} | ${name} | ${orgName.padEnd(19)} | ${tenantName.padEnd(19)} | ${roles}`)
     }
   },
 }
@@ -620,7 +623,7 @@ const setPassword: ModuleCli = {
     const password = args.password
     
     if (!email || !password) {
-      console.error('Usage: mercato auth set-password --email <email> --password <newPassword>')
+      logger.error('Usage: mercato auth set-password --email <email> --password <newPassword>')
       return
     }
     if (!ensurePasswordPolicy(password)) return
@@ -631,14 +634,14 @@ const setPassword: ModuleCli = {
     const user = await em.findOne(User, { $or: [{ email }, { emailHash }] })
     
     if (!user) {
-      console.error(`User with email "${email}" not found`)
+      logger.error(`User with email "${email}" not found`)
       return
     }
     
     user.passwordHash = await hash(password, 10)
     await em.persistAndFlush(user)
     
-    console.log(`✅ Password updated successfully for user: ${email}`)
+    logger.info(`✅ Password updated successfully for user: ${email}`)
   },
 }
 
