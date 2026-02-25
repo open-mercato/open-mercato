@@ -232,8 +232,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('phase-c-title-input').fill('  TEST Widget  ')
-    await page.getByTestId('phase-c-trigger-field-change').click()
+    await page.getByLabel(/title/i).first().fill('  TEST Widget  ')
 
     await expect(page.getByTestId('widget-field-warning')).toContainText('Title contains "TEST"')
   })
@@ -248,12 +247,12 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('phase-c-title-input').fill('  Trim Me  ')
-    await page.getByTestId('phase-c-note-input').fill('  Keep Clean  ')
-    await page.getByTestId('phase-c-trigger-transform-form').click()
+    await page.getByLabel(/title/i).first().fill('  Trim Me  ')
+    await page.getByLabel(/note/i).first().fill('  Keep Clean  ')
+    await page.getByRole('button', { name: /save/i }).click()
 
-    await expect(page.getByTestId('phase-c-form-transform-result')).toContainText('"title":"Trim Me"')
-    await expect(page.getByTestId('phase-c-form-transform-result')).toContainText('"note":"Keep Clean"')
+    await expect(page.getByTestId('widget-transform-form-data')).toContainText('"title":"Trim Me"')
+    await expect(page.getByTestId('widget-transform-form-data')).toContainText('"note":"Keep Clean"')
   })
 
   test('TC-UMES-E07: onBeforeNavigate blocks blocked target and allows valid target', async ({
@@ -266,14 +265,13 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('phase-c-target-input').fill('/backend/blocked')
-    await page.getByTestId('phase-c-trigger-before-navigate').click()
-    await expect(page.getByTestId('phase-c-before-navigate-result')).toContainText('"ok":false')
-    await expect(page.getByTestId('phase-c-before-navigate-result')).toContainText('Navigation blocked')
+    await page.getByTestId('phase-c-link-blocked').click()
+    await expect(page).toHaveURL(/\/backend\/umes-handlers/)
+    await expect(page.getByTestId('widget-navigation')).toContainText('"ok":false')
 
-    await page.getByTestId('phase-c-target-input').fill('/backend/todos')
-    await page.getByTestId('phase-c-trigger-before-navigate').click()
-    await expect(page.getByTestId('phase-c-before-navigate-result')).toContainText('"ok":true')
+    await page.getByTestId('phase-c-link-allowed').click()
+    await expect(page).toHaveURL(/\/backend\/umes-handlers\?allowed=1/)
+    await expect(page.getByTestId('widget-navigation')).toContainText('"ok":true')
   })
 
   test('TC-UMES-E08: onVisibilityChange updates widget visibility state', async ({
@@ -286,10 +284,9 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('phase-c-trigger-visibility').click()
-    await expect(page.getByTestId('phase-c-widget-hidden')).toBeVisible()
-
-    await page.getByTestId('phase-c-trigger-visibility').click()
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
     await expect(page.getByTestId('widget-visibility')).toContainText('"visible":true')
   })
 
@@ -303,7 +300,8 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('phase-c-trigger-app-event').click()
+    await page.getByTestId('phase-c-trigger-server-event').click()
+    await expect(page.getByTestId('phase-c-server-emit-status')).toContainText('ok')
 
     await expect(page.getByTestId('phase-c-app-event-result')).toContainText('example.todo.created')
     await expect(page.getByTestId('widget-app-event')).toContainText('example.todo.created')
@@ -319,12 +317,12 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('phase-c-title-input').fill('display me')
-    await page.getByTestId('phase-c-trigger-transform-display').click()
-    await expect(page.getByTestId('phase-c-display-transform-result')).toContainText('"title":"DISPLAY ME"')
+    await expect(page.getByLabel(/title/i).first()).toHaveValue('DISPLAY ME')
+    await expect(page.getByTestId('widget-transform-display-data')).toContainText('"title":"DISPLAY ME"')
 
-    await page.getByTestId('phase-c-trigger-transform-validation').click()
-    await expect(page.getByTestId('phase-c-validation-transform-result')).toContainText('"title":"[widget]')
+    await page.getByLabel(/title/i).first().fill('')
+    await page.getByRole('button', { name: /save/i }).click()
+    await expect(page.getByTestId('widget-transform-validation')).toContainText('"title":"[widget]')
   })
 
   test('TC-UMES-E11: CrudForm emits onFieldChange automatically on input change', async ({

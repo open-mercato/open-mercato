@@ -130,7 +130,12 @@ useAppEvent('mymod.entity.created', (event) => {
 
 ### Key Rules
 
-- Events are tenant-scoped: only clients with matching `tenantId` receive them
+- Events are server-filtered by audience before SSE send:
+  - Tenant: `tenantId` must match
+  - Organization: `organizationId` or `organizationIds` must match selected organization
+  - Recipient user: `recipientUserId` or `recipientUserIds` must include connection user
+  - Recipient role: `recipientRoleId` or `recipientRoleIds` must intersect connection roles
+- Missing `tenantId` in event payload means no delivery
 - SSE sends heartbeats every 30s; client auto-reconnects if no heartbeat within 45s
 - Max payload size is 4096 bytes per event
 - Client deduplicates events within a 500ms window

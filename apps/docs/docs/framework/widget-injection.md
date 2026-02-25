@@ -113,10 +113,18 @@ Phase C adds real-time server-to-client event delivery and richer widget lifecyc
 Server-side events marked with `clientBroadcast: true` are automatically bridged to the browser via Server-Sent Events (SSE). The flow:
 
 1. Server emits event via event bus (e.g., `example.todo.created`)
-2. SSE endpoint (`/api/events/stream`) broadcasts to connected browser tabs
+2. SSE endpoint (`/api/events/stream`) server-filters audience and emits only matching events to each connection
 3. Client `useEventBridge()` hook (mounted in `AppShell`) receives the event
 4. Dispatches a `om:event` CustomEvent on `window`
 5. Widget `useAppEvent` hooks receive and react
+
+Audience filtering is enforced server-side using event payload fields:
+- `tenantId` (required)
+- `organizationId` or `organizationIds`
+- `recipientUserId` or `recipientUserIds`
+- `recipientRoleId` or `recipientRoleIds`
+
+When any provided audience field does not match the connection (`tenant`, selected `organization`, authenticated `user`, role set), the event is dropped before delivery.
 
 #### Enabling broadcast on events
 

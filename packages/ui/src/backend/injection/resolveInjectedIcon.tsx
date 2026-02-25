@@ -18,7 +18,7 @@ export function resolveInjectedIcon(icon?: string, className = 'size-4'): React.
   if (!normalized) return null
 
   const candidates = [normalized, toPascalCaseIconName(normalized)]
-  const registry = LucideIcons as Record<string, LucideIconComponent | undefined>
+  const registry = LucideIcons as unknown as Record<string, LucideIconComponent | undefined>
 
   for (const candidate of candidates) {
     const IconComponent = registry[candidate]

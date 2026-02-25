@@ -135,7 +135,7 @@ example.todo.created ──► event bus
 
 #### Transport
 
-Uses the **existing notification SSE channel** (`/api/auth/notifications/stream`). Extended to include app events when `clientBroadcast: true`.
+Uses the dedicated SSE channel at `/api/events/stream`. It bridges only events marked with `clientBroadcast: true`.
 
 #### Event Declaration Extension
 
@@ -616,6 +616,20 @@ export default {
 - Server-side audience filtering MUST enforce tenant + organization + recipient user/role checks before enqueueing event to stream
 - Max payload: 4096 bytes per event
 
+### Audience Filtering (Implemented)
+- Implemented in `packages/events/src/modules/events/api/stream/route.ts` with `normalizeAudience()` + `matchesAudience()`
+- Supported payload fields:
+  - `tenantId` (required for delivery)
+  - `organizationId` / `organizationIds`
+  - `recipientUserId` / `recipientUserIds`
+  - `recipientRoleId` / `recipientRoleIds`
+- Match semantics:
+  - Tenant must match exactly
+  - Organization, when provided, must match the selected org on the SSE connection
+  - Recipient user, when provided, must include connection user
+  - Recipient role, when provided, must intersect connection role set
+  - Multiple audience dimensions are AND-combined
+
 ### Client-Side
 - `eventBridge.ts` — `useEventBridge()` hook with auto-reconnect (exponential backoff, 1s–30s)
 - `useAppEvent.ts` — wildcard pattern matching using regex (`*` → `.*`)
@@ -641,3 +655,9 @@ export default {
 - `packages/ui/src/backend/injection/InjectionSpot.tsx` — dual-mode dispatch
 - `packages/events/src/modules/events/api/stream/route.ts` — SSE endpoint
 - `packages/shared/src/modules/events/factory.ts` — `isBroadcastEvent()` helper
+- `apps/mercato/src/modules/example/api/assignees/route.ts` — test-only SSE probe emitter used by integration coverage
+- `apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts` — TC-UMES-E12/E13/E14 audience isolation coverage
+
+## Changelog
+
+- 2026-02-25: Added mandatory server-side audience filtering contract (tenant/org/user/role), added negative isolation integration coverage requirements (E11-E13), and aligned implementation notes with `/api/events/stream`.

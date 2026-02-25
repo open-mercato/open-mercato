@@ -116,7 +116,7 @@ await eventBus.emitEvent('notifications.notification.batch_created', {
 }, { persistent: false })
 ```
 
-**Important**: The SSE payload includes `recipientUserId` so the client can filter — only show notifications addressed to the current user.
+**Important**: The SSE payload includes `recipientUserId` for audience filtering and client context. Delivery filtering is enforced server-side.
 
 ### Step 3: Create `useNotificationsSse` Hook
 
@@ -226,6 +226,22 @@ source.onopen = () => {
 **Client-side filtering status**
 - Client checks remain optional defense-in-depth.
 - Client checks are not considered access control and do not satisfy privacy requirements.
+
+### Step 6a: Bridge Safeguard Implementation (2026-02-25)
+
+Implemented in `packages/events/src/modules/events/api/stream/route.ts`:
+- Connection context now stores `tenantId`, `organizationId`, `userId`, and `roleIds`.
+- Event payload audience supports:
+  - `organizationId` / `organizationIds`
+  - `recipientUserId` / `recipientUserIds`
+  - `recipientRoleId` / `recipientRoleIds`
+- Events with missing `tenantId` are dropped.
+- Audience dimensions are AND-combined before delivery.
+
+Integration coverage added in `apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts`:
+- `TC-UMES-E12` user recipient isolation
+- `TC-UMES-E13` role recipient isolation
+- `TC-UMES-E14` organization boundary isolation
 
 ### Step 7: Keep Polling as Fallback
 
@@ -352,3 +368,7 @@ Once SSE is stable, disable the polling interval. The `useNotificationsPoll` rem
 4. SSE disconnect + reconnect: notifications catch up within 1s of reconnection
 5. Fallback: if `EventSource` unavailable, polling activates automatically
 6. A user never receives notification SSE payloads targeted to another user/role/organization
+
+## Changelog
+
+- 2026-02-25: Security model updated from client-side recipient filtering guidance to mandatory server-side audience filtering, with explicit implementation notes and integration coverage references.
