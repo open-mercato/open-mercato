@@ -362,6 +362,8 @@ Kill switches MUST exist for:
 - API interceptors
 - Component overrides
 - DataTable/CrudForm extension rendering
+- Status badge polling
+- Widget shared state
 
 ---
 
@@ -575,3 +577,4 @@ Key implementation details from deep-diving into the actual codebase:
 | 2026-02-24 | Split into phased sub-specs (SPEC-041a through SPEC-041k) for LLM context management |
 | 2026-02-24 | Replace CLI scaffolding commands with AGENTS.md scaffolding guide for LLM-driven scaffolding |
 | 2026-02-25 | Add API/UI coverage matrix, rollout strategy, migration/backward compatibility section, and measurable performance acceptance criteria |
+| 2026-02-25 | Add Phase L (Integration Extensions) — wizard widgets, status badges, external ID mapping display. Amend phases A, C, D, G with integration-driven improvements: widget shared state, async operation progress, enricher timeout/fallback, dynamic field options, custom field components, conditional field visibility |
