@@ -102,5 +102,9 @@
   "dashboards.widgets.loading": "Widget-Optionen werden geladen…",
   "dashboards.widgets.mode.hint": "Dieser Benutzer erbt derzeit Widgets von seinen Rollen. Wechseln Sie zu \"Überschreiben\", um anzupassen.",
   "dashboards.widgets.mode.inherit": "Von Rollen übernehmen",
-  "dashboards.widgets.mode.override": "Für diesen Benutzer überschreiben"
+  "dashboards.widgets.mode.override": "Für diesen Benutzer überschreiben",
+  "dashboards.widgets.effective": "Aktive Widgets:",
+  "dashboards.widgets.reset": "Zurücksetzen",
+  "dashboards.widgets.save": "Widgets speichern",
+  "dashboards.widgets.saving": "Speichern…"
 }

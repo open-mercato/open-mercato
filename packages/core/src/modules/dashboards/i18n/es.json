@@ -102,5 +102,9 @@
   "dashboards.widgets.loading": "Cargando opciones de widgets…",
   "dashboards.widgets.mode.hint": "Este usuario hereda los widgets de sus roles asignados. Cambia a sobrescribir para personalizar.",
   "dashboards.widgets.mode.inherit": "Heredar de los roles",
-  "dashboards.widgets.mode.override": "Sobrescribir para este usuario"
+  "dashboards.widgets.mode.override": "Sobrescribir para este usuario",
+  "dashboards.widgets.effective": "Widgets efectivos:",
+  "dashboards.widgets.reset": "Restablecer",
+  "dashboards.widgets.save": "Guardar widgets",
+  "dashboards.widgets.saving": "Guardando…"
 }
