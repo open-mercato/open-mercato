@@ -11,6 +11,12 @@ import type { SearchResult, SearchStrategyId } from '@open-mercato/shared/module
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  getCurrentOrganizationScope,
+  subscribeOrganizationScopeChanged,
+} from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
 import { fetchHybridSearchResults } from '../utils'
 
 type Row = {
@@ -32,6 +38,16 @@ type Translator = (
   fallbackOrParams?: string | Record<string, string | number>,
   params?: Record<string, string | number>
 ) => string
+
+function hasActiveOrganizationSelection(): boolean {
+  const fromEvent = getCurrentOrganizationScope().organizationId
+  if (typeof fromEvent === 'string' && fromEvent.trim().length > 0) return true
+
+  const cookieHeader = typeof document === 'undefined' ? null : document.cookie
+  const cookieValue = parseSelectedOrganizationCookie(cookieHeader)
+  if (!cookieValue) return false
+  return !isAllOrganizationsSelection(cookieValue);
+}
 
 function createColumns(t: Translator): ColumnDef<Row>[] {
   return [
@@ -220,6 +236,7 @@ export function HybridSearchTable({
 }: HybridSearchTableProps = {}) {
   const router = useRouter()
   const t = useT()
+  const [showScopeHint, setShowScopeHint] = React.useState<boolean>(() => hasActiveOrganizationSelection())
   const [searchValue, setSearchValue] = React.useState('')
   const [rows, setRows] = React.useState<Row[]>([])
   const [page, setPage] = React.useState(1)
@@ -239,6 +256,13 @@ export function HybridSearchTable({
     }
     return allColumns
   }, [t, showSourceColumn])
+
+  React.useEffect(() => {
+    setShowScopeHint(hasActiveOrganizationSelection())
+    return subscribeOrganizationScopeChanged((detail) => {
+      setShowScopeHint(Boolean(detail.organizationId && detail.organizationId.trim().length > 0))
+    })
+  }, [])
 
   const toggleStrategy = React.useCallback((strategy: SearchStrategyId) => {
     setEnabledStrategies((prev) => {
@@ -390,9 +414,11 @@ export function HybridSearchTable({
         </div>
       ) : null}
 
-      <div className="text-xs text-muted-foreground">
-        {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
-      </div>
+      {showScopeHint ? (
+        <div className="text-xs text-muted-foreground">
+          {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
+        </div>
+      ) : null}
 
       {/* Data Table */}
       <DataTable<Row>
