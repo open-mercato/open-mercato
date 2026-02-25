@@ -2,7 +2,7 @@ import { EntityManager } from '@mikro-orm/postgresql'
 import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
-import { SsoConfig, SsoIdentity, SsoRoleGrant } from '../data/entities'
+import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'
 import { emitSsoEvent } from '../events'
 import type { SsoIdentityPayload } from '../lib/types'
 
@@ -38,6 +38,10 @@ export class AccountLinkingService {
     }
 
     if (config.jitEnabled) {
+      const scimActive = await this.em.count(ScimToken, { ssoConfigId: config.id, isActive: true }) > 0
+      if (scimActive) {
+        throw new Error('JIT provisioning is disabled because SCIM directory sync is active')
+      }
       return this.jitProvision(config, idpPayload, tenantId)
     }
 
