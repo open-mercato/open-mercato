@@ -85,3 +85,17 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 - Muted section headers: `<Button variant="muted" className="w-full justify-between">`
 
 **Applies to**: All UI components across `packages/ui`, `packages/core`, and `apps/mercato`.
+
+## Integration tests: avoid `networkidle` on pages with SSE/background streams
+
+**Context**: Multiple Sales/Integration UI tests started timing out at 20s in ephemeral runs. Failing point was `page.waitForLoadState('networkidle')` right after navigation.
+
+**Problem**: Pages with SSE or other long-lived background requests may never reach Playwright `networkidle`, causing deterministic false failures unrelated to product logic.
+
+**Rules**:
+
+1. In integration tests/helpers, do not use `waitForLoadState('networkidle')` as a generic readiness gate on backend pages.
+2. Prefer `waitForLoadState('domcontentloaded')` plus one explicit UI readiness assertion for the interaction target (for example, a key button/input becoming visible).
+3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
+
+**Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales/customer flows).
