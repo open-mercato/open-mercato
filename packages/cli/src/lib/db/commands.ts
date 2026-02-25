@@ -420,7 +420,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
     const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
     await client.connect()
     try {
-      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
       const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
       if (tables.length) {
         await client.query('BEGIN')

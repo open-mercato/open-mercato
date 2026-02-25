@@ -203,7 +203,8 @@ async function tableHasColumn(knex: Knex, table: string, column: string): Promis
   const key = `${table}.${column}`
   if (COLUMN_CACHE.has(key)) return COLUMN_CACHE.get(key)!
   const exists = await knex('information_schema.columns')
-    .where({ table_schema: 'public', table_name: table, column_name: column })
+    .whereRaw('table_schema = current_schema()')
+    .where({ table_name: table, column_name: column })
     .first()
   const present = !!exists
   COLUMN_CACHE.set(key, present)
