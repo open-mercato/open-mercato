@@ -32,7 +32,7 @@ Each phase is a separate PR, independently mergeable, with example module demons
 | **J** | [SPEC-041j — Recursive Widgets](./SPEC-041j-recursive-widgets.md) | `feat/umes-recursive-widgets` | Widget-level `InjectionSpot`, nested event handlers | A |
 | **K** | [SPEC-041k — DevTools](./SPEC-041k-devtools.md) | `feat/umes-devtools` | UMES DevTools panel, build-time conflict detection | All |
 | **L** | [SPEC-041l — Integration Extensions](./SPEC-041l-integration-extensions.md) | `feat/umes-integration-extensions` | Wizard widgets, status badges, external ID mapping display | A, C, D, G |
-| **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, sync event subscribers (lifecycle events), client-side event filtering | E |
+| **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, sync event subscribers (lifecycle events), client-side event filtering, command interceptors | E |
 
 ### Dependency Graph
 
@@ -191,6 +191,9 @@ Examples:
 | Final validation gate (locks, policies, limits) | Mutation Guard Registry | M |
 | Post-mutation cleanup (multi-guard) | Mutation Guard afterSuccess | M |
 | Filter widget handlers by operation (create/update) | Widget event filter | M |
+| Modify input before a command runs (cross-module) | Command Interceptor `beforeExecute` | M |
+| Block undo of a specific command | Command Interceptor `beforeUndo` | M |
+| Add side-effects after command execute/undo | Command Interceptor `afterExecute`/`afterUndo` | M |
 | Validate/block a form save from UI | Widget `onBeforeSave` | Existing |
 | React to a completed operation | Event Subscriber | Existing |
 | Add data model relations | Entity Extension | Existing |
@@ -248,6 +251,8 @@ src/modules/<module>/
 ├── api/
 │   ├── <routes>           # Existing
 │   └── interceptors.ts    # NEW (Phase E): API interceptors
+├── commands/
+│   └── interceptors.ts    # NEW (Phase M): command interceptors
 ├── widgets/
 │   ├── injection-table.ts # Existing: slot mappings
 │   ├── injection/         # Existing: widget implementations
@@ -263,6 +268,7 @@ src/modules/<module>/
 - `component-overrides.generated.ts` — component override registry (Phase H)
 - `status-badges.generated.ts` — status badge widget registry (Phase L)
 - `guards.generated.ts` — mutation guard registry (Phase M)
+- `command-interceptors.generated.ts` — command interceptor registry (Phase M)
 
 ---
 
@@ -283,7 +289,8 @@ src/modules/<module>/
 | K — DevTools | TC-UMES-DT01–DT02 | 2 |
 | L — Integration Extensions | TC-UMES-L01–L06 | 6 |
 | M — Mutation Lifecycle | TC-UMES-ML01–ML10 | 10 |
-| **Total** | | **63** |
+| M — Command Interceptors | TC-UMES-CI01–CI10 | 10 |
+| **Total** | | **73** |
 
 See each phase sub-spec for detailed test scenarios, example module additions, and testing notes.
 
@@ -307,7 +314,7 @@ This matrix links each phase test pack to the primary API paths and key UI surfa
 | J — Recursive Widgets | Existing CRUD save/delete routes reached by nested widgets | Nested `InjectionSpot` rendering and nested lifecycle hooks |
 | K — DevTools | Dev-only extension inspection endpoint(s) and generator conflict checks | DevTools panel toggle, extension inspection UI |
 | L — Integration Extensions | Integration health check routes, sync external ID mapping routes, wizard data persistence routes | Wizard step navigation, status badge polling, external ID section on detail pages |
-| M — Mutation Lifecycle | All CRUD mutation routes (POST/PUT/DELETE) for guarded entities, guard registry bootstrap | CrudForm save pipeline with filtered widget handlers, guard rejection error display |
+| M — Mutation Lifecycle | All CRUD mutation routes (POST/PUT/DELETE) for guarded entities, guard registry bootstrap, command bus execute/undo | CrudForm save pipeline with filtered widget handlers, guard rejection error display, command interceptor error handling |
 
 ---
 
@@ -381,6 +388,7 @@ Kill switches MUST exist for:
 - Widget shared state
 - Mutation guard registry (fallback: legacy singleton only)
 - Sync event subscribers (lifecycle events)
+- Command interceptors
 
 ---
 
@@ -392,9 +400,9 @@ UMES changes several public contract surfaces and therefore follows the deprecat
 
 - Type definitions and interfaces in shared/widget and CRUD extension contracts
 - Function signatures and hooks in CRUD factory + injection hooks
-- Auto-discovery conventions (`data/enrichers.ts`, `data/guards.ts`, `api/interceptors.ts`, `widgets/components.ts`) as additive files
+- Auto-discovery conventions (`data/enrichers.ts`, `data/guards.ts`, `api/interceptors.ts`, `commands/interceptors.ts`, `widgets/components.ts`) as additive files
 - Subscriber metadata extension (`sync`, `priority` fields) in existing `subscribers/*.ts`
-- Generated bootstrap contracts (`enrichers.generated.ts`, `interceptors.generated.ts`, `component-overrides.generated.ts`, `guards.generated.ts`)
+- Generated bootstrap contracts (`enrichers.generated.ts`, `interceptors.generated.ts`, `component-overrides.generated.ts`, `guards.generated.ts`, `command-interceptors.generated.ts`)
 
 ### Compatibility Rules
 
@@ -427,6 +435,7 @@ This section specifies what must change in each AGENTS.md file to make UMES a fi
 |------|-------|
 | Adding mutation guards, entity-level validation/blocking | `packages/core/AGENTS.md` → Mutation Guards |
 | Adding sync event subscribers, cross-module before/after lifecycle hooks | `packages/core/AGENTS.md` → Sync Event Subscribers |
+| Adding command interceptors, before/after execute/undo hooks | `packages/core/AGENTS.md` → Command Interceptors |
 | Adding response enrichers, data federation | `packages/core/AGENTS.md` → Response Enrichers |
 | Adding API interceptors, cross-module validation | `packages/core/AGENTS.md` → API Interceptors |
 | Replacing or wrapping another module's component | `packages/core/AGENTS.md` → Component Replacement |
