@@ -225,7 +225,7 @@ const widget: InjectionWidgetModule = {
     },
     transformValidation: async (errors) => {
       if (!errors.title) return errors
-      return { ...errors, title: `[widget] ${errors.title}` }
+      return { ...errors }
     },
   },
 }

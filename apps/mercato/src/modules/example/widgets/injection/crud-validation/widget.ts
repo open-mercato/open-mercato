@@ -149,9 +149,6 @@ const widget: InjectionWidgetModule<any, any> = {
       const sharedState = readSharedState(context)
       if (!errors || typeof errors !== 'object') return errors
       const transformed = { ...(errors as Record<string, string>) }
-      if (typeof transformed.title === 'string') {
-        transformed.title = `[widget] ${transformed.title}`
-      }
       sharedState?.set('lastTransformValidation', transformed)
       return transformed
     },
