@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
+import { REFERENCE_UNIT_CODES } from '../lib/unitCodes'
 
 const uuid = () => z.string().uuid()
 
@@ -74,18 +75,12 @@ const optionSchema = z.object({
 
 const tagLabelSchema = z.string().trim().min(1).max(100)
 
-const offerContentSchema = z.object({
-  title: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
-})
-
 const offerBaseSchema = z.object({
   channelId: uuid(),
   title: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4000).optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
-  localizedContent: z.record(z.string().trim().min(2).max(10), offerContentSchema).optional(),
   metadata: metadataSchema,
   isActive: z.boolean().optional(),
 })
@@ -113,44 +108,104 @@ export const offerUpdateSchema = z
   )
 
 const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
-
-export const productCreateSchema = scoped.extend({
-  title: z.string().trim().min(1).max(255),
-  subtitle: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
-  sku: skuSchema.optional(),
-  handle: handleSchema.optional(),
-  taxRateId: uuid().nullable().optional(),
-  taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
-  productType: productTypeSchema.default('simple'),
-  statusEntryId: uuid().optional(),
-  primaryCurrencyCode: currencyCodeSchema.optional(),
-  defaultUnit: z.string().trim().max(50).optional(),
-  defaultMediaId: uuid().optional().nullable(),
-  defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
-  weightValue: z.coerce.number().min(0).optional().nullable(),
-  weightUnit: z.string().trim().max(25).optional().nullable(),
-  dimensions: z
-    .object({
-      width: z.coerce.number().min(0).optional(),
-      height: z.coerce.number().min(0).optional(),
-      depth: z.coerce.number().min(0).optional(),
-      unit: z.string().trim().max(25).optional(),
-    })
-    .optional()
-    .nullable(),
-  optionSchemaId: uuid().nullable().optional(),
-  optionSchema: optionSchema.optional(),
-  customFieldsetCode: slugSchema.nullable().optional(),
-  isConfigurable: z.boolean().optional(),
-  isActive: z.boolean().optional(),
-  omnibusExempt: z.boolean().optional(),
-  firstListedAt: z.coerce.date().optional().nullable(),
-  metadata: metadataSchema,
-  offers: z.array(offerInputSchema.omit({ id: true })).optional(),
-  categoryIds: z.array(uuid()).max(100).optional(),
-  tags: z.array(tagLabelSchema).max(100).optional(),
+const uomRoundingModeSchema = z.enum(['half_up', 'down', 'up'])
+const unitPriceReferenceUnitSchema = z.enum(REFERENCE_UNIT_CODES)
+const unitPriceConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  referenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),
+  baseQuantity: z.coerce.number().positive().optional(),
 })
+
+function productUomCrossFieldRefinement(
+  input: {
+    defaultUnit?: string | null
+    defaultSalesUnit?: string | null
+    unitPriceEnabled?: boolean
+    unitPriceReferenceUnit?: string | null
+    unitPriceBaseQuantity?: number
+    unitPrice?: { enabled?: boolean; referenceUnit?: string | null; baseQuantity?: number }
+  },
+  ctx: z.RefinementCtx,
+) {
+  const defaultUnit = typeof input.defaultUnit === 'string' ? input.defaultUnit.trim() : ''
+  const defaultSalesUnit =
+    typeof input.defaultSalesUnit === 'string' ? input.defaultSalesUnit.trim() : ''
+  if (defaultSalesUnit && !defaultUnit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['defaultSalesUnit'],
+      message: 'catalog.products.validation.baseUnitRequired',
+    })
+  }
+  const unitPriceEnabled = input.unitPrice?.enabled ?? input.unitPriceEnabled ?? false
+  if (!unitPriceEnabled) return
+  const referenceUnit =
+    input.unitPrice?.referenceUnit ?? input.unitPriceReferenceUnit ?? null
+  const baseQuantity =
+    input.unitPrice?.baseQuantity ?? input.unitPriceBaseQuantity ?? null
+  if (!referenceUnit) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['unitPrice'],
+      message: 'catalog.products.validation.referenceUnitRequired',
+    })
+  }
+  if (baseQuantity === null || baseQuantity === undefined || Number(baseQuantity) <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['unitPrice'],
+      message: 'catalog.products.unitPrice.errors.baseQuantity',
+    })
+  }
+}
+
+export const productCreateSchema = scoped
+  .extend({
+    title: z.string().trim().min(1).max(255),
+    subtitle: z.string().trim().max(255).optional(),
+    description: z.string().trim().max(4000).optional(),
+    sku: skuSchema.optional(),
+    handle: handleSchema.optional(),
+    taxRateId: uuid().nullable().optional(),
+    taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
+    productType: productTypeSchema.default('simple'),
+    statusEntryId: uuid().optional(),
+    primaryCurrencyCode: currencyCodeSchema.optional(),
+    defaultUnit: z.string().trim().max(50).optional().nullable(),
+    defaultSalesUnit: z.string().trim().max(50).optional().nullable(),
+    defaultSalesUnitQuantity: z.coerce.number().positive().optional(),
+    uomRoundingScale: z.coerce.number().int().min(0).max(6).optional(),
+    uomRoundingMode: uomRoundingModeSchema.optional(),
+    unitPriceEnabled: z.boolean().optional(),
+    unitPriceReferenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),
+    unitPriceBaseQuantity: z.coerce.number().positive().optional(),
+    unitPrice: unitPriceConfigSchema.optional(),
+    defaultMediaId: uuid().optional().nullable(),
+    defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
+    weightValue: z.coerce.number().min(0).optional().nullable(),
+    weightUnit: z.string().trim().max(25).optional().nullable(),
+    dimensions: z
+      .object({
+        width: z.coerce.number().min(0).optional(),
+        height: z.coerce.number().min(0).optional(),
+        depth: z.coerce.number().min(0).optional(),
+        unit: z.string().trim().max(25).optional(),
+      })
+      .optional()
+      .nullable(),
+    optionSchemaId: uuid().nullable().optional(),
+    optionSchema: optionSchema.optional(),
+    customFieldsetCode: slugSchema.nullable().optional(),
+    isConfigurable: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    omnibusExempt: z.boolean().optional(),
+    firstListedAt: z.coerce.date().optional().nullable(),
+    metadata: metadataSchema,
+    offers: z.array(offerInputSchema.omit({ id: true })).optional(),
+    categoryIds: z.array(uuid()).max(100).optional(),
+    tags: z.array(tagLabelSchema).max(100).optional(),
+  })
+  .superRefine(productUomCrossFieldRefinement)
 
 export const productUpdateSchema = z
   .object({
@@ -160,6 +215,7 @@ export const productUpdateSchema = z
   .extend({
     productType: productTypeSchema.optional(),
   })
+  .superRefine(productUomCrossFieldRefinement)
 
 export const variantCreateSchema = scoped.extend({
   productId: uuid(),
@@ -274,6 +330,25 @@ export const categoryUpdateSchema = z
   })
   .merge(categoryCreateSchema.partial())
 
+export const productUnitConversionCreateSchema = scoped.extend({
+  productId: uuid(),
+  unitCode: z.string().trim().min(1).max(50),
+  toBaseFactor: z.coerce.number().positive().max(1_000_000),
+  sortOrder: z.coerce.number().int().optional(),
+  isActive: z.boolean().optional(),
+  metadata: metadataSchema,
+})
+
+export const productUnitConversionUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(productUnitConversionCreateSchema.omit({ productId: true }).partial())
+
+export const productUnitConversionDeleteSchema = scoped.extend({
+  id: uuid(),
+})
+
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
@@ -349,3 +424,6 @@ export type OmnibusConfig = z.infer<typeof omnibusConfigSchema>
 export type OmnibusChannelConfig = z.infer<typeof omnibusChannelConfigSchema>
 export type PriceHistoryListQuery = z.infer<typeof priceHistoryListQuerySchema>
 export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>
+export type ProductUnitConversionCreateInput = z.infer<typeof productUnitConversionCreateSchema>
+export type ProductUnitConversionUpdateInput = z.infer<typeof productUnitConversionUpdateSchema>
+export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConversionDeleteSchema>

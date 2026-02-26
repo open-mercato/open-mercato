@@ -6,7 +6,6 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogOffer } from '../data/entities'
-import type { CatalogOfferLocalizedContent } from '../data/types'
 import {
   offerCreateSchema,
   offerUpdateSchema,
@@ -36,7 +35,6 @@ type OfferSnapshot = {
   description: string | null
   defaultMediaId: string | null
   defaultMediaUrl: string | null
-  localizedContent: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   isActive: boolean
   createdAt: string
@@ -55,7 +53,6 @@ const OFFER_CHANGE_KEYS = [
   'description',
   'defaultMediaId',
   'defaultMediaUrl',
-  'localizedContent',
   'metadata',
   'isActive',
 ] as const satisfies readonly string[]
@@ -86,7 +83,6 @@ async function loadOfferSnapshot(em: EntityManager, id: string): Promise<OfferSn
     description: record.description ?? null,
     defaultMediaId: record.defaultMediaId ?? null,
     defaultMediaUrl: record.defaultMediaUrl ?? null,
-    localizedContent: record.localizedContent ? cloneJson(record.localizedContent) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isActive: record.isActive,
     createdAt: record.createdAt.toISOString(),
@@ -133,7 +129,6 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
           : product.description ?? null,
       defaultMediaId: parsed.defaultMediaId ?? null,
       defaultMediaUrl: parsed.defaultMediaUrl ?? null,
-      localizedContent: parsed.localizedContent ? cloneJson(parsed.localizedContent) : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       isActive: parsed.isActive !== false,
       createdAt: now,
@@ -267,9 +262,6 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     if (parsed.defaultMediaUrl !== undefined) {
       record.defaultMediaUrl = parsed.defaultMediaUrl ?? null
     }
-    if (parsed.localizedContent !== undefined) {
-      record.localizedContent = parsed.localizedContent ? cloneJson(parsed.localizedContent) : null
-    }
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
@@ -344,7 +336,6 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
         description: before.description ?? null,
         defaultMediaId: before.defaultMediaId ?? null,
         defaultMediaUrl: before.defaultMediaUrl ?? null,
-        localizedContent: before.localizedContent ? cloneJson(before.localizedContent) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
         isActive: before.isActive,
         createdAt: new Date(before.createdAt),
@@ -359,10 +350,6 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
       record.description = before.description ?? null
       record.defaultMediaId = before.defaultMediaId ?? null
       record.defaultMediaUrl = before.defaultMediaUrl ?? null
-      const localizedContent = before.localizedContent
-        ? (cloneJson(before.localizedContent) as CatalogOfferLocalizedContent)
-        : null
-      record.localizedContent = localizedContent
       record.metadata = before.metadata ? cloneJson(before.metadata) : null
       record.isActive = before.isActive
       record.updatedAt = new Date(before.updatedAt)
@@ -461,7 +448,6 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
       description: before.description ?? null,
       defaultMediaId: before.defaultMediaId ?? null,
       defaultMediaUrl: before.defaultMediaUrl ?? null,
-      localizedContent: before.localizedContent ? cloneJson(before.localizedContent) : null,
       metadata: before.metadata ? cloneJson(before.metadata) : null,
       isActive: before.isActive,
       createdAt: new Date(before.createdAt),

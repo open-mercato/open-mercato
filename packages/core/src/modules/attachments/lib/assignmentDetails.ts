@@ -222,7 +222,7 @@ function buildLabel(
 
 export async function resolveAssignmentEnrichments(
   assignments: AttachmentAssignment[],
-  opts: { queryEngine?: QueryEngine | null; tenantId: string; organizationId: string },
+  opts: { queryEngine?: QueryEngine | null; tenantId: string; organizationId: string | null },
 ): Promise<AssignmentEnrichmentMap> {
   const map: AssignmentEnrichmentMap = new Map()
   if (!assignments.length || !opts.queryEngine) return map
@@ -255,7 +255,7 @@ export async function resolveAssignmentEnrichments(
         fields: Array.from(fields),
         filters: { id: ids.length === 1 ? { $eq: ids[0] } : { $in: ids } },
         tenantId: opts.tenantId,
-        organizationId: opts.organizationId,
+        organizationId: opts.organizationId ?? undefined,
         page: { pageSize: Math.max(ids.length, 20) },
       })
       for (const record of result.items ?? []) {

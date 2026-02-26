@@ -1,5 +1,6 @@
 "use client"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useState } from 'react'
@@ -57,9 +58,9 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
                 <p className="text-xs text-muted-foreground">{passwordDescription}</p>
               ) : null}
             </div>
-            <button disabled={submitting} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
+            <Button type="submit" className="mt-2 w-full" disabled={submitting}>
               {submitting ? t('auth.reset.form.loading', '...') : t('auth.reset.form.submit', 'Update password')}
-            </button>
+            </Button>
           </form>
         </CardContent>
       </Card>

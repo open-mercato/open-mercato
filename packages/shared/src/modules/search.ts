@@ -64,7 +64,11 @@ export type SearchResult = {
 export type SearchOptions = {
   /** Tenant isolation - required */
   tenantId: string
-  /** Optional organization filter */
+  /**
+   * Optional organization filter.
+   * - `string` restricts results to that organization only.
+   * - `undefined` or `null` means no organization filter (tenant-wide).
+   */
   organizationId?: string | null
   /** Filter to specific entity types */
   entityTypes?: EntityId[]

@@ -91,10 +91,19 @@ export type SalesDocumentFormValues = {
   comments?: string | null
 } & Record<string, unknown>
 
+type InboxPreFill = {
+  customerEntityId?: string
+  currencyCode?: string
+  channelId?: string
+  comments?: string
+  lineItems?: Record<string, unknown>[]
+}
+
 type SalesDocumentFormProps = {
   onCreated: (params: { id: string; kind: DocumentKind }) => void
   isSubmitting?: boolean
   initialKind?: DocumentKind
+  inboxPreFill?: InboxPreFill
 }
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
@@ -388,7 +397,7 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
   return Object.keys(normalized).length ? normalized : null
 }
 
-export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind }: SalesDocumentFormProps) {
+export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
@@ -1229,13 +1238,23 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     () => ({
       documentKind: initialKind === 'order' ? 'order' : 'quote',
       documentNumber: '',
-      currencyCode: 'USD',
+      currencyCode: inboxPreFill?.currencyCode || 'USD',
+      channelId: inboxPreFill?.channelId || undefined,
+      customerEntityId: inboxPreFill?.customerEntityId || undefined,
+      comments: inboxPreFill?.comments || undefined,
       useCustomShipping: false,
       useCustomBilling: false,
       sameAsShipping: true,
     }),
-    [initialKind]
+    [initialKind, inboxPreFill]
   )
+
+  // When inboxPreFill provides a customer, load their addresses on mount
+  React.useEffect(() => {
+    if (inboxPreFill?.customerEntityId) {
+      loadAddresses(inboxPreFill.customerEntityId)
+    }
+  }, [inboxPreFill?.customerEntityId, loadAddresses])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {

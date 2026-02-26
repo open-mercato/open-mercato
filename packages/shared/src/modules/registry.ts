@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi/types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
-import type { InjectionWidgetModule, ModuleInjectionTable } from './widgets/injection'
+import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -81,6 +81,7 @@ export type ModuleApiLegacy = {
   method: HttpMethod
   path: string
   handler: ApiHandler
+  metadata?: Record<string, unknown>
   docs?: OpenApiMethodDoc
 }
 
@@ -129,7 +130,7 @@ export type ModuleInjectionWidgetEntry = {
   moduleId: string
   key: string
   source: 'app' | 'package'
-  loader: () => Promise<InjectionWidgetModule<any, any>>
+  loader: () => Promise<InjectionAnyWidgetModule<any, any>>
 }
 
 export type Module = {
@@ -247,7 +248,7 @@ export function findApi(modules: Module[], method: HttpMethod, pathname: string)
       } else {
         const al = a as ModuleApiLegacy
         if (al.method === method && al.path === pathname) {
-          return { handler: al.handler, params: {} }
+          return { handler: al.handler, params: {}, metadata: al.metadata }
         }
       }
     }

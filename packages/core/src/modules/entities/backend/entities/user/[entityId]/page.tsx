@@ -17,6 +17,14 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
+import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
+import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
 
 type Def = FieldDefinition
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
@@ -50,6 +58,32 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [fieldsets, setFieldsets] = useState<FieldsetDefinition[]>([])
   const [activeFieldset, setActiveFieldset] = useState<string | null>(null)
   const [singleFieldsetPerRecord, setSingleFieldsetPerRecord] = useState(true)
+  const [translateDef, setTranslateDef] = useState<{ def: Def; entityId: string } | null>(null)
+
+  const translateFields = React.useMemo(() => {
+    if (!translateDef) return undefined
+    const { def } = translateDef
+    const fields: string[] = ['label', 'description']
+    const options = normalizeCustomFieldOptions(def.configJson?.options)
+    for (const opt of options) {
+      if (opt.value) fields.push(`options.${opt.value}.label`)
+    }
+    return fields
+  }, [translateDef])
+
+  const translateBaseValues = React.useMemo(() => {
+    if (!translateDef) return undefined
+    const { def } = translateDef
+    const base: Record<string, string> = {}
+    if (typeof def.configJson?.label === 'string') base.label = def.configJson.label
+    if (typeof def.configJson?.description === 'string') base.description = def.configJson.description
+    const options = normalizeCustomFieldOptions(def.configJson?.options)
+    for (const opt of options) {
+      if (opt.value && opt.label) base[`options.${opt.value}.label`] = opt.label
+    }
+    return base
+  }, [translateDef])
+
   const requestedFieldset = React.useMemo(() => {
     const raw = searchParams?.get('fieldset')
     return raw && raw.trim().length ? raw.trim() : null
@@ -394,6 +428,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           setDefs((arr) => arr.map((entry, idx) => (idx === index ? nextDef : entry)))
           validateAndSetErrorAt(index, nextDef)
         }}
+        onTranslate={(def) => setTranslateDef({ def, entityId })}
         onRestoreField={(key) => { void restoreField(key) }}
         onReorder={(from, to) => {
           setDefs((arr) => {
@@ -548,6 +583,23 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         } : undefined}
       />
       </PageBody>
+      <Dialog open={!!translateDef} onOpenChange={(open) => { if (!open) setTranslateDef(null) }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('translations.manager.translateField', 'Translate field: {{key}}', { key: translateDef?.def.key ?? '' })}</DialogTitle>
+          </DialogHeader>
+          {translateDef && (
+            <TranslationManager
+              mode="embedded"
+              compact
+              entityType="entities:custom_field_def"
+              recordId={`${translateDef.entityId}:${translateDef.def.key}`}
+              baseValues={translateBaseValues}
+              translatableFields={translateFields}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </Page>
   )
 }

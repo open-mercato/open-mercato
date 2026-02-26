@@ -47,11 +47,12 @@ export async function POST(req: NextRequest) {
       : Object.keys(result.byProvider)
 
     // Fetch all configs at once to avoid N+1 queries
-    const allConfigs = await em.find(CurrencyFetchConfig, {
+    const configFilter: Record<string, unknown> = {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
       provider: { $in: providerSources },
-    })
+      organizationId: auth.orgId,
+    }
+    const allConfigs = await em.find(CurrencyFetchConfig, configFilter)
     const configMap = new Map(allConfigs.map((c) => [c.provider, c]))
 
     for (const providerSource of providerSources) {

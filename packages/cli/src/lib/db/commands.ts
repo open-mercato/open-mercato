@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { MikroORM, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 
 const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
@@ -168,6 +169,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
 
+    const sslConfig = getSslConfig()
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
@@ -190,6 +192,11 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         acquireTimeoutMillis: 60000,
         destroyTimeoutMillis: 30000,
       },
+      driverOptions: sslConfig ? {
+        connection: {
+          ssl: sslConfig,
+        },
+      } : undefined,
     })
 
     const migrator = orm.getMigrator() as Migrator
@@ -248,6 +255,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
 
     // For @app modules, entities may be empty since TypeScript files can't be imported at runtime
     // Use discovery.warnWhenNoEntities: false to allow running migrations without entities
+    const sslConfig = getSslConfig()
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
@@ -271,6 +279,11 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         acquireTimeoutMillis: 60000,
         destroyTimeoutMillis: 30000,
       },
+      driverOptions: sslConfig ? {
+        connection: {
+          ssl: sslConfig,
+        },
+      } : undefined,
     })
 
     const migrator = orm.getMigrator() as Migrator
@@ -374,7 +387,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Dropping per-module migration tables...')
   try {
     const { Client } = await import('pg')
-    const client = new Client({ connectionString: getClientUrl() })
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
     await client.connect()
     try {
       await client.query('BEGIN')
@@ -404,7 +417,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Dropping ALL public tables for true greenfield...')
   try {
     const { Client } = await import('pg')
-    const client = new Client({ connectionString: getClientUrl() })
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
     await client.connect()
     try {
       const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)

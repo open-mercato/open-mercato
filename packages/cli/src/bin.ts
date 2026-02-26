@@ -27,6 +27,21 @@ const BOOTSTRAP_FREE_COMMANDS = [
   '-h',
 ]
 
+function assertNode24Runtime(): void {
+  const detectedNodeVersion = process.versions.node
+  const majorVersion = Number.parseInt(detectedNodeVersion.split('.')[0] ?? '0', 10)
+  if (majorVersion >= 24) {
+    return
+  }
+  throw new Error(
+    [
+      'Unsupported Node.js runtime.',
+      `Cause: Detected Node ${detectedNodeVersion}, but Open Mercato requires Node 24.x.`,
+      'What to do: switch your shell to Node 24 (for example `nvm use 24`), run `yarn install`, then retry.',
+    ].join(' '),
+  )
+}
+
 function needsBootstrap(argv: string[]): boolean {
   const [, , first] = argv
   if (!first) return false // help screen
@@ -60,6 +75,7 @@ async function tryBootstrap(): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
+  assertNode24Runtime()
   const requiresBootstrap = needsBootstrap(process.argv)
 
   if (requiresBootstrap) {
@@ -82,7 +98,11 @@ async function main(): Promise<void> {
   process.exit(code ?? 0)
 }
 
-main().catch((e) => {
-  console.error(e)
+main().catch((error: unknown) => {
+  if (error instanceof Error) {
+    console.error(error.message)
+  } else {
+    console.error(error)
+  }
   process.exit(1)
 })

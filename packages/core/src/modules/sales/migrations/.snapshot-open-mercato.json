@@ -1966,6 +1966,36 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "normalized_quantity": {
+          "name": "normalized_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 18,
+          "scale": 6,
+          "default": "'0'",
+          "mappedType": "decimal"
+        },
+        "normalized_unit": {
+          "name": "normalized_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "uom_snapshot": {
+          "name": "uom_snapshot",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "currency_code": {
           "name": "currency_code",
           "type": "text",
@@ -2205,6 +2235,19 @@
       "name": "sales_quote_lines",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_quote_lines_normalized_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "normalized_unit",
+            "normalized_quantity"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_quote_lines_status_idx",
           "columnNames": [
@@ -3948,6 +3991,36 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "normalized_quantity": {
+          "name": "normalized_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 18,
+          "scale": 6,
+          "default": "'0'",
+          "mappedType": "decimal"
+        },
+        "normalized_unit": {
+          "name": "normalized_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "uom_snapshot": {
+          "name": "uom_snapshot",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "reserved_quantity": {
           "name": "reserved_quantity",
           "type": "numeric(18,4)",
@@ -4235,6 +4308,19 @@
       "name": "sales_order_lines",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_order_lines_normalized_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "normalized_unit",
+            "normalized_quantity"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_order_lines_status_idx",
           "columnNames": [
@@ -5419,6 +5505,36 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "normalized_quantity": {
+          "name": "normalized_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 18,
+          "scale": 6,
+          "default": "'0'",
+          "mappedType": "decimal"
+        },
+        "normalized_unit": {
+          "name": "normalized_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "uom_snapshot": {
+          "name": "uom_snapshot",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "currency_code": {
           "name": "currency_code",
           "type": "text",
@@ -5537,6 +5653,19 @@
       "name": "sales_invoice_lines",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_invoice_lines_normalized_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "normalized_unit",
+            "normalized_quantity"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_invoice_lines_scope_idx",
           "columnNames": [
@@ -6417,6 +6546,36 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "normalized_quantity": {
+          "name": "normalized_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 18,
+          "scale": 6,
+          "default": "'0'",
+          "mappedType": "decimal"
+        },
+        "normalized_unit": {
+          "name": "normalized_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "uom_snapshot": {
+          "name": "uom_snapshot",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "currency_code": {
           "name": "currency_code",
           "type": "text",
@@ -6511,6 +6670,19 @@
       "name": "sales_credit_memo_lines",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "sales_credit_memo_lines_normalized_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "normalized_unit",
+            "normalized_quantity"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "sales_credit_memo_lines_scope_idx",
           "columnNames": [

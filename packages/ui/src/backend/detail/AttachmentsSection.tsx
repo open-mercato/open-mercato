@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import { Upload, Trash2, File, FileText, FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button } from '../../primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { AttachmentVisualPreview, formatAttachmentFileSize } from './AttachmentVisualPreview'
 import { AttachmentDeleteDialog } from './AttachmentDeleteDialog'
 import { AttachmentMetadataDialog, type AttachmentItem, type AttachmentMetadataSavePayload } from './AttachmentMetadataDialog'
 
@@ -21,99 +22,8 @@ type Props = {
   description?: string
   className?: string
   showHeader?: boolean
+  compact?: boolean
   onChanged?: () => void
-}
-
-const EXTENSION_ICON_MAP: Record<string, typeof File> = {
-  pdf: FileText,
-  doc: FileText,
-  docx: FileText,
-  txt: FileText,
-  md: FileText,
-  rtf: FileText,
-  xls: FileSpreadsheet,
-  xlsx: FileSpreadsheet,
-  csv: FileSpreadsheet,
-  ods: FileSpreadsheet,
-  ppt: FileText,
-  pptx: FileText,
-  zip: FileArchive,
-  gz: FileArchive,
-  rar: FileArchive,
-  tgz: FileArchive,
-  '7z': FileArchive,
-  tar: FileArchive,
-  json: FileCode,
-  js: FileCode,
-  ts: FileCode,
-  jsx: FileCode,
-  tsx: FileCode,
-  html: FileCode,
-  css: FileCode,
-  xml: FileCode,
-  yaml: FileCode,
-  yml: FileCode,
-  mp3: FileAudio,
-  wav: FileAudio,
-  flac: FileAudio,
-  ogg: FileAudio,
-  mp4: FileVideo,
-  mov: FileVideo,
-  avi: FileVideo,
-  webm: FileVideo,
-}
-
-const MIME_FALLBACK_ICONS: Record<string, typeof File> = {
-  audio: FileAudio,
-  video: FileVideo,
-  text: FileText,
-  application: FileText,
-}
-
-function resolveFileExtension(fileName?: string | null): string {
-  if (!fileName) return ''
-  const normalized = fileName.trim()
-  if (!normalized) return ''
-  const lastDot = normalized.lastIndexOf('.')
-  if (lastDot === -1 || lastDot === normalized.length - 1) return ''
-  return normalized.slice(lastDot + 1).toLowerCase()
-}
-
-function resolveAttachmentPlaceholder(mimeType?: string | null, fileName?: string | null): { icon: typeof File; label: string } {
-  const extension = resolveFileExtension(fileName)
-  const normalizedMime = typeof mimeType === 'string' ? mimeType.toLowerCase() : ''
-  if (extension && EXTENSION_ICON_MAP[extension]) {
-    return { icon: EXTENSION_ICON_MAP[extension], label: extension.toUpperCase() }
-  }
-  if (!extension && normalizedMime.includes('pdf')) {
-    return { icon: FileText, label: 'PDF' }
-  }
-  if (!extension && normalizedMime.includes('zip')) {
-    return { icon: FileArchive, label: 'ZIP' }
-  }
-  if (!extension && normalizedMime.includes('json')) {
-    return { icon: FileCode, label: 'JSON' }
-  }
-  const mimeRoot = normalizedMime.split('/')[0] || ''
-  if (mimeRoot && MIME_FALLBACK_ICONS[mimeRoot]) {
-    return { icon: MIME_FALLBACK_ICONS[mimeRoot], label: mimeRoot.toUpperCase() }
-  }
-  const fallbackSource = extension || mimeRoot || 'file'
-  const fallbackLabel = fallbackSource.slice(0, 6).toUpperCase()
-  return { icon: File, label: fallbackLabel }
-}
-
-function formatFileSize(value: number): string {
-  if (!Number.isFinite(value)) return '—'
-  if (value <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let idx = 0
-  let current = value
-  while (current >= 1024 && idx < units.length - 1) {
-    current /= 1024
-    idx += 1
-  }
-  return `${current.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`
 }
 
 export function AttachmentsSection({
@@ -123,6 +33,7 @@ export function AttachmentsSection({
   description,
   className,
   showHeader = true,
+  compact = false,
   onChanged,
 }: Props) {
   const t = useT()
@@ -135,7 +46,6 @@ export function AttachmentsSection({
   const [selectedItem, setSelectedItem] = React.useState<AttachmentItem | null>(null)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [deleteTarget, setDeleteTarget] = React.useState<AttachmentItem | null>(null)
-  const [brokenThumbnails, setBrokenThumbnails] = React.useState<Record<string, boolean>>({})
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
   const load = React.useCallback(async () => {
@@ -169,10 +79,6 @@ export function AttachmentsSection({
       setError(null)
     }
   }, [load, recordId])
-
-  React.useEffect(() => {
-    setBrokenThumbnails({})
-  }, [items])
 
   const acceptFiles = React.useCallback(
     async (files: FileList | null) => {
@@ -336,53 +242,44 @@ export function AttachmentsSection({
       {loading ? (
         <div className="text-sm text-muted-foreground">{t('attachments.library.loading', 'Loading attachments…')}</div>
       ) : items.length ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className={cn(
+          'grid gap-3',
+          compact ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+        )}>
           {items.map((item) => {
-            const placeholder = resolveAttachmentPlaceholder(item.mimeType ?? null, item.fileName)
-            const PlaceholderIcon = placeholder.icon
-            const showThumbnail = Boolean(item.thumbnailUrl) && !brokenThumbnails[item.id]
             return (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => openMetadataDialog(item)}
-                className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm"
+                className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left cursor-pointer transition-shadow hover:shadow-sm"
               >
-                <div className="relative aspect-[4/3] bg-muted">
-                  {showThumbnail ? (
-                    <img
-                      src={item.thumbnailUrl}
-                      alt={item.fileName}
-                      className="h-full w-full object-cover"
-                      onError={() => {
-                        setBrokenThumbnails((prev) => ({ ...prev, [item.id]: true }))
+                <AttachmentVisualPreview
+                  fileName={item.fileName}
+                  mimeType={item.mimeType}
+                  thumbnailUrl={item.thumbnailUrl}
+                  className={compact ? 'aspect-[2/1]' : 'aspect-[4/3]'}
+                  overlay={(
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 top-2 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openDeleteDialog(item)
                       }}
-                    />
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center text-xs font-semibold uppercase text-muted-foreground">
-                      <PlaceholderIcon className="mb-2 h-6 w-6" aria-hidden />
-                      {placeholder.label}
-                    </div>
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
                   )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-2 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      openDeleteDialog(item)
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-                <div className="space-y-1 p-3">
-                  <div className="truncate text-sm font-medium" title={item.fileName}>
+                />
+                <div className={cn('space-y-1', compact ? 'p-2' : 'p-3')}>
+                  <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
                     {item.fileName}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {formatFileSize(item.fileSize)}
+                    {formatAttachmentFileSize(item.fileSize)}
                   </div>
                 </div>
               </button>

@@ -11,10 +11,11 @@ Review code changes against Open Mercato's architecture rules, security requirem
 
 1. **Scope**: Identify changed files. Classify each file by layer (API route, entity, validator, backend page, frontend page, subscriber, worker, command, search config, setup, ACL, events, DI, widget, test).
 2. **Gather context**: Read relevant AGENTS.md for each touched module/package. Check `.ai/specs/` for active specs on the module. Read `.ai/lessons.md` for known pitfalls.
-3. **Run checklist**: Apply all applicable rules from `references/review-checklist.md`. Flag violations with severity, file, line, and fix suggestion.
-4. **Test coverage**: Verify changed behavior is covered by unit tests and/or integration tests. If coverage is missing, flag it with severity, file references, and exact test cases to add.
-5. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
-6. **Output**: Produce the review report in the format below.
+3. **Backward compatibility gate**: Check every change against `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS.md`). Flag any violation as **Critical**. See section below.
+4. **Run checklist**: Apply all applicable rules from `references/review-checklist.md`. Flag violations with severity, file, line, and fix suggestion.
+5. **Test coverage**: Verify changed behavior is covered by unit tests and/or integration tests. If coverage is missing, flag it with severity, file references, and exact test cases to add.
+6. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
+7. **Output**: Produce the review report in the format below.
 
 ## Output Format
 
@@ -40,6 +41,20 @@ Use this structure for every review:
 ### Low
 {Suggestions, minor improvements, nits}
 
+## Backward Compatibility
+- [ ] No contract surface removed or renamed without deprecation bridge
+- [ ] No event IDs renamed or removed
+- [ ] No widget injection spot IDs renamed or removed
+- [ ] No API route URLs renamed or removed
+- [ ] No existing response schema fields removed
+- [ ] No database columns/tables renamed or removed
+- [ ] No DI service names renamed or removed
+- [ ] No ACL feature IDs renamed or removed
+- [ ] No public import paths removed without re-export bridge
+- [ ] No required type fields removed or narrowed
+- [ ] No function signatures changed in a breaking way
+- [ ] Deprecation protocol followed (if applicable): `@deprecated` JSDoc, bridge re-export, spec with migration section
+
 ## Checklist
 - [ ] No `any` types introduced
 - [ ] All API routes export `openApi`
@@ -54,9 +69,14 @@ Use this structure for every review:
 - [ ] No cross-module ORM relationships
 - [ ] Encryption helpers used instead of raw `em.find`
 - [ ] Forms use `CrudForm`, tables use `DataTable`
+- [ ] Non-`CrudForm` backend writes use `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in context
 - [ ] `apiCall` used instead of raw `fetch`
 - [ ] ACL features mirrored in `setup.ts` `defaultRoleFeatures`
 - [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
+- [ ] No empty `catch` blocks (all catches must handle, log, rethrow, or explicitly document intentional ignore)
+- [ ] New migrations are scoped to intended entities only (no unrelated bulk drop/alter/create statements)
+- [ ] No conflicting spec IDs in `.ai/specs` or `.ai/specs/enterprise` (exact duplicate `SPEC-*` / `SPEC-ENT-*` tokens)
+- [ ] Staged spec chains (for example `SPEC-041a` … `SPEC-041m`) are preserved and not flagged as conflicts with each other or with `SPEC-041`
 ```
 
 Omit empty severity sections. Mark passing checklist items with `[x]` and failing with `[ ]` plus explanation.
@@ -65,14 +85,24 @@ Omit empty severity sections. Mark passing checklist items with `[x]` and failin
 
 | Severity | Criteria | Action |
 |----------|----------|--------|
-| **Critical** | Security vulnerability, cross-tenant data leak, data corruption risk, missing auth guard | MUST fix before merge |
-| **High** | Architecture violation, missing required export (`openApi`, `metadata`), broken module contract | MUST fix before merge |
+| **Critical** | Security vulnerability, cross-tenant data leak, data corruption risk, missing auth guard, **backward compatibility violation** (breaking contract surface without deprecation bridge) | MUST fix before merge |
+| **High** | Architecture violation, missing required export (`openApi`, `metadata`), broken module contract, **missing deprecation annotation** on contract change | MUST fix before merge |
 | **Medium** | Convention violation, suboptimal pattern, missing best practice | Should fix |
 | **Low** | Style suggestion, minor improvement, readability | Nice to have |
 
 ## Quick Rule Reference
 
 These are the highest-impact rules. For the full checklist, see `references/review-checklist.md`.
+
+### Backward Compatibility (Critical)
+
+- **MUST NOT remove/rename** any contract surface (event IDs, spot IDs, API routes, type fields, function signatures, DI names, feature IDs, import paths, DB columns, convention file exports) — see `BACKWARD_COMPATIBILITY.md` for the full list
+- **Deprecate first**: `@deprecated` JSDoc → bridge re-export/alias → removal after one minor version
+- **Additive-only DB changes**: new columns with defaults OK; rename/remove/narrow columns is BREAKING
+- **Event payloads**: may add optional fields; MUST NOT remove existing fields
+- **Widget spot context**: may add optional fields; MUST NOT remove or change type of existing fields
+- **API responses**: may add fields; MUST NOT remove existing fields
+- **Any PR touching a contract surface** MUST reference a spec with a "Migration & Backward Compatibility" section
 
 ### Architecture (Critical/High)
 
@@ -95,10 +125,25 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 ### Data Integrity (Critical/High)
 
 - **Never hand-write migrations** — update entities, run `yarn db:generate`
+- **Autogenerated migration sanity is mandatory** — generated files can be wrong; reviewers MUST validate migration diff scope
 - **Use `withAtomicFlush`** when mutating entities across phases that include queries
 - **Flush scalar changes BEFORE** relation syncs — avoid `__originalEntityData` reset
 - **Workers/subscribers MUST be idempotent** — they may be retried
 - **Commands MUST be undoable** — include before/after snapshots
+
+#### Migration Sanity Gate (Critical)
+
+For every migration in the diff, reviewer MUST:
+
+1. Compare migration statements against the PR intent/spec and touched entities.
+2. Flag as **Critical** if migration includes unrelated schema churn (especially mass `drop constraint`, `drop table`, or broad `alter table` across many modules).
+3. Require regeneration/removal when scope is incorrect, even if file is autogenerated.
+4. Block merge until migration contains only expected schema changes.
+
+Examples of suspicious patterns that MUST be flagged:
+- Migration touches many tables outside module scope for a focused feature PR.
+- Migration mostly contains destructive statements (`drop`, bulk constraint removals) without matching entity changes.
+- Snapshot/migration files appear due to local drift and are not required for feature behavior.
 
 ### Naming & Structure (High/Medium)
 
@@ -125,6 +170,8 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 ### UI & HTTP (Medium/High)
 
 - Forms: `CrudForm` — never custom form implementations
+- If a backend page cannot use `CrudForm`, every write (`POST`/`PUT`/`PATCH`/`DELETE`) MUST go through `useGuardedMutation(...).runMutation(...)`
+- `useGuardedMutation` context MUST include `retryLastMutation` so conflict resolution can auto-retry without extra save prompts
 - Tables: `DataTable` — never manual table markup
 - Notifications: `flash()` — never `alert()` or custom toast
 - API calls: `apiCall`/`apiCallOrThrow` — never raw `fetch`
@@ -138,6 +185,7 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 ### Code Quality (Medium)
 
 - **No `any` types** — use zod + `z.infer`, narrow with runtime checks
+- **No empty `catch` blocks** — catch blocks MUST handle, log, rethrow, or include explicit rationale for intentional ignore
 - **No one-letter variable names**
 - **No inline comments** — code should be self-documenting
 - **Boolean parsing**: use `parseBooleanToken`/`parseBooleanWithDefault` from `@open-mercato/shared/lib/boolean`
@@ -155,8 +203,11 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 
 When reviewing, pay special attention to:
 
+0. **Backward compatibility**: For EVERY changed file, ask: "Does this touch a contract surface?" Check against `BACKWARD_COMPATIBILITY.md`. If a type field is removed, a function signature changed, an event ID renamed, a spot ID removed, a DB column dropped, an import path moved, or a DI name changed — flag as **Critical** unless the deprecation protocol is followed (bridge + `@deprecated` + spec).
 1. **New files added**: Check if `modules:prepare` is needed. Verify auto-discovery paths are correct.
 2. **Entity changes**: Check if `yarn db:generate` is needed. Look for missing tenant scoping columns.
+2a. **Migration presence for entity changes**: If any entity schema file changed (for example `data/entities.ts`), verify the diff also contains a corresponding generated migration file. If missing, raise at least a **High** finding instructing to run `yarn db:generate`.
+2b. **Migration files**: Inspect SQL content, not only filename. Autogenerated does not mean valid; reject oversized/unrelated churn.
 3. **New API routes**: Verify `openApi` export, auth guards, zod validation, tenant filtering.
 4. **Event emitters**: Verify event is declared in `events.ts` with `as const`. Check subscriber exists.
 5. **Search config changes**: Verify `checksumSource`, `fieldPolicy.excluded` for sensitive fields, `formatResult` for token strategy.
@@ -166,6 +217,8 @@ When reviewing, pay special attention to:
 9. **Setup changes**: Verify `defaultRoleFeatures` matches `acl.ts` features. Hooks MUST be idempotent.
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
 11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
+12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` are both wired.
+13. **Spec numbering hygiene**: If specs were added or renamed, verify there are no duplicate exact spec IDs in `.ai/specs` and `.ai/specs/enterprise` (`SPEC-*`, `SPEC-ENT-*`). Treat staged IDs (for example `SPEC-041a`, `SPEC-041b`) as valid distinct specs, not conflicts.
 
 ## Lessons Learned
 

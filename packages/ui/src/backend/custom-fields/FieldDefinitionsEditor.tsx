@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { Cog, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Cog, GripVertical, Languages, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
@@ -50,6 +52,7 @@ export type FieldDefinitionsEditorProps = {
   onDefinitionChange: (index: number, next: FieldDefinition) => void
   onRestoreField?: (key: string) => void
   onReorder?: (from: number, to: number) => void
+  onTranslate?: (definition: FieldDefinition, index: number) => void
   listRef?: React.Ref<HTMLDivElement>
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
@@ -155,6 +158,7 @@ export function FieldDefinitionsEditor({
   onDefinitionChange,
   onRestoreField,
   onReorder,
+  onTranslate,
   listRef,
   listProps,
   translate,
@@ -297,21 +301,23 @@ export function FieldDefinitionsEditor({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleAddFieldset}
-              className="px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1 text-xs"
+              className="text-xs"
             >
               <Plus className="h-3.5 w-3.5" /> Add
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleRemoveFieldset}
               disabled={!resolvedActiveFieldset}
-              className="px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1 text-xs disabled:opacity-50"
+              className="text-xs"
             >
               <Trash2 className="h-3.5 w-3.5" /> Delete
-            </button>
+            </Button>
           </div>
           {resolvedActiveFieldset && activeFieldsetConfig ? (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -379,14 +385,14 @@ export function FieldDefinitionsEditor({
         <div className="rounded border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground flex flex-col gap-3">
           <div>No fieldsets defined yet. Fieldsets let you group custom fields for different variants of the same entity (e.g., Fashion vs. Sport products).</div>
           <div>
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleAddFieldset}
-              className="px-3 py-1.5 border rounded bg-card text-sm font-medium inline-flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
               Add first fieldset
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -441,31 +447,32 @@ export function FieldDefinitionsEditor({
             availableGroups={groupOptions}
             onRegisterGroup={registerGroup}
             onRemoveGroup={removeGroup}
+            onTranslate={onTranslate ? () => onTranslate(definition, index) : undefined}
             translate={t}
           />
         </div>
       )})}
       <div>
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
           onClick={onAddField}
-          className="px-3 py-1.5 text-sm border rounded hover:bg-muted inline-flex items-center gap-1"
         >
           <Plus className="h-4 w-4" /> {addButtonLabel}
-        </button>
+        </Button>
         {infoNote}
         {deletedKeys && deletedKeys.length > 0 && onRestoreField ? (
           <div className="text-xs text-muted-foreground mt-2">
             Restore deleted fields:{' '}
             {deletedKeys.map((key, idx) => (
               <span key={key}>
-                <button
-                  type="button"
-                  className="underline hover:no-underline text-blue-600 disabled:opacity-50"
+                <Button
+                  variant="link"
+                  className="h-auto p-0 text-blue-600"
                   onClick={() => onRestoreField(key)}
                 >
                   {key}
-                </button>
+                </Button>
                 {idx < deletedKeys.length - 1 ? ', ' : ''}
               </span>
             ))}
@@ -489,6 +496,7 @@ type FieldDefinitionCardProps = {
   availableGroups?: FieldsetGroup[]
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
+  onTranslate?: () => void
   translate?: (key: string, fallback: string) => string
 }
 
@@ -504,6 +512,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   availableGroups = [],
   onRegisterGroup,
   onRemoveGroup,
+  onTranslate,
   translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
@@ -715,9 +724,14 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <label className="inline-flex items-center gap-2 text-sm">
             <input type="checkbox" checked={local.isActive !== false} onChange={(event) => { apply({ isActive: event.target.checked }, true) }} /> Active
           </label>
-          <button type="button" onClick={onRemove} className="px-2 py-1 border rounded hover:bg-muted" aria-label="Remove field">
+          {onTranslate && (
+            <IconButton variant="outline" size="sm" onClick={onTranslate} aria-label="Translate field">
+              <Languages className="h-4 w-4" />
+            </IconButton>
+          )}
+          <IconButton variant="outline" size="sm" onClick={onRemove} aria-label="Remove field">
             <Trash2 className="h-4 w-4" />
-          </button>
+          </IconButton>
         </div>
       </div>
 
@@ -785,23 +799,22 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  className="h-8 w-8 inline-flex items-center justify-center rounded border text-muted-foreground hover:bg-muted/40"
+                <IconButton
+                  variant="outline"
+                  className="text-muted-foreground"
                   onClick={() => handleOpenGroupDialog()}
                   aria-label="Create group"
                 >
                   <Plus className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  className="h-8 w-8 inline-flex items-center justify-center rounded border text-muted-foreground hover:bg-muted/40"
+                </IconButton>
+                <IconButton
+                  variant="outline"
+                  className="text-muted-foreground"
                   onClick={() => handleOpenGroupDialog()}
                   aria-label="Edit groups"
                 >
                   <Cog className="h-4 w-4" />
-                  <span className="sr-only">Edit groups</span>
-                </button>
+                </IconButton>
               </div>
             </div>
           ) : null}
@@ -888,14 +901,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                       <div className="font-medium text-foreground">{option.label}</div>
                       <div className="text-muted-foreground font-mono text-[11px]">{option.value}</div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveOption(idx)}
+                    <IconButton
+                      variant="ghost"
+                      size="xs"
                       className="text-red-500 hover:text-red-700"
+                      onClick={() => handleRemoveOption(idx)}
                       aria-label="Remove option"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    </IconButton>
                   </div>
                 ))
               ) : (
@@ -903,14 +917,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               )}
             </div>
             <div className="flex justify-end">
-              <button
-                type="button"
-                className="text-xs px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1"
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
                 onClick={handleOpenOptionDialog}
               >
                 <Plus className="h-3.5 w-3.5" />
                 Add option
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -980,9 +995,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
       <div className="mt-3 pt-3 border-t">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium">Validation rules</label>
-          <button
-            type="button"
-            className="text-xs px-2 py-1 border rounded hover:bg-muted inline-flex items-center gap-1"
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs"
             onClick={() => {
               apply((current) => {
                 const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
@@ -993,7 +1009,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           >
             <Plus className="h-3.5 w-3.5" />
             Add rule
-          </button>
+          </Button>
         </div>
         <div className="space-y-2">
           {(Array.isArray(local.configJson?.validation) ? local.configJson!.validation : []).map((rule: any, index: number) => (
@@ -1061,9 +1077,9 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 />
               </div>
               <div className="md:col-span-1 flex justify-end">
-                <button
-                  type="button"
-                  className="px-2 py-1 border rounded hover:bg-muted"
+                <IconButton
+                  variant="outline"
+                  size="sm"
                   aria-label="Remove rule"
                   onClick={() => {
                     apply((current) => {
@@ -1074,7 +1090,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   }}
                 >
                   <Trash2 className="h-4 w-4" />
-                </button>
+                </IconButton>
               </div>
             </div>
           ))}
@@ -1170,20 +1186,12 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           </div>
         </div>
         <DialogFooter>
-          <button
-            type="button"
-            className="h-8 rounded border px-3 text-sm"
-            onClick={handleCloseOptionDialog}
-          >
+          <Button variant="outline" size="sm" onClick={handleCloseOptionDialog}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="h-8 rounded bg-primary px-3 text-sm text-primary-foreground"
-            onClick={handleAddOption}
-          >
+          </Button>
+          <Button size="sm" onClick={handleAddOption}>
             Add option
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1252,22 +1260,24 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
+                      <IconButton
+                        variant="ghost"
+                        size="xs"
                         className="text-muted-foreground hover:text-foreground"
                         onClick={() => handleEditGroupEntry(group)}
                         aria-label={`Edit ${group.code}`}
                       >
                         <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
+                      </IconButton>
+                      <IconButton
+                        variant="ghost"
+                        size="xs"
                         className="text-red-500 hover:text-red-600"
                         onClick={() => handleRemoveGroupEntry(group.code)}
                         aria-label={`Delete ${group.code}`}
                       >
                         <Trash2 className="h-4 w-4" />
-                      </button>
+                      </IconButton>
                     </div>
                   </div>
                 ))}
@@ -1276,20 +1286,12 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           ) : null}
         </div>
         <DialogFooter>
-          <button
-            type="button"
-            className="h-8 rounded border px-3 text-sm"
-            onClick={() => setGroupDialogOpen(false)}
-          >
+          <Button variant="outline" size="sm" onClick={() => setGroupDialogOpen(false)}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="h-8 rounded bg-primary px-3 text-sm text-primary-foreground"
-            onClick={handleGroupDialogSubmit}
-          >
+          </Button>
+          <Button size="sm" onClick={handleGroupDialogSubmit}>
             Save group
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

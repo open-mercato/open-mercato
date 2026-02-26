@@ -135,12 +135,16 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
   const baseOrigin = panelUrl ? new URL(panelUrl).origin : null
   const actionLinks = (notification.actionData?.actions ?? [])
     .map((action) => {
-      const href = (action.href && baseOrigin) ? `${baseOrigin}${action.href}` : panelLink
-      if (!href) return null
+      let href = action.href
+      if (href && notification.sourceEntityId) {
+        href = href.replace('{sourceEntityId}', notification.sourceEntityId)
+      }
+      const fullHref = (href && baseOrigin) ? `${baseOrigin}${href}` : panelLink
+      if (!fullHref) return null
       return {
         id: action.id,
         label: action.labelKey ? t(action.labelKey, action.label) : action.label,
-        href,
+        href: fullHref,
       }
     })
     .filter((action): action is NonNullable<typeof action> => action !== null)
