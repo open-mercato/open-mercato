@@ -1057,6 +1057,8 @@ import type {
   ObjectDetailProps,
   ObjectPreviewProps,
 } from '@open-mercato/shared/modules/messages/types'
+import { registerMessageObjectTypes } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
+import { configureMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 ${messageTypeImportSection ? `\n${messageTypeImportSection}\n` : '\n'}${messageObjectImportSection ? `\n${messageObjectImportSection}\n` : ''}type MessageTypeEntry = { moduleId: string; types: MessageTypeDefinition[] }
 type MessageObjectTypeEntry = { moduleId: string; types: MessageObjectTypeDefinition[] }
 
@@ -1127,6 +1129,12 @@ export const messageUiComponentRegistry = registry
 export function getMessageUiComponentRegistry(): MessageUiComponentRegistry {
   return registry
 }
+
+// Side-effects: register all message object types and configure the UI component registry on import.
+for (const entry of messageObjectTypeEntriesRaw) {
+  registerMessageObjectTypes(entry.types)
+}
+configureMessageUiComponentRegistry(registry)
 `
 
   // Validate module dependencies declared via ModuleInfo.requires
