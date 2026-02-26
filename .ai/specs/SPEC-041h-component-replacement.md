@@ -318,3 +318,42 @@ This demonstrates the core use case: cross-module component extension without fo
 - No existing component rendering changed — opt-in per component
 - `registerComponent` is additive — no existing code needs modification
 - `ComponentOverrideProvider` at app root is transparent when no overrides exist
+
+---
+
+## Implementation Status
+
+### Completed
+- Component registry with globalThis HMR pattern (`component-registry.ts`)
+- Three override modes: Replace, Wrapper, PropsTransform
+- `useRegisteredComponent` hook with error boundary, dev-mode props validation
+- `ComponentOverrideProvider` context
+- `useComponentOverride` hook for auto-registration
+- `ReplaceablePage` wrapper component
+- `ReplaceableSection` wrapper component
+- Priority collision warning (dev mode)
+- CLI auto-discovery for `widgets/components.ts` convention file
+- Bootstrap integration
+- Example wrapper and propsTransform overrides
+- Unit tests for component registry
+
+### Partial / In Progress
+- Component replacement handle conventions are defined but adoption is incremental:
+  - Pages: `page:<module>.<path>` (e.g., `page:customers.people.detail`)
+  - DataTables: `data-table:<tableId>` (e.g., `data-table:customers.people.list`)
+  - CrudForms: `crud-form:<formId>` (e.g., `crud-form:customers.people`)
+  - Sections: `section:<module>.<name>` (e.g., `section:customers.notes`, `section:customers.activities`)
+  - Auto-registration via `useComponentOverride` hook or `ReplaceablePage`/`ReplaceableSection` wrappers
+
+### Not Yet Implemented
+- Wrapping all existing pages, DataTables, CrudForms, and sections with replaceable handles (infrastructure is ready, adoption is incremental)
+- Integration tests (TC-UMES-CR01 through CR06)
+
+### Key Files
+- `packages/shared/src/modules/widgets/component-registry.ts` — registry with globalThis HMR pattern
+- `packages/ui/src/backend/injection/useRegisteredComponent.ts` — hook with error boundary and dev-mode props validation
+- `packages/ui/src/backend/injection/ComponentOverrideProvider.tsx` — context provider
+- `packages/ui/src/backend/injection/useComponentOverride.ts` — hook for auto-registration
+- `packages/ui/src/backend/injection/ReplaceablePage.tsx` — wrapper component for pages
+- `packages/ui/src/backend/injection/ReplaceableSection.tsx` — wrapper component for sections
+- `packages/core/src/modules/example/widgets/components.ts` — example overrides

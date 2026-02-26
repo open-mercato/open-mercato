@@ -10,6 +10,7 @@ import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInje
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import PhaseEHSections from './PhaseEHSections'
 
 function print(value: unknown) {
   return JSON.stringify(value ?? null)
@@ -534,6 +535,8 @@ export default function UmesHandlersPage() {
             enricherProbeResult={print(enricherProbeResult)}
           </div>
         </div>
+
+        <PhaseEHSections />
       </PageBody>
     </Page>
   )

@@ -139,6 +139,15 @@ All packages use the `@open-mercato/<package>` naming convention:
 | Event bridge hook | `import { useEventBridge } from '@open-mercato/ui/backend/injection/eventBridge'` |
 | Operation progress hook | `import { useOperationProgress } from '@open-mercato/ui/backend/injection/useOperationProgress'` |
 | Broadcast event check | `import { isBroadcastEvent } from '@open-mercato/shared/modules/events'` |
+| API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
+| Component registry | `import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'` |
+| Component override types | `import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'` |
+| Replaceable page wrapper | `import { ReplaceablePage } from '@open-mercato/ui/backend/injection/ReplaceablePage'` |
+| Replaceable section wrapper | `import { ReplaceableSection } from '@open-mercato/ui/backend/injection/ReplaceableSection'` |
+| Component override hook | `import { useComponentOverride } from '@open-mercato/ui/backend/injection/useComponentOverride'` |
+| Registered component hook | `import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'` |
+| Table extensions hook | `import { useInjectedTableExtensions } from '@open-mercato/ui/backend/injection/useInjectedTableExtensions'` |
+| Injected field component | `import { InjectedField } from '@open-mercato/ui/backend/injection/InjectedField'` |
 
 Import strategy:
 - Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
@@ -167,6 +176,8 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - API routes: `api/<method>/<path>.ts` → `/api/<path>` (dispatched by method)
 - Subscribers: `subscribers/*.ts` — export default handler + `metadata` with `{ event, persistent?, id? }`
 - Workers: `workers/*.ts` — export default handler + `metadata` with `{ queue, id?, concurrency? }`
+- API interceptors: `api/interceptors.ts` — export `interceptors: ApiInterceptor[]`
+- Component overrides: `widgets/components.ts` — export `components: ComponentOverride[]`
 
 ### Optional Module Files
 
@@ -190,6 +201,8 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `widgets/injection/` | — | Injected UI widgets |
 | `widgets/injection-table.ts` | — | Widget-to-slot mappings |
 | `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
+| `api/interceptors.ts` | `interceptors` | API interceptors (before/after hooks) |
+| `widgets/components.ts` | `components` | Component override declarations |
 
 ### Key Rules
 
@@ -205,6 +218,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files
+- API interceptors: `before` hooks run AFTER Zod validation but BEFORE CrudHooks; `after` hooks run BEFORE response enrichers. Timeout → 504, crash → 500.
 
 ## Backward Compatibility Contract
 
@@ -252,6 +266,7 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 -   Hash passwords with bcryptjs (cost >=10), never log credentials
 -   Return minimal error messages for auth (avoid revealing whether email exists)
 -   RBAC: prefer declarative guards (`requireAuth`, `requireRoles`, `requireFeatures`) in page metadata
+-   API interceptors MUST NOT bypass tenant isolation — all query rewrites must maintain `organization_id` filtering
 
 ### UI & HTTP
 

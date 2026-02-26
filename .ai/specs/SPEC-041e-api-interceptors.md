@@ -371,3 +371,31 @@ export const interceptors: ApiInterceptor[] = [
 - `validateCrudMutationGuard` position unchanged (deprecated in Phase M, bridged to guard registry)
 - New `api/interceptors.ts` is purely additive — modules without it have zero change
 - Phase M adds sync event subscribers and multi-guard registry between interceptors and CrudHooks — interceptor contract unchanged
+
+---
+
+## Implementation Status
+
+### Completed
+- ApiInterceptor contract types (`packages/shared/src/lib/crud/api-interceptor.ts`)
+- Interceptor registry with globalThis HMR pattern (`interceptor-registry.ts`)
+- Interceptor runner with timeout (504), crash (500), fail-closed, feature gating, metadata passthrough (`interceptor-runner.ts`)
+- Factory.ts integration: before/after hooks in GET, POST, PUT, DELETE handlers
+- CLI auto-discovery for `api/interceptors.ts` convention file
+- Bootstrap integration
+- Example interceptors: audit-log, block-test-todos (422 validation), add-server-timestamp (metadata passthrough)
+- Unit tests for registry and runner
+- Dev-mode error gating (minimal production logging)
+
+### Partial / In Progress
+- Zod re-validation of modified body is NOT implemented (interceptor body modifications bypass re-validation)
+
+### Not Yet Implemented
+- Integration tests (TC-UMES-I01 through I07)
+
+### Key Files
+- `packages/shared/src/lib/crud/api-interceptor.ts` — contract types
+- `packages/shared/src/lib/crud/interceptor-registry.ts` — registry with globalThis HMR pattern
+- `packages/shared/src/lib/crud/interceptor-runner.ts` — runner with timeout, crash handling, feature gating
+- `packages/shared/src/lib/crud/factory.ts` — before/after hook integration in CRUD handlers
+- `packages/core/src/modules/example/api/interceptors.ts` — example interceptors

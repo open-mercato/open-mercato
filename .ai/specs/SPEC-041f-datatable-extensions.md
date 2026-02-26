@@ -486,3 +486,27 @@ export default {
 - Existing columns, row actions, filters preserved in their original order
 - Injected items only appear when widgets are registered and user has required features
 - No changes to DataTable's external API (props interface)
+
+---
+
+## Implementation Status
+
+### Completed
+- `useInjectedTableExtensions` hook (4 injection spots per table: columns, row-actions, bulk-actions, filters)
+- Column injection merged into DataTable via `insertByInjectionPlacement`
+- Row action injection merged into DataTable (converts to `RowActionItem` and appends)
+- Filter injection merged into DataTable's FilterBar
+- Type definitions for InjectionColumnDefinition, InjectionRowActionDefinition, InjectionBulkActionDefinition, InjectionFilterDefinition
+
+### Partial / In Progress
+- Bulk action injection: types and hook extraction implemented, but not wired to any bulk action UI (DataTable doesn't have a built-in bulk action bar yet)
+
+### Not Yet Implemented
+- Example column/row-action widgets and injection-table entries
+- Integration tests (TC-UMES-D01 through D05)
+
+### Key Files
+- `packages/ui/src/backend/injection/useInjectedTableExtensions.ts` — hook for 4 injection spots
+- `packages/ui/src/backend/DataTable.tsx` — column and row action merge logic
+- `packages/ui/src/backend/FilterBar.tsx` — filter injection merge logic
+- `packages/shared/src/modules/widgets/injection.ts` — type definitions for injection column/row-action/bulk-action/filter

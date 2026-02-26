@@ -765,3 +765,26 @@ satisfies InjectionGroupWidget  // Existing pattern, now typed
 - Core Zod schema validation unchanged — injected fields excluded
 - `onBeforeSave`/`onSave`/`onAfterSave` handler pipeline unchanged
 - Existing `InjectionSpot` rendering in CrudForm unchanged
+
+---
+
+## Implementation Status
+
+### Completed
+- `InjectedField` component with design system primitives (Input, Label, Checkbox, Textarea, Spinner)
+- Support for text, number, date, textarea, select, boolean, custom field types
+- Dynamic options loading with TTL-based cache
+- `visibleWhen` conditional visibility via function contract
+- CrudForm integration: injected fields rendered after each group's regular fields
+- Lazy-loaded custom components via React.Suspense
+
+### Partial / In Progress
+- `visibleWhen` uses function contract (flexible) but spec also defines declarative `{field, operator, value}` format — declarative evaluation helper not yet added
+
+### Not Yet Implemented
+- Example module (ExampleCustomerPriority entity, API route, enricher, field widget, injection-table entry)
+- Integration tests (TC-UMES-CF01 through CF05)
+
+### Key Files
+- `packages/ui/src/backend/injection/InjectedField.tsx` — field component with all type renderers
+- `packages/ui/src/backend/CrudForm.tsx` — injected field integration into form groups
