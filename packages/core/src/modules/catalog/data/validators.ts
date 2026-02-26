@@ -385,9 +385,12 @@ export const omnibusChannelConfigSchema = z.object({
 export const omnibusConfigSchema = z.object({
   enabled: z.boolean().optional(),
   lookbackDays: z.number().int().min(1).max(365).optional(),
+  minimizationAxis: z.enum(['gross', 'net']).optional(),
   enabledCountryCodes: z.array(iso3166Alpha2).optional(),
   noChannelMode: z.enum(['best_effort', 'require_channel']).optional(),
+  defaultPresentedPriceKindId: uuid().optional().nullable(),
   channels: z.record(z.string(), omnibusChannelConfigSchema).optional(),
+  backfillCoverage: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type OmnibusChannelConfig = z.infer<typeof omnibusChannelConfigSchema>
@@ -396,3 +399,27 @@ export type OmnibusConfig = z.infer<typeof omnibusConfigSchema>
 export type ProductUnitConversionCreateInput = z.infer<typeof productUnitConversionCreateSchema>
 export type ProductUnitConversionUpdateInput = z.infer<typeof productUnitConversionUpdateSchema>
 export type ProductUnitConversionDeleteInput = z.infer<typeof productUnitConversionDeleteSchema>
+
+export const omnibusPreviewQuerySchema = z.object({
+  productId: uuid().optional(),
+  variantId: uuid().optional(),
+  offerId: uuid().optional(),
+  priceKindId: uuid(),
+  currencyCode: z.string().min(1).max(10),
+  channelId: uuid().optional(),
+})
+
+export const priceHistoryListQuerySchema = z.object({
+  productId: uuid().optional(),
+  variantId: uuid().optional(),
+  offerId: uuid().optional(),
+  priceKindId: uuid().optional(),
+  channelId: uuid().optional(),
+  currencyCode: z.string().optional(),
+  changeType: z.enum(['create', 'update', 'delete', 'undo']).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  cursor: z.string().optional(),
+  pageSize: z.coerce.number().int().min(1).max(200).optional().default(50),
+  includeTotal: z.preprocess((v) => v === 'true' || v === true, z.boolean()).optional(),
+})

@@ -91,9 +91,11 @@ import { resolveStatusEntryIdByValue } from '../lib/statusHelpers'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import { loadSalesSettings } from './settings'
 import { notificationTypes } from '../notifications'
-import { CatalogProductPrice } from '../../catalog/data/entities'
+import { CatalogProduct, CatalogProductPrice, CatalogProductUnitConversion } from '../../catalog/data/entities'
 import type { CatalogOmnibusService } from '../../catalog/services/catalogOmnibusService'
 import { detectPersonalization } from '../../catalog/services/catalogPricingService'
+import { canonicalizeUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
+import type { SalesLineUomSnapshot } from '../lib/types'
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -1176,6 +1178,9 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       comment: line.comment ?? null,
       quantity: line.quantity,
       quantityUnit: line.quantityUnit ?? null,
+      normalizedQuantity: line.normalizedQuantity,
+      normalizedUnit: line.normalizedUnit ?? null,
+      uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
       currencyCode: line.currencyCode,
       unitPriceNet: line.unitPriceNet,
       unitPriceGross: line.unitPriceGross,
@@ -1623,6 +1628,9 @@ function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
     comment: line.comment ?? null,
     quantity: toNumeric(line.quantity),
     quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity: line.normalizedQuantity != null ? toNumeric(line.normalizedQuantity) : null,
+    normalizedUnit: line.normalizedUnit ?? null,
+    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
     currencyCode: line.currencyCode,
     unitPriceNet: toNumeric(line.unitPriceNet),
     unitPriceGross: toNumeric(line.unitPriceGross),
@@ -1651,6 +1659,9 @@ function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
     comment: line.comment ?? null,
     quantity: toNumeric(line.quantity),
     quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity: line.normalizedQuantity != null ? toNumeric(line.normalizedQuantity) : null,
+    normalizedUnit: line.normalizedUnit ?? null,
+    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
     currencyCode: line.currencyCode,
     unitPriceNet: toNumeric(line.unitPriceNet),
     unitPriceGross: toNumeric(line.unitPriceGross),
@@ -1780,6 +1791,99 @@ function createAdjustmentDraftFromInput(
   }
 }
 
+function roundNormalized(value: number, scale: number, mode: 'half_up' | 'down' | 'up'): number {
+  const factor = Math.pow(10, scale)
+  if (mode === 'down') return Math.floor(value * factor) / factor
+  if (mode === 'up') return Math.ceil(value * factor) / factor
+  return Math.round(value * factor) / factor
+}
+
+async function resolveLineUomNormalization(
+  em: EntityManager,
+  params: {
+    productId: string | null | undefined
+    quantityUnit: string | null | undefined
+    quantity: number
+    organizationId: string
+    tenantId: string
+  }
+): Promise<{
+  normalizedQuantity: string
+  normalizedUnit: string | null
+  uomSnapshot: SalesLineUomSnapshot | null
+  toBaseFactor: number
+}> {
+  const canonicalUnit = canonicalizeUnitCode(params.quantityUnit)
+  if (!params.productId || !canonicalUnit) {
+    return {
+      normalizedQuantity: String(params.quantity),
+      normalizedUnit: canonicalUnit,
+      uomSnapshot: null,
+      toBaseFactor: 1,
+    }
+  }
+  const product = await em.findOne(CatalogProduct, {
+    id: params.productId,
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+    deletedAt: null,
+  })
+  const baseUnitCode = product ? (canonicalizeUnitCode(product.defaultUnit) ?? canonicalUnit) : canonicalUnit
+  const roundingScale = product?.uomRoundingScale ?? 4
+  const roundingMode = product?.uomRoundingMode ?? 'half_up'
+
+  if (canonicalUnit === baseUnitCode) {
+    const snapshot: SalesLineUomSnapshot = {
+      version: 1,
+      productId: params.productId,
+      productVariantId: null,
+      baseUnitCode,
+      enteredUnitCode: canonicalUnit,
+      enteredQuantity: String(params.quantity),
+      toBaseFactor: '1',
+      normalizedQuantity: String(params.quantity),
+      rounding: { mode: roundingMode, scale: roundingScale },
+      source: { conversionId: null, resolvedAt: new Date().toISOString() },
+    }
+    return {
+      normalizedQuantity: String(params.quantity),
+      normalizedUnit: baseUnitCode,
+      uomSnapshot: snapshot,
+      toBaseFactor: 1,
+    }
+  }
+
+  const conversion = await em.findOne(CatalogProductUnitConversion, {
+    product: params.productId,
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+    unitCode: canonicalUnit,
+    isActive: true,
+    deletedAt: null,
+  })
+
+  const toBaseFactor = conversion ? Number(conversion.toBaseFactor) : 1
+  const normalizedQty = roundNormalized(params.quantity * toBaseFactor, roundingScale, roundingMode)
+  const snapshot: SalesLineUomSnapshot = {
+    version: 1,
+    productId: params.productId,
+    productVariantId: null,
+    baseUnitCode,
+    enteredUnitCode: canonicalUnit,
+    enteredQuantity: String(params.quantity),
+    toBaseFactor: String(toBaseFactor),
+    normalizedQuantity: String(normalizedQty),
+    rounding: { mode: roundingMode, scale: roundingScale },
+    source: { conversionId: conversion?.id ?? null, resolvedAt: new Date().toISOString() },
+  }
+  return {
+    normalizedQuantity: String(normalizedQty),
+    normalizedUnit: baseUnitCode,
+    uomSnapshot: snapshot,
+    toBaseFactor,
+  }
+}
+
 function convertLineCalculationToEntityInput(
   lineResult: SalesLineCalculationResult,
   sourceLine: DocumentLineCreateInput,
@@ -1787,6 +1891,7 @@ function convertLineCalculationToEntityInput(
   index: number
 ) {
   const line = lineResult.line
+  const srcAny = sourceLine as any
   return {
     lineNumber: line.lineNumber ?? index + 1,
     kind: line.kind ?? 'product',
@@ -1799,6 +1904,11 @@ function convertLineCalculationToEntityInput(
     comment: line.comment ?? null,
     quantity: toNumericString(line.quantity) ?? '0',
     quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity: srcAny.normalizedQuantity != null
+      ? toNumericString(srcAny.normalizedQuantity) ?? String(line.quantity)
+      : toNumericString(line.quantity) ?? '0',
+    normalizedUnit: srcAny.normalizedUnit ?? canonicalizeUnitCode(line.quantityUnit) ?? null,
+    uomSnapshot: srcAny.uomSnapshot ?? null,
     currencyCode: line.currencyCode,
     unitPriceNet:
       toNumericString(line.unitPriceNet ?? (lineResult.netAmount / Math.max(line.quantity || 1, 1))) ??
@@ -4522,6 +4632,9 @@ const convertQuoteToOrderCommand: CommandHandler<
         comment: line.comment ?? null,
         quantity: line.quantity,
         quantityUnit: line.quantityUnit ?? null,
+        normalizedQuantity: (line as any).normalizedQuantity ?? line.quantity,
+        normalizedUnit: (line as any).normalizedUnit ?? line.quantityUnit ?? null,
+        uomSnapshot: (line as any).uomSnapshot ? cloneJson((line as any).uomSnapshot) : null,
         reservedQuantity: '0',
         fulfilledQuantity: '0',
         invoicedQuantity: '0',
@@ -5120,6 +5233,41 @@ const quoteLineUpsertCommand: CommandHandler<
     if (parsed.priceId) metadata.priceId = parsed.priceId
     if (priceMode) metadata.priceMode = priceMode
 
+    // UOM normalization: resolve for the final unit/quantity state of this line
+    const uomProductId = parsed.productId ?? existingSnapshot?.productId ?? null
+    const uomQuantityUnit = parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null
+    const uomQuantity = Number(parsed.quantity ?? existingSnapshot?.quantity ?? 0)
+    let uomResult: Awaited<ReturnType<typeof resolveLineUomNormalization>> | null = null
+    try {
+      uomResult = await resolveLineUomNormalization(em, {
+        productId: uomProductId,
+        quantityUnit: uomQuantityUnit,
+        quantity: uomQuantity,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      })
+    } catch {
+      // non-critical
+    }
+    // Price rescaling: when unit explicitly changes and no new prices provided, scale proportionally
+    if (uomResult && parsed.quantityUnit != null && existingSnapshot != null) {
+      const newCanonical = canonicalizeUnitCode(parsed.quantityUnit)
+      const oldCanonical = canonicalizeUnitCode(existingSnapshot.quantityUnit)
+      if (newCanonical !== oldCanonical && parsed.unitPriceNet == null && parsed.unitPriceGross == null) {
+        const existingEntity = existingLines.find((l) => l.id === parsed.id) ?? null
+        const oldFactorRaw = existingEntity?.uomSnapshot
+          ? (existingEntity.uomSnapshot as any).toBaseFactor
+          : null
+        const oldFactor = oldFactorRaw != null ? Number(oldFactorRaw) : 1
+        const newFactor = uomResult.toBaseFactor
+        if (oldFactor > 0 && newFactor > 0) {
+          const scale = newFactor / oldFactor
+          if (unitPriceNet != null) unitPriceNet = unitPriceNet * scale
+          if (unitPriceGross != null) unitPriceGross = unitPriceGross * scale
+        }
+      }
+    }
+
     const statusEntryId = parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null
     const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID()
     const updatedSnapshot: SalesLineSnapshot & { statusEntryId?: string | null; catalogSnapshot?: Record<string, unknown> | null; promotionSnapshot?: Record<string, unknown> | null } = {
@@ -5156,6 +5304,15 @@ const quoteLineUpsertCommand: CommandHandler<
       parsed.catalogSnapshot ?? (existingSnapshot as any)?.catalogSnapshot ?? null
     ;(updatedSnapshot as any).promotionSnapshot =
       parsed.promotionSnapshot ?? (existingSnapshot as any)?.promotionSnapshot ?? null
+    if (uomResult) {
+      ;(updatedSnapshot as any).normalizedQuantity = Number(uomResult.normalizedQuantity)
+      ;(updatedSnapshot as any).normalizedUnit = uomResult.normalizedUnit
+      ;(updatedSnapshot as any).uomSnapshot = uomResult.uomSnapshot
+    } else {
+      ;(updatedSnapshot as any).normalizedQuantity = updatedSnapshot.quantity
+      ;(updatedSnapshot as any).normalizedUnit = canonicalizeUnitCode(updatedSnapshot.quantityUnit)
+      ;(updatedSnapshot as any).uomSnapshot = null
+    }
 
     let nextLines = parsed.id
       ? lineSnapshots.map((line) => (line.id === parsed.id ? updatedSnapshot : line))

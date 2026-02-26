@@ -74,6 +74,7 @@ import {
 import { canonicalizeUnitCode } from "../lib/unitCodes";
 import {
   resolveCanonicalUnitCode,
+  resolveProductUnitDefaults,
 } from "../lib/unitResolution";
 
 type ProductSnapshot = {
