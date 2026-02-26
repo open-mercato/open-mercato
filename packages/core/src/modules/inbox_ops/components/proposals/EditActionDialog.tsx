@@ -75,18 +75,62 @@ function ContactPayloadEditor({
   updateField: (key: string, value: unknown) => void
 }) {
   const t = useT()
+  const type = (payload.type as string) || 'person'
+  const isPerson = type === 'person'
+
+  const existingName = (payload.name as string) || ''
+  const nameParts = existingName.trim().split(/\s+/).filter((p) => p.length > 0)
+  const [firstName, setFirstName] = React.useState(() => isPerson ? (nameParts[0] || '') : '')
+  const [lastName, setLastName] = React.useState(() => isPerson ? (nameParts.slice(1).join(' ') || '') : '')
+
+  const updatePersonName = React.useCallback((first: string, last: string) => {
+    const combined = `${first} ${last}`.trim()
+    updateField('name', combined)
+  }, [updateField])
+
+  const lastNameMissing = isPerson && !lastName.trim()
+
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.name', 'Name')}</Label>
-          <Input value={(payload.name as string) || ''} onChange={(event) => updateField('name', event.target.value)} />
-        </div>
+        {isPerson ? (
+          <>
+            <div>
+              <Label>{t('inbox_ops.contact.first_name', 'First Name')}</Label>
+              <Input
+                value={firstName}
+                onChange={(event) => {
+                  setFirstName(event.target.value)
+                  updatePersonName(event.target.value, lastName)
+                }}
+              />
+            </div>
+            <div>
+              <Label>{t('inbox_ops.contact.last_name', 'Last Name')}</Label>
+              <Input
+                value={lastName}
+                onChange={(event) => {
+                  setLastName(event.target.value)
+                  updatePersonName(firstName, event.target.value)
+                }}
+                className={lastNameMissing ? 'border-red-500' : ''}
+              />
+              {lastNameMissing && (
+                <p className="text-xs text-red-600 mt-1">{t('inbox_ops.contact.last_name_required', 'Last name is required')}</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <div>
+            <Label>{t('inbox_ops.edit_dialog.name', 'Name')}</Label>
+            <Input value={existingName} onChange={(event) => updateField('name', event.target.value)} />
+          </div>
+        )}
         <div>
           <Label>{t('inbox_ops.edit_dialog.type', 'Type')}</Label>
           <select
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-            value={(payload.type as string) || 'person'}
+            value={type}
             onChange={(event) => updateField('type', event.target.value)}
           >
             <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>

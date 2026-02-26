@@ -19,6 +19,9 @@ import {
   ShoppingBag,
 } from 'lucide-react'
 import type { ActionDetail, DiscrepancyDetail } from './types'
+import { hasContactNameIssue } from '../../lib/contactValidation'
+
+export { hasContactNameIssue }
 
 const ACTION_TYPE_ICONS: Record<string, React.ElementType> = {
   create_order: Package,
@@ -263,6 +266,8 @@ export function ActionCard({
     )
   }
 
+  const hasNameIssue = hasContactNameIssue(action)
+
   return (
     <div className="border rounded-lg p-3 md:p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -302,13 +307,26 @@ export function ActionCard({
         </div>
       )}
 
+      {hasNameIssue && (
+        <div className="mb-3 flex items-start gap-2 text-xs rounded px-2 py-1.5 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+          <span>{t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')}</span>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
-        <div title={hasBlockingDiscrepancies ? t('inbox_ops.action.accept_blocked', 'Resolve errors before accepting') : undefined}>
+        <div title={
+          hasNameIssue
+            ? t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')
+            : hasBlockingDiscrepancies
+              ? t('inbox_ops.action.accept_blocked', 'Resolve errors before accepting')
+              : undefined
+        }>
           <Button
             size="sm"
             className="h-11 md:h-9"
             onClick={() => onAccept(action.id)}
-            disabled={hasBlockingDiscrepancies}
+            disabled={hasBlockingDiscrepancies || hasNameIssue}
           >
             <CheckCircle className="h-4 w-4 mr-1" />
             {t('inbox_ops.action.accept', 'Accept')}

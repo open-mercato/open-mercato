@@ -159,7 +159,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     const maxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
     const truncatedText = fullText.slice(0, maxTextSize)
 
-    const systemPrompt = buildExtractionSystemPrompt(contactMatches, catalogProducts, undefined, workingLanguage)
+    const systemPrompt = await buildExtractionSystemPrompt(contactMatches, catalogProducts, undefined, workingLanguage)
     const userPrompt = buildExtractionUserPrompt(truncatedText)
 
     let extractionResult: ReturnType<typeof extractionOutputSchema.parse>

@@ -5,12 +5,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { ColumnDef } from '@tanstack/react-table'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { Badge } from '@open-mercato/ui/primitives/badge'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Settings, Inbox, Copy } from 'lucide-react'
 
 type ProposalRow = {
@@ -75,17 +78,21 @@ export default function InboxOpsProposalsPage() {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const [items, setItems] = React.useState<ProposalRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(25)
-  const [statusFilter, setStatusFilter] = React.useState<string | undefined>()
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
+  const [initialLoadComplete, setInitialLoadComplete] = React.useState(false)
   const [counts, setCounts] = React.useState<StatusCounts>({ pending: 0, partial: 0, accepted: 0, rejected: 0 })
   const [settings, setSettings] = React.useState<{ inboxAddress?: string } | null>(null)
   const [copied, setCopied] = React.useState(false)
+
+  const statusFilter = typeof filterValues.status === 'string' ? filterValues.status : undefined
 
   const loadProposals = React.useCallback(async () => {
     setIsLoading(true)
@@ -93,7 +100,7 @@ export default function InboxOpsProposalsPage() {
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
     if (statusFilter) params.set('status', statusFilter)
-    if (search) params.set('search', search)
+    if (search.trim()) params.set('search', search.trim())
 
     const result = await apiCall<ProposalListResponse>(`/api/inbox_ops/proposals?${params}`)
     if (result?.ok && result.result?.items) {
@@ -114,10 +121,14 @@ export default function InboxOpsProposalsPage() {
   }, [scopeVersion])
 
   React.useEffect(() => {
-    loadProposals()
-    loadCounts()
-    loadSettings()
-  }, [loadProposals, loadCounts, loadSettings])
+    Promise.all([loadProposals(), loadCounts(), loadSettings()]).then(() => {
+      setInitialLoadComplete(true)
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (initialLoadComplete) loadProposals()
+  }, [page, statusFilter, search, scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopyAddress = React.useCallback(() => {
     if (settings?.inboxAddress) {
@@ -126,6 +137,55 @@ export default function InboxOpsProposalsPage() {
       setTimeout(() => setCopied(false), 2000)
     }
   }, [settings])
+
+  const handleRefresh = React.useCallback(() => {
+    loadProposals()
+    loadCounts()
+  }, [loadProposals, loadCounts])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [])
+
+  const handleRejectProposal = React.useCallback(async (proposalId: string) => {
+    const confirmed = await confirm({
+      title: t('inbox_ops.action.reject_all', 'Reject Proposal'),
+      text: t('inbox_ops.action.reject_all_confirm', 'Reject all pending actions in this proposal?'),
+    })
+    if (!confirmed) return
+
+    const result = await apiCall<{ ok: boolean }>(
+      `/api/inbox_ops/proposals/${proposalId}/reject`,
+      { method: 'POST' },
+    )
+    if (result?.ok && result.result?.ok) {
+      flash(t('inbox_ops.action.proposal_rejected', 'Proposal rejected'), 'success')
+      loadProposals()
+      loadCounts()
+    } else {
+      flash(t('inbox_ops.flash.action_reject_failed', 'Failed to reject'), 'error')
+    }
+  }, [confirm, t, loadProposals, loadCounts])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'status',
+      label: t('inbox_ops.list.filters.status', 'Status'),
+      type: 'select',
+      options: [
+        { value: 'pending', label: `${t('inbox_ops.status.pending', 'Pending')} (${counts.pending})` },
+        { value: 'partial', label: `${t('inbox_ops.status.partial', 'Partial')} (${counts.partial})` },
+        { value: 'accepted', label: `${t('inbox_ops.status.accepted', 'Accepted')} (${counts.accepted})` },
+        { value: 'rejected', label: `${t('inbox_ops.status.rejected', 'Rejected')} (${counts.rejected})` },
+      ],
+    },
+  ], [t, counts])
 
   const columns: ColumnDef<ProposalRow>[] = React.useMemo(() => [
     {
@@ -152,7 +212,7 @@ export default function InboxOpsProposalsPage() {
     },
     {
       id: 'actions_count',
-      header: t('inbox_ops.actions_count', 'Actions'),
+      header: t('inbox_ops.list.progress', 'Progress'),
       cell: ({ row }) => {
         const pending = row.original.pendingActionCount ?? 0
         const total = row.original.actionCount ?? 0
@@ -183,83 +243,92 @@ export default function InboxOpsProposalsPage() {
   ], [t])
 
   const totalCount = counts.pending + counts.partial + counts.accepted + counts.rejected
-  const isEmpty = totalCount === 0 && !isLoading
 
-  const tabs = [
-    { label: `${t('common.all', 'All')} (${totalCount})`, value: undefined },
-    { label: `${t('inbox_ops.status.pending', 'Pending')} (${counts.pending})`, value: 'pending' },
-    { label: `${t('inbox_ops.status.partial', 'Partial')} (${counts.partial})`, value: 'partial' },
-    { label: `${t('inbox_ops.status.accepted', 'Accepted')} (${counts.accepted})`, value: 'accepted' },
-    { label: `${t('inbox_ops.status.rejected', 'Rejected')} (${counts.rejected})`, value: 'rejected' },
-  ]
+  const emptyStateContent = initialLoadComplete && totalCount === 0 ? (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <Inbox className="h-12 w-12 text-muted-foreground mb-4" />
+      <h2 className="text-lg font-semibold mb-2">{t('inbox_ops.empty.title', 'Forward emails to start')}</h2>
+      {settings?.inboxAddress && (
+        <div className="mt-4 flex items-center gap-2 bg-muted rounded-lg px-4 py-3">
+          <code className="text-sm font-mono">{settings.inboxAddress}</code>
+          <Button variant="outline" size="sm" onClick={handleCopyAddress}>
+            <Copy className="h-4 w-4" />
+            {copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}
+          </Button>
+        </div>
+      )}
+      <ol className="mt-6 text-sm text-muted-foreground text-left space-y-2">
+        <li>1. {t('inbox_ops.empty.step1', 'Forward any email thread to this address')}</li>
+        <li>2. {t('inbox_ops.empty.step2', "We'll analyze it and propose actions")}</li>
+        <li>3. {t('inbox_ops.empty.step3', 'Review and accept with one click')}</li>
+      </ol>
+    </div>
+  ) : undefined
 
   return (
     <Page>
-      <div className="flex items-center justify-between px-3 py-3 md:px-6 md:py-4">
-        <h1 className="text-lg font-semibold">{t('inbox_ops.title', 'InboxOps')}</h1>
-        <Link href="/backend/inbox-ops/settings">
-          <Button variant="outline" size="sm">
-            <Settings className="h-4 w-4" />
-            <span className="hidden md:inline ml-1">{t('inbox_ops.settings.title', 'Settings')}</span>
-          </Button>
-        </Link>
-      </div>
-
       <PageBody>
-        {isEmpty ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Inbox className="h-12 w-12 text-muted-foreground mb-4" />
-            <h2 className="text-lg font-semibold mb-2">{t('inbox_ops.empty.title', 'Forward emails to start')}</h2>
-            {settings?.inboxAddress && (
-              <div className="mt-4 flex items-center gap-2 bg-muted rounded-lg px-4 py-3">
-                <code className="text-sm font-mono">{settings.inboxAddress}</code>
+        <DataTable<ProposalRow>
+          title={t('inbox_ops.title', 'AI Inbox Actions')}
+          refreshButton={{
+            label: t('inbox_ops.list.actions.refresh', 'Refresh'),
+            onRefresh: handleRefresh,
+          }}
+          actions={(
+            <div className="flex items-center gap-2">
+              {settings?.inboxAddress && (
                 <Button variant="outline" size="sm" onClick={handleCopyAddress}>
                   <Copy className="h-4 w-4" />
-                  {copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}
+                  <span className="hidden md:inline ml-1">
+                    {copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}
+                  </span>
                 </Button>
-              </div>
-            )}
-            <ol className="mt-6 text-sm text-muted-foreground text-left space-y-2">
-              <li>1. {t('inbox_ops.empty.step1', 'Forward any email thread to this address')}</li>
-              <li>2. {t('inbox_ops.empty.step2', "We'll analyze it and propose actions")}</li>
-              <li>3. {t('inbox_ops.empty.step3', 'Review and accept with one click')}</li>
-            </ol>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-2 px-3 py-2 md:px-0 overflow-x-auto">
-              {tabs.map((tab) => (
-                <Button
-                  key={tab.value ?? 'all'}
-                  variant={statusFilter === tab.value ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => { setStatusFilter(tab.value); setPage(1) }}
-                >
-                  {tab.label}
-                </Button>
-              ))}
+              )}
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/backend/inbox-ops/settings">
+                  <Settings className="h-4 w-4" />
+                  <span className="hidden md:inline ml-1">{t('inbox_ops.list.actions.settings', 'Settings')}</span>
+                </Link>
+              </Button>
             </div>
-
-            <div className="overflow-auto">
-              <div className="min-w-[640px]">
-                <DataTable
-                  columns={columns}
-                  data={items}
-                  isLoading={isLoading}
-                  onRowClick={(row) => router.push(`/backend/inbox-ops/proposals/${row.id}`)}
-                  pagination={{
-                    page,
-                    pageSize,
-                    total,
-                    totalPages: Math.ceil(total / pageSize),
-                    onPageChange: setPage,
-                  }}
-                />
-              </div>
-            </div>
-          </>
-        )}
+          )}
+          columns={columns}
+          data={items}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('inbox_ops.list.searchPlaceholder', 'Search proposals...')}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
+          onRowClick={(row) => router.push(`/backend/inbox-ops/proposals/${row.id}`)}
+          rowActions={(row) => (
+            <RowActions items={[
+              {
+                id: 'view',
+                label: t('inbox_ops.list.actions.view', 'View'),
+                onSelect: () => router.push(`/backend/inbox-ops/proposals/${row.id}`),
+              },
+              ...(row.status === 'pending' || row.status === 'partial' ? [{
+                id: 'reject',
+                label: t('inbox_ops.list.actions.reject', 'Reject'),
+                destructive: true,
+                onSelect: () => handleRejectProposal(row.id),
+              }] : []),
+            ]} />
+          )}
+          pagination={{
+            page,
+            pageSize,
+            total,
+            totalPages: Math.ceil(total / pageSize),
+            onPageChange: setPage,
+          }}
+          isLoading={isLoading}
+          emptyState={emptyStateContent}
+        />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

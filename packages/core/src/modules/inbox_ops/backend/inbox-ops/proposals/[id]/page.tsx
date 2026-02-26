@@ -25,6 +25,7 @@ import {
 import type { ProposalTranslationEntry } from '../../../../data/entities'
 import type { ProposalDetail, ActionDetail, DiscrepancyDetail, EmailDetail } from '../../../../components/proposals/types'
 import { ActionCard, ConfidenceBadge, useActionTypeLabels } from '../../../../components/proposals/ActionCard'
+import { hasContactNameIssue } from '../../../../lib/contactValidation'
 import { EditActionDialog } from '../../../../components/proposals/EditActionDialog'
 
 function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
@@ -186,10 +187,19 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
   }, [proposalId, loadData])
 
   const handleAcceptAll = React.useCallback(async () => {
-    const pendingCount = actions.filter((a) => a.status === 'pending').length
+    const pendingActions = actions.filter((a) => a.status === 'pending')
+    const pendingCount = pendingActions.length
+    const nameIssueCount = pendingActions.filter((a) => hasContactNameIssue(a)).length
+
+    const confirmText = nameIssueCount > 0
+      ? t('inbox_ops.action.accept_all_confirm_with_skip', 'Execute {count} pending actions? {skipCount} contact actions will be skipped due to missing names.')
+        .replace('{count}', String(pendingCount))
+        .replace('{skipCount}', String(nameIssueCount))
+      : t('inbox_ops.action.accept_all_confirm', 'Execute {count} pending actions?').replace('{count}', String(pendingCount))
+
     const confirmed = await confirm({
       title: t('inbox_ops.action.accept_all', 'Accept All'),
-      text: t('inbox_ops.action.accept_all_confirm', `Execute ${pendingCount} pending actions?`).replace('{count}', String(pendingCount)),
+      text: confirmText,
     })
     if (!confirmed) return
 
@@ -275,21 +285,21 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
         />
       )}
 
-      <div className="flex items-center justify-between px-3 py-3 md:px-6 md:py-4 border-b">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b bg-background">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
           <Link href="/backend/inbox-ops">
             <Button variant="ghost" size="sm">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold truncate">{email?.subject || t('inbox_ops.proposal', 'Proposal')}</h1>
-            <p className="text-xs text-muted-foreground">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base md:text-lg font-semibold truncate">{email?.subject || t('inbox_ops.proposal', 'Proposal')}</h1>
+            <p className="text-xs text-muted-foreground truncate">
               {email?.forwardedByName || email?.forwardedByAddress} · {email?.receivedAt && new Date(email.receivedAt).toLocaleString()}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {pendingActions.length > 0 && (
             <Button
               variant="outline"

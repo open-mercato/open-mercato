@@ -29,7 +29,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/extractionPrompt', () => ({
-  buildExtractionSystemPrompt: jest.fn(() => 'mock system prompt'),
+  buildExtractionSystemPrompt: jest.fn(() => Promise.resolve('mock system prompt')),
   buildExtractionUserPrompt: jest.fn(() => 'mock user prompt'),
 }))
 
@@ -40,6 +40,7 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/constants', () => ({
     update_order: 'sales.orders.manage',
     update_shipment: 'sales.shipments.manage',
     create_contact: 'customers.people.manage',
+    create_product: 'catalog.products.manage',
     link_contact: 'customers.people.manage',
     log_activity: 'customers.activities.manage',
     draft_reply: 'inbox_ops.replies.send',
