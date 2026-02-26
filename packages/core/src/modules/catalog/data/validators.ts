@@ -423,3 +423,6 @@ export const priceHistoryListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).optional().default(50),
   includeTotal: z.preprocess((v) => v === 'true' || v === true, z.boolean()).optional(),
 })
+
+export type PriceHistoryListQuery = z.infer<typeof priceHistoryListQuerySchema>
+export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>
