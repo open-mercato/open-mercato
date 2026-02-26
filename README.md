@@ -327,6 +327,26 @@ OPENAI_API_KEY=sk-...  # Optional, for AI features
 
 For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
 
+### Dev Container (VS Code)
+
+The fastest way to get a fully working dev environment — no local toolchain required.
+
+**Prerequisites**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (12 GB+ memory in Settings → Resources) + VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension.
+
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+code open-mercato
+# VS Code → Command Palette → "Dev Containers: Reopen in Container"
+# Wait for setup to complete (~3-5 min on first build), then:
+yarn dev
+```
+
+The container includes Node.js 24, Yarn 4, PostgreSQL (with pgvector), Redis, Meilisearch, and Claude Code CLI — all pre-configured and ready to use.
+
+- **Customize env vars**: create `apps/mercato/.env.local` (takes priority over `.env`, which is auto-generated)
+- **Claude Code CLI**: run `claude` inside the container and follow the OAuth login flow (works with Max plan subscriptions), or set `export ANTHROPIC_API_KEY=sk-...` in your host shell before opening the container for API key auth
+- **Rebuild**: if you need a fresh start, use Command Palette → "Dev Containers: Rebuild Container"
+
 ## Standalone App & Customization
 
 The **recommended way to build on Open Mercato** without modifying the core is to create a standalone app. This gives you a self-contained project that pulls Open Mercato packages from npm — your own modules, overrides, and customizations live in your repo while core stays untouched and upgradeable.
