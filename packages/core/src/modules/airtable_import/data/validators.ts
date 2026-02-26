@@ -13,7 +13,7 @@ export const updateMappingSchema = z.object({
         airtableTableName: z.string(),
         targetModule: z.string().nullable(),
         targetEntitySlug: z.string().nullable(),
-        confidence: z.number().min(0).max(100).optional(),
+        confidence: z.number().min(0).max(100).optional().default(0),
         skip: z.boolean(),
         fieldMappings: z.array(
           z.object({
