@@ -9,11 +9,12 @@ export const componentOverrides: ComponentOverride[] = [
     features: ['example.view'],
     metadata: { module: 'example' },
     wrapper: (Original) => {
-      const WrappedSection = (props: unknown) => (
-        <div className="rounded-md border border-dashed border-muted-foreground/40 p-2">
-          <Original {...props} />
-        </div>
-      )
+      const WrappedSection = (props: unknown) =>
+        React.createElement(
+          'div',
+          { className: 'rounded-md border border-dashed border-muted-foreground/40 p-2' },
+          React.createElement(Original, props as object)
+        )
       WrappedSection.displayName = 'ExampleNotesSectionWrapper'
       return WrappedSection
     },

@@ -91,7 +91,7 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
     })
     const statsByBucket = buildBucketStats(todos)
     const customerIds = records.map((record) => record.id)
-    const priorities = customerIds.length > 0
+    const priorities: ExampleCustomerPriority[] = customerIds.length > 0
       ? await em.find(ExampleCustomerPriority, {
           customerId: { $in: customerIds },
           organizationId: context.organizationId,
@@ -99,7 +99,9 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
           deletedAt: null,
         })
       : []
-    const priorityByCustomerId = new Map(priorities.map((entry) => [entry.customerId, entry.priority]))
+    const priorityByCustomerId = new Map<string, ExampleCustomerPriority['priority']>(
+      priorities.map((entry: ExampleCustomerPriority) => [entry.customerId, entry.priority])
+    )
 
     return records.map((record) => ({
       ...record,
