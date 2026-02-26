@@ -173,6 +173,353 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "price_id": {
+          "name": "price_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "variant_id": {
+          "name": "variant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "offer_id": {
+          "name": "offer_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "price_kind_id": {
+          "name": "price_kind_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "price_kind_code": {
+          "name": "price_kind_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "currency_code": {
+          "name": "currency_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "unit_price_net": {
+          "name": "unit_price_net",
+          "type": "numeric(14,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 14,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "unit_price_gross": {
+          "name": "unit_price_gross",
+          "type": "numeric(14,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 14,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "tax_rate": {
+          "name": "tax_rate",
+          "type": "numeric(6,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 6,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "tax_amount": {
+          "name": "tax_amount",
+          "type": "numeric(14,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 14,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "min_quantity": {
+          "name": "min_quantity",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "max_quantity": {
+          "name": "max_quantity",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "change_type": {
+          "name": "change_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "is_announced": {
+          "name": "is_announced",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "boolean"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        }
+      },
+      "name": "catalog_price_history_entries",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "catalog_price_history_price_id_idx",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "price_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_price_history_offer_idx",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "offer_id",
+            "price_kind_id",
+            "currency_code",
+            "recorded_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_price_history_variant_channel_scoped_idx",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "variant_id",
+            "channel_id",
+            "price_kind_id",
+            "currency_code",
+            "recorded_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_price_history_variant_channel_agnostic_idx",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "variant_id",
+            "price_kind_id",
+            "currency_code",
+            "recorded_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_price_history_product_channel_scoped_idx",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "product_id",
+            "channel_id",
+            "price_kind_id",
+            "currency_code",
+            "recorded_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_price_history_product_channel_agnostic_idx",
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "product_id",
+            "price_kind_id",
+            "currency_code",
+            "recorded_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_price_history_entries_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
@@ -413,6 +760,16 @@
           "scale": 4,
           "mappedType": "decimal"
         },
+        "omnibus_exempt": {
+          "name": "omnibus_exempt",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
         "product_type": {
           "name": "product_type",
           "type": "text",
@@ -544,6 +901,16 @@
           "default": "true",
           "mappedType": "boolean"
         },
+        "first_listed_at": {
+          "name": "first_listed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -636,7 +1003,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_option_schemas",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -836,7 +1202,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1185,7 +1550,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -1199,7 +1563,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_categories",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1433,7 +1796,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -1447,7 +1809,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_tags",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1607,6 +1968,15 @@
           "scale": 4,
           "mappedType": "decimal"
         },
+        "omnibus_exempt": {
+          "name": "omnibus_exempt",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "boolean"
+        },
         "option_values": {
           "name": "option_values",
           "type": "jsonb",
@@ -1706,7 +2076,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -2005,7 +2374,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2019,7 +2387,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2033,7 +2400,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_offers",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2047,7 +2413,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_price_kinds",
-          "createForeignKeyConstraint": true,
           "deleteRule": "restrict",
           "updateRule": "cascade"
         }
@@ -2251,7 +2616,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -2265,7 +2629,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -2279,7 +2642,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }

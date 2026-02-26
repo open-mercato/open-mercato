@@ -1974,8 +1974,9 @@ async function applyQuoteLineResults(params: {
   calculation: SalesDocumentCalculationResult
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>
   existingLines: SalesQuoteLine[]
+  container?: any
 }): Promise<void> {
-  const { em, quote, calculation, sourceLines, existingLines } = params
+  const { em, quote, calculation, sourceLines, existingLines, container } = params
   const existingMap = new Map(existingLines.map((line) => [line.id, line]))
   const persisted = new Set<string>()
   const statusCache = new Map<string, string | null>()
@@ -1986,6 +1987,14 @@ async function applyQuoteLineResults(params: {
     statusCache.set(entryId, value)
     return value
   }
+  let omnibusService: CatalogOmnibusService | null = null
+  if (container) {
+    try {
+      omnibusService = container.resolve('catalogOmnibusService') as CatalogOmnibusService
+    } catch {
+      omnibusService = null
+    }
+  }
   for (let index = 0; index < calculation.lines.length; index += 1) {
     const lineResult = calculation.lines[index]
     const sourceLine = sourceLines[index]
@@ -1993,6 +2002,7 @@ async function applyQuoteLineResults(params: {
     const statusValue = await resolveStatus(statusEntryId ?? null)
     const payload = convertLineCalculationToEntityInput(lineResult, sourceLine, quote, index)
     const existing = sourceLine.id ? existingMap.get(sourceLine.id) ?? null : null
+    const isNew = !existing
     const lineEntity =
       existing ??
       em.create(SalesQuoteLine, {
@@ -2007,6 +2017,46 @@ async function applyQuoteLineResults(params: {
       statusEntryId,
       status: statusValue,
     })
+    if (isNew && omnibusService && sourceLine.productId) {
+      try {
+        const priceId = (sourceLine as any).priceId ?? null
+        let priceKindId: string | null = null
+        let isPromotion = false
+        let personalizationMeta = { isPersonalized: false, personalizationReason: null as string | null }
+        if (priceId) {
+          const catalogPrice = await em.findOne(CatalogProductPrice, { id: priceId, organizationId: quote.organizationId, tenantId: quote.tenantId }, { populate: ['priceKind'] })
+          if (catalogPrice) {
+            priceKindId = catalogPrice.priceKind.id
+            isPromotion = catalogPrice.priceKind.isPromotion ?? false
+            personalizationMeta = detectPersonalization(catalogPrice as any)
+          }
+        }
+        if (priceKindId) {
+          const omnibusCtx = {
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId,
+            productId: sourceLine.productId,
+            variantId: (sourceLine as any).productVariantId ?? null,
+            offerId: null,
+            priceKindId,
+            currencyCode: (sourceLine as any).currencyCode ?? quote.currencyCode,
+            channelId: quote.channelId ?? null,
+            isStorefront: false,
+          }
+          const omnibusBlock = await omnibusService.resolveOmnibusBlock(em, omnibusCtx, null, isPromotion)
+          if (omnibusBlock) {
+            lineEntity.omnibusReferenceNet = omnibusBlock.lowestPriceNet ?? null
+            lineEntity.omnibusReferenceGross = omnibusBlock.lowestPriceGross ?? null
+            lineEntity.omnibusPromotionAnchorAt = omnibusBlock.promotionAnchorAt ? new Date(omnibusBlock.promotionAnchorAt) : null
+            lineEntity.omnibusApplicabilityReason = omnibusBlock.applicabilityReason ?? null
+          }
+        }
+        lineEntity.isPersonalized = personalizationMeta.isPersonalized
+        lineEntity.personalizationReason = personalizationMeta.personalizationReason
+      } catch {
+        // Omnibus capture is non-critical — don't fail quote creation
+      }
+    }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -2035,9 +2085,18 @@ async function replaceQuoteLines(
   em: EntityManager,
   quote: SalesQuote,
   calculation: SalesDocumentCalculationResult,
-  lineInputs: QuoteLineCreateInput[]
+  lineInputs: QuoteLineCreateInput[],
+  container?: any,
 ): Promise<void> {
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
+  let omnibusService: CatalogOmnibusService | null = null
+  if (container) {
+    try {
+      omnibusService = container.resolve('catalogOmnibusService') as CatalogOmnibusService
+    } catch {
+      omnibusService = null
+    }
+  }
   const statusCache = new Map<string, string | null>()
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null
@@ -2058,6 +2117,46 @@ async function replaceQuoteLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    if (omnibusService && sourceLine.productId) {
+      try {
+        const priceId = (sourceLine as any).priceId ?? null
+        let priceKindId: string | null = null
+        let isPromotion = false
+        let personalizationMeta = { isPersonalized: false, personalizationReason: null as string | null }
+        if (priceId) {
+          const catalogPrice = await em.findOne(CatalogProductPrice, { id: priceId, organizationId: quote.organizationId, tenantId: quote.tenantId }, { populate: ['priceKind'] })
+          if (catalogPrice) {
+            priceKindId = catalogPrice.priceKind.id
+            isPromotion = catalogPrice.priceKind.isPromotion ?? false
+            personalizationMeta = detectPersonalization(catalogPrice as any)
+          }
+        }
+        if (priceKindId) {
+          const omnibusCtx = {
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId,
+            productId: sourceLine.productId,
+            variantId: (sourceLine as any).productVariantId ?? null,
+            offerId: null,
+            priceKindId,
+            currencyCode: (sourceLine as any).currencyCode ?? quote.currencyCode,
+            channelId: quote.channelId ?? null,
+            isStorefront: false,
+          }
+          const omnibusBlock = await omnibusService.resolveOmnibusBlock(em, omnibusCtx, null, isPromotion)
+          if (omnibusBlock) {
+            lineEntity.omnibusReferenceNet = omnibusBlock.lowestPriceNet ?? null
+            lineEntity.omnibusReferenceGross = omnibusBlock.lowestPriceGross ?? null
+            lineEntity.omnibusPromotionAnchorAt = omnibusBlock.promotionAnchorAt ? new Date(omnibusBlock.promotionAnchorAt) : null
+            lineEntity.omnibusApplicabilityReason = omnibusBlock.applicabilityReason ?? null
+          }
+        }
+        lineEntity.isPersonalized = personalizationMeta.isPersonalized
+        lineEntity.personalizationReason = personalizationMeta.personalizationReason
+      } catch {
+        // Omnibus capture is non-critical — don't fail quote creation
+      }
+    }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3308,7 +3407,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
       context: calculationContext,
     })
 
-    await replaceQuoteLines(em, quote, calculation, lineInputs)
+    await replaceQuoteLines(em, quote, calculation, lineInputs, ctx.container)
     await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs)
     applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null
@@ -5103,6 +5202,7 @@ const quoteLineUpsertCommand: CommandHandler<
       calculation,
       sourceLines: sourceInputs,
       existingLines,
+      container: ctx.container,
     })
     applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null
@@ -5220,6 +5320,7 @@ const quoteLineDeleteCommand: CommandHandler<
       calculation,
       sourceLines: sourceInputs,
       existingLines,
+      container: ctx.container,
     })
     applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null
