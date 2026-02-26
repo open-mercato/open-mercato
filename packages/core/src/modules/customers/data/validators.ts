@@ -71,7 +71,7 @@ export const personCreateSchema = scopedSchema.extend({
   ...baseEntitySchema,
   displayName: displayNameSchema.optional(),
   firstName: personFirstNameSchema,
-  lastName: personLastNameSchema,
+  lastName: personLastNameSchema.optional(),
   ...personDetailsSchema,
 })
 
