@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { Send } from 'lucide-react'
+import Link from 'next/link'
+import { ExternalLink, Send } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import {
@@ -17,6 +18,7 @@ export type SendObjectMessageDialogProps = {
   lockedType?: string | null
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
   disabled?: boolean
+  viewHref?: string | null
   contextPreview?: React.ReactNode
   children?: React.ReactNode
   onSuccess?: MessageComposerProps['onSuccess']
@@ -29,6 +31,7 @@ export function SendObjectMessageDialog({
   lockedType = 'messages.defaultWithObjects',
   requiredActionConfig = null,
   disabled = false,
+  viewHref = null,
   contextPreview = null,
   children = null,
   onSuccess,
@@ -64,9 +67,23 @@ export function SendObjectMessageDialog({
         <Send className="h-4 w-4" />
       </Button>
     )
-    
+
   return (
     <>
+      {viewHref ? (
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          asChild
+          aria-label={t('common.view', 'View')}
+          title={t('common.view', 'View')}
+        >
+          <Link href={viewHref}>
+            <ExternalLink className="h-4 w-4" />
+          </Link>
+        </Button>
+      ) : null}
       {trigger}
       <MessageComposer
         variant="compose"

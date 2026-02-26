@@ -410,6 +410,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     sourceEntityType: 'customers.deal',
                     sourceEntityId: data.deal.id,
                   }}
+                  viewHref={`/backend/customers/deals/${data.deal.id}`}
                   defaultValues={{
                     sourceEntityType: 'customers.deal',
                     sourceEntityId: data.deal.id,

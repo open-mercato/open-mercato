@@ -16,7 +16,14 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'receipt-text',
     PreviewComponent: SalesDocumentMessagePreview,
     DetailComponent: SalesDocumentMessageDetail,
-    actions: [],
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/sales/orders/{entityId}',
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return {
@@ -39,7 +46,14 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'file-text',
     PreviewComponent: SalesDocumentMessagePreview,
     DetailComponent: SalesDocumentMessageDetail,
-    actions: [],
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/sales/quotes/{entityId}',
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return {

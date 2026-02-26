@@ -240,6 +240,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
                 sourceEntityType: 'staff:leave_request',
                 sourceEntityId: record.id,
               }}
+              viewHref={`/backend/staff/leave-requests/${record.id}`}
               lockedType="staff.leave_request_approval"
               requiredActionConfig={{
                 mode: 'required',

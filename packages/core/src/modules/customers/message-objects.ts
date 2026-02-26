@@ -16,7 +16,14 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'user-round',
     PreviewComponent: CustomerMessageObjectPreview,
     DetailComponent: CustomerMessageObjectDetail,
-    actions: [],
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/customers/people/{entityId}',
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return { title: 'Person', subtitle: entityId }
@@ -36,7 +43,14 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'building2',
     PreviewComponent: CustomerMessageObjectPreview,
     DetailComponent: CustomerMessageObjectDetail,
-    actions: [],
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/customers/companies/{entityId}',
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return { title: 'Company', subtitle: entityId }
@@ -56,7 +70,14 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'briefcase-business',
     PreviewComponent: CustomerMessageObjectPreview,
     DetailComponent: CustomerMessageObjectDetail,
-    actions: [],
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/customers/deals/{entityId}',
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return { title: 'Deal', subtitle: entityId }

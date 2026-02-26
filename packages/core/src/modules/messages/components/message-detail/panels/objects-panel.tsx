@@ -5,6 +5,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   getMessageUiComponentRegistry,
 } from '../../utils/typeUiRegistry'
+import { getMessageObjectType } from '../../../lib/message-objects-registry'
 import type { MessageAction, MessageDetail } from '../types'
 import { toObjectAction } from '../utils'
 
@@ -30,9 +31,13 @@ export function MessageDetailObjectsSection(props: ObjectsPanelProps) {
           const objectActions = props.objectActionsByObjectId.get(item.id)
 
           if (DetailComponent) {
-            const actions: MessageObjectAction[] = objectActions
+            const storedActions: MessageObjectAction[] = objectActions
               ? Array.from(objectActions.entries()).map(([actionId, action]) => toObjectAction(actionId, action))
               : []
+            const typeDefinitionActions: MessageObjectAction[] = storedActions.length === 0
+              ? (getMessageObjectType(item.entityModule, item.entityType)?.actions ?? [])
+              : []
+            const actions = storedActions.length > 0 ? storedActions : typeDefinitionActions
 
             return (
               <DetailComponent
