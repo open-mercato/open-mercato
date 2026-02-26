@@ -158,12 +158,12 @@ export function useRegisteredComponent<TProps extends Record<string, unknown> = 
         }
 
         return React.createElement(
-          ComponentOverrideErrorBoundary,
+          ComponentOverrideErrorBoundary as any,
           {
             fallback: originalComponent as ComponentType<Record<string, unknown>>,
             componentId,
+            children: React.createElement(ReplacementComponent, { ...props, ref }),
           },
-          React.createElement(ReplacementComponent, { ...props, ref }),
         )
       }) as unknown as ComponentType<TProps>
 
@@ -192,12 +192,12 @@ export function useRegisteredComponent<TProps extends Record<string, unknown> = 
 
       const WrappedComposed = React.forwardRef<unknown, TProps>(function WrapperWithBoundary(props, ref) {
         return React.createElement(
-          ComponentOverrideErrorBoundary,
+          ComponentOverrideErrorBoundary as any,
           {
             fallback: originalComponent as ComponentType<Record<string, unknown>>,
             componentId,
+            children: React.createElement(Composed, { ...props, ref }),
           },
-          React.createElement(Composed, { ...props, ref }),
         )
       }) as unknown as ComponentType<TProps>
 

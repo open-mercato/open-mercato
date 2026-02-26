@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import type { ComponentType } from 'react'
 import { useComponentOverride } from './useComponentOverride'
 
 type ReplaceablePageProps = {
@@ -8,6 +9,10 @@ type ReplaceablePageProps = {
   module?: string
   description?: string
   children: React.ReactNode
+}
+
+function PagePassthrough(props: Record<string, unknown>) {
+  return React.createElement(React.Fragment, null, props.children as React.ReactNode)
 }
 
 /**
@@ -18,7 +23,7 @@ type ReplaceablePageProps = {
  * export default function MyPage() {
  *   return (
  *     <ReplaceablePage componentId="page:customers.people.detail" module="customers">
- *       {/* original page content *\/}
+ *       {/* original page content */}
  *     </ReplaceablePage>
  *   )
  * }
@@ -27,20 +32,14 @@ type ReplaceablePageProps = {
  * If an override is registered for the componentId, the override renders instead.
  */
 export function ReplaceablePage({ componentId, module, description, children }: ReplaceablePageProps) {
-  const PageContent = React.useCallback(
-    (props: Record<string, unknown>) => React.createElement(React.Fragment, null, props.children),
-    [],
-  )
-  PageContent.displayName = `Page(${componentId})`
-
   const Override = useComponentOverride(
     componentId,
-    PageContent,
+    PagePassthrough as ComponentType<Record<string, unknown>>,
     { module, description },
   )
 
   if (Override) {
-    return React.createElement(Override, { children })
+    return React.createElement(Override, { children } as Record<string, unknown>)
   }
 
   return <>{children}</>

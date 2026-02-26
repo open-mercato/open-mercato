@@ -1971,7 +1971,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 key={injField.id}
                 field={injField}
                 value={(values as Record<string, unknown>)[injField.id]}
-                onChange={(fieldId, newValue) => setValue(fieldId as keyof TValues, newValue as TValues[keyof TValues])}
+                onChange={(fieldId, newValue) => setValue(fieldId as string & keyof TValues, newValue as TValues[keyof TValues])}
                 values={values as unknown as Record<string, unknown>}
                 disabled={pending}
               />
