@@ -51,6 +51,8 @@ import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-merca
 import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 import { applyResponseEnrichers, applyResponseEnricherToRecord } from './enricher-runner'
 import type { EnricherContext } from './response-enricher'
+import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
+import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -452,6 +454,32 @@ function handleError(err: unknown): Response {
   return json(body, { status: 500 })
 }
 
+function normalizeInterceptorRoutePath(request: Request): string {
+  try {
+    const pathname = new URL(request.url).pathname
+    if (pathname.startsWith('/api/')) return pathname.slice(5)
+    if (pathname === '/api') return ''
+    return pathname.replace(/^\/+/, '')
+  } catch {
+    return ''
+  }
+}
+
+function toInterceptorHeaders(headers: Headers): Record<string, string> {
+  const output: Record<string, string> = {}
+  headers.forEach((value, key) => {
+    output[key] = value
+  })
+  return output
+}
+
+function cleanInterceptorObject(
+  value: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  return Object.fromEntries(Object.entries(value).filter(([, current]) => current !== undefined))
+}
+
 function isUuid(v: any): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)
 }
@@ -802,6 +830,92 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       container: ctx.container,
       userFeatures,
     }
+  }
+
+  async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
+    if (!ctx.auth) return undefined
+    try {
+      const rbac = (ctx.container.resolve('rbacService') as any)
+      if (rbac?.getGrantedFeatures) {
+        return await rbac.getGrantedFeatures(ctx.auth.sub, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
+        })
+      }
+    } catch {
+      // rbacService is optional in some contexts
+    }
+    return undefined
+  }
+
+  async function buildInterceptorContext(ctx: CrudCtx) {
+    if (!ctx.auth) return null
+    return {
+      userId: ctx.auth.sub,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
+      tenantId: ctx.auth.tenantId ?? '',
+      em: ctx.container.resolve('em'),
+      container: ctx.container,
+      userFeatures: await resolveUserFeatures(ctx),
+    }
+  }
+
+  async function applyInterceptorsBefore(args: {
+    ctx: CrudCtx
+    request: Request
+    method: ApiInterceptorMethod
+    body?: Record<string, unknown>
+    query?: Record<string, unknown>
+  }): Promise<{ errorResponse: Response | null; requestPayload: InterceptorRequest; metadataByInterceptor: Record<string, Record<string, unknown> | undefined> }> {
+    const interceptorContext = await buildInterceptorContext(args.ctx)
+    const requestPayload: InterceptorRequest = {
+      method: args.method,
+      url: args.request.url,
+      body: cleanInterceptorObject(args.body),
+      query: cleanInterceptorObject(args.query),
+      headers: toInterceptorHeaders(args.request.headers),
+    }
+    if (!interceptorContext) {
+      return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
+    }
+    const result = await runApiInterceptorsBefore({
+      routePath: normalizeInterceptorRoutePath(args.request),
+      method: args.method,
+      request: requestPayload,
+      context: interceptorContext,
+    })
+    if (!result.ok) {
+      return { errorResponse: json(result.body, { status: result.statusCode }), requestPayload, metadataByInterceptor: {} }
+    }
+    return { errorResponse: null, requestPayload: result.request, metadataByInterceptor: result.metadataByInterceptor }
+  }
+
+  async function applyInterceptorsAfter(args: {
+    ctx: CrudCtx
+    request: Request
+    method: ApiInterceptorMethod
+    requestPayload: InterceptorRequest
+    metadataByInterceptor: Record<string, Record<string, unknown> | undefined>
+    statusCode: number
+    body: Record<string, unknown>
+    headers?: Record<string, string>
+  }): Promise<Response | null> {
+    const interceptorContext = await buildInterceptorContext(args.ctx)
+    if (!interceptorContext) return null
+    const result = await runApiInterceptorsAfter({
+      routePath: normalizeInterceptorRoutePath(args.request),
+      method: args.method,
+      request: args.requestPayload,
+      response: {
+        statusCode: args.statusCode,
+        body: args.body,
+        headers: args.headers ?? {},
+      } satisfies InterceptorResponse,
+      context: interceptorContext,
+      metadataByInterceptor: args.metadataByInterceptor,
+    })
+    if (!result.ok) return json(result.body, { status: result.statusCode, headers: result.headers })
+    return json(result.body, { status: result.statusCode, headers: result.headers })
   }
 
   /**
