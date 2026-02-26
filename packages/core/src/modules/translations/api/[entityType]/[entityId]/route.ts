@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
+import { resolveTranslationsRouteContext, requireTranslationFeatures } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -21,6 +21,7 @@ export const metadata = {
 export async function GET(req: Request, ctx: { params?: { entityType?: string; entityId?: string } }) {
   try {
     const context = await resolveTranslationsRouteContext(req)
+    await requireTranslationFeatures(context, ['translations.view'])
     const { entityType, entityId } = paramsSchema.parse({
       entityType: ctx.params?.entityType,
       entityId: ctx.params?.entityId,
@@ -61,6 +62,7 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
 export async function PUT(req: Request, ctx: { params?: { entityType?: string; entityId?: string } }) {
   try {
     const context = await resolveTranslationsRouteContext(req)
+    await requireTranslationFeatures(context, ['translations.manage'])
     const { entityType, entityId } = paramsSchema.parse({
       entityType: ctx.params?.entityType,
       entityId: ctx.params?.entityId,
@@ -131,6 +133,7 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
 export async function DELETE(req: Request, ctx: { params?: { entityType?: string; entityId?: string } }) {
   try {
     const context = await resolveTranslationsRouteContext(req)
+    await requireTranslationFeatures(context, ['translations.manage'])
     const { entityType, entityId } = paramsSchema.parse({
       entityType: ctx.params?.entityType,
       entityId: ctx.params?.entityId,
