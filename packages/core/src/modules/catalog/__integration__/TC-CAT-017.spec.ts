@@ -2,73 +2,69 @@ import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
- * TC-CAT-017: not_in_eu_market — channel country code not in enabledCountryCodes
- * Source: SPEC-033 — Omnibus Price Tracking, Phase 2
+ * TC-CAT-017: Omnibus Config GET and PATCH
+ * Source: SPEC-033 — Omnibus Price Tracking, GET/PATCH /api/catalog/config/omnibus
  */
-test.describe('TC-CAT-017: Omnibus — not_in_eu_market reason', () => {
-  test('channel with non-EU country returns not_in_eu_market block', async ({ request }) => {
+test.describe('TC-CAT-017: Omnibus Config GET and PATCH', () => {
+  test('should read and update omnibus configuration', async ({ request }) => {
     let token: string | null = null;
     let originalConfig: Record<string, unknown> = {};
-    // Use a stable fake channel UUID for this test (must be a valid UUID v4)
-    const fakeChannelId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee17';
 
     try {
       token = await getAuthToken(request);
 
-      // Save original config
+      // GET returns current config (may be empty object on fresh tenant)
       const getRes = await apiRequest(request, 'GET', '/api/catalog/config/omnibus', { token });
-      expect(getRes.ok()).toBeTruthy();
+      expect(getRes.ok(), `GET /api/catalog/config/omnibus failed: ${getRes.status()}`).toBeTruthy();
       originalConfig = ((await getRes.json()) as Record<string, unknown>) ?? {};
+      expect(typeof originalConfig === 'object' && originalConfig !== null).toBeTruthy();
 
-      // Get a valid priceKindId
-      const kindsRes = await apiRequest(request, 'GET', '/api/catalog/price-kinds?pageSize=1', { token });
-      expect(kindsRes.ok()).toBeTruthy();
-      const kindsBody = (await kindsRes.json()) as { items?: { id: string }[] };
-      expect(Array.isArray(kindsBody.items) && kindsBody.items.length > 0).toBeTruthy();
-      const priceKindId = kindsBody.items![0]!.id;
-
-      // Configure: enabled=true, enabledCountryCodes=['DE'], channel with countryCode='FR'
+      // PATCH updates lookbackDays
       const patchRes = await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
         token,
-        data: {
-          enabled: true,
-          enabledCountryCodes: ['DE'],
-          channels: {
-            [fakeChannelId]: {
-              presentedPriceKindId: priceKindId,
-              countryCode: 'FR',
+        data: { lookbackDays: 45 },
+      });
+      expect(patchRes.ok(), `PATCH /api/catalog/config/omnibus failed: ${patchRes.status()}`).toBeTruthy();
+      const patchBody = (await patchRes.json()) as Record<string, unknown>;
+      expect(patchBody.lookbackDays).toBe(45);
+
+      // Subsequent GET reflects the patched value
+      const getAfterRes = await apiRequest(request, 'GET', '/api/catalog/config/omnibus', { token });
+      expect(getAfterRes.ok()).toBeTruthy();
+      const getAfterBody = (await getAfterRes.json()) as Record<string, unknown>;
+      expect(getAfterBody.lookbackDays).toBe(45);
+
+      // Enabling Omnibus without backfill for a configured EU channel must return 422
+      const priceKindsRes = await apiRequest(request, 'GET', '/api/catalog/price-kinds?pageSize=1', { token });
+      expect(priceKindsRes.ok()).toBeTruthy();
+      const priceKindsBody = (await priceKindsRes.json()) as { items?: { id: string }[] };
+      const priceKindId = priceKindsBody.items?.[0]?.id;
+
+      if (priceKindId) {
+        const enableWithChannelRes = await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
+          token,
+          data: {
+            enabled: true,
+            enabledCountryCodes: ['DE'],
+            defaultPresentedPriceKindId: priceKindId,
+            channels: {
+              'fake-channel-id-no-backfill': {
+                presentedPriceKindId: priceKindId,
+                countryCode: 'DE',
+              },
             },
           },
-        },
-      });
-      expect(patchRes.ok(), `PATCH omnibus config failed: ${patchRes.status()}`).toBeTruthy();
-
-      // Call omnibus-preview with the fake channel (country 'FR' not in ['DE'])
-      const previewRes = await apiRequest(
-        request,
-        'GET',
-        `/api/catalog/prices/omnibus-preview?priceKindId=${priceKindId}&currencyCode=EUR&channelId=${fakeChannelId}`,
-        { token },
-      );
-      expect(previewRes.ok()).toBeTruthy();
-      const previewBody = (await previewRes.json()) as Record<string, unknown> | null;
-
-      // Must return a non-null block with not_in_eu_market reason
-      expect(previewBody).not.toBeNull();
-      expect(previewBody?.applicabilityReason).toBe('not_in_eu_market');
-      expect(previewBody?.applicable).toBe(false);
-      expect(previewBody?.lowestPriceNet).toBeNull();
-      expect(previewBody?.lowestPriceGross).toBeNull();
+        });
+        // Should reject with 422 because the channel has no backfill coverage entry
+        expect(enableWithChannelRes.status()).toBe(422);
+        const errBody = (await enableWithChannelRes.json()) as { error?: string };
+        expect(errBody.error).toBe('backfill_required_before_enable');
+      }
     } finally {
+      // Restore config to original state
       if (token) {
-        const restore: Record<string, unknown> = {};
+        const restore: Record<string, unknown> = { lookbackDays: originalConfig.lookbackDays ?? 30 };
         if (originalConfig.enabled !== undefined) restore.enabled = originalConfig.enabled;
-        if (originalConfig.enabledCountryCodes !== undefined)
-          restore.enabledCountryCodes = originalConfig.enabledCountryCodes;
-        // Remove fake channel from config
-        const channels = (originalConfig.channels as Record<string, unknown>) ?? {};
-        const { [fakeChannelId]: _removed, ...rest } = channels;
-        restore.channels = rest;
         await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
           token,
           data: restore,

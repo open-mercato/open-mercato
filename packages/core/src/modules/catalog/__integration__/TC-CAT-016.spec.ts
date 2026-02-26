@@ -1,101 +1,99 @@
 import { expect, test } from '@playwright/test';
-import {
-  createProductFixture,
-  deleteCatalogProductIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
+import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
- * TC-CAT-016: GET /api/catalog/prices/omnibus-preview — disabled returns null; enabled returns block
- * Source: SPEC-033 — Omnibus Price Tracking, Phase 3
+ * TC-CAT-016: GET /api/catalog/prices/history — Filtering and Pagination
+ * Source: SPEC-033 — Omnibus Price Tracking, API Contracts section
  */
-test.describe('TC-CAT-016: Omnibus Preview Endpoint', () => {
-  test('disabled omnibus returns null; enabled omnibus returns block', async ({ request }) => {
+test.describe('TC-CAT-016: Price History API — Filtering and Pagination', () => {
+  test('should filter history by productId and support includeTotal', async ({ request }) => {
     const stamp = Date.now();
     let token: string | null = null;
     let productId: string | null = null;
     let priceKindId: string | null = null;
-    let originalConfig: Record<string, unknown> = {};
+    const createdPriceIds: string[] = [];
 
     try {
       token = await getAuthToken(request);
+      productId = await createProductFixture(request, token, {
+        title: `QA TC-CAT-016 ${stamp}`,
+        sku: `QA-CAT-014-${stamp}`,
+      });
 
-      // Save original config for cleanup
-      const getConfigRes = await apiRequest(request, 'GET', '/api/catalog/config/omnibus', { token });
-      expect(getConfigRes.ok()).toBeTruthy();
-      originalConfig = ((await getConfigRes.json()) as Record<string, unknown>) ?? {};
-
-      // Fetch first price kind
+      // Resolve first price kind
       const kindsRes = await apiRequest(request, 'GET', '/api/catalog/price-kinds?pageSize=1', { token });
       expect(kindsRes.ok()).toBeTruthy();
       const kindsBody = (await kindsRes.json()) as { items?: { id: string }[] };
       expect(Array.isArray(kindsBody.items) && kindsBody.items.length > 0).toBeTruthy();
       priceKindId = kindsBody.items![0]!.id;
 
-      // Create a product fixture
-      productId = await createProductFixture(request, token, {
-        title: `QA TC-CAT-016 ${stamp}`,
-        sku: `QA-CAT-016-${stamp}`,
-      });
+      // Create two prices for the same product
+      for (const net of [50, 60]) {
+        const res = await apiRequest(request, 'POST', '/api/catalog/prices', {
+          token,
+          data: {
+            productId,
+            priceKindId,
+            currencyCode: 'EUR',
+            unitPriceNet: net,
+          },
+        });
+        expect(res.ok(), `POST prices failed: ${res.status()}`).toBeTruthy();
+        const body = (await res.json()) as { id?: string };
+        if (body.id) createdPriceIds.push(body.id);
+      }
 
-      // --- Scenario 1: Omnibus DISABLED → response body is null ---
-      await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
-        token,
-        data: { enabled: false },
-      });
-
-      const disabledRes = await apiRequest(
+      // Query history filtered by productId — must include our entries
+      const historyRes = await apiRequest(
         request,
         'GET',
-        `/api/catalog/prices/omnibus-preview?priceKindId=${priceKindId}&currencyCode=USD&productId=${productId}`,
+        `/api/catalog/prices/history?productId=${productId}&includeTotal=true`,
         { token },
       );
-      expect(disabledRes.ok()).toBeTruthy();
-      const disabledBody = await disabledRes.json();
-      expect(disabledBody).toBeNull();
+      expect(historyRes.ok()).toBeTruthy();
+      const historyBody = (await historyRes.json()) as {
+        items: { productId: string; changeType: string }[];
+        nextCursor: string | null;
+        total?: number;
+      };
+      expect(Array.isArray(historyBody.items)).toBeTruthy();
+      expect(historyBody.items.length >= 2, 'Expected at least 2 history entries for 2 created prices').toBeTruthy();
+      for (const item of historyBody.items) {
+        expect(item.productId).toBe(productId);
+      }
 
-      // --- Scenario 2: Omnibus ENABLED → response is a block object ---
-      await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
-        token,
-        data: { enabled: true, enabledCountryCodes: ['PL'] },
-      });
+      // total must be included when includeTotal=true
+      expect(typeof historyBody.total === 'number', 'Expected total field when includeTotal=true').toBeTruthy();
+      expect(historyBody.total! >= 2).toBeTruthy();
 
-      const enabledRes = await apiRequest(
+      // changeType filter — only 'create' entries
+      const createOnlyRes = await apiRequest(
         request,
         'GET',
-        `/api/catalog/prices/omnibus-preview?priceKindId=${priceKindId}&currencyCode=USD&productId=${productId}`,
+        `/api/catalog/prices/history?productId=${productId}&changeType=create`,
         { token },
       );
-      expect(enabledRes.ok()).toBeTruthy();
-      const enabledBody = (await enabledRes.json()) as Record<string, unknown> | null;
-      // Block must be non-null and have required fields
-      expect(enabledBody).not.toBeNull();
-      expect(typeof enabledBody?.applicabilityReason === 'string').toBeTruthy();
-      expect(typeof enabledBody?.applicable === 'boolean').toBeTruthy();
-      expect(typeof enabledBody?.currencyCode === 'string').toBeTruthy();
-      expect(enabledBody?.currencyCode).toBe('USD');
+      expect(createOnlyRes.ok()).toBeTruthy();
+      const createOnlyBody = (await createOnlyRes.json()) as { items: { changeType: string }[] };
+      for (const item of createOnlyBody.items) {
+        expect(item.changeType).toBe('create');
+      }
 
-      // --- Scenario 3: Missing required priceKindId → 400 validation error ---
-      const missingKindRes = await apiRequest(
+      // pageSize=1 should return at most 1 item
+      const pagedRes = await apiRequest(
         request,
         'GET',
-        `/api/catalog/prices/omnibus-preview?currencyCode=USD`,
+        `/api/catalog/prices/history?productId=${productId}&pageSize=1`,
         { token },
       );
-      expect(missingKindRes.status()).toBe(400);
+      expect(pagedRes.ok()).toBeTruthy();
+      const pagedBody = (await pagedRes.json()) as { items: unknown[]; nextCursor: string | null };
+      expect(pagedBody.items.length).toBe(1);
+      expect(typeof pagedBody.nextCursor === 'string', 'Expected a nextCursor when more pages exist').toBeTruthy();
     } finally {
-      // Restore config
-      if (token) {
-        const restore: Record<string, unknown> = {};
-        if (originalConfig.enabled !== undefined) restore.enabled = originalConfig.enabled;
-        if (originalConfig.enabledCountryCodes !== undefined)
-          restore.enabledCountryCodes = originalConfig.enabledCountryCodes;
-        if (Object.keys(restore).length > 0) {
-          await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
-            token,
-            data: restore,
-          }).catch(() => {});
-        }
+      for (const id of createdPriceIds) {
+        await apiRequest(request, 'DELETE', `/api/catalog/prices?id=${encodeURIComponent(id)}`, { token: token! }).catch(() => {});
       }
       await deleteCatalogProductIfExists(request, token, productId);
     }
