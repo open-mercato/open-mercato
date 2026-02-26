@@ -115,6 +115,8 @@
   "auth.roles.list.title": "Rollen",
   "auth.roles.superadmin": "Superadministrator",
   "auth.sendResetLink": "Link zum Zurücksetzen senden",
+  "auth.session.refresh.errors.invalidPayload": "Fehlendes oder ungültiges Refresh-Token",
+  "auth.session.refresh.errors.invalidToken": "Ungültiges oder abgelaufenes Refresh-Token",
   "auth.signIn": "Anmelden",
   "auth.users.errors.emailExists": "E-Mail-Adresse wird bereits verwendet",
   "auth.users.flash.created": "Benutzer erstellt",

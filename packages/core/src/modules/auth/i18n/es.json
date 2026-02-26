@@ -115,6 +115,8 @@
   "auth.roles.list.title": "Roles",
   "auth.roles.superadmin": "Superadministrador",
   "auth.sendResetLink": "Enviar enlace de restablecimiento",
+  "auth.session.refresh.errors.invalidPayload": "Falta el token de actualización o no es válido",
+  "auth.session.refresh.errors.invalidToken": "El token de actualización no es válido o ha expirado",
   "auth.signIn": "Iniciar sesión",
   "auth.users.errors.emailExists": "El correo ya está en uso",
   "auth.users.flash.created": "Usuario creado",
