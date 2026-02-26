@@ -3,6 +3,10 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches:
+      - main
+      - develop
   pull_request:
     branches:
       - main
@@ -38,10 +42,8 @@ jobs:
       - name: Rebuild packages with generated files
         run: yarn build:packages
 
-      - name: Pre-commit i18n sync
-        run: |
-          tsx scripts/i18n-check-sync.ts --fix
-          git diff --exit-code
+      - name: Check i18n sync
+        run: yarn tsx scripts/i18n-check-sync.ts
 
       - name: Check i18n usage
         run: yarn i18n:check-usage
