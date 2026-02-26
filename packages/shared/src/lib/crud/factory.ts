@@ -1155,7 +1155,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (cachedValue) {
         cacheStatus = 'hit'
         profiler.mark('cache_hit', { generatedAt: cachedValue.generatedAt ?? null })
-        const payload = safeClone(cachedValue.payload)
+        let payload = safeClone(cachedValue.payload)
         const items = Array.isArray((payload as any)?.items) ? (payload as any).items : []
         profiler.mark('cache_payload_ready', { itemCount: items.length })
         await logCrudAccess({
@@ -1170,7 +1170,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           query: validated,
         })
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
-        payload = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx) as typeof payload
+        payload = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
         await enrichListPayload(payload, ctx, profiler)
         logCacheOutcome('hit', items.length)
         const response = respondWithPayload(payload)
@@ -1343,7 +1343,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           return response
         }
 
-        const payload = {
+        let payload: Record<string, unknown> = {
           items: transformedItems,
           total: res.total,
           page: page.page || requestedPage,
@@ -1353,17 +1353,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         profiler.mark('after_list_hook')
-        payload = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx) as typeof payload
+        payload = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
         await enrichListPayload(payload, ctx, profiler)
         await maybeStoreCrudCache(payload)
         profiler.mark('cache_store_attempt', { cacheEnabled })
-        logCacheOutcome(cacheStatus, payload.items.length)
+        logCacheOutcome(cacheStatus, (Array.isArray(payload.items) ? payload.items.length : 0))
         const response = respondWithPayload(payload)
         finishProfile({
           result: 'ok',
           cacheStatus,
-          itemCount: payload.items.length,
-          total: payload.total ?? payload.items.length,
+          itemCount: (Array.isArray(payload.items) ? payload.items.length : 0),
+          total: payload.total ?? (Array.isArray(payload.items) ? payload.items.length : 0),
         })
         return response
       }
@@ -1478,12 +1478,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await enrichListPayload(payload, ctx, profiler)
       await maybeStoreCrudCache(payload)
       profiler.mark('cache_store_attempt', { cacheEnabled })
-      logCacheOutcome(cacheStatus, payload.items.length)
+      logCacheOutcome(cacheStatus, (Array.isArray(payload.items) ? payload.items.length : 0))
       const response = respondWithPayload(payload)
       finishProfile({
         result: 'ok',
         cacheStatus,
-        itemCount: payload.items.length,
+        itemCount: (Array.isArray(payload.items) ? payload.items.length : 0),
         total: payload.total,
         branch: 'fallback',
       })

@@ -1,24 +1,14 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals'
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals'
 import type { ComponentType, LazyExoticComponent } from 'react'
 import type { z } from 'zod'
-import {
-  registerComponent,
-  getRegisteredComponent,
-  getAllRegisteredComponents,
-  registerComponentOverrides,
-  getOverridesForComponent,
-  getAllOverrides,
-  isReplaceOverride,
-  isWrapperOverride,
-  isPropsTransformOverride,
-} from '@open-mercato/shared/modules/widgets/component-registry'
 import type {
   ComponentRegistryEntry,
-  ComponentOverride,
   ReplaceOverride,
   WrapperOverride,
   PropsTransformOverride,
 } from '@open-mercato/shared/modules/widgets/component-registry'
+
+type RegistryModule = typeof import('@open-mercato/shared/modules/widgets/component-registry')
 
 const MockComponent = (() => null) as unknown as ComponentType<Record<string, unknown>>
 const MockComponent2 = (() => null) as unknown as ComponentType<Record<string, unknown>>
@@ -63,11 +53,14 @@ function makePropsTransformOverride(componentId: string, priority: number): Prop
 
 describe('Component Registry', () => {
   const originalEnv = process.env.NODE_ENV
+  let registry: RegistryModule
 
   beforeEach(() => {
     delete (globalThis as any).__openMercatoComponentRegistry__
     delete (globalThis as any).__openMercatoComponentOverrides__
     process.env.NODE_ENV = originalEnv
+    jest.resetModules()
+    registry = require('@open-mercato/shared/modules/widgets/component-registry') as RegistryModule
   })
 
   afterEach(() => {
@@ -78,9 +71,9 @@ describe('Component Registry', () => {
     it('stores a component and it is retrievable via getRegisteredComponent', () => {
       const entry = makeEntry('widgets.header')
 
-      registerComponent(entry)
+      registry.registerComponent(entry)
 
-      const result = getRegisteredComponent('widgets.header')
+      const result = registry.getRegisteredComponent('widgets.header')
       expect(result).not.toBeNull()
       expect(result!.id).toBe('widgets.header')
       expect(result!.component).toBe(MockComponent)
@@ -99,17 +92,17 @@ describe('Component Registry', () => {
         },
       }
 
-      registerComponent(original)
+      registry.registerComponent(original)
       process.env.NODE_ENV = 'development'
-      registerComponent(replacement)
+      registry.registerComponent(replacement)
 
-      const result = getRegisteredComponent('widgets.sidebar')
+      const result = registry.getRegisteredComponent('widgets.sidebar')
       expect(result).not.toBeNull()
       expect(result!.component).toBe(MockComponent2)
       expect(result!.metadata.module).toBe('module-b')
       expect(result!.metadata.description).toBe('Replaced sidebar')
 
-      const all = getAllRegisteredComponents()
+      const all = registry.getAllRegisteredComponents()
       const matchCount = all.filter((e) => e.id === 'widgets.sidebar').length
       expect(matchCount).toBe(1)
     })
@@ -117,19 +110,21 @@ describe('Component Registry', () => {
 
   describe('getRegisteredComponent', () => {
     it('returns null for unknown component IDs', () => {
-      const result = getRegisteredComponent('nonexistent.component')
+      registry.registerComponent(makeEntry('widgets.header'))
+
+      const result = registry.getRegisteredComponent('nonexistent.component')
       expect(result).toBeNull()
     })
 
     it('returns null when registry is empty', () => {
-      const result = getRegisteredComponent('any.id')
+      const result = registry.getRegisteredComponent('any.id')
       expect(result).toBeNull()
     })
   })
 
   describe('registerComponentOverrides', () => {
     it('stores overrides sorted by priority ascending', () => {
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [makeWrapperOverride('widgets.header', 30)],
@@ -144,7 +139,7 @@ describe('Component Registry', () => {
         },
       ])
 
-      const all = getAllOverrides()
+      const all = registry.getAllOverrides()
       expect(all).toHaveLength(3)
       expect(all[0].override.priority).toBe(10)
       expect(all[0].moduleId).toBe('module-b')
@@ -155,7 +150,7 @@ describe('Component Registry', () => {
     })
 
     it('flattens multiple overrides from a single module', () => {
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [
@@ -165,7 +160,7 @@ describe('Component Registry', () => {
         },
       ])
 
-      const all = getAllOverrides()
+      const all = registry.getAllOverrides()
       expect(all).toHaveLength(2)
       expect(all[0].moduleId).toBe('module-a')
       expect(all[1].moduleId).toBe('module-a')
@@ -174,7 +169,7 @@ describe('Component Registry', () => {
 
   describe('getOverridesForComponent', () => {
     it('filters overrides by target componentId', () => {
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [makeWrapperOverride('widgets.header', 10)],
@@ -189,30 +184,30 @@ describe('Component Registry', () => {
         },
       ])
 
-      const headerOverrides = getOverridesForComponent('widgets.header')
+      const headerOverrides = registry.getOverridesForComponent('widgets.header')
       expect(headerOverrides).toHaveLength(2)
       expect(headerOverrides[0].moduleId).toBe('module-a')
       expect(headerOverrides[1].moduleId).toBe('module-c')
 
-      const footerOverrides = getOverridesForComponent('widgets.footer')
+      const footerOverrides = registry.getOverridesForComponent('widgets.footer')
       expect(footerOverrides).toHaveLength(1)
       expect(footerOverrides[0].moduleId).toBe('module-b')
     })
 
     it('returns empty array when no overrides target the component', () => {
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [makeWrapperOverride('widgets.header', 10)],
         },
       ])
 
-      const result = getOverridesForComponent('widgets.nonexistent')
+      const result = registry.getOverridesForComponent('widgets.nonexistent')
       expect(result).toEqual([])
     })
 
     it('returns empty array when no overrides are registered', () => {
-      const result = getOverridesForComponent('widgets.header')
+      const result = registry.getOverridesForComponent('widgets.header')
       expect(result).toEqual([])
     })
   })
@@ -223,9 +218,9 @@ describe('Component Registry', () => {
       const wrapper = makeWrapperOverride('x', 1)
       const propsTransform = makePropsTransformOverride('x', 1)
 
-      expect(isReplaceOverride(replace)).toBe(true)
-      expect(isReplaceOverride(wrapper)).toBe(false)
-      expect(isReplaceOverride(propsTransform)).toBe(false)
+      expect(registry.isReplaceOverride(replace)).toBe(true)
+      expect(registry.isReplaceOverride(wrapper)).toBe(false)
+      expect(registry.isReplaceOverride(propsTransform)).toBe(false)
     })
 
     it('isWrapperOverride identifies wrapper overrides correctly', () => {
@@ -233,9 +228,9 @@ describe('Component Registry', () => {
       const wrapper = makeWrapperOverride('x', 1)
       const propsTransform = makePropsTransformOverride('x', 1)
 
-      expect(isWrapperOverride(replace)).toBe(false)
-      expect(isWrapperOverride(wrapper)).toBe(true)
-      expect(isWrapperOverride(propsTransform)).toBe(false)
+      expect(registry.isWrapperOverride(replace)).toBe(false)
+      expect(registry.isWrapperOverride(wrapper)).toBe(true)
+      expect(registry.isWrapperOverride(propsTransform)).toBe(false)
     })
 
     it('isPropsTransformOverride identifies propsTransform overrides correctly', () => {
@@ -243,9 +238,9 @@ describe('Component Registry', () => {
       const wrapper = makeWrapperOverride('x', 1)
       const propsTransform = makePropsTransformOverride('x', 1)
 
-      expect(isPropsTransformOverride(replace)).toBe(false)
-      expect(isPropsTransformOverride(wrapper)).toBe(false)
-      expect(isPropsTransformOverride(propsTransform)).toBe(true)
+      expect(registry.isPropsTransformOverride(replace)).toBe(false)
+      expect(registry.isPropsTransformOverride(wrapper)).toBe(false)
+      expect(registry.isPropsTransformOverride(propsTransform)).toBe(true)
     })
   })
 
@@ -254,7 +249,7 @@ describe('Component Registry', () => {
       process.env.NODE_ENV = 'development'
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [makeWrapperOverride('widgets.header', 10)],
@@ -286,7 +281,7 @@ describe('Component Registry', () => {
       process.env.NODE_ENV = 'development'
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [makeWrapperOverride('widgets.header', 10)],
@@ -306,7 +301,7 @@ describe('Component Registry', () => {
       process.env.NODE_ENV = 'development'
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [makeWrapperOverride('widgets.header', 10)],
@@ -325,11 +320,11 @@ describe('Component Registry', () => {
 
   describe('getAllRegisteredComponents', () => {
     it('returns all registered components', () => {
-      registerComponent(makeEntry('widgets.header'))
-      registerComponent(makeEntry('widgets.footer'))
-      registerComponent(makeEntry('widgets.sidebar'))
+      registry.registerComponent(makeEntry('widgets.header'))
+      registry.registerComponent(makeEntry('widgets.footer'))
+      registry.registerComponent(makeEntry('widgets.sidebar'))
 
-      const all = getAllRegisteredComponents()
+      const all = registry.getAllRegisteredComponents()
       expect(all).toHaveLength(3)
       const ids = all.map((e) => e.id)
       expect(ids).toContain('widgets.header')
@@ -338,14 +333,14 @@ describe('Component Registry', () => {
     })
 
     it('returns empty array when no components are registered', () => {
-      const all = getAllRegisteredComponents()
+      const all = registry.getAllRegisteredComponents()
       expect(all).toEqual([])
     })
   })
 
   describe('getAllOverrides', () => {
     it('returns all registered overrides', () => {
-      registerComponentOverrides([
+      registry.registerComponentOverrides([
         {
           moduleId: 'module-a',
           overrides: [
@@ -359,7 +354,7 @@ describe('Component Registry', () => {
         },
       ])
 
-      const all = getAllOverrides()
+      const all = registry.getAllOverrides()
       expect(all).toHaveLength(3)
       expect(all[0].override.priority).toBe(10)
       expect(all[1].override.priority).toBe(15)
@@ -367,7 +362,7 @@ describe('Component Registry', () => {
     })
 
     it('returns empty array when no overrides are registered', () => {
-      const all = getAllOverrides()
+      const all = registry.getAllOverrides()
       expect(all).toEqual([])
     })
   })
