@@ -72,6 +72,32 @@ export const interceptors: ApiInterceptor[] = [
     },
   },
   {
+    id: 'example.wildcard-probe',
+    targetRoute: 'example/*',
+    methods: ['GET'],
+    features: ['example.todos.view'],
+    priority: 60,
+    async before(request) {
+      const probe = readString(request.query?.interceptorProbe)
+      if (probe !== 'wildcard') return { ok: true }
+      return {
+        ok: true,
+        metadata: { wildcardProbe: true },
+      }
+    },
+    async after(_request, response, context) {
+      if (!context.metadata?.wildcardProbe) return {}
+      return {
+        merge: {
+          _example: {
+            ...((response.body._example as Record<string, unknown> | undefined) ?? {}),
+            wildcardProbe: true,
+          },
+        },
+      }
+    },
+  },
+  {
     id: 'example.todos-response-meta',
     targetRoute: 'example/todos',
     methods: ['GET'],

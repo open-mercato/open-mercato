@@ -347,6 +347,28 @@ export const interceptors: ApiInterceptor[] = [
 - Use two authenticated contexts with distinct orgs
 - Include assertion that rewritten `ids` containing foreign-org IDs do not leak data
 
+### TC-UMES-I08: Interceptor timeout fails closed with 504 and interceptorId
+
+**Type**: API (Playwright)
+
+**Steps**:
+1. Trigger a probe request that routes through an interceptor exceeding `timeoutMs`
+2. Assert response status is 504
+3. Assert response body contains the failing `interceptorId`
+
+**Expected**: Request fails closed with timeout status and deterministic interceptor identifier.
+
+### TC-UMES-I09: Interceptor crash fails closed with 500 and interceptorId
+
+**Type**: API (Playwright)
+
+**Steps**:
+1. Trigger a probe request that throws from interceptor hook
+2. Assert response status is 500
+3. Assert response body contains the failing `interceptorId`
+
+**Expected**: Request fails closed when interceptor throws and exposes interceptor identity for diagnostics.
+
 ---
 
 ## Files Touched
@@ -376,7 +398,7 @@ export const interceptors: ApiInterceptor[] = [
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase E — API Interceptors | Done | 2026-02-26 | Added interceptor contracts/registry/runner, CRUD before+after integration with re-validation, generator discovery (`api/interceptors.ts`), bootstrap registration, unit coverage in `crud-factory.test.ts`, and Playwright coverage in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`. |
+| Phase E — API Interceptors | Done | 2026-02-26 | Added interceptor contracts/registry/runner, CRUD before+after integration with re-validation, generator discovery (`api/interceptors.ts`), bootstrap registration, unit coverage in `crud-factory.test.ts`, and Playwright coverage in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts` (I01..I09). |
 
 ### Phase E — Detailed Progress
 
@@ -389,4 +411,4 @@ export const interceptors: ApiInterceptor[] = [
 - [x] Bootstrap wiring added (`interceptorEntries`)
 - [x] Example module interceptor file added (`example/api/interceptors.ts`)
 - [x] Unit tests added in `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts`
-- [x] Playwright integration scenarios TC-UMES-I01..I07 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`
+- [x] Playwright integration scenarios TC-UMES-I01..I09 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`

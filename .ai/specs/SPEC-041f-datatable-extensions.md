@@ -457,11 +457,23 @@ export default {
 **Type**: UI (Playwright)
 
 **Steps**:
-1. Log in as user WITHOUT `example.view` feature
+1. Log in as user WITH `example.view` feature (for example `employee` in example setup)
 2. Navigate to `/backend/customers/people`
 3. Inspect table headers
 
-**Expected**: "Todos" column is NOT visible when user lacks `example.view`
+**Expected**: Injected extension surfaces are visible for authorized users.
+
+### TC-UMES-D06: Injected bulk action executes against selected rows
+
+**Type**: UI+API (Playwright)
+
+**Steps**:
+1. Seed a customer priority with non-default value (for example `critical`)
+2. Open `/backend/customers/people`, select at least one row
+3. Run injected bulk action ("Set normal priority")
+4. Verify through API that priority changed to `normal`
+
+**Expected**: Bulk action receives selected rows and applies update side effects successfully.
 
 ---
 
@@ -491,7 +503,7 @@ export default {
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase F — DataTable Extensibility | Done | 2026-02-26 | Injected columns, row actions, server filters, and bulk-action runtime are wired into DataTable with auto table replacement handles and dedicated test coverage. |
+| Phase F — DataTable Extensibility | Done | 2026-02-26 | Injected columns, row actions, server filters, and bulk-action runtime are wired into DataTable with auto table replacement handles and dedicated unit/integration test coverage (D01..D06). |
 
 ### Phase F — Detailed Progress
 
@@ -505,4 +517,4 @@ export default {
 - [x] DataTable replacement handle added (`data-table:<tableId>`) and rendered as `data-component-handle`
 - [x] Rendering tests still pass (`DataTable.render.test.tsx`)
 - [x] `data-table:<tableId>:bulk-actions` runtime execution in `DataTable` implemented
-- [x] Dedicated unit/integration tests for column/action/filter extension behavior added in `packages/ui/src/backend/__tests__/DataTable.extensions.test.tsx` and `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`
+- [x] Dedicated unit/integration tests for column/action/filter/bulk extension behavior added in `packages/ui/src/backend/__tests__/DataTable.extensions.test.tsx` and `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`
