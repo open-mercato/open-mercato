@@ -141,6 +141,28 @@ export function registerComponentOverrides(
     }
   }
   flat.sort((a, b) => a.override.priority - b.override.priority)
+
+  // Warn about priority collisions on the same target component
+  if (process.env.NODE_ENV === 'development') {
+    const priorityMap = new Map<string, string[]>()
+    for (const entry of flat) {
+      const key = `${entry.override.target.componentId}:${entry.override.priority}`
+      const existing = priorityMap.get(key)
+      if (existing) {
+        existing.push(entry.moduleId)
+        if (existing.length === 2) {
+          console.warn(
+            `[UMES] Component overrides with same priority (${entry.override.priority}) ` +
+            `targeting "${entry.override.target.componentId}": modules ${existing.join(', ')}. ` +
+            `Execution order is non-deterministic.`,
+          )
+        }
+      } else {
+        priorityMap.set(key, [entry.moduleId])
+      }
+    }
+  }
+
   _overrideEntries = flat
   writeGlobalOverrides(flat)
 }

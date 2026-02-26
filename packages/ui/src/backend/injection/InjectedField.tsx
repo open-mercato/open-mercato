@@ -5,6 +5,11 @@ import type {
   InjectionFieldDefinition,
   FieldContext,
 } from '@open-mercato/shared/modules/widgets/injection'
+import { Input } from '../../primitives/input'
+import { Label } from '../../primitives/label'
+import { Checkbox } from '../../primitives/checkbox'
+import { Textarea } from '../../primitives/textarea'
+import { Spinner } from '../../primitives/spinner'
 
 export type InjectedFieldProps = {
   field: InjectionFieldDefinition
@@ -49,60 +54,57 @@ export function InjectedField({ field, value, onChange, values, context, disable
   const options = dynamicOptions ?? field.options ?? []
   const handleChange = (newValue: unknown) => onChange(field.id, newValue)
 
-  const inputClassName = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+  const selectClassName = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
 
   const renderInput = () => {
     switch (field.type) {
       case 'text':
         return (
-          <input
+          <Input
             type="text"
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => handleChange(e.target.value)}
             disabled={isDisabled}
-            className={inputClassName}
           />
         )
 
       case 'number':
         return (
-          <input
+          <Input
             type="number"
             value={typeof value === 'number' ? value : (typeof value === 'string' ? value : '')}
             onChange={(e) => handleChange(e.target.value ? Number(e.target.value) : null)}
             disabled={isDisabled}
-            className={inputClassName}
           />
         )
 
       case 'date':
         return (
-          <input
+          <Input
             type="date"
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => handleChange(e.target.value || null)}
             disabled={isDisabled}
-            className={inputClassName}
           />
         )
 
       case 'textarea':
         return (
-          <textarea
+          <Textarea
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => handleChange(e.target.value)}
             disabled={isDisabled}
             rows={3}
-            className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           />
         )
 
       case 'select':
         if (optionsLoading) {
           return (
-            <select disabled className={inputClassName}>
-              <option>Loading...</option>
-            </select>
+            <div className="flex items-center gap-2 h-9 px-3">
+              <Spinner size="sm" />
+              <span className="text-sm text-muted-foreground">Loading options...</span>
+            </div>
           )
         }
         return (
@@ -110,9 +112,9 @@ export function InjectedField({ field, value, onChange, values, context, disable
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => handleChange(e.target.value || null)}
             disabled={isDisabled}
-            className={inputClassName}
+            className={selectClassName}
           >
-            <option value="">—</option>
+            <option value="">{'\u2014'}</option>
             {options.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
@@ -145,23 +147,22 @@ export function InjectedField({ field, value, onChange, values, context, disable
   if (field.type === 'boolean') {
     return (
       <div className="space-y-1" data-injected-field-id={field.id}>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={`injected-${field.id}`}
             checked={Boolean(value)}
-            onChange={(e) => handleChange(e.target.checked)}
+            onCheckedChange={(checked) => handleChange(Boolean(checked))}
             disabled={isDisabled}
-            className="h-4 w-4 rounded border-gray-300"
           />
-          <span className="text-sm font-medium">{field.label}</span>
-        </label>
+          <Label htmlFor={`injected-${field.id}`}>{field.label}</Label>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="space-y-1" data-injected-field-id={field.id}>
-      <label className="block text-sm font-medium">{field.label}</label>
+      <Label htmlFor={`injected-${field.id}`}>{field.label}</Label>
       {renderInput()}
     </div>
   )

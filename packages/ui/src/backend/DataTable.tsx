@@ -12,7 +12,7 @@ import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
-import { type RowActionItem } from './RowActions'
+import { RowActions, type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { InjectionSpot } from './injection/InjectionSpot'
 import { useInjectedTableExtensions } from './injection/useInjectedTableExtensions'
@@ -638,6 +638,30 @@ export function DataTable<T>({
     }
     return result
   }, [columns, tableExtensions.columns])
+
+  // Phase F: Merge injected row actions with existing ones
+  const mergedRowActions = React.useMemo(() => {
+    const injectedActions = tableExtensions.rowActions
+    if (!injectedActions.length && !rowActions) return rowActions
+    if (!injectedActions.length) return rowActions
+
+    return (row: T) => {
+      const existingElement = rowActions ? rowActions(row) : null
+      const existingItems: RowActionItem[] = React.isValidElement(existingElement)
+        ? ((existingElement.props as { items?: RowActionItem[] }).items ?? [])
+        : []
+
+      const convertedActions: RowActionItem[] = injectedActions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        onSelect: () => action.onSelect(row, {}),
+      }))
+
+      const allItems = [...existingItems, ...convertedActions]
+      return React.createElement(RowActions, { items: allItems })
+    }
+  }, [rowActions, tableExtensions.rowActions])
+
   const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const snapshotTableIdRef = React.useRef<string | null>(null)
   if (typeof window !== 'undefined') {
@@ -1614,7 +1638,7 @@ export function DataTable<T>({
                     </TableHead>
                   )
                 })}
-                {rowActions ? (
+                {mergedRowActions ? (
                   <TableHead className="w-0 text-right">
                     {t('ui.dataTable.actionsColumn', 'Actions')}
                   </TableHead>
@@ -1625,7 +1649,7 @@ export function DataTable<T>({
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center">
+                <TableCell colSpan={columns.length + (mergedRowActions ? 1 : 0)} className="h-24 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <Spinner size="md" />
                     <span className="text-muted-foreground">Loading data...</span>
@@ -1634,13 +1658,13 @@ export function DataTable<T>({
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-destructive">
+                <TableCell colSpan={columns.length + (mergedRowActions ? 1 : 0)} className="h-24 text-center text-destructive">
                   {typeof error === 'string' ? error : error}
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
-                const rowActionsElement = rowActions ? rowActions(row.original as T) : null
+                const rowActionsElement = mergedRowActions ? mergedRowActions(row.original as T) : null
                 const defaultRowAction = onRowClick ? null : pickDefaultRowAction(rowActionsElement, resolvedRowClickActionIds)
                 const isClickable = !disableRowClick && (onRowClick || defaultRowAction)
                 
@@ -1712,7 +1736,7 @@ export function DataTable<T>({
                         </TableCell>
                       )
                     })}
-                    {rowActions ? (
+                    {mergedRowActions ? (
                       <TableCell className="text-right whitespace-nowrap" data-actions-cell>
                         {rowActionsElement}
                       </TableCell>
@@ -1722,7 +1746,7 @@ export function DataTable<T>({
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={columns.length + (mergedRowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
                   {emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')}
                 </TableCell>
               </TableRow>

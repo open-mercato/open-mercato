@@ -122,11 +122,23 @@ export async function runInterceptorsBefore(
       if (result.metadata) accumulatedMetadata = { ...accumulatedMetadata, ...result.metadata }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error(`[UMES] Interceptor ${interceptor.id} before-hook failed: ${message}`)
+      const isTimeout = message.includes('timed out')
+
+      if (isTimeout) {
+        console.error(`[UMES] Interceptor ${interceptor.id} timed out`)
+      } else if (process.env.NODE_ENV === 'development') {
+        console.error(`[UMES] Interceptor ${interceptor.id} before-hook failed: ${message}`)
+      } else {
+        console.error(`[UMES] Interceptor ${interceptor.id} before-hook failed`)
+      }
+
       return {
         ok: false,
-        message: `Interceptor ${interceptor.id} failed: ${message}`,
-        statusCode: 500,
+        message:
+          process.env.NODE_ENV === 'development'
+            ? `Interceptor ${interceptor.id} failed: ${message}`
+            : `Interceptor ${interceptor.id} failed`,
+        statusCode: isTimeout ? 504 : 500,
         metadata: accumulatedMetadata,
       }
     }
@@ -189,11 +201,21 @@ export async function runInterceptorsAfter(
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error(`[UMES] Interceptor ${interceptor.id} after-hook failed: ${message}`)
+      const isTimeout = message.includes('timed out')
+
+      if (isTimeout) {
+        console.error(`[UMES] Interceptor ${interceptor.id} timed out`)
+      } else if (process.env.NODE_ENV === 'development') {
+        console.error(`[UMES] Interceptor ${interceptor.id} after-hook failed: ${message}`)
+      } else {
+        console.error(`[UMES] Interceptor ${interceptor.id} after-hook failed`)
+      }
+
       return {
         replace: {
           error: `Interceptor ${interceptor.id} failed`,
-          message,
+          message:
+            process.env.NODE_ENV === 'development' ? message : 'Internal interceptor error',
           _interceptorId: interceptor.id,
         },
       }
