@@ -106,6 +106,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@open-mercato/ui/primitives/dialog";
+import { SendObjectMessageDialog } from "@open-mercato/ui/backend/messages/SendObjectMessageDialog.tsx";
 
 const MarkdownEditor = dynamic(() => import("@uiw/react-md-editor"), {
   ssr: false,
@@ -1204,6 +1205,19 @@ export default function EditCatalogProductPage({
             resourceKind: "catalog.product",
             resourceId: productId ? String(productId) : "",
           }}
+          extraActions={productId ? (
+            <SendObjectMessageDialog
+              object={{
+                entityModule: "catalog",
+                entityType: "product",
+                entityId: productId,
+                previewData: {
+                  title: initialValues?.title ?? productId,
+                }
+              }}
+              viewHref={`/backend/catalog/products/${productId}/edit`}
+            />
+          ) : undefined}
           fields={[]}
           groups={groups}
           injectionSpotId="crud-form:catalog.product"

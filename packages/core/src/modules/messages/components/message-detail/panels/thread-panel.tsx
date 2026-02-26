@@ -3,6 +3,7 @@
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { getMessageUiComponentRegistry } from '../../utils/typeUiRegistry'
+import { getMessageObjectType } from '../../../lib/message-objects-registry'
 import type { MessageDetail, MessageDetailObject } from '../types'
 import { formatDateTime } from '../utils'
 
@@ -38,6 +39,7 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
                   const componentKey = `${obj.entityModule}:${obj.entityType}`
                   const PreviewComponent = messageUiRegistry.objectPreviewComponents[componentKey]
                     ?? messageUiRegistry.objectPreviewComponents['messages:default']
+                  const objectType = getMessageObjectType(obj.entityModule, obj.entityType)
                   if (!PreviewComponent) return null
 
                   return (
@@ -51,6 +53,7 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
                         actionRequired={obj.actionRequired}
                         actionType={obj.actionType ?? undefined}
                         actionLabel={obj.actionLabel ?? undefined}
+                        icon={objectType?.icon}
                       />
                     </div>
                   )

@@ -4,17 +4,16 @@
 @import "@xyflow/react/dist/style.css";
 
 /*
-Include @open-mercato packages in Tailwind content scanning
-For standalone apps, packages are in node_modules with compiled dist/ output
+Include workspace packages in Tailwind content scanning
+TODO: Fix that latter to have reference by the package names
 */
-@source "../../node_modules/@open-mercato/ui/dist/**/*.js";
-@source "../../node_modules/@open-mercato/core/dist/**/*.js";
-@source "../../node_modules/@open-mercato/shared/dist/**/*.js";
-@source "../../node_modules/@open-mercato/search/dist/**/*.js";
-@source "../../node_modules/@open-mercato/onboarding/dist/**/*.js";
-@source "../../node_modules/@open-mercato/content/dist/**/*.js";
-@source "../../node_modules/@open-mercato/ai-assistant/dist/**/*.js";
-
+@source "../../node_modules/@open-mercato/ui/src/**/*.{ts,tsx}";
+@source "../../node_modules/@open-mercato/core/src/**/*.{ts,tsx}";
+@source "../../node_modules/@open-mercato/shared/src/**/*.{ts,tsx}";
+@source "../../node_modules/@open-mercato/search/src/**/*.{ts,tsx}";
+@source "../../node_modules/@open-mercato/onboarding/src/**/*.{ts,tsx}";
+@source "../../node_modules/@open-mercato/content/src/**/*.{ts,tsx}";
+@source "../../node_modules/@open-mercato/ai-assistant/src/**/*.{ts,tsx}"
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -82,6 +81,17 @@ For standalone apps, packages are in node_modules with compiled dist/ output
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
+  /* Chart named colors - light theme */
+  --chart-blue: oklch(0.546 0.245 262.881);
+  --chart-emerald: oklch(0.596 0.145 163.225);
+  --chart-amber: oklch(0.769 0.188 70.08);
+  --chart-rose: oklch(0.645 0.246 16.439);
+  --chart-violet: oklch(0.606 0.25 292.717);
+  --chart-cyan: oklch(0.715 0.143 215.221);
+  --chart-indigo: oklch(0.511 0.262 276.966);
+  --chart-pink: oklch(0.656 0.241 354.308);
+  --chart-teal: oklch(0.627 0.134 175.001);
+  --chart-orange: oklch(0.705 0.213 47.604);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -116,6 +126,17 @@ For standalone apps, packages are in node_modules with compiled dist/ output
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
+  /* Chart named colors - dark theme (increased lightness) */
+  --chart-blue: oklch(0.623 0.214 259.815);
+  --chart-emerald: oklch(0.696 0.17 162.48);
+  --chart-amber: oklch(0.82 0.16 84.429);
+  --chart-rose: oklch(0.712 0.194 13.428);
+  --chart-violet: oklch(0.702 0.183 293.541);
+  --chart-cyan: oklch(0.789 0.154 211.53);
+  --chart-indigo: oklch(0.585 0.233 277.117);
+  --chart-pink: oklch(0.718 0.202 349.761);
+  --chart-teal: oklch(0.704 0.14 180.72);
+  --chart-orange: oklch(0.792 0.184 56.043);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -175,4 +196,117 @@ For standalone apps, packages are in node_modules with compiled dist/ output
 
 .animate-slide-in {
     animation: slide-in 0.3s ease-out;
+}
+
+/* AI Assistant dot animations */
+@keyframes ai-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes ai-pulse-active {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes ai-glow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes ai-glow-active {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes ai-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ai-sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1) rotate(15deg);
+    opacity: 0.9;
+  }
+}
+
+@keyframes ai-sparkle-active {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  25% {
+    transform: scale(1.2) rotate(10deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.9) rotate(-10deg);
+    opacity: 0.8;
+  }
+  75% {
+    transform: scale(1.15) rotate(5deg);
+    opacity: 1;
+  }
+}
+
+.animate-ai-pulse {
+  animation: ai-pulse 3s ease-in-out infinite;
+}
+
+.animate-ai-pulse-active {
+  animation: ai-pulse-active 1.5s ease-in-out infinite;
+}
+
+.animate-ai-glow {
+  animation: ai-glow 3s ease-in-out infinite;
+}
+
+.animate-ai-glow-active {
+  animation: ai-glow-active 1.5s ease-in-out infinite;
+}
+
+.animate-ai-spin {
+  animation: ai-spin 8s linear infinite;
+}
+
+.animate-ai-sparkle {
+  animation: ai-sparkle 3s ease-in-out infinite;
+}
+
+.animate-ai-sparkle-active {
+  animation: ai-sparkle-active 1s ease-in-out infinite;
+}
+
+/* Conic gradient for AI dot */
+.bg-gradient-conic {
+  background: conic-gradient(from 0deg, var(--tw-gradient-stops));
 }

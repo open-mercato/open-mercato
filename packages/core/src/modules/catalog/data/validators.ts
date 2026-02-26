@@ -159,59 +159,61 @@ function productUomCrossFieldRefinement(
   }
 }
 
-export const productCreateSchema = scoped
-  .extend({
-    title: z.string().trim().min(1).max(255),
-    subtitle: z.string().trim().max(255).optional(),
-    description: z.string().trim().max(4000).optional(),
-    sku: skuSchema.optional(),
-    handle: handleSchema.optional(),
-    taxRateId: uuid().nullable().optional(),
-    taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
-    productType: productTypeSchema.default('simple'),
-    statusEntryId: uuid().optional(),
-    primaryCurrencyCode: currencyCodeSchema.optional(),
-    defaultUnit: z.string().trim().max(50).optional().nullable(),
-    defaultSalesUnit: z.string().trim().max(50).optional().nullable(),
-    defaultSalesUnitQuantity: z.coerce.number().positive().optional(),
-    uomRoundingScale: z.coerce.number().int().min(0).max(6).optional(),
-    uomRoundingMode: uomRoundingModeSchema.optional(),
-    unitPriceEnabled: z.boolean().optional(),
-    unitPriceReferenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),
-    unitPriceBaseQuantity: z.coerce.number().positive().optional(),
-    unitPrice: unitPriceConfigSchema.optional(),
-    defaultMediaId: uuid().optional().nullable(),
-    defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
-    weightValue: z.coerce.number().min(0).optional().nullable(),
-    weightUnit: z.string().trim().max(25).optional().nullable(),
-    dimensions: z
-      .object({
-        width: z.coerce.number().min(0).optional(),
-        height: z.coerce.number().min(0).optional(),
-        depth: z.coerce.number().min(0).optional(),
-        unit: z.string().trim().max(25).optional(),
-      })
-      .optional()
-      .nullable(),
-    optionSchemaId: uuid().nullable().optional(),
-    optionSchema: optionSchema.optional(),
-    customFieldsetCode: slugSchema.nullable().optional(),
-    isConfigurable: z.boolean().optional(),
-    isActive: z.boolean().optional(),
-    omnibusExempt: z.boolean().optional(),
-    firstListedAt: z.coerce.date().optional().nullable(),
-    metadata: metadataSchema,
-    offers: z.array(offerInputSchema.omit({ id: true })).optional(),
-    categoryIds: z.array(uuid()).max(100).optional(),
-    tags: z.array(tagLabelSchema).max(100).optional(),
-  })
+// Base schema without refinements (used for .partial() in update schema)
+const productBaseSchema = scoped.extend({
+  title: z.string().trim().min(1).max(255),
+  subtitle: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  sku: skuSchema.optional(),
+  handle: handleSchema.optional(),
+  taxRateId: uuid().nullable().optional(),
+  taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
+  productType: productTypeSchema.default('simple'),
+  statusEntryId: uuid().optional(),
+  primaryCurrencyCode: currencyCodeSchema.optional(),
+  defaultUnit: z.string().trim().max(50).optional().nullable(),
+  defaultSalesUnit: z.string().trim().max(50).optional().nullable(),
+  defaultSalesUnitQuantity: z.coerce.number().positive().optional(),
+  uomRoundingScale: z.coerce.number().int().min(0).max(6).optional(),
+  uomRoundingMode: uomRoundingModeSchema.optional(),
+  unitPriceEnabled: z.boolean().optional(),
+  unitPriceReferenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),
+  unitPriceBaseQuantity: z.coerce.number().positive().optional(),
+  unitPrice: unitPriceConfigSchema.optional(),
+  defaultMediaId: uuid().optional().nullable(),
+  defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
+  weightValue: z.coerce.number().min(0).optional().nullable(),
+  weightUnit: z.string().trim().max(25).optional().nullable(),
+  dimensions: z
+    .object({
+      width: z.coerce.number().min(0).optional(),
+      height: z.coerce.number().min(0).optional(),
+      depth: z.coerce.number().min(0).optional(),
+      unit: z.string().trim().max(25).optional(),
+    })
+    .optional()
+    .nullable(),
+  optionSchemaId: uuid().nullable().optional(),
+  optionSchema: optionSchema.optional(),
+  customFieldsetCode: slugSchema.nullable().optional(),
+  isConfigurable: z.boolean().optional(),
+  isActive: z.boolean().optional(),  
+  omnibusExempt: z.boolean().optional(),
+  firstListedAt: z.coerce.date().optional().nullable(),
+  metadata: metadataSchema,
+  offers: z.array(offerInputSchema.omit({ id: true })).optional(),
+  categoryIds: z.array(uuid()).max(100).optional(),
+  tags: z.array(tagLabelSchema).max(100).optional(),
+})
+
+export const productCreateSchema = productBaseSchema
   .superRefine(productUomCrossFieldRefinement)
 
 export const productUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(productCreateSchema.partial())
+  .merge(productBaseSchema.partial())
   .extend({
     productType: productTypeSchema.optional(),
   })

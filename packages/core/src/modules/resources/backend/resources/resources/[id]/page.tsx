@@ -12,6 +12,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ActivitiesSection, NotesSection, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
@@ -490,10 +491,25 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
             backHref="/backend/resources/resources"
             backLabel={t('resources.resources.detail.back', 'Back to resources')}
             utilityActions={(
-              <VersionHistoryAction
-                config={resourceId ? { resourceKind: 'resources.resource', resourceId, includeRelated: true } : null}
-                t={t}
-              />
+              <>
+                {resourceId ? (
+                  <SendObjectMessageDialog
+                    object={{
+                      entityModule: 'resources',
+                      entityType: 'resource',
+                      entityId: resourceId,
+                      previewData: {
+                        title: resourceTitle,
+                      },
+                    }}
+                    viewHref={`/backend/resources/resources/${resourceId}`}
+                  />
+                ) : null}
+                <VersionHistoryAction
+                  config={resourceId ? { resourceKind: 'resources.resource', resourceId, includeRelated: true } : null}
+                  t={t}
+                />
+              </>
             )}
             title={resourceTitle}
             subtitle={t('resources.resources.detail.subtitle', 'Resource profile and activity')}

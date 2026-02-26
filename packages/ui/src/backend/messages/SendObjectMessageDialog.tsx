@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { Send } from 'lucide-react'
+import Link from 'next/link'
+import { ExternalLink, Send } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import {
@@ -17,10 +18,8 @@ export type SendObjectMessageDialogProps = {
   lockedType?: string | null
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
   disabled?: boolean
-  contextPreview?: React.ReactNode
-  children?: React.ReactNode
+  viewHref?: string | null
   onSuccess?: MessageComposerProps['onSuccess']
-  renderTrigger?: (params: { openComposer: () => void; disabled: boolean }) => React.ReactNode
 }
 
 export function SendObjectMessageDialog({
@@ -29,10 +28,8 @@ export function SendObjectMessageDialog({
   lockedType = 'messages.defaultWithObjects',
   requiredActionConfig = null,
   disabled = false,
-  contextPreview = null,
-  children = null,
+  viewHref = null,
   onSuccess,
-  renderTrigger,
 }: SendObjectMessageDialogProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -47,15 +44,29 @@ export function SendObjectMessageDialog({
     entityId: object.entityId,
     sourceEntityType: object.sourceEntityType ?? null,
     sourceEntityId: object.sourceEntityId ?? null,
-  }), [object.entityId, object.entityModule, object.entityType, object.sourceEntityId, object.sourceEntityType])
+    previewData: object.previewData ?? null,
+  }), [object.entityId, object.entityModule, object.entityType, object.sourceEntityId, object.sourceEntityType, object.previewData])
 
-  const trigger = renderTrigger
-    ? renderTrigger({ openComposer, disabled })
-    : (
+  return (
+    <>
+      {viewHref ? (
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          asChild
+          aria-label={t('common.view', 'View')}
+          title={t('common.view', 'View')}
+        >
+          <Link href={viewHref}>
+            <ExternalLink className="h-4 w-4" />
+          </Link>
+        </Button>
+      ) : null}
       <Button
         type="button"
         size="icon"
-        variant="outline"
+        variant="ghost"
         disabled={disabled}
         onClick={openComposer}
         aria-label={t('messages.compose', 'Compose message')}
@@ -63,11 +74,6 @@ export function SendObjectMessageDialog({
       >
         <Send className="h-4 w-4" />
       </Button>
-    )
-    
-  return (
-    <>
-      {trigger}
       <MessageComposer
         variant="compose"
         open={open}
@@ -75,7 +81,6 @@ export function SendObjectMessageDialog({
         lockedType={lockedType}
         contextObject={contextObject}
         requiredActionConfig={requiredActionConfig}
-        contextPreview={contextPreview ?? children}
         defaultValues={defaultValues}
         onSuccess={onSuccess}
       />
