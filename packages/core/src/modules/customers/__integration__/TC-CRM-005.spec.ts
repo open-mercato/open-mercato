@@ -30,7 +30,7 @@ test.describe('TC-CRM-005: Link Person to Company', () => {
       await login(page, 'admin');
       await page.goto(`/backend/customers/people/${personId}`);
 
-      await page.getByRole('button', { name: 'ui.forms.actions.edit' }).first().click();
+      await page.getByRole('button', { name: /^Edit$/i }).first().click();
       await page
         .locator('select')
         .filter({ has: page.locator('option', { hasText: companyName }) })

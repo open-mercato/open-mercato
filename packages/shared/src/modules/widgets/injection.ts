@@ -1,9 +1,52 @@
-import type { ComponentType } from 'react'
+import type { ComponentType, LazyExoticComponent, ReactNode } from 'react'
+import type { InjectionPlacement } from './injection-position'
 
 /**
- * Widget injection event handlers for lifecycle management
+ * Result returned by `onFieldChange` handlers.
+ */
+export type FieldChangeResult = {
+  /** Override the field value */
+  value?: unknown
+  /** Set other fields as side effects */
+  sideEffects?: Record<string, unknown>
+  /** Display a message to the user near the field */
+  message?: { text: string; severity: 'info' | 'warning' | 'error' }
+}
+
+/**
+ * Result returned by `onBeforeNavigate` handlers.
+ */
+export type NavigateGuardResult = {
+  /** Whether navigation should proceed */
+  ok: boolean
+  /** Reason shown to the user when navigation is blocked */
+  message?: string
+}
+
+/**
+ * Payload delivered by the DOM Event Bridge for server-side app events.
+ */
+export type AppEventPayload = {
+  /** Event identifier (e.g., 'example.todo.created') */
+  id: string
+  /** Event-specific payload data */
+  payload: Record<string, unknown>
+  /** Server timestamp when the event was emitted */
+  timestamp: number
+  /** Organization the event belongs to */
+  organizationId: string
+}
+
+/**
+ * Widget injection event handlers for lifecycle management.
+ *
+ * Handlers are classified into two categories:
+ * - **Action events**: Fire-and-forget or gate handlers (accumulate requestHeaders, check ok boolean)
+ * - **Transformer events**: Pipeline handlers where output of widget N becomes input of widget N+1
  */
 export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = {
+  // === Existing: Lifecycle Actions ===
+
   /**
    * Called when the widget is first loaded/mounted
    */
@@ -47,6 +90,52 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
    * Called when delete action fails.
    */
   onDeleteError?: (data: TData, context: TContext, error: unknown) => void | Promise<void>
+
+  // === New: DOM-Inspired Lifecycle (Phase C) ===
+
+  /**
+   * Called when a form field value changes. Can return side-effects and user messages.
+   * Action event — called for each widget independently.
+   */
+  onFieldChange?: (fieldId: string, value: unknown, data: TData, context: TContext) => Promise<FieldChangeResult | void>
+
+  /**
+   * Called before navigating away from the current page. Can block navigation.
+   * Action event — first widget returning `ok: false` stops navigation.
+   */
+  onBeforeNavigate?: (target: string, context: TContext) => Promise<NavigateGuardResult>
+
+  /**
+   * Called when the widget's visibility changes (e.g., tab switches).
+   * Action event — fire-and-forget.
+   */
+  onVisibilityChange?: (visible: boolean, context: TContext) => Promise<void>
+
+  /**
+   * Called when an app event matching the widget's subscription arrives via the DOM Event Bridge.
+   * Action event — fire-and-forget.
+   */
+  onAppEvent?: (event: AppEventPayload, context: TContext) => Promise<void>
+
+  // === New: Data Transformation Pipelines (Phase C) ===
+
+  /**
+   * Transform form data before submission. Output of widget N becomes input of widget N+1.
+   * Transformer event — pipeline dispatch.
+   */
+  transformFormData?: (data: TData, context: TContext) => Promise<TData>
+
+  /**
+   * Transform data for display purposes. Output of widget N becomes input of widget N+1.
+   * Transformer event — pipeline dispatch.
+   */
+  transformDisplayData?: (data: TData, context: TContext) => Promise<TData>
+
+  /**
+   * Transform validation errors. Output of widget N becomes input of widget N+1.
+   * Transformer event — pipeline dispatch.
+   */
+  transformValidation?: (errors: Record<string, string>, data: TData, context: TContext) => Promise<Record<string, string>>
 }
 
 /**
@@ -54,7 +143,7 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
  */
 export type InjectionWidgetMetadata = {
   id: string
-  title: string
+  title?: string
   description?: string
   features?: string[]
   priority?: number
@@ -122,6 +211,194 @@ export type InjectionWidgetModule<TContext = unknown, TData = unknown> = {
   Widget: ComponentType<InjectionWidgetComponentProps<TContext, TData>>
   eventHandlers?: WidgetInjectionEventHandlers<TContext, TData>
 }
+
+export type InjectionColumnDefinition = {
+  id: string
+  header: string
+  accessorKey: string
+  cell?: (props: { getValue: () => unknown }) => ReactNode
+  size?: number
+  sortable?: boolean
+  placement?: InjectionPlacement
+}
+
+export type InjectionRowActionDefinition = {
+  id: string
+  label: string
+  icon?: string
+  onSelect: (row: unknown, context: unknown) => void
+  placement?: InjectionPlacement
+}
+
+export type InjectionBulkActionDefinition = {
+  id: string
+  label: string
+  icon?: string
+  onExecute: (selectedRows: unknown[], context: unknown) => Promise<void>
+}
+
+export type InjectionFilterDefinition = {
+  id: string
+  label: string
+  type: 'select' | 'text' | 'date-range' | 'boolean'
+  options?: { value: string; label: string }[]
+  strategy: 'server' | 'client'
+  queryParam?: string
+  enrichedField?: string
+}
+
+export type FieldVisibilityCondition<TContext = unknown> = (
+  values: Record<string, unknown>,
+  context: TContext,
+) => boolean
+
+export type CustomFieldProps<TContext = unknown> = {
+  value: unknown
+  onChange: (value: unknown) => void
+  context: TContext
+  disabled?: boolean
+}
+
+export type FieldContext = {
+  organizationId?: string | null
+  tenantId?: string | null
+  userId?: string | null
+  record?: Record<string, unknown>
+}
+
+export type InjectionFieldDefinition = {
+  id: string
+  label: string
+  type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea' | 'custom'
+  options?: { value: string; label: string }[]
+  optionsLoader?: (context: FieldContext) => Promise<{ value: string; label: string }[]>
+  optionsCacheTtl?: number
+  customComponent?: LazyExoticComponent<ComponentType<CustomFieldProps>>
+  group: string
+  placement?: InjectionPlacement
+  readOnly?: boolean
+  visibleWhen?: FieldVisibilityCondition
+}
+
+export type WizardStepProps<TContext = unknown> = {
+  data: Record<string, unknown>
+  setData: (next: Record<string, unknown>) => void
+  context: TContext
+}
+
+export type InjectionContext = {
+  organizationId?: string | null
+  tenantId?: string | null
+  userId?: string | null
+  path?: string
+  [k: string]: unknown
+}
+
+export type InjectionWizardStep = {
+  id: string
+  label: string
+  fields?: InjectionFieldDefinition[]
+  customComponent?: LazyExoticComponent<ComponentType<WizardStepProps>>
+  validate?: (
+    data: Record<string, unknown>,
+    context: InjectionContext,
+  ) => Promise<{ ok: boolean; message?: string }>
+}
+
+export type InjectionWizardWidget = {
+  metadata: InjectionWidgetMetadata
+  kind: 'wizard'
+  steps: InjectionWizardStep[]
+  onComplete?: (stepData: Record<string, unknown>, context: InjectionContext) => Promise<void>
+  eventHandlers?: WidgetInjectionEventHandlers<InjectionContext, Record<string, unknown>>
+}
+
+export type StatusBadgeResult = {
+  status: 'healthy' | 'warning' | 'error' | 'unknown'
+  tooltip?: string
+  count?: number
+}
+
+export type StatusBadgeContext = {
+  organizationId: string
+  tenantId: string
+  userId: string
+}
+
+export type InjectionStatusBadgeWidget = {
+  metadata: InjectionWidgetMetadata
+  kind: 'status-badge'
+  badge: {
+    label: string
+    statusLoader: (context: StatusBadgeContext) => Promise<StatusBadgeResult>
+    href?: string
+    pollInterval?: number
+  }
+}
+
+export type InjectionMenuItem = {
+  id: string
+  label: string
+  labelKey?: string
+  icon?: string
+  href?: string
+  onClick?: () => void
+  separator?: boolean
+  placement?: InjectionPlacement
+  features?: string[]
+  roles?: string[]
+  badge?: string | number
+  children?: Omit<InjectionMenuItem, 'children'>[]
+  groupId?: string
+  groupLabel?: string
+  groupLabelKey?: string
+  groupOrder?: number
+}
+
+export type InjectionMenuItemWidget = {
+  metadata: InjectionWidgetMetadata
+  menuItems: InjectionMenuItem[]
+}
+
+export type InjectionColumnWidget = {
+  metadata: InjectionWidgetMetadata
+  columns: InjectionColumnDefinition[]
+}
+
+export type InjectionRowActionWidget = {
+  metadata: InjectionWidgetMetadata
+  rowActions: InjectionRowActionDefinition[]
+}
+
+export type InjectionBulkActionWidget = {
+  metadata: InjectionWidgetMetadata
+  bulkActions: InjectionBulkActionDefinition[]
+}
+
+export type InjectionFilterWidget = {
+  metadata: InjectionWidgetMetadata
+  filters: InjectionFilterDefinition[]
+}
+
+export type InjectionFieldWidget = {
+  metadata: InjectionWidgetMetadata
+  fields: InjectionFieldDefinition[]
+  eventHandlers?: WidgetInjectionEventHandlers<InjectionContext, Record<string, unknown>>
+}
+
+export type InjectionDataWidgetModule =
+  | InjectionColumnWidget
+  | InjectionRowActionWidget
+  | InjectionBulkActionWidget
+  | InjectionFilterWidget
+  | InjectionFieldWidget
+  | InjectionWizardWidget
+  | InjectionStatusBadgeWidget
+  | InjectionMenuItemWidget
+
+export type InjectionAnyWidgetModule<TContext = unknown, TData = unknown> =
+  | InjectionWidgetModule<TContext, TData>
+  | InjectionDataWidgetModule
 
 /**
  * Injection spot identifier - uniquely identifies where widgets can be injected

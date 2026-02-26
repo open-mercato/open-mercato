@@ -22,13 +22,41 @@ test.describe('TC-MSG-005: Archive And Unarchive Message', () => {
       await login(page, 'admin');
       await page.goto(`/backend/messages/${fixture.messageId}`);
 
-      // "Archive" is a menuitem inside the hover-triggered "Actions" dropdown on the individual message header.
-      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
-      await page.getByRole('menuitem', { name: /^Archive$|messages\.actions\.archive/i }).click();
+      const actionsButton = page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i });
+      const clickActionMenuItem = async (actionName: RegExp): Promise<void> => {
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await actionsButton.hover();
+          const menuItem = page.getByRole('menuitem', { name: actionName }).first();
+          if (await menuItem.isVisible().catch(() => false)) {
+            await menuItem.click();
+            return;
+          }
+          await actionsButton.click();
+          if (await menuItem.isVisible().catch(() => false)) {
+            await menuItem.click();
+            return;
+          }
+          await page.waitForTimeout(250);
+        }
+        await expect(page.getByRole('menuitem', { name: actionName }).first()).toBeVisible();
+        await page.getByRole('menuitem', { name: actionName }).first().click();
+      };
+
+      const archiveResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'PUT' &&
+          /\/api\/messages\/[^/]+\/archive(?:\?|$)/.test(response.url()) &&
+          response.ok(),
+        { timeout: 10_000 },
+      );
+      await clickActionMenuItem(/^Archive$|messages\.actions\.archive/i);
+      await archiveResponsePromise;
 
       // After archiving the menu label switches to "Unarchive".
-      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
-      await expect(page.getByRole('menuitem', { name: /Unarchive|messages\.actions\.unarchive/i })).toBeVisible();
+      await expect.poll(async () => {
+        await actionsButton.hover();
+        return page.getByRole('menuitem', { name: /Unarchive|messages\.actions\.unarchive/i }).count();
+      }, { timeout: 8_000 }).toBeGreaterThan(0);
 
       await page.goto('/backend/messages');
       await selectMessageFolder(page, 'Archived');
@@ -37,12 +65,21 @@ test.describe('TC-MSG-005: Archive And Unarchive Message', () => {
 
       await messageRowBySubject(page, fixture.subject).click();
 
-      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
-      await page.getByRole('menuitem', { name: /Unarchive|messages\.actions\.unarchive/i }).click();
+      const unarchiveResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'DELETE' &&
+          /\/api\/messages\/[^/]+\/archive(?:\?|$)/.test(response.url()) &&
+          response.ok(),
+        { timeout: 10_000 },
+      );
+      await clickActionMenuItem(/Unarchive|messages\.actions\.unarchive/i);
+      await unarchiveResponsePromise;
 
       // After unarchiving the menu label switches back to "Archive".
-      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
-      await expect(page.getByRole('menuitem', { name: /^Archive$|messages\.actions\.archive/i })).toBeVisible();
+      await expect.poll(async () => {
+        await actionsButton.hover();
+        return page.getByRole('menuitem', { name: /^Archive$|messages\.actions\.archive/i }).count();
+      }, { timeout: 8_000 }).toBeGreaterThan(0);
 
       await page.goto('/backend/messages');
       await selectMessageFolder(page, 'Inbox');

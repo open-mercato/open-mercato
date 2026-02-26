@@ -247,6 +247,8 @@ Widget injection is the preferred way to build inter-module UI extensions. Avoid
 - Declare widgets under `widgets/injection/`
 - Map them to slots via `widgets/injection-table.ts`
 - Keep metadata in colocated `*.meta.ts` files
+- For headless widgets (menu items, field/column/action declarations), export declarative payloads from `widget.ts` without a React `Widget` component
+- Use `InjectionPosition` from `@open-mercato/shared/modules/widgets/injection-position` for deterministic before/after/first/last placement
 
 ### Spot IDs
 
@@ -254,8 +256,20 @@ Hosts expose consistent spot ids:
 - `crud-form:<entityId>` — forms
 - `data-table:<tableId>[:header|:footer]` — data tables
 - `admin.page:<path>:before|after` — admin pages
+- `menu:sidebar:main` — main sidebar items/groups
+- `menu:sidebar:settings` — settings sidebar
+- `menu:sidebar:profile` — profile sidebar
+- `menu:topbar:profile-dropdown` — user/profile dropdown
+- `menu:topbar:actions` — header action area
 
 Widgets can opt into grouped cards or tabs via `placement.kind`.
+
+### Menu Injection
+
+- Define menu widgets with `menuItems: InjectionMenuItem[]` and map them to one or more `menu:*` spots in `widgets/injection-table.ts`.
+- Prefer stable `menuItems[].id` values (`<module>-<feature>-<action>`) because sidebar customization and tests rely on these IDs.
+- Always use i18n keys for labels (`labelKey`), never hard-code user-facing text in widget payloads.
+- When placing relative to an existing item, provide `placement: { position: InjectionPosition.Before|After, relativeTo: '<target-id>' }`.
 
 ## Custom Fields
 
@@ -407,6 +421,58 @@ Output to `apps/mercato/.mercato/generated/`. Never edit manually. Never import 
 | `modules.cli.generated.ts` | CLI module registrations |
 
 Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
+
+## Response Enrichers
+
+Response enrichers let a module add computed fields to another module's CRUD API responses (similar to GraphQL Federation).
+
+### Creating an Enricher
+
+Create `data/enrichers.ts` in your module:
+
+```typescript
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const myEnricher: ResponseEnricher = {
+  id: 'mymodule.customer-metrics',
+  targetEntity: 'customers.person',     // entity to enrich
+  features: ['mymodule.view'],           // required ACL features
+  priority: 10,                          // higher runs first
+  timeout: 2000,                         // ms, default 2000
+  fallback: { _mymodule: { count: 0 } },// returned on failure
+  critical: false,                       // true = error propagates to client
+  async enrichOne(record, context) {
+    // Add fields to a single record
+    return { ...record, _mymodule: { count: 42 } }
+  },
+  async enrichMany(records, context) {
+    // Batch enrichment (prevents N+1)
+    return records.map(r => ({ ...r, _mymodule: { count: 42 } }))
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [myEnricher]
+```
+
+### Opt-in on CRUD routes
+
+Target entity routes must opt in via `enrichers` option:
+```typescript
+const crud = makeCrudRoute({
+  // ...
+  enrichers: { entityId: 'customers.person' },
+})
+```
+
+### Key Rules
+
+- MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
+- MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)
+- MUST use `features` array for ACL gating — enricher runs only if user has all listed features
+- Export fields are stripped: `_meta` and `_`-prefixed fields are removed from CSV/Excel exports
+- Enrichers run after `CrudHooks.afterList`, before HTTP response serialization
+- `critical: true` propagates errors to the HTTP response; `false` (default) uses fallback silently
+- Run `yarn generate` after adding `data/enrichers.ts` to auto-discover
 
 ## Upgrade Actions
 

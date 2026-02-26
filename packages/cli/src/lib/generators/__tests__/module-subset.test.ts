@@ -432,4 +432,16 @@ describe('all generated files are valid with varying subsets', () => {
     expect(aiTools).toContain('export const aiToolConfigEntries')
     expect(aiTools).not.toContain('no_ai')
   })
+
+  it('notifications.generated.ts uses typed fallback for legacy "types" export', async () => {
+    scaffoldModule(tmpDir, 'notif_mod', 'pkg', ['notifications.ts'])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'notif_mod', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const notifications = readGenerated(tmpDir, 'notifications.generated.ts')!
+    expect(notifications).toContain('as any).types')
+    expect(notifications).toContain('as NotificationTypeDefinition[]')
+  })
 })
