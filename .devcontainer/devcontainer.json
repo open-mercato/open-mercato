@@ -1,0 +1,39 @@
+{
+  "name": "Open Mercato",
+  "initializeCommand": "bash .devcontainer/scripts/generate-compose-volumes.sh",
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.volumes.yml"],
+  "service": "workspace",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "node",
+
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
+
+  "forwardPorts": [3000, 5432, 6379, 7700],
+  "portsAttributes": {
+    "3000": { "label": "App", "onAutoForward": "notify" },
+    "5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
+    "6379": { "label": "Redis", "onAutoForward": "silent" },
+    "7700": { "label": "Meilisearch", "onAutoForward": "silent" }
+  },
+
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "mikestead.dotenv",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
