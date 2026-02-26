@@ -71,6 +71,24 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "pipeline_id": {
+          "name": "pipeline_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "pipeline_stage_id": {
+          "name": "pipeline_stage_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "value_amount": {
           "name": "value_amount",
           "type": "numeric(14,2)",
@@ -725,7 +743,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_deal_people_person_entity_id_foreign": {
@@ -738,7 +755,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -842,7 +858,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_deal_companies_company_entity_id_foreign": {
@@ -855,7 +870,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -1042,7 +1056,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -1210,7 +1223,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_comments_deal_id_foreign": {
@@ -1223,7 +1235,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -1453,7 +1464,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -1651,7 +1661,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_activities_deal_id_foreign": {
@@ -1664,7 +1673,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_deals",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -1877,7 +1885,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_people_company_entity_id_foreign": {
@@ -1890,11 +1897,228 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
       },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "is_default": {
+          "name": "is_default",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "customer_pipelines",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "customer_pipelines_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_pipelines_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "pipeline_id": {
+          "name": "pipeline_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "position": {
+          "name": "position",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "customer_pipeline_stages",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "customer_pipeline_stages_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_pipeline_stages_pipeline_position_idx",
+          "columnNames": [
+            "pipeline_id",
+            "position"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_pipeline_stages_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
       "nativeEnums": {}
     },
     {
@@ -2221,7 +2445,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_tags",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "customer_tag_assignments_entity_id_foreign": {
@@ -2234,7 +2457,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -2377,7 +2599,6 @@
             "id"
           ],
           "referencedTableName": "public.customer_entities",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },

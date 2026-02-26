@@ -39,6 +39,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 ## 3. Data Integrity & ORM
 
 - [ ] No hand-written migrations — entities updated, `yarn db:generate` used
+- [ ] When entities changed, corresponding generated migration file is included in the diff
 - [ ] UUID primary keys with `defaultRaw: 'gen_random_uuid()'`
 - [ ] Standard columns present: `id`, `created_at`, `updated_at`, `organization_id`, `tenant_id`
 - [ ] Soft delete via `deleted_at` (not hard delete for historical records)
