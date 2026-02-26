@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 
@@ -47,6 +48,9 @@ export default function ProcessingLogPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [retryingEmailId, setRetryingEmailId] = React.useState<string | null>(null)
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'inbox-ops-log',
+  })
 
   const loadEmails = React.useCallback(async () => {
     setIsLoading(true)
@@ -74,20 +78,23 @@ export default function ProcessingLogPage() {
 
   const handleRetryEmail = React.useCallback(async (emailId: string) => {
     setRetryingEmailId(emailId)
-    const result = await apiCall<{ ok: boolean; error?: string }>(
-      `/api/inbox_ops/emails/${emailId}/reprocess`,
-      { method: 'POST' },
-    )
+    const result = await runMutation({
+      operation: () => apiCall<{ ok: boolean; error?: string }>(
+        `/api/inbox_ops/emails/${emailId}/reprocess`,
+        { method: 'POST' },
+      ),
+      context: {},
+    })
 
     if (result?.ok && result.result?.ok) {
-      flash(`${t('inbox_ops.action.retry', 'Retry')} ${t('inbox_ops.status.processing', 'Processing')}`, 'success')
+      flash(t('inbox_ops.flash.reprocessing_started', 'Reprocessing started'), 'success')
       await loadEmails()
     } else {
       flash(result?.result?.error || t('inbox_ops.extraction_failed', 'Extraction failed'), 'error')
     }
 
     setRetryingEmailId(null)
-  }, [loadEmails, t])
+  }, [loadEmails, t, runMutation])
 
   const columns: ColumnDef<EmailRow>[] = React.useMemo(() => [
     {
@@ -110,8 +117,16 @@ export default function ProcessingLogPage() {
       accessorKey: 'status',
       header: t('inbox_ops.log.status', 'Status'),
       cell: ({ row }) => {
+        const statusLabels: Record<string, string> = {
+          received: t('inbox_ops.log.tab_received', 'Received'),
+          processing: t('inbox_ops.log.tab_processing', 'Processing'),
+          processed: t('inbox_ops.log.tab_processed', 'Processed'),
+          needs_review: t('inbox_ops.log.tab_needs_review', 'Needs Review'),
+          failed: t('inbox_ops.log.tab_failed', 'Failed'),
+        }
         const color = STATUS_COLORS[row.original.status] || 'bg-gray-100 text-gray-800'
-        return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${color}`}>{row.original.status}</span>
+        const label = statusLabels[row.original.status] || row.original.status
+        return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color}`}>{label}</span>
       },
     },
     {

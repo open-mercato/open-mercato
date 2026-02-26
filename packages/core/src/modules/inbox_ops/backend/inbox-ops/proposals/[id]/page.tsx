@@ -235,9 +235,13 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       context: {},
     })
     if (result?.ok && result.result?.ok) {
-      flash(t('inbox_ops.flash.accept_all_success', '{succeeded} actions executed')
-        .replace('{succeeded}', String(result.result.succeeded))
-        + (result.result.failed > 0 ? `, ${result.result.failed} failed` : ''), 'success')
+      const msg = result.result.failed > 0
+        ? t('inbox_ops.flash.accept_all_partial', '{succeeded} actions executed, {failed} failed')
+          .replace('{succeeded}', String(result.result.succeeded))
+          .replace('{failed}', String(result.result.failed))
+        : t('inbox_ops.flash.accept_all_success', '{succeeded} actions executed')
+          .replace('{succeeded}', String(result.result.succeeded))
+      flash(msg, 'success')
       await loadData()
     } else {
       flash(t('inbox_ops.flash.accept_all_failed', 'Failed to accept all actions'), 'error')

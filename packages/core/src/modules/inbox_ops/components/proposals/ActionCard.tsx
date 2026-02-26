@@ -47,6 +47,34 @@ export function useDiscrepancyDescriptions(): (description: string, foundValue?:
   }
 }
 
+/**
+ * Resolves action description i18n keys stored in the database.
+ * Auto-generated actions store keys like `inbox_ops.action.desc.create_contact`;
+ * LLM-generated actions store plain text which is returned as-is.
+ */
+export function useActionDescriptionResolver(): (description: string, payload: Record<string, unknown>) => string {
+  const t = useT()
+  return (description: string, payload: Record<string, unknown>) => {
+    if (!description.startsWith('inbox_ops.action.desc.')) return description
+    const name = (payload.name as string) || (payload.contactName as string) || ''
+    const email = (payload.email as string) || (payload.emailAddress as string) || ''
+    const title = (payload.title as string) || ''
+    const toName = (payload.toName as string) || (payload.to as string) || ''
+    const subject = (payload.subject as string) || ''
+    const translations: Record<string, string> = {
+      'inbox_ops.action.desc.create_contact': t('inbox_ops.action.desc.create_contact', 'Create contact for {name} ({email})')
+        .replace('{name}', name).replace('{email}', email),
+      'inbox_ops.action.desc.link_contact': t('inbox_ops.action.desc.link_contact', 'Link {name} ({email}) to existing contact')
+        .replace('{name}', name).replace('{email}', email),
+      'inbox_ops.action.desc.create_product': t('inbox_ops.action.desc.create_product', 'Create catalog product "{title}"')
+        .replace('{title}', title),
+      'inbox_ops.action.desc.draft_reply': t('inbox_ops.action.desc.draft_reply', 'Draft reply to {toName}: {subject}')
+        .replace('{toName}', toName).replace('{subject}', subject),
+    }
+    return translations[description] || description
+  }
+}
+
 const ACTION_TYPE_ICONS: Record<string, React.ElementType> = {
   create_order: Package,
   create_quote: FileText,
@@ -211,10 +239,11 @@ export function ActionCard({
   const t = useT()
   const Icon = ACTION_TYPE_ICONS[action.actionType] || Package
   const label = actionTypeLabels[action.actionType] || action.actionType
+  const resolveActionDescription = useActionDescriptionResolver()
 
   const actionDiscrepancies = discrepancies.filter((d) => d.actionId === action.id && !d.resolved)
   const hasBlockingDiscrepancies = actionDiscrepancies.some((d) => d.severity === 'error')
-  const displayDescription = translatedDescription || action.description
+  const displayDescription = translatedDescription || resolveActionDescription(action.description, action.payload)
 
   if (action.status === 'executed') {
     return (

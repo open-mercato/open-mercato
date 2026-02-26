@@ -326,7 +326,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
             const currencyCode = typeof parsedPayload.currencyCode === 'string' ? parsedPayload.currencyCode : undefined
             autoProductActions.push({
               actionType: 'create_product',
-              description: `Create catalog product "${productName}"`,
+              description: 'inbox_ops.action.desc.create_product',
               confidence: 0.9,
               requiredFeature: REQUIRED_FEATURES_MAP.create_product,
               payloadJson: JSON.stringify({
@@ -410,7 +410,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
           proposalId: proposalId,
           sortOrder: combinedProposedActions.length + index,
           actionType: 'draft_reply',
-          description: `Draft reply to ${reply.toName || reply.to}: ${reply.subject}`,
+          description: 'inbox_ops.action.desc.draft_reply',
           payload: {
             to: reply.to,
             toName: reply.toName,
@@ -604,7 +604,7 @@ function buildContactActionsForUnmatchedParticipants(
     })
     .map((m) => ({
       actionType: 'create_contact' as const,
-      description: `Create contact for ${m.participant.name} (${m.participant.email})`,
+      description: 'inbox_ops.action.desc.create_contact',
       confidence: 0.9,
       requiredFeature: REQUIRED_FEATURES_MAP.create_contact,
       payloadJson: JSON.stringify({
@@ -645,7 +645,7 @@ function buildLinkContactActionsForMatchedParticipants(
     })
     .map((m) => ({
       actionType: 'link_contact' as const,
-      description: `Link ${m.participant.name} (${m.participant.email}) to existing contact`,
+      description: 'inbox_ops.action.desc.link_contact',
       confidence: 0.95,
       requiredFeature: REQUIRED_FEATURES_MAP.link_contact,
       payloadJson: JSON.stringify({
@@ -699,7 +699,7 @@ function buildContactActionsForUnmatchedLlmParticipants(
     })
     .map((p) => ({
       actionType: 'create_contact' as const,
-      description: `Create contact for ${p.name} (${p.email})`,
+      description: 'inbox_ops.action.desc.create_contact',
       confidence: 0.85,
       requiredFeature: REQUIRED_FEATURES_MAP.create_contact,
       payloadJson: JSON.stringify({
