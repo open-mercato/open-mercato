@@ -9,6 +9,11 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+  type CrudMutationGuardValidationResult,
+} from './mutation-guard'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import type {
   CrudEventAction,
@@ -414,6 +419,11 @@ function attachOperationHeader(res: Response, logEntry: any) {
     // no-op if headers already sent
   }
   return res
+}
+
+function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): Response | null {
+  if (validation.ok) return null
+  return json(validation.body, { status: validation.status })
 }
 
 function handleError(err: unknown): Response {
@@ -1409,6 +1419,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return json({ error: 'Forbidden' }, { status: 403 })
       }
       const body = await request.json().catch(() => ({}))
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
 
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
@@ -1417,6 +1428,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
         const candidateId = normalizeIdentifierValue((input as Record<string, unknown> | null | undefined)?.id)
+        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
+        if (ctx.auth.tenantId && candidateId) {
+          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            mutationPayload: input && typeof input === 'object'
+              ? (input as Record<string, unknown>)
+              : null,
+          })
+          if (mutationGuardValidation) {
+            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+            if (response) return response
+          }
+        }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1431,6 +1462,24 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        if (
+          mutationGuardValidation?.ok
+          && mutationGuardValidation.shouldRunAfterSuccess
+          && ctx.auth.tenantId
+          && candidateId
+        ) {
+          await runCrudMutationGuardAfterSuccess(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
+        }
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -1446,6 +1495,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       const id = updateConfig.getId ? updateConfig.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
+
+      const mutationGuardValidation = ctx.auth.tenantId
+        ? await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            mutationPayload: input && typeof input === 'object'
+              ? (input as Record<string, unknown>)
+              : null,
+          })
+        : null
+      if (mutationGuardValidation) {
+        const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+        if (response) return response
+      }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
@@ -1498,6 +1567,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
+      if (
+        mutationGuardValidation?.ok
+        && mutationGuardValidation.shouldRunAfterSuccess
+        && ctx.auth.tenantId
+      ) {
+        await runCrudMutationGuardAfterSuccess(ctx.container, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
+      }
       const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
@@ -1522,6 +1608,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       const useCommand = !!opts.actions?.delete
       const url = new URL(request.url)
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
 
       if (useCommand) {
         const action = opts.actions!.delete!
@@ -1536,6 +1623,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             ?? (raw.query as Record<string, unknown> | null | undefined)?.id
             ?? (raw.body as Record<string, unknown> | null | undefined)?.id
         )
+        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
+        if (ctx.auth.tenantId && candidateId) {
+          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+          if (mutationGuardValidation) {
+            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+            if (response) return response
+          }
+        }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1550,6 +1654,24 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        if (
+          mutationGuardValidation?.ok
+          && mutationGuardValidation.shouldRunAfterSuccess
+          && ctx.auth.tenantId
+          && candidateId
+        ) {
+          await runCrudMutationGuardAfterSuccess(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
+        }
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -1561,6 +1683,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ? url.searchParams.get('id')
         : (await request.json().catch(() => ({}))).id
       if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
+
+      const mutationGuardValidation = ctx.auth.tenantId
+        ? await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+        : null
+      if (mutationGuardValidation) {
+        const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+        if (response) return response
+      }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
@@ -1597,6 +1736,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         await de.flushOrmEntityChanges()
         await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'deleted', resourceTargets)
+      }
+      if (
+        mutationGuardValidation?.ok
+        && mutationGuardValidation.shouldRunAfterSuccess
+        && ctx.auth.tenantId
+      ) {
+        await runCrudMutationGuardAfterSuccess(ctx.container, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
       }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }
       return json(payload)

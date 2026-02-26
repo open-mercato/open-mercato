@@ -116,9 +116,10 @@ async function ensureSalesDocumentFixtures(
             isPrimary: true,
           },
         }).catch(() => {});
+        customerQuery = companyName;
       }
-      customerQuery = companyName;
-    } else {
+    }
+    if (!customerQuery) {
       customerQuery = 'Copperleaf';
     }
   }
@@ -169,30 +170,39 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   const customerQuery = fixtureContext.customerQuery;
   const channelQuery = fixtureContext.channelQuery;
 
-  await page.goto('/backend/sales/documents/create');
-  await page.getByRole('button', { name: new RegExp(`^${options.kind === 'order' ? 'Order' : 'Quote'}$`, 'i') }).click();
+  await page.goto(`/backend/sales/documents/create?kind=${options.kind}`);
 
+  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeVisible({ timeout: 10_000 });
+  await page.waitForTimeout(500);
+  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeEnabled({ timeout: 30_000 });
+
+  await page.getByText('Document type').click();
   await page.getByRole('textbox', { name: /Search customers/i }).fill(customerQuery);
-  await page
-    .getByRole('button', { name: new RegExp(`${escapeRegExp(customerQuery)}.*Select`, 'i') })
-    .first()
-    .click();
 
-  await page.getByRole('textbox', { name: /Select a channel/i }).fill(channelQuery);
-  const channelSelect = page
+  const selectButton = page
+    .locator('[role="button"]')
+    .filter({ hasText: customerQuery })
+    .getByRole('button', { name: 'Select' });
+
+  await expect(selectButton.first()).toBeVisible({ timeout: 10_000 });
+  await selectButton.scrollIntoViewIfNeeded();
+  await selectButton.click();
+// Channel selection
+await page.getByRole('textbox', { name: /Select a channel/i }).fill(channelQuery);
+try {
+  await page
     .getByRole('button', { name: /Select$/i })
     .filter({ hasText: new RegExp(escapeRegExp(channelQuery), 'i') })
-    .first();
-  if ((await channelSelect.count()) > 0) {
-    await channelSelect.click();
-  } else {
-    await page.getByRole('button', { name: /Select$/i }).first().click();
-  }
+    .first()
+    .click({ timeout: 2000 });
+} catch {
+  await page.getByRole('button', { name: /Select$/i }).first().click();
+}
 
   await selectFirstAddressIfAvailable(page);
 
   await page.getByRole('button', { name: /^Create$/i }).first().click();
-  await expect(page).toHaveURL(new RegExp(`/backend/sales/documents/[0-9a-f-]{36}\\?kind=${options.kind}$`, 'i'));
+  await page.waitForURL(new RegExp(`/backend/sales/documents/[0-9a-f-]{36}\\?kind=${options.kind}$`, 'i'));
 
   const match = page.url().match(/\/backend\/sales\/documents\/([0-9a-f-]{36})\?kind=/i);
   if (!match) {

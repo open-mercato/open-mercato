@@ -450,6 +450,77 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "default_sales_unit": {
+          "name": "default_sales_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "default_sales_unit_quantity": {
+          "name": "default_sales_unit_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 18,
+          "scale": 6,
+          "default": "'1'",
+          "mappedType": "decimal"
+        },
+        "uom_rounding_scale": {
+          "name": "uom_rounding_scale",
+          "type": "smallint",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "4",
+          "mappedType": "smallint"
+        },
+        "uom_rounding_mode": {
+          "name": "uom_rounding_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'half_up'",
+          "mappedType": "text"
+        },
+        "unit_price_enabled": {
+          "name": "unit_price_enabled",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
+        "unit_price_reference_unit": {
+          "name": "unit_price_reference_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "unit_price_base_quantity": {
+          "name": "unit_price_base_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 18,
+          "scale": 6,
+          "mappedType": "decimal"
+        },
         "default_media_id": {
           "name": "default_media_id",
           "type": "uuid",
@@ -636,7 +707,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_option_schemas",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         }
@@ -726,15 +796,6 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
-        },
-        "localized_content": {
-          "name": "localized_content",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
         },
         "metadata": {
           "name": "metadata",
@@ -836,7 +897,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1185,7 +1245,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -1199,7 +1258,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_categories",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1433,7 +1491,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -1447,7 +1504,180 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_tags",
-          "createForeignKeyConstraint": true,
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "unit_code": {
+          "name": "unit_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "to_base_factor": {
+          "name": "to_base_factor",
+          "type": "numeric(24,12)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 24,
+          "scale": 12,
+          "mappedType": "decimal"
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "catalog_product_unit_conversions",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "catalog_product_unit_conversions_scope_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "product_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_product_unit_conversions_unique",
+          "columnNames": [
+            "product_id",
+            "unit_code"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "catalog_product_unit_conversions_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "catalog_product_unit_conversions_product_id_foreign": {
+          "constraintName": "catalog_product_unit_conversions_product_id_foreign",
+          "columnNames": [
+            "product_id"
+          ],
+          "localTableName": "public.catalog_product_unit_conversions",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_products",
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }
@@ -1706,7 +1936,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -2005,7 +2234,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2019,7 +2247,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2033,7 +2260,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_offers",
-          "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
@@ -2047,7 +2273,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_price_kinds",
-          "createForeignKeyConstraint": true,
           "deleteRule": "restrict",
           "updateRule": "cascade"
         }
@@ -2251,7 +2476,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -2265,7 +2489,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         },
@@ -2279,7 +2502,6 @@
             "id"
           ],
           "referencedTableName": "public.catalog_products",
-          "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"
         }

@@ -96,11 +96,15 @@
   "dashboards.analytics.widgets.topProducts.empty": "No hay datos de ventas de productos para este período",
   "dashboards.analytics.widgets.topProducts.error": "No se pudieron cargar los datos de productos",
   "dashboards.analytics.widgets.topProducts.title": "Productos principales por ingresos",
+  "dashboards.widgets.effective": "Widgets efectivos:",
   "dashboards.widgets.error.load": "No se pudo cargar la configuración de widgets.",
   "dashboards.widgets.error.save": "No se pudieron guardar las preferencias de los widgets del panel.",
   "dashboards.widgets.flash.saved": "Widgets del panel actualizados",
   "dashboards.widgets.loading": "Cargando opciones de widgets…",
   "dashboards.widgets.mode.hint": "Este usuario hereda los widgets de sus roles asignados. Cambia a sobrescribir para personalizar.",
   "dashboards.widgets.mode.inherit": "Heredar de los roles",
-  "dashboards.widgets.mode.override": "Sobrescribir para este usuario"
+  "dashboards.widgets.mode.override": "Sobrescribir para este usuario",
+  "dashboards.widgets.reset": "Restablecer",
+  "dashboards.widgets.save": "Guardar widgets",
+  "dashboards.widgets.saving": "Guardando…"
 }

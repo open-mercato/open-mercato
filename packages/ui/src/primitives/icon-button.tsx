@@ -35,7 +35,7 @@ export function IconButton({
 }: React.ComponentProps<'button'> &
   VariantProps<typeof iconButtonVariants> & { asChild?: boolean }) {
   const Comp = asChild ? Slot : 'button'
-  return <Comp data-slot="icon-button" className={cn(iconButtonVariants({ variant, size, className }))} {...props} />
+  return <Comp data-slot="icon-button" type={asChild ? undefined : 'button'} className={cn(iconButtonVariants({ variant, size, className }))} {...props} />
 }
 
 export { iconButtonVariants }

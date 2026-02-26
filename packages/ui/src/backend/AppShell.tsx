@@ -7,14 +7,24 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { ProgressTopBar } from './progress/ProgressTopBar'
 import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import type { SectionNavGroup } from './section-page/types'
+import { InjectionSpot } from './injection/InjectionSpot'
+import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
+import {
+  BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
+  BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID,
+} from './injection/spotIds'
 
 export type AppShellProps = {
   productName?: string
@@ -148,6 +158,7 @@ function Chevron({ open }: { open: boolean }) {
 
 export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot }: AppShellProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const t = useT()
   const locale = useLocale()
   const resolvedProductName = productName ?? t('appShell.productName')
@@ -172,6 +183,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
   const expandedSidebarWidth = customizing ? '320px' : '240px'
+  const injectionContext = React.useMemo(
+    () => ({
+      path: pathname ?? '',
+      query: searchParams?.toString() ?? '',
+    }),
+    [pathname, searchParams],
+  )
 
   const isOnSettingsPath = React.useMemo(() => {
     if (!pathname) return false
@@ -657,6 +675,55 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             const sectionLabel = section.labelKey ? t(section.labelKey, section.label) : section.label
             const sectionKey = `settings:${section.id}`
             const open = openGroups[sectionKey] !== false
+            const sortSectionItems = (items: typeof section.items = []) =>
+              [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+            const renderSectionItem = (item: (typeof section.items)[number], depth = 0): React.ReactNode => {
+              const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+              const childItems = sortSectionItems(item.children)
+              const isOnItemBranch = !!pathname && (
+                pathname === item.href ||
+                pathname.startsWith(`${item.href}/`)
+              )
+              const hasActiveChild = !!(pathname && childItems.some((child) => (
+                pathname === child.href ||
+                pathname.startsWith(`${child.href}/`)
+              )))
+              const showChildren = childItems.length > 0 && isOnItemBranch
+              const isActive = isOnItemBranch || hasActiveChild
+              const base = compact ? 'w-10 h-10 justify-center' : 'py-1 gap-2'
+              const spacingStyle = !compact
+                ? {
+                    paddingLeft: `${8 + depth * 16}px`,
+                    paddingRight: '8px',
+                  }
+                : undefined
+
+              return (
+                <React.Fragment key={item.id}>
+                  <Link
+                    href={item.href}
+                    className={`relative text-sm rounded inline-flex items-center ${base} ${
+                      isActive
+                        ? 'bg-background border shadow-sm'
+                        : 'hover:bg-accent hover:text-accent-foreground'
+                    }`}
+                    style={spacingStyle}
+                    title={compact ? label : undefined}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                    )}
+                    <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                      {item.icon ?? (item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
+                    </span>
+                    {!compact && <span className="truncate">{label}</span>}
+                  </Link>
+                  {showChildren ? childItems.map((child) => renderSectionItem(child, depth + 1)) : null}
+                </React.Fragment>
+              )
+            }
 
             return (
               <div key={section.id}>
@@ -671,33 +738,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 </Button>
                 {open && (
                   <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
-                    {sortedItems.map((item) => {
-                      const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
-                      const label = item.labelKey ? t(item.labelKey, item.label) : item.label
-                      const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-
-                      return (
-                        <Link
-                          key={item.id}
-                          href={item.href}
-                          className={`relative text-sm rounded inline-flex items-center ${base} ${
-                            isActive
-                              ? 'bg-background border shadow-sm'
-                              : 'hover:bg-accent hover:text-accent-foreground'
-                          }`}
-                          title={compact ? label : undefined}
-                          onClick={() => setMobileOpen(false)}
-                        >
-                          {isActive && (
-                            <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                          )}
-                          <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                            {item.icon ?? DefaultIcon}
-                          </span>
-                          {!compact && <span className="truncate">{label}</span>}
-                        </Link>
-                      )
-                    })}
+                    {sortedItems.map((item) => renderSectionItem(item))}
                   </div>
                 )}
                 {sectionIndex !== lastVisibleIndex && <div className="my-2 border-t border-dotted" />}
@@ -730,6 +771,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
 
     const isMobileVariant = !!hideHeader
+    const shouldRenderSidebarInjectionSpots = !isMobileVariant
     const baseGroupsForDefaults = originalNavRef.current ?? navGroups
     const baseGroupMap = new Map<string, SidebarGroup>()
     for (const group of baseGroupsForDefaults) {
@@ -927,6 +969,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             </Link>
           </div>
         )}
+        {shouldRenderSidebarInjectionSpots ? (
+          <InjectionSpot
+            spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+        ) : null}
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
           {customizing ? (
             customizationEditor
@@ -1097,6 +1145,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           )}
           </>
         )}
+        {shouldRenderSidebarInjectionSpots ? (
+          <InjectionSpot
+            spotId={BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+        ) : null}
       </div>
     )
   }
@@ -1180,12 +1234,21 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             )}
           </div>
         </header>
+        <ProgressTopBar t={t} className="sticky top-0 z-10" />
         <main className="flex-1 p-4 lg:p-6">
+          <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
+          <InjectionSpot spotId={BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID} context={injectionContext} />
+          <InjectionSpot
+            spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
+            context={injectionContext}
+          />
+          <div id="om-top-banners" className="mb-3 space-y-2" />
           {children}
+          <InjectionSpot spotId={BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID} context={injectionContext} />
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
           {version ? (

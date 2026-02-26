@@ -122,6 +122,10 @@ All packages use the `@open-mercato/<package>` naming convention:
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
 
+Import strategy:
+- Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
+- Keep short relative imports for same-folder/local siblings (`./x`, `../x`) where they are clearer than package paths.
+
 ## Conventions
 
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
@@ -171,6 +175,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 
 - API routes MUST export `openApi` for documentation generation
 - CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
+- Write operations: implement via the Command pattern (see `packages/core/src/modules/customers/commands/*`)
 - Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`).
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
@@ -178,7 +183,34 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
+- Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files
+
+## Backward Compatibility Contract
+
+> **Full specification**: [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) — MUST be read before modifying any contract surface.
+
+Third-party module developers depend on stable platform APIs. Any change to a **contract surface** is a breaking change that blocks merge unless the deprecation protocol is followed.
+
+**Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in RELEASE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
+
+**13 contract surface categories** (details in `BACKWARD_COMPATIBILITY.md`):
+
+| # | Surface | Classification | Key Rule |
+|---|---------|---------------|----------|
+| 1 | Auto-discovery file conventions | FROZEN | File names, export names, routing algorithms immutable |
+| 2 | Type definitions & interfaces | STABLE | Required fields cannot be removed/narrowed; optional additive-only |
+| 3 | Function signatures | STABLE | Cannot remove/reorder params; new optional params OK |
+| 4 | Import paths | STABLE | Moved modules must re-export from old path |
+| 5 | Event IDs | FROZEN | Cannot rename/remove; payload fields additive-only |
+| 6 | Widget injection spot IDs | FROZEN | Cannot rename/remove; context fields additive-only |
+| 7 | API route URLs | STABLE | Cannot rename/remove; response fields additive-only |
+| 8 | Database schema | ADDITIVE-ONLY | No column/table rename/remove; new columns with defaults OK |
+| 9 | DI service names | STABLE | Cannot rename registration keys |
+| 10 | ACL feature IDs | FROZEN | Stored in DB; rename requires data migration |
+| 11 | Notification type IDs | FROZEN | Referenced by subscribers and stored in DB |
+| 12 | CLI commands | STABLE | Cannot rename/remove commands or required flags |
+| 13 | Generated file contracts | STABLE | Export names and `BootstrapData` shape immutable |
 
 ## Critical Rules
 
@@ -204,6 +236,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 ### UI & HTTP
 
 -   Use `apiCall`/`apiCallOrThrow`/`readApiResultOrThrow` from `@open-mercato/ui/backend/utils/apiCall` — never use raw `fetch`
+-   If a backend page cannot use `CrudForm`, wrap every write (`POST`/`PUT`/`PATCH`/`DELETE`) in `useGuardedMutation(...).runMutation(...)` and include `retryLastMutation` in the injection context
 -   For CRUD forms: `createCrud`/`updateCrud`/`deleteCrud` (auto-handle `raiseCrudError`)
 -   For local validation errors: throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors`
 -   Read JSON defensively: `readJsonSafe(response, fallback)` — never `.json().catch(() => ...)`

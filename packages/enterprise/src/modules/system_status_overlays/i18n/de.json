@@ -1,0 +1,8 @@
+{
+  "system_status_overlays.enterpriseInfo.description": "Diese Umgebung nutzt die Enterprise Edition.",
+  "system_status_overlays.enterpriseInfo.editionBadge": "Enterprise",
+  "system_status_overlays.enterpriseInfo.editionLabel": "Edition",
+  "system_status_overlays.enterpriseInfo.editionValue": "Enterprise",
+  "system_status_overlays.enterpriseInfo.title": "Edition und Version",
+  "system_status_overlays.enterpriseInfo.versionLabel": "Version"
+}

@@ -48,6 +48,10 @@ All module paths use `src/modules/<module>/` as shorthand.
 
 All API route files MUST export an `openApi` object for automatic API documentation generation.
 
+For custom write routes that do not use `makeCrudRoute` (`POST`/`PUT`/`PATCH`/`DELETE`), MUST wire the mutation guard contract:
+- call `validateCrudMutationGuard` before mutation logic
+- call `runCrudMutationGuardAfterSuccess` after successful mutation when requested
+
 ### CRUD Routes
 
 Create an `openapi.ts` helper in your module's `api/` directory:
@@ -317,6 +321,7 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 
 ## Command Side Effects
 
+- Implement write operations via the Command pattern (don’t mutate domain state directly inside route handlers). Reference: `src/modules/customers/commands/*`.
 - Include `indexer: { entityType, cacheAliases }` in both `emitCrudSideEffects` and `emitCrudUndoSideEffects`
 - This ensures undo refreshes the query index and caches
 - Reference: customers commands at `src/modules/customers/commands/people.ts`
@@ -380,7 +385,7 @@ await emitCrudSideEffects({ ... })
 ## Database Entities
 
 - Live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts`, `schema.ts`)
-- Tables: plural snake_case (e.g., `users`, `sales_orders`)
+- Tables: plural snake_case; prefer `<module>_` prefixes for module-owned tables (e.g., `catalog_products`, `sales_orders`)
 - UUID PKs, explicit FKs, junction tables for M2M
 - Include `deleted_at timestamptz null` for soft delete
 

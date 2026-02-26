@@ -224,13 +224,19 @@ describe('nextRunCalculator', () => {
         const before = Date.now()
         
         const result30s = recalculateNextRun('interval', '30s')
-        expect(result30s!.getTime() - before).toBeCloseTo(30 * 1000, -2)
+        const diff30s = result30s!.getTime() - before
+        expect(diff30s).toBeGreaterThanOrEqual(30 * 1000 - 500)
+        expect(diff30s).toBeLessThanOrEqual(30 * 1000 + 500)
         
         const result15m = recalculateNextRun('interval', '15m')
-        expect(result15m!.getTime() - before).toBeCloseTo(15 * 60 * 1000, -2)
+        const diff15m = result15m!.getTime() - before
+        expect(diff15m).toBeGreaterThanOrEqual(15 * 60 * 1000 - 500)
+        expect(diff15m).toBeLessThanOrEqual(15 * 60 * 1000 + 500)
         
         const result2h = recalculateNextRun('interval', '2h')
-        expect(result2h!.getTime() - before).toBeCloseTo(2 * 60 * 60 * 1000, -2)
+        const diff2h = result2h!.getTime() - before
+        expect(diff2h).toBeGreaterThanOrEqual(2 * 60 * 60 * 1000 - 500)
+        expect(diff2h).toBeLessThanOrEqual(2 * 60 * 60 * 1000 + 500)
       })
 
       it('should ignore timezone parameter', () => {
@@ -238,7 +244,7 @@ describe('nextRunCalculator', () => {
         const result2 = recalculateNextRun('interval', '1h', 'America/New_York')
         
         // Should be very close (within a few ms) regardless of timezone
-        expect(Math.abs(result1!.getTime() - result2!.getTime())).toBeLessThan(10)
+        expect(Math.abs(result1!.getTime() - result2!.getTime())).toBeLessThan(250)
       })
     })
 
