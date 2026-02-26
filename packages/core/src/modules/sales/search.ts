@@ -473,6 +473,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_order_line',
       enabled: true,
       priority: 7,
+      fieldPolicy: {
+        searchable: ['name', 'description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata', 'catalog_snapshot', 'configuration', 'promotion_snapshot'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -481,6 +485,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         appendLine(lines, 'Status', record.status)
         return buildIndexSource(ctx, buildOrderLinePresenter(translate, record), lines)
       },
@@ -494,6 +501,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_quote_line',
       enabled: true,
       priority: 7,
+      fieldPolicy: {
+        searchable: ['name', 'description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata', 'catalog_snapshot', 'configuration', 'promotion_snapshot'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -502,6 +513,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         appendLine(lines, 'Status', record.status)
         return buildIndexSource(ctx, buildQuoteLinePresenter(translate, record), lines)
       },
@@ -613,6 +627,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_invoice_line',
       enabled: true,
       priority: 5,
+      fieldPolicy: {
+        searchable: ['description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -620,6 +638,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         return buildIndexSource(ctx, buildInvoiceLinePresenter(translate, record), lines)
       },
       formatResult: async (ctx) => {
@@ -652,6 +673,10 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'sales:sales_credit_memo_line',
       enabled: true,
       priority: 5,
+      fieldPolicy: {
+        searchable: ['description', 'quantity_unit', 'normalized_unit'],
+        excluded: ['uom_snapshot', 'metadata'],
+      },
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -659,6 +684,9 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Description', record.description)
         appendLine(lines, 'Kind', record.kind)
         appendLine(lines, 'Quantity', record.quantity)
+        appendLine(lines, 'Quantity unit', record.quantity_unit ?? record.quantityUnit)
+        appendLine(lines, 'Normalized quantity', record.normalized_quantity ?? record.normalizedQuantity)
+        appendLine(lines, 'Normalized unit', record.normalized_unit ?? record.normalizedUnit)
         return buildIndexSource(ctx, buildCreditMemoLinePresenter(translate, record), lines)
       },
       formatResult: async (ctx) => {
