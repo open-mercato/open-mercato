@@ -271,6 +271,22 @@ When enabled (`true`, default), `CrudForm` emits:
 - `transformDisplayData` when initial form values are applied
 - `transformValidation` before setting form field errors
 
+### Example Injection Widgets Toggle
+
+The `example` module ships demo injection widgets (CRUD validation panel, sales todos tab, catalog SEO report, sample menu items).
+
+These widgets are disabled by default. Enable them with:
+
+```bash
+NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
+```
+
+Default:
+
+```bash
+NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=false
+```
+
 ### Operation Progress Tracking
 
 Track long-running server operations in widgets:

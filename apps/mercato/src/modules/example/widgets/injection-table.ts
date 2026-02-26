@@ -1,10 +1,12 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
-/**
- * Example module injection table
- * Maps injection spot IDs to widget IDs for automatic widget injection
- */
-export const injectionTable: ModuleInjectionTable = {
+const exampleInjectionWidgetsEnabled = parseBooleanWithDefault(
+  process.env.NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED,
+  false,
+)
+
+const enabledInjectionTable: ModuleInjectionTable = {
   // Inject the validation widget into the catalog product CRUD form
   'crud-form:catalog.product': 'example.injection.crud-validation',
   'crud-form:catalog.catalog_product': 'example.injection.crud-validation',
@@ -50,5 +52,11 @@ export const injectionTable: ModuleInjectionTable = {
     priority: 50,
   },
 }
+
+/**
+ * Example module injection table
+ * Maps injection spot IDs to widget IDs for automatic widget injection
+ */
+export const injectionTable: ModuleInjectionTable = exampleInjectionWidgetsEnabled ? enabledInjectionTable : {}
 
 export default injectionTable
