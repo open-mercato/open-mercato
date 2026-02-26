@@ -1,7 +1,9 @@
 import { type APIRequestContext } from '@playwright/test';
 import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const BASE_URL =
+  process.env.BASE_URL?.trim() ||
+  'http://localhost:3000';
 
 export async function getAuthToken(
   request: APIRequestContext,

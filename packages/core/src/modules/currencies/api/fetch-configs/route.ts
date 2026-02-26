@@ -22,18 +22,22 @@ export async function GET(req: NextRequest) {
 
   try {
     const auth = await getAuthFromRequest(req)
-    if (!auth || !auth.tenantId || !auth.orgId) {
+    if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const em = container.resolve<EntityManager>('em')
 
+    const findFilter: Record<string, unknown> = {
+      tenantId: auth.tenantId,
+    }
+    if (auth.orgId) {
+      findFilter.organizationId = auth.orgId
+    }
+
     const configs = await em.find(
       CurrencyFetchConfig,
-      {
-        tenantId: auth.tenantId,
-        organizationId: auth.orgId,
-      },
+      findFilter,
       {
         orderBy: { provider: 'ASC' },
       }
@@ -55,7 +59,7 @@ export async function POST(req: NextRequest) {
     }
 
     const em = container.resolve<EntityManager>('em')
-    
+
     let body
     try {
       body = await req.json()
@@ -87,14 +91,14 @@ export async function PUT(req: NextRequest) {
     }
 
     const em = container.resolve<EntityManager>('em')
-    
+
     let body
     try {
       body = await req.json()
     } catch {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
-    
+
     const { id, ...data } = body
 
     if (!id) {

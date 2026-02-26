@@ -3,7 +3,7 @@ import { ScheduledJob } from '../data/entities.js'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { parseCronExpression } from '../lib/cronParser'
 import { parseInterval } from '../lib/intervalParser'
-import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 
 interface BullRepeatableJob {
   key: string
@@ -55,7 +55,7 @@ export class BullMQSchedulerService {
     if (!this.queue) {
       try {
         const { Queue } = await import('bullmq')
-        this.queue = new Queue('scheduler-execution', { connection: { url: getRedisUrl('QUEUE') } })
+        this.queue = new Queue('scheduler-execution', { connection: parseRedisUrl(getRedisUrl('QUEUE')) })
       } catch {
         throw new Error('BullMQ is required for async scheduler. Install it with: npm install bullmq')
       }

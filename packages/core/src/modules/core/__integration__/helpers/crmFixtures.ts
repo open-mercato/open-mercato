@@ -78,12 +78,50 @@ export async function createPersonFixture(
 export async function createDealFixture(
   request: APIRequestContext,
   token: string,
-  input: { title: string; companyIds?: string[]; personIds?: string[] },
+  input: { title: string; companyIds?: string[]; personIds?: string[]; pipelineId?: string; pipelineStageId?: string; valueAmount?: number; valueCurrency?: string },
 ): Promise<string> {
   const data: Record<string, unknown> = { title: input.title };
   if (input.companyIds?.length) data.companyIds = input.companyIds;
   if (input.personIds?.length) data.personIds = input.personIds;
+  if (input.pipelineId) data.pipelineId = input.pipelineId;
+  if (input.pipelineStageId) data.pipelineStageId = input.pipelineStageId;
+  if (input.valueAmount !== undefined) data.valueAmount = input.valueAmount;
+  if (input.valueCurrency) data.valueCurrency = input.valueCurrency;
   return createEntity(request, token, '/api/customers/deals', data, ['dealId', 'id', 'entityId']);
+}
+
+export async function createPipelineFixture(
+  request: APIRequestContext,
+  token: string,
+  input: { name: string; isDefault?: boolean },
+): Promise<string> {
+  const data: Record<string, unknown> = { name: input.name };
+  if (input.isDefault !== undefined) data.isDefault = input.isDefault;
+  return createEntity(request, token, '/api/customers/pipelines', data, ['id', 'pipelineId']);
+}
+
+export async function createPipelineStageFixture(
+  request: APIRequestContext,
+  token: string,
+  input: { pipelineId: string; label: string; order?: number },
+): Promise<string> {
+  const data: Record<string, unknown> = { pipelineId: input.pipelineId, label: input.label };
+  if (input.order !== undefined) data.order = input.order;
+  return createEntity(request, token, '/api/customers/pipeline-stages', data, ['id', 'stageId']);
+}
+
+export async function deleteEntityByBody(
+  request: APIRequestContext,
+  token: string | null,
+  path: string,
+  id: string | null,
+): Promise<void> {
+  if (!token || !id) return;
+  try {
+    await apiRequest(request, 'DELETE', path, { token, data: { id } });
+  } catch {
+    return;
+  }
 }
 
 export async function deleteEntityIfExists(

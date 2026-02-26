@@ -2,6 +2,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { Knex } from 'knex'
@@ -13,6 +14,7 @@ export type TranslationsRouteContext = {
   knex: Knex
   organizationId: string | null
   tenantId: string
+  commandCtx: CommandRuntimeContext
 }
 
 export async function resolveTranslationsRouteContext(req: Request): Promise<TranslationsRouteContext> {
@@ -28,6 +30,15 @@ export async function resolveTranslationsRouteContext(req: Request): Promise<Tra
   const tenantId: string = scope?.tenantId ?? auth.tenantId
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
 
+  const commandCtx: CommandRuntimeContext = {
+    container,
+    auth,
+    organizationScope: scope,
+    selectedOrganizationId: organizationId,
+    organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+    request: req,
+  }
+
   return {
     container,
     auth,
@@ -35,5 +46,6 @@ export async function resolveTranslationsRouteContext(req: Request): Promise<Tra
     knex,
     organizationId,
     tenantId,
+    commandCtx,
   }
 }

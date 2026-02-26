@@ -161,7 +161,7 @@ function parseFormAssignments(value: FormDataEntryValue | null): AttachmentAssig
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
   const recordId = url.searchParams.get('recordId') || ''
@@ -169,9 +169,11 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
+  if (auth.orgId) filter.organizationId = auth.orgId
   const items = await em.find(
     Attachment,
-    { entityId, recordId, organizationId: auth.orgId!, tenantId: auth.tenantId! },
+    filter,
     { orderBy: { createdAt: 'desc' } as any }
   )
   return NextResponse.json({
@@ -200,7 +202,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const tenantId = auth.tenantId
   const orgId = auth.orgId
 
@@ -402,18 +404,15 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
   const id = url.searchParams.get('id') || ''
   if (!id) return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine')
-  const record = await em.findOne(Attachment, {
-    id,
-    organizationId: auth.orgId!,
-    tenantId: auth.tenantId!,
-  })
+  const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId!, organizationId: auth.orgId }
+  const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await em.removeAndFlush(record)
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
