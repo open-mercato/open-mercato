@@ -23,7 +23,7 @@ function PagePassthrough(props: Record<string, unknown>) {
  * export default function MyPage() {
  *   return (
  *     <ReplaceablePage componentId="page:customers.people.detail" module="customers">
- *       {/* original page content */}
+ *       ... original page content ...
  *     </ReplaceablePage>
  *   )
  * }
