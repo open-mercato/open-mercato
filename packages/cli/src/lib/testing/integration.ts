@@ -161,6 +161,7 @@ const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
 const ANSI_ESCAPE_REGEX = /\u001b\[[0-?]*[ -/]*[@-~]/g
+const NEXT_STATIC_ASSET_PATTERN = /\/_next\/static\/[^"'`\s)]+?\.(?:js|css)/g
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
@@ -1094,10 +1095,50 @@ async function isApplicationReachable(baseUrl: string): Promise<boolean> {
       method: 'GET',
       redirect: 'manual',
     })
-    return response.status === 200 || response.status === 302
+    if (response.status === 302) {
+      return true
+    }
+    if (response.status !== 200) {
+      return false
+    }
+    const html = await response.text()
+    return isLoginHtmlHealthy(html) && await areReferencedNextAssetsReachable(baseUrl, html)
   } catch {
     return false
   }
+}
+
+function isLoginHtmlHealthy(html: string): boolean {
+  return !/Application error: a client-side exception has occurred/i.test(html)
+}
+
+function extractReferencedNextAssets(html: string, maxAssets = 8): string[] {
+  const matches = html.match(NEXT_STATIC_ASSET_PATTERN) ?? []
+  const unique = Array.from(new Set(matches))
+  return unique.slice(0, maxAssets)
+}
+
+async function areReferencedNextAssetsReachable(baseUrl: string, html: string): Promise<boolean> {
+  const assets = extractReferencedNextAssets(html)
+  if (assets.length === 0) {
+    return false
+  }
+
+  for (const assetPath of assets) {
+    try {
+      const response = await fetch(`${baseUrl}${assetPath}`, {
+        method: 'GET',
+        redirect: 'manual',
+      })
+      if (response.status !== 200 && response.status !== 304) {
+        return false
+      }
+    } catch {
+      return false
+    }
+  }
+
+  return true
 }
 
 async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> {
@@ -1303,19 +1344,38 @@ async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildPro
     const responsePromise = fetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
-    }).catch(() => null)
+    })
+      .then(async (response) => ({
+        response,
+        body: response.status === 200 ? await response.text().catch(() => '') : '',
+      }))
+      .catch(() => null)
     const result = await Promise.race([
-      responsePromise.then((response) => {
-        if (!response) {
+      responsePromise.then((payload) => {
+        if (!payload) {
           return { kind: 'network_error' as const }
         }
-        return { kind: 'response' as const, status: response.status }
+        return {
+          kind: 'response' as const,
+          status: payload.response.status,
+          body: payload.body,
+        }
       }),
       exitPromise.then((code) => ({ kind: 'exit' as const, code })),
       delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
     ])
 
     if (result.kind === 'response' && (result.status === 200 || result.status === 302)) {
+      if (result.status === 200) {
+        const loginHtml = result.body ?? ''
+        if (!isLoginHtmlHealthy(loginHtml)) {
+          continue
+        }
+        const assetsReachable = await areReferencedNextAssetsReachable(baseUrl, loginHtml)
+        if (!assetsReachable) {
+          continue
+        }
+      }
       const processExited = await Promise.race([
         exitPromise.then(() => true),
         delay(readinessStabilizationMs).then(() => false),

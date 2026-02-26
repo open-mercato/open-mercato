@@ -3734,13 +3734,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@fastify/busboy@npm:^2.0.0":
-  version: 2.1.1
-  resolution: "@fastify/busboy@npm:2.1.1"
-  checksum: 10/2bb8a7eca8289ed14c9eb15239bc1019797454624e769b39a0b90ed204d032403adc0f8ed0d2aef8a18c772205fa7808cf5a1b91f21c7bfc7b6032150b1062c5
-  languageName: node
-  linkType: hard
-
 "@floating-ui/core@npm:^1.7.3":
   version: 1.7.3
   resolution: "@floating-ui/core@npm:1.7.3"
@@ -10134,78 +10127,6 @@ __metadata:
   version: 4.0.3
   resolution: "balanced-match@npm:4.0.3"
   checksum: 10/e9e2177f1eb7db0af2375715e6f992f15d41518921e14f5029de50766ff1b3da824e47e1d5492493e9bb7c743b827e42546cbc260a055b7086e45f54b2b152b9
-  languageName: node
-  linkType: hard
-
-"bare-events@npm:^2.5.4, bare-events@npm:^2.7.0":
-  version: 2.8.2
-  resolution: "bare-events@npm:2.8.2"
-  peerDependencies:
-    bare-abort-controller: "*"
-  peerDependenciesMeta:
-    bare-abort-controller:
-      optional: true
-  checksum: 10/f31848ea2f5627c3a50aadfc17e518a602629f7a6671da1352975cc6c8a520441fcc9d93c0a21f8f95de65b1a5133fcd5f766d312f3d5a326dde4fe7d2fc575f
-  languageName: node
-  linkType: hard
-
-"bare-fs@npm:^4.0.1":
-  version: 4.5.4
-  resolution: "bare-fs@npm:4.5.4"
-  dependencies:
-    bare-events: "npm:^2.5.4"
-    bare-path: "npm:^3.0.0"
-    bare-stream: "npm:^2.6.4"
-    bare-url: "npm:^2.2.2"
-    fast-fifo: "npm:^1.3.2"
-  peerDependencies:
-    bare-buffer: "*"
-  peerDependenciesMeta:
-    bare-buffer:
-      optional: true
-  checksum: 10/673cf66c8a7c0289067cfce24f71ffd4d1c952369cc5497dcc6efc99cfbbbb2eab02feab6de374185e6204d9cdd3f3f02c40fc5be11a2db2a645c732fb1cf304
-  languageName: node
-  linkType: hard
-
-"bare-os@npm:^3.0.1":
-  version: 3.6.2
-  resolution: "bare-os@npm:3.6.2"
-  checksum: 10/11e127cdce86444be2039a28f1e25a5635f3e4ada09aeb35b33d524766b51c5f71db3dc1e8d8d88018ea5255e9f6663a55174960ca45f002132d7808b9b34e29
-  languageName: node
-  linkType: hard
-
-"bare-path@npm:^3.0.0":
-  version: 3.0.0
-  resolution: "bare-path@npm:3.0.0"
-  dependencies:
-    bare-os: "npm:^3.0.1"
-  checksum: 10/712d90e9cd8c3263cc11b0e0d386d1531a452706d7840c081ee586b34b00d72544e65df7a40013d47c1b177277495225deeede65cb2984db88a979cb65aaa2ff
-  languageName: node
-  linkType: hard
-
-"bare-stream@npm:^2.6.4":
-  version: 2.7.0
-  resolution: "bare-stream@npm:2.7.0"
-  dependencies:
-    streamx: "npm:^2.21.0"
-  peerDependencies:
-    bare-buffer: "*"
-    bare-events: "*"
-  peerDependenciesMeta:
-    bare-buffer:
-      optional: true
-    bare-events:
-      optional: true
-  checksum: 10/fe8f6e5a8e6d66e9210b4810060e8a25c6e78f9a8ee230c7dd2083b3ad48a79b1993e98eecc8ebd7890b336c66796da457aa8a2253bbb7a31e0e3a0f06bb1f5e
-  languageName: node
-  linkType: hard
-
-"bare-url@npm:^2.2.2":
-  version: 2.3.2
-  resolution: "bare-url@npm:2.3.2"
-  dependencies:
-    bare-path: "npm:^3.0.0"
-  checksum: 10/aa203d79e2dafdb47a4e3bee398cb7db5c7eabcf0b3adf1e1530a21ac69806d1ca05b3343666e3aeda9fc3568c995272deea8ae3cead77ad00f66a7e415de0ef
   languageName: node
   linkType: hard
 
