@@ -24,22 +24,30 @@ Step 3 — SAVE:    Widget onSave persists via module's own API (NOT core API)
 
 ### Complete Save Flow
 
+The actual CrudForm save pipeline (verified against `CrudForm.tsx` lines 1315–1508):
+
 ```
-User edits injected field and clicks Save
+User edits injected field and clicks Save (Cmd+Enter)
   │
   ├─ CrudForm collects ALL field values (core + injected)
   ├─ CrudForm validates core fields via Zod
   │  (injected fields excluded from core schema validation)
-  ├─ Widget onBeforeSave handlers run (can validate injected fields)
-  ├─ CrudForm sends core fields to core API:
+  ├─ transformFormData pipeline runs (if extended events enabled)
+  ├─ Widget onBeforeSave handlers run (can validate injected fields, can block)
+  ├─ setPending(true)
+  ├─ Widget onSave handlers run FIRST (each saves its own data):
+  │  POST /api/example/customer-priorities  { customerId, priority: 'high' }
+  ├─ CrudForm sends core fields to core API SECOND (onSubmit):
   │  PUT /api/customers/people  { id, firstName, ... }
   │  (_example fields NOT sent to core API)
-  ├─ Widget onSave handlers run (each saves its own data):
-  │  PUT /api/example/customer-priorities/:id  { priority: 'high' }
   └─ Widget onAfterSave handlers run (cleanup, refresh)
 ```
 
 **Key design**: The core API never sees injected fields. Each widget saves its own data through its own API.
+
+**Important**: Widget `onSave` fires BEFORE the core API call (`onSubmit`). This means injected field data is persisted before the core entity is updated. If the core save fails after widget saves succeed, the system may be in an inconsistent state. To mitigate this:
+- Widget save endpoints SHOULD be **idempotent** (safe to retry)
+- Widget save endpoints SHOULD use **upsert** semantics (create-or-update) rather than always POST
 
 ---
 
@@ -52,6 +60,8 @@ User edits injected field and clicks Save
 - Populate injected field initial values from enriched response data via dot-path accessor
 - Exclude injected field values from core Zod schema validation
 - Trigger `onBeforeSave`/`onSave`/`onAfterSave` on widget event handlers (existing mechanism)
+- **Group fallback**: if `field.group` references a group that doesn't exist in the CrudForm, the field is appended to the last group. A dev-mode console warning is logged: `[CrudForm] Injected field "${field.id}" targets group "${field.group}" which does not exist. Appended to last group.`
+- **Dirty tracking**: injected fields participate in CrudForm's dirty tracking via the shared `values` state (same `onChange` callback). When an injected field changes, the form's unsaved-changes guard triggers normally
 
 ### 2. `InjectedField` Component
 
@@ -98,7 +108,6 @@ interface FieldVisibilityCondition {
   value?: unknown         // required for eq, neq, in, notIn
 }
 ```
-```
 
 Renders the appropriate input based on `field.type`, using the same UI primitives as CrudForm for visual consistency.
 
@@ -123,7 +132,7 @@ When a field declares `optionsLoader` instead of (or alongside) static `options`
 }
 ```
 
-If both `options` (static) and `optionsLoader` (dynamic) are provided, `optionsLoader` takes precedence. If the loader fails, the component falls back to `options` (if defined) and shows a console warning.
+If both `options` (static) and `optionsLoader` (dynamic) are provided, `optionsLoader` takes precedence. If the loader fails, the component falls back to `options` (if defined) and shows a console warning. If the loader fails and no static `options` are provided, the field renders as a disabled select with placeholder text "Options unavailable" and a console warning is logged with the field ID.
 
 ### 4. Custom Field Component (`type: 'custom'`)
 
@@ -170,6 +179,8 @@ Fields can declare `visibleWhen` to conditionally show/hide based on another fie
 - `falsy`: `!formData[field]`
 
 Hidden fields are excluded from save payloads (not sent to `onSave`). The condition is evaluated in the component — no server roundtrip.
+
+**Dot-path evaluation**: `visibleWhen.field` uses the same dot-path convention as field IDs. The condition evaluates against the flat form values object using the field ID as a key (e.g., `formData['_example.priority']`), NOT nested object access. This matches how CrudForm stores values internally — dot-path field IDs are flat keys in the values record.
 
 ### 6. Field Value Reading via Dot-Path
 
@@ -397,6 +408,21 @@ function InjectedField({ field, value, onChange, isLoading }: InjectedFieldProps
           />
         </FormField>
       )
+    case 'custom': {
+      if (!field.customComponent) return null
+      const CustomComp = field.customComponent
+      return (
+        <Suspense fallback={<Spinner size="sm" />}>
+          <CustomComp
+            value={value}
+            onChange={(v) => onChange(field.id, v)}
+            field={field}
+            context={fieldContext}
+            readOnly={field.readOnly || isLoading}
+          />
+        </Suspense>
+      )
+    }
   }
 }
 ```
@@ -543,10 +569,15 @@ export default {
       const shipmentId = context.resourceId
       if (!shipmentId) return
 
-      await apiCallOrThrow(
-        '/api/carrier-integration/shipment-instructions',
-        {
-          method: 'POST',
+      // Upsert: check if record exists from enricher data, then PUT or POST
+      const existing = data['_carrierInstructions.specialInstructions'] !== undefined
+      const method = existing ? 'PUT' : 'POST'
+      const url = existing
+        ? `/api/carrier-integration/shipment-instructions/${shipmentId}`
+        : '/api/carrier-integration/shipment-instructions'
+
+      await apiCallOrThrow(url, {
+          method,
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             shipmentId, specialInstructions, handlingCode,
@@ -610,13 +641,15 @@ export default {
 **User fills in fields and clicks Save (Cmd+Enter):**
 ```
 1. CrudForm validates core fields (Zod schema)
-2. CrudForm triggers onBeforeSave on all injection widgets
+2. transformFormData pipeline runs
+3. CrudForm triggers onBeforeSave on all injection widgets
    → carrier_integration validates: hazmat requires instructions ≥10 chars
-3. CrudForm calls handleSubmit() → sends core fields to PUT /api/sales/shipments
+4. setPending(true)
+5. CrudForm triggers onSave on all injection widgets FIRST
+   → carrier_integration upserts to /api/carrier-integration/shipment-instructions
+6. CrudForm calls onSubmit() → sends core fields to PUT /api/sales/shipments SECOND
    → The _carrierInstructions fields are NOT sent (not in shipment Zod schema)
-4. CrudForm triggers onSave on all injection widgets
-   → carrier_integration posts to POST /api/carrier-integration/shipment-instructions
-5. CrudForm triggers onAfterSave → dialog closes, shipments list refreshes
+7. CrudForm triggers onAfterSave → dialog closes, shipments list refreshes
 ```
 
 **Files touched in `packages/core/src/modules/sales/`: ZERO.**

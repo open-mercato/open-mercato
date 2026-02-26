@@ -115,6 +115,8 @@
   "auth.roles.list.title": "Roles",
   "auth.roles.superadmin": "Super Admin",
   "auth.sendResetLink": "Send reset link",
+  "auth.session.refresh.errors.invalidPayload": "Missing or invalid refresh token",
+  "auth.session.refresh.errors.invalidToken": "Invalid or expired refresh token",
   "auth.signIn": "Sign in",
   "auth.users.errors.emailExists": "Email already in use",
   "auth.users.flash.created": "User created",

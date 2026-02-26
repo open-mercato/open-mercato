@@ -1,4 +1,4 @@
-# SPEC-ENT-002: Enterprise Record Lock Extensibility (Moved)
+# SPEC-ENT-005: Enterprise Record Lock Extensibility (Moved)
 
 - Date: 2026-02-20
 - Status: Moved to OSS scope on 2026-02-22

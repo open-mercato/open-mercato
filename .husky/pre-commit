@@ -1,0 +1,2 @@
+yarn tsx scripts/i18n-check-sync.ts --fix
+git add '**/i18n/*.json'

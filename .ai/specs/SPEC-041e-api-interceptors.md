@@ -27,6 +27,8 @@ interface ApiInterceptor {
   methods: ('GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE')[]
   priority?: number
   features?: string[]
+  /** Max execution time in ms for before+after combined. Default: 5000. On timeout, fail-closed with 504. */
+  timeoutMs?: number
   before?(request: InterceptorRequest, context: InterceptorContext): Promise<InterceptorBeforeResult>
   after?(request: InterceptorRequest, response: InterceptorResponse, context: InterceptorContext): Promise<InterceptorAfterResult>
 }
@@ -77,6 +79,8 @@ interface InterceptorContext {
   tenantId: string
   /** Entity manager (read-only) */
   em: EntityManager
+  /** Awilix DI container for resolving services */
+  container: AwilixContainer
   /** Metadata passed from `before` to `after` hook */
   metadata?: Record<string, unknown>
 }
@@ -101,7 +105,7 @@ interface InterceptorContext {
 
 **Layering**: API Interceptors operate at the HTTP/route level (outermost). Sync event subscribers and Mutation Guards operate at the entity level (inner). See [SPEC-041m](./SPEC-041m-mutation-lifecycle.md) for the full layering model.
 
-**Key constraint**: Interceptor `before` runs AFTER Zod validation. If an interceptor modifies the request body, the modified body is **re-validated through the route's Zod schema**:
+**Key constraint**: Interceptor `before` runs AFTER Zod validation. If an interceptor modifies the request body or query, the modified data is **re-validated through the route's Zod schema**:
 
 ```typescript
 const parsedInput = schema.parse(rawBody)                    // Step 1
@@ -110,7 +114,45 @@ if (!interceptResult.ok) return errorResponse(interceptResult)
 const finalInput = interceptResult.body
   ? schema.parse(interceptResult.body)  // Re-validate modified body
   : parsedInput
+const finalQuery = interceptResult.query
+  ? listSchema.parse(interceptResult.query)  // Re-validate modified query
+  : parsedQuery
 ```
+
+**Query re-validation**: When an interceptor returns modified `query` (e.g., Tier 1 filters in Phase F that rewrite `loyaltyTier=gold` → `id: { $in: [...] }`), the modified query is re-validated through the route's list schema. The interceptor MUST remove non-native params (e.g., `loyaltyTier: undefined`) before returning — otherwise Zod rejects the unknown field.
+
+### 2a. Dual-Path Coverage (CommandBus vs Legacy ORM)
+
+Interceptors operate at the **HTTP handler level**, wrapping the entire POST/PUT/DELETE/GET handler — before the internal CommandBus vs legacy ORM path split. The interceptor `before` receives the raw parsed body/query; the interceptor `after` receives the final HTTP response. Both execution paths (CommandBus and legacy ORM) are covered by a single interception point at the outermost layer.
+
+### 2b. Error Handling — Fail-Closed
+
+If an interceptor's `before()` or `after()` **throws** an uncaught exception (as opposed to returning `{ ok: false }`), the request MUST **fail-closed**:
+
+```typescript
+try {
+  const result = await Promise.race([
+    interceptor.before(request, ctx),
+    rejectAfterTimeout(interceptor.timeoutMs ?? 5000),
+  ])
+  // ... handle result
+} catch (err) {
+  // Fail-closed: interceptor crash → request fails
+  return json({
+    error: 'Internal interceptor error',
+    interceptorId: interceptor.id,
+    message: process.env.NODE_ENV !== 'production' ? String(err) : undefined,
+  }, { status: 500 })
+}
+```
+
+- **Timeout**: Each interceptor has a `timeoutMs` (default: 5000ms). On timeout, the request fails with 504 and includes the `interceptorId`.
+- **Crash**: Uncaught exceptions fail with 500 and include the `interceptorId`.
+- **Dev-mode**: Error details are included in the response body for debugging. In production, only the interceptor ID is exposed.
+
+### 2c. Priority Collision Handling
+
+When two interceptors have the same `priority` for the same route, they execute in **module registration order** (deterministic, based on `yarn generate` discovery order). A dev-mode console warning is logged: `[UMES] Interceptors "${a.id}" and "${b.id}" have the same priority (${priority}) for route "${route}". Execution order is based on module registration order.`
 
 ### 3. Route Pattern Matching
 
@@ -268,13 +310,16 @@ export const interceptors: ApiInterceptor[] = [
 **Type**: API (Playwright)
 
 **Steps**:
-1. Create an interceptor that modifies body (e.g., adds an invalid field)
-2. POST request
-3. Assert Zod validation error for the modified invalid field
+1. POST `/api/example/todos` with body `{ title: "Valid todo" }`
+2. The `example.log-todo-mutations` interceptor (priority 10) adds `_interceptorProcessed: true` to the body
+3. Assert response status is 201 (success — Zod strips unknown fields during re-validation)
+4. GET the created todo — assert it does NOT have `_interceptorProcessed` property
 
-**Expected**: Modified body goes through Zod re-validation — invalid modifications are caught
+**Expected**: Modified body goes through Zod re-validation — unknown fields added by interceptors are stripped by Zod's `.parse()`. The todo is created without the injected field.
 
-**Testing notes**: This may require a dedicated test interceptor or can be verified via the example interceptor by checking that valid modifications pass.
+**Testing notes**:
+- Requires updating the example logging interceptor to return `{ ok: true, body: { ...request.body, _interceptorProcessed: true } }`
+- This verifies re-validation works: Zod strips the unknown field rather than persisting it
 
 ### TC-UMES-I06: `metadata` passthrough between `before` and `after` hooks works
 

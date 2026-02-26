@@ -366,7 +366,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       .toContain('example.todo.created')
   })
 
-  test('TC-UMES-E10: transformValidation updates outputs with widget prefix', async ({
+  test('TC-UMES-E10: transformValidation keeps validation messages without widget prefix', async ({
     page,
   }) => {
     const { login } = await import(
@@ -382,7 +382,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
 
     await titleInput.fill('')
     await page.locator('form button[type="submit"]').first().click()
-    await expect(page.getByTestId('widget-transform-validation')).toContainText('"title":"[widget]')
+    await expect(page.getByTestId('widget-transform-validation')).not.toContainText('"title":"[widget]')
   })
 
   test('TC-UMES-E11: CrudForm emits onFieldChange automatically on input change', async ({

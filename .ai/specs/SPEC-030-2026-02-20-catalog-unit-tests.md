@@ -1,4 +1,4 @@
-# SPEC-034: Catalog Module Test Coverage
+# SPEC-030: Catalog Module Test Coverage
 
 **Date:** 2026-02-20
 **Status:** Draft
@@ -546,7 +546,7 @@ None.
 
 ### 2026-02-20 (v2)
 
-- Renamed from SPEC-030 to SPEC-034 (SPEC-030 through SPEC-033 taken in upstream)
+- Restored canonical numbering from SPEC-034 to SPEC-030 and aligned repository references.
 - Added Phase 3: Integration Tests (10 new Playwright test files, TC-CAT-013 through TC-CAT-022)
 - Added Phase 4: Fixture Helpers (extend catalogFixtures.ts)
 - Updated title from "Unit & UI Unit Tests" to "Test Coverage"

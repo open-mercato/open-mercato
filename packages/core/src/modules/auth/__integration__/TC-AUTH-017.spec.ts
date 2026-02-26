@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
+import { test, expect } from '@playwright/test'
+import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
 /**
  * TC-AUTH-017: API Token Refresh Flow
@@ -14,127 +14,147 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
  * - Returns proper errors for invalid/missing tokens
  */
 test.describe('TC-AUTH-017: API Token Refresh Flow', () => {
+  const testUserPassword = 'Valid1!Pass'
+  const testUserEmail = `qa-auth-017-${Date.now()}@acme.com`
+  let adminToken: string | null = null
+  let testUserId: string | null = null
+
+  test.beforeAll(async ({ request }) => {
+    adminToken = await getAuthToken(request)
+    const { organizationId } = getTokenContext(adminToken)
+    const createResponse = await apiRequest(request, 'POST', '/api/auth/users', {
+      token: adminToken,
+      data: {
+        email: testUserEmail,
+        password: testUserPassword,
+        organizationId,
+        roles: ['employee'],
+      },
+    })
+    expect(createResponse.status()).toBe(201)
+    const createBody = await createResponse.json()
+    expect(typeof createBody.id).toBe('string')
+    testUserId = createBody.id
+  })
+
+  test.afterAll(async ({ request }) => {
+    if (!adminToken || !testUserId) return
+    await apiRequest(
+      request,
+      'DELETE',
+      `/api/auth/users?id=${encodeURIComponent(testUserId)}`,
+      { token: adminToken },
+    ).catch(() => undefined)
+  })
+
   test('login with remember=true returns refreshToken in response', async ({ request }) => {
-    const { email, password } = DEFAULT_CREDENTIALS.admin;
-
     const response = await postForm(request, '/api/auth/login', {
-      email,
-      password,
+      email: testUserEmail,
+      password: testUserPassword,
       remember: '1',
-    });
+    })
 
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.ok).toBe(true);
-    expect(body.token).toBeTruthy();
-    expect(body.refreshToken).toBeTruthy();
-    expect(typeof body.refreshToken).toBe('string');
-    expect(body.refreshToken.length).toBeGreaterThan(0);
-  });
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(body.ok).toBe(true)
+    expect(body.token).toBeTruthy()
+    expect(body.refreshToken).toBeTruthy()
+    expect(typeof body.refreshToken).toBe('string')
+    expect(body.refreshToken.length).toBeGreaterThan(0)
+  })
 
   test('login without remember does not return refreshToken', async ({ request }) => {
-    const { email, password } = DEFAULT_CREDENTIALS.admin;
-
     const response = await postForm(request, '/api/auth/login', {
-      email,
-      password,
-    });
+      email: testUserEmail,
+      password: testUserPassword,
+    })
 
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.ok).toBe(true);
-    expect(body.token).toBeTruthy();
-    expect(body.refreshToken).toBeUndefined();
-  });
+    expect(response.status()).toBe(200)
+    const body = await response.json()
+    expect(body.ok).toBe(true)
+    expect(body.token).toBeTruthy()
+    expect(body.refreshToken).toBeUndefined()
+  })
 
   test('POST /api/auth/session/refresh returns new accessToken for valid refreshToken', async ({ request }) => {
-    const { email, password } = DEFAULT_CREDENTIALS.admin;
-
-    // First, login with remember=true to get a refresh token
     const loginResponse = await postForm(request, '/api/auth/login', {
-      email,
-      password,
+      email: testUserEmail,
+      password: testUserPassword,
       remember: '1',
-    });
-    expect(loginResponse.status()).toBe(200);
-    const loginBody = await loginResponse.json();
-    const refreshToken = loginBody.refreshToken;
-    expect(refreshToken).toBeTruthy();
+    })
+    expect(loginResponse.status()).toBe(200)
+    const loginBody = await loginResponse.json()
+    const refreshToken = loginBody.refreshToken
+    expect(refreshToken).toBeTruthy()
 
-    // Now use the refresh token to get a new access token
     const refreshResponse = await request.post(`${BASE_URL}/api/auth/session/refresh`, {
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify({ refreshToken }),
-    });
+    })
 
-    expect(refreshResponse.status()).toBe(200);
-    const refreshBody = await refreshResponse.json();
-    expect(refreshBody.ok).toBe(true);
-    expect(refreshBody.accessToken).toBeTruthy();
-    expect(typeof refreshBody.accessToken).toBe('string');
-    expect(refreshBody.expiresIn).toBe(60 * 60 * 8); // 8 hours in seconds
-  });
+    expect(refreshResponse.status()).toBe(200)
+    const refreshBody = await refreshResponse.json()
+    expect(refreshBody.ok).toBe(true)
+    expect(refreshBody.accessToken).toBeTruthy()
+    expect(typeof refreshBody.accessToken).toBe('string')
+    expect(refreshBody.expiresIn).toBe(60 * 60 * 8)
+  })
 
   test('POST /api/auth/session/refresh returns 400 for missing refreshToken', async ({ request }) => {
     const refreshResponse = await request.post(`${BASE_URL}/api/auth/session/refresh`, {
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify({}),
-    });
+    })
 
-    expect(refreshResponse.status()).toBe(400);
-    const body = await refreshResponse.json();
-    expect(body.ok).toBe(false);
-    expect(body.error).toBeTruthy();
-  });
+    expect(refreshResponse.status()).toBe(400)
+    const body = await refreshResponse.json()
+    expect(body.ok).toBe(false)
+    expect(body.error).toBeTruthy()
+  })
 
   test('POST /api/auth/session/refresh returns 401 for invalid refreshToken', async ({ request }) => {
     const refreshResponse = await request.post(`${BASE_URL}/api/auth/session/refresh`, {
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify({ refreshToken: 'invalid-token-that-does-not-exist' }),
-    });
+    })
 
-    expect(refreshResponse.status()).toBe(401);
-    const body = await refreshResponse.json();
-    expect(body.ok).toBe(false);
-    expect(body.error).toBeTruthy();
-  });
+    expect(refreshResponse.status()).toBe(401)
+    const body = await refreshResponse.json()
+    expect(body.ok).toBe(false)
+    expect(body.error).toBeTruthy()
+  })
 
   test('POST /api/auth/session/refresh returns 400 for invalid JSON body', async ({ request }) => {
     const refreshResponse = await request.post(`${BASE_URL}/api/auth/session/refresh`, {
       headers: { 'Content-Type': 'application/json' },
       data: 'not-valid-json',
-    });
+    })
 
-    expect(refreshResponse.status()).toBe(400);
-    const body = await refreshResponse.json();
-    expect(body.ok).toBe(false);
-  });
+    expect(refreshResponse.status()).toBe(400)
+    const body = await refreshResponse.json()
+    expect(body.ok).toBe(false)
+  })
 
   test('new accessToken from refresh can be used for authenticated requests', async ({ request }) => {
-    const { email, password } = DEFAULT_CREDENTIALS.admin;
-
-    // Login with remember=true
     const loginResponse = await postForm(request, '/api/auth/login', {
-      email,
-      password,
+      email: testUserEmail,
+      password: testUserPassword,
       remember: '1',
-    });
-    const { refreshToken } = await loginResponse.json();
+    })
+    const { refreshToken } = await loginResponse.json()
 
-    // Get new access token via refresh
     const refreshResponse = await request.post(`${BASE_URL}/api/auth/session/refresh`, {
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify({ refreshToken }),
-    });
-    const { accessToken } = await refreshResponse.json();
+    })
+    const { accessToken } = await refreshResponse.json()
 
-    // Use the new access token for an authenticated API call
     const profileResponse = await request.get(`${BASE_URL}/api/auth/profile`, {
       headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    })
 
-    expect(profileResponse.status()).toBe(200);
-    const profile = await profileResponse.json();
-    expect(profile.email).toBe(email);
-  });
-});
+    expect(profileResponse.status()).toBe(200)
+    const profile = await profileResponse.json()
+    expect(profile.email).toBe(testUserEmail)
+  })
+})

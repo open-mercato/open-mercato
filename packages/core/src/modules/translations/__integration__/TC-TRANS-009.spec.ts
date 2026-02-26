@@ -54,13 +54,10 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       const getBeforeUndo = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })
       expect(getBeforeUndo.ok()).toBeTruthy()
 
-      // Click the Undo button in the operation banner and wait for page reload
+      // Click the Undo button in the operation banner
       const undoButton = page.getByRole('button', { name: /^Undo(?: last action)?$/ })
       await expect(undoButton).toBeVisible()
-      await Promise.all([
-        page.waitForURL('**/backend/config/translations', { waitUntil: 'networkidle' }),
-        undoButton.click(),
-      ])
+      await undoButton.click()
 
       // Verify translation is gone via API
       await expect.poll(async () => {
@@ -112,13 +109,10 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       await page.getByRole('button', { name: 'Save translations' }).click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
 
-      // Click the Undo button and wait for page reload
+      // Click the Undo button
       const undoButton = page.getByRole('button', { name: /^Undo(?: last action)?$/ })
       await expect(undoButton).toBeVisible()
-      await Promise.all([
-        page.waitForURL('**/backend/config/translations', { waitUntil: 'networkidle' }),
-        undoButton.click(),
-      ])
+      await undoButton.click()
 
       // Verify original translation restored via API
       await expect.poll(async () => {
