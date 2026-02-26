@@ -6,6 +6,7 @@ import { Button } from '../../primitives/button'
 import { Input } from '../../primitives/input'
 import { Label } from '../../primitives/label'
 import { getMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
+import { getMessageObjectType } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
 
 export type MessageObjectOptionItem = {
   id: string
@@ -90,6 +91,9 @@ export function MessageObjectRecordPicker({
             const PreviewComponent = (componentKey
               ? messageUiRegistry.objectPreviewComponents[componentKey]
               : null) ?? messageUiRegistry.objectPreviewComponents['messages:default'] ?? null
+            const objectType = resolvedModule && resolvedEntityType
+              ? getMessageObjectType(resolvedModule, resolvedEntityType)
+              : null
 
             return (
               <div
@@ -111,6 +115,7 @@ export function MessageObjectRecordPicker({
                       title: item.label,
                       subtitle: item.subtitle || undefined,
                     }}
+                    icon={objectType?.icon}
                   />
                 ) : (
                   <div className="text-sm">

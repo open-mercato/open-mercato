@@ -24,6 +24,7 @@ export type TeamFormProps = {
   onDelete?: () => Promise<void>
   isLoading?: boolean
   loadingMessage?: string
+  extraActions?: React.ReactNode
 }
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -60,6 +61,7 @@ export function TeamForm(props: TeamFormProps) {
     onDelete,
     isLoading,
     loadingMessage,
+    extraActions,
   } = props
   const t = useT()
 
@@ -91,6 +93,7 @@ export function TeamForm(props: TeamFormProps) {
       onDelete={onDelete}
       isLoading={isLoading}
       loadingMessage={loadingMessage}
+      extraActions={extraActions}
     />
   )
 }

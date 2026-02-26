@@ -6,6 +6,8 @@
   "example.manageEntities": "Manage example entities.",
   "example.menu.quickAddTodo": "Quick Add Todo",
   "example.menu.todosShortcut": "Example Todos",
+  "example.messageObjects.notFound": "Not found",
+  "example.messageObjects.todo.title": "Todo",
   "example.moduleTitle": "Example Module",
   "example.nav.group": "Example",
   "example.publicPage": "Public example page.",

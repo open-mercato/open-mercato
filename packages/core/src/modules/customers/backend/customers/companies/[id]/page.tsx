@@ -49,6 +49,7 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
 type CompanyOverview = {
   company: {
@@ -730,6 +731,24 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
             profile={profile ?? null}
             validators={validators}
             onDisplayNameSave={updateDisplayName}
+            utilityActions={(
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'customers',
+                  entityType: 'company',
+                  entityId: companyId,
+                  previewData: {
+                    title: company.displayName,
+                    subtitle: company.primaryEmail ?? undefined,
+                    metadata: {
+                      [t('customers.companies.detail.highlights.primaryPhone')]: company.primaryPhone ?? '-',
+                      [t('customers.companies.detail.fields.industry')]: profile?.industry ?? '-',
+                    },
+                  },
+                }}
+                viewHref={`/backend/customers/companies/${companyId}`}
+              />
+            )}
             onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}
             onPrimaryPhoneSave={(value) => updateCompanyField('primaryPhone', value)}
             onStatusSave={(value) => updateCompanyField('status', value)}
