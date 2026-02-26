@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityClass } from '@mikro-orm/core'
+import sanitizeHtml from 'sanitize-html'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../data/entities'
 import type { ExtractedParticipant, InboxDiscrepancyType } from '../data/entities'
@@ -834,21 +835,12 @@ function enrichDraftReplyTargets(
 function buildFullTextForExtraction(email: InboxEmail): string {
   let text = email.rawText || ''
   if (!text && email.rawHtml) {
-    text = email.rawHtml
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<\/div>/gi, '\n')
-      .replace(/<\/tr>/gi, '\n')
-      .replace(/<\/li>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'")
+    text = sanitizeHtml(email.rawHtml, {
+      allowedTags: [],
+      allowedAttributes: {},
+    })
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim()
   }
