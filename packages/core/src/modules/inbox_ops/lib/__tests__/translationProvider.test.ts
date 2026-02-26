@@ -1,8 +1,8 @@
 /** @jest-environment node */
 
-const mockGenerateObject = jest.fn()
+const mockGenerateText = jest.fn()
 jest.mock('ai', () => ({
-  generateObject: (...args: unknown[]) => mockGenerateObject(...args),
+  generateText: (...args: unknown[]) => mockGenerateText(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/ai/opencode-provider', () => ({
@@ -25,12 +25,12 @@ describe('translateProposalContent', () => {
     jest.clearAllMocks()
   })
 
-  it('calls generateObject with correct translation prompt', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+  it('calls generateText with correct translation prompt', async () => {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         summary: 'Kunde möchte 10 Widgets bestellen',
         actions: { 'action-1': 'Bestellung erstellen' },
-      },
+      }),
     })
 
     const result = await translateProposalContent({
@@ -40,7 +40,7 @@ describe('translateProposalContent', () => {
       targetLocale: 'de',
     })
 
-    expect(mockGenerateObject).toHaveBeenCalledWith(
+    expect(mockGenerateText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'mock-model',
         system: expect.stringContaining('English'),
@@ -48,7 +48,7 @@ describe('translateProposalContent', () => {
         temperature: 0,
       }),
     )
-    expect(mockGenerateObject.mock.calls[0][0].system).toContain('German')
+    expect(mockGenerateText.mock.calls[0][0].system).toContain('German')
 
     expect(result.summary).toBe('Kunde möchte 10 Widgets bestellen')
     expect(result.actions['action-1']).toBe('Bestellung erstellen')
@@ -61,15 +61,15 @@ describe('translateProposalContent', () => {
       'id-ccc': 'Log activity',
     }
 
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         summary: 'Resumen traducido',
         actions: {
           'id-aaa': 'Crear contacto para John',
           'id-bbb': 'Crear pedido de widgets',
           'id-ccc': 'Registrar actividad',
         },
-      },
+      }),
     })
 
     const result = await translateProposalContent({

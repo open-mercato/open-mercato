@@ -370,11 +370,14 @@ describe('extractionWorker', () => {
         modelWithProvider: 'anthropic:test-model',
       })
 
+      // detectDuplicateOrders (runs before enrichOrderPayload) finds an existing order
       mockFindOneWithDecryption.mockResolvedValueOnce({
         id: 'existing-order-1',
         orderNumber: 'ORD-500',
         customerReference: 'PO-2026-001',
       })
+      // enrichOrderPayload resolves channel via findOneWithDecryption
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
 
       await handle(basePayload, mockCtx as any)
 
@@ -383,7 +386,7 @@ describe('extractionWorker', () => {
         expect.objectContaining({
           type: 'duplicate_order',
           severity: 'error',
-          description: expect.stringContaining('PO-2026-001'),
+          description: 'inbox_ops.discrepancy.desc.duplicate_order_reference',
         }),
       )
     })
@@ -419,8 +422,8 @@ describe('extractionWorker', () => {
         expect.objectContaining({
           type: 'unknown_contact',
           severity: 'warning',
-          description: expect.stringContaining('unknown@example.com'),
-          foundValue: 'unknown@example.com',
+          description: 'inbox_ops.discrepancy.desc.no_matching_contact',
+          foundValue: 'Unknown Person (unknown@example.com)',
         }),
       )
     })
@@ -556,7 +559,7 @@ describe('extractionWorker', () => {
 
       const arjunDiscrepancy = discrepancyCalls.find(
         (d: Record<string, unknown>) =>
-          d.type === 'unknown_contact' && d.foundValue === 'arjun@example.com',
+          d.type === 'unknown_contact' && d.foundValue === 'Arjun Patel (arjun@example.com)',
       )
       expect(arjunDiscrepancy).toBeDefined()
     })

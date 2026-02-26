@@ -122,6 +122,13 @@ test.describe('TC-INBOX-002: Inbox Ops Text Extract API', () => {
 
   test.describe('GET /api/inbox_ops/emails', () => {
     test('returns paginated email list', async ({ request }) => {
+      // Create a fixture so the list is never empty, even in a greenfield CI environment
+      const fixture = await submitTextExtraction(request, token, {
+        text: 'TC-INBOX-002 list fixture: Order 1x Widget.',
+        title: 'TC-INBOX-002 list fixture',
+      });
+      if (fixture.emailId) createdEmailIds.push(fixture.emailId);
+
       const response = await apiRequest(request, 'GET', '/api/inbox_ops/emails?page=1&pageSize=10', { token });
       expect(response.status()).toBe(200);
       const body = await readJsonSafe<{ items?: Array<{ id?: string; status?: string }>; total?: number }>(response);
