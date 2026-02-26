@@ -1,7 +1,7 @@
 # 0.4.5 (2026-02-26)
 
 ## Highlights
-This release delivers the **Unified Module Event System (UMES)** — a major architectural upgrade unifying all module events across the platform, the **Messages module**, **Multiple CRM Pipelines** (SPEC-028), **Units of Measure**, **Record Locking** (enterprise), **Inbox Email Parser Phase 1**, the **Progress Tracking module**, **Database Decryption CLI** (SPEC-031), and **header-based auth token refresh** for mobile/API clients. It also ships significant CI/CD improvements, expanded test coverage, and numerous bug fixes. Welcome to **8 first-time contributors**!
+This release delivers the **Unified Module Event System (UMES)** — a major architectural upgrade unifying all module events across the platform, the **Messages module**, **Multiple CRM Pipelines** (SPEC-028), **Units of Measure**, **Record Locking** (enterprise), **Inbox Email Parser Phase 1**, the **Progress Tracking module**, **Database Decryption CLI** (SPEC-031), and **header-based auth token refresh** for mobile/API clients. It also ships significant CI/CD improvements, expanded test coverage, and numerous bug fixes. Welcome to **19 first-time contributors**!
 
 ## ✨ Features
 - 🔄 Unified Module Event System (UMES) — phases A+B+C+D implementing a unified, typed event infrastructure across all modules with consistent emit/subscribe patterns and client broadcast support. (#734) *(@pkarw)*
@@ -88,7 +88,6 @@ Welcome and thank you to our new contributors! 🙌
 - @dominikpalatynski
 - @msoroka
 - @piotrchabros
-- @strzesniewski
 - @Eclip7e
 - @gsobczyk
 - @Dawidols
@@ -100,9 +99,11 @@ Welcome and thank you to our new contributors! 🙌
 - @janzaremski
 - @migsilva89
 - @B0G3
-- @fto-aubergine
 - @kurs0n
-- @redjungle-as
+- @jtomaszewski
+- @marcinwadon
+- @michal1986
+- @abankowski
 
 ---
 
