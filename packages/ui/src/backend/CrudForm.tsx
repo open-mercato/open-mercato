@@ -590,7 +590,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         variant: 'destructive',
       })
       if (!confirmed) return
-<<<<<<< HEAD
 
       let injectionRequestHeaders: Record<string, string> | undefined
       if (resolvedInjectionSpotId) {
@@ -656,9 +655,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           console.error('[CrudForm] Error in onAfterDelete:', err)
         }
       }
-=======
-      await onDelete()
->>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
       try { flash(deleteSuccessMessage, 'success') } catch {}
       // Redirect if requested by caller
       if (typeof deleteRedirect === 'string' && deleteRedirect) {
@@ -694,7 +690,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     } finally {
       setPending(false)
     }
-<<<<<<< HEAD
   }, [
     confirm,
     deleteConfirmMessage,
@@ -711,9 +706,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     triggerInjectionEvent,
     values,
   ])
-=======
-  }, [confirm, onDelete, deleteRedirect, router, deleteConfirmMessage, deleteSuccessMessage, deleteErrorMessage])
->>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {

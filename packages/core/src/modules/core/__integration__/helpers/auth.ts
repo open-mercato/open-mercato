@@ -2,7 +2,6 @@ import { type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-<<<<<<< HEAD
 function loadEnvFileContent(): string | null {
   const candidatePaths = [
     resolve(process.cwd(), 'apps/mercato/.env'),
@@ -29,18 +28,6 @@ function loadEnvValue(key: string): string | undefined {
   if (!content) return undefined;
   const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'));
   return match?.[1]?.trim();
-=======
-function loadEnvValue(key: string): string | undefined {
-  if (process.env[key]) return process.env[key];
-  try {
-    const envPath = resolve(__dirname, '../../../../apps/mercato/.env');
-    const content = readFileSync(envPath, 'utf-8');
-    const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'));
-    return match?.[1]?.trim();
-  } catch {
-    return undefined;
-  }
->>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
 }
 
 export const DEFAULT_CREDENTIALS: Record<string, { email: string; password: string }> = {
