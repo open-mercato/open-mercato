@@ -258,6 +258,12 @@ export const interceptors: ApiInterceptor[] = [
 
 ### TC-UMES-I01: Interceptor `before` rejects POST with 422 when title contains "BLOCKED"
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase E — API Interceptors | In Progress | 2026-02-26 | Core contracts, registry/runner, CRUD integration, generator output, and base tests added. |
+
 **Type**: API (Playwright)
 
 **Steps**:

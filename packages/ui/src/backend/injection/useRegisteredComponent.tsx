@@ -1,0 +1,78 @@
+'use client'
+
+import * as React from 'react'
+import type { ComponentType } from 'react'
+import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
+
+class ReplacementErrorBoundary extends React.Component<
+  { fallback: React.ReactNode; onError: (error: unknown) => void; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { fallback: React.ReactNode; onError: (error: unknown) => void; children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: unknown): void {
+    this.props.onError(error)
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback
+    return this.props.children
+  }
+}
+
+export function useRegisteredComponent<TProps>(componentId: string): ComponentType<TProps> {
+  return React.useMemo(() => {
+    const entry = getComponentEntry(componentId)
+    if (!entry) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`[UMES] Component "${componentId}" is not registered.`)
+      }
+      const Missing = () => null
+      return Missing as ComponentType<TProps>
+    }
+
+    const original = entry.component as ComponentType<TProps>
+    const overrides = getComponentOverrides(componentId)
+
+    let replacement: ComponentType<TProps> | null = null
+    const wrappers: Array<(Original: ComponentType<TProps>) => ComponentType<TProps>> = []
+    const transforms: Array<(props: TProps) => TProps> = []
+
+    for (const override of overrides) {
+      if ('replacement' in override) replacement = override.replacement as ComponentType<TProps>
+      if ('wrapper' in override) wrappers.push(override.wrapper as (Original: ComponentType<TProps>) => ComponentType<TProps>)
+      if ('propsTransform' in override) transforms.push(override.propsTransform as (props: TProps) => TProps)
+    }
+
+    const base = replacement ?? original
+    const wrapped = wrappers.reduce<ComponentType<TProps>>((acc, wrapper) => wrapper(acc), base)
+
+    const Resolved = (props: TProps) => {
+      const transformed = transforms.reduce((current, transform) => transform(current), props)
+      const Fallback = React.createElement(original as React.ComponentType<any>, transformed as any)
+      return (
+        <ReplacementErrorBoundary
+          fallback={Fallback}
+          onError={(error) => {
+            const replacementModule = overrides.find((override) => 'replacement' in override)?.metadata?.module ?? 'unknown'
+            console.error(`[UMES] Component replacement failed for "${componentId}" from module "${replacementModule}"`, error)
+          }}
+        >
+          {React.createElement(wrapped as React.ComponentType<any>, transformed as any)}
+        </ReplacementErrorBoundary>
+      )
+    }
+
+    Resolved.displayName = `RegisteredComponent(${componentId})`
+    return Resolved
+  }, [componentId])
+}
+
+export default useRegisteredComponent

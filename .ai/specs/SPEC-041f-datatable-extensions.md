@@ -486,3 +486,9 @@ export default {
 - Existing columns, row actions, filters preserved in their original order
 - Injected items only appear when widgets are registered and user has required features
 - No changes to DataTable's external API (props interface)
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase F — DataTable Extensibility | In Progress | 2026-02-26 | Injected columns, row actions, and server filters are wired into DataTable with auto table replacement handles. |

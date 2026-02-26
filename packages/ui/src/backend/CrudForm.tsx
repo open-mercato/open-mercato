@@ -69,6 +69,10 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
+import { InjectedField } from './injection/InjectedField'
+import type { InjectionFieldDefinition, FieldContext, FieldVisibilityRule } from '@open-mercato/shared/modules/widgets/injection'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -203,6 +207,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   customFieldsetBindings?: Record<string, { valueKey: string }>
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
+  replacementHandle?: string
 }
 
 // Group-level custom component context
@@ -226,6 +231,45 @@ export type CrudFormGroup = {
   kind?: 'customFields'
   // When true, render component output inline without wrapping group chrome
   bare?: boolean
+}
+
+function evaluateInjectedVisibility(
+  condition: InjectionFieldDefinition['visibleWhen'],
+  values: Record<string, unknown>,
+  context: FieldContext,
+): boolean {
+  if (!condition) return true
+  if (typeof condition === 'function') return condition(values, context)
+  const rule = condition as FieldVisibilityRule
+  const current = values[rule.field]
+  switch (rule.operator) {
+    case 'eq':
+      return current === rule.value
+    case 'neq':
+      return current !== rule.value
+    case 'in':
+      return Array.isArray(rule.value) ? rule.value.includes(current) : false
+    case 'notIn':
+      return Array.isArray(rule.value) ? !rule.value.includes(current) : true
+    case 'truthy':
+      return Boolean(current)
+    case 'falsy':
+      return !current
+    default:
+      return true
+  }
+}
+
+function readByDotPath(source: Record<string, unknown> | undefined, path: string): unknown {
+  if (!source || !path) return undefined
+  if (Object.prototype.hasOwnProperty.call(source, path)) return source[path]
+  const segments = path.split('.').filter(Boolean)
+  let current: unknown = source
+  for (const segment of segments) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
 }
 
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -319,6 +363,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   contentHeader,
   customFieldsetBindings,
   injectionSpotId,
+  replacementHandle,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -390,6 +435,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
+  const resolvedReplacementHandle = React.useMemo(() => {
+    if (replacementHandle) return replacementHandle
+    if (resolvedEntityIds.length) return ComponentReplacementHandles.crudForm(resolvedEntityIds[0].replace(/[:]+/g, '.'))
+    return ComponentReplacementHandles.crudForm('unknown')
+  }, [replacementHandle, resolvedEntityIds])
   const headerInjectionSpotId = resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : undefined
   
   const recordId = React.useMemo(() => {
@@ -425,6 +475,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     context: injectionContext,
     triggerOnLoad: true,
   })
+  const { widgets: injectedFieldWidgets } = useInjectionDataWidgets(
+    resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:fields` : '__disabled__:fields'
+  )
   
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
   const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
@@ -983,12 +1036,69 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     resolvedEntityIds,
   ])
 
+  const injectedFieldDefinitions = React.useMemo<InjectionFieldDefinition[]>(() => {
+    const definitions: InjectionFieldDefinition[] = []
+    for (const widget of injectedFieldWidgets) {
+      if (!('fields' in widget)) continue
+      for (const field of widget.fields ?? []) {
+        definitions.push(field as InjectionFieldDefinition)
+      }
+    }
+    return definitions
+  }, [injectedFieldWidgets])
+
+  const injectedFieldContext = React.useMemo<FieldContext>(() => {
+    const recordValues = values as Record<string, unknown>
+    const organizationId = typeof recordValues.organizationId === 'string' ? recordValues.organizationId : null
+    const tenantId = typeof recordValues.tenantId === 'string' ? recordValues.tenantId : null
+    const userId = typeof recordValues.userId === 'string' ? recordValues.userId : null
+    return {
+      organizationId,
+      tenantId,
+      userId,
+      record: recordValues,
+    }
+  }, [values])
+
+  const hiddenInjectedFieldIds = React.useMemo(() => {
+    const hidden = new Set<string>()
+    for (const definition of injectedFieldDefinitions) {
+      if (!evaluateInjectedVisibility(definition.visibleWhen, values as Record<string, unknown>, injectedFieldContext)) {
+        hidden.add(definition.id)
+      }
+    }
+    return hidden
+  }, [injectedFieldContext, injectedFieldDefinitions, values])
+  const injectedFieldIdSet = React.useMemo(
+    () => new Set(injectedFieldDefinitions.map((definition) => definition.id)),
+    [injectedFieldDefinitions],
+  )
+
+  const injectedCrudFields = React.useMemo<CrudField[]>(() => {
+    return injectedFieldDefinitions.map((definition) => ({
+      id: definition.id,
+      label: definition.label,
+      type: 'custom',
+      readOnly: definition.readOnly,
+      component: ({ value, setValue, values: formValues }) => (
+        <InjectedField
+          field={definition}
+          value={value}
+          onChange={(_, nextValue) => setValue(nextValue)}
+          context={injectedFieldContext}
+          formData={(formValues ?? values) as Record<string, unknown>}
+        />
+      ),
+    }))
+  }, [injectedFieldContext, injectedFieldDefinitions, values])
+
   const allFields = React.useMemo(() => {
-    if (!cfFields.length) return fields
-    const provided = new Set(fields.map(f => f.id))
+    const base = [...fields, ...injectedCrudFields]
+    if (!cfFields.length) return base
+    const provided = new Set(base.map(f => f.id))
     const extras = cfFields.filter(f => !provided.has(f.id))
-    return [...fields, ...extras]
-  }, [fields, cfFields])
+    return [...base, ...extras]
+  }, [fields, injectedCrudFields, cfFields])
 
   const fieldById = React.useMemo(() => {
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
@@ -1020,12 +1130,29 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return pairs.map((p) => p.group)
   }, [injectionWidgets, injectionContext, pending, setValues, values])
   
-  const shouldAutoGroup = (!groups || groups.length === 0) && injectionGroupCards.length > 0
+  const groupsWithInjectedFields = React.useMemo(() => {
+    if (!groups || groups.length === 0 || injectedFieldDefinitions.length === 0) return groups
+    const cloned = groups.map((group) => ({ ...group, fields: [...(group.fields ?? [])] }))
+    const fallbackIndex = cloned.length - 1
+    for (const definition of injectedFieldDefinitions) {
+      const targetIndex = cloned.findIndex((group) => group.id === definition.group)
+      const index = targetIndex >= 0 ? targetIndex : fallbackIndex
+      if (index < 0) continue
+      const fieldEntries = cloned[index].fields ?? []
+      if (!fieldEntries.some((entry) => typeof entry === 'string' && entry === definition.id)) {
+        fieldEntries.push(definition.id)
+      }
+      cloned[index].fields = fieldEntries
+    }
+    return cloned
+  }, [groups, injectedFieldDefinitions])
+
+  const shouldAutoGroup = (!groupsWithInjectedFields || groupsWithInjectedFields.length === 0) && injectionGroupCards.length > 0
   const resolvedGroupsForLayout = React.useMemo(() => {
-    const baseGroups = groups && groups.length ? groups : []
+    const baseGroups = groupsWithInjectedFields && groupsWithInjectedFields.length ? groupsWithInjectedFields : []
     const autoGroup = shouldAutoGroup ? [{ id: '__auto-fields__', fields: allFields }] as CrudFormGroup[] : []
     return [...(baseGroups.length ? baseGroups : autoGroup), ...injectionGroupCards]
-  }, [allFields, groups, injectionGroupCards, shouldAutoGroup])
+  }, [allFields, groupsWithInjectedFields, injectionGroupCards, shouldAutoGroup])
   const useGroupedLayout = resolvedGroupsForLayout.length > 0
   const stackedInjectionWidgets = React.useMemo(
     () => (injectionWidgets ?? []).filter((widget) => (widget.placement?.kind ?? 'stack') === 'stack'),
@@ -1261,7 +1388,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     initialValuesSnapshotRef.current = snapshot
     let mergedValues: CrudFormValues<TValues> | null = null
     setValues((prev) => {
-      mergedValues = { ...prev, ...initialValues } as CrudFormValues<TValues>
+      const merged = { ...prev, ...initialValues } as CrudFormValues<TValues>
+      for (const definition of injectedFieldDefinitions) {
+        if (merged[definition.id] !== undefined) continue
+        const extracted = readByDotPath(initialValues as Record<string, unknown>, definition.id)
+        if (extracted !== undefined) {
+          ;(merged as Record<string, unknown>)[definition.id] = extracted
+        }
+      }
+      mergedValues = merged
       return mergedValues
     })
     if (!extendedInjectionEventsEnabled || !mergedValues) return
@@ -1284,7 +1419,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return () => {
       cancelled = true
     }
-  }, [extendedInjectionEventsEnabled, initialValues, triggerInjectionEvent])
+  }, [extendedInjectionEventsEnabled, initialValues, injectedFieldDefinitions, triggerInjectionEvent])
 
   const buildFieldsetEditorHref = React.useCallback(
     (includeViewParam: boolean) => {
@@ -1338,6 +1473,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const field of allFields) {
       if (!field.required) continue
       if (field.disabled) continue
+      if (hiddenInjectedFieldIds.has(field.id)) continue
       const v = values[field.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
@@ -1402,9 +1538,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     }
 
+    const widgetValues = { ...(values as Record<string, unknown>) }
+    for (const hiddenId of hiddenInjectedFieldIds) {
+      delete widgetValues[hiddenId]
+    }
+    const coreValues = { ...widgetValues }
+    for (const injectedId of injectedFieldIdSet) {
+      delete coreValues[injectedId]
+    }
+
     let parsedValues: TValues
     if (schema) {
-      const res = schema.safeParse(values)
+      const res = schema.safeParse(coreValues)
       if (!res.success) {
         const fieldErrors: Record<string, string> = {}
         res.error.issues.forEach((issue) => {
@@ -1420,14 +1565,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
       parsedValues = res.data
     } else {
-      parsedValues = values as TValues
+      parsedValues = coreValues as TValues
     }
-    let submitValues = parsedValues
+    let submitValues = widgetValues as TValues
+    let coreSubmitValues = parsedValues
     if (extendedInjectionEventsEnabled) {
       try {
         const result = await triggerInjectionEvent('transformFormData', submitValues, injectionContext)
         if (result.data) {
           submitValues = result.data as TValues
+          const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
+          for (const injectedId of injectedFieldIdSet) {
+            delete projectedCoreValues[injectedId]
+          }
+          coreSubmitValues = schema ? schema.parse(projectedCoreValues) : (projectedCoreValues as TValues)
         }
       } catch (err) {
         console.error('[CrudForm] Error in transformFormData:', err)
@@ -1492,10 +1643,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     try {
       if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
         await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
-          await onSubmit?.(submitValues)
+          await onSubmit?.(coreSubmitValues)
         })
       } else {
-        await onSubmit?.(submitValues)
+        await onSubmit?.(coreSubmitValues)
       }
       
       // Trigger onAfterSave event for injection widgets
@@ -1958,7 +2109,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const hasSecondaryColumn = col2Content.length > 0
 
     return (
-      <div className="space-y-4" ref={rootRef}>
+      <div className="space-y-4" ref={rootRef} data-component-handle={resolvedReplacementHandle}>
         {!embedded ? (
           <FormHeader
             mode="edit"
@@ -2030,7 +2181,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   // Default single-card layout (compatible with previous API)
   return (
-    <div className="space-y-4" ref={rootRef}>
+    <div className="space-y-4" ref={rootRef} data-component-handle={resolvedReplacementHandle}>
       {!embedded ? (
         <FormHeader
           mode="edit"

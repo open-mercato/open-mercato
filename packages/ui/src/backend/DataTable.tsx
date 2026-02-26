@@ -12,9 +12,10 @@ import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
-import { type RowActionItem } from './RowActions'
+import { RowActions, type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { InjectionSpot } from './injection/InjectionSpot'
+import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
@@ -27,6 +28,12 @@ import type {
   PerspectiveSettings,
   PerspectiveSaveResponse,
 } from '@open-mercato/shared/modules/perspectives/types'
+import type {
+  InjectionColumnDefinition,
+  InjectionFilterDefinition,
+  InjectionRowActionDefinition,
+} from '@open-mercato/shared/modules/widgets/injection'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 
 let refreshScheduled = false
 function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
@@ -156,6 +163,7 @@ export type DataTableProps<T> = {
   customFieldFilterKeyExtras?: Array<string | number | boolean | null | undefined>
   injectionSpotId?: string
   injectionContext?: Record<string, unknown>
+  replacementHandle?: string
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -589,6 +597,7 @@ export function DataTable<T>({
   customFieldFilterKeyExtras,
   injectionSpotId,
   injectionContext,
+  replacementHandle,
 }: DataTableProps<T>) {
   const t = useT()
   const router = useRouter()
@@ -733,6 +742,104 @@ export function DataTable<T>({
   const perspectiveData = perspectiveQuery.data
   const initialPerspectiveAppliedRef = React.useRef(Boolean(mergedInitialSettings))
 
+  const extensionTableId = React.useMemo(() => {
+    if (perspective?.tableId) return perspective.tableId
+    if (injectionSpotId?.startsWith('data-table:')) return injectionSpotId.slice('data-table:'.length)
+    return null
+  }, [injectionSpotId, perspective?.tableId])
+  const { widgets: columnWidgets } = useInjectionDataWidgets(
+    extensionTableId ? `data-table:${extensionTableId}:columns` : '__disabled__:columns',
+  )
+  const { widgets: rowActionWidgets } = useInjectionDataWidgets(
+    extensionTableId ? `data-table:${extensionTableId}:row-actions` : '__disabled__:row-actions',
+  )
+  const { widgets: filterWidgets } = useInjectionDataWidgets(
+    extensionTableId ? `data-table:${extensionTableId}:filters` : '__disabled__:filters',
+  )
+  const injectedColumns = React.useMemo<ColumnDef<T, unknown>[]>(() => {
+    const byId = new Map<string, InjectionColumnDefinition>()
+    for (const widget of columnWidgets) {
+      if (!('columns' in widget)) continue
+      for (const definition of widget.columns ?? []) {
+        if (!byId.has(definition.id)) byId.set(definition.id, definition)
+      }
+    }
+    return Array.from(byId.values()).map((definition) => ({
+      id: definition.id,
+      accessorKey: definition.accessorKey,
+      header: definition.header,
+      cell: definition.cell as ColumnDef<T, unknown>['cell'],
+      size: definition.size,
+      enableSorting: definition.sortable === true,
+    }))
+  }, [columnWidgets])
+  const injectedRowActions = React.useMemo<InjectionRowActionDefinition[]>(() => {
+    const byId = new Map<string, InjectionRowActionDefinition>()
+    for (const widget of rowActionWidgets) {
+      if (!('rowActions' in widget)) continue
+      for (const definition of widget.rowActions ?? []) {
+        if (!byId.has(definition.id)) byId.set(definition.id, definition)
+      }
+    }
+    return Array.from(byId.values())
+  }, [rowActionWidgets])
+  const injectedFilters = React.useMemo<FilterDef[]>(() => {
+    const byId = new Map<string, FilterDef>()
+    for (const widget of filterWidgets) {
+      if (!('filters' in widget)) continue
+      for (const definition of widget.filters ?? []) {
+        const filter = definition as InjectionFilterDefinition
+        if (filter.strategy !== 'server') continue
+        const mappedType: FilterDef['type'] =
+          filter.type === 'date-range'
+            ? 'dateRange'
+            : filter.type === 'boolean'
+              ? 'checkbox'
+              : filter.type === 'select'
+                ? 'select'
+                : 'text'
+        const id = filter.queryParam ?? filter.id
+        if (!byId.has(id)) {
+          byId.set(id, {
+            id,
+            label: t(filter.label, filter.label),
+            type: mappedType,
+            options: filter.options,
+          })
+        }
+      }
+    }
+    return Array.from(byId.values())
+  }, [filterWidgets, t])
+  const mergedColumns = React.useMemo<ColumnDef<T, unknown>[]>(() => {
+    if (!injectedColumns.length) return columns
+    return [...columns, ...injectedColumns]
+  }, [columns, injectedColumns])
+  const resolvedRowActions = React.useCallback((row: T) => {
+    const injectedItems: RowActionItem[] = injectedRowActions.map((action) => ({
+      id: action.id,
+      label: t(action.label, action.label),
+      onSelect: () => action.onSelect(row, { navigate: (href: string) => router.push(href) }),
+    }))
+    const baseNode = rowActions ? rowActions(row) : null
+    if (!injectedItems.length) return baseNode
+    if (React.isValidElement(baseNode)) {
+      const baseItems = (baseNode.props as { items?: RowActionItem[] }).items
+      if (Array.isArray(baseItems)) {
+        const merged = [...baseItems]
+        const existingIds = new Set(
+          baseItems.map((item) => item.id).filter((id): id is string => typeof id === 'string' && id.length > 0)
+        )
+        for (const item of injectedItems) {
+          if (item.id && existingIds.has(item.id)) continue
+          merged.push(item)
+        }
+        return <RowActions items={merged} />
+      }
+    }
+    return <RowActions items={injectedItems} />
+  }, [injectedRowActions, rowActions, router, t])
+
   // Date formatting setup
   const DATE_FORMAT = (process.env.NEXT_PUBLIC_DATE_FORMAT || 'YYYY-MM-DD HH:mm') as string
 
@@ -782,7 +889,7 @@ export function DataTable<T>({
     if (dateColumnIds) return
     if (!data || data.length === 0) return
     // Build a cheap row accessor using column defs
-    const accessors = columns.map((c) => {
+    const accessors = mergedColumns.map((c) => {
       const key = (c as any).accessorKey as string | undefined
       const id = (c as any).id as string | undefined
       return { id: id || key || '', key }
@@ -798,7 +905,7 @@ export function DataTable<T>({
       }
     })
     setDateColumnIds(guessed)
-  }, [dateColumnIds, data, columns])
+  }, [dateColumnIds, data, mergedColumns])
   // Column visibility: only hide columns explicitly marked as hidden.
   // All other columns are always rendered; horizontal scroll (min-w + overflow-auto)
   // handles narrow viewports so users can swipe to reach every column.
@@ -828,7 +935,7 @@ export function DataTable<T>({
   })
   const table = useReactTable<T>({
     data,
-    columns,
+    columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
     ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),
     state: { sorting, columnVisibility, columnOrder },
@@ -864,7 +971,7 @@ export function DataTable<T>({
       const changed = filtered.length !== prev.length || filtered.some((id, index) => id !== prev[index])
       return changed ? filtered : prev
     })
-  }, [table, columns])
+  }, [table, mergedColumns])
 
   const initialVisibilityApplied = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
   React.useEffect(() => {
@@ -878,7 +985,7 @@ export function DataTable<T>({
       setColumnVisibility((prev) => ({ ...hidden, ...prev }))
     }
     initialVisibilityApplied.current = true
-  }, [table, columns])
+  }, [table, mergedColumns])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
     const visibility: Record<string, boolean> = {}
@@ -1394,13 +1501,14 @@ export function DataTable<T>({
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar
     const anySearch = onSearchChange != null
-    const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0)
+    const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0) || injectedFilters.length > 0
     if (!anySearch && !anyFilters) return null
     // Merge base filters with CF filters, preferring base definitions when ids collide
     const baseList = baseFilters || []
     const existing = new Set(baseList.map((f) => f.id))
     const cfOnly = (cfFilters || []).filter((f) => !existing.has(f.id))
-    const combined: FilterDef[] = [...baseList, ...cfOnly]
+    const injectedOnly = injectedFilters.filter((f) => !existing.has(f.id) && !cfOnly.some((cf) => cf.id === f.id))
+    const combined: FilterDef[] = [...baseList, ...cfOnly, ...injectedOnly]
     const perspectiveButton = canUsePerspectives ? (
       <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
         <SlidersHorizontal className="mr-2 h-4 w-4" />
@@ -1451,6 +1559,7 @@ export function DataTable<T>({
     searchAlign,
     baseFilters,
     cfFilters,
+    injectedFilters,
     filterValues,
     onFiltersApply,
     onFiltersClear,
@@ -1477,6 +1586,7 @@ export function DataTable<T>({
   const shouldRenderToolbarBelow = hasToolbar && !renderToolbarInline
   const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
   const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
+  const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
   const resolvedInjectionContext = React.useMemo(
     () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
     [injectionContext, perspective?.tableId, title]
@@ -1504,7 +1614,7 @@ export function DataTable<T>({
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className={containerClassName}>
+    <div className={containerClassName} data-component-handle={resolvedReplacementHandle}>
       {shouldRenderHeader && (
         <div className={headerWrapperClassName}>
           {(hasTitle || shouldRenderActionsWrapper || renderToolbarInline) && (
@@ -1584,7 +1694,7 @@ export function DataTable<T>({
                     </TableHead>
                   )
                 })}
-                {rowActions ? (
+                {rowActions || injectedRowActions.length > 0 ? (
                   <TableHead className="w-0 text-right">
                     {t('ui.dataTable.actionsColumn', 'Actions')}
                   </TableHead>
@@ -1595,7 +1705,7 @@ export function DataTable<T>({
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center">
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0)} className="h-24 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <Spinner size="md" />
                     <span className="text-muted-foreground">Loading data...</span>
@@ -1604,13 +1714,13 @@ export function DataTable<T>({
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-destructive">
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0)} className="h-24 text-center text-destructive">
                   {typeof error === 'string' ? error : error}
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
-                const rowActionsElement = rowActions ? rowActions(row.original as T) : null
+                const rowActionsElement = resolvedRowActions(row.original as T)
                 const defaultRowAction = onRowClick ? null : pickDefaultRowAction(rowActionsElement, resolvedRowClickActionIds)
                 const isClickable = !disableRowClick && (onRowClick || defaultRowAction)
                 
@@ -1682,7 +1792,7 @@ export function DataTable<T>({
                         </TableCell>
                       )
                     })}
-                    {rowActions ? (
+                    {rowActions || injectedRowActions.length > 0 ? (
                       <TableCell className="text-right whitespace-nowrap" data-actions-cell>
                         {rowActionsElement}
                       </TableCell>
@@ -1692,7 +1802,7 @@ export function DataTable<T>({
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0)} className="h-24 text-center text-muted-foreground">
                   {emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')}
                 </TableCell>
               </TableRow>

@@ -398,11 +398,19 @@ src/modules/<module>/
 
 ### Built-in Injection Spots
 
-- **CRUD forms**: `crud-form:<entityId>` (automatically derived from `entityId`/`entityIds` passed to `CrudForm`). Widgets can request `placement.kind: 'group'` to render as a side-card and `column: 2` to appear in the right column.
-- **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`.
+- **CRUD forms**: `crud-form:<entityId>` (automatically derived from `entityId`/`entityIds` passed to `CrudForm`). Widgets can request `placement.kind: 'group'` to render as a side-card and `column: 2` to appear in the right column. Field injection spot: `crud-form:<entityId>:fields`.
+- **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`. Deep extension spots: `:columns`, `:row-actions`, `:bulk-actions`, `:filters`.
 - **Backend record context**: `backend:record:current` (mounted once per backend page with `{ path, query }` context).
 - **Backend layout**: `backend:layout:top`, `backend:layout:footer` (top and bottom of the main backend content area).
 - **Backend sidebar**: `backend:sidebar:top`, `backend:sidebar:footer` (desktop sidebar top/bottom areas in `AppShell`).
+
+### Replacement Handles
+
+Component replacement uses stable handle IDs:
+- `page:<path>` for backend page-level replacement (for example `page:/backend/customers/people`)
+- `data-table:<tableId>` for each `DataTable` instance
+- `crud-form:<entityId>` for each `CrudForm` instance
+- `section:<scope>.<sectionName>` for detail sections (for example `section:ui.detail.NotesSection`)
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 - **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
 

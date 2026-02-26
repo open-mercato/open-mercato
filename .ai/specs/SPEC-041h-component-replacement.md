@@ -318,3 +318,9 @@ This demonstrates the core use case: cross-module component extension without fo
 - No existing component rendering changed — opt-in per component
 - `registerComponent` is additive — no existing code needs modification
 - `ComponentOverrideProvider` at app root is transparent when no overrides exist
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase H — Component Replacement | In Progress | 2026-02-26 | Added component registry primitives, client hook/provider, page-level replacement resolution, and automatic page/table/form handles. |

@@ -122,6 +122,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 ## DataTable Guidelines
 
 - Use `DataTable` as the default list view.
+- DataTable extension spots include: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters` (in addition to `:header`/`:footer`).
 - Populate `columns` with explicit renderers and set `meta.truncate`/`meta.maxWidth` where truncation is needed.
 - For filters, use `FilterBar`/`FilterOverlay` with async option loaders; keep `pageSize` at or below 100.
 - Support exports using `buildCrudExportUrl` and pass `exportOptions` to `DataTable`.
@@ -158,6 +159,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 ## Component Reuse
 
 - Prefer existing UI primitives and backend components from `@open-mercato/ui` before creating new ones.
+- For replacement-aware hosts, expose stable handle IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) so overrides are deterministic.
 - Reference @`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md` for the reusable component catalog and usage patterns.
 - For dialogs and forms, keep the interaction model consistent: `Cmd/Ctrl + Enter` to submit, `Escape` to cancel.
 - Favor composable, data-first helpers (custom field helpers, CRUD helpers, filter utilities) over bespoke logic.

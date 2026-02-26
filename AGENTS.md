@@ -184,11 +184,13 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
 | `ai-tools.ts` | `aiTools` | MCP AI tool definitions |
+| `api/interceptors.ts` | `interceptors` | API route interception hooks (before/after) |
 | `data/entities.ts` | — | MikroORM entities |
 | `data/validators.ts` | — | Zod validation schemas |
 | `data/extensions.ts` | `extensions` | Entity extensions (module links) |
 | `widgets/injection/` | — | Injected UI widgets |
 | `widgets/injection-table.ts` | — | Widget-to-slot mappings |
+| `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper/props override definitions |
 | `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
 
 ### Key Rules
@@ -202,6 +204,8 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
+- API interception: declare interceptors in `api/interceptors.ts`; keep hooks fail-closed and scoped by route + method
+- Component replacement: use handle-based IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic overrides
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files

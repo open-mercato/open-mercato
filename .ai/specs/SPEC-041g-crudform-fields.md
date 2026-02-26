@@ -765,3 +765,9 @@ satisfies InjectionGroupWidget  // Existing pattern, now typed
 - Core Zod schema validation unchanged — injected fields excluded
 - `onBeforeSave`/`onSave`/`onAfterSave` handler pipeline unchanged
 - Existing `InjectionSpot` rendering in CrudForm unchanged
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase G — CrudForm Field Injection | In Progress | 2026-02-26 | Added `InjectedField`, field spot loading, group insertion, visibility-aware payload exclusion, and form handles. |

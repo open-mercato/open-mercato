@@ -247,10 +247,18 @@ export type InjectionFilterDefinition = {
   enrichedField?: string
 }
 
-export type FieldVisibilityCondition<TContext = unknown> = (
-  values: Record<string, unknown>,
-  context: TContext,
-) => boolean
+export type FieldVisibilityRule = {
+  field: string
+  operator: 'eq' | 'neq' | 'in' | 'notIn' | 'truthy' | 'falsy'
+  value?: unknown
+}
+
+export type FieldVisibilityCondition<TContext = unknown> =
+  | FieldVisibilityRule
+  | ((
+      values: Record<string, unknown>,
+      context: TContext,
+    ) => boolean)
 
 export type CustomFieldProps<TContext = unknown> = {
   value: unknown
