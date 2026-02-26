@@ -20,6 +20,7 @@ export type RoleSidebarPreferenceScope = {
 }
 
 export type SidebarItemLike<T = Record<string, unknown>> = {
+  id?: string
   href: string
   title: string
   defaultTitle: string
@@ -160,11 +161,17 @@ export function applySidebarPreference<T extends SidebarGroupLike>(
     if (!orderIndex.has(id)) orderIndex.set(id, idx)
   })
   const hiddenSet = new Set(normalized.hiddenItems ?? [])
+  const resolveItemKey = (item: SidebarItemLike): string => {
+    const candidate = item.id?.trim()
+    if (candidate && candidate.length > 0) return candidate
+    return item.href
+  }
   const applyItems = <TI extends SidebarItemLike>(items: TI[]): TI[] => {
     return items.map((item) => {
-      const override = normalized.itemLabels?.[item.href]
+      const itemKey = resolveItemKey(item)
+      const override = normalized.itemLabels?.[itemKey] ?? normalized.itemLabels?.[item.href]
       const nextChildren = item.children ? applyItems(item.children) : undefined
-      const hidden = hiddenSet.has(item.href)
+      const hidden = hiddenSet.has(itemKey) || hiddenSet.has(item.href)
       const next = {
         ...item,
         title: override && override.trim().length > 0 ? override.trim() : item.defaultTitle,
