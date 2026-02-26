@@ -555,7 +555,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       prefix: 'NOTIF',
       standaloneImports: notificationImports,
       standaloneConfigs: notificationTypes,
-      configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? ${n}.notificationTypes ?? ${n}.types ?? []) }`,
+      configExpr: (n, id) => `{ moduleId: '${id}', types: ((${n}.default ?? ${n}.notificationTypes ?? (${n} as any).types ?? []) as NotificationTypeDefinition[]) }`,
     })
 
     // Notification client renderers: notifications.client.ts
