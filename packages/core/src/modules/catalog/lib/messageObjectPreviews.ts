@@ -129,7 +129,7 @@ export async function loadCatalogVariantPreview(
   if (priceLabel) metadata[pricesLabel] = priceLabel
 
   return {
-    title: variant.name,
+    title: variant.name ?? '',
     subtitle: variant.sku ?? undefined,
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   }

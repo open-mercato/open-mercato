@@ -192,19 +192,6 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
                   subject: t('staff.leaveRequests.messages.compose.subject', 'Leave request approval needed'),
                   body: t('staff.leaveRequests.messages.compose.body', 'Please review this leave request and take action.'),
                 }}
-                renderTrigger={({ openComposer, disabled }) => (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    onClick={openComposer}
-                    disabled={disabled}
-                    aria-label={t('staff.leaveRequests.messages.compose.action', 'Send for review')}
-                    title={t('staff.leaveRequests.messages.compose.action', 'Send for review')}
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                )}
               />
             ) : null}
           />
