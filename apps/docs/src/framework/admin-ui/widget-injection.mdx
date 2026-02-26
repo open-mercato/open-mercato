@@ -62,6 +62,16 @@ export const injectionTable: ModuleInjectionTable = {
 
 - **CrudForm** – whichever spot id you pass to `CrudForm` (`injectionSpotId`). If omitted, it auto-derives `crud-form:<entityId>` (colon → dot) from the first `entityId`, so most forms pick up widgets by entity. Widgets with `kind: 'group'` render as new groups; others stack above the form. Field injection uses `crud-form:<entityId>:fields`. Helpers: `generateCrudFormInjectionSpotId()` and `CrudFormInjectionSpots` from `@open-mercato/ui/backend/injection/helpers`.
 - **DataTable** – `data-table:<tableId>:header` and `data-table:<tableId>:footer` (auto when `perspective.tableId` is set; or pass `injectionSpotId`). Deep extension surfaces: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters`.
+- **Component overrides** – define `widgets/components.ts` in any module and export `componentOverrides`. `yarn generate` collects them into `.mercato/generated/component-overrides.generated.ts`.
+
+### Replacement handles (Phase H)
+
+Stable replacement handles are now emitted automatically:
+
+- `page:<path>` for backend page-level replacement
+- `data-table:<tableId>` for every `DataTable`
+- `crud-form:<entityId>` for every `CrudForm`
+- `section:ui.detail.<SectionName>` for shared detail sections (`NotesSection`, `ActivitiesSection`, `AddressesSection`, `TagsSection`, `CustomDataSection`, `DetailFieldsSection`, `AttachmentsSection`)
 - **Dashboard** – `dashboard:before` and `dashboard:after` wrap the widget grid.
 - **Sales documents** – `sales.document.detail.quote:tabs`, `sales.document.detail.order:tabs` (new tabs) and `sales.document.detail.<kind>:details` for blocks beneath the details section.
 - **Customers** – `customers.company.detail:tabs` and `customers.company.detail:details`; `customers.person.detail:tabs` and `customers.person.detail:details`.

@@ -8,6 +8,7 @@ import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
+import { registerComponentOverrides } from '../../modules/widgets/component-registry'
 
 let _bootstrapped = false
 
@@ -64,6 +65,12 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6c. API interceptors (for CRUD route interception) ===
     if (data.interceptorEntries) {
       registerApiInterceptors(data.interceptorEntries)
+    }
+
+    // === 6d. Component overrides (for page/component replacement) ===
+    if (data.componentOverrideEntries) {
+      const allOverrides = data.componentOverrideEntries.flatMap((entry) => entry.componentOverrides ?? [])
+      registerComponentOverrides(allOverrides)
     }
 
     // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===

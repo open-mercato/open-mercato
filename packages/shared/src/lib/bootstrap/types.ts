@@ -24,6 +24,11 @@ export interface InterceptorBootstrapEntry {
   interceptors: import('../../lib/crud/api-interceptor').ApiInterceptor[]
 }
 
+export interface ComponentOverrideBootstrapEntry {
+  moduleId: string
+  componentOverrides: import('../../modules/widgets/component-registry').ComponentOverride[]
+}
+
 export interface BootstrapData {
   modules: Module[]
   entities: OrmEntity[]
@@ -37,6 +42,7 @@ export interface BootstrapData {
   analyticsModuleConfigs?: AnalyticsModuleConfig[]
   enricherEntries?: EnricherBootstrapEntry[]
   interceptorEntries?: InterceptorBootstrapEntry[]
+  componentOverrideEntries?: ComponentOverrideBootstrapEntry[]
 }
 
 export interface BootstrapOptions {

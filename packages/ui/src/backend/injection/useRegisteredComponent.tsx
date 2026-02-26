@@ -27,18 +27,20 @@ class ReplacementErrorBoundary extends React.Component<
   }
 }
 
-export function useRegisteredComponent<TProps>(componentId: string): ComponentType<TProps> {
+export function useRegisteredComponent<TProps>(
+  componentId: string,
+  fallback?: ComponentType<TProps>,
+): ComponentType<TProps> {
   return React.useMemo(() => {
     const entry = getComponentEntry(componentId)
-    if (!entry) {
-      if (process.env.NODE_ENV !== 'production') {
+    const original = (entry?.component as ComponentType<TProps> | undefined) ?? fallback ?? null
+    if (!original) {
+      if (process.env.NODE_ENV !== 'production' && !fallback) {
         console.warn(`[UMES] Component "${componentId}" is not registered.`)
       }
       const Missing = () => null
       return Missing as ComponentType<TProps>
     }
-
-    const original = entry.component as ComponentType<TProps>
     const overrides = getComponentOverrides(componentId)
 
     let replacement: ComponentType<TProps> | null = null
@@ -72,7 +74,7 @@ export function useRegisteredComponent<TProps>(componentId: string): ComponentTy
 
     Resolved.displayName = `RegisteredComponent(${componentId})`
     return Resolved
-  }, [componentId])
+  }, [componentId, fallback])
 }
 
 export default useRegisteredComponent
