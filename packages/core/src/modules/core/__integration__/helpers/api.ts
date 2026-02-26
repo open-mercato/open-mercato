@@ -1,15 +1,20 @@
 import { type APIRequestContext } from '@playwright/test';
 import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
+<<<<<<< HEAD
 const BASE_URL =
   process.env.BASE_URL?.trim() ||
   'http://localhost:3000';
+=======
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+>>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
 
 export async function getAuthToken(
   request: APIRequestContext,
   roleOrEmail: Role | string = 'admin',
   password?: string,
 ): Promise<string> {
+<<<<<<< HEAD
   const role = roleOrEmail in DEFAULT_CREDENTIALS ? (roleOrEmail as Role) : null;
   const credentialAttempts: Array<{ email: string; password: string }> = [];
 
@@ -52,6 +57,42 @@ export async function getAuthToken(
   }
 
   throw new Error(`Failed to obtain auth token (status ${lastStatus})`);
+=======
+  let email: string;
+  let pass: string;
+  if (roleOrEmail in DEFAULT_CREDENTIALS) {
+    const creds = DEFAULT_CREDENTIALS[roleOrEmail as Role];
+    email = creds.email;
+    pass = password ?? creds.password;
+  } else {
+    email = roleOrEmail;
+    pass = password ?? 'secret';
+  }
+  const form = new URLSearchParams();
+  form.set('email', email);
+  form.set('password', pass);
+
+  const response = await request.post(`${BASE_URL}/api/auth/login`, {
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    data: form.toString(),
+  });
+
+  const raw = await response.text();
+  let body: Record<string, unknown> | null = null;
+  try {
+    body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok() || !body || typeof body.token !== 'string' || !body.token) {
+    throw new Error(`Failed to obtain auth token (status ${response.status()})`);
+  }
+
+  return body.token;
+>>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
 }
 
 export async function apiRequest(

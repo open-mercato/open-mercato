@@ -9,6 +9,8 @@ import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open
 import { registerInjectionWidgets } from '@open-mercato/ui/backend/injection/widgetRegistry'
 import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
 import { registerDashboardWidgets } from '@open-mercato/ui/backend/dashboard/widgetRegistry'
+// Side-effect: registers translatable fields for client-side TranslationManager
+import '@/.mercato/generated/translations-fields.generated'
 
 let _clientBootstrapped = false
 

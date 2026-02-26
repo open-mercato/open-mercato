@@ -503,7 +503,11 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     } finally {
       setIsDeleting(false)
     }
+<<<<<<< HEAD
   }, [companyName, confirm, currentCompanyId, router, runMutationWithContext, t])
+=======
+  }, [confirm, currentCompanyId, companyName, router, t])
+>>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))

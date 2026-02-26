@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { expect, test, type BrowserContext } from '@playwright/test';
+=======
+import { expect, test } from '@playwright/test';
+>>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__/helpers/authUi';
@@ -16,7 +20,11 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
     let token: string | null = null;
     let roleId: string | null = null;
     let userId: string | null = null;
+<<<<<<< HEAD
     let limitedContext: BrowserContext | null = null;
+=======
+    let limitedContext: { close: () => Promise<void> } | null = null;
+>>>>>>> a27613cba1a2bb37f48b2a50321c11f72878f313
 
     try {
       token = await getAuthToken(request);
