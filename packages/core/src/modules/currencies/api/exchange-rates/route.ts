@@ -56,7 +56,11 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     delete: {
       commandId: 'currencies.exchange_rates.delete',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed.body,
+      mapInput: ({ raw, ctx }) => ({
+        id: ((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id as string | undefined,
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+        tenantId: ctx.auth?.tenantId ?? undefined,
+      }),
       response: () => ({ ok: true }),
     },
   },
