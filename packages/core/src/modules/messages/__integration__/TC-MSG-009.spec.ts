@@ -104,15 +104,25 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
 
       await page.goto(`/backend/messages/${fixture.messageId}`);
       await openReplyFromHeader(page);
-      await expect(page.getByPlaceholder('Write your reply...')).toBeVisible();
-      await page.getByPlaceholder('Write your reply...').fill(inlineReplyBody);
+      const inlineReplyInput = page.getByPlaceholder('Write your reply...');
+      await expect(inlineReplyInput).toBeVisible();
+      await inlineReplyInput.fill(inlineReplyBody);
 
-      const inlineReplyResponsePromise = page.waitForResponse((response) => (
-        response.request().method() === 'POST'
-        && response.url().includes(`/api/messages/${fixture.messageId}/reply`)
-      ));
-      await page.getByPlaceholder('Write your reply...').press('Control+Enter');
+      const inlineReplyResponsePromise = page.waitForResponse((response) => {
+        if (response.request().method() !== 'POST') return false;
+        let pathname = '';
+        try {
+          pathname = new URL(response.url()).pathname;
+        } catch {
+          return false;
+        }
+        if (!/^\/api\/messages\/[^/]+\/reply$/i.test(pathname)) return false;
+        const requestBody = response.request().postData() ?? '';
+        return requestBody.includes(inlineReplyBody);
+      });
+      await inlineReplyInput.press('Control+Enter');
       const inlineReplyResponse = await inlineReplyResponsePromise;
+
       expect(inlineReplyResponse.ok()).toBeTruthy();
       const inlineReplyPayload = (await inlineReplyResponse.json()) as { id?: unknown };
       expect(typeof inlineReplyPayload.id).toBe('string');
