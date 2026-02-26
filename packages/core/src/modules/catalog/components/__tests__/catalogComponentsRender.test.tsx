@@ -290,6 +290,15 @@ describe('catalog module components', () => {
       channelIds: ['ch-1'],
       tags: ['featured'],
       optionSchemaId: null,
+      defaultUnit: null,
+      defaultSalesUnit: null,
+      defaultSalesUnitQuantity: '1',
+      uomRoundingScale: '4',
+      uomRoundingMode: 'half_up',
+      unitPriceEnabled: false,
+      unitPriceReferenceUnit: null,
+      unitPriceBaseQuantity: '',
+      unitConversions: [],
     }
     render(<ProductCategorizeSection values={values} setValue={setValue} errors={{}} />)
     expect(screen.getByText(/Categories/)).toBeInTheDocument()

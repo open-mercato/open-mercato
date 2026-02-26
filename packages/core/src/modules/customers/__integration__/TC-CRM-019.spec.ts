@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { createDealFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import { createDealFixture, createPersonFixture, createPipelineFixture, createPipelineStageFixture, deleteEntityIfExists, deleteEntityByBody } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 
 /**
  * TC-CRM-019: Deal Association Remove And Undo
@@ -11,6 +11,8 @@ test.describe('TC-CRM-019: Deal Association Remove And Undo', () => {
     let token: string | null = null;
     let personId: string | null = null;
     let dealId: string | null = null;
+    let pipelineId: string | null = null;
+    let stageId: string | null = null;
     const personDisplayName = `QA TC-CRM-019 Person ${Date.now()}`;
 
     try {
@@ -20,9 +22,13 @@ test.describe('TC-CRM-019: Deal Association Remove And Undo', () => {
         lastName: `TCCRM019${Date.now()}`,
         displayName: personDisplayName,
       });
+      pipelineId = await createPipelineFixture(request, token, { name: `QA TC-CRM-019 Pipeline ${Date.now()}` });
+      stageId = await createPipelineStageFixture(request, token, { pipelineId, label: 'Open', order: 0 });
       dealId = await createDealFixture(request, token, {
         title: `QA TC-CRM-019 Deal ${Date.now()}`,
         personIds: [personId],
+        pipelineId,
+        pipelineStageId: stageId,
       });
 
       await login(page, 'admin');
@@ -39,6 +45,8 @@ test.describe('TC-CRM-019: Deal Association Remove And Undo', () => {
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/people', personId);
+      await deleteEntityByBody(request, token, '/api/customers/pipeline-stages', stageId);
+      await deleteEntityByBody(request, token, '/api/customers/pipelines', pipelineId);
     }
   });
 });

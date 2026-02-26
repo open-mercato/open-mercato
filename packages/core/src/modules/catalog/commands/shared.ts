@@ -78,7 +78,7 @@ export async function requireProduct(
   id: string,
   message = 'Catalog product not found'
 ): Promise<CatalogProduct> {
-  const product = await em.findOne(CatalogProduct, { id, deletedAt: null })
+  const product = await findOneWithDecryption(em, CatalogProduct, { id, deletedAt: null })
   if (!product) throw new CrudHttpError(404, { error: message })
   return product
 }
@@ -103,7 +103,7 @@ export async function requireOffer(
   id: string,
   message = 'Catalog offer not found'
 ): Promise<CatalogOffer> {
-  const offer = await em.findOne(CatalogOffer, { id })
+  const offer = await findOneWithDecryption(em, CatalogOffer, { id })
   if (!offer) throw new CrudHttpError(404, { error: message })
   return offer
 }
@@ -113,7 +113,7 @@ export async function requirePriceKind(
   id: string,
   message = 'Catalog price kind not found'
 ): Promise<CatalogPriceKind> {
-  const priceKind = await em.findOne(CatalogPriceKind, { id, deletedAt: null })
+  const priceKind = await findOneWithDecryption(em, CatalogPriceKind, { id, deletedAt: null })
   if (!priceKind) throw new CrudHttpError(404, { error: message })
   return priceKind
 }
@@ -123,9 +123,23 @@ export async function requireOptionSchemaTemplate(
   id: string,
   message = 'Option schema not found'
 ): Promise<CatalogOptionSchemaTemplate> {
-  const schema = await em.findOne(CatalogOptionSchemaTemplate, { id, deletedAt: null })
+  const schema = await findOneWithDecryption(em, CatalogOptionSchemaTemplate, { id, deletedAt: null })
   if (!schema) throw new CrudHttpError(404, { error: message })
   return schema
+}
+
+export function getErrorConstraint(error: unknown): string | null {
+  const errObj = error as { constraint?: unknown; message?: unknown }
+  if (typeof errObj.constraint === 'string') return errObj.constraint
+  if (typeof errObj.message === 'string') {
+    return null
+  }
+  return null
+}
+
+export function getErrorMessage(error: unknown): string {
+  const errObj = error as { message?: unknown }
+  return typeof errObj.message === 'string' ? errObj.message : ''
 }
 
 export async function emitCatalogQueryIndexEvent(
@@ -143,7 +157,7 @@ export async function emitCatalogQueryIndexEvent(
   const recordId = String(params.recordId || '')
   if (!entityType || !recordId) return
 
-  let bus: { emitEvent: (event: string, payload: any, options?: any) => Promise<void> } | null = null
+  let bus: { emitEvent: (event: string, payload: Record<string, unknown>, options?: Record<string, unknown>) => Promise<void> } | null = null
   try {
     bus = ctx.container.resolve('eventBus')
   } catch {

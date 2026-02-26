@@ -11,7 +11,10 @@ import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import {
+  emitSalesDocumentTotalsRefresh,
+  subscribeSalesDocumentTotalsRefresh,
+} from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { formatAddressString, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
@@ -157,7 +160,7 @@ export function SalesShipmentsSection({
   )
 
   const loadLines = React.useCallback(async () => {
-    const params = new URLSearchParams({ page: '1', pageSize: '200', orderId })
+    const params = new URLSearchParams({ page: '1', pageSize: '100', orderId })
     const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
       `/api/sales/order-lines?${params.toString()}`,
       undefined,
@@ -204,7 +207,7 @@ export function SalesShipmentsSection({
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200', orderId })
+      const params = new URLSearchParams({ page: '1', pageSize: '100', orderId })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/sales/shipments?${params.toString()}`,
         undefined,
@@ -356,6 +359,17 @@ export function SalesShipmentsSection({
     void loadLines()
     void loadShipments()
   }, [loadLines, loadShipments])
+
+  React.useEffect(
+    () =>
+      subscribeSalesDocumentTotalsRefresh((detail) => {
+        if (detail.documentId !== orderId) return
+        if (detail.kind && detail.kind !== 'order') return
+        void loadLines()
+        void loadShipments()
+      }),
+    [loadLines, loadShipments, orderId],
+  )
 
   const handleOpenCreate = React.useCallback(() => {
     setDialogState({ mode: 'create', shipment: null })

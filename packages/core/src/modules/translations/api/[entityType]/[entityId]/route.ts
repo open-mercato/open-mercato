@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CommandBus } from '@open-mercato/shared/lib/commands'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const paramsSchema = z.object({
@@ -67,64 +69,53 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
     const rawBody = await req.json().catch(() => ({}))
     const translations = translationBodySchema.parse(rawBody)
 
-    const existing = await context.knex('entity_translations')
-      .where({
-        entity_type: entityType,
-        entity_id: entityId,
-      })
-      .andWhereRaw('tenant_id is not distinct from ?', [context.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [context.organizationId])
-      .first()
-
-    const now = context.knex.fn.now()
-
-    if (existing) {
-      await context.knex('entity_translations')
-        .where({ id: existing.id })
-        .update({
-          translations,
-          updated_at: now,
-        })
-    } else {
-      await context.knex('entity_translations').insert({
-        entity_type: entityType,
-        entity_id: entityId,
-        organization_id: context.organizationId,
-        tenant_id: context.tenantId,
-        translations,
-        created_at: now,
-        updated_at: now,
-      })
-    }
-
-    try {
-      const bus = context.container.resolve<{ emitEvent: (event: string, payload: unknown) => Promise<void> }>('eventBus')
-      await bus.emitEvent('translations.translation.updated', {
+    const commandBus = context.container.resolve('commandBus') as CommandBus
+    const { result, logEntry } = await commandBus.execute<
+      { entityType: string; entityId: string; translations: typeof translations; organizationId: string | null; tenantId: string },
+      { rowId: string }
+    >('translations.translation.save', {
+      input: {
         entityType,
         entityId,
+        translations,
         organizationId: context.organizationId,
         tenantId: context.tenantId,
-      })
-    } catch (err) {
-      console.warn('[translations] Failed to emit translations.translation.updated:', err instanceof Error ? err.message : 'unknown')
-    }
+      },
+      ctx: context.commandCtx,
+    })
 
     const row = await context.knex('entity_translations')
-      .where({
-        entity_type: entityType,
-        entity_id: entityId,
-      })
-      .andWhereRaw('tenant_id is not distinct from ?', [context.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [context.organizationId])
+      .where({ id: result.rowId })
       .first()
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       entityType: row.entity_type,
       entityId: row.entity_id,
       translations: row.translations,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     })
+
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'translations.translation',
+          resourceId: logEntry.resourceId ?? result.rowId,
+          executedAt: logEntry.createdAt instanceof Date
+            ? logEntry.createdAt.toISOString()
+            : typeof logEntry.createdAt === 'string'
+              ? logEntry.createdAt
+              : new Date().toISOString(),
+        }),
+      )
+    }
+
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -145,28 +136,42 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
       entityId: ctx.params?.entityId,
     })
 
-    await context.knex('entity_translations')
-      .where({
-        entity_type: entityType,
-        entity_id: entityId,
-      })
-      .andWhereRaw('tenant_id is not distinct from ?', [context.tenantId])
-      .andWhereRaw('organization_id is not distinct from ?', [context.organizationId])
-      .del()
-
-    try {
-      const bus = context.container.resolve<{ emitEvent: (event: string, payload: unknown) => Promise<void> }>('eventBus')
-      await bus.emitEvent('translations.translation.deleted', {
+    const commandBus = context.container.resolve('commandBus') as CommandBus
+    const { logEntry } = await commandBus.execute<
+      { entityType: string; entityId: string; organizationId: string | null; tenantId: string },
+      { deleted: boolean }
+    >('translations.translation.delete', {
+      input: {
         entityType,
         entityId,
         organizationId: context.organizationId,
         tenantId: context.tenantId,
-      })
-    } catch (err) {
-      console.warn('[translations] Failed to emit translations.translation.deleted:', err instanceof Error ? err.message : 'unknown')
+      },
+      ctx: context.commandCtx,
+    })
+
+    const response = new NextResponse(null, { status: 204 })
+
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'translations.translation',
+          resourceId: logEntry.resourceId ?? null,
+          executedAt: logEntry.createdAt instanceof Date
+            ? logEntry.createdAt.toISOString()
+            : typeof logEntry.createdAt === 'string'
+              ? logEntry.createdAt
+              : new Date().toISOString(),
+        }),
+      )
     }
 
-    return new NextResponse(null, { status: 204 })
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

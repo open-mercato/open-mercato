@@ -974,14 +974,14 @@ export default function VisualEditorPage() {
               {/* Instructions */}
               <Alert variant="info" className="mt-6">
                 <Info className="size-4" />
-                <AlertTitle className="text-xs">How to use:</AlertTitle>
+                <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
                 <div className="mt-2">
                   <ul className="list-inside list-disc space-y-1 text-xs">
-                    <li>Click step types to add them</li>
-                    <li>Drag steps to position them</li>
-                    <li>Connect steps by dragging from handles</li>
-                    <li>Click steps and transitions to edit them</li>
-                    <li>Validate before saving</li>
+                    <li>{t('workflows.visualEditor.hint.addSteps', 'Click step types to add them')}</li>
+                    <li>{t('workflows.visualEditor.hint.dragSteps', 'Drag steps to position them')}</li>
+                    <li>{t('workflows.visualEditor.hint.connectSteps', 'Connect steps by dragging from handles')}</li>
+                    <li>{t('workflows.visualEditor.hint.editSteps', 'Click steps and transitions to edit them')}</li>
+                    <li>{t('workflows.visualEditor.hint.validate', 'Validate before saving')}</li>
                   </ul>
                 </div>
               </Alert>

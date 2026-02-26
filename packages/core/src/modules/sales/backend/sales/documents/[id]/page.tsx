@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -4425,13 +4426,28 @@ export default function SalesDocumentDetailPage({
           backHref={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
           backLabel={t('sales.documents.detail.back', 'Back to documents')}
           utilityActions={record ? (
-            <VersionHistoryAction
-              config={{
-                resourceKind: kind === 'order' ? 'sales.order' : 'sales.quote',
-                resourceId: record.id,
-              }}
-              t={t}
-            />
+            <>
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'sales',
+                  entityType: kind,
+                  entityId: record.id,
+                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                  sourceEntityId: record.id,
+                }}
+                defaultValues={{
+                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                  sourceEntityId: record.id,
+                }}
+              />
+              <VersionHistoryAction
+                config={{
+                  resourceKind: kind === 'order' ? 'sales.order' : 'sales.quote',
+                  resourceId: record.id,
+                }}
+                t={t}
+              />
+            </>
           ) : null}
           entityTypeLabel={kind === 'order'
             ? t('sales.documents.detail.order', 'Sales order')

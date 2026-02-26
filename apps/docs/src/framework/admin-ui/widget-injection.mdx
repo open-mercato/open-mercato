@@ -4,6 +4,40 @@ title: Widget injection
 
 The widget injection system lets modules drop extra UI into shared surfaces without forking core code. Widgets declare themselves once, map to one or more slots, and hosts choose how to render them (stacked, grouped cards, or as tabs).
 
+## UMES Foundation + Menu Injection
+
+UMES Phase A and B introduce:
+
+- `InjectionPosition` / `InjectionPlacement` for deterministic ordering (`First`, `Last`, `Before`, `After`).
+- Headless widget loading for declarative payloads (`useInjectionDataWidgets`).
+- Chrome menu extension via `InjectionMenuItemWidget`.
+
+### Supported menu surface IDs
+
+- `menu:sidebar:main`
+- `menu:sidebar:settings`
+- `menu:sidebar:profile`
+- `menu:topbar:profile-dropdown`
+- `menu:topbar:actions`
+
+Scoped IDs are also valid (`menu:sidebar:settings:<sectionId>`).
+
+### i18n contract for menu items
+
+Always provide both translation key and fallback:
+
+```ts
+{
+  id: 'example-todos-shortcut',
+  labelKey: 'example.menu.todosShortcut',
+  label: 'Example Todos',
+  groupId: 'example.nav.group',
+  groupLabelKey: 'example.nav.group',
+}
+```
+
+This prevents raw keys from being rendered when a dictionary entry is missing.
+
 ## Slot types and placement hints
 
 - **Stacked (`kind: 'stack'`)** – renders inline where the slot is placed. Default when no `kind` is provided.

@@ -414,6 +414,12 @@ TC-[CATEGORY]-[XXX]-[title].md
 | CRM | Customer/CRM Management |
 | ADMIN | System Administration |
 | INT | Integration Scenarios |
+| TRANS | Translations & Localisation |
+| AUD | Audit Logs |
+| CUR | Currencies & Exchange Rates |
+| STAFF | Staff & Team Management |
+| DICT | Dictionaries |
+| DIR | Directory (Organisations & Tenants) |
 | API-SYS | System & Maintenance APIs |
 | API-ENT | Custom Fields & Entities APIs |
 | API-BULK | Bulk Operations APIs |

@@ -22,10 +22,15 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Declaring typed events with `createModuleEvents`, emitting CRUD/lifecycle events, adding event subscribers | `packages/core/AGENTS.md` → Events |
 | Adding in-app notifications, subscriber-based alerts, writing notification renderers | `packages/core/AGENTS.md` → Notifications |
 | Injecting UI widgets into other modules, defining spot IDs, cross-module UI extensions | `packages/core/AGENTS.md` → Widgets |
+| Building headless injection widgets (menu items, columns, fields), using `InjectionPosition`, or `useInjectionDataWidgets` | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` |
+| Injecting menu items into main/settings/profile sidebars or topbar/profile dropdown (`useInjectedMenuItems`, `mergeMenuItems`) | `packages/ui/AGENTS.md` |
 | Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
 | Adding entity extensions, cross-module data links, `data/extensions.ts` | `packages/core/AGENTS.md` → Extensions |
 | Configuring RBAC features in `acl.ts`, declarative guards, permission checks | `packages/core/AGENTS.md` → Access Control |
 | Using encrypted queries (`findWithDecryption`), encryption defaults, GDPR fields | `packages/core/AGENTS.md` → Encryption |
+| Adding response enrichers to enrich other modules' API responses | `packages/core/AGENTS.md` → Response Enrichers |
+| Adding DOM Event Bridge (SSE-based real-time events to browser), `useAppEvent`, `useOperationProgress` | `packages/events/AGENTS.md` → DOM Event Bridge |
+| Adding new widget event handlers (`onFieldChange`, `onBeforeNavigate`, transformers) | `packages/ui/AGENTS.md` |
 | **Specific Modules** | |
 | Managing people/companies/deals/activities, **copying CRUD patterns for new modules** | `packages/core/src/modules/customers/AGENTS.md` |
 | Building orders/quotes/invoices, pricing calculations, document flow (Quote→Order→Invoice), shipments/payments, channel scoping | `packages/core/src/modules/sales/AGENTS.md` |
@@ -118,9 +123,17 @@ All packages use the `@open-mercato/<package>` naming convention:
 | Client-side translations | `import { useT } from '@open-mercato/shared/lib/i18n/context'` |
 | Data engine types | `import type { DataEngine } from '@open-mercato/shared/lib/data/engine'` |
 | Search config types | `import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'` |
+| Injection positioning | `import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'` |
+| Headless injection widgets hook | `import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'` |
+| Menu injection hook | `import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'` |
 | UI primitives | `import { Spinner } from '@open-mercato/ui/primitives/spinner'` |
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
+| Response enricher types | `import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'` |
+| App event hook | `import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'` |
+| Event bridge hook | `import { useEventBridge } from '@open-mercato/ui/backend/injection/eventBridge'` |
+| Operation progress hook | `import { useOperationProgress } from '@open-mercato/ui/backend/injection/useOperationProgress'` |
+| Broadcast event check | `import { isBroadcastEvent } from '@open-mercato/shared/modules/events'` |
 
 Import strategy:
 - Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
@@ -130,6 +143,7 @@ Import strategy:
 
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
 - **Event IDs**: `module.entity.action` (singular entity, past tense action, e.g., `pos.cart.completed`). use dots as separators.
+- `clientBroadcast: true` in EventDefinition bridges events to browser via SSE (DOM Event Bridge)
 - JS/TS fields and identifiers: camelCase.
 - Database tables and columns: snake_case; table names plural.
 - Common columns: `id`, `created_at`, `updated_at`, `deleted_at`, `is_active`, `organization_id`, `tenant_id`.
@@ -170,11 +184,13 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `data/extensions.ts` | `extensions` | Entity extensions (module links) |
 | `widgets/injection/` | — | Injected UI widgets |
 | `widgets/injection-table.ts` | — | Widget-to-slot mappings |
+| `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
 
 ### Key Rules
 
 - API routes MUST export `openApi` for documentation generation
 - CRUD routes: use `makeCrudRoute` with `indexer: { entityType }` for query index coverage
+- Write operations: implement via the Command pattern (see `packages/core/src/modules/customers/commands/*`)
 - Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`).
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
@@ -182,7 +198,34 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
+- Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files
+
+## Backward Compatibility Contract
+
+> **Full specification**: [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) — MUST be read before modifying any contract surface.
+
+Third-party module developers depend on stable platform APIs. Any change to a **contract surface** is a breaking change that blocks merge unless the deprecation protocol is followed.
+
+**Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in RELEASE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
+
+**13 contract surface categories** (details in `BACKWARD_COMPATIBILITY.md`):
+
+| # | Surface | Classification | Key Rule |
+|---|---------|---------------|----------|
+| 1 | Auto-discovery file conventions | FROZEN | File names, export names, routing algorithms immutable |
+| 2 | Type definitions & interfaces | STABLE | Required fields cannot be removed/narrowed; optional additive-only |
+| 3 | Function signatures | STABLE | Cannot remove/reorder params; new optional params OK |
+| 4 | Import paths | STABLE | Moved modules must re-export from old path |
+| 5 | Event IDs | FROZEN | Cannot rename/remove; payload fields additive-only |
+| 6 | Widget injection spot IDs | FROZEN | Cannot rename/remove; context fields additive-only |
+| 7 | API route URLs | STABLE | Cannot rename/remove; response fields additive-only |
+| 8 | Database schema | ADDITIVE-ONLY | No column/table rename/remove; new columns with defaults OK |
+| 9 | DI service names | STABLE | Cannot rename registration keys |
+| 10 | ACL feature IDs | FROZEN | Stored in DB; rename requires data migration |
+| 11 | Notification type IDs | FROZEN | Referenced by subscribers and stored in DB |
+| 12 | CLI commands | STABLE | Cannot rename/remove commands or required flags |
+| 13 | Generated file contracts | STABLE | Export names and `BootstrapData` shape immutable |
 
 ## Critical Rules
 

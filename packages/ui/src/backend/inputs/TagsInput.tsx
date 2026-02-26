@@ -23,6 +23,7 @@ export type TagsInputProps = {
   autoFocus?: boolean
   disabled?: boolean
   allowCustomValues?: boolean
+  showSuggestionsOnFocus?: boolean
 }
 
 function normalizeOptions(input?: Array<string | TagsInputOption>): TagsInputOption[] {
@@ -57,6 +58,7 @@ export function TagsInput({
   autoFocus,
   disabled = false,
   allowCustomValues = true,
+  showSuggestionsOnFocus = true,
 }: TagsInputProps) {
   const t = useT()
   const [input, setInput] = React.useState('')
@@ -215,7 +217,14 @@ export function TagsInput({
           autoFocus={autoFocus}
           data-crud-focus-target=""
           disabled={disabled}
-          onFocus={() => setTouched(true)}
+          onFocus={() => {
+            if (showSuggestionsOnFocus) {
+              setTouched(true)
+            }
+          }}
+          onMouseDown={() => {
+            setTouched(true)
+          }}
           onChange={(event) => {
             setTouched(true)
             setInput(event.target.value)

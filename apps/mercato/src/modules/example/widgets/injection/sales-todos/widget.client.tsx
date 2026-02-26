@@ -7,6 +7,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type TodoItem = {
   id: string
@@ -26,6 +28,7 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
   const [error, setError] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState('')
   const [saving, setSaving] = React.useState(false)
+  const [lastEvent, setLastEvent] = React.useState<{ id: string; timestamp: number } | null>(null)
 
   const organizationId =
     (context?.record as any)?.organizationId ??
@@ -60,6 +63,15 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
   }, [organizationId, t])
 
   React.useEffect(() => {
+    void loadTodos()
+  }, [loadTodos])
+
+  // Auto-refresh when todo events arrive via DOM Event Bridge (SSE)
+  // Shows a flash message + inline indicator so the user can see real-time event delivery
+  useAppEvent('example.todo.*', (event) => {
+    const action = event.id.split('.').pop() ?? 'updated'
+    flash(`[SSE Event Bridge] Todo ${action} — real-time event delivered via SSE`, 'info')
+    setLastEvent({ id: event.id, timestamp: event.timestamp })
     void loadTodos()
   }, [loadTodos])
 
@@ -135,6 +147,15 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
           {saving ? t('example.widgets.salesTodos.saving', 'Adding…') : t('example.widgets.salesTodos.add', 'Add')}
         </Button>
       </form>
+      {lastEvent ? (
+        <div className="flex items-center gap-2 rounded bg-blue-50 px-3 py-1.5 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+          SSE Event received: <code className="font-mono">{lastEvent.id}</code>
+          <span className="text-blue-500/70">
+            {new Date(lastEvent.timestamp).toLocaleTimeString()}
+          </span>
+        </div>
+      ) : null}
       {error ? <div className="text-sm text-destructive">{error}</div> : null}
       {loading ? (
         <div className="text-sm text-muted-foreground">{t('example.widgets.salesTodos.loading', 'Loading todos…')}</div>

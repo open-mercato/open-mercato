@@ -1,4 +1,5 @@
 import { createServer } from 'node:net'
+import { spawn } from 'node:child_process'
 
 type Node24RuntimeGuardOptions = {
   context: string
@@ -114,5 +115,77 @@ export function redactPostgresUrl(url: string): string {
     return parsed.toString()
   } catch {
     return trimmed.replace(/(postgres(?:ql)?:\/\/[^:/?#\s]+:)[^@/\s]+@/i, '$1***@')
+  }
+}
+
+export type DockerHostConfig = {
+  dockerHost: string
+  socketOverride: string
+}
+
+export function runCommandAndCapture(command: string, args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const proc = spawn(command, args, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout?.on('data', (chunk: Buffer | string) => {
+      stdout += chunk.toString()
+    })
+    proc.stderr?.on('data', (chunk: Buffer | string) => {
+      stderr += chunk.toString()
+    })
+    proc.on('error', () => {
+      resolve({ code: -1, stdout, stderr })
+    })
+    proc.on('exit', (code) => {
+      resolve({ code, stdout, stderr })
+    })
+  })
+}
+
+/**
+ * Resolve Docker host configuration from the active Docker context.
+ *
+ * Testcontainers only checks hardcoded socket paths and doesn't respect Docker CLI contexts.
+ * This function queries the active Docker context to get the correct socket path for
+ * non-standard Docker setups like Colima.
+ *
+ * @returns Docker host configuration or null if auto-detection fails/not needed
+ */
+export async function resolveDockerHostFromContext(logPrefix: string): Promise<DockerHostConfig | null> {
+  // Respect explicit user configuration
+  if (process.env.DOCKER_HOST) {
+    return null
+  }
+
+  const result = await runCommandAndCapture('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'])
+  if (result.code !== 0) {
+    return null
+  }
+
+  const dockerHost = result.stdout.trim()
+  if (!dockerHost) {
+    return null
+  }
+
+  // Standard socket path - testcontainers handles this natively
+  if (dockerHost === 'unix:///var/run/docker.sock') {
+    return null
+  }
+
+  // For non-standard Docker setups (Colima, Podman, etc.), the socket override
+  // tells testcontainers what path containers should use to reach the Docker daemon.
+  // This is typically /var/run/docker.sock inside the VM, regardless of the host path.
+  const socketOverride = '/var/run/docker.sock'
+
+  console.log(`[${logPrefix}] Auto-detected Docker context: ${dockerHost}`)
+
+  return {
+    dockerHost,
+    socketOverride,
   }
 }

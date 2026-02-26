@@ -42,3 +42,4 @@ export type {
 export * from './AttachmentMetadataDialog'
 export * from './AttachmentDeleteDialog'
 export * from './AttachmentsSection'
+export * from './AttachmentVisualPreview'

@@ -8,6 +8,7 @@ export type SectionNavItem = {
   icon?: ReactNode
   requireFeatures?: string[]
   order?: number
+  children?: SectionNavItem[]
 }
 
 export type SectionNavGroup = {

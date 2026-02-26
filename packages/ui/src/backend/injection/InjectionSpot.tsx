@@ -6,8 +6,11 @@ import type {
   WidgetInjectionEventHandlers,
   WidgetBeforeDeleteResult,
   WidgetBeforeSaveResult,
+  FieldChangeResult,
+  NavigateGuardResult,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
+import { getWidgetSharedState } from './WidgetSharedState'
 
 export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
   spotId: InjectionSpotId
@@ -16,19 +19,20 @@ export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
   onDataChange?: (data: TData) => void
   disabled?: boolean
   onEvent?: (
-    event:
-    | 'onLoad'
-    | 'onBeforeSave'
-    | 'onSave'
-    | 'onAfterSave'
-    | 'onBeforeDelete'
-    | 'onDelete'
-    | 'onAfterDelete'
-    | 'onDeleteError',
+    event: keyof WidgetInjectionEventHandlers<TContext, TData>,
     widgetId: string,
   ) => void
   widgetsOverride?: LoadedWidget[]
 }
+
+/**
+ * Transformer events use pipeline dispatch: output of widget N becomes input of widget N+1.
+ */
+const TRANSFORMER_EVENTS = new Set<string>([
+  'transformFormData',
+  'transformDisplayData',
+  'transformValidation',
+])
 
 type LoadedWidget = {
   widgetId: string
@@ -36,6 +40,20 @@ type LoadedWidget = {
   moduleId: string
   key: string
   placement?: LoadedInjectionWidget['placement']
+}
+
+function injectSharedStateIntoContext<TContext>(context: TContext, moduleId: string): TContext {
+  const sharedState = getWidgetSharedState(moduleId)
+  if (typeof context === 'object' && context !== null && !Array.isArray(context)) {
+    return {
+      ...(context as Record<string, unknown>),
+      sharedState,
+    } as TContext
+  }
+  return {
+    value: context,
+    sharedState,
+  } as TContext
 }
 
 export function useInjectionWidgets<TContext = unknown>(
@@ -80,7 +98,8 @@ export function useInjectionWidgets<TContext = unknown>(
           for (const widget of widgetList) {
             if (widget.module.eventHandlers?.onLoad) {
               try {
-                await widget.module.eventHandlers.onLoad(options.context as TContext)
+                const widgetContext = injectSharedStateIntoContext(options.context as TContext, widget.moduleId)
+                await widget.module.eventHandlers.onLoad(widgetContext)
                 options.onEvent?.('onLoad', widget.widgetId)
               } catch (err) {
                 console.error(`[InjectionSpot] Error in onLoad for widget ${widget.widgetId}:`, err)
@@ -144,7 +163,7 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
         return (
           <Widget
             key={widget.widgetId}
-            context={context}
+            context={injectSharedStateIntoContext(context, widget.moduleId)}
             data={data}
             onDataChange={onDataChange}
             disabled={disabled}
@@ -195,8 +214,28 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       event: keyof WidgetInjectionEventHandlers<TContext, TData>,
       data: TData,
       context: TContext,
-      meta?: { error?: unknown }
-    ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown }> => {
+      meta?: {
+        error?: unknown
+        fieldId?: string
+        fieldValue?: unknown
+        originalData?: TData
+        target?: unknown
+        visible?: boolean
+        appEvent?: unknown
+      }
+    ): Promise<{
+      ok: boolean
+      message?: string
+      fieldErrors?: Record<string, string>
+      requestHeaders?: Record<string, string>
+      details?: unknown
+      data?: TData
+      fieldChange?: {
+        value?: unknown
+        sideEffects?: Record<string, unknown>
+        messages?: Array<{ text: string; severity: 'info' | 'warning' | 'error' }>
+      }
+    }> => {
       const normalizeBeforeSave = (
         result: WidgetBeforeSaveResult,
       ): { ok: boolean; message?: string; fieldErrors?: Record<string, string>; requestHeaders?: Record<string, string>; details?: unknown } => {
@@ -247,21 +286,56 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
         return { ok: true }
       }
 
+      // --- Transformer events: pipeline dispatch ---
+      // Output of widget N becomes input of widget N+1
+      if (TRANSFORMER_EVENTS.has(event)) {
+        let pipelineData = data
+        for (const widget of widgets) {
+          const handler = widget.module.eventHandlers?.[event]
+          if (!handler) continue
+          try {
+            const widgetContext = injectSharedStateIntoContext(context, widget.moduleId)
+            if (event === 'transformValidation') {
+              pipelineData = await (handler as any)(pipelineData, meta?.originalData ?? data, widgetContext)
+            } else {
+              pipelineData = await (handler as any)(pipelineData, widgetContext)
+            }
+          } catch (err) {
+            console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
+          }
+        }
+        return { ok: true, data: pipelineData }
+      }
+
+      // --- Action events: sequential dispatch ---
       const mergedRequestHeaders: Record<string, string> = {}
       let hasRequestHeaders = false
+      let fieldValue = meta?.fieldValue
+      let fieldSideEffects: Record<string, unknown> | undefined
+      let fieldMessages: Array<{ text: string; severity: 'info' | 'warning' | 'error' }> | undefined
 
       for (const widget of widgets) {
         const eventHandlers = widget.module.eventHandlers
         let handler = eventHandlers?.[event]
+        // Delete-to-save fallback chain
         if (!handler && event === 'onBeforeDelete') handler = eventHandlers?.onBeforeSave as typeof handler
         if (!handler && event === 'onDelete') handler = eventHandlers?.onSave as typeof handler
         if (!handler && event === 'onAfterDelete') handler = eventHandlers?.onAfterSave as typeof handler
         if (handler) {
           try {
+            const widgetContext = injectSharedStateIntoContext(context, widget.moduleId)
             const result =
               event === 'onDeleteError'
-                ? await (handler as any)(data, context, meta?.error)
-                : await (handler as any)(data, context)
+                ? await (handler as any)(data, widgetContext, meta?.error)
+                : event === 'onFieldChange'
+                  ? await (handler as any)(meta?.fieldId, fieldValue, data, widgetContext)
+                  : event === 'onBeforeNavigate'
+                    ? await (handler as any)(meta?.target, widgetContext)
+                    : event === 'onVisibilityChange'
+                      ? await (handler as any)(meta?.visible, widgetContext)
+                      : event === 'onAppEvent'
+                        ? await (handler as any)(meta?.appEvent, widgetContext)
+                        : await (handler as any)(data, widgetContext)
             if (event === 'onBeforeSave') {
               const normalized = normalizeBeforeSave(result as WidgetBeforeSaveResult)
               if (!normalized.ok) {
@@ -284,9 +358,27 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
                 hasRequestHeaders = true
               }
             }
+            if (event === 'onBeforeNavigate') {
+              const navResult = result as NavigateGuardResult | undefined
+              if (navResult && navResult.ok === false) {
+                return { ok: false, message: navResult.message }
+              }
+            }
+            if (event === 'onFieldChange') {
+              const changeResult = result as FieldChangeResult | void
+              if (changeResult?.value !== undefined) {
+                fieldValue = changeResult.value
+              }
+              if (changeResult?.sideEffects && typeof changeResult.sideEffects === 'object') {
+                fieldSideEffects = { ...(fieldSideEffects ?? {}), ...changeResult.sideEffects }
+              }
+              if (changeResult?.message?.text) {
+                fieldMessages = [...(fieldMessages ?? []), changeResult.message]
+              }
+            }
           } catch (err) {
             console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
-            if (event === 'onBeforeSave' || event === 'onBeforeDelete') {
+            if (event === 'onBeforeSave' || event === 'onBeforeDelete' || event === 'onBeforeNavigate') {
               const message =
                 err instanceof Error
                   ? err.message || 'Validation blocked'
@@ -300,6 +392,16 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       }
       if ((event === 'onBeforeSave' || event === 'onBeforeDelete') && hasRequestHeaders) {
         return { ok: true, requestHeaders: mergedRequestHeaders }
+      }
+      if (event === 'onFieldChange') {
+        return {
+          ok: true,
+          fieldChange: {
+            value: fieldValue,
+            sideEffects: fieldSideEffects,
+            messages: fieldMessages,
+          },
+        }
       }
       return { ok: true }
     },

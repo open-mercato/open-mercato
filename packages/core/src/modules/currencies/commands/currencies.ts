@@ -205,7 +205,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
       }
     }
 
-    const changes = buildChanges(record as unknown as Record<string, unknown>, parsed, [
+    const allChanges = buildChanges(record as unknown as Record<string, unknown>, parsed, [
       'code',
       'name',
       'symbol',
@@ -215,14 +215,15 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
       'isBase',
       'isActive',
     ])
+    const changes = Object.fromEntries(
+      Object.entries(allChanges).filter(([, c]) => c.to !== undefined),
+    ) as Record<string, { from: unknown; to: unknown }>
 
     if (Object.keys(changes).length === 0) {
       return { currencyId: record.id }
     }
 
-    for (const [key, change] of Object.entries(
-      changes as Record<string, { from: unknown; to: unknown }>,
-    )) {
+    for (const [key, change] of Object.entries(changes)) {
       ;(record as any)[key] = change.to
     }
     record.updatedAt = new Date()

@@ -96,11 +96,15 @@
   "dashboards.analytics.widgets.topProducts.empty": "Brak danych o sprzedaży produktów dla tego okresu",
   "dashboards.analytics.widgets.topProducts.error": "Nie udało się załadować danych o produktach",
   "dashboards.analytics.widgets.topProducts.title": "Najlepsze produkty wg przychodu",
+  "dashboards.widgets.effective": "Aktywne widżety:",
   "dashboards.widgets.error.load": "Nie udało się wczytać konfiguracji widżetów.",
   "dashboards.widgets.error.save": "Nie udało się zapisać preferencji widżetów pulpitu.",
   "dashboards.widgets.flash.saved": "Widżety pulpitu zostały zaktualizowane",
   "dashboards.widgets.loading": "Ładowanie opcji widżetów…",
   "dashboards.widgets.mode.hint": "Ten użytkownik dziedziczy widżety z przypisanych ról. Wybierz nadpisanie, aby je dostosować.",
   "dashboards.widgets.mode.inherit": "Dziedzicz po rolach",
-  "dashboards.widgets.mode.override": "Nadpisz dla tego użytkownika"
+  "dashboards.widgets.mode.override": "Nadpisz dla tego użytkownika",
+  "dashboards.widgets.reset": "Resetuj",
+  "dashboards.widgets.save": "Zapisz widżety",
+  "dashboards.widgets.saving": "Zapisywanie…"
 }

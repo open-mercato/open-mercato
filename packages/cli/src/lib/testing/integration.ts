@@ -8,6 +8,7 @@ import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
+import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
 type EphemeralRuntimeOptions = {
   verbose: boolean
@@ -609,26 +610,6 @@ function startYarnWorkspaceCommand(
   opts: { silent?: boolean } = {},
 ): ChildProcess {
   return startYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
-}
-
-function runCommandAndCapture(command: string, args: string[]): Promise<{ code: number | null; stderr: string }> {
-  return new Promise((resolve) => {
-    const processHandle = spawn(command, args, {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
-    let stderr = ''
-    processHandle.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += chunk.toString()
-    })
-    processHandle.on('error', () => {
-      resolve({ code: -1, stderr })
-    })
-    processHandle.on('exit', (code) => {
-      resolve({ code, stderr })
-    })
-  })
 }
 
 async function assertContainerRuntimeAvailable(): Promise<void> {
@@ -2391,6 +2372,14 @@ async function promptAfterRun(
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
   await assertContainerRuntimeAvailable()
+
+  // Auto-detect Docker socket from active context for non-standard setups (e.g., Colima)
+  const dockerConfig = await resolveDockerHostFromContext(options.logPrefix)
+  if (dockerConfig) {
+    process.env.DOCKER_HOST = dockerConfig.dockerHost
+    process.env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = dockerConfig.socketOverride
+  }
+
   const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
     const existingStateBeforeReuseAttempt = await readEphemeralEnvironmentState()

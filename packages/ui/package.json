@@ -66,6 +66,10 @@
       "types": "./src/backend/forms/index.ts",
       "default": "./dist/backend/forms/index.js"
     },
+    "./backend/messages": {
+      "types": "./src/backend/messages/index.ts",
+      "default": "./dist/backend/messages/index.js"
+    },
     "./backend/notifications": {
       "types": "./src/backend/notifications/index.ts",
       "default": "./dist/backend/notifications/index.js"

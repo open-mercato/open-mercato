@@ -14,6 +14,11 @@ export interface InjectionTableEntry {
   table: ModuleInjectionTable
 }
 
+export interface EnricherBootstrapEntry {
+  moduleId: string
+  enrichers: import('../../lib/crud/response-enricher').ResponseEnricher[]
+}
+
 export interface BootstrapData {
   modules: Module[]
   entities: OrmEntity[]
@@ -25,6 +30,7 @@ export interface BootstrapData {
   injectionTables: InjectionTableEntry[]
   searchModuleConfigs: SearchModuleConfig[]
   analyticsModuleConfigs?: AnalyticsModuleConfig[]
+  enricherEntries?: EnricherBootstrapEntry[]
 }
 
 export interface BootstrapOptions {

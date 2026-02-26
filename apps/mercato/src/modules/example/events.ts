@@ -6,10 +6,10 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  * Declares all events that can be emitted by the example module.
  */
 const events = [
-  // Todos
-  { id: 'example.todo.created', label: 'Todo Created', entity: 'todo', category: 'crud' },
-  { id: 'example.todo.updated', label: 'Todo Updated', entity: 'todo', category: 'crud' },
-  { id: 'example.todo.deleted', label: 'Todo Deleted', entity: 'todo', category: 'crud' },
+  // Todos (clientBroadcast enables real-time UI updates via DOM Event Bridge)
+  { id: 'example.todo.created', label: 'Todo Created', entity: 'todo', category: 'crud', clientBroadcast: true },
+  { id: 'example.todo.updated', label: 'Todo Updated', entity: 'todo', category: 'crud', clientBroadcast: true },
+  { id: 'example.todo.deleted', label: 'Todo Deleted', entity: 'todo', category: 'crud', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

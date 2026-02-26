@@ -4,6 +4,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import Link from 'next/link'
 import { hasFeature, matchFeature } from '@open-mercato/shared/security/features'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 function toTitleCase(value: string): string {
   return value.replace(/[-_.]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
@@ -112,6 +113,7 @@ export function AclEditor({
   const actorIsSuperAdmin = !!currentUserIsSuperAdmin
   const [loading, setLoading] = React.useState(true)
   const [features, setFeatures] = React.useState<Feature[]>([])
+  const t = useT()
   const [modules, setModules] = React.useState<ModuleInfo[]>([])
   const [granted, setGranted] = React.useState<string[]>(() => {
     const normalized = normalizeFeatureArray(value?.features)
@@ -497,11 +499,11 @@ export function AclEditor({
                 })}
               </div>
               <div className="mt-2">
-                <Button variant="outline" onClick={() => setOrganizations(null)}>Allow all organizations</Button>
+                <Button variant="outline" onClick={() => setOrganizations(null)}>{t('auth.acl.allowAllOrganizations', 'Allow all organizations')}</Button>
               </div>
               {showOrganizationWarning && (
                 <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.
+                  {t('auth.acl.organizationWarning', 'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.')}
                 </div>
               )}
             </div>

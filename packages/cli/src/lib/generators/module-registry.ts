@@ -321,6 +321,36 @@ function processTranslations(options: {
   return translations
 }
 
+/**
+ * Resolves a convention file and pushes its import + config entry to standalone arrays.
+ * Used for files that produce their own generated output (notifications, AI tools, events, analytics, enrichers, etc.).
+ *
+ * @returns The generated import name, or null if the file was not found.
+ */
+function processStandaloneConfig(options: {
+  roots: ModuleRoots
+  imps: ModuleImports
+  modId: string
+  relativePath: string
+  prefix: string
+  importIdRef: { value: number }
+  standaloneImports: string[]
+  standaloneConfigs: string[]
+  configExpr: (importName: string, modId: string) => string
+  /** Also push the import to the shared imports array (used by modules.generated.ts) */
+  sharedImports?: string[]
+}): string | null {
+  const { roots, imps, modId, relativePath, prefix, importIdRef, standaloneImports, standaloneConfigs, configExpr, sharedImports } = options
+  const resolved = resolveModuleFile(roots, imps, relativePath)
+  if (!resolved) return null
+  const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
+  const importStmt = `import * as ${importName} from '${resolved.importPath}'`
+  standaloneImports.push(importStmt)
+  if (sharedImports) sharedImports.push(importStmt)
+  standaloneConfigs.push(configExpr(importName, modId))
+  return importName
+}
+
 function resolveConventionFile(
   roots: ModuleRoots,
   imps: ModuleImports,
@@ -361,6 +391,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const notificationsChecksumFile = path.join(outputDir, 'notifications.generated.checksum')
   const notificationsClientOutFile = path.join(outputDir, 'notifications.client.generated.ts')
   const notificationsClientChecksumFile = path.join(outputDir, 'notifications.client.generated.checksum')
+  const messageTypesOutFile = path.join(outputDir, 'message-types.generated.ts')
+  const messageTypesChecksumFile = path.join(outputDir, 'message-types.generated.checksum')
+  const messageObjectsOutFile = path.join(outputDir, 'message-objects.generated.ts')
+  const messageObjectsChecksumFile = path.join(outputDir, 'message-objects.generated.checksum')
+  const messagesClientOutFile = path.join(outputDir, 'messages.client.generated.ts')
+  const messagesClientChecksumFile = path.join(outputDir, 'messages.client.generated.checksum')
   const aiToolsOutFile = path.join(outputDir, 'ai-tools.generated.ts')
   const aiToolsChecksumFile = path.join(outputDir, 'ai-tools.generated.checksum')
   const eventsOutFile = path.join(outputDir, 'events.generated.ts')
@@ -369,6 +405,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
   const transFieldsOutFile = path.join(outputDir, 'translations-fields.generated.ts')
   const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
+  const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
+  const enrichersChecksumFile = path.join(outputDir, 'enrichers.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
@@ -386,6 +424,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const notificationImports: string[] = []
   const notificationClientTypes: string[] = []
   const notificationClientImports: string[] = []
+  const messageTypeEntries: string[] = []
+  const messageTypeImports: string[] = []
+  const messageObjectTypeEntries: string[] = []
+  const messageObjectTypeImports: string[] = []
   const aiToolsConfigs: string[] = []
   const aiToolsImports: string[] = []
   const eventsConfigs: string[] = []
@@ -394,6 +436,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const analyticsImports: string[] = []
   const transFieldsConfigs: string[] = []
   const transFieldsImports: string[] = []
+  const enricherConfigs: string[] = []
+  const enricherImports: string[] = []
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -505,19 +549,51 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     }
 
     // 7. Notifications: notifications.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'notifications.ts',
+      prefix: 'NOTIF',
+      standaloneImports: notificationImports,
+      standaloneConfigs: notificationTypes,
+      configExpr: (n, id) => `{ moduleId: '${id}', types: ((${n}.default ?? ${n}.notificationTypes ?? (${n} as any).types ?? []) as NotificationTypeDefinition[]) }`,
+    })
+
+    // Notification client renderers: notifications.client.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'notifications.client.ts',
+      prefix: 'NOTIF_CLIENT',
+      standaloneImports: notificationClientImports,
+      standaloneConfigs: notificationClientTypes,
+      configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? []) }`,
+    })
+    // Message types: module root message-types.ts
     {
-      const resolved = resolveModuleFile(roots, imps, 'notifications.ts')
+      const resolved = resolveModuleFile(roots, imps, 'message-types.ts')
       if (resolved) {
-        const importName = `NOTIF_${toVar(modId)}_${importIdRef.value++}`
+        const importName = `MSG_TYPES_${toVar(modId)}_${importIdRef.value++}`
         const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        notificationImports.push(importStmt)
-        notificationTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? ${importName}.types ?? []) }`
+        messageTypeImports.push(importStmt)
+        messageTypeEntries.push(
+          `{ moduleId: '${modId}', types: ((${importName}.default ?? (${importName} as any).messageTypes ?? (${importName} as any).types ?? []) as MessageTypeDefinition[]) }`
         )
       }
     }
 
-    // Notification client renderers: module root notifications.client.ts
+    // Message object types: module root message-objects.ts
+    {
+      const resolved = resolveModuleFile(roots, imps, 'message-objects.ts')
+      if (resolved) {
+        const importName = `MSG_OBJECTS_${toVar(modId)}_${importIdRef.value++}`
+        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
+        messageObjectTypeImports.push(importStmt)
+        messageObjectTypeEntries.push(
+          `{ moduleId: '${modId}', types: ((${importName}.default ?? (${importName} as any).messageObjectTypes ?? (${importName} as any).objectTypes ?? (${importName} as any).types ?? []) as MessageObjectTypeDefinition[]) }`
+        )
+      }
+    }
+
+    // AI Tools: module root ai-tools.ts
     {
       const resolved = resolveModuleFile(roots, imps, 'notifications.client.ts')
       if (resolved) {
@@ -531,54 +607,58 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     }
 
     // 8. AI Tools: ai-tools.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'ai-tools.ts')
-      if (resolved) {
-        const importName = `AI_TOOLS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        aiToolsImports.push(importStmt)
-        aiToolsConfigs.push(
-          `{ moduleId: '${modId}', tools: (${importName}.aiTools ?? ${importName}.default ?? []) }`
-        )
-      }
-    }
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'ai-tools.ts',
+      prefix: 'AI_TOOLS',
+      standaloneImports: aiToolsImports,
+      standaloneConfigs: aiToolsConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', tools: (${n}.aiTools ?? ${n}.default ?? []) }`,
+    })
 
-    // 9. Events: events.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'events.ts')
-      if (resolved) {
-        const importName = `EVENTS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        eventsImports.push(importStmt)
-        eventsImportName = importName
-      }
-    }
+    // 9. Events: events.ts (also referenced in module declarations)
+    eventsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'events.ts',
+      prefix: 'EVENTS',
+      standaloneImports: eventsImports,
+      standaloneConfigs: eventsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.eventsConfig ?? null) as EventModuleConfigBase | null }`,
+    })
 
-    // 10. Analytics: analytics.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'analytics.ts')
-      if (resolved) {
-        const importName = `ANALYTICS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        analyticsImports.push(importStmt)
-        analyticsImportName = importName
-      }
-    }
+    // 10. Analytics: analytics.ts (also referenced in module declarations)
+    analyticsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'analytics.ts',
+      prefix: 'ANALYTICS',
+      standaloneImports: analyticsImports,
+      standaloneConfigs: analyticsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.analyticsConfig ?? ${n}.config ?? null) }`,
+    })
 
-    // Translatable fields: module root translations.ts
+    // 10b. Enrichers: data/enrichers.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'data/enrichers.ts',
+      prefix: 'ENRICHERS',
+      standaloneImports: enricherImports,
+      standaloneConfigs: enricherConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', enrichers: ((${n} as any).enrichers ?? (${n} as any).default ?? []) }`,
+    })
+
+    // Translatable fields: translations.ts (also referenced in module declarations)
     let transFieldsImportName: string | null = null
-    {
-      const resolved = resolveModuleFile(roots, imps, 'translations.ts')
-      if (resolved) {
-        const importName = `TRANS_FIELDS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        transFieldsImports.push(importStmt)
-        transFieldsImportName = importName
-      }
-    }
+    transFieldsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'translations.ts',
+      prefix: 'TRANS_FIELDS',
+      standaloneImports: transFieldsImports,
+      standaloneConfigs: transFieldsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
+    })
 
     // 11. Setup: setup.ts
     {
@@ -735,17 +815,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       searchConfigs.push(`{ moduleId: '${modId}', config: (${searchImportName}.default ?? ${searchImportName}.searchConfig ?? ${searchImportName}.config ?? null) }`)
     }
 
-    if (eventsImportName) {
-      eventsConfigs.push(`{ moduleId: '${modId}', config: (${eventsImportName}.default ?? ${eventsImportName}.eventsConfig ?? null) as EventModuleConfigBase | null }`)
-    }
-
-    if (analyticsImportName) {
-      analyticsConfigs.push(`{ moduleId: '${modId}', config: (${analyticsImportName}.default ?? ${analyticsImportName}.analyticsConfig ?? ${analyticsImportName}.config ?? null) }`)
-    }
-
-    if (transFieldsImportName) {
-      transFieldsConfigs.push(`{ moduleId: '${modId}', fields: (${transFieldsImportName}.default ?? ${transFieldsImportName}.translatableFields ?? {}) as Record<string, string[]> }`)
-    }
+    // Note: events, analytics, enrichers, notifications, AI tools, and translatable fields
+    // configs are pushed inside processStandaloneConfig() above — no separate push needed here.
 
     moduleDecls.push(`{
       id: '${modId}',
@@ -909,6 +980,134 @@ export function getNotificationRenderers(): NotificationRenderers {
 }
 `
 
+  const messageTypeEntriesLiteral = messageTypeEntries.join(',\n  ')
+  const messageTypeImportSection = messageTypeImports.join('\n')
+  const messageTypesOutput = `// AUTO-GENERATED by mercato generate registry
+import type { MessageTypeDefinition } from '@open-mercato/shared/modules/messages/types'
+${messageTypeImportSection ? `\n${messageTypeImportSection}\n` : '\n'}type MessageTypeEntry = { moduleId: string; types: MessageTypeDefinition[] }
+
+const entriesRaw: MessageTypeEntry[] = [
+${messageTypeEntriesLiteral ? `  ${messageTypeEntriesLiteral}\n` : ''}]
+
+const allTypes = entriesRaw.flatMap((entry) => entry.types)
+
+export const messageTypeEntries = entriesRaw
+export const messageTypes = allTypes
+
+export function getMessageTypes(): MessageTypeDefinition[] {
+  return allTypes
+}
+
+export function getMessageType(type: string): MessageTypeDefinition | undefined {
+  return allTypes.find((entry) => entry.type === type)
+}
+`
+
+  const messageObjectEntriesLiteral = messageObjectTypeEntries.join(',\n  ')
+  const messageObjectImportSection = messageObjectTypeImports.join('\n')
+  const messageObjectsOutput = `// AUTO-GENERATED by mercato generate registry
+import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
+${messageObjectImportSection ? `\n${messageObjectImportSection}\n` : '\n'}type MessageObjectTypeEntry = { moduleId: string; types: MessageObjectTypeDefinition[] }
+
+const entriesRaw: MessageObjectTypeEntry[] = [
+${messageObjectEntriesLiteral ? `  ${messageObjectEntriesLiteral}\n` : ''}]
+
+const allTypes = entriesRaw.flatMap((entry) => entry.types)
+
+export const messageObjectTypeEntries = entriesRaw
+export const messageObjectTypes = allTypes
+
+export function getMessageObjectTypes(): MessageObjectTypeDefinition[] {
+  return allTypes
+}
+
+export function getMessageObjectType(module: string, entityType: string): MessageObjectTypeDefinition | undefined {
+  return allTypes.find((entry) => entry.module === module && entry.entityType === entityType)
+}
+`
+  const messagesClientOutput = `// AUTO-GENERATED by mercato generate registry
+import type { ComponentType } from 'react'
+import type {
+  MessageTypeDefinition,
+  MessageObjectTypeDefinition,
+  MessageListItemProps,
+  MessageContentProps,
+  MessageActionsProps,
+  ObjectDetailProps,
+  ObjectPreviewProps,
+} from '@open-mercato/shared/modules/messages/types'
+${messageTypeImportSection ? `\n${messageTypeImportSection}\n` : '\n'}${messageObjectImportSection ? `\n${messageObjectImportSection}\n` : ''}type MessageTypeEntry = { moduleId: string; types: MessageTypeDefinition[] }
+type MessageObjectTypeEntry = { moduleId: string; types: MessageObjectTypeDefinition[] }
+
+export type MessageListItemRenderers = Record<string, ComponentType<MessageListItemProps>>
+export type MessageContentRenderers = Record<string, ComponentType<MessageContentProps>>
+export type MessageActionsRenderers = Record<string, ComponentType<MessageActionsProps>>
+export type MessageObjectDetailRenderers = Record<string, ComponentType<ObjectDetailProps>>
+export type MessageObjectPreviewRenderers = Record<string, ComponentType<ObjectPreviewProps>>
+
+export type MessageUiComponentRegistry = {
+  listItemComponents: MessageListItemRenderers
+  contentComponents: MessageContentRenderers
+  actionsComponents: MessageActionsRenderers
+  objectDetailComponents: MessageObjectDetailRenderers
+  objectPreviewComponents: MessageObjectPreviewRenderers
+}
+
+const messageTypeEntriesRaw: MessageTypeEntry[] = [
+${messageTypeEntriesLiteral ? `  ${messageTypeEntriesLiteral}\n` : ''}]
+const messageObjectTypeEntriesRaw: MessageObjectTypeEntry[] = [
+${messageObjectEntriesLiteral ? `  ${messageObjectEntriesLiteral}\n` : ''}]
+
+const allMessageTypes = messageTypeEntriesRaw.flatMap((entry) => entry.types)
+const allMessageObjectTypes = messageObjectTypeEntriesRaw.flatMap((entry) => entry.types)
+
+const listItemComponents: MessageListItemRenderers = Object.fromEntries(
+  allMessageTypes
+    .filter((typeDef) => Boolean(typeDef.ui?.listItemComponent) && Boolean(typeDef.ListItemComponent))
+    .map((typeDef) => [typeDef.ui!.listItemComponent!, typeDef.ListItemComponent!]),
+)
+
+const contentComponents: MessageContentRenderers = Object.fromEntries(
+  allMessageTypes
+    .filter((typeDef) => Boolean(typeDef.ui?.contentComponent) && Boolean(typeDef.ContentComponent))
+    .map((typeDef) => [typeDef.ui!.contentComponent!, typeDef.ContentComponent!]),
+)
+
+const actionsComponents: MessageActionsRenderers = Object.fromEntries(
+  allMessageTypes
+    .filter((typeDef) => Boolean(typeDef.ui?.actionsComponent) && Boolean(typeDef.ActionsComponent))
+    .map((typeDef) => [typeDef.ui!.actionsComponent!, typeDef.ActionsComponent!]),
+)
+
+const objectDetailComponents: MessageObjectDetailRenderers = Object.fromEntries(
+  allMessageObjectTypes
+    .filter((typeDef) => Boolean(typeDef.DetailComponent))
+    .map((typeDef) => [\`\${typeDef.module}:\${typeDef.entityType}\`, typeDef.DetailComponent!]),
+)
+
+const objectPreviewComponents: MessageObjectPreviewRenderers = Object.fromEntries(
+  allMessageObjectTypes
+    .filter((typeDef) => Boolean(typeDef.PreviewComponent))
+    .map((typeDef) => [\`\${typeDef.module}:\${typeDef.entityType}\`, typeDef.PreviewComponent!]),
+)
+
+const registry: MessageUiComponentRegistry = {
+  listItemComponents,
+  contentComponents,
+  actionsComponents,
+  objectDetailComponents,
+  objectPreviewComponents,
+}
+
+export const messageClientTypeEntries = messageTypeEntriesRaw
+export const messageClientObjectTypeEntries = messageObjectTypeEntriesRaw
+export const messageUiComponentRegistry = registry
+
+export function getMessageUiComponentRegistry(): MessageUiComponentRegistry {
+  return registry
+}
+`
+
   // Validate module dependencies declared via ModuleInfo.requires
   {
     const enabledIds = new Set(enabled.map((e) => e.id))
@@ -983,9 +1182,24 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   writeGeneratedFile({ outFile: aiToolsOutFile, checksumFile: aiToolsChecksumFile, content: aiToolsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: notificationsOutFile, checksumFile: notificationsChecksumFile, content: notificationsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: notificationsClientOutFile, checksumFile: notificationsClientChecksumFile, content: notificationsClientOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: messageTypesOutFile, checksumFile: messageTypesChecksumFile, content: messageTypesOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: messageObjectsOutFile, checksumFile: messageObjectsChecksumFile, content: messageObjectsOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: messagesClientOutFile, checksumFile: messagesClientChecksumFile, content: messagesClientOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
+
+  // Enrichers generated file
+  const enricherEntriesLiteral = enricherConfigs.join(',\n  ')
+  const enricherImportSection = enricherImports.join('\n')
+  const enrichersOutput = `// AUTO-GENERATED by mercato generate registry
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+${enricherImportSection ? `\n${enricherImportSection}\n` : '\n'}type EnricherEntry = { moduleId: string; enrichers: ResponseEnricher[] }
+
+export const enricherEntries: EnricherEntry[] = [
+${enricherEntriesLiteral ? `  ${enricherEntriesLiteral}\n` : ''}]
+`
+  writeGeneratedFile({ outFile: enrichersOutFile, checksumFile: enrichersChecksumFile, content: enrichersOutput, structureChecksum, result, quiet })
 
   return result
 }

@@ -15,6 +15,7 @@ import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolic
 
 const profileResponseSchema = z.object({
   email: z.string().email(),
+  roles: z.array(z.string()),
 })
 
 const passwordSchema = buildPasswordSchema()
@@ -67,7 +68,7 @@ export async function GET(req: Request) {
     if (!user) {
       return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
     }
-    return NextResponse.json({ email: String(user.email) })
+    return NextResponse.json({ email: String(user.email), roles: auth.roles ?? [] })
   } catch (err) {
     console.error('auth.profile.load failed', err)
     return NextResponse.json({ error: translate('auth.profile.form.errors.load', 'Failed to load profile.') }, { status: 400 })

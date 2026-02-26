@@ -24,7 +24,7 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const json = await req.json().catch(() => null)
@@ -45,8 +45,8 @@ export async function POST(req: Request) {
   const filters: Record<string, unknown> = {
     id: { $in: attachmentIds },
     entityId,
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
   }
   if (fromRecordId) {
     filters.recordId = fromRecordId
