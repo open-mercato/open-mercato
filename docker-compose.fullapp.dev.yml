@@ -39,6 +39,7 @@ services:
       - pkg_onboarding_dist:/app/packages/onboarding/dist
       - pkg_queue_dist:/app/packages/queue/dist
       - pkg_search_dist:/app/packages/search/dist
+      - pkg_scheduler_dist:/app/packages/scheduler/dist
       - pkg_ai_assistant_dist:/app/packages/ai-assistant/dist
       - pkg_create_app_dist:/app/packages/create-app/dist
     ports:
@@ -172,6 +173,8 @@ volumes:
     name: mercato-pkg-queue-dist-${DEPLOY_ENV:-local}
   pkg_search_dist:
     name: mercato-pkg-search-dist-${DEPLOY_ENV:-local}
+  pkg_scheduler_dist:
+    name: mercato-pkg-scheduler-dist-${DEPLOY_ENV:-local}
   pkg_ai_assistant_dist:
     name: mercato-pkg-ai-assistant-dist-${DEPLOY_ENV:-local}
   pkg_create_app_dist:

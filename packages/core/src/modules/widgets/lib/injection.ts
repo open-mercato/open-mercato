@@ -7,7 +7,10 @@ export {
   getCoreInjectionTables,
   invalidateInjectionWidgetCache,
   loadAllInjectionWidgets,
+  loadInjectionDataWidgetById,
+  loadInjectionDataWidgetsForSpot,
   loadInjectionWidgetById,
   loadInjectionWidgetsForSpot,
+  type LoadedInjectionDataWidget,
   type LoadedInjectionWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'

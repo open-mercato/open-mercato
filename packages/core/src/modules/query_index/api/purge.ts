@@ -11,7 +11,7 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await req.json().catch(() => ({})) as any
   const entityType = String(body?.entityType || '')
   if (!entityType) return NextResponse.json({ error: 'Missing entityType' }, { status: 400 })

@@ -3,6 +3,10 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches:
+      - main
+      - develop
   pull_request:
     branches:
       - main
@@ -13,12 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Enable Corepack
         run: corepack enable
@@ -39,7 +43,7 @@ jobs:
         run: yarn build:packages
 
       - name: Check i18n sync
-        run: yarn i18n:check-sync
+        run: yarn tsx scripts/i18n-check-sync.ts
 
       - name: Check i18n usage
         run: yarn i18n:check-usage
@@ -56,6 +60,8 @@ jobs:
 
   ephemeral-integration:
     runs-on: ubuntu-latest
+    env:
+      OM_ENABLE_ENTERPRISE_MODULES: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -149,7 +155,7 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

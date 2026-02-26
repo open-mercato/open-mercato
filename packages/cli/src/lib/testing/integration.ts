@@ -8,6 +8,7 @@ import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
+import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
 type EphemeralRuntimeOptions = {
   verbose: boolean
@@ -84,6 +85,7 @@ type IntegrationSpecCoverageOptions = {
 
 type IntegrationCoverageReport = {
   generatedAt: string
+  testRun: IntegrationTestRunSummary | null
   scenarios: {
     total: number
     covered: number
@@ -108,6 +110,17 @@ type IntegrationCoverageReport = {
   }
   uncoveredScenarioIds: string[]
   testsWithoutScenarioIds: string[]
+}
+
+type IntegrationTestRunSummary = {
+  status: 'passed' | 'failed'
+  total: number
+  passed: number
+  failed: number
+  flaky: number
+  skipped: number
+  durationMs: number | null
+  startTime: string | null
 }
 
 export function shouldUseIsolatedPortForFreshEnvironment(options: {
@@ -148,6 +161,7 @@ const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
 const ANSI_ESCAPE_REGEX = /\u001b\[[0-?]*[ -/]*[@-~]/g
+const NEXT_STATIC_ASSET_PATTERN = /\/_next\/static\/[^"'`\s)]+?\.(?:js|css)/g
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
@@ -155,6 +169,7 @@ const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ep
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
 const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
 const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
+const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
 const APP_BUILD_ARTIFACTS = [
   path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'next', 'BUILD_ID'),
@@ -596,26 +611,6 @@ function startYarnWorkspaceCommand(
   opts: { silent?: boolean } = {},
 ): ChildProcess {
   return startYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
-}
-
-function runCommandAndCapture(command: string, args: string[]): Promise<{ code: number | null; stderr: string }> {
-  return new Promise((resolve) => {
-    const processHandle = spawn(command, args, {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
-    let stderr = ''
-    processHandle.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += chunk.toString()
-    })
-    processHandle.on('error', () => {
-      resolve({ code: -1, stderr })
-    })
-    processHandle.on('exit', (code) => {
-      resolve({ code, stderr })
-    })
-  })
 }
 
 async function assertContainerRuntimeAvailable(): Promise<void> {
@@ -1100,10 +1095,50 @@ async function isApplicationReachable(baseUrl: string): Promise<boolean> {
       method: 'GET',
       redirect: 'manual',
     })
-    return response.status === 200 || response.status === 302
+    if (response.status === 302) {
+      return true
+    }
+    if (response.status !== 200) {
+      return false
+    }
+    const html = await response.text()
+    return isLoginHtmlHealthy(html) && await areReferencedNextAssetsReachable(baseUrl, html)
   } catch {
     return false
   }
+}
+
+function isLoginHtmlHealthy(html: string): boolean {
+  return !/Application error: a client-side exception has occurred/i.test(html)
+}
+
+function extractReferencedNextAssets(html: string, maxAssets = 8): string[] {
+  const matches = html.match(NEXT_STATIC_ASSET_PATTERN) ?? []
+  const unique = Array.from(new Set(matches))
+  return unique.slice(0, maxAssets)
+}
+
+async function areReferencedNextAssetsReachable(baseUrl: string, html: string): Promise<boolean> {
+  const assets = extractReferencedNextAssets(html)
+  if (assets.length === 0) {
+    return false
+  }
+
+  for (const assetPath of assets) {
+    try {
+      const response = await fetch(`${baseUrl}${assetPath}`, {
+        method: 'GET',
+        redirect: 'manual',
+      })
+      if (response.status !== 200 && response.status !== 304) {
+        return false
+      }
+    } catch {
+      return false
+    }
+  }
+
+  return true
 }
 
 async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> {
@@ -1233,6 +1268,7 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     NODE_ENV: 'test',
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
+    NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     CI: 'true',
     OM_CLI_QUIET: '1',
     MERCATO_QUIET: '1',
@@ -1308,19 +1344,38 @@ async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildPro
     const responsePromise = fetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
-    }).catch(() => null)
+    })
+      .then(async (response) => ({
+        response,
+        body: response.status === 200 ? await response.text().catch(() => '') : '',
+      }))
+      .catch(() => null)
     const result = await Promise.race([
-      responsePromise.then((response) => {
-        if (!response) {
+      responsePromise.then((payload) => {
+        if (!payload) {
           return { kind: 'network_error' as const }
         }
-        return { kind: 'response' as const, status: response.status }
+        return {
+          kind: 'response' as const,
+          status: payload.response.status,
+          body: payload.body,
+        }
       }),
       exitPromise.then((code) => ({ kind: 'exit' as const, code })),
       delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
     ])
 
     if (result.kind === 'response' && (result.status === 200 || result.status === 302)) {
+      if (result.status === 200) {
+        const loginHtml = result.body ?? ''
+        if (!isLoginHtmlHealthy(loginHtml)) {
+          continue
+        }
+        const assetsReachable = await areReferencedNextAssetsReachable(baseUrl, loginHtml)
+        if (!assetsReachable) {
+          continue
+        }
+      }
       const processExited = await Promise.race([
         exitPromise.then(() => true),
         delay(readinessStabilizationMs).then(() => false),
@@ -1793,6 +1848,7 @@ export async function runIntegrationSpecCoverageReport(rawArgs: string[]): Promi
   const scenarioRoot = path.join(projectRootDirectory, '.ai', 'qa', 'scenarios')
   const testFiles = (await discoverIntegrationSpecFiles()).map((entry) => entry.path)
   const scenarioFiles = await collectFilesByExtension(scenarioRoot, '.md', projectRootDirectory)
+  const testRunSummary = await readIntegrationTestRunSummary()
 
   const testCaseIds = new Set<string>()
   const scenarioCaseIds = new Set<string>()
@@ -1863,6 +1919,7 @@ export async function runIntegrationSpecCoverageReport(rawArgs: string[]): Promi
 
   const report: IntegrationCoverageReport = {
     generatedAt: new Date().toISOString(),
+    testRun: testRunSummary,
     scenarios: {
       total: scenarioCaseIds.size,
       covered: coveredScenarioIds.length,
@@ -1888,6 +1945,7 @@ export async function runIntegrationSpecCoverageReport(rawArgs: string[]): Promi
   } else {
     console.log('[coverage] Integration test coverage report')
     console.log(`[coverage] Generated at: ${report.generatedAt}`)
+    logIntegrationTestRunSummary(report.testRun)
     console.log(
       `[coverage] Scenario coverage: ${report.scenarios.covered}/${report.scenarios.total} (${formatPercent(report.scenarios.coveragePercent)})`,
     )
@@ -1920,6 +1978,7 @@ export async function runIntegrationSpecCoverageReport(rawArgs: string[]): Promi
         console.log(`  - ${testId}`)
       }
     }
+    logIntegrationTestRunOneLineSummary(report.testRun)
   }
 
   if (options.strict && (report.uncoveredScenarioIds.length > 0 || report.requiredTestFolders.missing.length > 0)) {
@@ -1973,13 +2032,93 @@ async function generateC8CoverageReport(environment: NodeJS.ProcessEnv, rawDirec
   await runNpxCommand(c8Args, environment)
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function readOptionalNumber(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key]
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+  return value
+}
+
+function readOptionalString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key]
+  return typeof value === 'string' ? value : null
+}
+
+async function readIntegrationTestRunSummary(): Promise<IntegrationTestRunSummary | null> {
+  let resultsRaw: string
+  try {
+    resultsRaw = await readFile(PLAYWRIGHT_RESULTS_JSON_PATH, 'utf8')
+  } catch {
+    return null
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(resultsRaw)
+  } catch {
+    return null
+  }
+
+  if (!isObjectRecord(parsed)) {
+    return null
+  }
+  const statsValue = parsed.stats
+  if (!isObjectRecord(statsValue)) {
+    return null
+  }
+
+  const passed = readOptionalNumber(statsValue, 'expected') ?? 0
+  const failed = readOptionalNumber(statsValue, 'unexpected') ?? 0
+  const flaky = readOptionalNumber(statsValue, 'flaky') ?? 0
+  const skipped = readOptionalNumber(statsValue, 'skipped') ?? 0
+
+  return {
+    status: failed > 0 ? 'failed' : 'passed',
+    total: passed + failed + flaky + skipped,
+    passed,
+    failed,
+    flaky,
+    skipped,
+    durationMs: readOptionalNumber(statsValue, 'duration'),
+    startTime: readOptionalString(statsValue, 'startTime'),
+  }
+}
+
+function logIntegrationTestRunSummary(summary: IntegrationTestRunSummary | null): void {
+  if (!summary) {
+    console.log('[coverage] Integration test results: unavailable (.ai/qa/test-results/results.json missing or invalid)')
+    return
+  }
+  console.log('[coverage] Integration test results:')
+  console.log(`  status: ${summary.status}`)
+  console.log(`  passed: ${summary.passed}`)
+  console.log(`  failed: ${summary.failed}`)
+  console.log(`  flaky: ${summary.flaky}`)
+  console.log(`  skipped: ${summary.skipped}`)
+  console.log(`  total: ${summary.total}`)
+}
+
+function logIntegrationTestRunOneLineSummary(summary: IntegrationTestRunSummary | null): void {
+  if (!summary) {
+    return
+  }
+  console.log(
+    `[coverage] Test run summary: passed=${summary.passed}, failed=${summary.failed}, flaky=${summary.flaky}, skipped=${summary.skipped}, total=${summary.total}`,
+  )
+}
+
 export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<void> {
   const options = parseIntegrationCoverageOptions(rawArgs)
   const coveragePaths = getCoveragePaths()
   await resetDirectory(coveragePaths.rawDirectory)
   await resetDirectory(coveragePaths.reportDirectory)
 
-  const environment = await startEphemeralEnvironment({
+  const startOptions: EphemeralRuntimeOptions = {
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
     forceRebuild: options.forceRebuild,
@@ -1988,10 +2127,10 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
     environmentOverrides: {
       NODE_V8_COVERAGE: coveragePaths.rawDirectory,
     },
-  })
+  }
 
   let testRunError: Error | null = null
-  try {
+  const runCoverageAttempt = async (environment: EphemeralEnvironmentHandle): Promise<Error | null> => {
     console.log('[coverage] Running Playwright integration suite with V8 coverage enabled...')
     console.log('[coverage] Ensuring Playwright Chromium is installed...')
     await runNpxCommand(['playwright', 'install', 'chromium'], environment.commandEnvironment)
@@ -2006,13 +2145,26 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
           retries: options.retries,
         },
       )
+      return null
     } catch (error) {
-      testRunError = error instanceof Error ? error : new Error(String(error))
-      if (isEnvironmentUnavailableError(testRunError)) {
+      const coverageRunError = error instanceof Error ? error : new Error(String(error))
+      if (isEnvironmentUnavailableError(coverageRunError)) {
         console.error('[coverage] Playwright output indicates connection loss to the ephemeral app during coverage run.')
       }
-      console.error(`[coverage] Playwright run failed: ${testRunError.message}`)
+      console.error(`[coverage] Playwright run failed: ${coverageRunError.message}`)
       console.error('[coverage] Continuing to generate coverage report from collected V8 data...')
+      return coverageRunError
+    }
+  }
+
+  let environment = await startEphemeralEnvironment(startOptions)
+  try {
+    testRunError = await runCoverageAttempt(environment)
+    if (testRunError && isEnvironmentUnavailableError(testRunError)) {
+      console.log('[coverage] Rebuilding ephemeral environment and retrying coverage run once...')
+      await environment.stop()
+      environment = await startEphemeralEnvironment(startOptions)
+      testRunError = await runCoverageAttempt(environment)
     }
   } finally {
     await environment.stop()
@@ -2044,10 +2196,12 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
     }
   }
   const totals = summary.total ?? {}
+  const testRunSummary = await readIntegrationTestRunSummary()
   const output = {
     generatedAt: new Date().toISOString(),
     reportDirectory: normalizePath(path.relative(projectRootDirectory, coveragePaths.reportDirectory)),
     rawCoverageDirectory: normalizePath(path.relative(projectRootDirectory, coveragePaths.rawDirectory)),
+    testRun: testRunSummary,
     totals: {
       lines: totals.lines ?? null,
       statements: totals.statements ?? null,
@@ -2078,6 +2232,7 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
   console.log(`  statements: ${statementCovered}/${statementTotal} (${statementPct}%)`)
   console.log(`  functions: ${functionCovered}/${functionTotal} (${functionPct}%)`)
   console.log(`  branches: ${branchCovered}/${branchTotal} (${branchPct}%)`)
+  logIntegrationTestRunSummary(output.testRun)
   console.log(`[coverage] HTML report: ${output.reportDirectory}/index.html`)
 
   if (options.json) {
@@ -2089,6 +2244,7 @@ export async function runIntegrationCoverageReport(rawArgs: string[]): Promise<v
   }
 
   console.log(`[coverage] Code coverage summary: lines=${linePct}%, statements=${statementPct}%, functions=${functionPct}%, branches=${branchPct}%`)
+  logIntegrationTestRunOneLineSummary(output.testRun)
   console.log('[coverage] Use --json for machine-readable output or --keep-raw-v8 to keep raw process coverage files.')
 
   if (testRunError) {
@@ -2277,6 +2433,14 @@ async function promptAfterRun(
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
   await assertContainerRuntimeAvailable()
+
+  // Auto-detect Docker socket from active context for non-standard setups (e.g., Colima)
+  const dockerConfig = await resolveDockerHostFromContext(options.logPrefix)
+  if (dockerConfig) {
+    process.env.DOCKER_HOST = dockerConfig.dockerHost
+    process.env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = dockerConfig.socketOverride
+  }
+
   const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
     const existingStateBeforeReuseAttempt = await readEphemeralEnvironmentState()
@@ -2332,8 +2496,10 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
       NODE_ENV: 'test',
       OM_TEST_MODE: '1',
+      OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
       ENABLE_CRUD_API_CACHE: 'true',
+      NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
       AUTO_SPAWN_WORKERS: 'false',

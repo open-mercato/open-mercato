@@ -26,6 +26,38 @@ export async function createProductFixture(
   return body.id as string;
 }
 
+type CategoryFixtureInput = {
+  name: string;
+};
+
+export async function createCategoryFixture(
+  request: APIRequestContext,
+  token: string,
+  input: CategoryFixtureInput,
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/catalog/categories', {
+    token,
+    data: { name: input.name },
+  });
+  expect(response.ok(), `Failed to create category fixture: ${response.status()}`).toBeTruthy();
+  const body = (await response.json()) as { id?: string };
+  expect(typeof body.id === 'string' && body.id.length > 0).toBeTruthy();
+  return body.id as string;
+}
+
+export async function deleteCatalogCategoryIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  categoryId: string | null,
+): Promise<void> {
+  if (!token || !categoryId) return;
+  try {
+    await apiRequest(request, 'DELETE', `/api/catalog/categories?id=${encodeURIComponent(categoryId)}`, { token });
+  } catch {
+    return;
+  }
+}
+
 export async function deleteCatalogProductIfExists(
   request: APIRequestContext,
   token: string | null,

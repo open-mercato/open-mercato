@@ -8,20 +8,22 @@ import type { Module } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
-import {
-  runEphemeralAppForQa,
-  runIntegrationCoverageReport,
-  runIntegrationSpecCoverageReport,
-  runIntegrationTestsInEphemeralEnvironment,
-  runInteractiveIntegrationInEphemeralEnvironment,
-} from './lib/testing/integration'
+// Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
+const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 
 let envLoaded = false
+
+export function padByCodePointWidth(value: string, targetWidth: number): string {
+  const valueWidth = [...value].length
+  if (valueWidth >= targetWidth) return value
+  return `${value}${' '.repeat(targetWidth - valueWidth)}`
+}
 
 async function ensureEnvLoaded() {
   if (envLoaded) return
@@ -183,7 +185,7 @@ export async function run(argv = process.argv) {
           console.error('DATABASE_URL is not set. Aborting reinstall.')
           return 1
         }
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           // Collect all user tables in public schema
@@ -239,7 +241,7 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
-        const client = new Client({ connectionString: dbUrl })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
           const tableCheck = await client.query<{ regclass: string | null }>(
@@ -361,7 +363,7 @@ export async function run(argv = process.argv) {
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
-      const pgClient = new Client({ connectionString: dbUrl })
+      const pgClient = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
       await pgClient.connect()
       const orgResult = await pgClient.query(
         `SELECT o.id as org_id, o.tenant_id FROM organizations o
@@ -484,7 +486,6 @@ export async function run(argv = process.argv) {
       pushUser('Superadmin', '👑', email, password)
       pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
       pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
-
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
@@ -496,7 +497,7 @@ export async function run(argv = process.argv) {
       console.log('║  Users created:                                              ║')
       for (const entry of createdUsers) {
         const label = `${entry.icon} ${entry.label}:`
-        const labelPad = label.padEnd(13)
+        const labelPad = padByCodePointWidth(label, 13)
         const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
         console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
         console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
@@ -840,122 +841,6 @@ export async function run(argv = process.argv) {
     ],
   } as any)
   
-  // Built-in CLI module: scaffold
-  all.push({
-    id: 'scaffold',
-    cli: [
-      {
-        command: 'module',
-        run: async (args: string[]) => {
-          const name = (args[0] || '').trim()
-          if (!name) {
-            console.error('Usage: mercato scaffold module <name>')
-            return
-          }
-          const fs = await import('node:fs')
-          const path = await import('node:path')
-          const { execSync } = await import('node:child_process')
-          const base = path.resolve('src/modules', name)
-          const folders = ['api', 'backend', 'frontend', 'data', 'subscribers']
-          for (const f of folders) fs.mkdirSync(path.join(base, f), { recursive: true })
-          const moduleTitle = `${name[0].toUpperCase()}${name.slice(1)}`
-          const indexTs = `export const metadata = { title: '${moduleTitle}', group: 'Modules' }\n`
-          fs.writeFileSync(path.join(base, 'index.ts'), indexTs, { flag: 'wx' })
-          const ceTs = `export const entities = [\n  {\n    id: '${name}:sample',\n    label: '${moduleTitle} Sample',\n    description: 'Describe your custom entity',\n    showInSidebar: true,\n    fields: [\n      // { key: 'priority', kind: 'integer', label: 'Priority' },\n    ],\n  },\n]\n\nexport default entities\n`
-          fs.writeFileSync(path.join(base, 'ce.ts'), ceTs, { flag: 'wx' })
-          const entitiesTs = `import { Entity, PrimaryKey, Property } from '@mikro-orm/core'\n\n// Add your entities here. Example:\n// @Entity({ tableName: '${name}_items' })\n// export class ${moduleTitle}Item {\n//   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' }) id!: string\n//   @Property({ type: 'text' }) title!: string\n//   @Property({ name: 'organization_id', type: 'uuid', nullable: true }) organizationId?: string | null\n//   @Property({ name: 'tenant_id', type: 'uuid', nullable: true }) tenantId?: string | null\n//   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() }) createdAt: Date = new Date()\n//   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() }) updatedAt: Date = new Date()\n//   @Property({ name: 'deleted_at', type: Date, nullable: true }) deletedAt?: Date | null\n// }\n`
-          fs.writeFileSync(path.join(base, 'data', 'entities.ts'), entitiesTs, { flag: 'wx' })
-          console.log(`Created module at ${path.relative(process.cwd(), base)}`)
-          execSync('yarn modules:prepare', { stdio: 'inherit' })
-        },
-      },
-      {
-        command: 'entity',
-        run: async () => {
-          const fs = await import('node:fs')
-          const path = await import('node:path')
-          const readline = await import('node:readline/promises')
-          const { stdin: input, stdout: output } = await import('node:process')
-          const { execSync } = await import('node:child_process')
-          const rl = readline.createInterface({ input, output })
-          try {
-            const moduleId = (await rl.question('Module id (folder under src/modules): ')).trim()
-            const className = (await rl.question('Entity class name (e.g., Todo): ')).trim()
-            const tableName = (await rl.question(`DB table name (default: ${className.toLowerCase()}s): `)).trim() || `${className.toLowerCase()}s`
-            const extra = (await rl.question('Additional fields (comma list name:type, e.g., title:text,is_done:boolean): ')).trim()
-            const extras = extra
-              ? extra.split(',').map(s => s.trim()).filter(Boolean).map(s => {
-                  const [n,t] = s.split(':').map(x=>x.trim()); return { n, t }
-                })
-              : []
-            const base = path.resolve('src/modules', moduleId, 'data')
-            fs.mkdirSync(base, { recursive: true })
-            const file = path.join(base, 'entities.ts')
-            let content = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : `import { Entity, PrimaryKey, Property } from '@mikro-orm/core'\n\n`
-            content += `\n@Entity({ tableName: '${tableName}' })\nexport class ${className} {\n  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })\n  id!: string\n\n  @Property({ name: 'organization_id', type: 'uuid', nullable: true })\n  organizationId?: string | null\n\n  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })\n  tenantId?: string | null\n\n  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })\n  createdAt: Date = new Date()\n\n  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })\n  updatedAt: Date = new Date()\n\n  @Property({ name: 'deleted_at', type: Date, nullable: true })\n  deletedAt?: Date | null\n`
-            for (const f of extras) {
-              const n = f.n
-              const t = f.t
-              if (!n || !t) continue
-              const map = {
-                text: { ts: 'string', db: 'text' },
-                multiline: { ts: 'string', db: 'text' },
-                integer: { ts: 'number', db: 'int' },
-                float: { ts: 'number', db: 'float' },
-                boolean: { ts: 'boolean', db: 'boolean' },
-                date: { ts: 'Date', db: 'Date' },
-              } as const
-              const info = map[t as keyof typeof map]
-              const fallback = { ts: 'string', db: 'text' }
-              const resolved = info || fallback
-              const propName = n.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
-              const columnName = n.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`)
-              const dbType = resolved.db
-              const tsType = resolved.ts
-              const defaultValue =
-                resolved.ts === 'boolean' ? ' = false' :
-                resolved.ts === 'Date' ? ' = new Date()' :
-                ''
-              content += `\n  @Property({ name: '${columnName}', type: ${dbType === 'Date' ? 'Date' : `'${dbType}'`}${resolved.ts === 'boolean' ? ', default: false' : ''} })\n  ${propName}${tsType === 'number' ? '?: number | null' : tsType === 'boolean' ? ': boolean' : tsType === 'Date' ? ': Date' : '!: string'}${defaultValue}\n`
-            }
-            content += `}\n`
-            fs.writeFileSync(file, content)
-            console.log(`Updated ${path.relative(process.cwd(), file)}`)
-            console.log('Generating and applying migrations...')
-            execSync('yarn modules:prepare', { stdio: 'inherit' })
-            execSync('yarn db:generate', { stdio: 'inherit' })
-            execSync('yarn db:migrate', { stdio: 'inherit' })
-          } finally {
-            rl.close()
-          }
-        },
-      },
-      {
-        command: 'crud',
-        run: async (args: string[]) => {
-          const fs = await import('node:fs')
-          const path = await import('node:path')
-          const { execSync } = await import('node:child_process')
-          const mod = (args[0] || '').trim()
-          const entity = (args[1] || '').trim()
-          const routeSeg = (args[2] || '').trim() || `${entity.toLowerCase()}s`
-          if (!mod || !entity) {
-            console.error('Usage: mercato scaffold crud <moduleId> <EntityClass> [routeSegment]')
-            return
-          }
-          const baseDir = path.resolve('src/modules', mod, 'api', routeSeg)
-          fs.mkdirSync(baseDir, { recursive: true })
-          const entitySnake = entity.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
-          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@open-mercato/shared/modules/${mod}/data/entities'\nimport { E } from '#generated/entities.ids.generated'\nimport ceEntities from '@open-mercato/shared/modules/${mod}/ce'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\nimport type { CustomFieldSet } from '@open-mercato/shared/modules/entities'\n\n// Field constants - update these based on your entity's actual fields\nconst F = {\n  id: 'id',\n  tenant_id: 'tenant_id',\n  organization_id: 'organization_id',\n  created_at: 'created_at',\n  updated_at: 'updated_at',\n  deleted_at: 'deleted_at',\n} as const\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst fieldSets: CustomFieldSet[] = []\nconst ceEntity = Array.isArray(ceEntities) ? ceEntities.find((entity) => entity?.id === '${mod}:${entitySnake}') : undefined\nif (ceEntity?.fields?.length) {\n  fieldSets.push({ entity: ceEntity.id, fields: ceEntity.fields, source: '${mod}' })\n}\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  indexer: { entityType: E.${mod}.${entitySnake} },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
-          const file = path.join(baseDir, 'route.ts')
-          fs.writeFileSync(file, tmpl, { flag: 'wx' })
-          console.log(`Created CRUD route: ${path.relative(process.cwd(), file)}`)
-          execSync('yarn modules:prepare', { stdio: 'inherit' })
-        },
-      },
-    ],
-  } as any)
-
   // Built-in CLI module: generate
   all.push({
     id: 'generate',
@@ -1219,31 +1104,31 @@ export async function run(argv = process.argv) {
       {
         command: 'integration',
         run: async (args: string[]) => {
-          await runIntegrationTestsInEphemeralEnvironment(args)
+          await (await lazyIntegration()).runIntegrationTestsInEphemeralEnvironment(args)
         },
       },
       {
         command: 'ephemeral',
         run: async (args: string[]) => {
-          await runEphemeralAppForQa(args)
+          await (await lazyIntegration()).runEphemeralAppForQa(args)
         },
       },
       {
         command: 'interactive',
         run: async (args: string[]) => {
-          await runInteractiveIntegrationInEphemeralEnvironment(args)
+          await (await lazyIntegration()).runInteractiveIntegrationInEphemeralEnvironment(args)
         },
       },
       {
         command: 'coverage',
         run: async (args: string[]) => {
-          await runIntegrationCoverageReport(args)
+          await (await lazyIntegration()).runIntegrationCoverageReport(args)
         },
       },
       {
         command: 'spec-coverage',
         run: async (args: string[]) => {
-          await runIntegrationSpecCoverageReport(args)
+          await (await lazyIntegration()).runIntegrationSpecCoverageReport(args)
         },
       },
     ],

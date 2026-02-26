@@ -78,7 +78,6 @@ export default function ScheduleDetailPage() {
 
   const fetchScheduleAndRuns = React.useCallback(async () => {
     if (!scheduleId) return
-
     try {
       // Fetch schedule details via list API with ID filter
       const { result: listData } = await apiCallOrThrow(

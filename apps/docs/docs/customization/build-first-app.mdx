@@ -5,6 +5,10 @@ description: Walk through the default application shell, routing overlays, and w
 
 # Step 1: Build your first Open Mercato app
 
+:::info
+This tutorial covers the monorepo layout (`apps/mercato/src/`). If you scaffolded a standalone app with `create-mercato-app`, see [Create a standalone app](./standalone-app) — the concepts are the same but paths differ (`src/` instead of `apps/mercato/src/`).
+:::
+
 The starter project ships with a working admin experience under `apps/mercato/src/`. It renders a dashboard, login screens, and the auto-discovered modules that come from the packages you enable.
 
 ![Open Mercato dashboard](/screenshots/open-mercato-dashboard.png)
@@ -32,7 +36,7 @@ Because everything flows through generated metadata, you can safely introduce ne
 
 Every module—core or custom—uses a consistent set of files:
 
-- `index.ts` exports metadata (`id`, `title`, description, version).
+- `index.ts` exports metadata (`name`, `title`, description, version).
 - `acl.ts` exports a `features` array used by RBAC.
 - `di.ts` registers services with the Awilix container.
 - `data/entities.ts` defines MikroORM entities. Optional extensions live beside them in `data/extensions.ts`.

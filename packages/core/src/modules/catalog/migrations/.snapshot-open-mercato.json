@@ -173,353 +173,6 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "price_id": {
-          "name": "price_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "product_id": {
-          "name": "product_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "variant_id": {
-          "name": "variant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "offer_id": {
-          "name": "offer_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "channel_id": {
-          "name": "channel_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "price_kind_id": {
-          "name": "price_kind_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "price_kind_code": {
-          "name": "price_kind_code",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "currency_code": {
-          "name": "currency_code",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "unit_price_net": {
-          "name": "unit_price_net",
-          "type": "numeric(14,4)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "precision": 14,
-          "scale": 4,
-          "mappedType": "decimal"
-        },
-        "unit_price_gross": {
-          "name": "unit_price_gross",
-          "type": "numeric(14,4)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "precision": 14,
-          "scale": 4,
-          "mappedType": "decimal"
-        },
-        "tax_rate": {
-          "name": "tax_rate",
-          "type": "numeric(6,4)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "precision": 6,
-          "scale": 4,
-          "mappedType": "decimal"
-        },
-        "tax_amount": {
-          "name": "tax_amount",
-          "type": "numeric(14,4)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "precision": 14,
-          "scale": 4,
-          "mappedType": "decimal"
-        },
-        "min_quantity": {
-          "name": "min_quantity",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "integer"
-        },
-        "max_quantity": {
-          "name": "max_quantity",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "integer"
-        },
-        "starts_at": {
-          "name": "starts_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "ends_at": {
-          "name": "ends_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "recorded_at": {
-          "name": "recorded_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "change_type": {
-          "name": "change_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "is_announced": {
-          "name": "is_announced",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "boolean"
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        }
-      },
-      "name": "catalog_price_history_entries",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "catalog_price_history_price_id_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "price_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_price_history_offer_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "offer_id",
-            "price_kind_id",
-            "currency_code",
-            "recorded_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_price_history_variant_channel_scoped_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "variant_id",
-            "channel_id",
-            "price_kind_id",
-            "currency_code",
-            "recorded_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_price_history_variant_channel_agnostic_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "variant_id",
-            "price_kind_id",
-            "currency_code",
-            "recorded_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_price_history_product_channel_scoped_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "product_id",
-            "channel_id",
-            "price_kind_id",
-            "currency_code",
-            "recorded_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_price_history_product_channel_agnostic_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "product_id",
-            "price_kind_id",
-            "currency_code",
-            "recorded_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "catalog_price_history_entries_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "gen_random_uuid()",
-          "mappedType": "uuid"
-        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
@@ -760,16 +413,6 @@
           "scale": 4,
           "mappedType": "decimal"
         },
-        "omnibus_exempt": {
-          "name": "omnibus_exempt",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "false",
-          "mappedType": "boolean"
-        },
         "product_type": {
           "name": "product_type",
           "type": "text",
@@ -806,6 +449,77 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
+        },
+        "default_sales_unit": {
+          "name": "default_sales_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "default_sales_unit_quantity": {
+          "name": "default_sales_unit_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 18,
+          "scale": 6,
+          "default": "'1'",
+          "mappedType": "decimal"
+        },
+        "uom_rounding_scale": {
+          "name": "uom_rounding_scale",
+          "type": "smallint",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "4",
+          "mappedType": "smallint"
+        },
+        "uom_rounding_mode": {
+          "name": "uom_rounding_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'half_up'",
+          "mappedType": "text"
+        },
+        "unit_price_enabled": {
+          "name": "unit_price_enabled",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
+        "unit_price_reference_unit": {
+          "name": "unit_price_reference_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "unit_price_base_quantity": {
+          "name": "unit_price_base_quantity",
+          "type": "numeric(18,6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 18,
+          "scale": 6,
+          "mappedType": "decimal"
         },
         "default_media_id": {
           "name": "default_media_id",
@@ -900,16 +614,6 @@
           "nullable": false,
           "default": "true",
           "mappedType": "boolean"
-        },
-        "first_listed_at": {
-          "name": "first_listed_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
         },
         "created_at": {
           "name": "created_at",
@@ -1092,15 +796,6 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
-        },
-        "localized_content": {
-          "name": "localized_content",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
         },
         "metadata": {
           "name": "metadata",
@@ -1854,6 +1549,180 @@
           "nullable": false,
           "mappedType": "uuid"
         },
+        "unit_code": {
+          "name": "unit_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "to_base_factor": {
+          "name": "to_base_factor",
+          "type": "numeric(24,12)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "precision": 24,
+          "scale": 12,
+          "mappedType": "decimal"
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "catalog_product_unit_conversions",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "catalog_product_unit_conversions_scope_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "product_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "catalog_product_unit_conversions_unique",
+          "columnNames": [
+            "product_id",
+            "unit_code"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "catalog_product_unit_conversions_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "catalog_product_unit_conversions_product_id_foreign": {
+          "constraintName": "catalog_product_unit_conversions_product_id_foreign",
+          "columnNames": [
+            "product_id"
+          ],
+          "localTableName": "public.catalog_product_unit_conversions",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_products",
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
         "name": {
           "name": "name",
           "type": "text",
@@ -1967,15 +1836,6 @@
           "precision": 7,
           "scale": 4,
           "mappedType": "decimal"
-        },
-        "omnibus_exempt": {
-          "name": "omnibus_exempt",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "boolean"
         },
         "option_values": {
           "name": "option_values",

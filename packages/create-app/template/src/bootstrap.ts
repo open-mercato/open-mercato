@@ -36,8 +36,15 @@ import { E } from '@/.mercato/generated/entities.ids.generated'
 import { entityFieldsRegistry } from '@/.mercato/generated/entity-fields-registry'
 import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
 import { injectionWidgetEntries } from '@/.mercato/generated/injection-widgets.generated'
+// Side-effect: registers translatable fields (must be before injection-tables which reads the registry)
+import '@/.mercato/generated/translations-fields.generated'
 import { injectionTables } from '@/.mercato/generated/injection-tables.generated'
 import { searchModuleConfigs } from '@/.mercato/generated/search.generated'
+import { eventModuleConfigs } from '@/.mercato/generated/events.generated'
+import { registerEventModuleConfigs } from '@open-mercato/shared/modules/events'
+
+// Register event configs globally (similar to search)
+registerEventModuleConfigs(eventModuleConfigs)
 
 // Bootstrap factory from shared package
 import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootstrap'

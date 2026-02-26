@@ -3,6 +3,7 @@ import path from 'node:path';
 import { discoverIntegrationSpecFiles } from '../../../packages/cli/src/lib/testing/integration-discovery';
 
 const captureScreenshots = process.env.PW_CAPTURE_SCREENSHOTS === '1';
+const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const STATIC_TEST_IGNORES = [
   '.claude/**',
@@ -29,10 +30,17 @@ export default defineConfig({
     screenshot: captureScreenshots ? 'on' : 'only-on-failure',
     trace: 'on-first-retry',
   },
-  reporter: [
-    ['list'],
-    ['json', { outputFile: '.ai/qa/test-results/results.json' }],
-    ['html', { outputFolder: '.ai/qa/test-results/html', open: 'never' }],
-  ],
+  reporter: isGitHubActions
+    ? [
+        ['github'],
+        ['list'],
+        ['json', { outputFile: '.ai/qa/test-results/results.json' }],
+        ['html', { outputFolder: '.ai/qa/test-results/html', open: 'never' }],
+      ]
+    : [
+        ['list'],
+        ['json', { outputFile: '.ai/qa/test-results/results.json' }],
+        ['html', { outputFolder: '.ai/qa/test-results/html', open: 'never' }],
+      ],
   outputDir: '.ai/qa/test-results/artifacts',
 });

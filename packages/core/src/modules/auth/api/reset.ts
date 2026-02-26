@@ -10,12 +10,27 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { z } from 'zod'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+
+const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
+  points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
+})
+const resetIpRateLimitConfig = readEndpointRateLimitConfig('RESET_IP', {
+  points: 10, duration: 60, blockDuration: 60, keyPrefix: 'reset-ip',
+})
 
 // validation via requestPasswordResetSchema
 
 export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
+  // Rate limit — two layers, both checked before validation and DB work
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req, ipConfig: resetIpRateLimitConfig, compoundConfig: resetRateLimitConfig, compoundIdentifier: email,
+  })
+  if (rateLimitError) return rateLimitError
   const parsed = requestPasswordResetSchema.safeParse({ email })
   if (!parsed.success) return NextResponse.json({ ok: true }) // do not reveal
   const c = await createRequestContainer()
@@ -61,9 +76,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-export const metadata = {
-  POST: {},
-}
+export const metadata = {}
 
 const passwordResetRequestSchema = z.object({
   email: z.string().email(),
@@ -86,6 +99,9 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'Reset email dispatched (or ignored for unknown accounts)', schema: passwordResetResponseSchema },
+      ],
+      errors: [
+        { status: 429, description: 'Too many password reset requests', schema: rateLimitErrorSchema },
       ],
     },
   },

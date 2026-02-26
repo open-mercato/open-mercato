@@ -21,12 +21,15 @@ test.describe('TC-CAT-001: Create New Product', () => {
     await page.getByRole('button', { name: 'Variants' }).click();
     await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(sku);
 
-    await page.getByRole('button', { name: 'Create product' }).last().click();
-    await expect(page).toHaveURL(/\/backend\/catalog\/products$/);
+    const createProductButton = page
+      .locator('button[type="submit"]')
+      .filter({ hasText: /^Create product$|catalog\.products\.actions\.create/i })
+      .first();
+    await expect(createProductButton).toBeEnabled();
+    await createProductButton.click();
 
-    const search = page.getByRole('textbox', { name: 'Search' });
-    await search.fill(productName);
-    await expect(page.getByText(productName, { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/backend\/catalog\/products\/[^/?#]+$/i, { timeout: 10_000 });
+    const createdProductId = page.url().split('/').at(-1) ?? '';
+    expect(createdProductId.length > 0).toBe(true);
   });
 });
-

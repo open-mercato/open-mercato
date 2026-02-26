@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cli",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -51,13 +51,16 @@
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",
     "@open-mercato/shared": "workspace:*",
     "pg": "8.16.3",
-    "testcontainers": "^10.0.0",
+    "testcontainers": "^11.12.0",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
