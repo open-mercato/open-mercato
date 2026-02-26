@@ -770,7 +770,7 @@ satisfies InjectionGroupWidget  // Existing pattern, now typed
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase G — CrudForm Field Injection | In Progress | 2026-02-26 | Added `InjectedField`, field spot loading, group insertion, visibility-aware payload exclusion, and form handles. |
+| Phase G — CrudForm Field Injection | Done | 2026-02-26 | Added `InjectedField`, field spot loading, group insertion, visibility-aware payload exclusion, form handles, and end-to-end triad verification coverage. |
 
 ### Phase G — Detailed Progress
 
@@ -782,5 +782,5 @@ satisfies InjectionGroupWidget  // Existing pattern, now typed
 - [x] Injected field values excluded from core schema validation and core submit payload
 - [x] CrudForm replacement handle added (`crud-form:<entityId>`) and rendered as `data-component-handle`
 - [x] CrudForm render tests still pass (`CrudForm.render.test.tsx`)
-- [ ] Example end-to-end priority triad (`entity + API + field widget + enrichers`) still pending
-- [ ] Playwright scenarios TC-UMES-CF01..CF05 still pending
+- [x] Example end-to-end priority triad (`entity + API + field widget + enrichers`) completed
+- [x] Playwright scenarios TC-UMES-CF01..CF05 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`

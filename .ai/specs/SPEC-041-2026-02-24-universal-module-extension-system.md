@@ -39,10 +39,10 @@ Each phase is a separate PR, independently mergeable, with example module demons
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| E — API Interceptors | In Progress | Core contracts/registry/runner, CRUD integration, generation/bootstrap, and unit tests are implemented; integration tests pending. |
-| F — DataTable Extensions | In Progress | Column/row-action/filter deep extension surfaces are wired; bulk-actions execution and dedicated tests remain. |
-| G — CrudForm Fields | In Progress | Injected field pipeline and `InjectedField` support are implemented; full example triad flow and integration tests remain. |
-| H — Component Replacement | In Progress | Registry, hook, provider, generator/bootstrap wiring, page/table/form/section handles, and unit tests are implemented; additional replace-mode validation and integration tests remain. |
+| E — API Interceptors | Done | Core contracts/registry/runner, CRUD integration, generation/bootstrap, unit tests, and Playwright coverage are implemented. |
+| F — DataTable Extensions | Done | Column/row-action/filter deep extension surfaces and bulk-actions runtime execution are wired with unit/integration coverage. |
+| G — CrudForm Fields | Done | Injected field pipeline, full example triad flow, and Playwright coverage are implemented. |
+| H — Component Replacement | Done | Registry/hook/provider/generator wiring, handles, replace-mode props schema validation, and integration coverage are implemented. |
 
 ### Dependency Graph
 

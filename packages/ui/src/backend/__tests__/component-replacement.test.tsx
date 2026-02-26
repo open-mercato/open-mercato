@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
+import { z } from 'zod'
 import {
   registerComponent,
   registerComponentOverrides,
@@ -81,5 +82,38 @@ describe('component replacement', () => {
     const handle = ComponentReplacementHandles.section('ui.detail', 'DetailFieldsSection')
     const wrapper = document.querySelector(`[data-component-handle="${handle}"]`)
     expect(wrapper).not.toBeNull()
+  })
+
+  it('falls back to original component when replacement props schema validation fails', () => {
+    const componentId = 'test.replace.schema'
+    const Original = ({ value }: { value: string }) => <span>original:{value}</span>
+    const Replacement = ({ value }: { value: string }) => <span>replacement:{value}</span>
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    registerComponent({
+      id: componentId,
+      component: Original,
+      metadata: { module: 'test' },
+    })
+    registerComponentOverrides([
+      {
+        target: { componentId },
+        priority: 100,
+        metadata: { module: 'test' },
+        replacement: Replacement,
+        propsSchema: z.object({ value: z.string().min(4) }),
+      },
+    ])
+
+    function Consumer() {
+      const Resolved = useRegisteredComponent<{ value: string }>(componentId)
+      return <Resolved value="bad" />
+    }
+
+    render(<Consumer />)
+    expect(screen.getByText('original:bad')).toBeInTheDocument()
+    expect(screen.queryByText('replacement:bad')).toBeNull()
+    expect(consoleSpy).toHaveBeenCalled()
+    consoleSpy.mockRestore()
   })
 })

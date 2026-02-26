@@ -376,7 +376,7 @@ export const interceptors: ApiInterceptor[] = [
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase E — API Interceptors | In Progress | 2026-02-26 | Added interceptor contracts/registry/runner, CRUD before+after integration with re-validation, generator discovery (`api/interceptors.ts`), bootstrap registration, and unit coverage in `crud-factory.test.ts`. |
+| Phase E — API Interceptors | Done | 2026-02-26 | Added interceptor contracts/registry/runner, CRUD before+after integration with re-validation, generator discovery (`api/interceptors.ts`), bootstrap registration, unit coverage in `crud-factory.test.ts`, and Playwright coverage in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`. |
 
 ### Phase E — Detailed Progress
 
@@ -389,4 +389,4 @@ export const interceptors: ApiInterceptor[] = [
 - [x] Bootstrap wiring added (`interceptorEntries`)
 - [x] Example module interceptor file added (`example/api/interceptors.ts`)
 - [x] Unit tests added in `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts`
-- [ ] Playwright integration scenarios TC-UMES-I01..I07 still pending
+- [x] Playwright integration scenarios TC-UMES-I01..I07 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`

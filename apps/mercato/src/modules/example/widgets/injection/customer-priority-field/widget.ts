@@ -31,11 +31,15 @@ const widget: InjectionFieldWidget = {
     },
   ],
   eventHandlers: {
-    onSave: async (data, context) => {
+    onSave: async (data) => {
       const payload = data && typeof data === 'object' ? data as Record<string, unknown> : {}
       const customerId = typeof payload.id === 'string' ? payload.id : null
-      const priority = typeof payload._example?.priority === 'string'
-        ? payload._example.priority
+      const exampleValue = payload._example
+      const nestedPriority = exampleValue && typeof exampleValue === 'object'
+        ? (exampleValue as Record<string, unknown>).priority
+        : null
+      const priority = typeof nestedPriority === 'string'
+        ? nestedPriority
         : (typeof payload['_example.priority'] === 'string' ? payload['_example.priority'] : null)
       if (!customerId || !priority) return
 
@@ -58,7 +62,6 @@ const widget: InjectionFieldWidget = {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ customerId, priority }),
       })
-      void context
     },
   },
 }

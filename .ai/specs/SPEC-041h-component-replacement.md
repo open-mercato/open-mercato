@@ -323,7 +323,7 @@ This demonstrates the core use case: cross-module component extension without fo
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase H — Component Replacement | In Progress | 2026-02-26 | Added component registry primitives, override auto-discovery (`widgets/components.ts`), generated `component-overrides.generated.ts`, bootstrap registration, client provider wiring in backend layout, page-level replacement resolution, automatic page/table/form handles, section-level handles for core detail sections, and unit tests for hook/handle behavior. |
+| Phase H — Component Replacement | Done | 2026-02-26 | Added component registry primitives, override auto-discovery (`widgets/components.ts`), generated `component-overrides.generated.ts`, bootstrap registration, client provider wiring in backend layout, page-level replacement resolution, automatic page/table/form handles, section-level handles for core detail sections, replace-mode props schema validation, and integration coverage. |
 
 ### Phase H — Detailed Progress
 
@@ -344,5 +344,5 @@ This demonstrates the core use case: cross-module component extension without fo
 - `section:ui.detail.DetailFieldsSection`
 - `section:ui.detail.AttachmentsSection`
 - [x] Unit tests added for replacement fallback/wrapper behavior and section-handle rendering
-- [ ] Full props schema validation in replace mode not yet implemented
-- [ ] Playwright scenarios TC-UMES-CR01..CR03 still pending
+- [x] Full props schema validation in replace mode implemented with fallback in `useRegisteredComponent`
+- [x] Playwright scenarios TC-UMES-CR01..CR03 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`

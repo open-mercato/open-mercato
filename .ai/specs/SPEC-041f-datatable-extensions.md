@@ -491,7 +491,7 @@ export default {
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase F — DataTable Extensibility | In Progress | 2026-02-26 | Injected columns, row actions, and server filters are wired into DataTable with auto table replacement handles. |
+| Phase F — DataTable Extensibility | Done | 2026-02-26 | Injected columns, row actions, server filters, and bulk-action runtime are wired into DataTable with auto table replacement handles and dedicated test coverage. |
 
 ### Phase F — Detailed Progress
 
@@ -504,5 +504,5 @@ export default {
 - [x] Server-style injected filters are merged into toolbar filters
 - [x] DataTable replacement handle added (`data-table:<tableId>`) and rendered as `data-component-handle`
 - [x] Rendering tests still pass (`DataTable.render.test.tsx`)
-- [ ] `data-table:<tableId>:bulk-actions` runtime execution in `DataTable` still pending
-- [ ] Dedicated unit/integration tests for column/action/filter extension behavior still pending
+- [x] `data-table:<tableId>:bulk-actions` runtime execution in `DataTable` implemented
+- [x] Dedicated unit/integration tests for column/action/filter extension behavior added in `packages/ui/src/backend/__tests__/DataTable.extensions.test.tsx` and `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`
