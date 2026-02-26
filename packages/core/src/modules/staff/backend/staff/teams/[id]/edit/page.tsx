@@ -14,6 +14,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TeamForm, type TeamFormValues, buildTeamPayload } from '@open-mercato/core/modules/staff/components/TeamForm'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Plus } from 'lucide-react'
@@ -333,6 +334,17 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
               onDelete={handleDelete}
               isLoading={!initialValues}
               loadingMessage={t('staff.teams.form.loading', 'Loading team...')}
+              extraActions={teamId ? (
+                <SendObjectMessageDialog
+                  object={{
+                    entityModule: 'staff',
+                    entityType: 'team',
+                    entityId: teamId,
+                    previewData: { title: initialValues?.name ?? ''},
+                  }}
+                  viewHref={`/backend/staff/teams/${teamId}/edit`}
+                />
+              ) : undefined}
             />
           ) : (
             <DataTable<TeamMemberRow>

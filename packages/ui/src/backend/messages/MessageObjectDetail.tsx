@@ -5,13 +5,13 @@ import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ObjectDetailProps } from '@open-mercato/shared/modules/messages/types'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { CustomerMessageObjectPreview } from './CustomerMessageObjectPreview'
+import { MessageObjectPreview } from './MessageObjectPreview'
 
 function resolveActionHref(template: string, entityId: string): string {
   return template.replace('{entityId}', encodeURIComponent(entityId))
 }
 
-export function CustomerMessageObjectDetail(props: ObjectDetailProps) {
+export function MessageObjectDetail(props: ObjectDetailProps) {
   const t = useT()
   const [executingActionId, setExecutingActionId] = React.useState<string | null>(null)
 
@@ -19,7 +19,7 @@ export function CustomerMessageObjectDetail(props: ObjectDetailProps) {
   const otherActions = props.actions.filter((a) => a.id !== 'view')
 
   const preview = (
-    <CustomerMessageObjectPreview
+    <MessageObjectPreview
       entityId={props.entityId}
       entityModule={props.entityModule}
       entityType={props.entityType}
@@ -28,6 +28,7 @@ export function CustomerMessageObjectDetail(props: ObjectDetailProps) {
       actionRequired={props.actionRequired}
       actionType={props.actionType}
       actionLabel={props.actionLabel}
+      icon={props.icon}
     />
   )
 
@@ -91,5 +92,4 @@ export function CustomerMessageObjectDetail(props: ObjectDetailProps) {
   )
 }
 
-export default CustomerMessageObjectDetail
-
+export default MessageObjectDetail

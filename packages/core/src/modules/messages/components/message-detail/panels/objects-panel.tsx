@@ -29,13 +29,14 @@ export function MessageDetailObjectsSection(props: ObjectsPanelProps) {
           const componentKey = `${item.entityModule}:${item.entityType}`
           const DetailComponent = messageUiRegistry.objectDetailComponents[componentKey] ?? null
           const objectActions = props.objectActionsByObjectId.get(item.id)
+          const objectType = getMessageObjectType(item.entityModule, item.entityType)
 
           if (DetailComponent) {
             const storedActions: MessageObjectAction[] = objectActions
               ? Array.from(objectActions.entries()).map(([actionId, action]) => toObjectAction(actionId, action))
               : []
             const typeDefinitionActions: MessageObjectAction[] = storedActions.length === 0
-              ? (getMessageObjectType(item.entityModule, item.entityType)?.actions ?? [])
+              ? (objectType?.actions ?? [])
               : []
             const actions = storedActions.length > 0 ? storedActions : typeDefinitionActions
 
@@ -54,6 +55,7 @@ export function MessageDetailObjectsSection(props: ObjectsPanelProps) {
                 actionTakenAt={props.detail.actionTakenAt ? new Date(props.detail.actionTakenAt) : null}
                 actionTakenByUserId={props.detail.actionTakenByUserId ?? null}
                 actions={actions}
+                icon={objectType?.icon}
                 onAction={async (actionId, payload) => {
                   const action = objectActions?.get(actionId)
                   if (!action) return

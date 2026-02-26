@@ -7,6 +7,7 @@ import { Button } from '../../primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../primitives/dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
+import { getMessageObjectType } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
 import { createMessageComposeFormGroups } from './message-compose-form-groups'
 import { useMessageCompose } from './useMessageCompose'
 import type { MessageComposerContextObject, MessageComposerProps } from './message-composer.types'
@@ -26,6 +27,7 @@ function ContextObjectPreview({ contextObject }: { contextObject: MessageCompose
   const previewComponentKey = `${contextObject.entityModule}:${contextObject.entityType}`
   const PreviewComponent = registry.objectPreviewComponents[previewComponentKey]
     ?? registry.objectPreviewComponents['messages:default']
+  const objectType = getMessageObjectType(contextObject.entityModule, contextObject.entityType)
 
   if (PreviewComponent) {
     return (
@@ -37,6 +39,7 @@ function ContextObjectPreview({ contextObject }: { contextObject: MessageCompose
         actionType={contextObject.actionType}
         actionLabel={contextObject.actionLabel}
         previewData={contextObject.previewData ?? undefined}
+        icon={objectType?.icon}
       />
     )
   }

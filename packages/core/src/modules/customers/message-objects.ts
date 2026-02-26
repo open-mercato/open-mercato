@@ -1,6 +1,5 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-import { CustomerMessageObjectDetail } from './widgets/messages/CustomerMessageObjectDetail'
-import { CustomerMessageObjectPreview } from './widgets/messages/CustomerMessageObjectPreview'
+import { MessageObjectDetail, MessageObjectPreview } from '@open-mercato/ui'
 
 const objectMessageTypes = ['default', 'messages.defaultWithObjects']
 
@@ -14,8 +13,8 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     optionSubtitleField: 'email',
     labelKey: 'customers.people.list.title',
     icon: 'user-round',
-    PreviewComponent: CustomerMessageObjectPreview,
-    DetailComponent: CustomerMessageObjectDetail,
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
     actions: [
       {
         id: 'view',
@@ -41,8 +40,8 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     optionSubtitleField: 'taxId',
     labelKey: 'customers.companies.list.title',
     icon: 'building2',
-    PreviewComponent: CustomerMessageObjectPreview,
-    DetailComponent: CustomerMessageObjectDetail,
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
     actions: [
       {
         id: 'view',
@@ -68,8 +67,8 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     optionSubtitleField: 'status',
     labelKey: 'customers.deals.list.title',
     icon: 'briefcase-business',
-    PreviewComponent: CustomerMessageObjectPreview,
-    DetailComponent: CustomerMessageObjectDetail,
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
     actions: [
       {
         id: 'view',
