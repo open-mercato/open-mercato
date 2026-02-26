@@ -21,7 +21,7 @@ export default function ResetPage() {
       const res = await fetch('/api/auth/reset', { method: 'POST', body: form })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
-        setError(data?.error || 'Something went wrong')
+        setError(data?.error || t('auth.reset.error', 'Something went wrong'))
         return
       }
       setSent(true)
@@ -35,12 +35,12 @@ export default function ResetPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>{t('auth.resetPassword')}</CardTitle>
-          <CardDescription>Enter your email to receive reset link</CardDescription>
+          <CardDescription>{t('auth.reset.description', 'Enter your email to receive reset link')}</CardDescription>
         </CardHeader>
         <CardContent>
           {sent ? (
             <div className="text-sm text-muted-foreground">
-              If an account with that email exists, we sent a reset link. Please check your inbox.
+              {t('auth.reset.sent', 'If an account with that email exists, we sent a reset link. Please check your inbox.')}
             </div>
           ) : (
             <form className="grid gap-3" onSubmit={onSubmit} noValidate>

@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   let labelField = url.searchParams.get('labelField') || ''
   const q = url.searchParams.get('q') || ''
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!entityId) return NextResponse.json({ items: [] })
 
   const container = await createRequestContainer()
@@ -50,8 +50,8 @@ export async function GET(req: Request) {
   const filters: any = {}
   if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
   const res = await qe.query(entityId, {
-    organizationId: auth.orgId,
     tenantId: auth.tenantId ?? undefined,
+    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
     fields: ['id', labelField],
     filters,
     page: { page: 1, pageSize: 50 },

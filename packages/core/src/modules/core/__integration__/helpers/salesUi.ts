@@ -171,20 +171,20 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   const channelQuery = fixtureContext.channelQuery;
 
   await page.goto(`/backend/sales/documents/create?kind=${options.kind}`);
-  
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(500);
 
+  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeVisible({ timeout: 10_000 });
+  await page.waitForTimeout(500);
+  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeEnabled({ timeout: 30_000 });
 
   await page.getByText('Document type').click();
   await page.getByRole('textbox', { name: /Search customers/i }).fill(customerQuery);
-  await page.waitForTimeout(500);
 
   const selectButton = page
     .locator('[role="button"]')
     .filter({ hasText: customerQuery })
     .getByRole('button', { name: 'Select' });
 
+  await expect(selectButton.first()).toBeVisible({ timeout: 10_000 });
   await selectButton.scrollIntoViewIfNeeded();
   await selectButton.click();
 // Channel selection
@@ -202,7 +202,7 @@ try {
   await selectFirstAddressIfAvailable(page);
 
   await page.getByRole('button', { name: /^Create$/i }).first().click();
-  await expect(page).toHaveURL(new RegExp(`/backend/sales/documents/[0-9a-f-]{36}\\?kind=${options.kind}$`, 'i'));
+  await page.waitForURL(new RegExp(`/backend/sales/documents/[0-9a-f-]{36}\\?kind=${options.kind}$`, 'i'));
 
   const match = page.url().match(/\/backend\/sales\/documents\/([0-9a-f-]{36})\?kind=/i);
   if (!match) {

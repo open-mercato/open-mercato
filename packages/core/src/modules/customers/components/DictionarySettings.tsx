@@ -55,11 +55,6 @@ export default function DictionarySettings() {
       description: t('customers.config.dictionaries.sections.dealStatuses.description', 'Manage the statuses available for deals.'),
     },
     {
-      kind: 'pipeline-stages',
-      title: t('customers.config.dictionaries.sections.pipelineStages.title', 'Pipeline stages'),
-      description: t('customers.config.dictionaries.sections.pipelineStages.description', 'Define the stages used in your deal pipeline.'),
-    },
-    {
       kind: 'job-titles',
       title: t('customers.config.dictionaries.sections.jobTitles.title', 'Job titles'),
       description: t('customers.config.dictionaries.sections.jobTitles.description', 'Configure job titles with their appearance.'),

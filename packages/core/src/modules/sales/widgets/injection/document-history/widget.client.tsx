@@ -125,7 +125,7 @@ function TimelineItem({
   const isStatusChange = entry.kind === 'status' && entry.metadata?.statusTo
 
   return (
-    <div className="relative flex gap-3">
+    <div data-testid="timeline-entry" className="relative flex gap-3">
       {/* Vertical connector line */}
       {!isLast && (
         <div className="absolute left-[11px] top-6 bottom-0 w-px bg-border" aria-hidden />

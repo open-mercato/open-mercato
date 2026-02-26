@@ -45,6 +45,7 @@
   "scheduler.error.trigger_failed": "Fehler beim Ausführen des Zeitplans",
   "scheduler.error.unauthorized": "Nicht autorisiert",
   "scheduler.error.update_failed": "Fehler beim Aktualisieren des Zeitplans",
+  "scheduler.errors.id_required": "Zeitplankennung ist erforderlich.",
   "scheduler.execution.actions": "Aktionen",
   "scheduler.execution.completed_message": "Diese Ausführung wurde erfolgreich ohne Fehler abgeschlossen.",
   "scheduler.execution.details_title": "Ausführungsdetails",

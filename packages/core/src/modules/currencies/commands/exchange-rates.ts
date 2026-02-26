@@ -227,7 +227,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       }
     }
 
-    const changes = buildChanges(record as unknown as Record<string, unknown>, parsed, [
+    const allChanges = buildChanges(record as unknown as Record<string, unknown>, parsed, [
       'fromCurrencyCode',
       'toCurrencyCode',
       'rate',
@@ -236,14 +236,15 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       'type',
       'isActive',
     ])
+    const changes = Object.fromEntries(
+      Object.entries(allChanges).filter(([, c]) => c.to !== undefined),
+    ) as Record<string, { from: unknown; to: unknown }>
 
     if (Object.keys(changes).length === 0) {
       return { exchangeRateId: record.id }
     }
 
-    for (const [key, change] of Object.entries(
-      changes as Record<string, { from: unknown; to: unknown }>,
-    )) {
+    for (const [key, change] of Object.entries(changes)) {
       ;(record as any)[key] = change.to
     }
     record.updatedAt = new Date()
