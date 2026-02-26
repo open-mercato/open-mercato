@@ -377,3 +377,9 @@ export const interceptors: ApiInterceptor[] = [
 - `validateCrudMutationGuard` position unchanged (deprecated in Phase M, bridged to guard registry)
 - New `api/interceptors.ts` is purely additive — modules without it have zero change
 - Phase M adds sync event subscribers and multi-guard registry between interceptors and CrudHooks — interceptor contract unchanged
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase E — API Interceptors | In Progress | 2026-02-26 | Added interceptor contracts/registry/runner, CRUD before+after integration with re-validation, generator discovery (`api/interceptors.ts`), bootstrap registration, and unit coverage in `crud-factory.test.ts`. |

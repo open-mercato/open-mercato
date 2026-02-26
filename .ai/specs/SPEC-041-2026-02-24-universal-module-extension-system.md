@@ -33,6 +33,7 @@ Each phase is a separate PR, independently mergeable, with example module demons
 | **K** | [SPEC-041k — DevTools](./SPEC-041k-devtools.md) | `feat/umes-devtools` | UMES DevTools panel, build-time conflict detection | All |
 | **L** | [SPEC-041l — Integration Extensions](./SPEC-041l-integration-extensions.md) | `feat/umes-integration-extensions` | Wizard widgets, status badges, external ID mapping display | A, C, D, G |
 | **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, sync event subscribers (lifecycle events), client-side event filtering, command interceptors | E |
+| **N** | [SPEC-041n — Query Engine Extensibility](./SPEC-041n-query-engine-extensibility.md) | `feat/umes-query-engine-extensibility` | Query-level enricher opt-in, unified enricher registry for Basic/Hybrid query engines, sync query events (`*.querying`/`*.queried`) with filter/query/result transforms | D, M |
 
 ### Dependency Graph
 
@@ -67,7 +68,8 @@ A (Foundation) ──────┬──────────────�
 - **Wave 1** (after A): B, C, D, H, J — all independent
 - **Wave 2** (after D): E, F, G — all depend only on D
 - **Wave 3** (after E+G+C): I, L, M — I depends on G; L depends on A, C, D, G; M depends on E
-- **Wave 4** (after all): K — integrates everything
+- **Wave 4** (after D+M): N — extends both query engines with opt-in query enrichers + sync query events
+- **Wave 5** (after all): K — integrates everything
 
 ### Minimum Viable UMES
 
@@ -641,3 +643,4 @@ Key implementation details from deep-diving into the actual codebase:
 | 2026-02-25 | Add Phase M (Mutation Lifecycle) — mutation guard registry (evolve singleton to multi-guard), sync event subscribers via existing `subscribers/*.ts` with `sync: true` metadata (lifecycle events: `*.creating`/`*.updating`/`*.deleting`), client-side widget event filtering, guard on POST/create, normalize DELETE pipeline ordering. Update complete event flow pipeline, dependency graph, auto-discovery paths, scaffolding guides. |
 | 2026-02-25 | Refactor Phase M — replace `data/crud-handlers.ts` file convention with sync event subscribers reusing existing subscriber auto-discovery. Remove `crud-handlers.generated.ts`, `CrudEventHandler` interface. Lifecycle before-events auto-derived from `events.ts` config. |
 | 2026-02-26 | Fix save flow ordering in Phase G and parent to match CrudForm.tsx reality (widget onSave fires BEFORE core API call). Remove rollout/kill-switch section. Phase E: add error handling (fail-closed), timeout, query re-validation, dual-path coverage, container in context, priority collision handling. Phase F: add tableId convention, sorting constraint, Tier 3 pagination UX, bulk action error contract, ID deduplication, client-side filter strategy. Phase G: fix stray code fence, add custom field type to InjectedField, add group fallback, dirty tracking, optionsLoader empty-state, visibleWhen dot-path clarification, fix carrier example to upsert. Phase H: require propsSchema for replace mode, remove displayName targeting, add wrapper composition order, error boundary, HMR cleanup, SSR note, cross-module example, propsTransform and error boundary tests. |
+| 2026-02-26 | Add Phase N (SPEC-041n) — query-engine extensibility with opt-in query enrichers, unified enricher registry shared by API and query engines, and synchronous query lifecycle events (`*.querying`/`*.queried`) for safe filter/query/result transformation across Basic and Hybrid engines. |

@@ -411,6 +411,15 @@ Component replacement uses stable handle IDs:
 - `data-table:<tableId>` for each `DataTable` instance
 - `crud-form:<entityId>` for each `CrudForm` instance
 - `section:<scope>.<sectionName>` for detail sections (for example `section:ui.detail.NotesSection`)
+- Module overrides are auto-discovered from `widgets/components.ts` (`componentOverrides`) and generated to `.mercato/generated/component-overrides.generated.ts`.
+- Shared detail sections expose stable handles:
+  - `section:ui.detail.NotesSection`
+  - `section:ui.detail.ActivitiesSection`
+  - `section:ui.detail.AddressesSection`
+  - `section:ui.detail.TagsSection`
+  - `section:ui.detail.CustomDataSection`
+  - `section:ui.detail.DetailFieldsSection`
+  - `section:ui.detail.AttachmentsSection`
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 - **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
 

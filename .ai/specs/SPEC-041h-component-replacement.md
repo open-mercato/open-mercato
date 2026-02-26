@@ -323,4 +323,4 @@ This demonstrates the core use case: cross-module component extension without fo
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase H — Component Replacement | In Progress | 2026-02-26 | Added component registry primitives, client hook/provider, page-level replacement resolution, and automatic page/table/form handles. |
+| Phase H — Component Replacement | In Progress | 2026-02-26 | Added component registry primitives, override auto-discovery (`widgets/components.ts`), generated `component-overrides.generated.ts`, bootstrap registration, client provider wiring in backend layout, page-level replacement resolution, automatic page/table/form handles, section-level handles for core detail sections, and unit tests for hook/handle behavior. |

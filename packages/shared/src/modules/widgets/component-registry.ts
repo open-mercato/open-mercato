@@ -94,7 +94,8 @@ export function resolveRegisteredComponent<TProps>(
     if ('propsTransform' in override) {
       const transform = override.propsTransform as (props: TProps) => TProps
       const Current = resolved
-      resolved = ((props: TProps) => React.createElement(Current, transform(props))) as ComponentType<TProps>
+      resolved = ((props: TProps) =>
+        React.createElement(Current as React.ComponentType<any>, transform(props) as any)) as ComponentType<TProps>
     }
   }
   return resolved
