@@ -30,6 +30,7 @@ import {
 import { JobHistorySection } from '@open-mercato/core/modules/staff/components/detail/JobHistorySection'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { Plus } from 'lucide-react'
+import { TranslationDrawerAction } from '@open-mercato/core/modules/translations/components/TranslationDrawerAction'
 
 const MARKDOWN_CLASSNAME =
   'text-sm text-muted-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
@@ -324,6 +325,13 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                 </p>
               </div>
             </div>
+            <TranslationDrawerAction
+              config={memberId ? {
+                entityType: 'staff:staff_team_member',
+                recordId: memberId,
+                baseValues: memberRecord ?? undefined,
+              } : null}
+            />
           </div>
 
           <div className="border-b">
