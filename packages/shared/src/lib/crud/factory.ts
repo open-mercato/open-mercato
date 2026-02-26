@@ -51,6 +51,8 @@ import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-merca
 import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 import { applyResponseEnrichers, applyResponseEnricherToRecord } from './enricher-runner'
 import type { EnricherContext } from './response-enricher'
+import { runInterceptorsBefore, runInterceptorsAfter } from './interceptor-runner'
+import type { InterceptorContext, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -837,6 +839,97 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     return result.record
   }
 
+  /**
+   * Extract the API route path from a request URL.
+   * Strips the `/api/` prefix to produce the interceptor route identifier.
+   * e.g., 'http://localhost/api/example/todos?q=test' → 'example/todos'
+   */
+  function extractRouteFromRequest(request: Request): string {
+    try {
+      const url = new URL(request.url)
+      const pathname = url.pathname
+      const apiPrefix = '/api/'
+      const idx = pathname.indexOf(apiPrefix)
+      if (idx >= 0) {
+        return pathname.slice(idx + apiPrefix.length).replace(/\/$/, '')
+      }
+      return pathname.replace(/^\/+/, '').replace(/\/$/, '')
+    } catch {
+      return ''
+    }
+  }
+
+  /**
+   * Build interceptor context from CRUD context.
+   * Returns null if auth is missing.
+   */
+  async function buildInterceptorContext(ctx: CrudCtx): Promise<InterceptorContext | null> {
+    if (!ctx.auth) return null
+
+    let userFeatures: string[] | undefined
+    try {
+      const rbac = (ctx.container.resolve('rbacService') as any)
+      if (rbac?.getGrantedFeatures) {
+        userFeatures = await rbac.getGrantedFeatures(ctx.auth.sub, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
+        })
+      }
+    } catch {
+      // rbacService not available — interceptors without feature requirements still run
+    }
+
+    return {
+      userId: ctx.auth.sub,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
+      tenantId: ctx.auth.tenantId ?? '',
+      em: ctx.container.resolve('em'),
+      container: ctx.container,
+      userFeatures,
+    }
+  }
+
+  /**
+   * Build an InterceptorRequest from an HTTP Request.
+   */
+  function buildInterceptorRequest(
+    request: Request,
+    method: InterceptorRequest['method'],
+    body?: Record<string, unknown>,
+    query?: Record<string, unknown>,
+  ): InterceptorRequest {
+    const headers: Record<string, string> = {}
+    request.headers.forEach((value, key) => {
+      headers[key] = value
+    })
+    return { method, url: request.url, body, query, headers }
+  }
+
+  /**
+   * Run after-interceptors on a response payload.
+   * Mutates the payload in-place (merge) or replaces it (replace).
+   * No-op if interceptor context is null or no matching interceptors.
+   */
+  async function applyAfterInterceptors(
+    payload: Record<string, unknown>,
+    request: Request,
+    method: InterceptorRequest['method'],
+    interceptorCtx: InterceptorContext | null,
+  ): Promise<Record<string, unknown>> {
+    if (!interceptorCtx) return payload
+    const route = extractRouteFromRequest(request)
+    const interceptorReq = buildInterceptorRequest(request, method)
+    const interceptorRes: InterceptorResponse = {
+      statusCode: 200,
+      body: payload,
+      headers: {},
+    }
+    const afterResult = await runInterceptorsAfter(route, interceptorReq, interceptorRes, interceptorCtx)
+    if (afterResult.replace) return afterResult.replace as Record<string, unknown>
+    if (afterResult.merge) return { ...payload, ...afterResult.merge }
+    return payload
+  }
+
   async function ensureAuth(request?: Request | null) {
     const auth = request ? await getAuthFromRequest(request) : await getAuthFromCookies()
     if (!auth) return null
@@ -929,8 +1022,30 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const url = new URL(request.url)
       const queryParams = Object.fromEntries(url.searchParams.entries())
       profiler.mark('query_parsed')
-      const validated = opts.list.schema.parse(queryParams)
+      let validated = opts.list.schema.parse(queryParams)
       profiler.mark('query_validated')
+
+      // API Interceptor: before hooks (Phase E — outermost cross-module layer)
+      const listRoute = extractRouteFromRequest(request)
+      const listInterceptorCtx = await buildInterceptorContext(ctx)
+      if (listInterceptorCtx) {
+        const interceptorReq = buildInterceptorRequest(request, 'GET', undefined, validated as Record<string, unknown>)
+        const beforeResult = await runInterceptorsBefore(listRoute, interceptorReq, listInterceptorCtx)
+        if (!beforeResult.ok) {
+          finishProfile({ reason: 'interceptor_rejected' })
+          return json(
+            { error: beforeResult.message ?? 'Rejected by interceptor', _interceptor: true },
+            { status: beforeResult.statusCode ?? 400 },
+          )
+        }
+        if (beforeResult.query) {
+          validated = opts.list.schema.parse(beforeResult.query)
+        }
+        if (beforeResult.metadata) {
+          listInterceptorCtx.metadata = beforeResult.metadata
+        }
+      }
+      profiler.mark('interceptors_before')
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
       profiler.mark('before_list_hook')
@@ -1055,6 +1170,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           query: validated,
         })
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+        const afterPayload1 = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
+        if (afterPayload1 !== payload) Object.assign(payload, afterPayload1)
         await enrichListPayload(payload, ctx, profiler)
         logCacheOutcome('hit', items.length)
         const response = respondWithPayload(payload)
@@ -1237,6 +1354,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         profiler.mark('after_list_hook')
+        const afterPayload2 = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
+        if (afterPayload2 !== payload) Object.assign(payload, afterPayload2)
         await enrichListPayload(payload, ctx, profiler)
         await maybeStoreCrudCache(payload)
         profiler.mark('cache_store_attempt', { cacheEnabled })
@@ -1357,6 +1476,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const payload = { items: list, total: list.length }
       await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
       profiler.mark('after_list_hook')
+      const afterPayload3 = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
+      if (afterPayload3 !== payload) Object.assign(payload, afterPayload3)
       await enrichListPayload(payload, ctx, profiler)
       await maybeStoreCrudCache(payload)
       profiler.mark('cache_store_attempt', { cacheEnabled })
@@ -1393,7 +1514,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return json({ error: 'Forbidden' }, { status: 403 })
       }
-      const body = await request.json().catch(() => ({}))
+      let body = await request.json().catch(() => ({}))
+
+      // API Interceptor: before hooks (Phase E)
+      const postRoute = extractRouteFromRequest(request)
+      const postInterceptorCtx = await buildInterceptorContext(ctx)
+      if (postInterceptorCtx) {
+        const interceptorReq = buildInterceptorRequest(request, 'POST', body as Record<string, unknown>)
+        const beforeResult = await runInterceptorsBefore(postRoute, interceptorReq, postInterceptorCtx)
+        if (!beforeResult.ok) {
+          return json(
+            { error: beforeResult.message ?? 'Rejected by interceptor', _interceptor: true },
+            { status: beforeResult.statusCode ?? 400 },
+          )
+        }
+        if (beforeResult.body) body = beforeResult.body
+        if (beforeResult.metadata) postInterceptorCtx.metadata = beforeResult.metadata
+      }
 
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
@@ -1410,13 +1547,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
         const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
-        const resolvedPayload = await Promise.resolve(payload)
+        let resolvedPayload = await Promise.resolve(payload)
+        resolvedPayload = await applyAfterInterceptors(
+          resolvedPayload && typeof resolvedPayload === 'object' ? resolvedPayload as Record<string, unknown> : { data: resolvedPayload },
+          request, 'POST', postInterceptorCtx,
+        )
         const status = action.status ?? 201
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
-        // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
-        // duplicate event emissions.
         return response
       }
 
@@ -1472,6 +1610,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
       let payload = createConfig.response ? createConfig.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
+      payload = await applyAfterInterceptors(payload, request, 'POST', postInterceptorCtx) as any
       payload = await enrichSingleRecord(payload, ctx)
       return json(payload, { status: 201 })
     } catch (e) {
@@ -1496,8 +1635,24 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return json({ error: 'Forbidden' }, { status: 403 })
       }
-      const body = await request.json().catch(() => ({}))
+      let body = await request.json().catch(() => ({}))
       const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+
+      // API Interceptor: before hooks (Phase E)
+      const putRoute = extractRouteFromRequest(request)
+      const putInterceptorCtx = await buildInterceptorContext(ctx)
+      if (putInterceptorCtx) {
+        const interceptorReq = buildInterceptorRequest(request, 'PUT', body as Record<string, unknown>)
+        const beforeResult = await runInterceptorsBefore(putRoute, interceptorReq, putInterceptorCtx)
+        if (!beforeResult.ok) {
+          return json(
+            { error: beforeResult.message ?? 'Rejected by interceptor', _interceptor: true },
+            { status: beforeResult.statusCode ?? 400 },
+          )
+        }
+        if (beforeResult.body) body = beforeResult.body
+        if (beforeResult.metadata) putInterceptorCtx.metadata = beforeResult.metadata
+      }
 
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
@@ -1536,7 +1691,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
         const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
-        const resolvedPayload = await Promise.resolve(payload)
+        let resolvedPayload = await Promise.resolve(payload)
+        resolvedPayload = await applyAfterInterceptors(
+          resolvedPayload && typeof resolvedPayload === 'object' ? resolvedPayload as Record<string, unknown> : { data: resolvedPayload },
+          request, 'PUT', putInterceptorCtx,
+        )
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
@@ -1662,7 +1821,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             metadata: mutationGuardValidation.metadata ?? null,
           })
       }
-      const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
+      let payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
+      payload = await applyAfterInterceptors(payload, request, 'PUT', putInterceptorCtx) as any
+      payload = await enrichSingleRecord(payload, ctx)
       return json(payload)
     } catch (e) {
       return handleError(e)
@@ -1687,6 +1848,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const useCommand = !!opts.actions?.delete
       const url = new URL(request.url)
       const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+
+      // API Interceptor: before hooks (Phase E)
+      const deleteRoute = extractRouteFromRequest(request)
+      const deleteInterceptorCtx = await buildInterceptorContext(ctx)
+      if (deleteInterceptorCtx) {
+        const deleteBody = await request.clone().json().catch(() => ({}))
+        const deleteQuery = Object.fromEntries(url.searchParams.entries())
+        const interceptorReq = buildInterceptorRequest(request, 'DELETE', deleteBody as Record<string, unknown>, deleteQuery as Record<string, unknown>)
+        const beforeResult = await runInterceptorsBefore(deleteRoute, interceptorReq, deleteInterceptorCtx)
+        if (!beforeResult.ok) {
+          return json(
+            { error: beforeResult.message ?? 'Rejected by interceptor', _interceptor: true },
+            { status: beforeResult.statusCode ?? 400 },
+          )
+        }
+        if (beforeResult.metadata) deleteInterceptorCtx.metadata = beforeResult.metadata
+      }
 
       if (useCommand) {
         const action = opts.actions!.delete!
@@ -1728,7 +1906,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
         const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
-        const resolvedPayload = await Promise.resolve(payload)
+        let resolvedPayload = await Promise.resolve(payload)
+        resolvedPayload = await applyAfterInterceptors(
+          resolvedPayload && typeof resolvedPayload === 'object' ? resolvedPayload as Record<string, unknown> : { data: resolvedPayload },
+          request, 'DELETE', deleteInterceptorCtx,
+        )
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
@@ -1832,7 +2014,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             metadata: mutationGuardValidation.metadata ?? null,
           })
       }
-      const payload = opts.del?.response ? opts.del.response(id) : { success: true }
+      let payload = opts.del?.response ? opts.del.response(id) : { success: true }
+      payload = await applyAfterInterceptors(payload, request, 'DELETE', deleteInterceptorCtx) as any
       return json(payload)
     } catch (e) {
       return handleError(e)

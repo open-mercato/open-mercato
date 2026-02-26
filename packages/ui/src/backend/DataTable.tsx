@@ -15,6 +15,8 @@ import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './ut
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { InjectionSpot } from './injection/InjectionSpot'
+import { useInjectedTableExtensions } from './injection/useInjectedTableExtensions'
+import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
@@ -617,6 +619,25 @@ export function DataTable<T>({
   const perspectiveConfig = perspective ?? null
   const perspectiveTableId = perspectiveConfig?.tableId ?? null
   const perspectiveEnabled = Boolean(perspectiveTableId)
+
+  // Phase F: Merge injected table extensions (columns, row actions, filters)
+  const tableExtensions = useInjectedTableExtensions(perspectiveTableId ?? undefined)
+  const mergedColumns = React.useMemo(() => {
+    if (!tableExtensions.columns.length) return columns
+    let result = [...columns]
+    for (const injCol of tableExtensions.columns) {
+      const colDef: ColumnDef<T, any> = {
+        id: injCol.id,
+        header: injCol.header,
+        accessorFn: (row: T) => (row as Record<string, unknown>)[injCol.accessorKey],
+        ...(injCol.size ? { size: injCol.size } : {}),
+        ...(injCol.cell ? { cell: injCol.cell as any } : {}),
+        enableSorting: injCol.sortable ?? false,
+      }
+      result = insertByInjectionPlacement(result, colDef, injCol.placement, (c) => (c as any).id ?? '')
+    }
+    return result
+  }, [columns, tableExtensions.columns])
   const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const snapshotTableIdRef = React.useRef<string | null>(null)
   if (typeof window !== 'undefined') {
@@ -828,7 +849,7 @@ export function DataTable<T>({
   })
   const table = useReactTable<T>({
     data,
-    columns,
+    columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
     ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),
     state: { sorting, columnVisibility, columnOrder },
@@ -1394,13 +1415,21 @@ export function DataTable<T>({
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar
     const anySearch = onSearchChange != null
-    const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0)
+    const injectedFilterDefs: FilterDef[] = tableExtensions.filters.map((f) => ({
+      id: f.id,
+      label: f.label,
+      type: f.type === 'date-range' ? 'dateRange' as const : f.type === 'boolean' ? 'checkbox' as const : f.type as 'text' | 'select',
+      options: f.options,
+    }))
+    const anyFilters = (baseFilters && baseFilters.length > 0) || (cfFilters && cfFilters.length > 0) || injectedFilterDefs.length > 0
     if (!anySearch && !anyFilters) return null
-    // Merge base filters with CF filters, preferring base definitions when ids collide
+    // Merge base filters with CF filters and injected filters, preferring base definitions when ids collide
     const baseList = baseFilters || []
     const existing = new Set(baseList.map((f) => f.id))
     const cfOnly = (cfFilters || []).filter((f) => !existing.has(f.id))
-    const combined: FilterDef[] = [...baseList, ...cfOnly]
+    for (const f of cfOnly) existing.add(f.id)
+    const injectedOnly = injectedFilterDefs.filter((f) => !existing.has(f.id))
+    const combined: FilterDef[] = [...baseList, ...cfOnly, ...injectedOnly]
     const perspectiveButton = canUsePerspectives ? (
       <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
         <SlidersHorizontal className="mr-2 h-4 w-4" />
@@ -1461,6 +1490,7 @@ export function DataTable<T>({
     activeCustomFieldFilterFieldset,
     handleCustomFieldFilterFieldsetChange,
     cfFilterFieldsetsByEntity,
+    tableExtensions.filters,
   ])
 
   const hasTitle = title != null

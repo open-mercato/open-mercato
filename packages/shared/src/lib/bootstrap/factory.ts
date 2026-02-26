@@ -7,6 +7,8 @@ import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
+import { registerApiInterceptors } from '../crud/interceptor-registry'
+import { registerComponentOverrides } from '../../modules/widgets/component-registry'
 
 let _bootstrapped = false
 
@@ -58,6 +60,16 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6b. Response enrichers (for CRUD response enrichment) ===
     if (data.enricherEntries) {
       registerResponseEnrichers(data.enricherEntries)
+    }
+
+    // === 6c. API Interceptors (for API request/response hooks) ===
+    if (data.interceptorEntries) {
+      registerApiInterceptors(data.interceptorEntries)
+    }
+
+    // === 6d. Component Overrides (for component replacement/wrapping) ===
+    if (data.componentEntries) {
+      registerComponentOverrides(data.componentEntries)
     }
 
     // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===

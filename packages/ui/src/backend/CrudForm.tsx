@@ -66,6 +66,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
+import { InjectedField } from './injection/InjectedField'
+import type { InjectionFieldDefinition } from '@open-mercato/shared/modules/widgets/injection'
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -1020,6 +1022,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return pairs.map((p) => p.group)
   }, [injectionWidgets, injectionContext, pending, setValues, values])
   
+  // Phase G: Extract injected field definitions from injection widgets
+  const injectedFieldsByGroup = React.useMemo(() => {
+    const map = new Map<string, InjectionFieldDefinition[]>()
+    if (!injectionWidgets || injectionWidgets.length === 0) return map
+    for (const widget of injectionWidgets) {
+      if ('fields' in widget.module && Array.isArray((widget.module as any).fields)) {
+        for (const field of (widget.module as any).fields as InjectionFieldDefinition[]) {
+          const groupId = field.group
+          const existing = map.get(groupId) ?? []
+          existing.push(field)
+          map.set(groupId, existing)
+        }
+      }
+    }
+    return map
+  }, [injectionWidgets])
+
   const shouldAutoGroup = (!groups || groups.length === 0) && injectionGroupCards.length > 0
   const resolvedGroupsForLayout = React.useMemo(() => {
     const baseGroups = groups && groups.length ? groups : []
@@ -1947,6 +1966,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             >
               {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
             </DataLoader>
+            {(injectedFieldsByGroup.get(g.id) ?? []).map((injField) => (
+              <InjectedField
+                key={injField.id}
+                field={injField}
+                value={(values as Record<string, unknown>)[injField.id]}
+                onChange={(fieldId, newValue) => setValue(fieldId as keyof TValues, newValue as TValues[keyof TValues])}
+                values={values as unknown as Record<string, unknown>}
+                disabled={pending}
+              />
+            ))}
           </div>,
         )
       }
