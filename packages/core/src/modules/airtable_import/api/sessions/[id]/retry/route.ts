@@ -1,0 +1,102 @@
+import { NextResponse } from "next/server";
+import type { EntityManager } from "@mikro-orm/postgresql";
+import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
+import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
+import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
+import { ImportSession } from "../../../../data/entities";
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ["airtable_import.manage"] },
+};
+
+export const openApi: OpenApiRouteDoc = {
+  tag: "Airtable Import",
+  methods: {
+    POST: { summary: "Retry import for failed records" },
+  },
+};
+
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await getAuthFromRequest(req);
+  if (!auth?.tenantId)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const authHeader = req.headers.get("authorization") ?? "";
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  const cookieMatch = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/);
+  const omApiKey = authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : cookieMatch
+      ? decodeURIComponent(cookieMatch[1])
+      : null;
+
+  if (!omApiKey)
+    return NextResponse.json({ error: "Brak tokenu sesji" }, { status: 401 });
+
+  const { id } = await params;
+  const container = await createRequestContainer();
+  const em = container.resolve<EntityManager>("em");
+  const session = await em.findOne(ImportSession, {
+    id,
+    tenantId: auth.tenantId,
+  });
+  if (!session || !session.progressJson || !session.reportJson) {
+    return NextResponse.json(
+      { error: "Not found or not completed" },
+      { status: 404 },
+    );
+  }
+
+  if (session.status === "importing") {
+    return NextResponse.json(
+      { error: "Import jest już w toku — poczekaj na zakończenie" },
+      { status: 422 },
+    );
+  }
+
+  const retryAirtableIds: Record<string, string[]> = {};
+  for (const [tableId, tableProgress] of Object.entries(
+    session.progressJson.tables,
+  )) {
+    const toRetry = Object.entries(tableProgress.records)
+      .filter(
+        ([, rec]) =>
+          rec.status === "failed" || rec.status === "needs_attention",
+      )
+      .map(([airtableId]) => airtableId);
+    if (toRetry.length > 0) retryAirtableIds[tableId] = toRetry;
+  }
+
+  if (Object.keys(retryAirtableIds).length === 0) {
+    return NextResponse.json({
+      ok: true,
+      message: "Brak rekordów do ponowienia",
+    });
+  }
+
+  session.status = "importing";
+  await em.flush();
+
+  const omUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+  const queueStrategy = (process.env.QUEUE_STRATEGY ?? "local") as
+    | "local"
+    | "async";
+  const { createQueue } = await import("@open-mercato/queue");
+  const queue = createQueue("airtable-import", queueStrategy);
+  await queue.enqueue({
+    sessionId: session.id,
+    tenantId: auth.tenantId,
+    omUrl,
+    omApiKey,
+    isRetry: true,
+    retryAirtableIds,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    retryCount: Object.values(retryAirtableIds).flat().length,
+  });
+}
