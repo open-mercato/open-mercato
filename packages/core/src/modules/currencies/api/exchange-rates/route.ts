@@ -56,7 +56,11 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     delete: {
       commandId: 'currencies.exchange_rates.delete',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed.body,
+      mapInput: ({ raw, ctx }) => ({
+        id: ((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id as string | undefined,
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+        tenantId: ctx.auth?.tenantId ?? undefined,
+      }),
       response: () => ({ ok: true }),
     },
   },
@@ -109,7 +113,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
   }
 
@@ -135,9 +139,11 @@ export async function GET(req: Request) {
 
   const { id, page, pageSize, sortField, sortDir, fromCurrencyCode, toCurrencyCode, isActive, source, type } = parsed.data
   const where: FilterQuery<ExchangeRate> = {
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
     deletedAt: null,
+  }
+  if (auth.orgId) {
+    where.organizationId = auth.orgId
   }
 
   if (id) where.id = id

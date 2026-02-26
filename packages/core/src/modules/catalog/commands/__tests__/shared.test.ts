@@ -70,9 +70,9 @@ describe('catalog command shared helpers', () => {
     const direct = { commandPayload: { undo: basePayload } }
     const nested = { commandPayload: { value: { undo: basePayload } } }
     const deepNested = { commandPayload: { anything: { undo: basePayload }, __redoInput: {} } }
-    expect(extractUndoPayload(direct as any)).toEqual(basePayload)
-    expect(extractUndoPayload(nested as any)).toEqual(basePayload)
-    expect(extractUndoPayload(deepNested as any)).toEqual(basePayload)
+    expect(extractUndoPayload(direct)).toEqual(basePayload)
+    expect(extractUndoPayload(nested)).toEqual(basePayload)
+    expect(extractUndoPayload(deepNested)).toEqual(basePayload)
     expect(extractUndoPayload(null)).toBeNull()
   })
 
@@ -81,7 +81,7 @@ describe('catalog command shared helpers', () => {
     const clone = cloneJson(payload)
     expect(clone).toEqual(payload)
     expect(clone).not.toBe(payload)
-    ;(clone as any).nested.value = 2
+    ;(clone as { nested: { value: number } }).nested.value = 2
     expect(payload.nested.value).toBe(1)
   })
 
@@ -90,10 +90,11 @@ describe('catalog command shared helpers', () => {
     expect(toNumericString(null)).toBeNull()
   })
 
+  type MockEm = { findOne: jest.Mock }
   const entityTests: Array<{
     label: string
-    fn: (em: any) => Promise<any>
-    expectedArgs: any
+    fn: (em: MockEm) => Promise<unknown>
+    expectedArgs: [Record<string, unknown>, Record<string, unknown>?]
   }> = [
     { label: 'requireProduct', fn: (em) => requireProduct(em, 'prod'), expectedArgs: [{ id: 'prod', deletedAt: null }] },
     {
@@ -116,11 +117,11 @@ describe('catalog command shared helpers', () => {
       const em = { findOne }
 
       await expect(fn(em)).resolves.toBe(entity)
-      if (expectedArgs[1]) {
-        expect(findOne).toHaveBeenCalledWith(expect.any(Function), expectedArgs[0], expectedArgs[1])
-      } else {
-        expect(findOne).toHaveBeenCalledWith(expect.any(Function), expectedArgs[0])
-      }
+      expect(findOne).toHaveBeenCalledWith(
+        expect.any(Function),
+        expectedArgs[0],
+        expectedArgs[1] ?? undefined,
+      )
 
       findOne.mockResolvedValue(null)
       await expect(fn(em)).rejects.toBeInstanceOf(CrudHttpError)

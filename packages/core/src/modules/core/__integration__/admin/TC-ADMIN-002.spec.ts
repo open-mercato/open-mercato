@@ -44,30 +44,23 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       const keyRow = page.locator('table tbody tr').filter({ hasText: keyName }).first();
       await expect(keyRow).toBeVisible();
 
-      // Hover over the row actions trigger to open the dropdown menu
-      // (RowActions opens on pointer-enter; clicking toggles it closed)
-      const actionsButton = keyRow.getByRole('button').last();
-      await actionsButton.hover();
+      // Click the actions button on the row
+      const actionsButton = keyRow.getByRole('button', { name: 'Open actions' });
+      await actionsButton.click();
 
-      // Wait for the dropdown menu to open before interacting with items
-      await expect(page.getByRole('menu')).toBeVisible({ timeout: 5_000 });
+      // Click the Delete option in the dropdown menu
+      const deleteMenuItem = page.getByRole('menuitem', { name: 'Delete' });
+      await expect(deleteMenuItem).toBeVisible();
+      await deleteMenuItem.click();
 
-      // Look for a Revoke or Delete option in the dropdown menu
-      const revokeButton = page.getByRole('menuitem', { name: /revoke|delete/i }).first();
-      await expect(revokeButton).toBeVisible({ timeout: 5_000 });
-      await revokeButton.click();
+      // Confirm deletion in the dialog
+      const confirmButton = page.getByRole('button', { name: 'Confirm' });
+      await expect(confirmButton).toBeVisible();
+      await confirmButton.click();
 
-      // Handle confirmation dialog if present
-      const confirmButton = page.getByRole('button', { name: /confirm|revoke|delete|yes/i });
-      if (await confirmButton.isVisible().catch(() => false)) {
-        await confirmButton.click();
-      }
-
-      // Verify the key is revoked or removed
-      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {});
-      await page.getByRole('textbox', { name: 'Search' }).fill(keyName);
-      // Key should either show as revoked or be removed from list
-      // We verify at least that no error occurred
+      // Wait for the dialog to close, then verify the key is removed from the list
+      await expect(page.getByRole('alertdialog')).not.toBeVisible({ timeout: 5_000 });
+      await expect(page.locator('table').getByText(keyName)).not.toBeVisible({ timeout: 5_000 });
     } finally {
       // Cleanup via API
       if (token) {

@@ -3,7 +3,7 @@ import { getRedisUrl, parseRedisUrl } from '@open-mercato/shared/lib/redis/conne
 
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
-type ConnectionOptions = { host?: string; port?: number; password?: string; db?: number } | string
+type ConnectionOptions = { host?: string; port?: number; password?: string; db?: number }
 
 interface BullQueueInterface<T> {
   add: (name: string, data: T, opts?: { removeOnComplete?: boolean; removeOnFail?: number }) => Promise<{ id?: string }>
@@ -28,11 +28,14 @@ interface BullMQModule {
 
 /**
  * Resolves Redis connection options from various sources.
+ *
+ * BullMQ requires connection options as `{ host, port, password, db }` object.
+ * It does NOT accept raw URL strings in `{ connection: string }` format.
  */
 function resolveConnection(options?: AsyncQueueOptions['connection']): ConnectionOptions {
   // Priority: explicit options > shared env helper
   if (options?.url) {
-    return options.url
+    return parseRedisUrl(options.url)
   }
 
   if (options?.host) {

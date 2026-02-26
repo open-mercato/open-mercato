@@ -4,6 +4,7 @@ import * as React from 'react'
 import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { LoadingMessage } from '../detail/LoadingMessage'
+import { useMarkdownRemarkPlugins } from '../markdown/useMarkdownRemarkPlugins'
 
 export type SwitchableMarkdownInputProps = {
   value: string
@@ -51,18 +52,6 @@ const UiMarkdownEditor = isTestEnv
       ),
     }) as unknown as React.ComponentType<UiMarkdownEditorProps>)
 
-let markdownPluginsPromise: Promise<PluggableList> | null = null
-
-async function loadMarkdownPlugins(): Promise<PluggableList> {
-  if (isTestEnv) return []
-  if (!markdownPluginsPromise) {
-    markdownPluginsPromise = import('remark-gfm')
-      .then((mod) => [mod.default ?? mod] as PluggableList)
-      .catch(() => [])
-  }
-  return markdownPluginsPromise
-}
-
 export function SwitchableMarkdownInput({
   value,
   onChange,
@@ -79,18 +68,7 @@ export function SwitchableMarkdownInput({
   disabled,
   remarkPlugins,
 }: SwitchableMarkdownInputProps) {
-  const [localPlugins, setLocalPlugins] = React.useState<PluggableList>([])
-
-  React.useEffect(() => {
-    if (remarkPlugins) return
-    let active = true
-    void loadMarkdownPlugins().then((plugins) => {
-      if (active) setLocalPlugins(plugins)
-    })
-    return () => { active = false }
-  }, [remarkPlugins])
-
-  const resolvedPlugins = remarkPlugins ?? localPlugins
+  const resolvedPlugins = useMarkdownRemarkPlugins(remarkPlugins)
   const editorWrapperClasses =
     editorWrapperClassName ?? 'w-full rounded-lg border border-muted-foreground/20 bg-background p-2'
   const editorClasses = editorClassName ?? 'w-full'

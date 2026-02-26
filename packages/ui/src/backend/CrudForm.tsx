@@ -153,6 +153,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   fields: CrudField[]
   initialValues?: Partial<TValues>
   submitLabel?: string
+  submitIcon?: React.ComponentType<{ className?: string }>
   formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
@@ -288,6 +289,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   fields,
   initialValues,
   submitLabel,
+  submitIcon,
   formId: providedFormId,
   customFieldsLoadingMessage,
   cancelHref,
@@ -372,7 +374,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
-  
+
   // Injection spot events for widget lifecycle management
   const resolvedInjectionSpotId = React.useMemo(() => {
     if (injectionSpotId) return injectionSpotId
@@ -382,6 +384,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
+  const headerInjectionSpotId = resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : undefined
   
   const recordId = React.useMemo(() => {
     const raw = values.id
@@ -389,16 +392,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (typeof raw === 'number') return String(raw)
     return undefined
   }, [values])
+  const fallbackRecordId = recordId || (
+    versionHistory?.resourceId === undefined || versionHistory.resourceId === null
+      ? undefined
+      : String(versionHistory.resourceId).trim() || undefined
+  )
 
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
     resourceKind: versionHistory?.resourceKind,
     resourceId: recordId ?? versionHistory?.resourceId,
-    recordId,
+    recordId: fallbackRecordId,
     isLoading,
     pending,
-  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, isLoading, pending])
+  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, fallbackRecordId, isLoading, pending])
   
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -575,12 +583,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       autoCheckAcl={versionHistory?.autoCheckAcl}
     />
   )
-  const headerExtraActions = versionHistoryEnabled ? (
+  const headerInjectionAction = headerInjectionSpotId ? (
+    <InjectionSpot
+      spotId={headerInjectionSpotId}
+      context={injectionContext}
+      data={values}
+      onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+      disabled={pending}
+    />
+  ) : null
+  const headerExtraActions = versionHistoryEnabled || headerInjectionAction || extraActions ? (
     <>
-      {versionHistoryAction}
+      {versionHistoryEnabled ? versionHistoryAction : null}
+      {headerInjectionAction}
       {extraActions}
     </>
-  ) : extraActions
+  ) : undefined
+
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
     let cancelled = false
@@ -1736,9 +1755,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
+        ) : headerExtraActions ? (
+          <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
         ) : null}
         {contentHeader}
         <DataLoader
@@ -1778,7 +1799,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
                 }}
               />
             )}
@@ -1806,9 +1827,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
+      ) : headerExtraActions ? (
+        <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
       ) : null}
       {contentHeader}
       <DataLoader
@@ -1868,7 +1891,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
                 }}
               />
             )}
