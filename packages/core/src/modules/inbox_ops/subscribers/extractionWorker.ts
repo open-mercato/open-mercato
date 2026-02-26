@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityClass } from '@mikro-orm/core'
-import sanitizeHtml from 'sanitize-html'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../data/entities'
 import type { ExtractedParticipant, InboxDiscrepancyType } from '../data/entities'
@@ -15,6 +14,7 @@ import { validatePrices } from '../lib/priceValidator'
 import { extractParticipantsFromThread } from '../lib/emailParser'
 import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
 import { safeParsePayloadJson } from '../lib/validation'
+import { htmlToPlainText } from '../lib/htmlToPlainText'
 import { emitInboxOpsEvent } from '../events'
 
 export const metadata = {
@@ -835,14 +835,7 @@ function enrichDraftReplyTargets(
 function buildFullTextForExtraction(email: InboxEmail): string {
   let text = email.rawText || ''
   if (!text && email.rawHtml) {
-    text = sanitizeHtml(email.rawHtml, {
-      allowedTags: [],
-      allowedAttributes: {},
-    })
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
+    text = htmlToPlainText(email.rawHtml)
   }
   return text
     .replace(/\r\n/g, '\n')

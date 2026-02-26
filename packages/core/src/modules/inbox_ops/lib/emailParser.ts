@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import sanitizeHtml from 'sanitize-html'
 import type { InboxEmail, ThreadMessage } from '../data/entities'
+import { htmlToPlainText } from './htmlToPlainText'
 
 export interface ParsedEmail {
   messageId?: string | null
@@ -83,16 +83,7 @@ function stripQuotedReplies(text: string): string {
 }
 
 function stripHtml(html: string): string {
-  const sanitized = sanitizeHtml(html, {
-    allowedTags: [],
-    allowedAttributes: {},
-  })
-
-  return sanitized
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  return htmlToPlainText(html)
 }
 
 function normalizeText(text: string): string {
