@@ -100,32 +100,24 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales/customer flows).
 
-## Standalone template must include all generated bootstrap registries
+## Worker files require a package build before generator discovery
 
-**Context**: Standalone integration tests failed only for UMES enricher scenarios (`TC-UMES-002`) while other tests passed.
+**Context**: Adding a new `*.worker.ts` file to a module under `packages/core/src/modules/<module>/workers/` and then running `yarn generate` did NOT discover the worker.
 
-**Problem**: `packages/create-app/template/src/bootstrap.ts` drifted from `apps/mercato/src/bootstrap.ts` and did not pass generated `enricherEntries` into `createBootstrap(...)`, so response enrichers were never registered in scaffolded apps.
+**Problem**: The generator's `moduleHasExport()` function uses dynamic `import()` to check if a module exports `metadata`. For package imports like `@open-mercato/core/modules/.../workers/file.worker`, Node.js resolves the `default` export condition from `package.json`, which points to `./dist/*.js`. If the dist file doesn't exist, the dynamic import fails silently and `moduleHasExport` returns `false`, causing the worker to be skipped.
 
-**Rule**: Whenever app bootstrap wiring changes (events, analytics, enrichers, message registries, similar generated registries), mirror the same imports and `createBootstrap(...)` arguments in `packages/create-app/template/src/bootstrap.ts` in the same PR.
+API routes work because their `moduleHasExport` check uses the absolute **file path** (not package import path), so they don't need to be built first.
 
-**Applies to**: Scaffolded standalone apps and snapshot/standalone integration workflows.
+**Rule**: After adding or renaming a worker file, always run `yarn build:packages` before `yarn generate`. Workers need the dist file to be present for discovery.
 
-## Duplicate migration creation causes initialize failures in fresh databases
+**Applies to**: Workers in all packages under `src/modules/<module>/workers/`.
 
-**Context**: `yarn initialize` failed with `relation "customer_pipelines" already exists` because two customer migrations both created the same table.
+## Get knex via EntityManager, not DI container
 
-**Problem**: Later migration `Migration20260226155449` repeated schema creation already handled by `Migration20260218191730`.
+**Context**: The plan suggested using `container.resolve('knex')` to get a raw knex query builder for date-patching SQL.
 
-**Rule**: Before adding a migration, check existing module migrations for overlapping DDL. If a duplicate migration was already committed and may be in history, keep the file/class name stable and convert duplicate migration content to a no-op instead of deleting/renaming it.
+**Problem**: `knex` is not registered as a named service in the DI container.
 
-**Applies to**: `packages/core/src/modules/*/migrations/*.ts` and initialize/ephemeral test bootstrap flows.
+**Rule**: Get knex from MikroORM EntityManager directly: `em.getConnection().getKnex()`. This is the pattern used throughout the codebase (customers CLI, query_index module, etc.).
 
-## Keep injected namespaces DataTable-owned, not page-owned
-
-**Context**: Injected datatable values (for example `_example.priority`) were visible in API payloads and saved correctly, but list columns still rendered fallback values like `normal`.
-
-**Problem**: Multiple list pages mapped API items into whitelisted row objects and accidentally dropped `_namespace` fields. That made injected columns/filters/actions unreliable and forced page-level coupling to specific modules.
-
-**Rule**: Namespace preservation must be centralized in `DataTable` helpers. Page mappers must remain module-agnostic and finalize mapped rows with `withDataTableNamespaces(mappedRow, sourceItem)` instead of manually handling injection keys.
-
-**Applies to**: Any backend page/component that maps API records before passing rows to `DataTable` (especially pages using `perspective.tableId` and injection-based extensions).
+**Applies to**: Any place that needs raw knex for custom SQL operations alongside MikroORM.
