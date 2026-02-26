@@ -44,11 +44,15 @@ export function useRegisteredComponent<TProps>(
     const overrides = getComponentOverrides(componentId)
 
     let replacement: ComponentType<TProps> | null = null
+    let replacementOverride: (typeof overrides)[number] | null = null
     const wrappers: Array<(Original: ComponentType<TProps>) => ComponentType<TProps>> = []
     const transforms: Array<(props: TProps) => TProps> = []
 
     for (const override of overrides) {
-      if ('replacement' in override) replacement = override.replacement as ComponentType<TProps>
+      if ('replacement' in override) {
+        replacement = override.replacement as ComponentType<TProps>
+        replacementOverride = override
+      }
       if ('wrapper' in override) wrappers.push(override.wrapper as (Original: ComponentType<TProps>) => ComponentType<TProps>)
       if ('propsTransform' in override) transforms.push(override.propsTransform as (props: TProps) => TProps)
     }
@@ -59,6 +63,20 @@ export function useRegisteredComponent<TProps>(
     const Resolved = (props: TProps) => {
       const transformed = transforms.reduce((current, transform) => transform(current), props)
       const Fallback = React.createElement(original as React.ComponentType<any>, transformed as any)
+      if (
+        process.env.NODE_ENV !== 'production'
+        && replacementOverride
+        && 'replacement' in replacementOverride
+      ) {
+        const validation = replacementOverride.propsSchema.safeParse(transformed)
+        if (!validation.success) {
+          console.error(
+            `[UMES] Props schema validation failed for replacement "${componentId}" from module "${replacementOverride.metadata?.module ?? 'unknown'}"`,
+            validation.error.format(),
+          )
+          return Fallback
+        }
+      }
       return (
         <ReplacementErrorBoundary
           fallback={Fallback}
