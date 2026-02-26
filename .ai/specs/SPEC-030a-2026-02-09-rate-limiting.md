@@ -1,4 +1,4 @@
-# SPEC-030: Rate Limiting Utility
+# SPEC-030a: Rate Limiting Utility
 
 ## Overview
 

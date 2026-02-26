@@ -75,6 +75,7 @@ Use this structure for every review:
 - [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
 - [ ] No empty `catch` blocks (all catches must handle, log, rethrow, or explicitly document intentional ignore)
 - [ ] New migrations are scoped to intended entities only (no unrelated bulk drop/alter/create statements)
+- [ ] No conflicting spec numbers in `.ai/specs` or `.ai/specs/enterprise` (duplicate `SPEC-XXX` or `SPEC-ENT-XXX`)
 ```
 
 Omit empty severity sections. Mark passing checklist items with `[x]` and failing with `[ ]` plus explanation.
@@ -215,6 +216,7 @@ When reviewing, pay special attention to:
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
 11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
 12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` are both wired.
+13. **Spec numbering hygiene**: If specs were added or renamed, verify there are no duplicate numeric IDs in `.ai/specs` and `.ai/specs/enterprise` (`SPEC-XXX`, `SPEC-ENT-XXX`). Flag conflicts and require renumbering of only the newest conflicting spec.
 
 ## Lessons Learned
 

@@ -259,6 +259,13 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 - [ ] No existing event payload fields removed (may add optional fields)
 - [ ] Deprecated events still emitted during bridge period alongside replacement
 
+## 22. Specs Numbering Hygiene
+
+- [ ] No duplicate `SPEC-XXX` numbers in `.ai/specs` (conflicting numeric IDs)
+- [ ] No duplicate `SPEC-ENT-XXX` numbers in `.ai/specs/enterprise`
+- [ ] If conflicts exist, only the newest conflicting spec is moved to the end of the list
+- [ ] Filename references/links and in-file spec ID references updated after renumbering
+
 ### Widget Injection Spot IDs
 - [ ] No existing spot ID renamed or removed
 - [ ] No spot ID context/data type changed in a breaking way (may add optional fields)
