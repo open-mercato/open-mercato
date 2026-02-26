@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { submitTextExtraction, deleteInboxEmail } from '@open-mercato/core/modules/core/__integration__/helpers/inboxFixtures';
+import { submitTextExtraction, waitForEmailProcessed, deleteInboxEmail } from '@open-mercato/core/modules/core/__integration__/helpers/inboxFixtures';
 
 test.describe('TC-INBOX-001: Inbox Ops Proposals UI', () => {
   let token: string;
@@ -15,7 +15,10 @@ test.describe('TC-INBOX-001: Inbox Ops Proposals UI', () => {
       text: 'Hello, I am Jane Smith <jane@testfixture.com>. Please send me a quote for 3x Premium Widget at $50 each.',
       title: 'TC-INBOX-001 fixture email',
     });
-    if (result.emailId) createdEmailIds.push(result.emailId);
+    if (result.emailId) {
+      createdEmailIds.push(result.emailId);
+      await waitForEmailProcessed(request, token, result.emailId);
+    }
   });
 
   test.afterAll(async ({ request }) => {
@@ -37,13 +40,12 @@ test.describe('TC-INBOX-001: Inbox Ops Proposals UI', () => {
       await expect(page.getByRole('link', { name: /Settings/i })).toBeVisible();
     });
 
-    test('shows data or empty state', async ({ page }) => {
+    test('shows at least one proposal row from fixture', async ({ page }) => {
       await page.goto('/backend/inbox-ops');
 
-      await page.waitForLoadState('networkidle');
-
-      const dataOrEmpty = page.locator('table tbody tr').or(page.getByText(/Forward emails to start/i));
-      await expect(dataOrEmpty.first()).toBeVisible();
+      const rows = page.getByRole('row');
+      // Expect at least 2 rows: 1 header row + 1 data row from the fixture created in beforeAll
+      await expect(rows.nth(1)).toBeVisible();
     });
 
     test('search input is available', async ({ page }) => {
@@ -65,13 +67,18 @@ test.describe('TC-INBOX-001: Inbox Ops Proposals UI', () => {
   });
 
   test.describe('API — Proposals List', () => {
-    test('GET /api/inbox_ops/proposals returns valid response', async ({ request }) => {
+    test('GET /api/inbox_ops/proposals returns fixture data', async ({ request }) => {
       const response = await apiRequest(request, 'GET', '/api/inbox_ops/proposals?page=1&pageSize=10', { token });
       expect(response.status()).toBe(200);
-      const body = await readJsonSafe<{ items: unknown[] }>(response);
+      const body = await readJsonSafe<{ items: Array<{ id: string; summary?: string; status?: string; inboxEmailId?: string }> }>(response);
       expect(body).toBeDefined();
-      expect(body!.items).toBeDefined();
       expect(Array.isArray(body!.items)).toBe(true);
+      expect(body!.items.length).toBeGreaterThan(0);
+
+      const firstItem = body!.items[0];
+      expect(firstItem.id).toBeTruthy();
+      expect(typeof firstItem.id).toBe('string');
+      expect(firstItem.status).toBeTruthy();
     });
 
     test('GET /api/inbox_ops/proposals/counts returns status counts', async ({ request }) => {

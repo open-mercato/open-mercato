@@ -269,22 +269,20 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
         action.payloadJson = JSON.stringify(enriched)
 
-        // Discrepancy descriptions are stored in the DB and rendered on the proposal review page.
-        // Not i18n keys — the proposal UI displays them as-is for operator guidance.
         for (const warning of warnings) {
           if (warning === 'no_channel_resolved') {
             enrichmentDiscrepancies.push({
               actionIndex,
               type: 'other',
               severity: 'error',
-              description: 'No sales channel available. Create a channel in Sales settings before accepting this order.',
+              description: 'inbox_ops.discrepancy.desc.no_channel',
             })
           } else if (warning === 'no_currency_resolved') {
             enrichmentDiscrepancies.push({
               actionIndex,
               type: 'currency_mismatch',
               severity: 'warning',
-              description: 'No currency could be resolved for this order. Set a currency code or configure a sales channel with a default currency.',
+              description: 'inbox_ops.discrepancy.desc.no_currency',
             })
           }
         }
@@ -317,7 +315,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
             actionIndex,
             type: 'product_not_found',
             severity: 'error',
-            description: `Product "${productName}" could not be matched to any catalog product`,
+            description: 'inbox_ops.discrepancy.desc.product_not_matched',
             foundValue: productName,
           })
           const nameKey = productName.toLowerCase().trim()
@@ -468,8 +466,8 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
           createDiscrepancy(em, proposalId, allActions, {
             type: 'unknown_contact',
             severity: 'warning',
-            description: `No matching contact found for ${match.participant.name} (${match.participant.email})`,
-            foundValue: match.participant.email,
+            description: 'inbox_ops.discrepancy.desc.no_matching_contact',
+            foundValue: `${match.participant.name} (${match.participant.email})`,
           }, scope),
         )
       }
@@ -483,8 +481,8 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         createDiscrepancy(em, proposalId, allActions, {
           type: 'unknown_contact',
           severity: 'warning',
-          description: `No matching contact found for ${participant.name} (${participant.email})`,
-          foundValue: participant.email,
+          description: 'inbox_ops.discrepancy.desc.no_matching_contact',
+          foundValue: `${participant.name} (${participant.email})`,
         }, scope),
       )
     }
@@ -505,7 +503,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
             actionIndex,
             type: 'unknown_contact',
             severity: 'error',
-            description: `Draft reply target "${toEmail}" has no matching contact. Create the contact first.`,
+            description: 'inbox_ops.discrepancy.desc.draft_reply_no_contact',
             foundValue: toEmail,
           }, scope),
         )
@@ -749,8 +747,8 @@ async function detectDuplicateOrders(
         discrepancies.push({
           type: 'duplicate_order',
           severity: 'error',
-          description: `An order with customer reference "${customerReference}" already exists (${existing.orderNumber || existing.id})`,
-          expectedValue: null,
+          description: 'inbox_ops.discrepancy.desc.duplicate_order_reference',
+          expectedValue: existing.orderNumber || existing.id,
           foundValue: customerReference,
           actionIndex: action.index,
         })

@@ -8,6 +8,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 
@@ -44,22 +45,30 @@ export default function ProcessingLogPage() {
   const [pageSize] = React.useState(25)
   const [statusFilter, setStatusFilter] = React.useState<string | undefined>()
   const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
   const [retryingEmailId, setRetryingEmailId] = React.useState<string | null>(null)
 
   const loadEmails = React.useCallback(async () => {
     setIsLoading(true)
+    setError(null)
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
     if (statusFilter) params.set('status', statusFilter)
 
-    const result = await apiCall<EmailListResponse>(`/api/inbox_ops/emails?${params}`)
-    if (result?.ok && result.result?.items) {
-      setItems(result.result.items)
-      setTotal(result.result.total || 0)
+    try {
+      const result = await apiCall<EmailListResponse>(`/api/inbox_ops/emails?${params}`)
+      if (result?.ok && result.result?.items) {
+        setItems(result.result.items)
+        setTotal(result.result.total || 0)
+      } else {
+        setError(t('inbox_ops.log.load_failed', 'Failed to load processing log'))
+      }
+    } catch {
+      setError(t('inbox_ops.log.load_failed', 'Failed to load processing log'))
     }
     setIsLoading(false)
-  }, [page, pageSize, statusFilter])
+  }, [page, pageSize, statusFilter, t])
 
   React.useEffect(() => { loadEmails() }, [loadEmails])
 
@@ -134,6 +143,7 @@ export default function ProcessingLogPage() {
         const isRetrying = retryingEmailId === row.original.id
         return (
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-8"
@@ -161,7 +171,7 @@ export default function ProcessingLogPage() {
     <Page>
       <div className="flex items-center gap-3 px-3 py-3 md:px-6 md:py-4">
         <Link href="/backend/inbox-ops">
-          <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
+          <Button type="button" variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
         </Link>
         <h1 className="text-lg font-semibold">{t('inbox_ops.processing_log', 'Processing Log')}</h1>
       </div>
@@ -170,6 +180,7 @@ export default function ProcessingLogPage() {
         <div className="flex items-center gap-2 px-3 py-2 md:px-0 overflow-x-auto">
           {tabs.map((tab) => (
             <Button
+              type="button"
               key={tab.value ?? 'all'}
               variant={statusFilter === tab.value ? 'default' : 'outline'}
               size="sm"
@@ -180,6 +191,9 @@ export default function ProcessingLogPage() {
           ))}
         </div>
 
+        {error ? (
+          <ErrorMessage label={error} />
+        ) : (
         <div className="overflow-auto">
           <div className="min-w-[640px]">
             <DataTable
@@ -196,6 +210,7 @@ export default function ProcessingLogPage() {
             />
           </div>
         </div>
+        )}
       </PageBody>
     </Page>
   )

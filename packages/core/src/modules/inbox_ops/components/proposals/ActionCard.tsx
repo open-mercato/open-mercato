@@ -23,6 +23,30 @@ import { hasContactNameIssue } from '../../lib/contactValidation'
 
 export { hasContactNameIssue }
 
+/**
+ * Resolves discrepancy description i18n keys stored in the database.
+ * Falls back to the raw description string for legacy data or LLM-generated descriptions.
+ */
+export function useDiscrepancyDescriptions(): (description: string, foundValue?: string | null) => string {
+  const t = useT()
+  const translations: Record<string, string> = {
+    'inbox_ops.discrepancy.desc.no_channel': t('inbox_ops.discrepancy.desc.no_channel', 'No sales channel available. Create a channel in Sales settings before accepting this order.'),
+    'inbox_ops.discrepancy.desc.no_currency': t('inbox_ops.discrepancy.desc.no_currency', 'No currency could be resolved for this order. Set a currency code or configure a sales channel with a default currency.'),
+    'inbox_ops.discrepancy.desc.product_not_matched': t('inbox_ops.discrepancy.desc.product_not_matched', 'Product could not be matched to any catalog product'),
+    'inbox_ops.discrepancy.desc.no_matching_contact': t('inbox_ops.discrepancy.desc.no_matching_contact', 'No matching contact found'),
+    'inbox_ops.discrepancy.desc.draft_reply_no_contact': t('inbox_ops.discrepancy.desc.draft_reply_no_contact', 'Draft reply target has no matching contact. Create the contact first.'),
+    'inbox_ops.discrepancy.desc.duplicate_order_reference': t('inbox_ops.discrepancy.desc.duplicate_order_reference', 'An order with this customer reference already exists'),
+  }
+  return (description: string, foundValue?: string | null) => {
+    const translated = translations[description]
+    if (!translated) return description
+    if (foundValue && (description === 'inbox_ops.discrepancy.desc.product_not_matched' || description === 'inbox_ops.discrepancy.desc.no_matching_contact')) {
+      return `${translated}: ${foundValue}`
+    }
+    return translated
+  }
+}
+
 const ACTION_TYPE_ICONS: Record<string, React.ElementType> = {
   create_order: Package,
   create_quote: FileText,
@@ -172,6 +196,7 @@ export function ActionCard({
   onRetry,
   onEdit,
   translatedDescription,
+  resolveDiscrepancyDescription,
 }: {
   action: ActionDetail
   discrepancies: DiscrepancyDetail[]
@@ -181,6 +206,7 @@ export function ActionCard({
   onRetry: (id: string) => void
   onEdit: (action: ActionDetail) => void
   translatedDescription?: string
+  resolveDiscrepancyDescription?: (description: string, foundValue?: string | null) => string
 }) {
   const t = useT()
   const Icon = ACTION_TYPE_ICONS[action.actionType] || Package
@@ -201,7 +227,7 @@ export function ActionCard({
         {action.createdEntityId && (
           <div className="mt-2">
             <span className="text-xs text-green-600">
-              Created {action.createdEntityType} · {action.executedAt && new Date(action.executedAt).toLocaleString()}
+              {t('inbox_ops.action.created_entity', 'Created {type}').replace('{type}', action.createdEntityType || '')} · {action.executedAt && new Date(action.executedAt).toLocaleString()}
             </span>
           </div>
         )}
@@ -236,6 +262,7 @@ export function ActionCard({
         )}
         <div className="mt-3 flex items-center gap-2">
           <Button
+            type="button"
             size="sm"
             className="h-11 md:h-9"
             onClick={() => onRetry(action.id)}
@@ -244,6 +271,7 @@ export function ActionCard({
             {t('inbox_ops.action.retry', 'Retry')}
           </Button>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-11 md:h-9"
@@ -253,6 +281,7 @@ export function ActionCard({
             {t('inbox_ops.action.edit', 'Edit')}
           </Button>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-11 md:h-9"
@@ -293,12 +322,12 @@ export function ActionCard({
             }`}>
               <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
               <div>
-                <span>{d.description}</span>
+                <span>{resolveDiscrepancyDescription ? resolveDiscrepancyDescription(d.description, d.foundValue) : d.description}</span>
                 {(d.expectedValue || d.foundValue) && (
                   <div className="mt-0.5 text-[11px] opacity-80">
-                    {d.expectedValue && <span>Expected: {d.expectedValue}</span>}
+                    {d.expectedValue && <span>{t('inbox_ops.discrepancy.expected', 'Expected')}: {d.expectedValue}</span>}
                     {d.expectedValue && d.foundValue && <span> · </span>}
-                    {d.foundValue && <span>Found: {d.foundValue}</span>}
+                    {d.foundValue && <span>{t('inbox_ops.discrepancy.found', 'Found')}: {d.foundValue}</span>}
                   </div>
                 )}
               </div>
@@ -323,6 +352,7 @@ export function ActionCard({
               : undefined
         }>
           <Button
+            type="button"
             size="sm"
             className="h-11 md:h-9"
             onClick={() => onAccept(action.id)}
@@ -333,6 +363,7 @@ export function ActionCard({
           </Button>
         </div>
         <Button
+          type="button"
           variant="outline"
           size="sm"
           className="h-11 md:h-9"
@@ -342,6 +373,7 @@ export function ActionCard({
           {t('inbox_ops.action.edit', 'Edit')}
         </Button>
         <Button
+          type="button"
           variant="outline"
           size="sm"
           className="h-11 md:h-9"

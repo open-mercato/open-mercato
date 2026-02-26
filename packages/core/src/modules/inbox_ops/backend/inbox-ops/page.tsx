@@ -14,6 +14,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Settings, Inbox, Copy } from 'lucide-react'
 
 type ProposalRow = {
@@ -79,6 +81,9 @@ export default function InboxOpsProposalsPage() {
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'inbox-ops-proposals',
+  })
 
   const [items, setItems] = React.useState<ProposalRow[]>([])
   const [total, setTotal] = React.useState(0)
@@ -87,6 +92,7 @@ export default function InboxOpsProposalsPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
   const [initialLoadComplete, setInitialLoadComplete] = React.useState(false)
   const [counts, setCounts] = React.useState<StatusCounts>({ pending: 0, partial: 0, accepted: 0, rejected: 0 })
   const [settings, setSettings] = React.useState<{ inboxAddress?: string } | null>(null)
@@ -96,19 +102,26 @@ export default function InboxOpsProposalsPage() {
 
   const loadProposals = React.useCallback(async () => {
     setIsLoading(true)
+    setError(null)
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
     if (statusFilter) params.set('status', statusFilter)
     if (search.trim()) params.set('search', search.trim())
 
-    const result = await apiCall<ProposalListResponse>(`/api/inbox_ops/proposals?${params}`)
-    if (result?.ok && result.result?.items) {
-      setItems(result.result.items)
-      setTotal(result.result.total || 0)
+    try {
+      const result = await apiCall<ProposalListResponse>(`/api/inbox_ops/proposals?${params}`)
+      if (result?.ok && result.result?.items) {
+        setItems(result.result.items)
+        setTotal(result.result.total || 0)
+      } else {
+        setError(t('inbox_ops.flash.load_failed', 'Failed to load proposals'))
+      }
+    } catch {
+      setError(t('inbox_ops.flash.load_failed', 'Failed to load proposals'))
     }
     setIsLoading(false)
-  }, [page, pageSize, statusFilter, search, scopeVersion])
+  }, [page, pageSize, statusFilter, search, scopeVersion, t])
 
   const loadCounts = React.useCallback(async () => {
     const result = await apiCall<StatusCounts>('/api/inbox_ops/proposals/counts')
@@ -160,10 +173,13 @@ export default function InboxOpsProposalsPage() {
     })
     if (!confirmed) return
 
-    const result = await apiCall<{ ok: boolean }>(
-      `/api/inbox_ops/proposals/${proposalId}/reject`,
-      { method: 'POST' },
-    )
+    const result = await runMutation({
+      operation: () => apiCall<{ ok: boolean }>(
+        `/api/inbox_ops/proposals/${proposalId}/reject`,
+        { method: 'POST' },
+      ),
+      context: {},
+    })
     if (result?.ok && result.result?.ok) {
       flash(t('inbox_ops.action.proposal_rejected', 'Proposal rejected'), 'success')
       loadProposals()
@@ -171,7 +187,7 @@ export default function InboxOpsProposalsPage() {
     } else {
       flash(t('inbox_ops.flash.action_reject_failed', 'Failed to reject'), 'error')
     }
-  }, [confirm, t, loadProposals, loadCounts])
+  }, [confirm, t, loadProposals, loadCounts, runMutation])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -251,7 +267,7 @@ export default function InboxOpsProposalsPage() {
       {settings?.inboxAddress && (
         <div className="mt-4 flex items-center gap-2 bg-muted rounded-lg px-4 py-3">
           <code className="text-sm font-mono">{settings.inboxAddress}</code>
-          <Button variant="outline" size="sm" onClick={handleCopyAddress}>
+          <Button type="button" variant="outline" size="sm" onClick={handleCopyAddress}>
             <Copy className="h-4 w-4" />
             {copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}
           </Button>
@@ -265,6 +281,16 @@ export default function InboxOpsProposalsPage() {
     </div>
   ) : undefined
 
+  if (error && !initialLoadComplete) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -277,7 +303,7 @@ export default function InboxOpsProposalsPage() {
           actions={(
             <div className="flex items-center gap-2">
               {settings?.inboxAddress && (
-                <Button variant="outline" size="sm" onClick={handleCopyAddress}>
+                <Button type="button" variant="outline" size="sm" onClick={handleCopyAddress}>
                   <Copy className="h-4 w-4" />
                   <span className="hidden md:inline ml-1">
                     {copied ? t('inbox_ops.settings.copied', 'Copied') : t('inbox_ops.settings.copy', 'Copy')}

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Loader2 } from 'lucide-react'
@@ -411,6 +412,9 @@ export function EditActionDialog({
   onSaved: () => void
 }) {
   const t = useT()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'inbox-ops-edit-action',
+  })
   const [payload, setPayload] = React.useState<Record<string, unknown>>(
     () => structuredClone(action.payload),
   )
@@ -432,10 +436,13 @@ export function EditActionDialog({
     }
 
     setIsSaving(true)
-    const result = await apiCall<{ ok: boolean; error?: string }>(
-      `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
-      { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
-    )
+    const result = await runMutation({
+      operation: () => apiCall<{ ok: boolean; error?: string }>(
+        `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
+        { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
+      ),
+      context: {},
+    })
     if (result?.ok && result.result?.ok) {
       flash(t('inbox_ops.edit_dialog.saved', 'Action updated successfully'), 'success')
       onSaved()
@@ -444,7 +451,7 @@ export function EditActionDialog({
       flash(result?.result?.error || t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
     }
     setIsSaving(false)
-  }, [action, payload, jsonMode, jsonText, t, onSaved, onClose])
+  }, [action, payload, jsonMode, jsonText, t, onSaved, onClose, runMutation])
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -515,6 +522,7 @@ export function EditActionDialog({
 
           {hasTypedEditor && (
             <Button
+              type="button"
               variant="ghost"
               size="sm"
               onClick={() => {
@@ -538,10 +546,10 @@ export function EditActionDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isSaving}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
             {t('inbox_ops.edit_dialog.cancel', 'Cancel')}
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button type="button" onClick={handleSave} disabled={isSaving}>
             {isSaving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
             {t('inbox_ops.edit_dialog.save', 'Save Changes')}
           </Button>

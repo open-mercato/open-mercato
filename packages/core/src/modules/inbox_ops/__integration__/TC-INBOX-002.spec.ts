@@ -78,15 +78,28 @@ test.describe('TC-INBOX-002: Inbox Ops Text Extract API', () => {
     });
 
     test('accepts optional title and metadata', async ({ request }) => {
+      const customTitle = 'Custom title for extraction';
+      const customMetadata = { source: 'integration_test', testId: 'TC-INBOX-002' };
+
       const result = await submitTextExtraction(request, token, {
         text: 'Please send a quote for 100 units of Part ABC-123.',
-        title: 'Custom title for extraction',
-        metadata: { source: 'integration_test', testId: 'TC-INBOX-002' },
+        title: customTitle,
+        metadata: customMetadata,
       });
 
       expect(result.ok).toBe(true);
       expect(result.emailId).toBeTruthy();
       if (result.emailId) createdEmailIds.push(result.emailId);
+
+      // Verify stored values by fetching the created email
+      const fetchResponse = await apiRequest(request, 'GET', `/api/inbox_ops/emails/${result.emailId}`, { token });
+      expect(fetchResponse.status()).toBe(200);
+      const emailBody = await readJsonSafe<{ id?: string; subject?: string; metadata?: Record<string, unknown> }>(fetchResponse);
+      expect(emailBody).toBeDefined();
+      expect(emailBody!.id).toBe(result.emailId);
+      if (emailBody!.subject) {
+        expect(emailBody!.subject).toContain(customTitle);
+      }
     });
 
     test('created email appears in emails list', async ({ request }) => {
@@ -101,6 +114,7 @@ test.describe('TC-INBOX-002: Inbox Ops Text Extract API', () => {
 
       // The email should appear in the list
       const emails = await listInboxEmails(request, token, { pageSize: 50 });
+      expect(emails.items.length).toBeGreaterThan(0);
       const found = emails.items.find((e) => e.id === result.emailId);
       expect(found).toBeTruthy();
     });
@@ -110,10 +124,15 @@ test.describe('TC-INBOX-002: Inbox Ops Text Extract API', () => {
     test('returns paginated email list', async ({ request }) => {
       const response = await apiRequest(request, 'GET', '/api/inbox_ops/emails?page=1&pageSize=10', { token });
       expect(response.status()).toBe(200);
-      const body = await readJsonSafe<{ items?: unknown[]; total?: number }>(response);
+      const body = await readJsonSafe<{ items?: Array<{ id?: string; status?: string }>; total?: number }>(response);
       expect(body).toBeDefined();
       expect(Array.isArray(body?.items)).toBe(true);
       expect(typeof body?.total).toBe('number');
+      expect(body!.items!.length).toBeGreaterThan(0);
+
+      const firstItem = body!.items![0];
+      expect(firstItem.id).toBeTruthy();
+      expect(typeof firstItem.id).toBe('string');
     });
 
     test('supports status filter', async ({ request }) => {
