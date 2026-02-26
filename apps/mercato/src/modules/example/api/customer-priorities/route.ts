@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { E } from '@/.mercato/generated/entities.ids.generated'
+import { id, customer_id, priority, organization_id, tenant_id, created_at } from '@/.mercato/generated/entities/example_customer_priority'
 import { ExampleCustomerPriority } from '../../data/entities'
 import {
   customerPriorityCreateSchema,
@@ -40,14 +42,16 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: { entityType: E.example.example_customer_priority },
   list: {
     schema: customerPriorityListSchema,
-    fields: ['id', 'customer_id', 'priority', 'organization_id', 'tenant_id', 'created_at'],
+    entityId: E.example.example_customer_priority,
+    fields: [id, customer_id, priority, organization_id, tenant_id, created_at],
     sortFieldMap: {
-      id: 'id',
-      customer_id: 'customer_id',
-      priority: 'priority',
-      created_at: 'created_at',
+      id,
+      customer_id,
+      priority,
+      created_at,
     },
     buildFilters: async (query: PriorityListQuery) => {
       const filters: Record<string, unknown> = {}

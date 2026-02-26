@@ -59,7 +59,6 @@ const widget: InjectionBulkActionWidget = {
         return {
           ok: true,
           affectedCount: changed,
-          message: `Updated ${changed} customer priorities`,
         }
       },
     },

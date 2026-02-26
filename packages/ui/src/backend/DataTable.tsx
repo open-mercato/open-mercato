@@ -1608,7 +1608,9 @@ export function DataTable<T>({
       supportsCustomFieldFilterFieldsets && resolvedEntityIds.length === 1
         ? (
           <div className="space-y-1">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fieldset</div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t('ui.dataTable.fieldset.label', 'Fieldset')}
+            </div>
             <select
               className="w-full rounded border bg-background px-2 py-2 text-sm"
               value={activeCustomFieldFilterFieldset ?? ''}
@@ -1832,7 +1834,7 @@ export function DataTable<T>({
                 <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <Spinner size="md" />
-                    <span className="text-muted-foreground">Loading data...</span>
+                    <span className="text-muted-foreground">{t('ui.dataTable.loading', 'Loading data...')}</span>
                   </div>
                 </TableCell>
               </TableRow>
