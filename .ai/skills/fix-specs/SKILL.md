@@ -19,6 +19,8 @@ Resolve duplicate spec numbers with minimal renumbering.
 2. Move only the newest conflicting spec to the end of the numeric sequence.
 3. Update references and links to the moved spec.
 4. Apply the same logic to both OSS specs and enterprise specs.
+5. Preserve staged specs (`SPEC-041a`, `SPEC-041b`, ...): staged suffix variants are intentional and MUST NOT be treated as conflicts with the base number (`SPEC-041`) or other staged variants.
+6. Only treat exact ID collisions as conflicts (`SPEC-041` vs `SPEC-041`, or `SPEC-041a` vs `SPEC-041a`).
 
 ## Workflow
 
@@ -35,3 +37,4 @@ Resolve duplicate spec numbers with minimal renumbering.
 - The script scans both `.ai/specs` and `ai/specs` roots if present.
 - Enterprise typos are tolerated (`enterprise` and `enterpirse`).
 - Conflict resolution prefers the embedded `YYYY-MM-DD` date in the filename, then falls back to file modification time.
+- Staged chains (for example `SPEC-041a` through `SPEC-041m`) are preserved as-is unless the exact staged token is duplicated.

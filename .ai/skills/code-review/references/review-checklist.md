@@ -261,8 +261,9 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 
 ## 22. Specs Numbering Hygiene
 
-- [ ] No duplicate `SPEC-XXX` numbers in `.ai/specs` (conflicting numeric IDs)
-- [ ] No duplicate `SPEC-ENT-XXX` numbers in `.ai/specs/enterprise`
+- [ ] No duplicate exact spec IDs in `.ai/specs` (for example `SPEC-041` vs `SPEC-041`)
+- [ ] No duplicate exact enterprise spec IDs in `.ai/specs/enterprise` (for example `SPEC-ENT-002` vs `SPEC-ENT-002`)
+- [ ] Staged spec variants are preserved (`SPEC-041a`, `SPEC-041b`, ... are valid and MUST NOT be treated as conflicts with each other or with `SPEC-041`)
 - [ ] If conflicts exist, only the newest conflicting spec is moved to the end of the list
 - [ ] Filename references/links and in-file spec ID references updated after renumbering
 

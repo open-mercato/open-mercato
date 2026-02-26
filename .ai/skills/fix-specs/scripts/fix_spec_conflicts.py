@@ -31,6 +31,25 @@ class SpecFile:
         return f"{self.prefix}-{self.token}"
 
     @property
+    def numeric_part(self) -> int:
+        match = re.match(r"^(\d+)", self.token)
+        if not match:
+            return 0
+        return int(match.group(1))
+
+    @property
+    def stage_suffix(self) -> str:
+        match = re.match(r"^\d+([A-Za-z][A-Za-z0-9]*)?$", self.token)
+        if not match:
+            return ""
+        suffix = self.token.lstrip("0123456789")
+        return suffix
+
+    @property
+    def is_staged(self) -> bool:
+        return bool(self.stage_suffix)
+
+    @property
     def dated_key(self) -> date | None:
         match = re.match(r"^(\d{4})-(\d{2})-(\d{2})-", self.tail)
         if not match:
@@ -71,8 +90,7 @@ def iter_spec_files(specs_root: Path) -> Iterable[SpecFile]:
 def next_numeric_token(specs: list[SpecFile], min_width: int) -> str:
     max_number = 0
     for spec in specs:
-        if spec.token.isdigit():
-            max_number = max(max_number, int(spec.token))
+        max_number = max(max_number, spec.numeric_part)
 
     next_number = max_number + 1
     width = max(min_width, len(str(next_number)))
@@ -147,7 +165,11 @@ def resolve_conflicts_for_prefix(
         new_file_name = f"{newest.prefix}-{new_token}-{newest.tail}.md"
         new_path = newest.path.with_name(new_file_name)
 
-        print(f"Conflict {prefix}-{token}: move newest {newest.base_name} -> {new_file_name}")
+        conflict_type = "staged" if newest.is_staged else "numeric"
+        print(
+            f"Conflict {prefix}-{token} ({conflict_type}): "
+            f"move newest {newest.base_name} -> {new_file_name}"
+        )
 
         ref_updates = replace_in_text_files(
             repo_root=repo_root,
