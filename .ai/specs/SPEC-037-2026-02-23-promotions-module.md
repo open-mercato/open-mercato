@@ -13,7 +13,7 @@
 - **Extensible by design**: other modules can register custom rule types, custom benefit types, evaluation middleware (before/after hooks), and custom admin configurator components — without modifying core promotions code.
 
 **Scope:**
-- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + 15 built-in rule types, polymorphic `Benefit` + 6 built-in benefit types, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`
+- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + 15 built-in rule types, polymorphic `Benefit` + 6 built-in benefit types, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`, `PromotionUsage` (per-order audit ledger + global spend tracking)
 - Three-pass evaluation engine (boolean pass → benefit collection pass → effect resolution pass), product-page lightweight variant
 - Promotion ordering, cumulativity, and tag-based self-exclusion algorithm
 - Cart interaction REST API (apply-promotion, code lifecycle endpoints)
@@ -23,6 +23,7 @@
 **Concerns:**
 - Rule tree depth and polymorphic joins require careful N+1 mitigation and upfront caching strategy
 - Code reservation TTL must be handled atomically; concurrent checkouts must not bypass per-customer limits
+- Budget cap enforcement (`max_budget`) requires a serializable transaction in `registerUsage` to prevent concurrent checkouts from jointly overshooting the cap; the optimistic cache-based pre-check reduces but does not eliminate this race window
 
 ---
 
@@ -118,6 +119,8 @@ promotions/
 │   ├── cart/validate-code/route.ts   Re-validate reserved code (POST)
 │   ├── cart/use-code/route.ts        Mark code used + write CodeUsage (POST)
 │   ├── cart/delete-code/route.ts     Release reservation (POST)
+│   ├── cart/register-usage/route.ts  Record confirmed discount audit + budget check (POST)
+│   ├── cart/revert-usage/route.ts    Revert usage on order cancellation (POST)
 │   ├── dynamic-labels/route.ts       Storefront condition metadata (GET)
 │   ├── free-products/route.ts        Free product eligibility (POST)
 │   ├── delivery-methods/route.ts     Delivery promotion eligibility (POST)
@@ -145,7 +148,8 @@ promotions/
 │   ├── code-service.ts               Code validation, reservation, usage
 │   ├── tag-exclusion.ts              Promotion ordering + cumulativity + tag exclusion loop
 │   ├── extension-registry.ts         Server-side rule/benefit/middleware extension registry
-│   └── extension-registry.client.ts  Client-side configurator component registry
+│   ├── extension-registry.client.ts  Client-side configurator component registry
+│   └── promotion-usage-service.ts    registerUsage / revertUsage / getBudgetConsumed
 │
 ├── services/
 │   ├── promotion-cache.ts            Active promotions cache (tag-invalidated)
@@ -155,7 +159,8 @@ promotions/
 │   └── code-generation.worker.ts     Background worker for dynamic code pools
 │
 ├── subscribers/
-│   └── invalidate-promotion-cache.ts On promotion CUD → invalidate cache
+│   ├── invalidate-promotion-cache.ts On promotion CUD + usage events → invalidate cache
+│   └── budget-exhausted.ts           On budget-exhausted → emit notification
 │
 ├── data/
 │   ├── entities.ts                   MikroORM entities (all tables)
@@ -179,6 +184,11 @@ POST /api/cart/apply-promotion
   │
   ├─ For each promotion (ORDER BY order ASC, id ASC):
   │   ├─ Check excluded_tags ∩ applied_tags → skip if non-empty
+  │   ├─ Currency eligibility check: if promotion.eligibleCurrencies.length > 0
+  │   │   AND context.currency ∉ promotion.eligibleCurrencies → skip
+  │   ├─ Budget pre-check (optimistic): if promotion.maxBudget is set
+  │   │   AND promotion.totalDiscountGranted >= promotion.maxBudget → skip
+  │   │   (Not authoritative — enforced atomically in registerUsage)
   │   ├─ Apply item exclusion filters (exclude_medicine, etc.)
   │   ├─ Pass 1: evaluateGroup(rootGroup, context) → boolean
   │   └─ If true:
@@ -206,6 +216,10 @@ NormalizedPromotion {
   tags: string[]
   excludedTags: string[]
   excludeFlags: Record<string, boolean>
+  eligibleCurrencies: string[]        // empty array = all currencies
+  maxBudget: string | null            // null = no cap; decimal string in budgetCurrency
+  budgetCurrency: string | null       // ISO 4217; null when maxBudget is null
+  totalDiscountGranted: string        // snapshot at cache-build time; used for optimistic budget pre-check only
   rootGroup: NormalizedRuleGroup
 }
 
@@ -238,9 +252,10 @@ NormalizedBenefit {
 
 `services/promotion-cache.ts` guarantees:
 
-1. A single cache build performs **all** required database reads (promotions → rule groups (recursive) → `promotion_rules` → `promotion_benefits`)
+1. A single cache build performs **all** required database reads (promotions → rule groups (recursive) → `promotion_rules` → `promotion_benefits` → `SUM(total_discount_amount)` per promotion from `promotion_usages WHERE reverted_at IS NULL`)
 2. After caching, promotion evaluation executes with **zero database access**
 3. Any missing eager-loaded relation is treated as a critical bug
+4. `totalDiscountGranted` in `NormalizedPromotion` is a **snapshot** — it is intentionally stale between cache rebuilds. It is used only for an optimistic pre-check that skips obviously-exhausted promotions without adding latency. Authoritative enforcement happens in `registerUsage` inside a serializable transaction.
 
 The evaluation engine (`lib/evaluation-engine.ts`) operates purely on `NormalizedPromotion` objects and **must not** use the entity manager, repository calls, lazy relation access, or dynamic DB lookups. All required data must be provided via the cart context or the normalized promotion.
 
@@ -253,6 +268,32 @@ apply-promotion → code_id passed in context → CodeRule evaluator matches
 use-code   → deactivate GeneratedCode OR increment Code.used → write CodeUsage → delete reservation
 delete-code → delete CodeReservation only
 ```
+
+### Promotion Usage Lifecycle
+
+```
+register-usage → validate orderId not already registered (idempotent upsert)
+              → open serializable transaction
+              → re-read SUM(total_discount_amount) WHERE reverted_at IS NULL AND currency = budget_currency
+              → if max_budget set AND new total would exceed max_budget → rollback, emit budget-exhausted, return 422
+              → write PromotionUsage (effects_snapshot, total_discount_amount, currency, order_type)
+              → commit → emit promotions.usage.registered → invalidate promotion cache entry
+revert-usage  → SET reverted_at = NOW() on all PromotionUsage rows
+              WHERE order_id = ? AND organization_id = ? AND tenant_id = ? AND reverted_at IS NULL
+              → emit promotions.usage.reverted → invalidate promotion cache entry
+```
+
+`PromotionUsageService` (`lib/promotion-usage-service.ts`) exposes:
+
+| Method | Description |
+|--------|-------------|
+| `registerUsage(params)` | Writes `PromotionUsage`; enforces `max_budget` atomically inside a serializable transaction; idempotent on `(promotion_id, order_id, tenant_id)` |
+| `revertUsage(orderId, organizationId, tenantId)` | Marks all matching usage rows reverted; never deletes rows (audit immutability) |
+| `getBudgetConsumed(promotionId, organizationId, tenantId, currency)` | `SUM(total_discount_amount) WHERE reverted_at IS NULL AND currency = ?`; used by `registerUsage` inside the transaction |
+
+`registerUsage` **does not validate or re-evaluate** the promotion — it records the effects already returned by `apply-promotion`. The caller (cart/POS integration) is responsible for passing the correct `ResolvedEffect[]` snapshot.
+
+The `promotions.usage.registered` and `promotions.usage.reverted` events trigger cache invalidation so that `totalDiscountGranted` in `NormalizedPromotion` stays approximately current.
 
 ### Commands & Events
 
@@ -275,6 +316,9 @@ Additional events emitted by the evaluation and code pipelines:
 | `use-code` finalises successfully | `promotions.code.used` (existing) + `promotions.code.exhausted` (if the code pool is now empty) | |
 | Code pool drops to zero available | `promotions.code.exhausted` | `{ organizationId, tenantId, codeId, codeName }` |
 | Promotion `ends_at` within 48h | `promotions.promotion.expiring-soon` | `{ organizationId, tenantId, promotionId, endsAt }` — emitted by a scheduled check, not on mutation |
+| `register-usage` commits successfully | `promotions.usage.registered` | `{ organizationId, tenantId, promotionId, orderId, orderType, totalDiscountAmount, currency }` |
+| `revert-usage` marks rows reverted | `promotions.usage.reverted` | `{ organizationId, tenantId, orderId, promotionIds: string[] }` |
+| `max_budget` first reached via `registerUsage` | `promotions.promotion.budget-exhausted` | `{ organizationId, tenantId, promotionId, maxBudget, totalDiscountGranted, budgetCurrency }` |
 
 ### Evaluation Middleware Hooks
 
@@ -314,6 +358,9 @@ Table: `promotions`
 | `tags` | text[] | Promotion family tags |
 | `excluded_tags` | text[] | Skip if any already applied |
 | `exclude_flags` | jsonb | Map of boolean exclusion flags (e.g. `{exclude_medicine: true}`) |
+| `eligible_currencies` | text[] | Currency codes this promotion applies to; empty array = all currencies |
+| `max_budget` | numeric nullable | Lifetime total discount cap across all orders in `budget_currency`; null = unlimited |
+| `budget_currency` | text nullable | Required when `max_budget` is set; ISO 4217 code (e.g. `USD`). Only `PromotionUsage` rows in this currency contribute to the budget counter. |
 | `rule_group_id` | uuid FK → rule_groups | Root of the tree |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
@@ -482,6 +529,31 @@ Table: `promotion_code_usages`
 | `tenant_id` | uuid | |
 | `used_at` | timestamptz | |
 
+### PromotionUsage
+
+Table: `promotion_usages`
+
+Serves a dual purpose: **compliance audit ledger** (immutable record of exactly what discounts were applied to each order/quote) and **global usage counter** (drives `max_budget` enforcement and `revertUsage` on cancellation).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `organization_id` | uuid | |
+| `tenant_id` | uuid | |
+| `promotion_id` | uuid FK → promotions | |
+| `order_id` | text | External order/quote/cart ID supplied by the caller |
+| `order_type` | text | `order`, `quote`, `pos_cart` — for cross-document audit filtering |
+| `customer_id` | text nullable | Customer session identifier |
+| `currency` | text | ISO 4217 currency code the order was placed in |
+| `total_discount_amount` | numeric | Sum of all `|amount|` values from `ResolvedEffect[]` for this promotion on this order |
+| `effects_snapshot` | jsonb | Full `ResolvedEffect[]` snapshot at time of registration — immutable audit record |
+| `registered_at` | timestamptz | When the usage was recorded |
+| `reverted_at` | timestamptz nullable | Set on order cancellation; row is never deleted — reverted rows are excluded from budget aggregation |
+
+**Unique constraint**: `UNIQUE (promotion_id, order_id, organization_id, tenant_id)` — prevents double-registration for the same order. `registerUsage` uses upsert semantics (idempotent on re-submission).
+
+**Index**: `(promotion_id, organization_id, tenant_id, currency, reverted_at)` — supports efficient `SUM(total_discount_amount) WHERE reverted_at IS NULL AND currency = ?` for budget checks.
+
 ---
 
 ## API Contracts
@@ -558,6 +630,7 @@ Request:
       "attributes": { "color": "red" } // optional product attributes
     }
   ],
+  "currency": "USD",                  // ISO 4217; required — used for currency eligibility check and stored in PromotionUsage
   "customerId": "string | null",
   "customerOrderCount": 5,            // null if unknown
   "code": {                           // null if no code entered
@@ -669,6 +742,41 @@ Side effects: runs inside a **serializable transaction** that re-checks global u
 
 Request: `{ organizationId, tenantId, codeString, customerId }`
 Response: `{ ok: true }` — deletes `CodeReservation` only.
+
+#### `POST /api/cart/register-usage`
+
+Called by the cart integration after an order/quote is **confirmed** (payment captured or quote finalised). Records the discount audit trail and enforces the lifetime budget cap.
+
+Request:
+```jsonc
+{
+  "organizationId": "uuid",
+  "tenantId": "uuid",
+  "orderId": "string",
+  "orderType": "order | quote | pos_cart",
+  "customerId": "string | null",
+  "currency": "USD",
+  "appliedPromotions": [
+    {
+      "promotionId": "uuid",
+      "effects": [/* ResolvedEffect[] — same shape as returned by apply-promotion */]
+    }
+  ]
+}
+```
+
+Response: `{ ok: true }` — 200. Idempotent on re-submission for the same `orderId`.
+
+Side effects: for each `appliedPromotion`, runs `PromotionUsageService.registerUsage(...)` inside a serializable transaction that re-checks `max_budget`. If any promotion's budget would be exceeded, that promotion's write is rolled back and the endpoint returns **207 Multi-Status** with a `budgetExceeded` flag for the affected promotion IDs — the caller should re-evaluate whether to proceed with the order at a reduced discount or notify the customer. Emits `promotions.usage.registered` per successful promotion. Emits `promotions.promotion.budget-exhausted` when the running total first reaches `max_budget`.
+
+#### `POST /api/cart/revert-usage`
+
+Called by the cart integration when an order is **cancelled** or a quote is **rejected/expired**.
+
+Request: `{ organizationId, tenantId, orderId }`
+Response: `{ ok: true, revertedCount: number }` — `revertedCount` is the number of `PromotionUsage` rows marked reverted.
+
+Side effects: calls `PromotionUsageService.revertUsage(...)`. Rows are never deleted — `reverted_at` is set. Emits `promotions.usage.reverted`. Invalidates the promotion cache so `totalDiscountGranted` is refreshed.
 
 #### `GET /api/dynamic-labels`
 
@@ -1060,11 +1168,11 @@ Extension rule evaluators receive the full context and should read from `context
 
 **Goal:** Cart module can call the promotions API and receive correct benefit descriptors.
 
-1. Implement `lib/evaluation-engine.ts` — three-pass recursive evaluator accepting `NormalizedPromotion[]`; MUST NOT depend on MikroORM entities or any DB access; applies deterministic ordering (`ORDER BY order ASC, id ASC`); Pass 3 calls effect resolvers with the cart context to compute final amounts
+1. Implement `lib/evaluation-engine.ts` — three-pass recursive evaluator accepting `NormalizedPromotion[]`; MUST NOT depend on MikroORM entities or any DB access; applies deterministic ordering (`ORDER BY order ASC, id ASC`); currency eligibility check before Pass 1 (`eligibleCurrencies` vs `context.currency`); optimistic budget pre-check before Pass 1 (`totalDiscountGranted >= maxBudget`); Pass 3 calls effect resolvers with the cart context to compute final amounts
 2. Implement `lib/rule-evaluators.ts` — all 15 concrete rule evaluators with context key declarations; evaluators receive normalized `config` objects only
 3. Implement `lib/effect-resolvers.ts` — all 6 concrete effect resolvers; each resolver maps a `NormalizedBenefit` config + cart context to one or more `ResolvedEffect` objects with computed amounts and resolved SKUs; no math may live outside this file. Resolvers for `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` must apply `max_discount` capping after computing the raw amount: `effectiveAmount = min(rawAmount, config.max_discount ?? Infinity)`
 4. Implement `lib/tag-exclusion.ts` — promotion ordering + cumulativity + tag exclusion loop
-5. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, normalize entity graphs into `NormalizedPromotion[]` (mapping `promotion_rules`/`promotion_benefits` jsonb rows directly to `{ type, config }` shape, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event
+5. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, aggregate `totalDiscountGranted` per promotion from `promotion_usages WHERE reverted_at IS NULL`, normalize entity graphs into `NormalizedPromotion[]` (mapping `promotion_rules`/`promotion_benefits` jsonb rows directly to `{ type, config }` shape, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event or usage event (`promotions.usage.registered`, `promotions.usage.reverted`)
 6. Implement `api/cart/apply-promotion/route.ts` — full cart evaluation endpoint
 7. Implement `api/dynamic-labels/route.ts`, `api/free-products/route.ts`, `api/delivery-methods/route.ts`
 8. Implement `lib/product-page-engine.ts` — lightweight variant that evaluates active promotions against a list of SKUs; implement `api/product-page/route.ts` consuming it
@@ -1083,7 +1191,13 @@ Extension rule evaluators receive the full context and should read from `context
 7. Implement `api/codes/route.ts`, `api/codes/[id]/generate/route.ts`, `api/codes/[id]/generated/route.ts`
 8. Implement cart code endpoints: `add-code`, `validate-code`, `use-code`, `delete-code`
 9. Build codes backend pages: list, create, detail with generated codes panel
-10. Integration tests: code lifecycle (add → validate → use → audit trail), per-customer limit enforcement, dynamic code uniqueness
+10. Write `PromotionUsage` entity and validators; generate and apply migration
+11. Implement `lib/promotion-usage-service.ts` — `registerUsage` (serializable transaction, budget cap enforcement, idempotent upsert, `promotions.promotion.budget-exhausted` emission on first budget hit), `revertUsage` (bulk `reverted_at` update), `getBudgetConsumed`
+12. Implement `api/cart/register-usage/route.ts` — loops `appliedPromotions`, calls `registerUsage` per promotion, returns 207 Multi-Status with `budgetExceeded` flag for any promotions that were blocked; exports `openApi`
+13. Implement `api/cart/revert-usage/route.ts` — calls `revertUsage`, returns `{ ok: true, revertedCount }`; exports `openApi`
+14. Update `subscribers/invalidate-promotion-cache.ts` to also subscribe to `promotions.usage.registered` and `promotions.usage.reverted` for cache invalidation
+15. Register `PromotionUsageService` in `di.ts`
+16. Integration tests: `TC-PROM-023` – `TC-PROM-026` (see Testing Strategy)
 
 ### Phase 4 — Search, Notifications & Polish
 
@@ -1135,7 +1249,7 @@ Extension rule evaluators receive the full context and should read from `context
 Integration tests for each phase following `.ai/qa/AGENTS.md`:
 - Phase 1: `TC-PROM-001` Promotion CRUD, `TC-PROM-002` Rule tree save/load, `TC-PROM-003` Order batch update
 - Phase 2: `TC-PROM-010` Apply-promotion returns resolved amounts (not raw percentages) for each rule type, `TC-PROM-011` Cumulativity + tag exclusion, `TC-PROM-012` Sub-group benefit collection, `TC-PROM-013` ADD_FREE_ITEM effect carries correct SKU + quantity for FreeProduct and BuyXGetY, `TC-PROM-014` `max_discount` cap — a `cart_discount` benefit with `value: "10%"` and `max_discount: "100"` applied to a $1500 cart produces `amount: "-100"` (capped), not `"-150"`
-- Phase 3: `TC-PROM-020` Code lifecycle, `TC-PROM-021` Per-customer limit, `TC-PROM-022` Concurrent reservation race
+- Phase 3: `TC-PROM-020` Code lifecycle, `TC-PROM-021` Per-customer limit, `TC-PROM-022` Concurrent reservation race, `TC-PROM-023` `register-usage` writes `PromotionUsage` row with correct `effects_snapshot` and `total_discount_amount`, `TC-PROM-024` `revert-usage` sets `reverted_at` on all matching rows (never deletes); `getBudgetConsumed` decrements accordingly, `TC-PROM-025` Budget cap enforcement — promotion with `max_budget: "500"` accepts registrations until cumulative hits 500, then blocks with 207 + `budgetExceeded: true` and emits `promotions.promotion.budget-exhausted`; cache refresh causes post-exhaustion `apply-promotion` to skip the promotion, `TC-PROM-026` Currency eligibility — promotion with `eligible_currencies: ["EUR"]` is excluded from `apply-promotion` response when `currency: "USD"` is passed; included when `currency: "EUR"` is passed
 - Phase 4: `TC-PROM-030` Search indexing, `TC-PROM-031` Notification on code exhaustion, `TC-PROM-032` Notification on promotion expiring soon
 - Phase 5: `TC-PROM-040` Custom rule extension evaluation, `TC-PROM-041` Custom benefit extension effect resolution, `TC-PROM-042` `beforeEvaluate` middleware context injection, `TC-PROM-043` `afterResolve` middleware effect filtering, `TC-PROM-044` `beforeCodeUse` veto, `TC-PROM-045` Extension type metadata endpoint
 
@@ -1197,6 +1311,14 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 - **Affected area**: All cart evaluations
 - **Mitigation**: Cache keys MUST include `tenantId` + `organizationId`. Cache implementation uses `@open-mercato/cache` with tenant-scoped tag invalidation. Code review checklist includes cache key inspection.
 - **Residual risk**: Implementation error — mitigated by explicit cache key type that enforces required fields.
+
+#### Budget Cap Race Window
+
+- **Scenario**: Multiple concurrent orders for the same promotion all pass the optimistic budget pre-check (stale cache snapshot), then all call `register-usage` concurrently. The serializable transaction enforces the cap correctly on each commit, but two requests that entered the transaction at the same time may both see the remaining budget as sufficient before either has committed.
+- **Severity**: Low — serializable isolation in PostgreSQL uses predicate locking to detect read-write conflicts. A transaction that reads and then increments the `SUM` aggregate will conflict with a concurrent transaction doing the same, causing one to retry or abort.
+- **Affected area**: `max_budget` enforcement in `registerUsage`
+- **Mitigation**: `registerUsage` runs at `ISOLATION LEVEL SERIALIZABLE`; PostgreSQL's SSI detects the read-modify-write conflict and forces one transaction to retry. The retry logic re-reads the current sum and may block the second registration if the cap is now met.
+- **Residual risk**: Marginal overshoot in edge cases with very high concurrent throughput (unlikely for promotions context); acceptable and consistent with how most e-commerce platforms handle budget caps.
 
 ### Migration & Deployment Risks
 
@@ -1273,7 +1395,7 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | packages/ui/AGENTS.md | Use `LoadingMessage`/`ErrorMessage` | Compliant | All backend pages use `LoadingMessage`/`ErrorMessage` from `@open-mercato/ui/backend/detail` |
 | packages/ui/AGENTS.md | Use `DataTable` for lists | Compliant | Codes list and generated codes panel use `DataTable` |
 | root AGENTS.md | Widget injection: declare in `widgets/injection/`, map via `injection-table.ts` | Compliant | 5 injection slots declared in `widgets/injection-table.ts`; external modules inject via the standard widget system |
-| root AGENTS.md | Events: use `createModuleEvents()` with `as const` for all emitted events | Compliant | New events (`evaluation.completed`, `code.exhausted`, `promotion.expiring-soon`) added to `events.ts` following `createModuleEvents()` pattern |
+| root AGENTS.md | Events: use `createModuleEvents()` with `as const` for all emitted events | Compliant | New events (`evaluation.completed`, `code.exhausted`, `promotion.expiring-soon`, `usage.registered`, `usage.reverted`, `promotion.budget-exhausted`) added to `events.ts` following `createModuleEvents()` pattern |
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `PromotionExtensionRegistry` holds only plain objects (interfaces); no ORM entities or repositories cross module boundaries through the registry |
 | root AGENTS.md | Validate all inputs with Zod | Compliant | Extension `configSchema` is validated at write time via `configSchema.parse(config)` in commands; unknown types are not persisted without validation |
 
@@ -1287,3 +1409,4 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | 2026-02-24 | 1.1.0 | Replace 15 concrete rule tables + 6 concrete benefit tables with JSONB approach: `promotion_rules.rule_type + config jsonb` and `promotion_benefits.benefit_type + config jsonb`. Aligns with `condition_expression` pattern in `business_rules` and `workflows`. Normalization step now maps rows directly to `{ type, config }` shape. Config per type validated by Zod discriminated union. |
 | 2026-02-24 | 1.2.0 | Add extensibility architecture: server-side `PromotionExtensionRegistry` (custom rule types, custom benefit types, evaluation middleware `beforeEvaluate`/`afterResolve`, code middleware `beforeCodeUse`/`afterCodeUse`); client-side `promotionExtensionConfiguratorRegistry` for custom tree-builder UI components; `GET /api/promotions/extension-types` endpoint; `context.extensions` field on `CartContext`; 5 declared widget injection slots; Phase 5 implementation plan and TC-PROM-040–045 test cases; new events `evaluation.completed`, `code.exhausted`, `promotion.expiring-soon`. |
 | 2026-02-24 | 1.3.0 | Add `max_discount` optional field to `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` benefit configs. Effect resolvers in `lib/effect-resolvers.ts` cap the computed amount at `max_discount` after the raw calculation. New invariant: cap is per-benefit, expressed in operating currency. Added `TC-PROM-014` test case. |
+| 2026-02-26 | 1.4.0 | Add `PromotionUsage` entity (`promotion_usages` table) serving as per-order compliance audit ledger and global spend tracker. Add `PromotionUsageService` (`lib/promotion-usage-service.ts`) with `registerUsage` (serializable budget cap enforcement, idempotent upsert, 207 Multi-Status on budget block), `revertUsage` (soft-revert on order cancellation), and `getBudgetConsumed`. Add `POST /api/cart/register-usage` and `POST /api/cart/revert-usage` cart-facing endpoints. Add `eligible_currencies` (text[]) + `max_budget` (numeric nullable) + `budget_currency` (text nullable) to `Promotion`. Add `currency` (required) to `CartContext`. Add currency eligibility check and optimistic budget pre-check to evaluation engine. Update `NormalizedPromotion` shape with `eligibleCurrencies`, `maxBudget`, `budgetCurrency`, `totalDiscountGranted`. Update cache build to aggregate `totalDiscountGranted` from usage table. Add `promotions.usage.registered`, `promotions.usage.reverted`, `promotions.promotion.budget-exhausted` events. Add `TC-PROM-023`–`TC-PROM-026` test cases. Add Budget Cap Race Window risk entry. |
