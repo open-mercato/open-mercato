@@ -17,10 +17,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       # MCP configuration
-      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://app:3001/mcp}
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - mercato-network-fullapp
 
