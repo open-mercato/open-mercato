@@ -1,13 +1,18 @@
 import type { InboxActionType } from '../data/entities'
 
 /**
- * Check if a create_contact action for a person is missing a valid first+last name.
- * Returns true when the name has fewer than 2 space-separated parts.
+ * Check if a contact action has a name issue that prevents acceptance.
+ * - create_contact (person): requires first+last name (2+ space-separated parts)
+ * - link_contact: requires a non-empty contactName
  */
 export function hasContactNameIssue(action: {
   actionType: InboxActionType | string
   payload: Record<string, unknown>
 }): boolean {
+  if (action.actionType === 'link_contact') {
+    const contactName = (action.payload.contactName as string) || ''
+    return contactName.trim().length === 0
+  }
   if (action.actionType !== 'create_contact') return false
   const type = (action.payload.type as string) || 'person'
   if (type !== 'person') return false

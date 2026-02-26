@@ -223,6 +223,7 @@
   "inbox_ops.contact.first_name": "Nombre",
   "inbox_ops.contact.last_name": "Apellido",
   "inbox_ops.contact.last_name_required": "El apellido es obligatorio",
+  "inbox_ops.contact.link_name_missing_warning": "Falta el nombre del contacto. Edite y proporcione un nombre antes de aceptar.",
   "inbox_ops.contact.name_missing_warning": "No se pudieron extraer nombre y apellido. Edite antes de aceptar.",
   "inbox_ops.contact_type.company": "Empresa",
   "inbox_ops.contact_type.person": "Persona",

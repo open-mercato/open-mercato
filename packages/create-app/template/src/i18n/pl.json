@@ -584,6 +584,7 @@
   "inbox_ops.contact.last_name": "Nazwisko",
   "inbox_ops.contact.last_name_required": "Nazwisko jest wymagane",
   "inbox_ops.contact.name_missing_warning": "Nie udało się wyodrębnić imienia i nazwiska. Proszę edytować przed zaakceptowaniem.",
+  "inbox_ops.contact.link_name_missing_warning": "Brak nazwy kontaktu. Proszę edytować i podać nazwę przed zaakceptowaniem.",
   "inbox_ops.contact_type.person": "Osoba",
   "inbox_ops.contact_type.company": "Firma",
   "inbox_ops.activity_type.email": "Email",

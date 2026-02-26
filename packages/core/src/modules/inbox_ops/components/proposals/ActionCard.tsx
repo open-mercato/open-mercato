@@ -339,14 +339,19 @@ export function ActionCard({
       {hasNameIssue && (
         <div className="mb-3 flex items-start gap-2 text-xs rounded px-2 py-1.5 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
           <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
-          <span>{t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')}</span>
+          <span>{action.actionType === 'link_contact'
+            ? t('inbox_ops.contact.link_name_missing_warning', 'Contact name is missing. Please edit and provide a name before accepting.')
+            : t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')
+          }</span>
         </div>
       )}
 
       <div className="flex items-center gap-2">
         <div title={
           hasNameIssue
-            ? t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')
+            ? action.actionType === 'link_contact'
+              ? t('inbox_ops.contact.link_name_missing_warning', 'Contact name is missing. Please edit and provide a name before accepting.')
+              : t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')
             : hasBlockingDiscrepancies
               ? t('inbox_ops.action.accept_blocked', 'Resolve errors before accepting')
               : undefined

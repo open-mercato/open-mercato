@@ -223,6 +223,7 @@
   "inbox_ops.contact.first_name": "First Name",
   "inbox_ops.contact.last_name": "Last Name",
   "inbox_ops.contact.last_name_required": "Last name is required",
+  "inbox_ops.contact.link_name_missing_warning": "Contact name is missing. Please edit and provide a name before accepting.",
   "inbox_ops.contact.name_missing_warning": "First and last name could not be extracted. Please edit before accepting.",
   "inbox_ops.contact_type.company": "Company",
   "inbox_ops.contact_type.person": "Person",

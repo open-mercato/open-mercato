@@ -140,7 +140,8 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
       setTranslation(result.result.translation)
       setShowTranslation(true)
     } else {
-      flash(t('inbox_ops.translate.failed', 'Translation failed'), 'error')
+      const detail = (result?.result as Record<string, unknown> | null)?.error
+      flash(detail ? `${t('inbox_ops.translate.failed', 'Translation failed')}: ${detail}` : t('inbox_ops.translate.failed', 'Translation failed'), 'error')
     }
     setIsTranslating(false)
   }, [proposalId, locale, t, runMutation])
@@ -391,7 +392,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                 <div className="border rounded-lg p-3 md:p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-sm">{t('inbox_ops.summary', 'Summary')}</h3>
-                    {proposal.workingLanguage && proposal.workingLanguage !== locale && (
+                    {(proposal.workingLanguage || 'en') !== locale && (
                       <Button
                         type="button"
                         variant="ghost"

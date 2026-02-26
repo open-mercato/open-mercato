@@ -212,6 +212,7 @@
   "inbox_ops.contact.last_name": "Nachname",
   "inbox_ops.contact.last_name_required": "Nachname ist erforderlich",
   "inbox_ops.contact.name_missing_warning": "Vor- und Nachname konnten nicht extrahiert werden. Bitte bearbeiten Sie den Eintrag vor der Annahme.",
+  "inbox_ops.contact.link_name_missing_warning": "Kontaktname fehlt. Bitte bearbeiten und einen Namen angeben, bevor Sie akzeptieren.",
   "inbox_ops.contact_type.company": "Firma",
   "inbox_ops.contact_type.person": "Person",
   "inbox_ops.discrepancy.currency_mismatch": "Währungsabweichung",
