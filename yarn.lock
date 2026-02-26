@@ -5524,12 +5524,14 @@ __metadata:
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/jest-dom": "npm:^6.9.1"
     "@testing-library/react": "npm:^16.3.1"
+    "@types/html-to-text": "npm:^9.0.4"
     "@types/jest": "npm:^30.0.0"
     "@types/semver": "npm:^7.5.8"
     "@xyflow/react": "npm:^12.6.0"
     ai: "npm:^6.0.0"
     date-fns: "npm:^4.1.0"
     date-fns-tz: "npm:^3.2.0"
+    html-to-text: "npm:^9.0.5"
     jest: "npm:^30.2.0"
     jest-environment-jsdom: "npm:^30.2.0"
     semver: "npm:^7.6.3"
@@ -8293,6 +8295,13 @@ __metadata:
   version: 6.1.0
   resolution: "@types/html-minifier-terser@npm:6.1.0"
   checksum: 10/06bb3e1e8ebff43602c826d67f53f1fd3a6b9c751bfbc67d7ea4e85679446a639e20e60adad8c9d44ab4baf1337b3861b91e7e5e2be798575caf0cc1a5712552
+  languageName: node
+  linkType: hard
+
+"@types/html-to-text@npm:^9.0.4":
+  version: 9.0.4
+  resolution: "@types/html-to-text@npm:9.0.4"
+  checksum: 10/dd06963e7e11cf49cfab65fdadef62db43e098963999f307cfb77c6917cc26bc2634034203f5c1268eac47af6671d50af0ce341fd085726dfec0f6228a9cd016
   languageName: node
   linkType: hard
 
@@ -15641,6 +15650,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"husky@npm:^9.1.7":
+  version: 9.1.7
+  resolution: "husky@npm:9.1.7"
+  bin:
+    husky: bin.js
+  checksum: 10/c2412753f15695db369634ba70f50f5c0b7e5cb13b673d0826c411ec1bd9ddef08c1dad89ea154f57da2521d2605bd64308af748749b27d08c5f563bcd89975f
+  languageName: node
+  linkType: hard
+
 "hyperdyperid@npm:^1.2.0":
   version: 1.2.0
   resolution: "hyperdyperid@npm:1.2.0"
@@ -19859,6 +19877,7 @@ __metadata:
     esbuild: "npm:^0.25.0"
     eslint: "npm:^9.39.1"
     glob: "npm:^13.0.6"
+    husky: "npm:^9.1.7"
     jest: "npm:^30.2.0"
     jest-environment-jsdom: "npm:^30.2.0"
     lucide-react: "npm:^0.556.0"

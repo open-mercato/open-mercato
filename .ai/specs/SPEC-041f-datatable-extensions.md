@@ -16,6 +16,18 @@ Allow modules to inject columns, row actions, bulk actions, and filters into ano
 
 ## Scope
 
+### 0. Table ID Convention
+
+DataTable auto-derives its injection spot ID from `perspective?.tableId` or the `injectionSpotId` prop. The `tableId` comes from the Perspective system (e.g., `customers.people` for the customers people list). Injection-table entries MUST use the `tableId` that matches what the DataTable's perspective provides.
+
+Spot ID format: `data-table:<tableId>:<surface>` where `<surface>` is one of `columns`, `row-actions`, `bulk-actions`, `filters`.
+
+Example: for the customers people list with `tableId = 'customers.people'`:
+- `data-table:customers.people:columns`
+- `data-table:customers.people:row-actions`
+
+**Key rule**: Check the actual DataTable's `perspective.tableId` or `injectionSpotId` prop to determine the correct `tableId`. Do NOT guess — different pages may use different conventions.
+
 ### 1. `useInjectedTableExtensions(tableId)` Hook
 
 ```typescript
@@ -55,6 +67,8 @@ Injected columns read data from response enrichers. The enricher (Phase D) batch
 
 **Zero N+1 queries. Zero client-side fetching per row.**
 
+**Key rule**: Injected columns MUST set `sortable: false` unless the column's `accessorKey` maps to a field that exists in the target entity's query index. Sorting on enriched-only data (`_example.*`) is not supported — it would require the query engine to know about cross-module fields.
+
 ### 3. DataTable Row Action Injection
 
 ```typescript
@@ -87,6 +101,10 @@ bulkActions: [
   },
 ]
 ```
+
+**Bulk action error contract**: `onExecute` returns `Promise<{ ok: boolean; message?: string; affectedCount?: number }>`. On partial failure, return `{ ok: false, message: '3 of 5 failed', affectedCount: 2 }`. DataTable surfaces the message via flash.
+
+**ID deduplication**: If two modules inject row actions or bulk actions with the same `id`, the one from the higher-priority widget wins. A dev-mode console warning is logged.
 
 ### 5. DataTable Filter Injection (Three-Tier Architecture)
 
@@ -255,6 +273,31 @@ export const interceptors: ApiInterceptor[] = [
 | **Use when** | Target API supports `id: { $in: [...] }` | Target API has complex query logic that can't be rewritten |
 
 **Recommendation**: Prefer Tier 1 (ID rewrite) whenever possible. Use Tier 3 only when the API's query engine cannot accept injected ID filters.
+
+**Tier 3 pagination UX**: When `_meta.postFiltered: true` is present in the response, DataTable SHOULD show a visual indicator (e.g., "Results filtered client-side, counts may be approximate"). The total count display should show `~N` instead of `N` to communicate the approximation.
+
+#### Tier 2a — Client-Side Filter (Post-Render Enriched Data Filtering)
+
+When `strategy` is `'client'`, the filter widget provides a `filterFn` instead of a `queryParam`. DataTable applies this function after rendering enriched rows — filtering happens on the already-fetched page. Pagination is unaffected. Suitable only for small refinements on enriched data within a single page.
+
+```typescript
+filters: [
+  {
+    id: 'loyaltyTier',
+    label: 'loyalty.filter.tier',
+    type: 'select',
+    options: [
+      { value: 'bronze', label: 'loyalty.tier.bronze' },
+      { value: 'silver', label: 'loyalty.tier.silver' },
+      { value: 'gold', label: 'loyalty.tier.gold' },
+    ],
+    strategy: 'client',
+    filterFn: (row, value) => {
+      return row._loyalty?.tier === value
+    },
+  },
+]
+```
 
 ### 6. DataTable Integration
 

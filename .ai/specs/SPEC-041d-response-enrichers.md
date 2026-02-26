@@ -6,7 +6,7 @@
 | **Phase** | D (PR 4) |
 | **Branch** | `feat/umes-response-enrichers` |
 | **Depends On** | Nothing (independent) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-25) |
 
 ## Goal
 
@@ -81,7 +81,7 @@ When enrichers are active, responses include metadata:
 - Enrichers MUST NOT modify or remove existing fields (additive only)
 - Enrichers MUST NOT perform writes (read-only EntityManager)
 - Enrichers run after core query, not inside the transaction
-- `enrichMany` MUST be implemented for list endpoints (N+1 prevention)
+- `enrichMany` MUST be implemented for list endpoints (N+1 prevention); missing implementation fails list enrichment for that enricher
 - Enrichers can be disabled per-tenant via module config
 - Total enricher execution time is logged; slow enrichers flagged in dev mode (100ms warn, 500ms error)
 
@@ -353,3 +353,36 @@ export const enrichers: ResponseEnricher[] = [
 - `_meta` stripped during export — CSV/JSON export unchanged
 - New `data/enrichers.ts` is purely additive — modules without it have zero change
 - Enricher EntityManager is read-only — cannot accidentally modify data
+
+## Implementation Notes (2026-02-25)
+
+### Core Implementation
+- `ResponseEnricher` contract at `packages/shared/src/lib/crud/response-enricher.ts`
+- Global registry at `packages/shared/src/lib/crud/enricher-registry.ts` (uses `globalThis.__openMercatoResponseEnrichers__`)
+- Enricher runner at `packages/shared/src/lib/crud/enricher-runner.ts`
+- CRUD factory integration at `packages/shared/src/lib/crud/factory.ts`
+
+### Factory Integration Points
+- Enrichers run at 3 list sites in GET handler: after cache hit, after query engine list, after ORM fallback list
+- POST handler enriches single record in response
+- `buildEnricherContext()` resolves user features via `rbacService.getGrantedFeatures()` from DI container
+- `enrichListPayload()` / `enrichSingleRecord()` helper functions inside `makeCrudRoute`
+
+### Generator & Bootstrap
+- Convention file: `data/enrichers.ts` (export `enrichers: ResponseEnricher[]`)
+- Generator discovery in `packages/cli/src/lib/generators/module-registry.ts` via `processStandaloneConfig`
+- Generated file: `enrichers.generated.ts`
+- Bootstrap entry: `EnricherBootstrapEntry` in `BootstrapData`
+- Registration via `registerResponseEnrichers()` in `factory.ts`
+
+### Performance & Safety
+- Timeout via `Promise.race` (default 2000ms)
+- Fallback on failure (if enricher defines `fallback`)
+- `critical: true` propagates errors; `false` (default) logs and uses fallback
+- ACL feature gating via `hasAllFeatures()` from `@open-mercato/shared/src/security/features.ts`
+- Performance thresholds: SLOW_WARN_MS=100, SLOW_ERROR_MS=500
+- Export stripping: `normalizeFullRecordForExport` removes `_meta` and `_`-prefixed fields
+
+### Example
+- `apps/mercato/src/modules/example/data/enrichers.ts` — customer todo count enricher
+- Target entity: `customers.person` (opted in via `enrichers: { entityId: 'customers.person' }` in people route)

@@ -45,6 +45,7 @@
   "search.dialog.title": "Globale Suche",
   "search.messages.missingConfig": "Die Suche erfordert die Konfiguration eines Embedding-Anbieters für die semantische Suche.",
   "search.nav.hybridSearch": "Suche",
+  "search.scopeHint.currentOrg": "Bereich: aktuelle Organisation",
   "search.settings.actions.apply": "Anwenden",
   "search.settings.actions.cancel": "Abbrechen",
   "search.settings.actions.confirm": "Bestätigen",

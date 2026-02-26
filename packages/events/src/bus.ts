@@ -13,6 +13,27 @@ import type {
 /** Queue name for persistent events */
 const EVENTS_QUEUE_NAME = 'events'
 
+type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
+const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
+
+function getGlobalEventTaps(): Set<GlobalEventTap> {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_EVENT_TAPS_KEY]
+  if (existing instanceof Set) {
+    return existing as Set<GlobalEventTap>
+  }
+  const created = new Set<GlobalEventTap>()
+  ;(globalThis as Record<string, unknown>)[GLOBAL_EVENT_TAPS_KEY] = created
+  return created
+}
+
+export function registerGlobalEventTap(handler: GlobalEventTap): () => void {
+  const taps = getGlobalEventTaps()
+  taps.add(handler)
+  return () => {
+    taps.delete(handler)
+  }
+}
+
 /**
  * Match an event name against a pattern.
  *
@@ -161,6 +182,15 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions
   ): Promise<void> {
+    const taps = getGlobalEventTaps()
+    for (const tap of taps) {
+      try {
+        await Promise.resolve(tap(event, payload, options))
+      } catch (error) {
+        console.error(`[events] Global tap error for "${event}":`, error)
+      }
+    }
+
     // Always deliver to in-memory handlers first
     await deliver(event, payload)
 

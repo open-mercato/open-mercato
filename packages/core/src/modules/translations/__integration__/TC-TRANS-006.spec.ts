@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
@@ -6,13 +6,40 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 const ENTITY_TYPE = 'catalog:catalog_product'
 
+async function openTranslationsDrawer(page: Page): Promise<Locator> {
+  const openButton = page.getByRole('button', { name: /Translation manager/ }).first()
+  const dialog = page.getByRole('dialog', { name: /Translations/i })
+
+  await expect(openButton).toBeVisible()
+  await expect(openButton).toBeEnabled()
+  await openButton.click()
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: string): Promise<Locator> {
+  const firstEditableField = dialog.locator('table').locator('input, textarea').first()
+  await expect(firstEditableField).toBeVisible()
+
+  const normalizedPlaceholder = preferredPlaceholder?.trim()
+  if (!normalizedPlaceholder) return firstEditableField
+
+  const preferredField = dialog.getByPlaceholder(normalizedPlaceholder).first()
+  if (await preferredField.count()) {
+    await expect(preferredField).toBeVisible()
+    return preferredField
+  }
+
+  return firstEditableField
+}
+
 /**
- * TC-TRANS-006: Embedded Widget on Product Detail
- * Covers the translation widget injected on the catalog product edit page.
+ * TC-TRANS-006: Translation Action on Product Detail
+ * Covers the translation action injected in CrudForm header that opens a translation dialog.
  */
-test.describe('TC-TRANS-006: Embedded Widget on Product Detail', () => {
+test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
   test.use({ actionTimeout: 30_000 })
-  test('should show translation widget on product edit page', async ({ page, request }) => {
+  test('should show translation action on product edit page', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const originalLocales = await getLocales(request, adminToken)
     const productTitle = `QA TC-TRANS-006-1 ${Date.now()}`
@@ -26,15 +53,16 @@ test.describe('TC-TRANS-006: Embedded Widget on Product Detail', () => {
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
 
-      await expect(page.getByRole('link', { name: /Translation manager/ })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Save translations' })).toBeVisible()
+      const dialog = await openTranslationsDrawer(page)
+      await expect(dialog).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Save translations' })).toBeVisible()
     } finally {
       await deleteCatalogProductIfExists(request, adminToken, productId)
       await setLocales(request, adminToken, originalLocales).catch(() => {})
     }
   })
 
-  test('should enter and save a translation in the embedded widget', async ({ page, request }) => {
+  test('should enter and save a translation in the translation drawer', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const saToken = await getAuthToken(request, 'superadmin')
     const originalLocales = await getLocales(request, adminToken)
@@ -49,20 +77,18 @@ test.describe('TC-TRANS-006: Embedded Widget on Product Detail', () => {
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
 
-      const widgetSection = page.locator('div').filter({
-        has: page.getByRole('link', { name: /Translation manager/ }),
-      }).filter({
-        has: page.getByRole('button', { name: 'Save translations' }),
-      }).last()
-      await expect(widgetSection).toBeVisible()
+      const dialog = await openTranslationsDrawer(page)
+      await expect(dialog).toBeVisible()
 
-      const deTab = widgetSection.getByRole('button', { name: 'DE' })
+      const deTab = dialog.getByRole('button', { name: 'DE' })
       await deTab.click()
 
-      const translationInput = widgetSection.locator('table input').first()
-      await translationInput.fill('Widget Titel QA')
+      const translationField = await waitForTranslationField(dialog, productTitle)
+      await translationField.fill('Widget Titel QA')
 
-      await widgetSection.getByRole('button', { name: 'Save translations' }).click()
+      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      await expect(saveTranslationsButton).toBeVisible()
+      await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
@@ -71,7 +97,7 @@ test.describe('TC-TRANS-006: Embedded Widget on Product Detail', () => {
     }
   })
 
-  test('should verify widget-saved translation via API', async ({ page, request }) => {
+  test('should verify drawer-saved translation via API', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const saToken = await getAuthToken(request, 'superadmin')
     const originalLocales = await getLocales(request, adminToken)
@@ -86,18 +112,17 @@ test.describe('TC-TRANS-006: Embedded Widget on Product Detail', () => {
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
 
-      const widgetSection = page.locator('div').filter({
-        has: page.getByRole('link', { name: /Translation manager/ }),
-      }).filter({
-        has: page.getByRole('button', { name: 'Save translations' }),
-      }).last()
-      const deTab = widgetSection.getByRole('button', { name: 'DE' })
+      const dialog = await openTranslationsDrawer(page)
+      await expect(dialog).toBeVisible()
+      const deTab = dialog.getByRole('button', { name: 'DE' })
       await deTab.click()
 
-      const translationInput = widgetSection.locator('table input').first()
-      await translationInput.fill('API Verifiziert QA')
+      const translationField = await waitForTranslationField(dialog, productTitle)
+      await translationField.fill('API Verifiziert QA')
 
-      await widgetSection.getByRole('button', { name: 'Save translations' }).click()
+      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      await expect(saveTranslationsButton).toBeVisible()
+      await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
 
       const getResponse = await apiRequest(request, 'GET', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: saToken })

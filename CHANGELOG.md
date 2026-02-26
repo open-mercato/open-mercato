@@ -1,3 +1,112 @@
+# 0.4.5 (2026-02-26)
+
+## Highlights
+This release delivers the **Unified Module Event System (UMES)** — a major architectural upgrade unifying all module events across the platform, the **Messages module**, **Multiple CRM Pipelines** (SPEC-028), **Units of Measure**, **Record Locking** (enterprise), **Inbox Email Parser Phase 1**, the **Progress Tracking module**, **Database Decryption CLI** (SPEC-031), and **header-based auth token refresh** for mobile/API clients. It also ships significant CI/CD improvements, expanded test coverage, and numerous bug fixes. Welcome to **19 first-time contributors**!
+
+## ✨ Features
+- 🔄 Unified Module Event System (UMES) — phases A+B+C+D implementing a unified, typed event infrastructure across all modules with consistent emit/subscribe patterns and client broadcast support. (#734) *(@pkarw)*
+- 💬 Messages module — full in-app messaging system for internal communication between users. (#569) *(@dominikpalatynski)*
+- 🔀 Multiple CRM pipelines (SPEC-028) — support for multiple sales pipelines in CRM with configurable stages, drag-and-drop, and pipeline switching. (#694) *(@MYMaj)*
+- 📏 Units of measure — define and manage measurement units for products and inventory tracking. (#636) *(@msoroka)*
+- 🔐 Record locking (SPEC-005, enterprise) — pessimistic record locking to prevent concurrent edit conflicts. (#635) *(@pkarw)*
+- 📧 Inbox Email Parser Phase 1 — initial email parsing infrastructure for the Inbox Ops module. (#682) *(@haxiorz)*
+- ⏳ Progress tracking module — real-time progress tracking for long-running operations with UI feedback. (#645) *(@piotrchabros)*
+- 🔓 Database decryption CLI (SPEC-031) — CLI tool for decrypting encrypted database fields for data export and migration. (#610) *(@strzesniewski)*
+- 🔑 Header-based token refresh for mobile/API clients — enables auth token refresh via response headers, supporting non-browser clients. (#729) *(@jtomaszewski)*
+- 🌍 Translations command pattern with undo — save/delete translation operations now use the command pattern for undo/redo support. (#695) *(@marcinwadon)*
+- 🔍 Autocomplete in events selector — improved event selection UX with type-ahead search. (#654) *(@karolkozer)*
+- 🐳 Auto-detect Docker socket from active context — CLI now automatically detects the correct Docker socket. (#727) *(@jtomaszewski)*
+- 📅 DatePicker/DateTimePicker components (SPEC-034) — new reusable date and datetime picker UI components. (#663) *(@michal1986)*
+- 🧹 Removed scaffolding code from CLI — cleaner CLI codebase with updated AGENTS.md. (#726) *(@kurs0n)*
+- 🗂️ Module directory scanning refactor — improved module registry with cleaner directory scanning. (#598) *(@redjungle-as)*
+- 🎨 Layout refactor with buttons — improved layout consistency and button patterns. (#638) *(@kriss145)*
+
+## 🐛 Fixes
+- 🔧 Pre-release fixes for v0.4.5 stability. (#747) *(@pkarw)*
+- 🔗 Parse Redis URL before passing to BullMQ — fixes queue connections with `redis://` URLs. (#737) *(@jtomaszewski)*
+- 🌙 Fix SEO widget headers invisible in dark mode. (#733) *(@karolkozer)*
+- 👤 Fix user update command in auth module. (#732) *(@michal1986)*
+- 🔍 Fix vector search ignoring selected organization — search now properly scopes to tenant. (#730) *(@gsobczyk)*
+- 🛡️ Fix superadmin null orgId returning 401 — superadmin requests now handled correctly. (#701) *(@Dawidols)*
+- 🌐 Replace hardcoded strings with translation keys and add missing translations. (#693) *(@marcinwadon)*
+- 🔗 Restore dynamic User Entities sidebar links in auth/UI. (#677) *(@adam-marszowski)*
+- 📝 Fix translations CrudForm integration for all entity types. (#656) *(@idziakjakub)*
+- 📦 Align module metadata with ModuleInfo type across all packages. (#655) *(@piorot)*
+- 🏗️ Rebuild packages after generate in dev:greenfield script. (#652) *(@michalpikosz)*
+- 🔄 Prevent CrudForm from resetting fields on initialValues change. (#650) *(@marcinprusinowski)*
+- 🛠️ dev:greenfield ephemeral dev mode for working-trees. (#648) *(@pkarw)*
+- 📐 Align resource detail header with version history pattern. (#639) *(@sebapaszynski)*
+- 🌍 Fix base values not displayed in Translation Manager. (#637) *(@idziakjakub)*
+- 🧹 Deduplication and code cleanup refactor. (#628) *(@mkutyba)*
+- 📜 Fix SPEC-006 show action and comments in History. (#681) *(@MYMaj)*
+
+## 🧪 Testing
+- 🧪 Integration tests for staff module. (#745) *(@Eclip7e)*
+- 📈 Improved test code coverage across modules. (#683) *(@janzaremski)*
+- 🧪 SPEC-030 catalog unit tests. (#632) *(@migsilva89)*
+- 🔄 Add standalone app integration tests to snapshot CI. (#714) *(@andrzejewsky)*
+
+## 📝 Specs & Documentation
+- 📋 UMES specification — initial Unified Module Event System spec. (#710) *(@pkarw)*
+- 📋 SPEC-029: User Invite via Email. (#689) *(@matgren)*
+- 📋 SPEC-037: Promotions module. (#680) *(@B0G3)*
+- 📋 SPEC-034: Document Parser Module. (#665) *(@fto-aubergine)*
+- 📋 SPEC-006 v2: Version History update. (#646) *(@MYMaj)*
+- 📖 Improve standalone-app guide and add cross-links from overview and setup pages. (#705) *(@abankowski)*
+- 📖 Surface `create-mercato-app` in docs and homepage. (#713) *(@andrzejewsky)*
+- 📖 Fix deprecated module creation guide. (#643) *(@abankowski)*
+- 📖 Lessons learned and AGENTS.md update for the UI package. (#649) *(@pkarw)*
+- 📖 Update enterprise description in README. (#692) *(@pat-lewczuk)*
+- 🤖 AI skills: add Socratic questions skills. (#715) *(@michal1986)*
+
+## 🚀 CI/CD & Infrastructure
+- 📣 GitHub Actions annotations for test and lint errors. (#718) *(@jtomaszewski)*
+- 🔄 Unify snapshot and canary release into a single workflow. (#711) *(@andrzejewsky)*
+- 🔧 Fix standalone app: sync i18n templates and add scheduler to publish. (#709) *(@andrzejewsky)*
+- 🔧 Add dedicated develop-branch release workflow. (#707) *(@andrzejewsky)*
+
+## 👥 Contributors
+
+- @pkarw
+- @jtomaszewski
+- @andrzejewsky
+- @MYMaj
+- @karolkozer
+- @michal1986
+- @marcinwadon
+- @idziakjakub
+- @haxiorz
+- @abankowski
+- @pat-lewczuk
+- @matgren
+- @sebapaszynski
+
+### 🌟 First-time Contributors
+
+Welcome and thank you to our new contributors! 🙌
+
+- @dominikpalatynski
+- @msoroka
+- @piotrchabros
+- @Eclip7e
+- @gsobczyk
+- @Dawidols
+- @adam-marszowski
+- @piorot
+- @michalpikosz
+- @marcinprusinowski
+- @mkutyba
+- @janzaremski
+- @migsilva89
+- @B0G3
+- @kurs0n
+- @jtomaszewski
+- @marcinwadon
+- @michal1986
+- @abankowski
+
+---
+
 # 0.4.4 (2026-02-20)
 
 ## Highlights

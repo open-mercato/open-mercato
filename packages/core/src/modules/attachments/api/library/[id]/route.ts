@@ -65,7 +65,7 @@ async function resolveAttachmentId(ctx: RouteContext): Promise<string | null> {
 
 export async function GET(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const attachmentId = await resolveAttachmentId(ctx)
@@ -80,11 +80,14 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   } catch {
     queryEngine = null
   }
-  const record = await em.findOne(Attachment, {
+  const findFilter: Record<string, unknown> = {
     id: attachmentId,
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
-  })
+  }
+  if (auth.orgId) {
+    findFilter.organizationId = auth.orgId
+  }
+  const record = await em.findOne(Attachment, findFilter)
   if (!record) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }
@@ -126,7 +129,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
 export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const attachmentId = await resolveAttachmentId(ctx)
@@ -148,11 +151,12 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     queryEngine = null
   }
   const dataEngine = resolve('dataEngine') as DataEngine
-  const record = await em.findOne(Attachment, {
+  const patchFilter: Record<string, unknown> = {
     id: attachmentId,
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
-  })
+    organizationId: auth.orgId,
+  }
+  const record = await em.findOne(Attachment, patchFilter)
   if (!record) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }
@@ -215,7 +219,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const attachmentId = await resolveAttachmentId(ctx)
@@ -225,11 +229,12 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine') as DataEngine
-  const record = await em.findOne(Attachment, {
+  const deleteFilter: Record<string, unknown> = {
     id: attachmentId,
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
-  })
+    organizationId: auth.orgId,
+  }
+  const record = await em.findOne(Attachment, deleteFilter)
   if (!record) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }

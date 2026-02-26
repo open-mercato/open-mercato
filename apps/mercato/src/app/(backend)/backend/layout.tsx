@@ -37,6 +37,7 @@ import { profileSections, profilePathPrefixes } from '@open-mercato/core/modules
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
 import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
+import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 
 type NavItem = {
   href: string
@@ -148,10 +149,34 @@ export default async function BackendLayout({ children, params }: { children: Re
       }
     : undefined
 
+  let userEntities: Array<{ entityId: string; label: string; href: string }> | undefined
+  if (auth) {
+    try {
+      const container = await ensureContainer()
+      const em = container.resolve('em') as EntityManager
+      const where: FilterQuery<CustomEntity> = {
+        isActive: true,
+        showInSidebar: true,
+      }
+      where.$and = [
+        { $or: [{ organizationId: auth.orgId ?? undefined }, { organizationId: null }] },
+        { $or: [{ tenantId: auth.tenantId ?? undefined }, { tenantId: null }] },
+      ]
+      const entities = await em.find(CustomEntity, where, { orderBy: { label: 'asc' } })
+      userEntities = entities.map((entity) => ({
+        entityId: entity.entityId,
+        label: entity.label,
+        href: `/backend/entities/user/${encodeURIComponent(entity.entityId)}/records`,
+      }))
+    } catch {
+      userEntities = undefined
+    }
+  }
+
   const entries = await buildAdminNav(
     modules,
     ctx,
-    undefined,
+    userEntities,
     (key, fallback) => (key ? translate(key, fallback) : fallback),
     featureChecker ? { checkFeatures: featureChecker } : undefined,
   )

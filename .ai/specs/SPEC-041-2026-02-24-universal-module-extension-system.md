@@ -212,25 +212,31 @@ Examples:
 ### Complete Event Flow
 
 ```
-User clicks Save
+User clicks Save (Cmd+Enter)
   │
   ├─  1. [UI]    Client-side Zod validation              (existing)
-  ├─  2. [UI]    Widget onBeforeSave handlers             (existing — filtered by operation, Phase M)
-  ├─  3. [UI]    Widget transformFormData pipeline         (Phase C — filtered by operation, Phase M)
-  ├─  4. [API]   Server-side Zod validation               (existing)
-  ├─  5. [API]   API Interceptor before hooks             (Phase E — cross-module, route-level)
-  ├─  6. [API]   Sync before-event subscribers (*.creating) (Phase M — cross-module, event-driven)
-  ├─  7. [API]   CrudHooks.beforeCreate/Update/Delete     (existing — module-local)
-  ├─  8. [API]   Mutation Guard Registry validate         (Phase M — cross-module, multi-guard)
-  ├─  9. [Core]  Entity mutation + ORM flush              (existing)
-  ├─ 10. [API]   CrudHooks.afterCreate/Update/Delete      (existing — module-local)
-  ├─ 11. [API]   Mutation Guard Registry afterSuccess     (Phase M — cross-module, multi-guard)
-  ├─ 12. [API]   Sync after-event subscribers (*.created)  (Phase M — cross-module, event-driven)
-  ├─ 13. [API]   API Interceptor after hooks              (Phase E — cross-module, route-level)
-  ├─ 14. [API]   Response Enrichers                       (Phase D)
-  ├─ 15. [UI]    Widget onAfterSave handlers              (existing — filtered by operation, Phase M)
-  └─ 16. [Async] Event Subscribers                        (existing — fire-and-forget)
+  ├─  2. [UI]    Widget transformFormData pipeline         (Phase C — filtered by operation, Phase M)
+  ├─  3. [UI]    Widget onBeforeSave handlers             (existing — can block, filtered by operation)
+  ├─  4. [UI]    Widget onSave handlers                   (existing — widget data persists BEFORE core API)
+  ├─  5. [UI→API] Core API call (onSubmit)                (existing — sends core fields to server)
+  │    │
+  │    ├─  5a. [API]  Server-side Zod validation          (existing)
+  │    ├─  5b. [API]  API Interceptor before hooks        (Phase E — cross-module, route-level)
+  │    ├─  5c. [API]  Sync before-event subscribers       (Phase M — cross-module, event-driven)
+  │    ├─  5d. [API]  CrudHooks.beforeCreate/Update/Delete (existing — module-local)
+  │    ├─  5e. [API]  Mutation Guard Registry validate    (Phase M — cross-module, multi-guard)
+  │    ├─  5f. [Core] Entity mutation + ORM flush         (existing)
+  │    ├─  5g. [API]  CrudHooks.afterCreate/Update/Delete (existing — module-local)
+  │    ├─  5h. [API]  Mutation Guard Registry afterSuccess (Phase M — cross-module, multi-guard)
+  │    ├─  5i. [API]  Sync after-event subscribers        (Phase M — cross-module, event-driven)
+  │    ├─  5j. [API]  API Interceptor after hooks         (Phase E — cross-module, route-level)
+  │    └─  5k. [API]  Response Enrichers                  (Phase D)
+  │
+  ├─  6. [UI]    Widget onAfterSave handlers              (existing — filtered by operation, Phase M)
+  └─  7. [Async] Event Subscribers                        (existing — fire-and-forget)
 ```
+
+**Important**: Widget `onSave` (step 4) fires BEFORE the core API call (step 5). This matches the actual `CrudForm.tsx` implementation (lines 1483 vs 1495). See [SPEC-041g](./SPEC-041g-crudform-fields.md) for implications and mitigation.
 
 ---
 
@@ -283,14 +289,14 @@ src/modules/<module>/
 | E — API Interceptors | TC-UMES-I01–I07 | 7 |
 | F — DataTable Extensions | TC-UMES-D01–D05 | 5 |
 | G — CrudForm Fields | TC-UMES-CF01–CF05 | 5 |
-| H — Component Replacement | TC-UMES-CR01–CR04 | 4 |
+| H — Component Replacement | TC-UMES-CR01–CR06 | 6 |
 | I — Detail Bindings | TC-UMES-DP01–DP04 | 4 |
 | J — Recursive Widgets | TC-UMES-RW01–RW02 | 2 |
 | K — DevTools | TC-UMES-DT01–DT02 | 2 |
 | L — Integration Extensions | TC-UMES-L01–L06 | 6 |
 | M — Mutation Lifecycle | TC-UMES-ML01–ML10 | 10 |
 | M — Command Interceptors | TC-UMES-CI01–CI10 | 10 |
-| **Total** | | **73** |
+| **Total** | | **75** |
 
 See each phase sub-spec for detailed test scenarios, example module additions, and testing notes.
 
@@ -356,7 +362,7 @@ Profiling and measurement MUST be included in phase-level implementation PR note
 | 2 | Component replacement breaks props | High | Enforce `propsSchema` via Zod; runtime validation in dev |
 | 3 | Circular extension dependencies | Medium | Dependency graph analysis at `yarn generate`; circular = build error |
 | 4 | Priority conflicts | Medium | Build-time detection; require explicit priority |
-| 5 | Interceptor blocks legitimate requests | High | Include `interceptorId` in errors; admin can disable per-tenant |
+| 5 | Interceptor blocks legitimate requests | High | Include `interceptorId` in errors; fail-closed with timeout (5s default); dev-mode error details |
 | 6 | Backward compatibility | Critical | All existing APIs preserved; new features additive |
 | 7 | Complexity for simple modules | Medium | Progressive disclosure; AGENTS.md scaffolding guides |
 | 8 | Enrichers expose cross-tenant data | Critical | `EnricherContext` scoped to tenant; code review checklist |
@@ -366,29 +372,6 @@ Profiling and measurement MUST be included in phase-level implementation PR note
 ## Feature-Gated Activation
 
 All extension types support `features?: string[]` for ACL-based activation. Extensions are only loaded when the current user has the required features. This reuses the existing RBAC system — no new permission model needed.
-
----
-
-## Rollout Strategy
-
-Rollout is phased and reversible:
-
-1. Merge phases behind extension-type feature flags (default OFF for non-admin tenants).
-2. Enable Phase A + D in internal tenant first (minimum viable UMES path).
-3. Enable B/C/F/G/H/I/J incrementally with per-phase kill switch.
-4. Enable K (devtools) only in development mode and staging.
-5. Promote to general availability after latency, tenant isolation, and compatibility gates pass.
-
-Kill switches MUST exist for:
-- Response enrichers
-- API interceptors
-- Component overrides
-- DataTable/CrudForm extension rendering
-- Status badge polling
-- Widget shared state
-- Mutation guard registry (fallback: legacy singleton only)
-- Sync event subscribers (lifecycle events)
-- Command interceptors
 
 ---
 
@@ -657,3 +640,4 @@ Key implementation details from deep-diving into the actual codebase:
 | 2026-02-25 | Add Phase L (Integration Extensions) — wizard widgets, status badges, external ID mapping display. Amend phases A, C, D, G with integration-driven improvements: widget shared state, async operation progress, enricher timeout/fallback, dynamic field options, custom field components, conditional field visibility |
 | 2026-02-25 | Add Phase M (Mutation Lifecycle) — mutation guard registry (evolve singleton to multi-guard), sync event subscribers via existing `subscribers/*.ts` with `sync: true` metadata (lifecycle events: `*.creating`/`*.updating`/`*.deleting`), client-side widget event filtering, guard on POST/create, normalize DELETE pipeline ordering. Update complete event flow pipeline, dependency graph, auto-discovery paths, scaffolding guides. |
 | 2026-02-25 | Refactor Phase M — replace `data/crud-handlers.ts` file convention with sync event subscribers reusing existing subscriber auto-discovery. Remove `crud-handlers.generated.ts`, `CrudEventHandler` interface. Lifecycle before-events auto-derived from `events.ts` config. |
+| 2026-02-26 | Fix save flow ordering in Phase G and parent to match CrudForm.tsx reality (widget onSave fires BEFORE core API call). Remove rollout/kill-switch section. Phase E: add error handling (fail-closed), timeout, query re-validation, dual-path coverage, container in context, priority collision handling. Phase F: add tableId convention, sorting constraint, Tier 3 pagination UX, bulk action error contract, ID deduplication, client-side filter strategy. Phase G: fix stray code fence, add custom field type to InjectedField, add group fallback, dirty tracking, optionsLoader empty-state, visibleWhen dot-path clarification, fix carrier example to upsert. Phase H: require propsSchema for replace mode, remove displayName targeting, add wrapper composition order, error boundary, HMR cleanup, SSR note, cross-module example, propsTransform and error boundary tests. |
