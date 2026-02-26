@@ -258,12 +258,6 @@ export const interceptors: ApiInterceptor[] = [
 
 ### TC-UMES-I01: Interceptor `before` rejects POST with 422 when title contains "BLOCKED"
 
-## Implementation Status
-
-| Phase | Status | Date | Notes |
-|-------|--------|------|-------|
-| Phase E — API Interceptors | In Progress | 2026-02-26 | Core contracts, registry/runner, CRUD integration, generator output, and base tests added. |
-
 **Type**: API (Playwright)
 
 **Steps**:
@@ -383,3 +377,16 @@ export const interceptors: ApiInterceptor[] = [
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase E — API Interceptors | In Progress | 2026-02-26 | Added interceptor contracts/registry/runner, CRUD before+after integration with re-validation, generator discovery (`api/interceptors.ts`), bootstrap registration, and unit coverage in `crud-factory.test.ts`. |
+
+### Phase E — Detailed Progress
+
+- [x] Interceptor contracts added (`ApiInterceptor`, request/response/context/before/after result types)
+- [x] Global interceptor registry added with wildcard route matching and deterministic ordering
+- [x] Fail-closed interceptor runner added (throw/timeout handling, metadata passthrough)
+- [x] CRUD factory wired for `before` and `after` interception on GET/POST/PUT/DELETE
+- [x] Re-validation of interceptor-mutated body/query through route schemas
+- [x] Generator auto-discovery added for `api/interceptors.ts` and `interceptors.generated.ts`
+- [x] Bootstrap wiring added (`interceptorEntries`)
+- [x] Example module interceptor file added (`example/api/interceptors.ts`)
+- [x] Unit tests added in `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts`
+- [ ] Playwright integration scenarios TC-UMES-I01..I07 still pending

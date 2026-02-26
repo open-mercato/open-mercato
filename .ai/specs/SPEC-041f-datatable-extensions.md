@@ -492,3 +492,17 @@ export default {
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase F — DataTable Extensibility | In Progress | 2026-02-26 | Injected columns, row actions, and server filters are wired into DataTable with auto table replacement handles. |
+
+### Phase F — Detailed Progress
+
+- [x] DataTable loads extension widgets from deep spots:
+- `data-table:<tableId>:columns`
+- `data-table:<tableId>:row-actions`
+- `data-table:<tableId>:filters`
+- [x] Injected columns are merged into table columns
+- [x] Injected row actions are merged via `RowActions`
+- [x] Server-style injected filters are merged into toolbar filters
+- [x] DataTable replacement handle added (`data-table:<tableId>`) and rendered as `data-component-handle`
+- [x] Rendering tests still pass (`DataTable.render.test.tsx`)
+- [ ] `data-table:<tableId>:bulk-actions` runtime execution in `DataTable` still pending
+- [ ] Dedicated unit/integration tests for column/action/filter extension behavior still pending

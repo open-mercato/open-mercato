@@ -35,6 +35,15 @@ Each phase is a separate PR, independently mergeable, with example module demons
 | **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, sync event subscribers (lifecycle events), client-side event filtering, command interceptors | E |
 | **N** | [SPEC-041n — Query Engine Extensibility](./SPEC-041n-query-engine-extensibility.md) | `feat/umes-query-engine-extensibility` | Query-level enricher opt-in, unified enricher registry for Basic/Hybrid query engines, sync query events (`*.querying`/`*.queried`) with filter/query/result transforms | D, M |
 
+### Implementation Progress Snapshot (2026-02-26)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| E — API Interceptors | In Progress | Core contracts/registry/runner, CRUD integration, generation/bootstrap, and unit tests are implemented; integration tests pending. |
+| F — DataTable Extensions | In Progress | Column/row-action/filter deep extension surfaces are wired; bulk-actions execution and dedicated tests remain. |
+| G — CrudForm Fields | In Progress | Injected field pipeline and `InjectedField` support are implemented; full example triad flow and integration tests remain. |
+| H — Component Replacement | In Progress | Registry, hook, provider, generator/bootstrap wiring, page/table/form/section handles, and unit tests are implemented; additional replace-mode validation and integration tests remain. |
+
 ### Dependency Graph
 
 ```

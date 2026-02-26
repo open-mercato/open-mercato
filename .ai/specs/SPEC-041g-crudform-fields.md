@@ -771,3 +771,16 @@ satisfies InjectionGroupWidget  // Existing pattern, now typed
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase G — CrudForm Field Injection | In Progress | 2026-02-26 | Added `InjectedField`, field spot loading, group insertion, visibility-aware payload exclusion, and form handles. |
+
+### Phase G — Detailed Progress
+
+- [x] `InjectedField` component implemented for text/select/number/date/boolean/textarea/custom
+- [x] Dynamic options via `optionsLoader` with cache/fallback behavior
+- [x] `visibleWhen` conditions implemented and hidden-field exclusion applied
+- [x] CrudForm loads field widgets from `crud-form:<entityId>:fields`
+- [x] Injected fields inserted into resolved form groups with fallback placement
+- [x] Injected field values excluded from core schema validation and core submit payload
+- [x] CrudForm replacement handle added (`crud-form:<entityId>`) and rendered as `data-component-handle`
+- [x] CrudForm render tests still pass (`CrudForm.render.test.tsx`)
+- [ ] Example end-to-end priority triad (`entity + API + field widget + enrichers`) still pending
+- [ ] Playwright scenarios TC-UMES-CF01..CF05 still pending
