@@ -70,6 +70,7 @@ services:
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      OPENCODE_URL: http://mercato-opencode-${DEPLOY_ENV:-local}:4096
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
