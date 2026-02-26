@@ -45,6 +45,7 @@
   "search.dialog.title": "Búsqueda Global",
   "search.messages.missingConfig": "La búsqueda requiere configurar un proveedor de embeddings para la búsqueda semántica.",
   "search.nav.hybridSearch": "Búsqueda",
+  "search.scopeHint.currentOrg": "Alcance: organización actual",
   "search.settings.actions.apply": "Aplicar",
   "search.settings.actions.cancel": "Cancelar",
   "search.settings.actions.confirm": "Confirmar",
