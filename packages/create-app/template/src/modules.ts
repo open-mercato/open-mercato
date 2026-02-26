@@ -34,11 +34,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'events', from: '@open-mercato/events' },
   { id: 'notifications', from: '@open-mercato/core' },
   { id: 'progress', from: '@open-mercato/core' },
+  { id: 'messages', from: '@open-mercato/core' },
+  { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
-  { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
-  { id: 'example', from: '@app' },
+  { id: 'example', from: '@app' }
 ]
 
 if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {
