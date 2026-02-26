@@ -91,6 +91,9 @@ import { resolveStatusEntryIdByValue } from '../lib/statusHelpers'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import { loadSalesSettings } from './settings'
 import { notificationTypes } from '../notifications'
+import { CatalogProductPrice } from '../../catalog/data/entities'
+import type { CatalogOmnibusService } from '../../catalog/services/catalogOmnibusService'
+import { detectPersonalization } from '../../catalog/services/catalogPricingService'
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -1854,8 +1857,9 @@ async function applyOrderLineResults(params: {
   calculation: SalesDocumentCalculationResult
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>
   existingLines: SalesOrderLine[]
+  container?: any
 }): Promise<void> {
-  const { em, order, calculation, sourceLines, existingLines } = params
+  const { em, order, calculation, sourceLines, existingLines, container } = params
   const existingMap = new Map(existingLines.map((line) => [line.id, line]))
   const persisted = new Set<string>()
   const statusCache = new Map<string, string | null>()
@@ -1866,6 +1870,14 @@ async function applyOrderLineResults(params: {
     statusCache.set(entryId, value)
     return value
   }
+  let omnibusService: CatalogOmnibusService | null = null
+  if (container) {
+    try {
+      omnibusService = container.resolve('catalogOmnibusService') as CatalogOmnibusService
+    } catch {
+      omnibusService = null
+    }
+  }
   for (let index = 0; index < calculation.lines.length; index += 1) {
     const lineResult = calculation.lines[index]
     const sourceLine = sourceLines[index]
@@ -1873,6 +1885,7 @@ async function applyOrderLineResults(params: {
     const statusValue = await resolveStatus(statusEntryId ?? null)
     const payload = convertLineCalculationToEntityInput(lineResult, sourceLine, order, index)
     const existing = sourceLine.id ? existingMap.get(sourceLine.id) ?? null : null
+    const isNew = !existing
     const lineEntity =
       existing ??
       em.create(SalesOrderLine, {
@@ -1891,6 +1904,46 @@ async function applyOrderLineResults(params: {
       statusEntryId,
       status: statusValue,
     })
+    if (isNew && omnibusService && sourceLine.productId) {
+      try {
+        const priceId = (sourceLine as any).priceId ?? null
+        let priceKindId: string | null = null
+        let isPromotion = false
+        let personalizationMeta = { isPersonalized: false, personalizationReason: null as string | null }
+        if (priceId) {
+          const catalogPrice = await em.findOne(CatalogProductPrice, { id: priceId, organizationId: order.organizationId, tenantId: order.tenantId }, { populate: ['priceKind'] })
+          if (catalogPrice) {
+            priceKindId = catalogPrice.priceKind.id
+            isPromotion = catalogPrice.priceKind.isPromotion ?? false
+            personalizationMeta = detectPersonalization(catalogPrice as any)
+          }
+        }
+        if (priceKindId) {
+          const omnibusCtx = {
+            tenantId: order.tenantId,
+            organizationId: order.organizationId,
+            productId: sourceLine.productId,
+            variantId: (sourceLine as any).productVariantId ?? null,
+            offerId: null,
+            priceKindId,
+            currencyCode: (sourceLine as any).currencyCode ?? order.currencyCode,
+            channelId: order.channelId ?? null,
+            isStorefront: false,
+          }
+          const omnibusBlock = await omnibusService.resolveOmnibusBlock(em, omnibusCtx, null, isPromotion)
+          if (omnibusBlock) {
+            lineEntity.omnibusReferenceNet = omnibusBlock.lowestPriceNet ?? null
+            lineEntity.omnibusReferenceGross = omnibusBlock.lowestPriceGross ?? null
+            lineEntity.omnibusPromotionAnchorAt = omnibusBlock.promotionAnchorAt ? new Date(omnibusBlock.promotionAnchorAt) : null
+            lineEntity.omnibusApplicabilityReason = omnibusBlock.applicabilityReason ?? null
+          }
+        }
+        lineEntity.isPersonalized = personalizationMeta.isPersonalized
+        lineEntity.personalizationReason = personalizationMeta.personalizationReason
+      } catch {
+        // Omnibus capture is non-critical — don't fail order creation
+      }
+    }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -4719,6 +4772,7 @@ const orderLineUpsertCommand: CommandHandler<
       calculation,
       sourceLines: sourceInputs,
       existingLines,
+      container: ctx.container,
     })
     applyOrderTotals(order, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null
@@ -4850,6 +4904,7 @@ const orderLineDeleteCommand: CommandHandler<
       calculation,
       sourceLines: sourceInputs,
       existingLines,
+      container: ctx.container,
     })
     applyOrderTotals(order, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null

@@ -144,6 +144,8 @@ export const productCreateSchema = scoped.extend({
   customFieldsetCode: slugSchema.nullable().optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  omnibusExempt: z.boolean().optional(),
+  firstListedAt: z.coerce.date().optional().nullable(),
   metadata: metadataSchema,
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
   categoryIds: z.array(uuid()).max(100).optional(),
@@ -178,6 +180,7 @@ export const variantCreateSchema = scoped.extend({
   weightUnit: z.string().trim().max(25).optional(),
   taxRateId: uuid().nullable().optional(),
   taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
+  omnibusExempt: z.boolean().nullable().optional(),
   dimensions: z
     .object({
       width: z.coerce.number().min(0).optional(),
@@ -286,3 +289,63 @@ export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>
 export type OfferCreateInput = z.infer<typeof offerCreateSchema>
 export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>
+
+const iso3166Alpha2 = z.string().regex(/^[A-Z]{2}$/, 'Must be ISO 3166-1 alpha-2 country code').refine(
+  (v) => v !== 'EU',
+  'Use individual member state codes, not "EU"'
+)
+
+export const omnibusChannelConfigSchema = z.object({
+  presentedPriceKindId: uuid(),
+  countryCode: iso3166Alpha2.optional(),
+  lookbackDays: z.number().int().min(1).max(365).optional(),
+  minimizationAxis: z.enum(['gross', 'net']).optional(),
+  progressiveReductionRule: z.boolean().optional(),
+  perishableGoodsRule: z.enum(['standard', 'exempt', 'last_price']).optional(),
+  perishableLookbackDays: z.number().int().positive().optional(),
+  newArrivalRule: z.enum(['standard', 'shorter_window']).optional(),
+  newArrivalsLookbackDays: z.number().int().positive().nullable().optional(),
+})
+
+export const omnibusConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  enabledCountryCodes: z.array(iso3166Alpha2).optional(),
+  noChannelMode: z.enum(['best_effort', 'require_channel']).optional(),
+  lookbackDays: z.number().int().min(1).max(365).optional(),
+  minimizationAxis: z.enum(['gross', 'net']).optional(),
+  defaultPresentedPriceKindId: uuid().optional(),
+  backfillCoverage: z.record(z.string(), z.object({
+    completedAt: z.string(),
+    lookbackDays: z.number().int().min(1),
+  })).optional(),
+  channels: z.record(z.string(), omnibusChannelConfigSchema).optional(),
+})
+
+export const priceHistoryListQuerySchema = z.object({
+  productId: uuid().optional(),
+  variantId: uuid().optional(),
+  offerId: uuid().optional(),
+  priceKindId: uuid().optional(),
+  channelId: uuid().optional(),
+  currencyCode: currencyCodeSchema.optional(),
+  changeType: z.enum(['create', 'update', 'delete', 'undo']).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+  includeTotal: z.coerce.boolean().optional(),
+})
+
+export const omnibusPreviewQuerySchema = z.object({
+  productId: uuid().optional(),
+  variantId: uuid().optional(),
+  offerId: uuid().optional(),
+  priceKindId: uuid(),
+  currencyCode: currencyCodeSchema,
+  channelId: uuid().optional(),
+})
+
+export type OmnibusConfig = z.infer<typeof omnibusConfigSchema>
+export type OmnibusChannelConfig = z.infer<typeof omnibusChannelConfigSchema>
+export type PriceHistoryListQuery = z.infer<typeof priceHistoryListQuerySchema>
+export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>

@@ -814,6 +814,7 @@ export async function seedCatalogExamples(
       taxRate: defaultTaxRateValue,
       isConfigurable: true,
       isActive: true,
+      omnibusExempt: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     })

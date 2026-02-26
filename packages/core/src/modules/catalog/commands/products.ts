@@ -80,6 +80,8 @@ type ProductSnapshot = {
   metadata: Record<string, unknown> | null
   isConfigurable: boolean
   isActive: boolean
+  omnibusExempt: boolean
+  firstListedAt: string | null
   createdAt: string
   updatedAt: string
   offers: OfferSnapshot[]
@@ -923,6 +925,8 @@ async function loadProductSnapshot(
     metadata,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
+    omnibusExempt: record.omnibusExempt ?? false,
+    firstListedAt: record.firstListedAt?.toISOString() ?? null,
     optionSchemaId: optionTemplateId,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -963,6 +967,8 @@ function applyProductSnapshot(
     : null
   record.isConfigurable = snapshot.isConfigurable
   record.isActive = snapshot.isActive
+  record.omnibusExempt = snapshot.omnibusExempt ?? false
+  record.firstListedAt = snapshot.firstListedAt ? new Date(snapshot.firstListedAt) : null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
 }
@@ -1019,6 +1025,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       customFieldsetCode: parsed.customFieldsetCode ?? null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
+      omnibusExempt: parsed.omnibusExempt ?? false,
+      firstListedAt: parsed.firstListedAt ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -1230,6 +1238,8 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     }
     if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    if (parsed.omnibusExempt !== undefined) record.omnibusExempt = parsed.omnibusExempt ?? false
+    if (parsed.firstListedAt !== undefined) record.firstListedAt = parsed.firstListedAt ?? null
     try {
       await em.flush()
     } catch (error) {
@@ -1317,6 +1327,8 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
+        omnibusExempt: before.omnibusExempt ?? false,
+        firstListedAt: before.firstListedAt ? new Date(before.firstListedAt) : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })
@@ -1460,6 +1472,8 @@ const deleteProductCommand: CommandHandler<
         productType: before.productType ?? 'simple',
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
+        omnibusExempt: before.omnibusExempt ?? false,
+        firstListedAt: before.firstListedAt ? new Date(before.firstListedAt) : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })

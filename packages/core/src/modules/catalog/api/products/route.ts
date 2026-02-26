@@ -33,6 +33,8 @@ import {
   type PriceRow,
 } from '../../lib/pricing'
 import type { CatalogPricingService } from '../../services/catalogPricingService'
+import { detectPersonalization } from '../../services/catalogPricingService'
+import type { CatalogOmnibusService } from '../../services/catalogOmnibusService'
 import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
 import {
@@ -277,6 +279,8 @@ type ProductListItem = Record<string, unknown> & {
   dimensions?: Record<string, unknown> | null
   custom_fieldset_code?: string | null
   option_schema_id?: string | null
+  omnibusExempt?: boolean | null
+  firstListedAt?: Date | string | null
   offers?: Array<Record<string, unknown>>
   channelIds?: string[]
   categories?: Array<Record<string, unknown>>
@@ -467,6 +471,9 @@ async function decorateProductsAfterList(
     ctx.query.channelId ?? (channelFilterIds.length === 1 ? channelFilterIds[0] : null)
   const pricingContext = buildPricingContext(ctx.query, channelContext)
   const pricingService = ctx.container.resolve<CatalogPricingService>('catalogPricingService')
+  const catalogOmnibusService = ctx.container.resolve<CatalogOmnibusService>('catalogOmnibusService')
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
 
   for (const item of items) {
     const id = typeof item.id === 'string' ? item.id : null
@@ -492,6 +499,7 @@ async function decorateProductsAfterList(
         : { ...pricingContext, channelId: channelIds[0] }
     const best = await pricingService.resolvePrice(priceCandidates, channelScopedContext)
     if (best) {
+      const personalization = detectPersonalization(best)
       item.pricing = {
         kind: resolvePriceKindCode(best),
         price_kind_id: typeof best.priceKind === 'string' ? best.priceKind : best.priceKind?.id ?? null,
@@ -512,9 +520,32 @@ async function decorateProductsAfterList(
           customer_id: best.customerId ?? null,
           customer_group_id: best.customerGroupId ?? null,
         },
+        is_personalized: personalization.isPersonalized,
+        personalization_reason: personalization.personalizationReason,
+      }
+      const resolvedPriceKindId = typeof best.priceKind === 'string' ? best.priceKind : best.priceKind?.id ?? null
+      const priceKindIsPromotion = typeof best.priceKind !== 'string' && (best.priceKind?.isPromotion ?? false)
+      if (resolvedPriceKindId && best.currencyCode && tenantId && organizationId) {
+        const omnibusCtx = {
+          tenantId,
+          organizationId,
+          productId: id,
+          variantId: resolvePriceVariantId(best) ?? null,
+          offerId: resolvePriceOfferId(best) ?? null,
+          priceKindId: resolvedPriceKindId,
+          currencyCode: best.currencyCode,
+          channelId: resolvePriceChannelId(best) ?? channelScopedContext.channelId ?? null,
+          isStorefront: false,
+          omnibusExempt: typeof item.omnibusExempt === 'boolean' ? item.omnibusExempt : null,
+          firstListedAt: item.firstListedAt instanceof Date ? item.firstListedAt : (item.firstListedAt ? new Date(item.firstListedAt as string | number) : null),
+        }
+        item.omnibus = await catalogOmnibusService.resolveOmnibusBlock(em, omnibusCtx, null, priceKindIsPromotion)
+      } else {
+        item.omnibus = null
       }
     } else {
       item.pricing = null
+      item.omnibus = null
     }
   }
 }
@@ -557,6 +588,8 @@ const crud = makeCrudRoute({
       F.metadata,
       'custom_fieldset_code',
       'option_schema_id',
+      'omnibus_exempt',
+      'first_listed_at',
       F.created_at,
       F.updated_at,
     ],

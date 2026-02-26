@@ -8,6 +8,11 @@ import {
   seedCatalogUnits,
   type CatalogSeedScope,
 } from './lib/seeds'
+import { CatalogProductPrice, CatalogPriceHistoryEntry } from './data/entities'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { OmnibusConfig } from './data/validators'
+import { buildHistoryEntry, MS_PER_DAY } from './lib/omnibus'
+import type { PriceHistorySnapshot } from './lib/omnibus'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -147,4 +152,122 @@ const installExamplesBundle: ModuleCli = {
   },
 }
 
-export default [seedUnitsCommand, seedPriceKindsCommand, seedExamplesCommand, installExamplesBundle]
+const omnibusBackfillCommand: ModuleCli = {
+  command: 'omnibus:backfill',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const channelId = args.channelId ?? args.channel ?? null
+    const batchSize = parseInt(args.batchSize ?? args['batch-size'] ?? '500', 10) || 500
+
+    if (!organizationId || !tenantId) {
+      console.error('Usage: mercato catalog omnibus:backfill --org <organizationId> --tenant <tenantId> [--channel-id <channelId>] [--batch-size 500]')
+      return
+    }
+
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      const moduleConfigService = container.resolve<ModuleConfigService>('moduleConfigService')
+      const config = (await moduleConfigService.getValue<OmnibusConfig>('catalog', 'catalog.omnibus', { defaultValue: {} })) ?? {}
+
+      const lookbackDays = channelId
+        ? (config.channels?.[channelId]?.lookbackDays ?? config.lookbackDays ?? 30)
+        : (config.lookbackDays ?? 30)
+
+      const windowStart = new Date(Date.now() - lookbackDays * MS_PER_DAY)
+      const recordedAt = new Date(windowStart.getTime() - 1)
+
+      const priceFilters: Record<string, unknown> = { organization_id: organizationId, tenant_id: tenantId }
+      if (channelId) {
+        priceFilters.channel_id = channelId
+      }
+
+      const totalPrices = await em.count(CatalogProductPrice, priceFilters)
+      console.log(`Found ${totalPrices} price rows to backfill (lookback: ${lookbackDays} days, window start: ${windowStart.toISOString()})`)
+
+      let offset = 0
+      let inserted = 0
+      let skipped = 0
+
+      while (offset < totalPrices) {
+        const prices = await em.find(
+          CatalogProductPrice,
+          priceFilters,
+          {
+            populate: ['priceKind', 'product', 'variant', 'offer'],
+            limit: batchSize,
+            offset,
+            orderBy: { id: 'ASC' },
+          }
+        )
+        if (prices.length === 0) break
+
+        for (const price of prices) {
+          const priceKind = typeof price.priceKind === 'string' ? null : price.priceKind
+          if (!priceKind) { skipped++; continue }
+          const productId = price.product
+            ? (typeof price.product === 'string' ? price.product : price.product.id)
+            : price.variant
+              ? (typeof price.variant === 'object' && price.variant?.product
+                  ? (typeof price.variant.product === 'string' ? price.variant.product : price.variant.product.id)
+                  : null)
+              : null
+          if (!productId) { skipped++; continue }
+
+          const existingCount = await em.count(CatalogPriceHistoryEntry, {
+            priceId: price.id,
+            organizationId,
+            tenantId,
+          })
+          if (existingCount > 0) { skipped++; continue }
+
+          const snapshot: PriceHistorySnapshot = {
+            id: price.id,
+            tenantId: price.tenantId,
+            organizationId: price.organizationId,
+            productId,
+            variantId: price.variant ? (typeof price.variant === 'string' ? price.variant : price.variant.id) : null,
+            offerId: price.offer ? (typeof price.offer === 'string' ? price.offer : price.offer.id) : null,
+            channelId: price.channelId ?? null,
+            priceKindId: priceKind.id,
+            priceKindCode: priceKind.code,
+            currencyCode: price.currencyCode,
+            unitPriceNet: price.unitPriceNet ?? null,
+            unitPriceGross: price.unitPriceGross ?? null,
+            taxRate: price.taxRate ?? null,
+            taxAmount: price.taxAmount ?? null,
+            minQuantity: price.minQuantity,
+            maxQuantity: price.maxQuantity ?? null,
+            startsAt: price.startsAt ? price.startsAt.toISOString() : null,
+            endsAt: price.endsAt ? price.endsAt.toISOString() : null,
+          }
+          const fields = buildHistoryEntry({ snapshot, changeType: 'create', source: 'system' })
+          const entry = em.create(CatalogPriceHistoryEntry, { ...fields, recordedAt, idempotencyKey: null })
+          em.persist(entry)
+          inserted++
+        }
+
+        await em.flush()
+        offset += prices.length
+        console.log(`Progress: ${Math.min(offset, totalPrices)}/${totalPrices} (inserted: ${inserted}, skipped: ${skipped})`)
+      }
+
+      if (channelId) {
+        const backfillCoverage = { ...(config.backfillCoverage ?? {}), [channelId]: { completedAt: new Date().toISOString(), lookbackDays } }
+        await moduleConfigService.setValue('catalog', 'catalog.omnibus', { ...config, backfillCoverage })
+        console.log(`Updated backfillCoverage for channel ${channelId}`)
+      }
+
+      console.log(`Omnibus backfill complete: ${inserted} entries inserted, ${skipped} skipped`)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+export default [seedUnitsCommand, seedPriceKindsCommand, seedExamplesCommand, installExamplesBundle, omnibusBackfillCommand]
