@@ -19,10 +19,7 @@ export type SendObjectMessageDialogProps = {
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
   disabled?: boolean
   viewHref?: string | null
-  contextPreview?: React.ReactNode
-  children?: React.ReactNode
   onSuccess?: MessageComposerProps['onSuccess']
-  renderTrigger?: (params: { openComposer: () => void; disabled: boolean }) => React.ReactNode
 }
 
 export function SendObjectMessageDialog({
@@ -32,10 +29,7 @@ export function SendObjectMessageDialog({
   requiredActionConfig = null,
   disabled = false,
   viewHref = null,
-  contextPreview = null,
-  children = null,
   onSuccess,
-  renderTrigger,
 }: SendObjectMessageDialogProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -50,23 +44,8 @@ export function SendObjectMessageDialog({
     entityId: object.entityId,
     sourceEntityType: object.sourceEntityType ?? null,
     sourceEntityId: object.sourceEntityId ?? null,
-  }), [object.entityId, object.entityModule, object.entityType, object.sourceEntityId, object.sourceEntityType])
-
-  const trigger = renderTrigger
-    ? renderTrigger({ openComposer, disabled })
-    : (
-      <Button
-        type="button"
-        size="icon"
-        variant="outline"
-        disabled={disabled}
-        onClick={openComposer}
-        aria-label={t('messages.compose', 'Compose message')}
-        title={t('messages.compose', 'Compose message')}
-      >
-        <Send className="h-4 w-4" />
-      </Button>
-    )
+    previewData: object.previewData ?? null,
+  }), [object.entityId, object.entityModule, object.entityType, object.sourceEntityId, object.sourceEntityType, object.previewData])
 
   return (
     <>
@@ -84,7 +63,17 @@ export function SendObjectMessageDialog({
           </Link>
         </Button>
       ) : null}
-      {trigger}
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        disabled={disabled}
+        onClick={openComposer}
+        aria-label={t('messages.compose', 'Compose message')}
+        title={t('messages.compose', 'Compose message')}
+      >
+        <Send className="h-4 w-4" />
+      </Button>
       <MessageComposer
         variant="compose"
         open={open}
@@ -92,7 +81,6 @@ export function SendObjectMessageDialog({
         lockedType={lockedType}
         contextObject={contextObject}
         requiredActionConfig={requiredActionConfig}
-        contextPreview={contextPreview ?? children}
         defaultValues={defaultValues}
         onSuccess={onSuccess}
       />

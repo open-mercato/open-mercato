@@ -5,10 +5,11 @@ import { Forward, Reply, Send } from 'lucide-react'
 import { CrudForm } from '../CrudForm'
 import { Button } from '../../primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../primitives/dialog'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 import { createMessageComposeFormGroups } from './message-compose-form-groups'
 import { useMessageCompose } from './useMessageCompose'
-import type { MessageComposerProps } from './message-composer.types'
+import type { MessageComposerContextObject, MessageComposerProps } from './message-composer.types'
 
 export type {
   MessageComposerContextObject,
@@ -19,10 +20,45 @@ export type {
   MessageTypeItem,
 } from './message-composer.types'
 
+function ContextObjectPreview({ contextObject }: { contextObject: MessageComposerContextObject }) {
+  const t = useT()
+  const registry = getMessageUiComponentRegistry()
+  const previewComponentKey = `${contextObject.entityModule}:${contextObject.entityType}`
+  const PreviewComponent = registry.objectPreviewComponents[previewComponentKey]
+    ?? registry.objectPreviewComponents['messages:default']
+
+  if (PreviewComponent) {
+    return (
+      <PreviewComponent
+        entityId={contextObject.entityId}
+        entityModule={contextObject.entityModule}
+        entityType={contextObject.entityType}
+        actionRequired={contextObject.actionRequired}
+        actionType={contextObject.actionType}
+        actionLabel={contextObject.actionLabel}
+        previewData={contextObject.previewData ?? undefined}
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {t('messages.composer.contextPreview.title', 'Context object')}
+      </p>
+      <p className="text-sm font-medium">
+        {contextObject.entityModule}:{contextObject.entityType}
+      </p>
+      <p className="text-xs font-mono text-muted-foreground">
+        {contextObject.entityId}
+      </p>
+    </div>
+  )
+}
+
 export function MessageComposer(props: MessageComposerProps) {
   const compose = useMessageCompose(props)
   const inlineBackHref = props.inlineBackHref
-  const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
   const SubmitIcon = compose.variant === 'reply'
     ? Reply
     : compose.variant === 'forward'
@@ -90,38 +126,8 @@ export function MessageComposer(props: MessageComposerProps) {
   const fallbackContextPreview = React.useMemo(() => {
     if (compose.contextPreview) return compose.contextPreview
     if (!props.contextObject) return null
-
-    const previewComponentKey = `${props.contextObject.entityModule}:${props.contextObject.entityType}`
-    const PreviewComponent = messageUiRegistry.objectPreviewComponents[previewComponentKey]
-      ?? messageUiRegistry.objectPreviewComponents['messages:default']
-
-    if (PreviewComponent) {
-      return (
-        <PreviewComponent
-          entityId={props.contextObject.entityId}
-          entityModule={props.contextObject.entityModule}
-          entityType={props.contextObject.entityType}
-          actionRequired={props.contextObject.actionRequired}
-          actionType={props.contextObject.actionType}
-          actionLabel={props.contextObject.actionLabel}
-        />
-      )
-    }
-
-    return (
-      <div className="space-y-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {compose.t('messages.composer.contextPreview.title', 'Context object')}
-        </p>
-        <p className="text-sm font-medium">
-          {props.contextObject.entityModule}:{props.contextObject.entityType}
-        </p>
-        <p className="text-xs font-mono text-muted-foreground">
-          {props.contextObject.entityId}
-        </p>
-      </div>
-    )
-  }, [compose.contextPreview, compose.t, messageUiRegistry.objectPreviewComponents, props.contextObject])
+    return <ContextObjectPreview contextObject={props.contextObject} />
+  }, [compose.contextPreview, props.contextObject])
 
   const composeWithContextPreview = React.useMemo(
     () => ({ ...compose, contextPreview: fallbackContextPreview }),

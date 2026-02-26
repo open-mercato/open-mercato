@@ -4434,6 +4434,10 @@ export default function SalesDocumentDetailPage({
                   entityId: record.id,
                   sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
                   sourceEntityId: record.id,
+                  previewData: {
+                    title: number ?? record.id,
+                    status: statusDisplay?.label ?? record?.status ?? undefined,
+                  },
                 }}
                 viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
                 defaultValues={{

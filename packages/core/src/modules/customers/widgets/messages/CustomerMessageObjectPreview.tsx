@@ -7,7 +7,6 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 
 export function CustomerMessageObjectPreview({
   entityType,
-  entityId,
   previewData,
   actionRequired,
   actionLabel,
@@ -36,7 +35,7 @@ export function CustomerMessageObjectPreview({
             </Badge>
           ) : null}
         </div>
-        <p className="truncate text-xs text-muted-foreground">{previewData?.subtitle || entityId}</p>
+        <p className="truncate text-xs text-muted-foreground">{previewData?.subtitle || ""}</p>
         {previewData?.status ? (
           <Badge variant="outline" className="text-xs">{previewData.status}</Badge>
         ) : null}

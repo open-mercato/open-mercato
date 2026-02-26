@@ -112,21 +112,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
     note: record?.note ?? null,
   }), [record, memberLabel])
 
-  const messageContextPreview = React.useMemo(() => (
-    <div className="space-y-1">
-      <p className="font-medium">{t('staff.leaveRequests.messages.contextTitle', 'Linked leave request')}</p>
-      {memberLabel ? (
-        <p className="text-xs text-muted-foreground">
-          {t('staff.leaveRequests.detail.member', 'Team member')}: {memberLabel}
-        </p>
-      ) : null}
-      <p className="text-xs text-muted-foreground">
-        {t('staff.leaveRequests.detail.dates', 'Dates')}: {dateSummary}
-      </p>
-    </div>
-  ), [dateSummary, memberLabel, t])
-
-  const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) => {
+const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) => {
     if (!record?.id) return
     const payload = buildLeaveRequestPayload(values, { id: record.id })
     await updateCrud('staff/leave-requests', payload, {
@@ -239,6 +225,11 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
                 entityId: record.id,
                 sourceEntityType: 'staff:leave_request',
                 sourceEntityId: record.id,
+                previewData: {
+                  title: memberLabel || t('staff.leaveRequests.messages.contextTitle', 'Linked leave request'),
+                  subtitle: dateSummary || undefined,
+                  status: record?.status ?? undefined,
+                },
               }}
               viewHref={`/backend/staff/leave-requests/${record.id}`}
               lockedType="staff.leave_request_approval"
@@ -254,20 +245,6 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
                 subject: t('staff.leaveRequests.messages.compose.subject', 'Leave request approval needed'),
                 body: t('staff.leaveRequests.messages.compose.body', 'Please review this leave request and take action.'),
               }}
-              contextPreview={messageContextPreview}
-              renderTrigger={({ openComposer, disabled }) => (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  onClick={openComposer}
-                  disabled={disabled}
-                  aria-label={t('staff.leaveRequests.messages.compose.action', 'Send for review')}
-                  title={t('staff.leaveRequests.messages.compose.action', 'Send for review')}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              )}
             />
           ) : null}
         />

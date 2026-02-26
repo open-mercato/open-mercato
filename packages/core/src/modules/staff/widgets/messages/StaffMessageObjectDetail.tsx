@@ -15,22 +15,38 @@ export function StaffMessageObjectDetail(props: ObjectDetailProps) {
   const t = useT()
   const [executingActionId, setExecutingActionId] = React.useState<string | null>(null)
 
+  const viewAction = props.actions.find((a) => a.id === 'view')
+  const otherActions = props.actions.filter((a) => a.id !== 'view')
+
+  const preview = (
+    <StaffMessageObjectPreview
+      entityId={props.entityId}
+      entityModule={props.entityModule}
+      entityType={props.entityType}
+      snapshot={props.snapshot}
+      previewData={props.previewData}
+      actionRequired={props.actionRequired}
+      actionType={props.actionType}
+      actionLabel={props.actionLabel}
+    />
+  )
+
   return (
     <div className="space-y-3 rounded border p-3">
-      <StaffMessageObjectPreview
-        entityId={props.entityId}
-        entityModule={props.entityModule}
-        entityType={props.entityType}
-        snapshot={props.snapshot}
-        previewData={props.previewData}
-        actionRequired={props.actionRequired}
-        actionType={props.actionType}
-        actionLabel={props.actionLabel}
-      />
+      {viewAction?.href ? (
+        <Link
+          href={resolveActionHref(viewAction.href, props.entityId)}
+          className="block rounded-md transition-opacity hover:opacity-75"
+        >
+          {preview}
+        </Link>
+      ) : (
+        preview
+      )}
 
-      {props.actions.length > 0 ? (
+      {otherActions.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          {props.actions.map((action) => {
+          {otherActions.map((action) => {
             if (action.href) {
               return (
                 <Button
