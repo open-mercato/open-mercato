@@ -63,16 +63,21 @@ export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly st
 
 export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
   if (typeof window === 'undefined') return
-  // We don't know required roles from the API response; use a generic hint.
   if (window.location.pathname.startsWith('/login')) return
   try {
     const current = window.location.pathname + window.location.search
     const features = options?.requiredFeatures?.filter(Boolean) ?? []
     const roles = options?.requiredRoles?.filter(Boolean) ?? []
+    const fallbackRoles = DEFAULT_FORBIDDEN_ROLES.filter(Boolean)
+    const effectiveRoles = roles.length ? roles : fallbackRoles
     const query = features.length
       ? `requireFeature=${encodeURIComponent(features.join(','))}`
-      : `requireRole=${encodeURIComponent((roles.length ? roles : DEFAULT_FORBIDDEN_ROLES).map(String).join(','))}`
-    const url = `/login?${query}&redirect=${encodeURIComponent(current)}`
+      : effectiveRoles.length
+        ? `requireRole=${encodeURIComponent(effectiveRoles.map(String).join(','))}`
+        : ''
+    const url = query
+      ? `/login?${query}&redirect=${encodeURIComponent(current)}`
+      : `/login?redirect=${encodeURIComponent(current)}`
     flash('Insufficient permissions. Redirecting to login…', 'warning')
     setTimeout(() => { window.location.href = url }, 60)
   } catch {
@@ -132,8 +137,11 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
           details: payload,
         })
       } catch {}
-      redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
-      const msg = await res.text().catch(() => 'Forbidden')
+      const hasAclHints = Boolean((roles && roles.length) || (features && features.length))
+      if (hasAclHints) {
+        redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
+      }
+      const msg = await res.clone().text().catch(() => 'Forbidden')
       throw new ForbiddenError(msg)
     }
     // If already on login, just return the response for the caller to handle
