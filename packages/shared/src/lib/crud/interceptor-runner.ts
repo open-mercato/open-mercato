@@ -162,6 +162,7 @@ export async function runInterceptorsAfter(
   }
 
   let currentBody = { ...response.body }
+  let usedReplace = false
 
   for (const entry of activeEntries) {
     const interceptor = entry.interceptor
@@ -182,6 +183,7 @@ export async function runInterceptorsAfter(
 
       if (result.replace) {
         currentBody = { ...result.replace }
+        usedReplace = true
       } else if (result.merge) {
         currentBody = { ...currentBody, ...result.merge }
       }
@@ -198,5 +200,5 @@ export async function runInterceptorsAfter(
     }
   }
 
-  return { merge: currentBody }
+  return usedReplace ? { replace: currentBody } : { merge: currentBody }
 }

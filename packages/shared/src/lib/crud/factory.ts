@@ -1170,8 +1170,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           query: validated,
         })
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
-        const afterPayload1 = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
-        if (afterPayload1 !== payload) Object.assign(payload, afterPayload1)
+        payload = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx) as typeof payload
         await enrichListPayload(payload, ctx, profiler)
         logCacheOutcome('hit', items.length)
         const response = respondWithPayload(payload)
@@ -1354,8 +1353,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         profiler.mark('after_list_hook')
-        const afterPayload2 = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
-        if (afterPayload2 !== payload) Object.assign(payload, afterPayload2)
+        payload = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx) as typeof payload
         await enrichListPayload(payload, ctx, profiler)
         await maybeStoreCrudCache(payload)
         profiler.mark('cache_store_attempt', { cacheEnabled })
@@ -1473,11 +1471,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return response
       }
-      const payload = { items: list, total: list.length }
+      let payload: Record<string, unknown> = { items: list, total: list.length }
       await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
       profiler.mark('after_list_hook')
-      const afterPayload3 = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
-      if (afterPayload3 !== payload) Object.assign(payload, afterPayload3)
+      payload = await applyAfterInterceptors(payload, request, 'GET', listInterceptorCtx)
       await enrichListPayload(payload, ctx, profiler)
       await maybeStoreCrudCache(payload)
       profiler.mark('cache_store_attempt', { cacheEnabled })
