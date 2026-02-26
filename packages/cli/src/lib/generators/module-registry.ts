@@ -818,6 +818,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     // Note: events, analytics, enrichers, notifications, AI tools, and translatable fields
     // configs are pushed inside processStandaloneConfig() above — no separate push needed here.
 
+    if (transFieldsImportName) {
+      transFieldsConfigs.push(`{ moduleId: '${modId}', fields: (${transFieldsImportName}.default ?? ${transFieldsImportName}.translatableFields ?? {}) as Record<string, string[]> }`)
+    }
+
     moduleDecls.push(`{
       id: '${modId}',
       ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
