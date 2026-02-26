@@ -1,57 +1,63 @@
 import { expect, test } from '@playwright/test';
+import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { deleteStaffEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/staffFixtures';
+
+export const integrationMeta = {
+  dependsOnModules: ['staff'],
+}
 
 /**
- * TC-STAFF-001: Staff Team Member CRUD via API
- * Covers: POST/PUT/GET/DELETE /api/staff/team-members
+ * TC-STAFF-001: Team Members list page — renders table, shows created member, supports navigation to detail
  */
-test.describe('TC-STAFF-001: Staff Team Member CRUD via API', () => {
-  test('should create, update, read, and delete a staff team member', async ({ request }) => {
+test.describe('TC-STAFF-001: Team Members list page', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'admin');
+  });
+
+  test('should render the team members table and allow navigating to a member detail page', async ({ page, request }) => {
+    const stamp = Date.now();
+    const memberName = `QA Member ${stamp}`;
+
     let token: string | null = null;
     let memberId: string | null = null;
-    const displayName = `QA TC-STAFF-001 ${Date.now()}`;
 
     try {
       token = await getAuthToken(request, 'admin');
 
       const createResponse = await apiRequest(request, 'POST', '/api/staff/team-members', {
         token,
-        data: { displayName },
+        data: { displayName: memberName, isActive: true },
       });
-      expect(createResponse.status(), 'POST /api/staff/team-members should return 201').toBe(201);
+      expect(createResponse.ok(), 'Team member fixture should be created').toBeTruthy();
       const createBody = (await createResponse.json()) as { id?: string };
-      expect(createBody.id, 'Response should contain an id').toBeTruthy();
-      memberId = createBody.id ?? null;
+      memberId = typeof createBody.id === 'string' ? createBody.id : null;
+      expect(memberId, 'Team member id should be returned by create response').toBeTruthy();
 
-      const updateResponse = await apiRequest(request, 'PUT', '/api/staff/team-members', {
-        token,
-        data: { id: memberId, description: 'QA member description' },
-      });
-      expect(updateResponse.status(), 'PUT /api/staff/team-members should return 200').toBe(200);
+      await page.goto('/backend/staff/team-members');
 
-      const getResponse = await apiRequest(
-        request,
-        'GET',
-        `/api/staff/team-members?ids=${encodeURIComponent(memberId!)}`,
-        { token },
-      );
-      expect(getResponse.status(), 'GET /api/staff/team-members should return 200').toBe(200);
-      const getBody = (await getResponse.json()) as { items?: Array<Record<string, unknown>> };
-      expect(Array.isArray(getBody.items) && getBody.items.length > 0, 'Should return at least one item').toBeTruthy();
-      const member = getBody.items![0];
-      expect(member.description, 'description should be updated').toBe('QA member description');
+      await expect(
+        page.getByRole('heading', { name: /team members/i }),
+      ).toBeVisible();
 
-      const deleteResponse = await apiRequest(
-        request,
-        'DELETE',
-        `/api/staff/team-members?id=${encodeURIComponent(memberId!)}`,
-        { token },
-      );
-      expect(deleteResponse.status(), 'DELETE /api/staff/team-members should return 200').toBe(200);
-      memberId = null;
+      await expect(
+        page.getByRole('link', { name: /add team member/i }).or(
+          page.getByRole('button', { name: /add team member/i }),
+        ),
+      ).toBeVisible();
+
+      await expect(page.getByText(memberName)).toBeVisible();
+
+      await page.goto(`/backend/staff/team-members/${encodeURIComponent(memberId ?? '')}`);
+
+      await expect(
+        page.locator('[data-crud-field-id="displayName"]').getByRole('textbox'),
+      ).toHaveValue(memberName);
     } finally {
-      await deleteStaffEntityIfExists(request, token, '/api/staff/team-members', memberId);
+      if (token && memberId) {
+        await apiRequest(request, 'DELETE', `/api/staff/team-members?id=${encodeURIComponent(memberId)}`, {
+          token,
+        }).catch(() => {});
+      }
     }
   });
 });
