@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   const entityId = url.searchParams.get('entityId') || ''
   if (!entityId) return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any

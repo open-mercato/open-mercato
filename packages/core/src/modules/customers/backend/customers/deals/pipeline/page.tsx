@@ -11,11 +11,6 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import {
-  customerDictionaryQueryOptions,
-  type CustomerDictionaryQueryData,
-} from '../../../../components/detail/hooks/useCustomerDictionary'
-import { renderDictionaryColor, renderDictionaryIcon } from '../../../../lib/dictionaries'
 
 type DealAssociation = { id: string; label: string }
 
@@ -24,6 +19,8 @@ type DealRecord = {
   title: string
   status: string | null
   pipelineStage: string | null
+  pipelineId: string | null
+  pipelineStageId: string | null
   valueAmount: number | null
   valueCurrency: string | null
   probability: number | null
@@ -51,10 +48,13 @@ type StageDefinition = {
 
 type SortOption = 'probability' | 'createdAt' | 'expectedCloseAt'
 
+type PipelineRecord = { id: string; name: string; isDefault: boolean }
+type PipelineStageRecord = { id: string; label: string; order: number; pipelineId: string }
+
 const DEALS_QUERY_LIMIT = 100
 
-const dealsQueryKey = (scopeVersion: number) =>
-  ['customers', 'deals', 'pipeline', `scope:${scopeVersion}`] as const
+const dealsQueryKey = (scopeVersion: number, pipelineId: string | null) =>
+  ['customers', 'deals', 'pipeline', `scope:${scopeVersion}`, `pipeline:${pipelineId ?? 'none'}`] as const
 
 const sortOptions: SortOption[] = ['probability', 'createdAt', 'expectedCloseAt']
 
@@ -84,45 +84,24 @@ function normalizeTimestamp(value: unknown): { iso: string | null; ts: number | 
   return { iso: date.toISOString(), ts: date.getTime() }
 }
 
-function buildStageDefinitions(
-  dictionary: CustomerDictionaryQueryData | undefined,
+function buildStageDefinitionsFromPipelineStages(
+  pipelineStages: PipelineStageRecord[],
   deals: DealRecord[],
   t: ReturnType<typeof useT>,
 ): StageDefinition[] {
-  const result: StageDefinition[] = []
-  const seen = new Set<string>()
-  const dictionaryEntries =
-    dictionary?.fullEntries ?? dictionary?.entries?.map((entry) => ({ ...entry, id: entry.value })) ?? []
-
-  dictionaryEntries.forEach((entry, index) => {
-    if (!entry || typeof entry.value !== 'string') return
-    const label = typeof entry.label === 'string' && entry.label.trim().length ? entry.label.trim() : entry.value
-    result.push({
-      id: `stage:${entry.value}:${index}`,
-      value: entry.value,
-      label,
-      color: typeof entry.color === 'string' ? entry.color : null,
-      icon: typeof entry.icon === 'string' ? entry.icon : null,
-    })
-    seen.add(entry.value)
-  })
-
-  const unknownStages = new Map<string, StageDefinition>()
-  deals.forEach((deal) => {
-    if (!deal.pipelineStage || seen.has(deal.pipelineStage)) return
-    if (unknownStages.has(deal.pipelineStage)) return
-    unknownStages.set(deal.pipelineStage, {
-      id: `stage:${deal.pipelineStage}`,
-      value: deal.pipelineStage,
-      label: deal.pipelineStage,
+  const result: StageDefinition[] = pipelineStages
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((stage) => ({
+      id: stage.id,
+      value: stage.id,
+      label: stage.label,
       color: null,
       icon: null,
-    })
-  })
+    }))
 
-  unknownStages.forEach((entry) => result.push(entry))
-
-  const hasUnassigned = deals.some((deal) => !deal.pipelineStage)
+  const knownIds = new Set(pipelineStages.map((s) => s.id))
+  const hasUnassigned = deals.some((deal) => !deal.pipelineStageId || !knownIds.has(deal.pipelineStageId))
   if (hasUnassigned) {
     result.push({
       id: 'stage:__unassigned',
@@ -140,10 +119,10 @@ function createDealMap(deals: DealRecord[]): Map<string, DealRecord> {
   return deals.reduce<Map<string, DealRecord>>((acc, deal) => acc.set(deal.id, deal), new Map())
 }
 
-function groupDealsByStage(deals: DealRecord[]): Map<string | null, DealRecord[]> {
+function groupDealsByStageId(deals: DealRecord[]): Map<string | null, DealRecord[]> {
   const byStage = new Map<string | null, DealRecord[]>()
   deals.forEach((deal) => {
-    const stageKey = deal.pipelineStage ?? null
+    const stageKey = deal.pipelineStageId ?? null
     const bucket = byStage.get(stageKey) ?? []
     bucket.push(deal)
     byStage.set(stageKey, bucket)
@@ -219,12 +198,48 @@ export default function SalesPipelinePage(): React.ReactElement {
   const queryClient = useQueryClient()
   const [sortBy, setSortBy] = React.useState<SortOption>('probability')
   const [pendingDealId, setPendingDealId] = React.useState<string | null>(null)
-  const dealsKey = React.useMemo(() => dealsQueryKey(scopeVersion), [scopeVersion])
+  const [selectedPipelineId, setSelectedPipelineId] = React.useState<string | null>(null)
 
-  const { data: dictionaryData } = useQuery(customerDictionaryQueryOptions('pipeline-stages', scopeVersion))
+  const pipelinesQuery = useQuery<PipelineRecord[]>({
+    queryKey: ['customers', 'pipelines', `scope:${scopeVersion}`],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const payload = await readApiResultOrThrow<{ items: PipelineRecord[] }>(
+        '/api/customers/pipelines',
+        undefined,
+        { errorMessage: translate('customers.deals.pipeline.loadError', 'Failed to load pipelines.') },
+      )
+      return payload?.items ?? []
+    },
+  })
+
+  React.useEffect(() => {
+    if (selectedPipelineId) return
+    const pipelines = pipelinesQuery.data
+    if (!pipelines || !pipelines.length) return
+    const defaultPipeline = pipelines.find((p) => p.isDefault) ?? pipelines[0]
+    if (defaultPipeline) setSelectedPipelineId(defaultPipeline.id)
+  }, [pipelinesQuery.data, selectedPipelineId])
+
+  const stagesQuery = useQuery<PipelineStageRecord[]>({
+    queryKey: ['customers', 'pipeline-stages', `scope:${scopeVersion}`, `pipeline:${selectedPipelineId}`],
+    enabled: !!selectedPipelineId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const payload = await readApiResultOrThrow<{ items: PipelineStageRecord[] }>(
+        `/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(selectedPipelineId!)}`,
+        undefined,
+        { errorMessage: translate('customers.deals.pipeline.loadError', 'Failed to load stages.') },
+      )
+      return payload?.items ?? []
+    },
+  })
+
+  const dealsKey = React.useMemo(() => dealsQueryKey(scopeVersion, selectedPipelineId), [scopeVersion, selectedPipelineId])
 
   const dealsQuery = useQuery<DealsQueryData>({
     queryKey: dealsKey,
+    enabled: !!selectedPipelineId,
     staleTime: 30_000,
     queryFn: async () => {
       const search = new URLSearchParams()
@@ -232,6 +247,7 @@ export default function SalesPipelinePage(): React.ReactElement {
       search.set('pageSize', String(DEALS_QUERY_LIMIT))
       search.set('sortField', 'createdAt')
       search.set('sortDir', 'desc')
+      if (selectedPipelineId) search.set('pipelineId', selectedPipelineId)
       const payload = await readApiResultOrThrow<Record<string, unknown>>(
         `/api/customers/deals?${search.toString()}`,
         undefined,
@@ -296,6 +312,8 @@ export default function SalesPipelinePage(): React.ReactElement {
           title,
           status,
           pipelineStage: stage,
+          pipelineId: typeof data.pipeline_id === 'string' ? data.pipeline_id : null,
+          pipelineStageId: typeof data.pipeline_stage_id === 'string' ? data.pipeline_stage_id : null,
           valueAmount: amount,
           valueCurrency: currency,
           probability,
@@ -317,10 +335,10 @@ export default function SalesPipelinePage(): React.ReactElement {
   const deals = dealsQuery.data?.deals ?? []
   const total = dealsQuery.data?.total ?? deals.length
   const dealMap = React.useMemo(() => createDealMap(deals), [deals])
-  const groupedDeals = React.useMemo(() => groupDealsByStage(deals), [deals])
+  const groupedDeals = React.useMemo(() => groupDealsByStageId(deals), [deals])
   const stages = React.useMemo(
-    () => buildStageDefinitions(dictionaryData, deals, t),
-    [dictionaryData, deals, t],
+    () => buildStageDefinitionsFromPipelineStages(stagesQuery.data ?? [], deals, t),
+    [stagesQuery.data, deals, t],
   )
 
   const dateFormatter = React.useMemo(
@@ -332,25 +350,25 @@ export default function SalesPipelinePage(): React.ReactElement {
   )
 
   const updateStageMutation = useMutation({
-    mutationFn: async ({ id, pipelineStage }: { id: string; pipelineStage: string }) => {
+    mutationFn: async ({ id, pipelineStageId }: { id: string; pipelineStageId: string }) => {
       await apiCallOrThrow(
         '/api/customers/deals',
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id, pipelineStage }),
+          body: JSON.stringify({ id, pipelineStageId }),
         },
         { errorMessage: translate('customers.deals.pipeline.moveError', 'Failed to update deal stage.') },
       )
-      return { id, pipelineStage }
+      return { id, pipelineStageId }
     },
-    onMutate: async ({ id, pipelineStage }) => {
+    onMutate: async ({ id, pipelineStageId }) => {
       setPendingDealId(id)
       await queryClient.cancelQueries({ queryKey: dealsKey })
       const previous = queryClient.getQueryData<DealsQueryData>(dealsKey)
       if (previous) {
         const nextDeals = previous.deals.map((deal) =>
-          deal.id === id ? { ...deal, pipelineStage } : deal,
+          deal.id === id ? { ...deal, pipelineStageId } : deal,
         )
         queryClient.setQueryData<DealsQueryData>(dealsKey, { ...previous, deals: nextDeals })
       }
@@ -410,10 +428,10 @@ export default function SalesPipelinePage(): React.ReactElement {
         )
         return
       }
-      if (deal.pipelineStage === stage.value) return
-      updateStageMutation.mutate({ id: dealId, pipelineStage: stage.value })
+      if (deal.pipelineStageId === stage.value) return
+      updateStageMutation.mutate({ id: dealId, pipelineStageId: stage.value })
     },
-    [dealMap, draggingId, t, updateStageMutation],
+    [dealMap, draggingId, translate, updateStageMutation],
   )
 
   const handleDragOver = React.useCallback(
@@ -429,11 +447,6 @@ export default function SalesPipelinePage(): React.ReactElement {
     return (
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
-          {stage.icon ? (
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted">
-              {renderDictionaryIcon(stage.icon, 'h-4 w-4 text-muted-foreground')}
-            </span>
-          ) : null}
           <div className="flex flex-col">
             <span className="text-sm font-medium">{stage.label}</span>
             <span className="text-xs text-muted-foreground">
@@ -441,7 +454,6 @@ export default function SalesPipelinePage(): React.ReactElement {
             </span>
           </div>
         </div>
-        {stage.color ? renderDictionaryColor(stage.color, 'h-3 w-3 rounded-full') : null}
       </div>
     )
   }
@@ -462,27 +474,55 @@ export default function SalesPipelinePage(): React.ReactElement {
                 )}
               </p>
             </div>
-            <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <span>{translate('customers.deals.pipeline.sort.label', 'Sort by')}</span>
-              <select
-                className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                value={sortBy}
-                onChange={handleSortChange}
+            <div className="flex items-center gap-4">
+              {pipelinesQuery.data && pipelinesQuery.data.length > 0 ? (
+                <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <span>{translate('customers.deals.pipeline.switch.label', 'Pipeline')}</span>
+                  <select
+                    className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                    value={selectedPipelineId ?? ''}
+                    onChange={(e) => setSelectedPipelineId(e.target.value || null)}
+                  >
+                    {pipelinesQuery.data.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <Link
+                href="/backend/config/customers/pipeline-stages"
+                className="text-sm font-medium text-primary hover:underline"
               >
-                <option value="probability">
-                  {translate('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
-                </option>
-                <option value="createdAt">
-                  {translate('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
-                </option>
-                <option value="expectedCloseAt">
-                  {translate('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
-                </option>
-              </select>
-            </label>
+                {translate('customers.deals.pipeline.manageStages', 'Manage stages')}
+              </Link>
+              <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <span>{translate('customers.deals.pipeline.sort.label', 'Sort by')}</span>
+                <select
+                  className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  value={sortBy}
+                  onChange={handleSortChange}
+                >
+                  <option value="probability">
+                    {translate('customers.deals.pipeline.sort.probability', 'Probability (high to low)')}
+                  </option>
+                  <option value="createdAt">
+                    {translate('customers.deals.pipeline.sort.createdAt', 'Created (newest first)')}
+                  </option>
+                  <option value="expectedCloseAt">
+                    {translate('customers.deals.pipeline.sort.expectedCloseAt', 'Expected close (soonest first)')}
+                  </option>
+                </select>
+              </label>
+            </div>
           </div>
 
-          {dealsQuery.isLoading ? (
+          {!selectedPipelineId ? (
+            <div className="flex h-[50vh] items-center justify-center">
+              <span className="text-sm text-muted-foreground">
+                {translate('customers.deals.pipeline.noPipeline', 'No pipeline selected. Create a pipeline in settings.')}
+              </span>
+            </div>
+          ) : dealsQuery.isLoading ? (
             <div className="flex h-[50vh] items-center justify-center">
               <Spinner />
             </div>

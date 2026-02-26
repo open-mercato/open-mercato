@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { injectionWidgetEntries } from '@/.mercato/generated/injection-widgets.generated'
+// Side-effect: registers translatable fields for client-side TranslationManager
+import '@/.mercato/generated/translations-fields.generated'
 import { injectionTables } from '@/.mercato/generated/injection-tables.generated'
 import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/core/modules/widgets/lib/injection'
 import { registerInjectionWidgets } from '@open-mercato/ui/backend/injection/widgetRegistry'

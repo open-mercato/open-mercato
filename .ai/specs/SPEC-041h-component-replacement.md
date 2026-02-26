@@ -83,15 +83,29 @@ return <ShipmentDialog orderId={orderId} onClose={handleClose} />
 
 ```typescript
 type ComponentOverride = {
-  target: { componentId?: string; displayName?: string }
+  target: { componentId: string }  // Only componentId targeting — displayName is unreliable in production builds
   priority: number
   features?: string[]
 } & (
-  | { replacement: React.LazyExoticComponent<any> }
+  | { replacement: React.LazyExoticComponent<any>; propsSchema: z.ZodType }  // propsSchema REQUIRED for replace mode
   | { wrapper: (Original: React.ComponentType) => React.ComponentType }
   | { propsTransform: (props: any) => any }
 )
 ```
+
+**Replace mode requires `propsSchema`**: In dev mode, the `useRegisteredComponent` hook validates props against the schema on every render, catching props contract violations early. In production, validation is skipped for performance.
+
+### 3a. Wrapper Composition Order
+
+When multiple wrappers target the same component, they compose from **lowest priority (innermost) to highest priority (outermost)**. Priority 100 wraps priority 50, which wraps the original. This means higher-priority wrappers see the combined output of all lower-priority wrappers.
+
+### 3b. Error Boundary for Replaced Components
+
+`useRegisteredComponent` wraps replacement and wrapper components in a React Error Boundary. If the replacement throws during render, the error boundary catches it, logs the error with the override module name, and falls back to rendering the **original component**. This prevents a buggy module from crashing the entire page.
+
+### 3c. Client-Side Only
+
+`useRegisteredComponent` is a client-side hook. Component replacement only works in client components. Server-rendered pages that need replaceable components must use `'use client'` boundaries. React Server Components (RSC) cannot be replaced via this mechanism.
 
 ### 4. `ComponentOverrideProvider`
 
@@ -108,6 +122,10 @@ Context provider at app root that builds a lookup table from all module override
 `widgets/components.ts` — new auto-discovered file exporting `componentOverrides: ComponentOverride[]`.
 
 `yarn generate` discovers and generates `component-overrides.generated.ts`.
+
+### 6. HMR Cleanup
+
+The component registry uses `globalThis.__openMercatoComponentRegistry__` (following the existing injection widget HMR pattern from `__openMercatoCoreInjectionWidgetEntries__`). On HMR, entries are replaced in-place — stale entries are overwritten, not accumulated.
 
 ---
 
@@ -159,6 +177,39 @@ export const componentOverrides: ComponentOverride[] = [
   },
 ]
 ```
+
+### Cross-Module Example: Carrier Integration wrapping Shipment Dialog
+
+A `carrier_integration` module wraps the sales module's shipment dialog to add carrier selection UI — without touching any file in `packages/core/src/modules/sales/`:
+
+```typescript
+// carrier_integration/widgets/components.ts
+import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import { lazy } from 'react'
+
+export const componentOverrides: ComponentOverride[] = [
+  {
+    target: { componentId: 'sales.order.shipment-dialog' },
+    wrapper: (OriginalDialog) => {
+      const CarrierSelectionPanel = lazy(() => import('../components/CarrierSelectionPanel'))
+      const WrappedDialog = (props: any) => (
+        <div>
+          <OriginalDialog {...props} />
+          <Suspense fallback={null}>
+            <CarrierSelectionPanel shipmentId={props.shipmentId} />
+          </Suspense>
+        </div>
+      )
+      WrappedDialog.displayName = 'CarrierWrappedShipmentDialog'
+      return WrappedDialog
+    },
+    priority: 50,
+    features: ['carrier_integration.manage'],
+  },
+]
+```
+
+This demonstrates the core use case: cross-module component extension without forking.
 
 ---
 
@@ -219,6 +270,29 @@ export const componentOverrides: ComponentOverride[] = [
 2. Call `useRegisteredComponent('example.todo.edit-dialog')`
 
 **Expected**: Component B (priority 100) is returned. Console warning logged about multiple replacements.
+
+### TC-UMES-CR05: propsTransform mode modifies props passed to original component
+
+**Type**: Unit (Vitest)
+
+**Steps**:
+1. Register a `propsTransform` override that adds `className: 'injected-class'` to the target component's props
+2. Render the component via `useRegisteredComponent`
+3. Assert the injected class is present on the rendered DOM element
+
+**Expected**: Original component renders with the injected `className` prop applied
+
+### TC-UMES-CR06: Error boundary falls back to original on replacement crash
+
+**Type**: Unit (Vitest)
+
+**Steps**:
+1. Register a `replacement` override that throws during render
+2. Render the component via `useRegisteredComponent`
+3. Assert the original component renders (not the crashing replacement)
+4. Assert a console error was logged with the override module name
+
+**Expected**: Error boundary catches the crash, falls back to original component, logs the error
 
 ---
 

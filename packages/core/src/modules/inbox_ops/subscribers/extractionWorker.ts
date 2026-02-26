@@ -14,6 +14,7 @@ import { validatePrices } from '../lib/priceValidator'
 import { extractParticipantsFromThread } from '../lib/emailParser'
 import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
 import { safeParsePayloadJson } from '../lib/validation'
+import { htmlToPlainText } from '../lib/htmlToPlainText'
 import { emitInboxOpsEvent } from '../events'
 
 export const metadata = {
@@ -834,23 +835,7 @@ function enrichDraftReplyTargets(
 function buildFullTextForExtraction(email: InboxEmail): string {
   let text = email.rawText || ''
   if (!text && email.rawHtml) {
-    text = email.rawHtml
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<\/div>/gi, '\n')
-      .replace(/<\/tr>/gi, '\n')
-      .replace(/<\/li>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>')
-      .replace(/&quot;/gi, '"')
-      .replace(/&#39;/gi, "'")
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
+    text = htmlToPlainText(email.rawHtml)
   }
   return text
     .replace(/\r\n/g, '\n')

@@ -175,8 +175,16 @@ export async function selectRecipientFromComposer(root: Page | Locator, email: s
 
 export async function searchMessages(page: Page, searchValue: string): Promise<void> {
   const input = page.getByPlaceholder('Search messages');
+  const listResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      /\/api\/messages(?:\?|$)/.test(response.url()) &&
+      response.ok(),
+    { timeout: 5_000 },
+  ).catch(() => null);
   await input.fill(searchValue);
-  await page.waitForTimeout(1200);
+  await listResponsePromise;
+  await page.waitForTimeout(200);
 }
 
 function escapeRegex(value: string): string {
@@ -188,8 +196,17 @@ export function messageRowBySubject(page: Page, subject: string): Locator {
 }
 
 export async function selectMessageFolder(page: Page, folderLabel: 'Inbox' | 'Sent' | 'Drafts' | 'Archived' | 'All'): Promise<void> {
+  const listResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      /\/api\/messages(?:\?|$)/.test(response.url()) &&
+      response.ok(),
+    { timeout: 5_000 },
+  ).catch(() => null);
   await page.getByRole('button', { name: /Folder:/i }).click();
   await page.getByRole('menuitemradio', { name: new RegExp(`^${escapeRegex(folderLabel)}$`, 'i') }).click();
+  await listResponsePromise;
+  await page.waitForTimeout(200);
 }
 
 export async function deleteMessageIfExists(

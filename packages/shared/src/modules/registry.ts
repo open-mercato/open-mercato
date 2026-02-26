@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi/types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
-import type { InjectionWidgetModule, ModuleInjectionTable } from './widgets/injection'
+import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -130,7 +130,7 @@ export type ModuleInjectionWidgetEntry = {
   moduleId: string
   key: string
   source: 'app' | 'package'
-  loader: () => Promise<InjectionWidgetModule<any, any>>
+  loader: () => Promise<InjectionAnyWidgetModule<any, any>>
 }
 
 export type Module = {

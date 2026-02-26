@@ -701,6 +701,8 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
   }
 
   const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
+  const missingRoles: string[] = []
+  const roleAssignments: Role[] = []
 
   for (const name of unique) {
     if (!currentNames.has(name)) {
@@ -709,14 +711,20 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
         role = await em.findOne(Role, { name, tenantId: null })
       }
       if (!role) {
-        role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
-        await em.persistAndFlush(role)
-      } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
-        role.tenantId = normalizedTenantId
-        await em.persistAndFlush(role)
+        missingRoles.push(name)
+      } else {
+        roleAssignments.push(role)
       }
-      em.persist(em.create(UserRole, { user, role, createdAt: new Date() }))
     }
+  }
+
+  if (missingRoles.length) {
+    const names = missingRoles.map((n) => `"${n}"`).join(', ')
+    throw new CrudHttpError(400, { error: `Role(s) not found: ${names}` })
+  }
+
+  for (const role of roleAssignments) {
+    em.persist(em.create(UserRole, { user, role, createdAt: new Date() }))
   }
 
   await em.flush()

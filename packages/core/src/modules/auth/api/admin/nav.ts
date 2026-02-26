@@ -156,13 +156,19 @@ export async function GET(req: Request) {
       href: `/backend/entities/user/${encodeURIComponent(e.entityId)}/records`
     }))
     if (items.length) {
-      const dd = roots.find((it: Entry) => it.groupKey === 'entities.nav.group' && it.titleKey === 'entities.nav.userEntities')
-      if (dd) {
-        const existing = dd.children || []
+      const userEntitiesLegacyGroupKeys = new Set(['settings.sections.dataDesigner', 'entities.nav.group'])
+      const userEntitiesAnchor = entries.find((entry: Entry) => entry.href === '/backend/entities/user')
+        ?? entries.find((entry: Entry) =>
+          entry.titleKey === 'entities.nav.userEntities' &&
+          typeof entry.groupKey === 'string' &&
+          userEntitiesLegacyGroupKeys.has(entry.groupKey),
+        )
+      if (userEntitiesAnchor) {
+        const existing = userEntitiesAnchor.children || []
         const dynamic = items.map((it) => ({
-          groupId: dd.groupId,
-          groupName: dd.groupName,
-          groupKey: dd.groupKey,
+          groupId: userEntitiesAnchor.groupId,
+          groupName: userEntitiesAnchor.groupName,
+          groupKey: userEntitiesAnchor.groupKey,
           title: it.label,
           href: it.href,
           enabled: true,
@@ -172,7 +178,7 @@ export async function GET(req: Request) {
         const byHref = new Map<string, Entry>()
         for (const c of existing) if (!byHref.has(c.href)) byHref.set(c.href, c)
         for (const c of dynamic) if (!byHref.has(c.href)) byHref.set(c.href, c)
-        dd.children = Array.from(byHref.values())
+        userEntitiesAnchor.children = Array.from(byHref.values())
       }
     }
   } catch (e) {

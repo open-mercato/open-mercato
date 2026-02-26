@@ -79,10 +79,12 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered�
 | [SPEC-026a](SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI (standalone + widget injection), search indexer `l10n:*` fields, per-entity translatable field definitions |
 | [SPEC-028](SPEC-028-2026-02-16-multiple-sales-pipelines.md) | 2026-02-16 | Multiple Sales Pipelines | Multiple CRM pipelines with configurable stages + deal assignment |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter: org-scoped stores, per-store configurable branding (CSS variables), localized catalog APIs, server-side faceted filters with cross-facet exclusion, multi-variant selection algorithm, WCAG 2.2 AA compliance, RWD-first component spec, and workflow-driven checkout (Phase 3) |
-| [SPEC-030](SPEC-030-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
+| [SPEC-030](SPEC-030-2026-02-20-catalog-unit-tests.md) | 2026-02-20 | Catalog Module Test Coverage | Catalog module unit + integration test coverage expansion plan and verification matrix |
+| [SPEC-030a](SPEC-030a-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
 | [SPEC-031](SPEC-031-2026-02-18-decrypt-database-cli.md) | 2026-02-18 | Decrypt Database CLI Command | CLI operation to decrypt encrypted tenant data back to plaintext with strict safety gates and operational guardrails |
 | [SPEC-032](SPEC-032-2026-02-19-notification-templates-db-only.md) | 2026-02-19 | Notification Templates (DB-Only) | DB-only architecture for versioned email/slack notification templates with publish flow, mapping resolver, and tenant-safe runtime fallback policy |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, API exposure, and admin configuration |
+| [SPEC-034](SPEC-034-2026-02-18-units-of-measure-conversions.md) | 2026-02-18 | Units of Measure and Product Conversions | Hybrid UoM model for catalog + sales core: base/sales units on products, per-product conversion factors, normalized sales line quantities with immutable UoM snapshots, conversion-aware pricing tiers, optional EU unit-price display, and full API/UI/ACL/search/integration coverage plan. |
 | [SPEC-034](SPEC-034-2026-02-21-dev-ephemeral-runtime.md) | 2026-02-21 | Dev Ephemeral Runtime Command | One-command worktree-friendly ephemeral dev runtime with automatic free-port selection, isolated Postgres, and runtime registry tracking |
 | [SPEC-035](SPEC-035-2026-02-22-mutation-guard-mechanism.md) | 2026-02-22 | Mutation Guard Mechanism | Generic DI-based mutation pre/post guard contract for CRUD and custom mutation routes |
 | [SPEC-036](SPEC-036-2026-02-21-application-request-lifecycle-events.md) | 2026-02-21 | Application & Request Lifecycle Events | Runtime lifecycle event contract for bootstrap and API request handling with best-effort event emission semantics |
@@ -91,9 +93,38 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered�
 | [SPEC-039](SPEC-039-2026-02-22-date-pickers.md) | 2026-02-22 | DatePicker, DateTimePicker & TimePicker UI Components | Reusable date/time picker components and CrudForm integration contracts |
 | [SPEC-040](SPEC-040-2026-02-22-document-parser-module.md) | 2026-02-22 | Document Parser Module | Schema-driven AI document extraction with consensus, preview, and review workflows |
 | [SPEC-041](SPEC-041-2026-02-24-universal-module-extension-system.md) | 2026-02-24 | Universal Module Extension System (UMES) | DOM-inspired framework that lets modules extend any UI surface, intercept mutations, transform API responses, and replace components without touching core code |
+| [SPEC-041a](SPEC-041a-foundation.md) | 2026-02-24 | UMES — Foundation | InjectionPosition + headless widget infrastructure; base extension registry and rendering pipeline |
+| [SPEC-041b](SPEC-041b-menu-injection.md) | 2026-02-24 | UMES — Menu Item Injection | Application chrome extensibility: sidebar, top nav, and context menus injectable from any module |
+| [SPEC-041c](SPEC-041c-events-dom-bridge.md) | 2026-02-24 | UMES — Widget Events & DOM Bridge | Extended widget lifecycle events and DOM event bridge for cross-component communication |
+| [SPEC-041d](SPEC-041d-response-enrichers.md) | 2026-02-24 | UMES — Response Enrichers | Data federation via server-side response enricher pipeline that merges cross-module fields into API responses |
+| [SPEC-041e](SPEC-041e-api-interceptors.md) | 2026-02-24 | UMES — API Interceptors | Server-side request/response interceptor pipeline for transforming or short-circuiting API calls |
+| [SPEC-041f](SPEC-041f-datatable-extensions.md) | 2026-02-24 | UMES — DataTable Extensions | DataTable column, row-action, and bulk-action injection from external modules |
+| [SPEC-041g](SPEC-041g-crudform-fields.md) | 2026-02-24 | UMES — CrudForm Field Injection | CrudForm field injection for adding, replacing, or reordering fields from external modules |
+| [SPEC-041h](SPEC-041h-component-replacement.md) | 2026-02-24 | UMES — Component Replacement | Runtime component replacement: swap any registered UI element with an alternative implementation |
+| [SPEC-041i](SPEC-041i-detail-page-bindings.md) | 2026-02-24 | UMES — Detail Page Bindings | Standardized slot bindings for detail pages enabling consistent cross-module extension |
+| [SPEC-041j](SPEC-041j-recursive-widgets.md) | 2026-02-24 | UMES — Recursive Widgets | Recursive widget extensibility: widgets that themselves expose injection slots |
+| [SPEC-041k](SPEC-041k-devtools.md) | 2026-02-24 | UMES — DevTools & Conflict Detection | Developer overlay for inspecting active extensions and detecting slot/component conflicts |
+| [SPEC-041l](SPEC-041l-integration-extensions.md) | 2026-02-24 | UMES — Integration Extensions | Extension patterns specific to integration marketplace connectors (SPEC-045) |
+| [SPEC-041m](SPEC-041m-mutation-lifecycle.md) | 2026-02-24 | UMES — Mutation Lifecycle Hooks | Overview of the mutation lifecycle hook system; entry point for sub-specs m1–m4 |
+| [SPEC-041m1](SPEC-041m1-mutation-guard-registry.md) | 2026-02-24 | UMES — Mutation Guard Registry | DI-based registry of ordered pre/post mutation guards with short-circuit support |
+| [SPEC-041m2](SPEC-041m2-sync-event-subscribers.md) | 2026-02-24 | UMES — Sync Event Subscribers | Synchronous in-request event subscribers for guaranteed ordering of side effects |
+| [SPEC-041m3](SPEC-041m3-client-side-event-filtering.md) | 2026-02-24 | UMES — Client-Side Event Filtering | Client-side subscription filters that narrow event delivery to matching record predicates |
+| [SPEC-041m4](SPEC-041m4-command-interceptors.md) | 2026-02-24 | UMES — Command Interceptors | Command-layer interceptors for wrapping or replacing command execution in the command graph |
 | [SPEC-042](SPEC-042-2026-02-24-multi-id-query-parameter.md) | 2026-02-24 | Multi-ID Query Parameter | Standardized `ids` query parameter for all `makeCrudRoute`-based list endpoints to filter by multiple record IDs in a single request |
 | [SPEC-043](SPEC-043-2026-02-24-reactive-notification-handlers.md) | 2026-02-24 | Reactive Notification Handlers | Reactive notification handler system for event-driven notification delivery |
 | [SPEC-044](SPEC-044-2026-02-24-payment-gateway-integrations.md) | 2026-02-24 | Payment Gateway Integrations | Stripe, PayU, Przelewy24, and Apple Pay gateway adapters with unified webhook handling, status machine, and UMES-based sales UI extensions |
+| [SPEC-045](SPEC-045-2026-02-24-integration-marketplace.md) | 2026-02-24 | Integration Marketplace & Connector Framework | Centralized integration framework: auto-discovered npm module connectors, unified credentials API, operation logs, and admin panel at `/backend/integrations` |
+| [SPEC-045a](SPEC-045a-foundation.md) | 2026-02-24 | Integration Marketplace — Foundation | Registry, credentials API, operation log infrastructure, and admin panel foundation |
+| [SPEC-045b](SPEC-045b-data-sync-hub.md) | 2026-02-24 | Integration Marketplace — Data Sync Hub | Import/export hub with delta streaming for bidirectional data synchronization |
+| [SPEC-045c](SPEC-045c-payment-shipping-hubs.md) | 2026-02-24 | Integration Marketplace — Payment & Shipping Hubs | Alignment of payment and shipping connector hub architecture with SPEC-044 |
+| [SPEC-045d](SPEC-045d-communication-notification-hubs.md) | 2026-02-24 | Integration Marketplace — Communication & Notification Hubs | Communication and notification provider hub (email, SMS, chat channels) |
+| [SPEC-045e](SPEC-045e-storage-webhook-hubs.md) | 2026-02-24 | Integration Marketplace — Storage & Webhook Hubs | File storage backend hub and inbound webhook receiver hub |
+| [SPEC-045f](SPEC-045f-health-monitoring.md) | 2026-02-24 | Integration Marketplace — Health Monitoring | Integration health monitoring, status dashboard, and marketplace UI polish |
+| [SPEC-045g](SPEC-045g-google-workspace.md) | 2026-02-24 | Integration Marketplace — Google Workspace | Google Workspace integration: spreadsheet-based product import as a reference data-sync connector |
+| [SPEC-045h](SPEC-045h-stripe-payment-gateway.md) | 2026-02-24 | Integration Marketplace — Stripe Gateway | Stripe payment gateway reference implementation as a marketplace connector |
+| [SPEC-046](SPEC-046-2026-02-25-customer-detail-pages-v2.md) | 2026-02-25 | Customer Detail Pages v2 | CrudForm-based rewrite of company and person detail pages with two-zone layout and UMES injection slots |
+| [SPEC-047](SPEC-047-2026-02-25-sales-document-detail-pages-v2.md) | 2026-02-25 | Sales Document Detail Pages v2 | CrudForm-based rewrite of quote and order detail pages with two-zone layout and UMES injection slots |
+| [SPEC-048](SPEC-048-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
 
 ## Specification Structure
 
