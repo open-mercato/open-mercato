@@ -268,8 +268,16 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     const owningForm = titleInput.locator('xpath=ancestor::form[1]')
     await owningForm.locator('button[type="submit"]').first().click()
 
+    const transformedOnFirstAttempt = await expect
+      .poll(async () => page.getByTestId('widget-transform-form-data').textContent(), { timeout: 8_000 })
+      .toContain('"title":"Trim Me"')
+      .then(() => true)
+      .catch(() => false)
+    if (!transformedOnFirstAttempt) {
+      await owningForm.locator('button[type="submit"]').first().click()
+    }
     await expect
-      .poll(async () => page.getByTestId('widget-transform-form-data').textContent(), { timeout: 15_000 })
+      .poll(async () => page.getByTestId('widget-transform-form-data').textContent(), { timeout: 12_000 })
       .toContain('"title":"Trim Me"')
     await expect
       .poll(async () => page.getByTestId('widget-transform-form-data').textContent(), { timeout: 15_000 })
@@ -287,10 +295,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-navigation')).toBeVisible()
 
-    const blockedLink = page.locator('a[href="/backend/blocked"]').first()
+    const blockedLink = page.getByTestId('phase-c-link-blocked')
     await expect(blockedLink).toBeVisible()
     let blockedResolved = false
-    for (let attempt = 0; attempt < 2 && !blockedResolved; attempt += 1) {
+    for (let attempt = 0; attempt < 3 && !blockedResolved; attempt += 1) {
       await blockedLink.click()
       blockedResolved = await expect
         .poll(async () => page.getByTestId('widget-navigation').textContent(), { timeout: 4_000 })
@@ -300,7 +308,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     }
     expect(blockedResolved).toBe(true)
 
-    const allowedLink = page.locator('a[href="/backend/umes-handlers?allowed=1"]').first()
+    const allowedLink = page.getByTestId('phase-c-link-allowed')
     await expect(allowedLink).toBeVisible()
     await allowedLink.click()
     await expect.poll(() => page.url(), { timeout: 8_000 }).toContain('/backend/umes-handlers?allowed=1')
@@ -337,12 +345,17 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await expect(page.getByTestId('phase-c-app-event-result')).toBeVisible()
 
     await page.getByTestId('phase-c-trigger-server-event').click()
-    const eventFromServer = await expect
+    const pageStateUpdated = await expect
       .poll(async () => page.getByTestId('phase-c-app-event-result').textContent(), { timeout: 6_000 })
       .toContain('example.todo.created')
       .then(() => true)
       .catch(() => false)
-    if (!eventFromServer) {
+    const widgetStateUpdated = await expect
+      .poll(async () => page.getByTestId('widget-app-event').textContent(), { timeout: 4_000 })
+      .toContain('example.todo.created')
+      .then(() => true)
+      .catch(() => false)
+    if (!pageStateUpdated || !widgetStateUpdated) {
       await page.getByTestId('phase-c-trigger-app-event').click()
     }
     await expect

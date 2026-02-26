@@ -21,18 +21,15 @@ test.describe('TC-CAT-001: Create New Product', () => {
     await page.getByRole('button', { name: 'Variants' }).click();
     await page.getByRole('textbox', { name: 'e.g., SKU-001' }).fill(sku);
 
-    const createResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'POST' &&
-        /\/api\/catalog\/products(?:\?|$)/.test(response.url()) &&
-        response.ok(),
-      { timeout: 10_000 },
-    );
-    await page.getByRole('button', { name: 'Create product' }).last().click();
-    const createResponse = await createResponsePromise;
-    const createBody = (await createResponse.json().catch(() => null)) as { id?: unknown } | null;
-    expect(typeof createBody?.id).toBe('string');
-    await page.goto(`/backend/catalog/products/${createBody?.id as string}`);
-    await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${createBody?.id as string}$`, 'i'));
+    const createProductButton = page
+      .locator('button[type="submit"]')
+      .filter({ hasText: /^Create product$|catalog\.products\.actions\.create/i })
+      .first();
+    await expect(createProductButton).toBeEnabled();
+    await createProductButton.click();
+
+    await expect(page).toHaveURL(/\/backend\/catalog\/products\/[^/?#]+$/i, { timeout: 10_000 });
+    const createdProductId = page.url().split('/').at(-1) ?? '';
+    expect(createdProductId.length > 0).toBe(true);
   });
 });

@@ -18,6 +18,7 @@ import {
 test.describe('TC-MSG-010: Draft Management UI', () => {
   test('should save compose form as draft and show it in Drafts folder', async ({ page, request }) => {
     let adminToken: string | null = null;
+    let draftMessageId: string | null = null;
     const subject = `QA TC-MSG-010 ${Date.now()}`;
 
     try {
@@ -33,7 +34,17 @@ test.describe('TC-MSG-010: Draft Management UI', () => {
       await page.getByPlaceholder('Write your message...').fill('Draft body content');
 
       // Click "Save draft" — button text comes from 'messages.saveDraft' key, default "Save draft"
+      const saveDraftResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          /\/api\/messages(?:\?|$)/.test(response.url()) &&
+          response.ok(),
+        { timeout: 10_000 },
+      );
       await page.getByRole('button', { name: /save draft/i }).click();
+      const saveDraftResponse = await saveDraftResponsePromise;
+      const saveDraftBody = (await saveDraftResponse.json()) as { id?: unknown };
+      draftMessageId = typeof saveDraftBody.id === 'string' ? saveDraftBody.id : null;
 
       // After saving a draft the user should be redirected back to the messages page
       await expect(page).toHaveURL(/\/backend\/messages/, { timeout: 10_000 });
@@ -45,10 +56,15 @@ test.describe('TC-MSG-010: Draft Management UI', () => {
       await searchMessages(page, subject);
 
       // Draft row must be visible
+      await expect.poll(async () => messageRowBySubject(page, subject).count(), { timeout: 10_000 }).toBeGreaterThan(0);
       await expect(messageRowBySubject(page, subject)).toBeVisible();
     } finally {
       // Find and delete the created draft via API
       if (adminToken) {
+        if (draftMessageId) {
+          await deleteMessageIfExists(request, adminToken, draftMessageId);
+          return;
+        }
         try {
           const draftsResponse = await apiRequest(
             request,
