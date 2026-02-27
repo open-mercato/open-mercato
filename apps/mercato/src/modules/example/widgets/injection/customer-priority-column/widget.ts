@@ -3,7 +3,6 @@ import type { InjectionColumnWidget } from '@open-mercato/shared/modules/widgets
 const widget: InjectionColumnWidget = {
   metadata: {
     id: 'example.injection.customer-priority-column',
-    features: ['example.view'],
     priority: 40,
   },
   columns: [

@@ -12,7 +12,6 @@ export const interceptors: ApiInterceptor[] = [
     id: 'example.block-test-todos',
     targetRoute: 'example/todos',
     methods: ['POST', 'PUT'],
-    features: ['example.todos.manage'],
     priority: 100,
     async before(request) {
       const title = request.body?.title
@@ -30,7 +29,6 @@ export const interceptors: ApiInterceptor[] = [
     id: 'example.todos-probe-timeout',
     targetRoute: 'example/todos',
     methods: ['GET'],
-    features: ['example.todos.view'],
     priority: 90,
     timeoutMs: 100,
     async before(request) {
@@ -44,7 +42,6 @@ export const interceptors: ApiInterceptor[] = [
     id: 'example.todos-probe-crash',
     targetRoute: 'example/todos',
     methods: ['GET'],
-    features: ['example.todos.view'],
     priority: 89,
     async before(request) {
       const probe = readString(request.query?.interceptorProbe)
@@ -56,7 +53,6 @@ export const interceptors: ApiInterceptor[] = [
     id: 'example.todos-probe-bad-query',
     targetRoute: 'example/todos',
     methods: ['GET'],
-    features: ['example.todos.view'],
     priority: 88,
     async before(request) {
       const probe = readString(request.query?.interceptorProbe)
@@ -75,7 +71,6 @@ export const interceptors: ApiInterceptor[] = [
     id: 'example.wildcard-probe',
     targetRoute: 'example/*',
     methods: ['GET'],
-    features: ['example.todos.view'],
     priority: 60,
     async before(request) {
       const probe = readString(request.query?.interceptorProbe)
@@ -101,7 +96,6 @@ export const interceptors: ApiInterceptor[] = [
     id: 'example.todos-response-meta',
     targetRoute: 'example/todos',
     methods: ['GET'],
-    features: ['example.todos.view'],
     priority: 10,
     async before() {
       return {
@@ -127,7 +121,6 @@ export const interceptors: ApiInterceptor[] = [
     id: 'example.customer-priority-filter',
     targetRoute: 'customers/people',
     methods: ['GET'],
-    features: ['example.view'],
     priority: 70,
     async before(request) {
       const priority = readString(request.query?.examplePriority)

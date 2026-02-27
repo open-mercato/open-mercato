@@ -9,8 +9,8 @@ const puzzleIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['example.todos.view'],
-  pageTitle: 'UMES Phase E-H Extensions',
-  pageTitleKey: 'example.umes.extensions.title',
+  pageTitle: 'Phase E-H hanlders',
+  pageTitleKey: 'example.menu.umesExtensions',
   pageGroup: 'Example',
   pageGroupKey: 'example.nav.group',
   pageOrder: 20600,

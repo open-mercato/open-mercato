@@ -51,21 +51,21 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
   const print = (value: unknown) => JSON.stringify(value ?? null)
 
   return (
-    <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm space-y-1">
-      <div className="font-medium text-blue-900">Example Injection Widget</div>
-      <div className="text-blue-700 mt-1">
+    <div className="space-y-1 rounded border border-border bg-muted/30 p-3 text-sm">
+      <div className="font-medium text-foreground">Example Injection Widget</div>
+      <div className="mt-1 text-muted-foreground">
         This widget is injected via the widget injection system. It can respond to form events and add custom UI.
       </div>
-      {disabled && <div className="text-blue-600 mt-1 text-xs">Form is currently saving...</div>}
-      <div data-testid="widget-field-change" className="text-xs text-blue-800">fieldChange={print(lastFieldChange)}</div>
-      <div data-testid="widget-field-warning" className="text-xs text-blue-800">fieldWarning={print(lastFieldChangeWarning)}</div>
-      <div data-testid="widget-navigation" className="text-xs text-blue-800">navigate={print(lastNavigationResult)}</div>
-      <div data-testid="widget-visibility" className="text-xs text-blue-800">visibility={print(lastVisibilityChange)}</div>
-      <div data-testid="widget-app-event" className="text-xs text-blue-800">appEvent={print(lastAppEvent)}</div>
-      <div data-testid="widget-save-guard" className="text-xs text-blue-800">saveGuard={print(lastSaveGuard)}</div>
-      <div data-testid="widget-transform-form-data" className="text-xs text-blue-800">transformFormData={print(lastTransformFormData)}</div>
-      <div data-testid="widget-transform-display-data" className="text-xs text-blue-800">transformDisplayData={print(lastTransformDisplayData)}</div>
-      <div data-testid="widget-transform-validation" className="text-xs text-blue-800">transformValidation={print(lastTransformValidation)}</div>
+      {disabled && <div className="mt-1 text-xs text-muted-foreground">Form is currently saving...</div>}
+      <div data-testid="widget-field-change" className="text-xs text-muted-foreground">fieldChange={print(lastFieldChange)}</div>
+      <div data-testid="widget-field-warning" className="text-xs text-muted-foreground">fieldWarning={print(lastFieldChangeWarning)}</div>
+      <div data-testid="widget-navigation" className="text-xs text-muted-foreground">navigate={print(lastNavigationResult)}</div>
+      <div data-testid="widget-visibility" className="text-xs text-muted-foreground">visibility={print(lastVisibilityChange)}</div>
+      <div data-testid="widget-app-event" className="text-xs text-muted-foreground">appEvent={print(lastAppEvent)}</div>
+      <div data-testid="widget-save-guard" className="text-xs text-muted-foreground">saveGuard={print(lastSaveGuard)}</div>
+      <div data-testid="widget-transform-form-data" className="text-xs text-muted-foreground">transformFormData={print(lastTransformFormData)}</div>
+      <div data-testid="widget-transform-display-data" className="text-xs text-muted-foreground">transformDisplayData={print(lastTransformDisplayData)}</div>
+      <div data-testid="widget-transform-validation" className="text-xs text-muted-foreground">transformValidation={print(lastTransformValidation)}</div>
     </div>
   )
 }

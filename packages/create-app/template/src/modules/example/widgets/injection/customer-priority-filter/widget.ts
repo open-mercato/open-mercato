@@ -3,7 +3,6 @@ import type { InjectionFilterWidget } from '@open-mercato/shared/modules/widgets
 const widget: InjectionFilterWidget = {
   metadata: {
     id: 'example.injection.customer-priority-filter',
-    features: ['example.view'],
     priority: 35,
   },
   filters: [
