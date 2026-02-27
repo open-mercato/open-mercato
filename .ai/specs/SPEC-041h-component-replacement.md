@@ -6,7 +6,7 @@
 | **Phase** | H (PR 8) |
 | **Branch** | `feat/umes-component-replacement` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Draft |
+| **Status** | Done |
 
 ## Goal
 
@@ -346,3 +346,4 @@ This demonstrates the core use case: cross-module component extension without fo
 - [x] Unit tests added for replacement fallback/wrapper behavior and section-handle rendering
 - [x] Full props schema validation in replace mode implemented with fallback in `useRegisteredComponent`
 - [x] Playwright scenarios TC-UMES-CR01..CR03 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`
+- [x] Unit scenarios TC-UMES-CR04..CR06 covered in `packages/ui/src/backend/__tests__/component-replacement.test.tsx`

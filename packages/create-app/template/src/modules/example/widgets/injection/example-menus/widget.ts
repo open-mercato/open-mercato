@@ -17,6 +17,17 @@ const widget: InjectionMenuItemWidget = {
       groupLabelKey: 'example.nav.group',
       placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
     },
+    {
+      id: 'example-umes-extensions',
+      labelKey: 'example.menu.umesExtensions',
+      label: 'UMES E-H',
+      icon: 'Puzzle',
+      href: '/backend/umes-extensions',
+      features: ['example.todos.view'],
+      groupId: 'example.nav.group',
+      groupLabelKey: 'example.nav.group',
+      placement: { position: InjectionPosition.After, relativeTo: 'example-todos-shortcut' },
+    },
   ],
 }
 

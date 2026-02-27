@@ -18,6 +18,26 @@ const alwaysEnabledInjectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.example-profile-menu',
     priority: 50,
   },
+  'crud-form:customers.person:fields': {
+    widgetId: 'example.injection.customer-priority-field',
+    priority: 40,
+  },
+  'data-table:customers.people:columns': {
+    widgetId: 'example.injection.customer-priority-column',
+    priority: 30,
+  },
+  'data-table:customers.people:filters': {
+    widgetId: 'example.injection.customer-priority-filter',
+    priority: 30,
+  },
+  'data-table:customers.people:row-actions': {
+    widgetId: 'example.injection.customer-priority-row-action',
+    priority: 30,
+  },
+  'data-table:customers.people:bulk-actions': {
+    widgetId: 'example.injection.customer-priority-bulk-actions',
+    priority: 30,
+  },
 }
 
 const optionalCrossModuleInjectionTable: ModuleInjectionTable = {

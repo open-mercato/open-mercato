@@ -42,6 +42,12 @@ export function useRegisteredComponent<TProps>(
       return Missing as ComponentType<TProps>
     }
     const overrides = getComponentOverrides(componentId)
+    const replacementOverrides = overrides.filter((override) => 'replacement' in override)
+    if (process.env.NODE_ENV !== 'production' && replacementOverrides.length > 1) {
+      console.warn(
+        `[UMES] Multiple replacements registered for "${componentId}". Highest-priority replacement is applied.`,
+      )
+    }
 
     let replacement: ComponentType<TProps> | null = null
     let replacementOverride: (typeof overrides)[number] | null = null

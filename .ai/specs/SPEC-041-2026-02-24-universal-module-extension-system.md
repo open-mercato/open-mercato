@@ -297,8 +297,8 @@ src/modules/<module>/
 | B — Menus | TC-UMES-M01–M04 | 4 |
 | C — Events + DOM Bridge | TC-UMES-E01–E06 | 6 |
 | D — Response Enrichers | TC-UMES-R01–R06 | 6 |
-| E — API Interceptors | TC-UMES-I01–I07 | 7 |
-| F — DataTable Extensions | TC-UMES-D01–D05 | 5 |
+| E — API Interceptors | TC-UMES-I01–I09 | 9 |
+| F — DataTable Extensions | TC-UMES-D01–D06 | 6 |
 | G — CrudForm Fields | TC-UMES-CF01–CF05 | 5 |
 | H — Component Replacement | TC-UMES-CR01–CR06 | 6 |
 | I — Detail Bindings | TC-UMES-DP01–DP04 | 4 |
@@ -307,7 +307,7 @@ src/modules/<module>/
 | L — Integration Extensions | TC-UMES-L01–L06 | 6 |
 | M — Mutation Lifecycle | TC-UMES-ML01–ML10 | 10 |
 | M — Command Interceptors | TC-UMES-CI01–CI10 | 10 |
-| **Total** | | **75** |
+| **Total** | | **78** |
 
 See each phase sub-spec for detailed test scenarios, example module additions, and testing notes.
 

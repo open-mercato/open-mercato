@@ -6,7 +6,7 @@
 | **Phase** | F (PR 6) |
 | **Branch** | `feat/umes-datatable-extensions` |
 | **Depends On** | Phase A (Foundation), Phase D (Response Enrichers) |
-| **Status** | Draft |
+| **Status** | Done |
 
 ## Goal
 
