@@ -1104,6 +1104,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const maybeStoreCrudCache = async (payload: any) => {
         if (!cacheEnabled || !cache || !cacheKey) return
         if (!payload || typeof payload !== 'object') return
+        if (Array.isArray(payload)) return
         const items = Array.isArray((payload as any).items) ? (payload as any).items : []
         const tags = new Set<string>()
         const scopeOrgIds = collectScopeOrganizationIds(ctx)
@@ -1173,6 +1174,24 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (cachedValue) {
         cacheStatus = 'hit'
         profiler.mark('cache_hit', { generatedAt: cachedValue.generatedAt ?? null })
+        const payload = safeClone(cachedValue.payload)
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray((payload as any).items)) {
+          cacheStatus = 'miss'
+          profiler.mark('cache_payload_invalid', {
+            payloadType: Array.isArray(payload) ? 'array' : typeof payload,
+          })
+          try {
+            if (cache && cacheKey && typeof cache.delete === 'function') {
+              await cache.delete(cacheKey)
+            }
+          } catch {
+            // ignore cache eviction failure
+          }
+          cachedValue = null
+        }
+      }
+
+      if (cachedValue) {
         const payload = safeClone(cachedValue.payload)
         const items = Array.isArray((payload as any)?.items) ? (payload as any).items : []
         profiler.mark('cache_payload_ready', { itemCount: items.length })

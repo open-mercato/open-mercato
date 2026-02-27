@@ -797,12 +797,12 @@ export function DataTable<T>({
     return collectUniqueById(entries, 'column').map((definition) => ({
       id: definition.id,
       accessorKey: definition.accessorKey,
-      header: definition.header,
+      header: t(definition.header, definition.header),
       cell: definition.cell as ColumnDef<T, unknown>['cell'],
       size: definition.size,
       enableSorting: definition.sortable === true,
     }))
-  }, [columnWidgets])
+  }, [columnWidgets, t])
   const injectedRowActions = React.useMemo<InjectionRowActionDefinition[]>(() => {
     const entries: InjectionRowActionDefinition[] = []
     for (const widget of rowActionWidgets) {
@@ -840,11 +840,17 @@ export function DataTable<T>({
                 : 'text'
         const id = filter.queryParam ?? filter.id
         if (!byId.has(id)) {
+          const translatedOptions = Array.isArray(filter.options)
+            ? filter.options.map((option) => ({
+                ...option,
+                label: t(option.label, option.label),
+              }))
+            : filter.options
           byId.set(id, {
             id,
             label: t(filter.label, filter.label),
             type: mappedType,
-            options: filter.options,
+            options: translatedOptions,
           })
         }
       }
