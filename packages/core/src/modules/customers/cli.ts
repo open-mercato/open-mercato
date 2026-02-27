@@ -2644,7 +2644,8 @@ async function warnIfStressTestSchemaChanged(knex: any) {
     for (const [table, requiredColumns] of Object.entries(STRESS_TEST_REQUIRED_COLUMNS)) {
       const rows = await knex('information_schema.columns')
         .select('column_name')
-        .where({ table_schema: 'public', table_name: table })
+        .whereRaw('table_schema = current_schema()')
+        .where({ table_name: table })
       const existing = new Set(rows.map((row: { column_name: string }) => row.column_name))
       const missing = requiredColumns.filter((column) => !existing.has(column))
       if (missing.length) warnings.push(`${table}: missing ${missing.join(', ')}`)

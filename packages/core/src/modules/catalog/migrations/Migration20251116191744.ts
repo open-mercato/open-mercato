@@ -22,7 +22,7 @@ export class Migration20251116191744 extends Migration {
         if not exists (
           select 1
           from information_schema.columns
-          where table_schema = 'public'
+          where table_schema = current_schema()
             and table_name = 'catalog_product_variant_relations'
             and column_name = 'child_product_id'
         ) then
@@ -32,7 +32,7 @@ export class Migration20251116191744 extends Migration {
         if exists (
           select 1
           from information_schema.columns
-          where table_schema = 'public'
+          where table_schema = current_schema()
             and table_name = 'catalog_product_variant_relations'
             and column_name = 'child_variant_id'
         ) then
@@ -88,7 +88,7 @@ export class Migration20251116191744 extends Migration {
         if exists (
           select 1
           from information_schema.columns
-          where table_schema = 'public'
+          where table_schema = current_schema()
             and table_name = 'catalog_product_variant_relations'
             and column_name = 'child_product_id'
         ) then
@@ -98,7 +98,7 @@ export class Migration20251116191744 extends Migration {
         if exists (
           select 1
           from information_schema.columns
-          where table_schema = 'public'
+          where table_schema = current_schema()
             and table_name = 'catalog_product_variant_relations'
             and column_name = 'child_variant_id'
         ) then
