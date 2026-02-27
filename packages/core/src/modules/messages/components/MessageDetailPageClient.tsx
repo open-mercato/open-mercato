@@ -287,18 +287,6 @@ function MessageDetailPageClientContent({ id }: { id: string }) {
   )
 }
 
-export function MessageDetailPageClient({ id, canViewMessages = true }: { id: string; canViewMessages?: boolean }) {
-  const t = useT()
-  if (!canViewMessages) {
-    return (
-      <ErrorMessage
-        label={t('messages.access.disabled.title', 'Messages module is disabled for your role.')}
-        description={t(
-          'messages.access.disabled.description',
-          'Ask your administrator to enable the required Messages permissions.',
-        )}
-      />
-    )
-  }
+export function MessageDetailPageClient({ id }: { id: string }) {
   return <MessageDetailPageClientContent id={id} />
 }

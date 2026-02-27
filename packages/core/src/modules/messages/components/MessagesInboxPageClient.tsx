@@ -95,7 +95,7 @@ function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMessages?: boolean }) {
+export function MessagesInboxPageClient() {
   const router = useRouter()
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
@@ -120,7 +120,6 @@ export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMes
       JSON.stringify(filterValues),
       scopeVersion,
     ],
-    enabled: canViewMessages,
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('folder', folder)
@@ -178,7 +177,6 @@ export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMes
 
   const messageTypesQuery = useQuery({
     queryKey: ['messages', 'types', scopeVersion],
-    enabled: canViewMessages,
     queryFn: async () => {
       const call = await apiCall<{ items?: MessageTypeItem[] }>('/api/messages/types')
       if (!call.ok) {
@@ -193,7 +191,6 @@ export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMes
   })
 
   React.useEffect(() => {
-    if (!canViewMessages) return
     if (!listQuery.error) return
     if (listQuery.data?.accessDenied) return
     flash(
@@ -202,10 +199,9 @@ export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMes
         : t('messages.errors.loadListFailed', 'Failed to load messages.'),
       'error',
     )
-  }, [canViewMessages, listQuery.error, t])
+  }, [listQuery.error, listQuery.data?.accessDenied, t])
 
   React.useEffect(() => {
-    if (!canViewMessages) return
     if (!messageTypesQuery.error) return
     flash(
       messageTypesQuery.error instanceof Error
@@ -213,7 +209,7 @@ export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMes
         : t('messages.errors.loadTypesFailed', 'Failed to load message types.'),
       'error',
     )
-  }, [canViewMessages, messageTypesQuery.error, t])
+  }, [messageTypesQuery.error, t])
 
   const messageTypeLabelMap = React.useMemo(() => {
     const map: Record<string, string> = {}
@@ -400,7 +396,7 @@ export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMes
     }
   }, [folderMenuOpen])
 
-  const accessDenied = !canViewMessages || listQuery.data?.accessDenied === true
+  const accessDenied = listQuery.data?.accessDenied === true
   const rows = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
   const totalPages = listQuery.data?.totalPages ?? 1
