@@ -1,13 +1,9 @@
 "use client"
 import { NotificationBell } from '@open-mercato/ui/backend/notifications'
-import { salesNotificationTypes } from '@open-mercato/core/modules/sales/notifications.client'
+import { getNotificationRenderers } from '@/.mercato/generated/notifications.client.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-const notificationRenderers = Object.fromEntries(
-  salesNotificationTypes
-    .filter((type) => Boolean(type.Renderer))
-    .map((type) => [type.type, type.Renderer!])
-)
+const notificationRenderers = getNotificationRenderers()
 
 export function NotificationBellWrapper() {
   const t = useT()

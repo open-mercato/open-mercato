@@ -12,6 +12,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useChannelFields, buildChannelPayload, type ChannelFormValues } from '@open-mercato/core/modules/sales/components/channels/channelFormFields'
 import { E } from '#generated/entities.ids.generated'
 import { SalesChannelOffersPanel } from '@open-mercato/core/modules/sales/components/channels/SalesChannelOffersPanel'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
 type ChannelApiResponse = {
   items?: Array<Record<string, unknown>>
@@ -126,6 +127,23 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
           <CrudForm<ChannelFormValues>
             title={t('sales.channels.form.editTitle', 'Edit channel')}
             versionHistory={{ resourceKind: 'sales.channel', resourceId: channelId ? String(channelId) : '' }}
+            extraActions={channelId ? (
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'sales',
+                  entityType: 'channel',
+                  entityId: channelId,
+                  previewData: {
+                    title: initialValues?.name ?? '',
+                    metadata: {
+                      [t('sales.channels.form.contactEmail')]: initialValues?.contactEmail ?? '-',
+                      [t('sales.channels.form.websiteUrl')]: initialValues?.websiteUrl ?? '-',
+                    },
+                  },
+                }}
+                viewHref={`/backend/sales/channels/${channelId}/edit`}
+              />
+            ) : undefined}
             entityId={E.sales.sales_channel}
             fields={fields}
             groups={[

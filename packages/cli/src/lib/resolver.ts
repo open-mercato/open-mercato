@@ -1,5 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import ts from 'typescript'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 export type ModuleEntry = {
   id: string
@@ -63,44 +65,189 @@ function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
   return path.resolve(rootDir, 'packages/core')
 }
 
-function parseModulesFromSource(source: string): ModuleEntry[] {
-  // Parse the enabledModules array from TypeScript source
-  // This is more reliable than trying to require() a .ts file
-  const match = source.match(/export\s+const\s+enabledModules[^=]*=\s*\[([\s\S]*?)\]/)
-  if (!match) return []
+function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): ModuleEntry | null {
+  let id: string | null = null
+  let from: string | null = null
+  for (const property of node.properties) {
+    if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) continue
+    const key = property.name.text
+    if (key === 'id' && ts.isStringLiteralLike(property.initializer)) {
+      id = property.initializer.text
+    }
+    if (key === 'from' && ts.isStringLiteralLike(property.initializer)) {
+      from = property.initializer.text
+    }
+  }
+  if (!id) return null
+  return { id, from: from ?? '@open-mercato/core' }
+}
 
-  const arrayContent = match[1]
+function parseProcessEnvAccess(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+): { matched: boolean; value: string | undefined } {
+  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) {
+    const target = node.expression
+    if (
+      ts.isPropertyAccessExpression(target)
+      && ts.isIdentifier(target.expression)
+      && target.expression.text === 'process'
+      && target.name.text === 'env'
+    ) {
+      return { matched: true, value: env[node.name.text] }
+    }
+  }
+  if (
+    ts.isElementAccessExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === 'process'
+    && node.expression.name.text === 'env'
+    && ts.isStringLiteralLike(node.argumentExpression)
+  ) {
+    return { matched: true, value: env[node.argumentExpression.text] }
+  }
+  return { matched: false, value: undefined }
+}
+
+function evaluateStaticExpression(node: ts.Expression, env: NodeJS.ProcessEnv): unknown {
+  if (ts.isParenthesizedExpression(node)) return evaluateStaticExpression(node.expression, env)
+  if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text
+  if (ts.isNumericLiteral(node)) return Number(node.text)
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null
+
+  const envAccess = parseProcessEnvAccess(node, env)
+  if (envAccess.matched) return envAccess.value
+
+  if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
+    return !Boolean(evaluateStaticExpression(node.operand, env))
+  }
+
+  if (ts.isBinaryExpression(node)) {
+    if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      return Boolean(evaluateStaticExpression(node.left, env))
+        && Boolean(evaluateStaticExpression(node.right, env))
+    }
+    if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+      return Boolean(evaluateStaticExpression(node.left, env))
+        || Boolean(evaluateStaticExpression(node.right, env))
+    }
+    if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken) {
+      return evaluateStaticExpression(node.left, env) === evaluateStaticExpression(node.right, env)
+    }
+    if (node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
+      return evaluateStaticExpression(node.left, env) !== evaluateStaticExpression(node.right, env)
+    }
+  }
+
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'parseBooleanWithDefault') {
+    const rawValueNode = node.arguments[0]
+    const fallbackNode = node.arguments[1]
+    const rawValue = rawValueNode ? evaluateStaticExpression(rawValueNode, env) : undefined
+    const fallbackValue = fallbackNode ? evaluateStaticExpression(fallbackNode, env) : false
+    return parseBooleanWithDefault(typeof rawValue === 'string' ? rawValue : undefined, Boolean(fallbackValue))
+  }
+
+  return undefined
+}
+
+function evaluateStaticCondition(node: ts.Expression, env: NodeJS.ProcessEnv): boolean {
+  const evaluated = evaluateStaticExpression(node, env)
+  return Boolean(evaluated)
+}
+
+function collectPushEntriesFromStatement(
+  statement: ts.Statement,
+  env: NodeJS.ProcessEnv,
+  targetVariableName: string,
+): ModuleEntry[] {
+  if (ts.isBlock(statement)) {
+    return statement.statements.flatMap((child) => collectPushEntriesFromStatement(child, env, targetVariableName))
+  }
+
+  if (ts.isIfStatement(statement)) {
+    if (evaluateStaticCondition(statement.expression, env)) {
+      return collectPushEntriesFromStatement(statement.thenStatement, env, targetVariableName)
+    }
+    if (statement.elseStatement) {
+      return collectPushEntriesFromStatement(statement.elseStatement, env, targetVariableName)
+    }
+    return []
+  }
+
+  if (!ts.isExpressionStatement(statement)) return []
+  const expression = statement.expression
+  if (!ts.isCallExpression(expression)) return []
+  if (!ts.isPropertyAccessExpression(expression.expression)) return []
+  const pushTarget = expression.expression.expression
+  const pushMethod = expression.expression.name
+  if (!ts.isIdentifier(pushTarget) || pushTarget.text !== targetVariableName) return []
+  if (pushMethod.text !== 'push') return []
+
+  return expression.arguments.flatMap((argument) => {
+    if (!ts.isObjectLiteralExpression(argument)) return []
+    const entry = parseModuleEntryFromObjectLiteral(argument)
+    return entry ? [entry] : []
+  })
+}
+
+function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process.env): ModuleEntry[] {
+  const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const modules: ModuleEntry[] = []
+  const variableName = 'enabledModules'
+  let foundDeclaration = false
 
-  // Match each object in the array: { id: '...', from: '...' }
-  const objectRegex = /\{\s*id:\s*['"]([^'"]+)['"]\s*(?:,\s*from:\s*['"]([^'"]+)['"])?\s*\}/g
-  let objMatch
-  while ((objMatch = objectRegex.exec(arrayContent)) !== null) {
-    const [, id, from] = objMatch
-    modules.push({ id, from: from || '@open-mercato/core' })
+  for (const statement of sourceFile.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || declaration.name.text !== variableName) continue
+        if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
+        const fromArray = declaration.initializer.elements.flatMap((element) => {
+          if (!ts.isObjectLiteralExpression(element)) return []
+          const entry = parseModuleEntryFromObjectLiteral(element)
+          return entry ? [entry] : []
+        })
+        modules.push(...fromArray)
+        foundDeclaration = true
+      }
+      continue
+    }
+    if (!foundDeclaration) continue
+    modules.push(...collectPushEntriesFromStatement(statement, env, variableName))
   }
 
   return modules
+}
+
+function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
+  const source = fs.readFileSync(cfgPath, 'utf8')
+  return parseModulesFromSource(source)
 }
 
 function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
-      const source = fs.readFileSync(cfgPath, 'utf8')
-      const list = parseModulesFromSource(source)
-      if (list.length) return list
-    } catch {
-      // Fall through to fallback
+      const loadedModules = readEnabledModulesFromConfig(cfgPath)
+      if (loadedModules.length > 0) return loadedModules
+    } catch (error) {
+      console.warn(
+        '[resolver] Failed to read enabled modules from src/modules.ts, falling back to src/modules scan:',
+        error,
+      )
     }
   }
   // Fallback: scan src/modules/* to keep backward compatibility
   const modulesRoot = path.resolve(appDir, 'src/modules')
   if (!fs.existsSync(modulesRoot)) return []
-  return fs
+  const scannedModules = fs
     .readdirSync(modulesRoot, { withFileTypes: true })
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
     .map((e) => ({ id: e.name, from: '@app' as const }))
+
+  return scannedModules
 }
 
 function discoverPackagesInMonorepo(rootDir: string): PackageInfo[] {

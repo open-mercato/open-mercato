@@ -40,6 +40,19 @@ import { injectionWidgetEntries } from '@/.mercato/generated/injection-widgets.g
 import '@/.mercato/generated/translations-fields.generated'
 import { injectionTables } from '@/.mercato/generated/injection-tables.generated'
 import { searchModuleConfigs } from '@/.mercato/generated/search.generated'
+import { eventModuleConfigs, allEvents } from '@/.mercato/generated/events.generated'
+import { registerEventModuleConfigs } from '@open-mercato/shared/modules/events'
+import { analyticsModuleConfigs } from '@/.mercato/generated/analytics.generated'
+import { enricherEntries } from '@/.mercato/generated/enrichers.generated'
+import { messageTypes } from '@/.mercato/generated/message-types.generated'
+import { messageObjectTypes } from '@/.mercato/generated/message-objects.generated'
+import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/message-types-registry'
+import { registerMessageObjectTypes } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
+
+// Register event configs globally (similar to search)
+registerEventModuleConfigs(eventModuleConfigs)
+registerMessageTypes(messageTypes, { replace: true })
+registerMessageObjectTypes(messageObjectTypes, { replace: true })
 
 // Bootstrap factory from shared package
 import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootstrap'
@@ -55,6 +68,8 @@ export const bootstrap = createBootstrap({
   injectionWidgetEntries,
   injectionTables,
   searchModuleConfigs,
+  analyticsModuleConfigs,
+  enricherEntries,
 })
 
 export { isBootstrapped }

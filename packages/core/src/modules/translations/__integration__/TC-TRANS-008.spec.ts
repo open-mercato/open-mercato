@@ -8,12 +8,12 @@ const ENTITY_TYPE = 'catalog:catalog_product'
 /**
  * TC-TRANS-008: RBAC Authorization per Role
  * Verifies that translation API endpoints enforce correct feature-based access
- * control for admin (translations.*) and employee (translations.view only).
+ * control for admin (translations.*) and employee (translations.view + translations.manage).
  *
  * Role matrix:
  *   superadmin — all features (implicit)
  *   admin      — translations.* (all)
- *   employee   — translations.view (read-only)
+ *   employee   — translations.view + translations.manage (edit translations)
  */
 test.describe('TC-TRANS-008: RBAC Authorization per Role', () => {
   let adminOriginalFeatures: string[] = []
@@ -22,7 +22,7 @@ test.describe('TC-TRANS-008: RBAC Authorization per Role', () => {
   test.beforeAll(async ({ request }) => {
     const saToken = await getAuthToken(request, 'superadmin')
     adminOriginalFeatures = await ensureRoleFeatures(request, saToken, 'admin', ['translations.*'])
-    employeeOriginalFeatures = await ensureRoleFeatures(request, saToken, 'employee', ['translations.view'])
+    employeeOriginalFeatures = await ensureRoleFeatures(request, saToken, 'employee', ['translations.view', 'translations.manage'])
   })
 
   test.afterAll(async ({ request }) => {
@@ -115,7 +115,7 @@ test.describe('TC-TRANS-008: RBAC Authorization per Role', () => {
     }
   })
 
-  // ─── Employee: view-only ──────────────────────────────────────────
+  // ─── Employee: can edit translations, cannot manage locales ───────
 
   test('employee can GET translations (translations.view)', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
@@ -151,7 +151,7 @@ test.describe('TC-TRANS-008: RBAC Authorization per Role', () => {
     expect(Array.isArray(body.locales)).toBeTruthy()
   })
 
-  test('employee cannot PUT translations (403 — missing translations.manage)', async ({ request }) => {
+  test('employee can PUT translations (translations.manage)', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const employeeToken = await getAuthToken(request, 'employee')
     const productTitle = `QA TC-TRANS-008-emp-put ${Date.now()}`
@@ -163,15 +163,17 @@ test.describe('TC-TRANS-008: RBAC Authorization per Role', () => {
 
       const response = await apiRequest(request, 'PUT', `/api/translations/${ENTITY_TYPE}/${productId}`, {
         token: employeeToken,
-        data: { de: { title: 'Should fail' } },
+        data: { de: { title: 'Employee PUT Test' } },
       })
-      expect(response.status()).toBe(403)
+      expect(response.ok()).toBeTruthy()
     } finally {
+      const saToken = await getAuthToken(request, 'superadmin')
+      await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
     }
   })
 
-  test('employee cannot DELETE translations (403 — missing translations.manage)', async ({ request }) => {
+  test('employee can DELETE translations (translations.manage)', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const saToken = await getAuthToken(request, 'superadmin')
     const employeeToken = await getAuthToken(request, 'employee')
@@ -188,7 +190,7 @@ test.describe('TC-TRANS-008: RBAC Authorization per Role', () => {
       })
 
       const response = await apiRequest(request, 'DELETE', `/api/translations/${ENTITY_TYPE}/${productId}`, { token: employeeToken })
-      expect(response.status()).toBe(403)
+      expect(response.status()).toBe(204)
     } finally {
       await deleteTranslationIfExists(request, saToken, ENTITY_TYPE, productId)
       await deleteCatalogProductIfExists(request, adminToken, productId)

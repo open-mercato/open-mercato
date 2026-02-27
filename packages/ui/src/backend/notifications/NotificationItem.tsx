@@ -207,7 +207,7 @@ export function NotificationItem({
           )}
 
           {hasActions && notification.status !== 'actioned' && (
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap items-start gap-2">
               {notification.actions.map((action) => (
                 <Button
                   key={action.id}
@@ -216,6 +216,7 @@ export function NotificationItem({
                     'outline'
                   }
                   size="sm"
+                  className="h-auto min-h-8 max-w-full min-w-0 whitespace-normal break-words text-left"
                   onClick={(event) => handleAction(action.id, event)}
                   disabled={executing !== null}
                 >

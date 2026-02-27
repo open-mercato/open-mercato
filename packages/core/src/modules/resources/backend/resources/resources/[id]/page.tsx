@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -10,6 +11,8 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ActivitiesSection, NotesSection, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
@@ -474,27 +477,63 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     flash(t('resources.resources.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
   }, [resourceId, t])
 
+  const resourceTitle =
+    typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
+      ? initialValues.name.trim()
+      : t('resources.resources.detail.untitled', 'Unnamed resource')
+
   return (
     <Page>
       <PageBody>
         <div className="space-y-6">
+          <FormHeader
+            mode="detail"
+            backHref="/backend/resources/resources"
+            backLabel={t('resources.resources.detail.back', 'Back to resources')}
+            utilityActions={(
+              <>
+                {resourceId ? (
+                  <SendObjectMessageDialog
+                    object={{
+                      entityModule: 'resources',
+                      entityType: 'resource',
+                      entityId: resourceId,
+                      previewData: {
+                        title: resourceTitle,
+                      },
+                    }}
+                    viewHref={`/backend/resources/resources/${resourceId}`}
+                  />
+                ) : null}
+                <VersionHistoryAction
+                  config={resourceId ? { resourceKind: 'resources.resource', resourceId, includeRelated: true } : null}
+                  t={t}
+                />
+              </>
+            )}
+            title={resourceTitle}
+            subtitle={t('resources.resources.detail.subtitle', 'Resource profile and activity')}
+          />
+
           <div className="border-b">
             <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={t('resources.resources.tabs.label', 'Resource sections')}>
               {tabs.map((tab) => (
-                <button
+                <Button
                   key={tab.id}
                   type="button"
                   role="tab"
                   aria-selected={activeTab === tab.id}
-                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
-                  className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
+                  variant="ghost"
+                  size="sm"
+                  className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
                     activeTab === tab.id
                       ? 'border-primary text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
+                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
                 >
                   {tab.label}
-                </button>
+                </Button>
               ))}
             </nav>
           </div>
@@ -505,18 +544,20 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex gap-2">
                     {detailTabs.map((tab) => (
-                      <button
+                      <Button
                         key={tab.id}
                         type="button"
-                        onClick={() => setActiveDetailTab(tab.id)}
-                        className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
+                        variant="ghost"
+                        size="sm"
+                        className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-1 font-medium ${
                           activeDetailTab === tab.id
                             ? 'border-primary text-foreground'
                             : 'border-transparent text-muted-foreground hover:text-foreground'
                         }`}
+                        onClick={() => setActiveDetailTab(tab.id)}
                       >
                         {tab.label}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   {sectionAction ? (

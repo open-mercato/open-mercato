@@ -3,6 +3,10 @@ permissions:
   contents: read
 
 on:
+  push:
+    branches:
+      - main
+      - develop
   pull_request:
     branches:
       - main
@@ -18,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Enable Corepack
         run: corepack enable
@@ -39,7 +43,7 @@ jobs:
         run: yarn build:packages
 
       - name: Check i18n sync
-        run: yarn i18n:check-sync
+        run: yarn tsx scripts/i18n-check-sync.ts
 
       - name: Check i18n usage
         run: yarn i18n:check-usage
@@ -56,12 +60,14 @@ jobs:
 
   ephemeral-integration:
     runs-on: ubuntu-latest
+    env:
+      OM_ENABLE_ENTERPRISE_MODULES: 'true'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 24
 
@@ -137,7 +143,7 @@ jobs:
 
       - name: Upload integration test artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
           path: .ai/qa/test-results/

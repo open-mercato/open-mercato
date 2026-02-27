@@ -52,6 +52,7 @@ export type CompanyHighlightsProps = {
   onNextInteractionSave: (payload: NextInteractionPayload | null) => Promise<void>
   onDelete: () => void
   isDeleting: boolean
+  utilityActions?: React.ReactNode
 }
 
 export function CompanyHighlights({
@@ -65,6 +66,7 @@ export function CompanyHighlights({
   onNextInteractionSave,
   onDelete,
   isDeleting,
+  utilityActions,
 }: CompanyHighlightsProps) {
   const t = useT()
   const historyFallbackId =
@@ -77,15 +79,18 @@ export function CompanyHighlights({
         backHref="/backend/customers/companies"
         backLabel={t('customers.companies.detail.actions.backToList', 'Back to companies')}
         utilityActions={(
-          <VersionHistoryAction
-            config={{
-              resourceKind: 'customers.company',
-              resourceId: company.id,
-              resourceIdFallback: historyFallbackId,
-              organizationId: company.organizationId ?? undefined,
-            }}
-            t={t}
-          />
+          <>
+            {utilityActions}
+            <VersionHistoryAction
+              config={{
+                resourceKind: 'customers.company',
+                resourceId: company.id,
+                resourceIdFallback: historyFallbackId,
+                organizationId: company.organizationId ?? undefined,
+              }}
+              t={t}
+            />
+          </>
         )}
         title={
           <InlineTextEditor
@@ -102,7 +107,9 @@ export function CompanyHighlights({
             containerClassName="max-w-full"
           />
         }
-        onDelete={onDelete}
+        onDelete={() => {
+          onDelete()
+        }}
         isDeleting={isDeleting}
         deleteLabel={t('customers.companies.detail.actions.delete', 'Delete company')}
       />

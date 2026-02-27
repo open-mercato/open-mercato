@@ -195,6 +195,21 @@ export class Message {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  visibility?: 'public' | 'internal' | null
+
+  @Property({ name: 'source_entity_type', type: 'text', nullable: true })
+  sourceEntityType?: string | null
+
+  @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
+  sourceEntityId?: string | null
+
+  @Property({ name: 'external_email', type: 'text', nullable: true })
+  externalEmail?: string | null
+
+  @Property({ name: 'external_name', type: 'text', nullable: true })
+  externalName?: string | null
 }
 
 // Action configuration type (same pattern as notifications)
@@ -402,6 +417,13 @@ CREATE TABLE messages (
   -- Email flag
   send_via_email BOOLEAN NOT NULL DEFAULT false,
   
+  -- Visibility and external/source metadata
+  visibility TEXT,
+  source_entity_type TEXT,
+  source_entity_id UUID,
+  external_email TEXT,
+  external_name TEXT,
+  
   -- Multi-tenant
   tenant_id UUID NOT NULL,
   organization_id UUID,
@@ -527,6 +549,11 @@ export const messageActionDataSchema = z.object({
 
 export const composeMessageSchema = z.object({
   type: z.string().optional().default('default'), // Message type for custom renderer
+  visibility: z.enum(['public', 'internal']).nullable().optional(),
+  sourceEntityType: z.string().min(1).optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  externalEmail: z.string().email().optional(),
+  externalName: z.string().min(1).max(255).optional(),
   recipients: z.array(messageRecipientSchema).min(1).max(100),
   subject: z.string().min(1).max(500),
   body: z.string().min(1).max(50000),
@@ -542,6 +569,11 @@ export const composeMessageSchema = z.object({
 
 export const updateDraftSchema = z.object({
   type: z.string().optional(),
+  visibility: z.enum(['public', 'internal']).nullable().optional(),
+  sourceEntityType: z.string().min(1).optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  externalEmail: z.string().email().optional(),
+  externalName: z.string().min(1).max(255).optional(),
   recipients: z.array(messageRecipientSchema).optional(),
   subject: z.string().min(1).max(500).optional(),
   body: z.string().min(1).max(50000).optional(),
@@ -557,6 +589,10 @@ export const listMessagesSchema = z.object({
   folder: z.enum(['inbox', 'sent', 'drafts', 'archived', 'all']).optional().default('inbox'),
   status: z.enum(['unread', 'read', 'archived']).optional(),
   type: z.string().optional(), // Filter by message type
+  visibility: z.enum(['public', 'internal']).optional(),
+  sourceEntityType: z.string().optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  externalEmail: z.string().email().optional(),
   hasObjects: z.boolean().optional(),
   hasAttachments: z.boolean().optional(),
   hasActions: z.boolean().optional(),
@@ -964,30 +1000,48 @@ export function getMessageTypesByModule(module: string): MessageTypeDefinition[]
 
 ### Auto-Discovery and Registration
 
-Message types are auto-discovered from modules and registered at startup:
+Message types should follow the same registration model as notifications (`packages/core/src/modules/business_rules/notifications.ts`): each module exports typed arrays, and the generator builds a single aggregated registry file.
+
+### Implementation Note: Follow Notifications-Style Registration
+
+To proceed with implementation, mirror the notifications pipeline exactly:
+
+1. Each module that contributes message types exports `messageTypes` in `src/modules/<module>/message-types.ts` (with `default` export fallback).
+2. Each module that contributes attachable message objects exports `messageObjectTypes` in `src/modules/<module>/message-objects.ts` (with `default` export fallback).
+3. The module registry generator emits two generated files in `apps/mercato/.mercato/generated/`:
+   - `message-types.generated.ts`
+   - `message-objects.generated.ts`
+4. Generated files must aggregate entries with the same fallback contract used by notifications:
+   - `default ?? messageTypes ?? types ?? []` for message types
+   - `default ?? messageObjectTypes ?? objectTypes ?? types ?? []` for message objects
+5. Runtime code in the messages module should read from generated registries (`getMessageTypes()`, `getMessageObjectTypes()`) instead of dynamic runtime imports.
+6. If needed, keep in-memory maps only as fast lookup wrappers over generated arrays (for example by `type` or `module + entityType`), but the source of truth remains generated registries.
+
+Reference pattern:
+- `packages/core/src/modules/business_rules/notifications.ts`
+- `apps/mercato/.mercato/generated/notifications.generated.ts`
+
+Generator-driven registration target:
 
 ```typescript
-// packages/core/src/modules/messages/lib/init.ts
-import { registerMessageTypes } from './message-types-registry'
-import { getModules } from '@mercato/.mercato/generated/modules.generated'
+// apps/mercato/.mercato/generated/message-types.generated.ts
+// AUTO-GENERATED by mercato generate registry
+import type { MessageTypeDefinition } from '@open-mercato/shared/modules/messages/types'
+import * as MSG_staff_1 from '@open-mercato/core/modules/staff/message-types'
+import * as MSG_messages_2 from '@open-mercato/core/modules/messages/message-types'
 
-export async function initializeMessageTypes(): Promise<void> {
-  const modules = getModules()
-  
-  for (const mod of modules) {
-    try {
-      // Try to import message-types.ts from the module
-      const messageTypesModule = await import(`@open-mercato/core/modules/${mod.id}/message-types`)
-      if (messageTypesModule.default) {
-        registerMessageTypes(messageTypesModule.default)
-      } else if (messageTypesModule.messageTypes) {
-        registerMessageTypes(messageTypesModule.messageTypes)
-      }
-    } catch {
-      // Module doesn't have message types, skip
-    }
-  }
-}
+type MessageTypeEntry = { moduleId: string; types: MessageTypeDefinition[] }
+
+const entriesRaw: MessageTypeEntry[] = [
+  { moduleId: 'staff', types: (MSG_staff_1.default ?? MSG_staff_1.messageTypes ?? MSG_staff_1.types ?? []) },
+  { moduleId: 'messages', types: (MSG_messages_2.default ?? MSG_messages_2.messageTypes ?? MSG_messages_2.types ?? []) },
+]
+
+const allTypes = entriesRaw.flatMap((entry) => entry.types)
+
+export const messageTypeEntries = entriesRaw
+export const messageTypes = allTypes
+export function getMessageTypes(): MessageTypeDefinition[] { return allTypes }
 ```
 
 ---
@@ -1705,6 +1759,18 @@ export async function GET(req: Request) {
   if (input.since) {
     query = query.where('m.sent_at', '>', new Date(input.since))
   }
+  if (input.visibility) {
+    query = query.where('m.visibility', input.visibility)
+  }
+  if (input.sourceEntityType) {
+    query = query.where('m.source_entity_type', input.sourceEntityType)
+  }
+  if (input.sourceEntityId) {
+    query = query.where('m.source_entity_id', input.sourceEntityId)
+  }
+  if (input.externalEmail) {
+    query = query.whereILike('m.external_email', `%${input.externalEmail}%`)
+  }
   
   // Count total
   const countResult = await query.clone().count('* as count').first()
@@ -1750,6 +1816,11 @@ export async function GET(req: Request) {
     items: messages.map((m: any) => ({
       id: m.id,
       type: m.type, // Message type
+      visibility: m.visibility,
+      sourceEntityType: m.source_entity_type,
+      sourceEntityId: m.source_entity_id,
+      externalEmail: m.external_email,
+      externalName: m.external_name,
       subject: m.subject,
       bodyPreview: m.body.substring(0, 150) + (m.body.length > 150 ? '...' : ''),
       senderUserId: m.sender_user_id,
@@ -1789,6 +1860,11 @@ export async function POST(req: Request) {
   
   const message = em.create(Message, {
     type: input.type, // Message type for custom rendering
+    visibility: input.visibility ?? null,
+    sourceEntityType: input.sourceEntityType,
+    sourceEntityId: input.sourceEntityId,
+    externalEmail: input.externalEmail,
+    externalName: input.externalName,
     threadId: threadId ?? undefined,
     parentMessageId: input.parentMessageId,
     senderUserId: userId,
@@ -1939,6 +2015,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   return json({
     id: message.id,
     type: message.type,
+    visibility: message.visibility,
+    sourceEntityType: message.sourceEntityType,
+    sourceEntityId: message.sourceEntityId,
+    externalEmail: message.externalEmail,
+    externalName: message.externalName,
     typeDefinition: {
       labelKey: messageType.labelKey,
       icon: messageType.icon,
@@ -2616,6 +2697,11 @@ import { emitRealtimeEvent } from '@open-mercato/shared/lib/frontend/realtimeEve
 
 export type MessagePreview = {
   id: string
+  visibility?: 'public' | 'internal' | null
+  sourceEntityType?: string | null
+  sourceEntityId?: string | null
+  externalEmail?: string | null
+  externalName?: string | null
   subject: string
   bodyPreview: string
   senderUserId: string
@@ -2742,6 +2828,11 @@ export function MessageComposer({
 }: MessageComposerProps) {
   const t = useT()
   const [recipients, setRecipients] = React.useState<Array<{ userId: string; type: 'to' | 'cc' | 'bcc' }>>([])
+  const [visibility, setVisibility] = React.useState<'public' | 'internal'>('internal')
+  const [sourceEntityType, setSourceEntityType] = React.useState('')
+  const [sourceEntityId, setSourceEntityId] = React.useState('')
+  const [externalEmail, setExternalEmail] = React.useState('')
+  const [externalName, setExternalName] = React.useState('')
   const [subject, setSubject] = React.useState('')
   const [body, setBody] = React.useState('')
   const [objects, setObjects] = React.useState<Array<{
@@ -2799,6 +2890,11 @@ export function MessageComposer({
         method: 'POST',
         body: JSON.stringify({
           recipients,
+          visibility,
+          sourceEntityType: sourceEntityType.trim() || undefined,
+          sourceEntityId: sourceEntityId.trim() || undefined,
+          externalEmail: externalEmail.trim() || undefined,
+          externalName: externalName.trim() || undefined,
           subject,
           body,
           objects: objects.length > 0 ? objects : undefined,
@@ -2815,6 +2911,11 @@ export function MessageComposer({
         onOpenChange(false)
         // Reset form
         setRecipients([])
+        setVisibility('internal')
+        setSourceEntityType('')
+        setSourceEntityId('')
+        setExternalEmail('')
+        setExternalName('')
         setSubject('')
         setBody('')
         setObjects([])
@@ -2872,6 +2973,54 @@ export function MessageComposer({
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder={t('messages.subjectPlaceholder')}
               />
+            </div>
+
+            {/* Visibility and source metadata */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>{t('messages.visibility')}</Label>
+                <select
+                  value={visibility}
+                  onChange={(e) => setVisibility(e.target.value as 'public' | 'internal')}
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="internal">{t('messages.visibilityInternal')}</option>
+                  <option value="public">{t('messages.visibilityPublic')}</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>{t('messages.externalEmail')}</Label>
+                <Input
+                  type="email"
+                  value={externalEmail}
+                  onChange={(e) => setExternalEmail(e.target.value)}
+                  placeholder={t('messages.externalEmailPlaceholder')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t('messages.externalName')}</Label>
+                <Input
+                  value={externalName}
+                  onChange={(e) => setExternalName(e.target.value)}
+                  placeholder={t('messages.externalNamePlaceholder')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t('messages.sourceEntityType')}</Label>
+                <Input
+                  value={sourceEntityType}
+                  onChange={(e) => setSourceEntityType(e.target.value)}
+                  placeholder={t('messages.sourceEntityTypePlaceholder')}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>{t('messages.sourceEntityId')}</Label>
+                <Input
+                  value={sourceEntityId}
+                  onChange={(e) => setSourceEntityId(e.target.value)}
+                  placeholder={t('messages.sourceEntityIdPlaceholder')}
+                />
+              </div>
             </div>
             
             {/* Body */}
@@ -3034,6 +3183,17 @@ export const features = [
     "attachedObjects": "Attached Objects",
     "attachedFiles": "File Attachments",
     "sendViaEmail": "Also send via email",
+    "visibility": "Visibility",
+    "visibilityInternal": "Internal",
+    "visibilityPublic": "Public",
+    "sourceEntityType": "Source Entity Type",
+    "sourceEntityTypePlaceholder": "e.g. sales.order",
+    "sourceEntityId": "Source Entity ID",
+    "sourceEntityIdPlaceholder": "UUID of linked record",
+    "externalEmail": "External Email",
+    "externalEmailPlaceholder": "name@example.com",
+    "externalName": "External Name",
+    "externalNamePlaceholder": "External contact display name",
     "empty": "No messages",
     "markAsRead": "Mark as read",
     "markAsUnread": "Mark as unread",
@@ -3101,6 +3261,8 @@ export function register(container: AwilixContainer): void {
 | Token expired | Token past expiresAt | Access attempted | Returns 410 Gone |
 | View inbox | User opens messages | GET /api/messages?folder=inbox | Returns unread messages |
 | Filter by type | User filters by type='staff.leave_approval' | GET /api/messages?type=... | Returns only that type |
+| Filter by visibility | User filters by visibility='internal' | GET /api/messages?visibility=internal | Returns only internal messages |
+| Filter by source entity | User filters by sourceEntityType/sourceEntityId | GET /api/messages?sourceEntityType=sales.order&sourceEntityId=... | Returns messages linked to the source record |
 | Filter by hasAttachments | User wants messages with files | GET /api/messages?hasAttachments=true | Returns messages with files |
 | Filter by hasActions | User wants actionable messages | GET /api/messages?hasActions=true | Returns messages with actions |
 | Mark as read | User opens message | GET /api/messages/:id | Recipient status updated |
@@ -3110,3 +3272,9 @@ export function register(container: AwilixContainer): void {
 | Polling updates | User has inbox open | 5 seconds elapse | New messages appear automatically |
 | Notification created | Message sent | Event processed | Notification created for recipient |
 | Action event emitted | User executes action | messages.action.taken emitted | Subscribers can react |
+
+---
+
+## Changelog
+
+- 2026-02-16: Refactored message write operations to command-bus handlers with undo support for message mutations, recipient state changes, draft attachment linking/unlinking, terminal action recording, and message confirmation state updates.

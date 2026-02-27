@@ -64,7 +64,7 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
 
       await search.fill('');
       await page.getByRole('button', { name: 'Filters' }).click();
-      const filtersDialog = page.getByRole('heading', { name: 'Filters' }).locator('xpath=ancestor::div[2]');
+      const filtersDialog = page.getByRole('heading', { name: /^Filter$/i }).locator('xpath=ancestor::div[2]');
       await expect(filtersDialog.getByRole('combobox').nth(2)).toBeVisible();
       await filtersDialog.getByRole('combobox').nth(0).selectOption({ label: 'Active' });
       await filtersDialog.getByRole('combobox').nth(2).selectOption({ label: 'Prospect' });

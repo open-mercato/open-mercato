@@ -1,4 +1,4 @@
-import { registerCliModules, getCliModules, hasCliModules } from '../mercato'
+import { registerCliModules, getCliModules, hasCliModules, padByCodePointWidth } from '../mercato'
 
 describe('mercato CLI module registration', () => {
   beforeEach(() => {
@@ -86,5 +86,18 @@ describe('mercato CLI module registration', () => {
       expect(result).toHaveLength(2)
       expect(result.map((m: any) => m.id)).toEqual(['customers', 'catalog'])
     })
+  })
+})
+
+describe('padByCodePointWidth', () => {
+  it('pads emoji labels based on code point width', () => {
+    expect(padByCodePointWidth('👑 Superadmin:', 13)).toBe('👑 Superadmin:')
+    expect(padByCodePointWidth('🧰 Admin:', 13)).toBe('🧰 Admin:     ')
+    expect(padByCodePointWidth('👷 Employee:', 13)).toBe('👷 Employee:  ')
+  })
+
+  it('does not trim or pad when value meets or exceeds target width', () => {
+    expect(padByCodePointWidth('1234567890123', 13)).toBe('1234567890123')
+    expect(padByCodePointWidth('12345678901234', 13)).toBe('12345678901234')
   })
 })

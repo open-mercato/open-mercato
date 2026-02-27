@@ -9,6 +9,11 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+  type CrudMutationGuardValidationResult,
+} from './mutation-guard'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import type {
   CrudEventAction,
@@ -44,6 +49,8 @@ import {
 import { deriveCrudSegmentTag } from './cache-stats'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
+import { applyResponseEnrichers, applyResponseEnricherToRecord } from './enricher-runner'
+import type { EnricherContext } from './response-enricher'
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -274,6 +281,9 @@ function normalizeFullRecordForExport(input: any): any {
 
   for (const [key, value] of Object.entries(input)) {
     if (key.startsWith('cf_') || key.startsWith('cf:')) continue
+    // Strip enricher namespaced fields and metadata from exports
+    if (key === '_meta') continue
+    if (key.startsWith('_') && key.length > 1) continue
     record[key] = value
   }
   const custom = extractAllCustomFieldEntries(input)
@@ -339,6 +349,11 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
     create?: CrudCommandActionConfig
     update?: CrudCommandActionConfig
     delete?: CrudCommandActionConfig
+  }
+  /** Response enricher configuration. When set, enrichers targeting this entity run after afterList hook. */
+  enrichers?: {
+    /** Entity ID for enricher matching (e.g., 'customers.person') */
+    entityId: string
   }
 }
 
@@ -414,6 +429,11 @@ function attachOperationHeader(res: Response, logEntry: any) {
     // no-op if headers already sent
   }
   return res
+}
+
+function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): Response | null {
+  if (validation.ok) return null
+  return json(validation.body, { status: validation.status })
 }
 
 function handleError(err: unknown): Response {
@@ -753,6 +773,70 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     }
   }
 
+  /**
+   * Build enricher context from CRUD context and resolve user features for ACL gating.
+   * Returns null if enrichers are not configured or auth is missing.
+   */
+  async function buildEnricherContext(ctx: CrudCtx): Promise<EnricherContext | null> {
+    if (!opts.enrichers?.entityId) return null
+    if (!ctx.auth) return null
+
+    let userFeatures: string[] | undefined
+    try {
+      const rbac = (ctx.container.resolve('rbacService') as any)
+      if (rbac?.getGrantedFeatures) {
+        userFeatures = await rbac.getGrantedFeatures(ctx.auth.sub, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
+        })
+      }
+    } catch {
+      // rbacService not available — enrichers without feature requirements still run
+    }
+
+    return {
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
+      tenantId: ctx.auth.tenantId ?? '',
+      userId: ctx.auth.sub,
+      em: ctx.container.resolve('em'),
+      container: ctx.container,
+      userFeatures,
+    }
+  }
+
+  /**
+   * Apply response enrichers to list payload items.
+   * Mutates payload.items and adds payload._meta.
+   * No-op if enrichers are not configured.
+   */
+  async function enrichListPayload(payload: any, ctx: CrudCtx, profiler?: Profiler): Promise<void> {
+    if (!opts.enrichers?.entityId) return
+    const enricherCtx = await buildEnricherContext(ctx)
+    if (!enricherCtx) return
+    profiler?.mark('enrichers_start')
+    const result = await applyResponseEnrichers(payload.items, opts.enrichers.entityId, enricherCtx)
+    payload.items = result.items
+    if (result._meta.enrichedBy.length > 0 || result._meta.enricherErrors?.length) {
+      payload._meta = { ...(payload._meta || {}), ...result._meta }
+    }
+    profiler?.mark('enrichers_complete', { enricherCount: result._meta.enrichedBy.length })
+  }
+
+  /**
+   * Apply response enrichers to a single record.
+   * Returns the enriched record with _meta merged.
+   */
+  async function enrichSingleRecord(record: any, ctx: CrudCtx): Promise<any> {
+    if (!opts.enrichers?.entityId) return record
+    const enricherCtx = await buildEnricherContext(ctx)
+    if (!enricherCtx) return record
+    const result = await applyResponseEnricherToRecord(record, opts.enrichers.entityId, enricherCtx)
+    if (result._meta.enrichedBy.length > 0 || result._meta.enricherErrors?.length) {
+      return { ...result.record, _meta: result._meta }
+    }
+    return result.record
+  }
+
   async function ensureAuth(request?: Request | null) {
     const auth = request ? await getAuthFromRequest(request) : await getAuthFromCookies()
     if (!auth) return null
@@ -971,6 +1055,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           query: validated,
         })
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
+        await enrichListPayload(payload, ctx, profiler)
         logCacheOutcome('hit', items.length)
         const response = respondWithPayload(payload)
         finishProfile({ result: 'cache_hit', cacheStatus })
@@ -1152,6 +1237,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
         profiler.mark('after_list_hook')
+        await enrichListPayload(payload, ctx, profiler)
         await maybeStoreCrudCache(payload)
         profiler.mark('cache_store_attempt', { cacheEnabled })
         logCacheOutcome(cacheStatus, payload.items.length)
@@ -1271,6 +1357,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const payload = { items: list, total: list.length }
       await opts.hooks?.afterList?.(payload, { ...ctx, query: validated as any })
       profiler.mark('after_list_hook')
+      await enrichListPayload(payload, ctx, profiler)
       await maybeStoreCrudCache(payload)
       profiler.mark('cache_store_attempt', { cacheEnabled })
       logCacheOutcome(cacheStatus, payload.items.length)
@@ -1384,7 +1471,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
-      const payload = createConfig.response ? createConfig.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
+      let payload = createConfig.response ? createConfig.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
+      payload = await enrichSingleRecord(payload, ctx)
       return json(payload, { status: 201 })
     } catch (e) {
       return handleError(e)
@@ -1409,6 +1497,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return json({ error: 'Forbidden' }, { status: 403 })
       }
       const body = await request.json().catch(() => ({}))
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
 
       if (useCommand) {
         const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
@@ -1417,6 +1506,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const input = action.mapInput ? await action.mapInput({ parsed, raw: body, ctx }) : parsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed, raw: body, ctx }) : null
         const candidateId = normalizeIdentifierValue((input as Record<string, unknown> | null | undefined)?.id)
+        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
+        if (ctx.auth.tenantId && candidateId) {
+          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            mutationPayload: input && typeof input === 'object'
+              ? (input as Record<string, unknown>)
+              : null,
+          })
+          if (mutationGuardValidation) {
+            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+            if (response) return response
+          }
+        }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1431,6 +1540,24 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        if (
+          mutationGuardValidation?.ok
+          && mutationGuardValidation.shouldRunAfterSuccess
+          && ctx.auth.tenantId
+          && candidateId
+        ) {
+          await runCrudMutationGuardAfterSuccess(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
+        }
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -1446,6 +1573,26 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       const id = updateConfig.getId ? updateConfig.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
+
+      const mutationGuardValidation = ctx.auth.tenantId
+        ? await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            mutationPayload: input && typeof input === 'object'
+              ? (input as Record<string, unknown>)
+              : null,
+          })
+        : null
+      if (mutationGuardValidation) {
+        const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+        if (response) return response
+      }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
@@ -1498,6 +1645,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
+      if (
+        mutationGuardValidation?.ok
+        && mutationGuardValidation.shouldRunAfterSuccess
+        && ctx.auth.tenantId
+      ) {
+        await runCrudMutationGuardAfterSuccess(ctx.container, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'update',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
+      }
       const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
       return json(payload)
     } catch (e) {
@@ -1522,6 +1686,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       const useCommand = !!opts.actions?.delete
       const url = new URL(request.url)
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
 
       if (useCommand) {
         const action = opts.actions!.delete!
@@ -1536,6 +1701,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             ?? (raw.query as Record<string, unknown> | null | undefined)?.id
             ?? (raw.body as Record<string, unknown> | null | undefined)?.id
         )
+        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
+        if (ctx.auth.tenantId && candidateId) {
+          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+          if (mutationGuardValidation) {
+            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+            if (response) return response
+          }
+        }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1550,6 +1732,24 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        if (
+          mutationGuardValidation?.ok
+          && mutationGuardValidation.shouldRunAfterSuccess
+          && ctx.auth.tenantId
+          && candidateId
+        ) {
+          await runCrudMutationGuardAfterSuccess(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: candidateId,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
+        }
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -1561,6 +1761,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ? url.searchParams.get('id')
         : (await request.json().catch(() => ({}))).id
       if (!isUuid(id)) return json({ error: 'ID is required' }, { status: 400 })
+
+      const mutationGuardValidation = ctx.auth.tenantId
+        ? await validateCrudMutationGuard(ctx.container, {
+            tenantId: ctx.auth.tenantId,
+            organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+          })
+        : null
+      if (mutationGuardValidation) {
+        const response = buildMutationGuardErrorResponse(mutationGuardValidation)
+        if (response) return response
+      }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
       if (ormCfg.orgField && !targetOrgId) return json({ error: 'Organization context is required' }, { status: 400 })
@@ -1597,6 +1814,23 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         await de.flushOrmEntityChanges()
         await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'deleted', resourceTargets)
+      }
+      if (
+        mutationGuardValidation?.ok
+        && mutationGuardValidation.shouldRunAfterSuccess
+        && ctx.auth.tenantId
+      ) {
+        await runCrudMutationGuardAfterSuccess(ctx.container, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+            userId: ctx.auth.sub,
+            resourceKind,
+            resourceId: id,
+            operation: 'delete',
+            requestMethod: request.method,
+            requestHeaders: request.headers,
+            metadata: mutationGuardValidation.metadata ?? null,
+          })
       }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }
       return json(payload)

@@ -176,12 +176,12 @@ export function FilterOverlay({
           <div className="absolute left-0 top-0 h-full w-full sm:w-[380px] bg-background shadow-xl border-r flex flex-col">
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="text-base font-semibold">{defaultTitle}</h2>
-              <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>{t('common.close')}</button>
+              <Button variant="muted" size="sm" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
             </div>
             {/* Top actions: duplicate Clear/Apply */}
             <div className="px-4 py-2 border-b flex items-center justify-between gap-2">
               <Button variant="outline" size="sm" onClick={handleClear}>{t('ui.filters.actions.clear', 'Clear')}</Button>
-              <Button size="sm" onClick={handleApply} className="inline-flex items-center gap-2">
+              <Button size="sm" onClick={handleApply}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
                 {t('ui.filters.actions.apply', 'Apply')}
               </Button>
@@ -314,10 +314,10 @@ export function FilterOverlay({
               ))}
             </div>
             <div className="p-4 border-t flex items-center justify-between gap-2">
-              <Button variant="outline" onClick={handleClear}>Clear</Button>
-              <Button onClick={handleApply} className="inline-flex items-center gap-2">
+              <Button variant="outline" onClick={handleClear}>{t('ui.filters.actions.clear', 'Clear')}</Button>
+              <Button onClick={handleApply}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
-                Apply
+                {t('ui.filters.actions.apply', 'Apply')}
               </Button>
             </div>
           </div>
