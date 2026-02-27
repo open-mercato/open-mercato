@@ -98,6 +98,9 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 ## CrudForm Guidelines
 
 - Use `CrudForm` as the default for create/edit flows and for dialog forms.
+- If a backend page cannot use `CrudForm`, use `useGuardedMutation` from `@open-mercato/ui/backend/injection/useGuardedMutation` for every write operation (`POST`/`PUT`/`PATCH`/`DELETE`).
+- Always call writes through `runMutation({ operation, context, mutationPayload })` so global injection modules (for example record-lock conflict handling) can run `onBeforeSave`/`onAfterSave`, apply scoped request headers, and receive mutation errors consistently.
+- Use manual `useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)` wiring only when you need behavior that `useGuardedMutation` does not support.
 - Keep `CrudForm` implementations reusable: extract shared field/group builders and submit handlers into module-level helpers when multiple pages or dialogs need the same shape.
 - Drive validation with a Zod schema and surface field errors via `createCrudFormError`.
 - Keep `fields` and `groups` in memoized helpers (see customers person form config).
@@ -124,6 +127,14 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - Support exports using `buildCrudExportUrl` and pass `exportOptions` to `DataTable`.
 - Use `RowActions` for per-row actions and include navigation via `onRowClick` or action links.
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
+
+## Menu Injection (UMES Phase A/B)
+
+- Use `useInjectedMenuItems(surfaceId)` to load declarative menu widgets for chrome surfaces (`menu:sidebar:*`, `menu:topbar:*`).
+- Merge built-in and injected items with `mergeMenuItems(builtIn, injected)` to preserve deterministic placement.
+- For relative positioning, rely on `InjectionPosition` + `relativeTo` IDs; if `relativeTo` is missing, insertion falls back to append.
+- Treat injected labels as i18n-first: prefer `labelKey` (with human fallback `label`) and `groupLabelKey` (with optional `groupLabel`) so keys never leak to UI.
+- Add stable attributes (`data-menu-item-id="<id>"`) when rendering merged items so integration tests can assert injected entries reliably.
 
 ## Loading, Empty, and Error States
 

@@ -3,6 +3,7 @@ import {
   formatEntityLabel,
   buildEntityListUrl,
   getRecordLabel,
+  resolveBaseValue,
 } from '../helpers'
 
 describe('translation helpers', () => {
@@ -122,6 +123,18 @@ describe('translation helpers', () => {
     it('correctly pluralizes entity ending in ch', () => {
       expect(buildEntityListUrl('catalog:catalog_match')).toBe('/api/catalog/matches')
     })
+
+    it('replaces underscores with hyphens in multi-word resource names', () => {
+      expect(buildEntityListUrl('resources:resource_type')).toBe('/api/resources/resource-types')
+    })
+
+    it('replaces underscores with hyphens after prefix stripping', () => {
+      expect(buildEntityListUrl('catalog:catalog_product_category')).toBe('/api/catalog/product-categories')
+    })
+
+    it('handles entity with underscores and plural exception', () => {
+      expect(buildEntityListUrl('dictionaries:dictionary_entry')).toBe('/api/dictionaries/dictionary-entries')
+    })
   })
 
   describe('getRecordLabel', () => {
@@ -159,6 +172,44 @@ describe('translation helpers', () => {
 
     it('converts non-string values to string', () => {
       expect(getRecordLabel({ id: 42 })).toBe('42')
+    })
+  })
+
+  describe('resolveBaseValue', () => {
+    it('returns direct field value', () => {
+      expect(resolveBaseValue({ name: 'Foo' }, 'name')).toBe('Foo')
+    })
+
+    it('falls back to cf_ prefixed field', () => {
+      expect(resolveBaseValue({ cf_priority: 'High' }, 'priority')).toBe('High')
+    })
+
+    it('prefers direct match over cf_ prefixed', () => {
+      expect(resolveBaseValue({ name: 'Direct', cf_name: 'Custom' }, 'name')).toBe('Direct')
+    })
+
+    it('returns empty string for missing field', () => {
+      expect(resolveBaseValue({ other: 'val' }, 'name')).toBe('')
+    })
+
+    it('returns empty string for null baseValues', () => {
+      expect(resolveBaseValue(null, 'name')).toBe('')
+    })
+
+    it('returns empty string for undefined baseValues', () => {
+      expect(resolveBaseValue(undefined, 'name')).toBe('')
+    })
+
+    it('returns empty string for null field value', () => {
+      expect(resolveBaseValue({ description: null }, 'description')).toBe('')
+    })
+
+    it('converts numeric value to string', () => {
+      expect(resolveBaseValue({ cf_mileage: 22610 }, 'mileage')).toBe('22610')
+    })
+
+    it('converts boolean value to string', () => {
+      expect(resolveBaseValue({ cf_active: true }, 'active')).toBe('true')
     })
   })
 })

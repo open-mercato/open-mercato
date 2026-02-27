@@ -38,6 +38,25 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, and related template-only wrapper components.
 
+## Store global event bus in `globalThis` to survive module duplication in dev
+
+**Context**: `record_locks` notifications stopped while banners still worked. Banner logic uses direct API polling, but notifications depend on `emitRecordLocksEvent()` from `createModuleEvents()` and the global event bus wiring.
+
+**Problem**: In dev (HMR/Turbopack), duplicated module instances can appear. One instance receives `setGlobalEventBus()` during bootstrap, another instance emits events. With module-local singleton only, emitted events can be dropped silently.
+
+**Rule**: For process-wide runtime singletons used across package boundaries (event bus, similar registries), keep canonical reference in `globalThis` and use module-local variable only as fallback.
+
+**Applies to**: `packages/shared/src/modules/events/factory.ts` and any shared runtime singleton relied on by module auto-discovery/subscriber pipelines.
+
+## Always propagate structured conflict payload from `onBeforeSave` blockers
+
+**Context**: Conflict handling in record locks had two paths: preflight `onBeforeSave` and real mutation `save` response. UI recovered conflict dialog only from save error path.
+
+**Problem**: When conflict was blocked in preflight, users could hit dead-end loops (`Keep editing` / `Keep my changes`) because the dialog state was not rehydrated with full conflict payload.
+
+**Rule**: Any blocking `onBeforeSave` result must carry machine-readable `details` (code + payload), and `CrudForm` must route it through the same global save-error recovery channel as normal save failures.
+
+**Applies to**: Injection widgets that gate save (`WidgetBeforeSaveResult`) and conflict-capable modules (record locks, future optimistic concurrency widgets).
 ## MUST use Button and IconButton primitives — never raw `<button>` elements
 
 **Context**: The codebase was refactored to replace all raw `<button>` elements with `Button` and `IconButton` from `@open-mercato/ui/primitives`. This ensures consistent styling, focus rings, disabled states, and dark mode support across the entire application.
@@ -106,3 +125,37 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When creating an entity and immediately referencing its PK (before flush), generate the UUID client-side via `crypto.randomUUID()` and pass it explicitly: `em.create(Entity, { id: randomUUID(), ... })`. This ensures the PK is available immediately for child entity creation.
 
 **Applies to**: Any `em.create()` call where the entity's PK is referenced before `em.flush()`, especially parent-child patterns where children need the parent's ID.
+
+## Integration tests: avoid `networkidle` on pages with SSE/background streams
+
+**Context**: Multiple Sales/Integration UI tests started timing out at 20s in ephemeral runs. Failing point was `page.waitForLoadState('networkidle')` right after navigation.
+
+**Problem**: Pages with SSE or other long-lived background requests may never reach Playwright `networkidle`, causing deterministic false failures unrelated to product logic.
+
+**Rules**:
+
+1. In integration tests/helpers, do not use `waitForLoadState('networkidle')` as a generic readiness gate on backend pages.
+2. Prefer `waitForLoadState('domcontentloaded')` plus one explicit UI readiness assertion for the interaction target (for example, a key button/input becoming visible).
+3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
+
+**Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales/customer flows).
+
+## Standalone template must include all generated bootstrap registries
+
+**Context**: Standalone integration tests failed only for UMES enricher scenarios (`TC-UMES-002`) while other tests passed.
+
+**Problem**: `packages/create-app/template/src/bootstrap.ts` drifted from `apps/mercato/src/bootstrap.ts` and did not pass generated `enricherEntries` into `createBootstrap(...)`, so response enrichers were never registered in scaffolded apps.
+
+**Rule**: Whenever app bootstrap wiring changes (events, analytics, enrichers, message registries, similar generated registries), mirror the same imports and `createBootstrap(...)` arguments in `packages/create-app/template/src/bootstrap.ts` in the same PR.
+
+**Applies to**: Scaffolded standalone apps and snapshot/standalone integration workflows.
+
+## Duplicate migration creation causes initialize failures in fresh databases
+
+**Context**: `yarn initialize` failed with `relation "customer_pipelines" already exists` because two customer migrations both created the same table.
+
+**Problem**: Later migration `Migration20260226155449` repeated schema creation already handled by `Migration20260218191730`.
+
+**Rule**: Before adding a migration, check existing module migrations for overlapping DDL. If a duplicate migration was already committed and may be in history, keep the file/class name stable and convert duplicate migration content to a no-op instead of deleting/renaming it.
+
+**Applies to**: `packages/core/src/modules/*/migrations/*.ts` and initialize/ephemeral test bootstrap flows.

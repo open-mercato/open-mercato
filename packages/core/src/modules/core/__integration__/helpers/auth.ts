@@ -2,16 +2,32 @@ import { type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
+function loadEnvFileContent(): string | null {
+  const candidatePaths = [
+    resolve(process.cwd(), 'apps/mercato/.env'),
+    resolve(process.cwd(), '.env'),
+  ];
+
+  for (const envPath of candidatePaths) {
+    try {
+      const content = readFileSync(envPath, 'utf-8');
+      if (content.trim().length > 0) {
+        return content;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 function loadEnvValue(key: string): string | undefined {
   if (process.env[key]) return process.env[key];
-  try {
-    const envPath = resolve(__dirname, '../../../../apps/mercato/.env');
-    const content = readFileSync(envPath, 'utf-8');
-    const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'));
-    return match?.[1]?.trim();
-  } catch {
-    return undefined;
-  }
+  const content = loadEnvFileContent();
+  if (!content) return undefined;
+  const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'));
+  return match?.[1]?.trim();
 }
 
 export const DEFAULT_CREDENTIALS: Record<string, { email: string; password: string }> = {

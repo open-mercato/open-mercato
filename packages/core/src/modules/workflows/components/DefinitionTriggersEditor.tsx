@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
-import { EventSelect } from '@open-mercato/ui/backend/inputs/EventSelect'
+import { EventPatternInput } from '@open-mercato/ui/backend/inputs/EventPatternInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Plus, Trash2, Edit2, Zap, Info, X } from 'lucide-react'
 import type { WorkflowDefinitionTrigger } from '../data/entities'
@@ -392,21 +392,11 @@ export function DefinitionTriggersEditor({
             {/* Event Pattern */}
             <div className="space-y-1">
               <Label htmlFor="trigger-pattern">{t('workflows.triggers.fields.eventPattern', 'Event Pattern')} *</Label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  id="trigger-pattern"
-                  value={formValues.eventPattern}
-                  onChange={e => setFormValues(prev => ({ ...prev, eventPattern: e.target.value }))}
-                  placeholder="sales.orders.created"
-                  className="flex-1"
-                />
-                <EventSelect
-                  value=""
-                  onChange={(eventId) => setFormValues(prev => ({ ...prev, eventPattern: eventId }))}
-                  placeholder={t('workflows.triggers.placeholders.quickSelect', 'Quick select...')}
-                  className="w-full sm:w-[200px]"
-                />
-              </div>
+              <EventPatternInput
+                value={formValues.eventPattern}
+                onChange={eventPattern => setFormValues(prev => ({ ...prev, eventPattern }))}
+                placeholder={t('workflows.triggers.placeholders.eventPattern')}
+              />
               <p className="text-xs text-muted-foreground">
                 {t('workflows.triggers.hints.eventPattern', 'Use * as wildcard: "sales.orders.*" matches any order event')}
               </p>

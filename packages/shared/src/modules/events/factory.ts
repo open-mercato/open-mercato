@@ -24,6 +24,8 @@ interface GlobalEventBus {
   emit(event: string, payload: unknown, options?: EmitOptions): Promise<void>
 }
 
+const GLOBAL_EVENT_BUS_KEY = '__openMercatoGlobalEventBus__'
+
 // Global event bus reference (set during bootstrap)
 let globalEventBus: GlobalEventBus | null = null
 
@@ -33,6 +35,11 @@ let globalEventBus: GlobalEventBus | null = null
  */
 export function setGlobalEventBus(bus: GlobalEventBus): void {
   globalEventBus = bus
+  try {
+    ;(globalThis as Record<string, unknown>)[GLOBAL_EVENT_BUS_KEY] = bus
+  } catch {
+    // ignore global assignment failures
+  }
 }
 
 /**
@@ -40,6 +47,14 @@ export function setGlobalEventBus(bus: GlobalEventBus): void {
  * Returns null if not yet bootstrapped.
  */
 export function getGlobalEventBus(): GlobalEventBus | null {
+  try {
+    const sharedBus = (globalThis as Record<string, unknown>)[GLOBAL_EVENT_BUS_KEY]
+    if (sharedBus && typeof sharedBus === 'object' && typeof (sharedBus as GlobalEventBus).emit === 'function') {
+      return sharedBus as GlobalEventBus
+    }
+  } catch {
+    // ignore global read failures
+  }
   return globalEventBus
 }
 
@@ -75,6 +90,15 @@ export function getAllDeclaredEventIds(): string[] {
  */
 export function getDeclaredEvents(): EventDefinition[] {
   return [...allDeclaredEvents]
+}
+
+/**
+ * Check if an event has clientBroadcast enabled.
+ * Used by the SSE endpoint to filter events for the DOM Event Bridge.
+ */
+export function isBroadcastEvent(eventId: string): boolean {
+  const event = allDeclaredEvents.find(e => e.id === eventId)
+  return event?.clientBroadcast === true
 }
 
 // =============================================================================

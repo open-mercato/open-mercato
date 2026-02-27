@@ -46,6 +46,7 @@ export type LeaveRequestFormProps = {
   loadingMessage?: string
   allowMemberSelect?: boolean
   memberLabel?: string | null
+  extraActions?: React.ReactNode
 }
 
 const DEFAULT_TIMEZONE = 'UTC'
@@ -97,6 +98,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
     loadingMessage,
     allowMemberSelect = true,
     memberLabel,
+    extraActions,
   } = props
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
@@ -334,6 +336,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
       cancelHref={cancelHref}
       onSubmit={onSubmit}
       onDelete={onDelete}
+      extraActions={extraActions}
       isLoading={isLoading}
       loadingMessage={loadingMessage}
     />

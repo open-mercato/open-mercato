@@ -9,6 +9,7 @@
 3. **MUST use `makeCrudRoute` with `indexer: { entityType }`** for query index coverage
 4. **MUST wire custom field helpers** for create/update/response normalization
 5. **MUST capture custom field snapshots** in command `before`/`after` payloads for undo support
+6. **MUST use `useGuardedMutation` for non-`CrudForm` backend writes** (`POST`/`PUT`/`PATCH`/`DELETE`) and pass `retryLastMutation` in injection context
 
 ## Key Reference Files — Copy From Here
 

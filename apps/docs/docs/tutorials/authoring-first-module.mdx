@@ -28,13 +28,12 @@ Populate the module metadata and features:
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry';
 
 export const metadata: ModuleInfo = {
-  id: 'inventory_items',
+  name: 'inventory_items',
   title: 'Inventory Items',
   version: '0.1.0',
   description: 'Track stock levels and product availability.',
 };
 ```
-
 ```ts title="packages/inventory/src/modules/inventory_items/acl.ts"
 export const features = [
   'inventory_items.view',

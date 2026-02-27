@@ -5,9 +5,11 @@ description: Scaffold, configure, and develop a standalone Open Mercato applicat
 
 # Create a standalone app
 
-The `create-mercato-app` CLI scaffolds a fully configured, self-contained Open Mercato application outside the monorepo. The generated project includes Next.js, all core modules pre-enabled, Docker services, and development tooling — ready to customize and deploy independently.
+:::tip Recommended for production apps
+This is the recommended path for teams building production applications on top of Open Mercato. You get a self-contained project that installs Open Mercato packages from npm — no monorepo clone required. If you're a framework contributor or want to explore the source, see [Local setup](../installation/setup) for the monorepo path.
+:::
 
-Standalone apps install Open Mercato packages from npm (or a private registry) instead of referencing local workspace packages. This is the recommended path for teams building production applications on top of Open Mercato.
+The `create-mercato-app` CLI scaffolds a fully configured, self-contained Open Mercato application outside the monorepo. The generated project includes Next.js, all core modules pre-enabled, Docker services, and development tooling — ready to customize and deploy independently.
 
 ## Prerequisites
 
@@ -60,29 +62,83 @@ yarn initialize
 yarn dev
 ```
 
+:::info
+`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately.
+:::
+
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+## What's in the box
+
+The scaffolded app comes with **27 pre-enabled modules** covering the most common commerce and business operations:
+
+- **CRM** — companies, people, deals, activities, todos
+- **Catalog** — products, categories, variants, pricing, offers
+- **Sales** — orders, quotes, invoices, shipments, payments
+- **Auth** — users, roles, RBAC, session management
+- **Search** — full-text, vector, and token-based search via Meilisearch
+- **Workflows** — step-based automation with visual editor
+- **Currencies** — multi-currency support with exchange rates
+- **Custom fields** — tenant-specific field sets on any entity
+- **Notifications** — in-app notification system
+- **Content** — static pages (privacy, terms)
+- **Onboarding** — setup wizard and tenant provisioning
+- **AI assistant** — MCP-powered AI tools and chat
+
+All modules are listed in `src/modules.ts` and can be individually disabled or ejected.
 
 ## Project structure
 
 ```
 my-store/
-├── docker-compose.yml          # PostgreSQL, Redis, Meilisearch
-├── .env.example                # Environment variable reference
-├── package.json                # Scripts, dependencies
-├── next.config.ts              # Next.js configuration
-├── tsconfig.json               # TypeScript paths
-├── src/
-│   ├── modules.ts              # Enabled modules and their sources
-│   ├── modules/                # Your local modules (from: '@app')
-│   ├── bootstrap.ts            # App initialization
-│   ├── di.ts                   # DI overrides
-│   ├── app/
-│   │   ├── layout.tsx          # Root layout
-│   │   ├── (backend)/          # Admin panel routes
-│   │   ├── (frontend)/         # Frontend routes
-│   │   └── api/                # API dispatcher
-│   ├── components/             # Shared UI components
-│   └── i18n/                   # Locale files (en, pl, es, de)
+├── .dockerignore
+├── .env.example                  # Environment variable reference
+├── .gitignore
+├── .yarnrc.yml                   # Yarn config (registry settings)
+├── AGENTS.md                     # AI agent guidelines (Claude Code)
+├── CLAUDE.md                     # Claude Code project instructions
+├── components.json               # shadcn/ui component config
+├── Dockerfile                    # Multi-stage production build
+├── docker-compose.yml            # Services only (PostgreSQL, Redis, Meilisearch)
+├── docker-compose.fullapp.yml    # Full stack for production-style deploy
+├── docker-compose.fullapp.dev.yml # Full stack with hot reload (Windows-friendly)
+├── docker/
+│   └── scripts/
+│       └── dev-entrypoint.sh     # Dev container entrypoint
+├── next.config.ts                # Next.js configuration
+├── package.json                  # Scripts, dependencies
+├── postcss.config.mjs            # PostCSS / Tailwind config
+├── tsconfig.json                 # TypeScript paths
+├── yarn.lock
+├── types/                        # Type declarations
+│   ├── pg/index.d.ts
+│   └── react-big-calendar/index.d.ts
+├── public/                       # Static assets (SVGs)
+└── src/
+    ├── bootstrap.ts              # App initialization
+    ├── di.ts                     # DI overrides
+    ├── modules.ts                # Enabled modules and their sources
+    ├── proxy.ts                  # Proxy configuration
+    ├── app/
+    │   ├── layout.tsx            # Root layout
+    │   ├── page.tsx              # Public landing page
+    │   ├── globals.css           # Global styles
+    │   ├── (backend)/backend/    # Admin panel routes
+    │   ├── (frontend)/           # Frontend routes
+    │   └── api/                  # API dispatcher + OpenAPI docs
+    ├── components/               # Shared UI components
+    │   ├── ClientBootstrap.tsx
+    │   ├── GlobalNoticeBars.tsx
+    │   ├── NotificationBellWrapper.tsx
+    │   ├── OrganizationSwitcher.tsx
+    │   ├── StartPageContent.tsx
+    │   └── ui/                   # shadcn/ui primitives
+    ├── i18n/                     # Locale files (en, pl, es, de)
+    └── modules/                  # Your custom modules (from: '@app')
+        └── auth/
+            └── __integration__/  # Integration test scaffold
+                ├── TC-AUTH-001.spec.ts
+                └── helpers/auth.ts
 ```
 
 ### Key files
@@ -90,6 +146,24 @@ my-store/
 - **`src/modules.ts`** — lists every enabled module and where it comes from. Core modules use `from: '@open-mercato/core'`; your custom modules use `from: '@app'`.
 - **`src/modules/`** — drop custom modules here. Each folder is a full module with the standard structure (`index.ts`, `backend/`, `api/`, `data/`, etc.).
 - **`src/di.ts`** — register app-level DI overrides that run after all module registrars.
+
+### Docker Compose variants
+
+The scaffolded app includes three Compose files for different scenarios:
+
+| File | When to use |
+| --- | --- |
+| `docker-compose.yml` | **Local development** — starts only infrastructure services (PostgreSQL, Redis, Meilisearch). You run the app with `yarn dev` on the host. |
+| `docker-compose.fullapp.dev.yml` | **Containerized development** — runs the full stack including the app with hot reload. Recommended for Windows or fully containerized workflows. |
+| `docker-compose.fullapp.yml` | **Production-style deploy** — builds and runs the app in production mode inside Docker. Suitable for demos, staging, or deployment. |
+
+### AI tooling
+
+The scaffolded project includes `AGENTS.md` and `CLAUDE.md` at the root. These files provide context for Claude Code and other AI-assisted development tools, describing the project structure, conventions, and available commands. You can customize them for your team's workflow.
+
+### Integration test scaffold
+
+The project includes a starter integration test at `src/modules/auth/__integration__/TC-AUTH-001.spec.ts` with a helper module for authentication. Use this as a reference when writing Playwright-based integration tests for your custom modules. Run tests with `yarn test:integration`.
 
 ## Available scripts
 
@@ -136,6 +210,10 @@ Create a new module under `src/modules/` and register it in `modules.ts`:
    ```
 
 Add backend pages, API routes, entities, and other module files using the standard [module file conventions](../framework/modules/overview).
+
+:::tip Following the tutorials
+The [Build your first Open Mercato app](./build-first-app) tutorial series walks through building an inventory module step by step. Those tutorials use monorepo paths (`apps/mercato/src/modules/`) but the patterns are identical — in a standalone app, use `src/modules/` instead. Everything else (module files, conventions, API routes, backend pages) works the same way.
+:::
 
 ## Eject a core module
 

@@ -27,6 +27,16 @@ Every non-trivial spec must include these sections:
 9. Final Compliance Report
 10. Changelog
 
+## Open Questions *(remove before finalizing)*
+
+> **When to include**: Add this section to the skeleton when critical architectural decisions — data model shape, scope boundaries, integration points, or technology choices — cannot be inferred from the brief. List as `Q1`, `Q2`, … Keep each question short and answerable. **STOP and wait for answers before proceeding to Research/Design.**
+> Once all questions are answered, fill in the spec and delete this section.
+
+- **Q1**: [Critical unknown — e.g. "Should this store data per-tenant or globally?"]
+- **Q2**: [Critical unknown — e.g. "Does this replace X or coexist with it?"]
+
+---
+
 ## Overview
 [What this module/feature does and why it is being implemented. Mention target audience and key benefits.]
 
@@ -100,9 +110,6 @@ Every non-trivial spec must include these sections:
 ### Testing Strategy (Optional)
 - [Unit tests for ...]
 - [Integration tests for ...]
-
-### Open Questions (Optional)
-- [Unresolved question 1]
 
 ## Risks & Impact Review
 Document concrete risks across the categories below. For each feature, answer "what can go wrong," then record mitigations and residual risk.

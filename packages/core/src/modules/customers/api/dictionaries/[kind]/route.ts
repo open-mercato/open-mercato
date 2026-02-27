@@ -4,7 +4,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
-import { CustomerDictionaryEntry } from '../../../data/entities'
+import { CustomerDictionaryEntry, CustomerPipelineStage } from '../../../data/entities'
+import { ensureDictionaryEntry } from '../../../commands/shared'
 import { mapDictionaryKind, resolveDictionaryRouteContext } from '../context'
 import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { z } from 'zod'
@@ -47,6 +48,25 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       { tenantId, organizationId: { $in: readableOrganizationIds }, kind: mappedKind } as any,
       { orderBy: { label: 'asc' } }
     )
+
+    if (mappedKind === 'pipeline_stage' && organizationId) {
+      const existingNormalized = new Set(entries.map((e) => e.normalizedValue))
+      const pipelineStages = await em.find(CustomerPipelineStage, { organizationId, tenantId })
+      for (const stage of pipelineStages) {
+        if (!existingNormalized.has(stage.label.trim().toLowerCase())) {
+          const created = await ensureDictionaryEntry(em, {
+            tenantId,
+            organizationId,
+            kind: 'pipeline_stage',
+            value: stage.label,
+          })
+          if (created) {
+            entries.push(created)
+            existingNormalized.add(created.normalizedValue)
+          }
+        }
+      }
+    }
 
     const byValue = new Map<string, { entry: CustomerDictionaryEntry; isInherited: boolean; order: number }>()
     for (const entry of entries) {

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { createPortal } from 'react-dom'
-import { Zap, ChevronDown, Loader2 } from 'lucide-react'
+import { Zap, ChevronDown, Loader2, MoreHorizontal } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -26,11 +26,21 @@ export type ActionsDropdownProps = {
   items: ActionItem[]
   /** Button label (default: translated 'Actions') */
   label?: string
+  /** Trigger style */
+  triggerMode?: 'label' | 'icon'
+  /** Accessible label for icon trigger */
+  ariaLabel?: string
   /** Button size (default: 'sm') */
   size?: 'sm' | 'default'
 }
 
-export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownProps) {
+export function ActionsDropdown({
+  items,
+  label,
+  triggerMode = 'label',
+  ariaLabel,
+  size = 'sm',
+}: ActionsDropdownProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const btnRef = React.useRef<HTMLButtonElement>(null)
@@ -40,6 +50,7 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
   const [direction, setDirection] = React.useState<'down' | 'up'>('down')
 
   const resolvedLabel = label ?? t('ui.actions.actions', 'Actions')
+  const resolvedAriaLabel = ariaLabel ?? resolvedLabel
 
   const updatePosition = React.useCallback(() => {
     if (!btnRef.current) return
@@ -117,16 +128,27 @@ export function ActionsDropdown({ items, label, size = 'sm' }: ActionsDropdownPr
         type="button"
         variant="outline"
         size={size}
+        className={triggerMode === 'icon' ? 'px-2' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={resolvedAriaLabel}
         onClick={() => {
           setOpen((prev) => !prev)
           requestAnimationFrame(updatePosition)
         }}
       >
-        {resolvedLabel}
-        <Zap className="size-4 ml-1" />
-        <ChevronDown className={`size-3.5 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+        {triggerMode === 'icon' ? (
+          <>
+            <MoreHorizontal className="size-4" />
+            <span className="sr-only">{resolvedAriaLabel}</span>
+          </>
+        ) : (
+          <>
+            {resolvedLabel}
+            <Zap className="size-4 ml-1" />
+            <ChevronDown className={`size-3.5 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+          </>
+        )}
       </Button>
       {open && anchorRect && createPortal(
         <div

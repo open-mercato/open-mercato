@@ -314,17 +314,17 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     await ensureReady()
     const vectorLiteral = toVectorLiteral(input.vector)
     const filter = input.filter ?? { tenantId: '' }
-    // Check if organizationId is explicitly set in filter (vs undefined/missing)
-    // undefined = no org filter, null = filter for records with null org_id
-    const hasOrgFilter = 'organizationId' in filter
+    const normalizedOrganizationId =
+      typeof filter.organizationId === 'string' && filter.organizationId.trim().length > 0
+        ? filter.organizationId.trim()
+        : null
     const params: any[] = [
       vectorLiteral,
       DRIVER_ID,
       filter.tenantId,
-      hasOrgFilter ? (filter.organizationId ?? null) : null,
+      normalizedOrganizationId,
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
-      hasOrgFilter, // $7: whether to apply org filter
     ]
     const res = await pool.query<{
       entity_id: string
@@ -365,11 +365,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         FROM ${tableIdent}
         WHERE driver_id = $2
           AND tenant_id = $3::uuid
-          AND (
-            $7::boolean = false
-            OR ($4::uuid IS NULL AND organization_id IS NULL)
-            OR ($4::uuid IS NOT NULL AND (organization_id = $4::uuid OR organization_id IS NULL))
-          )
+          AND ($4::uuid IS NULL OR organization_id = $4::uuid)
           AND (
             $5::text[] IS NULL OR entity_id = ANY($5::text[])
           )
@@ -414,11 +410,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     const values: any[] = [DRIVER_ID, params.tenantId]
     let nextParam = 3
 
-    if (params.organizationId === null) {
-      conditions.push('organization_id IS NULL')
-    } else if (typeof params.organizationId === 'string' && params.organizationId.length) {
-      conditions.push(`(organization_id = $${nextParam}::uuid OR organization_id IS NULL)`)
-      values.push(params.organizationId)
+    const normalizedOrganizationId =
+      typeof params.organizationId === 'string' && params.organizationId.trim().length > 0
+        ? params.organizationId.trim()
+        : null
+    if (normalizedOrganizationId !== null) {
+      conditions.push(`organization_id = $${nextParam}::uuid`)
+      values.push(normalizedOrganizationId)
       nextParam += 1
     }
 
@@ -525,11 +523,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     const values: any[] = [DRIVER_ID, params.tenantId]
     let nextParam = 3
 
-    if (params.organizationId === null) {
-      conditions.push('organization_id IS NULL')
-    } else if (typeof params.organizationId === 'string' && params.organizationId.length) {
-      conditions.push(`(organization_id = $${nextParam}::uuid OR organization_id IS NULL)`)
-      values.push(params.organizationId)
+    const normalizedOrganizationId =
+      typeof params.organizationId === 'string' && params.organizationId.trim().length > 0
+        ? params.organizationId.trim()
+        : null
+    if (normalizedOrganizationId !== null) {
+      conditions.push(`organization_id = $${nextParam}::uuid`)
+      values.push(normalizedOrganizationId)
       nextParam += 1
     }
     if (params.entityId) {

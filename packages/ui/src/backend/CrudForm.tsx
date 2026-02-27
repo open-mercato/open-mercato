@@ -53,19 +53,31 @@ import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } fro
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
+import { format, parseISO } from 'date-fns'
+import type { Locale } from 'date-fns'
+import { DateTimePicker } from './inputs/DateTimePicker'
+import { TimePicker } from './inputs/TimePicker'
+import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
+import { withScopedApiRequestHeaders } from './utils/apiCall'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useConfirmDialog } from './confirm-dialog'
 import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
+import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
 const FOCUSABLE_SELECTOR =
   '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const CRUDFORM_EXTENDED_EVENTS_ENABLED = parseBooleanWithDefault(
+  process.env.NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED,
+  true,
+)
 
 export type CrudFieldBase = {
   id: string
@@ -75,6 +87,7 @@ export type CrudFieldBase = {
   required?: boolean
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
+  readOnly?: boolean
 }
 
 export type CrudFieldOption = { value: string; label: string }
@@ -87,7 +100,10 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'select'
     | 'number'
     | 'date'
+    | 'datepicker'
     | 'datetime-local'
+    | 'datetime'
+    | 'time'
     | 'tags'
     | 'richtext'
     | 'relation'
@@ -104,6 +120,13 @@ export type CrudBuiltinField = CrudFieldBase & {
   suggestions?: string[]
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
+  // for datetime/time fields
+  minuteStep?: number
+  minDate?: Date
+  maxDate?: Date
+  displayFormat?: string
+  closeOnSelect?: boolean
+  locale?: Locale
 }
 
 export type CrudCustomFieldRenderProps = {
@@ -135,6 +158,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   fields: CrudField[]
   initialValues?: Partial<TValues>
   submitLabel?: string
+  submitIcon?: React.ComponentType<{ className?: string }>
   formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
@@ -270,6 +294,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   fields,
   initialValues,
   submitLabel,
+  submitIcon,
   formId: providedFormId,
   customFieldsLoadingMessage,
   cancelHref,
@@ -323,6 +348,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [values, setValues] = React.useState<CrudFormValues<TValues>>(
     () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
   )
+  const valuesRef = React.useRef(values)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
@@ -354,7 +380,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
-  
+
   // Injection spot events for widget lifecycle management
   const resolvedInjectionSpotId = React.useMemo(() => {
     if (injectionSpotId) return injectionSpotId
@@ -364,13 +390,36 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     return undefined
   }, [injectionSpotId, resolvedEntityIds])
+  const headerInjectionSpotId = resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : undefined
   
+  const recordId = React.useMemo(() => {
+    const raw = values.id
+    if (typeof raw === 'string') return raw
+    if (typeof raw === 'number') return String(raw)
+    return undefined
+  }, [values])
+  const fallbackRecordId = recordId || (
+    versionHistory?.resourceId === undefined || versionHistory.resourceId === null
+      ? undefined
+      : String(versionHistory.resourceId).trim() || undefined
+  )
+
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
+    resourceKind: versionHistory?.resourceKind,
+    resourceId: recordId ?? versionHistory?.resourceId,
+    recordId: fallbackRecordId,
     isLoading,
     pending,
-  }), [formId, primaryEntityId, isLoading, pending])
+  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending])
+  const injectionContextRef = React.useRef(injectionContext)
+  React.useEffect(() => {
+    injectionContextRef.current = injectionContext
+  }, [injectionContext])
+  React.useEffect(() => {
+    valuesRef.current = values
+  }, [values])
   
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
@@ -378,6 +427,131 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   })
   
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
+  const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
+
+  const transformValidationErrors = React.useCallback(
+    async (fieldErrors: Record<string, string>): Promise<Record<string, string>> => {
+      if (!extendedInjectionEventsEnabled || !Object.keys(fieldErrors).length) return fieldErrors
+      try {
+        const result = await triggerInjectionEvent(
+          'transformValidation',
+          fieldErrors as unknown as TValues,
+          injectionContextRef.current,
+          { originalData: valuesRef.current as TValues },
+        )
+        const transformed = result.data
+        if (!transformed || typeof transformed !== 'object' || Array.isArray(transformed)) return fieldErrors
+        return Object.fromEntries(
+          Object.entries(transformed as Record<string, unknown>).map(([key, value]) => [key, String(value)]),
+        )
+      } catch (err) {
+        console.error('[CrudForm] Error in transformValidation:', err)
+        return fieldErrors
+      }
+    },
+    [extendedInjectionEventsEnabled, triggerInjectionEvent],
+  )
+
+  const canNavigateTo = React.useCallback(
+    async (target: string): Promise<boolean> => {
+      if (!extendedInjectionEventsEnabled) return true
+      try {
+        const result = await triggerInjectionEvent(
+          'onBeforeNavigate',
+          valuesRef.current as TValues,
+          injectionContextRef.current,
+          { target },
+        )
+        if (!result.ok) {
+          flash(result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return false
+        }
+        return true
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+        flash(message, 'error')
+        return false
+      }
+    },
+    [extendedInjectionEventsEnabled, t, triggerInjectionEvent],
+  )
+
+  const navigateWithGuard = React.useCallback(
+    async (target: string) => {
+      if (!target) return
+      const allowed = await canNavigateTo(target)
+      if (allowed) router.push(target)
+    },
+    [canNavigateTo, router],
+  )
+
+  React.useEffect(() => {
+    if (!extendedInjectionEventsEnabled || typeof window === 'undefined') return
+    const handleEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<unknown>
+      void triggerInjectionEvent('onAppEvent', valuesRef.current as TValues, injectionContextRef.current, {
+        appEvent: customEvent.detail,
+      }).catch((err) => {
+        console.error('[CrudForm] Error in onAppEvent:', err)
+      })
+    }
+    window.addEventListener('om:event', handleEvent as EventListener)
+    return () => {
+      window.removeEventListener('om:event', handleEvent as EventListener)
+    }
+  }, [extendedInjectionEventsEnabled, triggerInjectionEvent])
+
+  React.useEffect(() => {
+    if (!extendedInjectionEventsEnabled || typeof document === 'undefined') return
+    const emitVisibility = () => {
+      void triggerInjectionEvent('onVisibilityChange', valuesRef.current as TValues, injectionContextRef.current, {
+        visible: document.visibilityState === 'visible',
+      }).catch((err) => {
+        console.error('[CrudForm] Error in onVisibilityChange:', err)
+      })
+    }
+    document.addEventListener('visibilitychange', emitVisibility)
+    emitVisibility()
+    return () => {
+      document.removeEventListener('visibilitychange', emitVisibility)
+    }
+  }, [extendedInjectionEventsEnabled, triggerInjectionEvent])
+
+  React.useEffect(() => {
+    if (!extendedInjectionEventsEnabled) return
+    const root = rootRef.current
+    if (!root || typeof window === 'undefined') return
+    const handleClickCapture = (event: MouseEvent) => {
+      if (event.defaultPrevented) return
+      if (event.button !== 0) return
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      const targetElement = event.target instanceof Element ? event.target : null
+      const linkElement = targetElement?.closest('a[href]')
+      if (!(linkElement instanceof HTMLAnchorElement)) return
+      if (!root.contains(linkElement)) return
+      if (linkElement.target && linkElement.target !== '_self') return
+      const rawHref = linkElement.getAttribute('href')
+      if (!rawHref || rawHref.startsWith('#')) return
+      let target = rawHref
+      if (rawHref.startsWith('http://') || rawHref.startsWith('https://')) {
+        try {
+          const parsed = new URL(rawHref)
+          if (parsed.origin !== window.location.origin) return
+          target = `${parsed.pathname}${parsed.search}${parsed.hash}`
+        } catch {
+          return
+        }
+      } else if (!rawHref.startsWith('/')) {
+        return
+      }
+      event.preventDefault()
+      void navigateWithGuard(target)
+    }
+    root.addEventListener('click', handleClickCapture, true)
+    return () => {
+      root.removeEventListener('click', handleClickCapture, true)
+    }
+  }, [extendedInjectionEventsEnabled, navigateWithGuard])
   
   React.useEffect(() => {
     const root = rootRef.current
@@ -406,32 +580,132 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setCustomFieldDefsVersion((prev) => prev + 1)
   }, [])
 
-  const recordId = React.useMemo(() => {
-    const raw = values.id
-    if (typeof raw === 'string') return raw
-    if (typeof raw === 'number') return String(raw)
-    return undefined
-  }, [values])
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
+    const deletePayload = values as TValues
     try {
       const confirmed = await confirm({
         title: deleteConfirmMessage,
         variant: 'destructive',
       })
       if (!confirmed) return
-      await onDelete()
+
+      let injectionRequestHeaders: Record<string, string> | undefined
+      if (resolvedInjectionSpotId) {
+        try {
+          const result = await triggerInjectionEvent('onBeforeDelete', deletePayload, injectionContext)
+          if (!result.ok) {
+            try {
+              if (typeof window !== 'undefined') {
+                dispatchBackendMutationError({
+                  contextId: formId,
+                  formId,
+                  error: result.details ?? result,
+                })
+                window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+                  detail: {
+                    formId,
+                    error: result.details ?? result,
+                  },
+                }))
+              }
+            } catch {
+              // ignore event dispatch failures
+            }
+            if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
+              const transformedErrors = await transformValidationErrors(result.fieldErrors)
+              setErrors(transformedErrors)
+            }
+            const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+            flash(message, 'error')
+            return
+          }
+          injectionRequestHeaders = result.requestHeaders
+        } catch (err) {
+          console.error('[CrudForm] Error in onBeforeDelete:', err)
+          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return
+        }
+      }
+
+      setPending(true)
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onDelete', deletePayload, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onDelete:', err)
+          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return
+        }
+      }
+
+      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
+        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+          await onDelete()
+        })
+      } else {
+        await onDelete()
+      }
+
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onAfterDelete', deletePayload, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onAfterDelete:', err)
+        }
+      }
       try { flash(deleteSuccessMessage, 'success') } catch {}
       // Redirect if requested by caller
       if (typeof deleteRedirect === 'string' && deleteRedirect) {
-        router.push(deleteRedirect)
+        await navigateWithGuard(deleteRedirect)
       }
     } catch (err) {
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onDeleteError', deletePayload, injectionContext, { error: err })
+        } catch (hookError) {
+          console.error('[CrudForm] Error in onDeleteError:', hookError)
+        }
+      }
+      try {
+        if (typeof window !== 'undefined') {
+          dispatchBackendMutationError({
+            contextId: formId,
+            formId,
+            error: err,
+          })
+          window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+            detail: {
+              formId,
+              error: err,
+            },
+          }))
+        }
+      } catch {
+        // ignore event dispatch failures
+      }
       const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
       try { flash(message, 'error') } catch {}
+    } finally {
+      setPending(false)
     }
-  }, [confirm, onDelete, deleteRedirect, router, deleteConfirmMessage, deleteSuccessMessage, deleteErrorMessage])
+  }, [
+    confirm,
+    deleteConfirmMessage,
+    deleteErrorMessage,
+    deleteRedirect,
+    deleteSuccessMessage,
+    formId,
+    injectionContext,
+    onDelete,
+    resolvedInjectionSpotId,
+    navigateWithGuard,
+    t,
+    transformValidationErrors,
+    triggerInjectionEvent,
+    values,
+  ])
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
@@ -449,12 +723,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       autoCheckAcl={versionHistory?.autoCheckAcl}
     />
   )
-  const headerExtraActions = versionHistoryEnabled ? (
+  const headerInjectionAction = headerInjectionSpotId ? (
+    <InjectionSpot
+      spotId={headerInjectionSpotId}
+      context={injectionContext}
+      data={values}
+      onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+      disabled={pending}
+    />
+  ) : null
+  const headerExtraActions = versionHistoryEnabled || headerInjectionAction || extraActions ? (
     <>
-      {versionHistoryAction}
+      {versionHistoryEnabled ? versionHistoryAction : null}
+      {headerInjectionAction}
       {extraActions}
     </>
-  ) : extraActions
+  ) : undefined
 
   // Auto-append custom fields for this entityId
   React.useEffect(() => {
@@ -911,11 +1195,43 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [errors, formId])
 
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
+    let nextData: CrudFormValues<TValues> | null = null
     setValues((prev) => {
       if (Object.is(prev[id], nextValue)) return prev
-      return { ...prev, [id]: nextValue } as CrudFormValues<TValues>
+      nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
+      return nextData
     })
-  }, [])
+    if (!nextData || !extendedInjectionEventsEnabled) return
+    void triggerInjectionEvent('onFieldChange', nextData as TValues, injectionContextRef.current, {
+      fieldId: id,
+      fieldValue: nextValue,
+    }).then((result) => {
+      if (!result.ok) return
+      const change = result.fieldChange
+      if (!change) return
+      const updates: Record<string, unknown> = { ...(change.sideEffects ?? {}) }
+      if (change.value !== undefined) {
+        updates[id] = change.value
+      }
+      if (Object.keys(updates).length > 0) {
+        setValues((prev) => {
+          let changed = false
+          const next = { ...prev } as Record<string, unknown>
+          for (const [key, value] of Object.entries(updates)) {
+            if (Object.is(next[key], value)) continue
+            next[key] = value
+            changed = true
+          }
+          return changed ? (next as CrudFormValues<TValues>) : prev
+        })
+      }
+      for (const message of change.messages ?? []) {
+        flash(message.text, message.severity)
+      }
+    }).catch((err) => {
+      console.error('[CrudForm] Error in onFieldChange:', err)
+    })
+  }, [extendedInjectionEventsEnabled, flash, triggerInjectionEvent])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -937,11 +1253,38 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [buildCustomFieldsManageHref],
   )
 
-  // Apply initialValues when provided (reapply when initialValues change for edit forms)
+  const initialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
   React.useEffect(() => {
     if (!initialValues) return
-    setValues((prev) => ({ ...prev, ...initialValues } as CrudFormValues<TValues>))
-  }, [initialValues])
+    const snapshot = JSON.stringify(initialValues)
+    if (initialValuesSnapshotRef.current === snapshot) return
+    initialValuesSnapshotRef.current = snapshot
+    let mergedValues: CrudFormValues<TValues> | null = null
+    setValues((prev) => {
+      mergedValues = { ...prev, ...initialValues } as CrudFormValues<TValues>
+      return mergedValues
+    })
+    if (!extendedInjectionEventsEnabled || !mergedValues) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        const result = await triggerInjectionEvent(
+          'transformDisplayData',
+          mergedValues as TValues,
+          injectionContextRef.current,
+        )
+        const transformed = result.data
+        if (cancelled || !transformed) return
+        setValues(transformed as CrudFormValues<TValues>)
+      } catch (err) {
+        console.error('[CrudForm] Error in transformDisplayData:', err)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [extendedInjectionEventsEnabled, initialValues, triggerInjectionEvent])
 
   const buildFieldsetEditorHref = React.useCallback(
     (includeViewParam: boolean) => {
@@ -1010,7 +1353,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (process.env.NODE_ENV !== 'production') {
         console.debug('[crud-form] Required field errors prevented submit', requiredErrors)
       }
-      setErrors(requiredErrors)
+      const transformedErrors = await transformValidationErrors(requiredErrors)
+      setErrors(transformedErrors)
       flash(highlightedMessage, 'error')
       return
     }
@@ -1040,9 +1384,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           if (customEntity) {
             const mapped: Record<string, string> = {}
             for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
-            setErrors((prev) => ({ ...prev, ...mapped }))
+            const transformedErrors = await transformValidationErrors(mapped)
+            setErrors((prev) => ({ ...prev, ...transformedErrors }))
           } else {
-            setErrors((prev) => ({ ...prev, ...result.fieldErrors }))
+            const transformedErrors = await transformValidationErrors(
+              Object.fromEntries(
+                Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
+              ),
+            )
+            setErrors((prev) => ({ ...prev, ...transformedErrors }))
           }
           flash(highlightedMessage, 'error')
           return
@@ -1063,7 +1413,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[crud-form] Schema validation failed', res.error.issues)
         }
-        setErrors(fieldErrors)
+        const transformedErrors = await transformValidationErrors(fieldErrors)
+        setErrors(transformedErrors)
         flash(highlightedMessage, 'error')
         return
       }
@@ -1071,20 +1422,51 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     } else {
       parsedValues = values as TValues
     }
+    let submitValues = parsedValues
+    if (extendedInjectionEventsEnabled) {
+      try {
+        const result = await triggerInjectionEvent('transformFormData', submitValues, injectionContext)
+        if (result.data) {
+          submitValues = result.data as TValues
+        }
+      } catch (err) {
+        console.error('[CrudForm] Error in transformFormData:', err)
+      }
+    }
 
     // Trigger onBeforeSave event for injection widgets
+    let injectionRequestHeaders: Record<string, string> | undefined
     if (resolvedInjectionSpotId) {
       try {
-        const result = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
+        const result = await triggerInjectionEvent('onBeforeSave', submitValues, injectionContext)
         if (!result.ok) {
+          try {
+            if (typeof window !== 'undefined') {
+              dispatchBackendMutationError({
+                contextId: formId,
+                formId,
+                error: result.details ?? result,
+              })
+              window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+                detail: {
+                  formId,
+                  error: result.details ?? result,
+                },
+              }))
+            }
+          } catch {
+            // ignore event dispatch failures
+          }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
-            setErrors(result.fieldErrors)
+            const transformedErrors = await transformValidationErrors(result.fieldErrors)
+            setErrors(transformedErrors)
           }
           const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
           setPending(false)
           return
         }
+        injectionRequestHeaders = result.requestHeaders
       } catch (err) {
         console.error('[CrudForm] Error in onBeforeSave:', err)
         flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
@@ -1098,7 +1480,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     // Trigger onSave event for injection widgets
     if (resolvedInjectionSpotId) {
       try {
-        await triggerInjectionEvent('onSave', parsedValues, injectionContext)
+        await triggerInjectionEvent('onSave', submitValues, injectionContext)
       } catch (err) {
         console.error('[CrudForm] Error in onSave:', err)
         flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
@@ -1108,19 +1490,42 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
     
     try {
-      await onSubmit?.(parsedValues)
+      if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
+        await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
+          await onSubmit?.(submitValues)
+        })
+      } else {
+        await onSubmit?.(submitValues)
+      }
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {
         try {
-          await triggerInjectionEvent('onAfterSave', parsedValues, injectionContext)
+          await triggerInjectionEvent('onAfterSave', submitValues, injectionContext)
         } catch (err) {
           console.error('[CrudForm] Error in onAfterSave:', err)
         }
       }
       
-      if (successRedirect) router.push(successRedirect)
+      if (successRedirect) await navigateWithGuard(successRedirect)
     } catch (err: unknown) {
+      try {
+        if (typeof window !== 'undefined') {
+          dispatchBackendMutationError({
+            contextId: formId,
+            formId,
+            error: err,
+          })
+          window.dispatchEvent(new CustomEvent('om:crud-save-error', {
+            detail: {
+              formId,
+              error: err,
+            },
+          }))
+        }
+      } catch {
+        // ignore event dispatch failures
+      }
       const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
       const combinedFieldErrors = serverFieldErrors ?? {}
       const hasFieldErrors = Object.keys(combinedFieldErrors).length > 0
@@ -1133,9 +1538,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           })()
         : null
       if (hasFieldErrors) {
-        setErrors(combinedFieldErrors)
+        const transformedErrors = await transformValidationErrors(combinedFieldErrors)
+        setErrors(transformedErrors)
         if (process.env.NODE_ENV !== 'production') {
-          console.debug('[crud-form] Submission failed with field errors', combinedFieldErrors)
+          console.debug('[crud-form] Submission failed with field errors', transformedErrors)
         }
       }
 
@@ -1160,6 +1566,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setPending(false)
     }
   }
+
   // Load dynamic options for fields that require it
   React.useEffect(() => {
     let cancelled = false
@@ -1565,9 +1972,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
+        ) : headerExtraActions ? (
+          <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
         ) : null}
         {contentHeader}
         <DataLoader
@@ -1607,7 +2016,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
                 }}
               />
             )}
@@ -1635,9 +2044,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: { formId, pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
+      ) : headerExtraActions ? (
+        <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
       ) : null}
       {contentHeader}
       <DataLoader
@@ -1697,7 +2108,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending, label: resolvedSubmitLabel, pendingLabel: savingLabel },
+                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
                 }}
               />
             )}
@@ -2261,6 +2672,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   const builtin = field.type === 'custom' ? null : field
   const hasLoader = typeof builtin?.loadOptions === 'function'
   const disabled = Boolean(field.disabled)
+  const readOnly = Boolean(field.readOnly)
   const autoFocusField = autoFocus && !disabled
 
   React.useEffect(() => {
@@ -2319,6 +2731,44 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           data-crud-focus-target=""
           disabled={disabled}
+        />
+      )}
+      {field.type === 'datepicker' && (
+        <DatePicker
+          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          closeOnSelect={builtin?.closeOnSelect}
+          locale={builtin?.locale}
+        />
+      )}
+      {field.type === 'datetime' && (
+        <DateTimePicker
+          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+          onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
+          minDate={builtin?.minDate}
+          maxDate={builtin?.maxDate}
+          displayFormat={builtin?.displayFormat}
+          locale={builtin?.locale}
+        />
+      )}
+      {field.type === 'time' && (
+        <TimePicker
+          value={typeof value === 'string' ? value : null}
+          onChange={(time) => setValue(field.id, time ?? undefined)}
+          disabled={disabled}
+          readOnly={readOnly}
+          placeholder={placeholder}
+          minuteStep={builtin?.minuteStep}
         />
       )}
       {field.type === 'textarea' && (

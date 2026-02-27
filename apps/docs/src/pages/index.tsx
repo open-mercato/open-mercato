@@ -95,6 +95,11 @@ const screenshots = [
 
 const gettingStartedLinks = [
   {
+    title: 'Create a Standalone App',
+    description: 'Scaffold a new project with npx create-mercato-app — the fastest way to start building.',
+    to: '/customization/standalone-app',
+  },
+  {
     title: 'Install Locally',
     description: 'Spin up the platform in minutes with the guided setup.',
     to: '/installation/setup',

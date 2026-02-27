@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { SearchService } from '@open-mercato/search'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 import type { EmbeddingService } from '../../../../vector'
@@ -78,11 +79,22 @@ export async function GET(req: Request) {
 
     const startTime = Date.now()
 
-    // Don't filter by organization in the playground - show all results
-    // Both strategies handle null as "no organization filter"
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
+      return NextResponse.json({
+        results: [],
+        strategiesUsed: [],
+        timing: 0,
+        query,
+        limit,
+      })
+    }
+
+    const organizationId =
+      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
     const searchOptions = {
       tenantId: auth.tenantId,
-      organizationId: null,
+      organizationId,
       limit,
       strategies,
       entityTypes,

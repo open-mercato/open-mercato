@@ -91,9 +91,11 @@ export type ChangedFieldsTableProps = {
   changeRows: ChangeRow[]
   noneLabel: string
   t: TranslateFn
+  beforeLabel?: string
+  afterLabel?: string
 }
 
-export function ChangedFieldsTable({ changeRows, noneLabel, t }: ChangedFieldsTableProps) {
+export function ChangedFieldsTable({ changeRows, noneLabel, t, beforeLabel, afterLabel }: ChangedFieldsTableProps) {
   return (
     <section>
       <h3 className="text-sm font-semibold">
@@ -108,10 +110,10 @@ export function ChangedFieldsTable({ changeRows, noneLabel, t }: ChangedFieldsTa
                   {t('audit_logs.actions.details.field')}
                 </th>
                 <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  {t('audit_logs.actions.details.before')}
+                  {beforeLabel ?? t('audit_logs.actions.details.before')}
                 </th>
                 <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                  {t('audit_logs.actions.details.after')}
+                  {afterLabel ?? t('audit_logs.actions.details.after')}
                 </th>
               </tr>
             </thead>

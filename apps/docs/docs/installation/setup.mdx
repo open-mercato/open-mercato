@@ -5,13 +5,28 @@ description: Step-by-step checklist to run Open Mercato locally.
 
 ## Getting started tracks
 
-**Recommended: follow the develop branch track.** It contains the latest monorepo setup and is the default path for active development.
+**Product teams** looking to build on Open Mercato should start with the [standalone app](#standalone-app-recommended-for-product-teams) — it gives you a clean project without cloning the full monorepo. **Core contributors** should follow the [develop branch](#develop-branch-recommended) track instead.
+
+:::tip Standalone app
+If you want to build a production app without cloning the monorepo, use [`create-mercato-app`](../customization/standalone-app) instead.
+:::
 
 :::tip Windows users
 If you are on **Windows**, skip the native setup and jump straight to the [Docker development setup](#docker-development-setup) below. It runs the entire stack — app, database, Redis, and search — inside containers, so you don't need Node.js, Yarn, or native build tools installed on your machine. This is also a great option for any platform where you prefer a fully containerized workflow.
 :::
 
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
+
+### Standalone app (recommended for product teams)
+
+Scaffold a standalone project with a single command — no need to clone the monorepo:
+
+```bash
+npx create-mercato-app my-app
+cd my-app
+```
+
+Then follow the post-install steps in the [full standalone app guide](/customization/standalone-app).
 
 ### Develop branch (recommended)
 

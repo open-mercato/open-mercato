@@ -20,7 +20,7 @@
   "query_index.table.columns.label": "Etiqueta",
   "query_index.table.columns.records": "Registros",
   "query_index.table.columns.status": "Estado",
-  "query_index.table.columns.vector": "Vector",
+  "query_index.table.columns.vector": "Vectorial",
   "query_index.table.confirm.fulltextPurge": "¿Eliminar el índice de texto completo de esta entidad? Esta acción no se puede deshacer.",
   "query_index.table.confirm.vectorPurge": "¿Eliminar los embeddings vectoriales de esta entidad? Esta acción no se puede deshacer.",
   "query_index.table.errors.actionFailed": "No se pudo ejecutar {{action}}.",
@@ -58,7 +58,7 @@
   "query_index.table.status.scope.stalled": "Detenido",
   "query_index.table.status.scopeLabel": "Ámbito",
   "query_index.table.status.stalled": "Detenido",
-  "query_index.table.status.vectorLabel": "Vector",
+  "query_index.table.status.vectorLabel": "Vectorial",
   "query_index.table.status.vectorValue": "{{count}} / {{total}}",
   "query_index.table.status.withProgress": "{{status}} ({{progress}})"
 }

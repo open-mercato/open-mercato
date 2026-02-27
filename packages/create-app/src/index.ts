@@ -94,6 +94,8 @@ const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
 }
 
+const SKIP_DIRS = new Set(['__tests__', '__integration__'])
+
 function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
   if (!existsSync(dest)) {
     mkdirSync(dest, { recursive: true })
@@ -108,6 +110,7 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
     const stat = statSync(srcPath)
 
     if (stat.isDirectory()) {
+      if (SKIP_DIRS.has(entry)) continue
       copyDirRecursive(srcPath, destPath, placeholders)
     } else if (entry.endsWith('.template')) {
       // Process template files

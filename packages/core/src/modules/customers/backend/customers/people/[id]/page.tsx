@@ -47,6 +47,8 @@ import { createCustomerNotesAdapter } from '../../../../components/detail/notesA
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
 type PersonOverview = {
   person: {
@@ -161,9 +163,41 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   }), [t])
 
   const personId = data?.person?.id ?? null
+  const mutationContextId = React.useMemo(
+    () => (personId ? `customer-person:${personId}` : `customer-person:${id ?? 'pending'}`),
+    [id, personId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    personId?: string | null
+    resourceKind: string
+    resourceId?: string
+    data: PersonOverview | null
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const injectionContext = React.useMemo(
-    () => ({ personId, data }),
-    [data, personId],
+    () => ({
+      formId: mutationContextId,
+      personId,
+      resourceKind: 'customers.person',
+      resourceId: personId ?? (id ?? undefined),
+      data,
+      retryLastMutation,
+    }),
+    [data, id, mutationContextId, personId, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: injectionContext,
+      })
+    },
+    [injectionContext, runMutation],
   )
   const { widgets: injectedTabWidgets } = useInjectionWidgets('customers.person.detail:tabs', {
     context: injectionContext,
@@ -276,18 +310,22 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const savePerson = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: PersonOverview) => PersonOverview) => {
       if (!data) return
-      await apiCallOrThrow(
-        '/api/customers/people',
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: data.person.id, ...patch }),
-        },
-        { errorMessage: t('customers.people.detail.inline.error') },
+      const payload = { id: data.person.id, ...patch }
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          '/api/customers/people',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('customers.people.detail.inline.error') },
+        ),
+        payload,
       )
       setData((prev) => (prev ? apply(prev) : prev))
     },
-    [data, t]
+    [data, runMutationWithContext, t]
   )
 
   const updateDisplayName = React.useCallback(
@@ -337,13 +375,16 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     if (!confirmed) return
     setIsDeleting(true)
     try {
-      await apiCallOrThrow(
-        `/api/customers/people?id=${encodeURIComponent(personId)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        },
-        { errorMessage: t('customers.people.list.deleteError') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          `/api/customers/people?id=${encodeURIComponent(personId)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: t('customers.people.list.deleteError') },
+        ),
+        { id: personId },
       )
       flash(t('customers.people.list.deleteSuccess'), 'success')
       router.push('/backend/customers/people')
@@ -353,7 +394,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     } finally {
       setIsDeleting(false)
     }
-  }, [confirm, personId, personName, router, t])
+  }, [confirm, personId, personName, router, runMutationWithContext, t])
 
   const handleTagsChange = React.useCallback((nextTags: TagOption[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
@@ -376,17 +417,21 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         return
       }
       try {
-        await apiCallOrThrow(
-          '/api/customers/people',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              id: data.person.id,
-              customFields: customPayload,
-            }),
-          },
-          { errorMessage: t('customers.people.detail.inline.error') },
+        const payload = {
+          id: data.person.id,
+          customFields: customPayload,
+        }
+        await runMutationWithContext(
+          () => apiCallOrThrow(
+            '/api/customers/people',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            { errorMessage: t('customers.people.detail.inline.error') },
+          ),
+          payload,
         )
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
@@ -410,7 +455,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       })
         flash(t('ui.forms.flash.saveSuccess'), 'success')
       },
-      [data, t]
+      [data, runMutationWithContext, t]
     )
   
     if (isLoading) {
@@ -612,6 +657,24 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               phone: validators.phone,
               displayName: validators.displayName,
             }}
+            utilityActions={(
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'customers',
+                  entityType: 'person',
+                  entityId: personId,
+                  previewData: {
+                    title: person.displayName,
+                    subtitle: person.primaryEmail ?? undefined,
+                    metadata: {
+                      [t('customers.people.detail.highlights.primaryPhone')]: person.primaryPhone ?? '-',
+                      [t('customers.people.detail.fields.jobTitle')]: profile?.jobTitle ?? '-',
+                    },
+                  },
+                }}
+                viewHref={`/backend/customers/people/${personId}`}
+              />
+            )}
             onDisplayNameSave={updateDisplayName}
             onPrimaryEmailSave={async (next) => {
               const send = typeof next === 'string' ? next : ''

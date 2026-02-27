@@ -2,11 +2,13 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { Send } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -110,7 +112,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
     note: record?.note ?? null,
   }), [record, memberLabel])
 
-  const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) => {
+const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) => {
     if (!record?.id) return
     const payload = buildLeaveRequestPayload(values, { id: record.id })
     await updateCrud('staff/leave-requests', payload, {
@@ -215,6 +217,36 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
           onSubmit={handleSubmit}
           allowMemberSelect
           memberLabel={memberLabel}
+          extraActions={record.id ? (
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'staff',
+                entityType: 'leave_request',
+                entityId: record.id,
+                sourceEntityType: 'staff:leave_request',
+                sourceEntityId: record.id,
+                previewData: {
+                  title: memberLabel || t('staff.leaveRequests.messages.contextTitle', 'Linked leave request'),
+                  subtitle: dateSummary || undefined,
+                  status: record?.status ?? undefined,
+                },
+              }}
+              viewHref={`/backend/staff/leave-requests/${record.id}`}
+              lockedType="staff.leave_request_approval"
+              requiredActionConfig={{
+                mode: 'required',
+                options: [
+                  { id: 'approve', label: t('staff.notifications.leaveRequest.actions.approve', 'Approve') },
+                  { id: 'reject', label: t('staff.notifications.leaveRequest.actions.reject', 'Reject') },
+                ],
+              }}
+              defaultValues={{
+                type: 'staff.leave_request_approval',
+                subject: t('staff.leaveRequests.messages.compose.subject', 'Leave request approval needed'),
+                body: t('staff.leaveRequests.messages.compose.body', 'Please review this leave request and take action.'),
+              }}
+            />
+          ) : null}
         />
       </PageBody>
     </Page>

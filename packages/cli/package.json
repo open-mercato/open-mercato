@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cli",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -50,6 +50,9 @@
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": "24.x"
   },
   "dependencies": {
     "@mikro-orm/core": "^6.6.2",

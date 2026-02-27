@@ -9,6 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
@@ -180,6 +181,25 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
           title={t('currencies.edit.title')}
           backHref="/backend/currencies"
           versionHistory={{ resourceKind: 'currencies.currency', resourceId: currency.id }}
+          extraActions={(
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'currencies',
+                entityType: 'currency',
+                entityId: currency.id,
+                previewData: {
+                  title: currency.name,
+                  subtitle: currency.code,
+                  metadata: {
+                    [t('currencies.form.field.code')]: currency.code,
+                    [t('currencies.form.field.name')]: currency.name,
+                    [t('currencies.form.field.symbol')]: currency.symbol || '-',
+                  },
+                },
+              }}
+              viewHref={`/backend/currencies/${currency.id}`}
+            />
+          )}
           fields={[]}
           groups={groups}
           initialValues={{

@@ -7,6 +7,11 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+  type CrudMutationGuardValidationResult,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import { withScopedPayload } from '../../utils'
@@ -22,6 +27,11 @@ export const metadata = {
 
 type RequestContext = {
   ctx: CommandRuntimeContext
+}
+
+function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): NextResponse | null {
+  if (validation.ok) return null
+  return NextResponse.json(validation.body, { status: validation.status })
 }
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -75,6 +85,20 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = quoteSendSchema.parse(scoped)
+    const mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      userId: ctx.auth?.sub ?? '',
+      resourceKind: 'sales.quote',
+      resourceId: input.quoteId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+    if (mutationGuardValidation) {
+      const lockErrorResponse = buildMutationGuardErrorResponse(mutationGuardValidation)
+      if (lockErrorResponse) return lockErrorResponse
+    }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: input.quoteId, deletedAt: null })
@@ -139,6 +163,20 @@ export async function POST(req: Request) {
       react: QuoteSentEmail({ url, copy }),
     })
 
+    if (mutationGuardValidation?.ok && mutationGuardValidation.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(ctx.container, {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: mutationGuardValidation.metadata ?? null,
+      })
+    }
+
     return NextResponse.json({ ok: true })
   } catch (err) {
     if (err instanceof CrudHttpError) {
@@ -169,9 +207,9 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Not found', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Conflict detected', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+        { status: 423, description: 'Record locked', schema: z.object({ error: z.string(), code: z.string().optional() }) },
       ],
     },
   },
 }
-
-

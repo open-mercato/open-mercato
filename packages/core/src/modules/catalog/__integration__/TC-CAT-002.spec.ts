@@ -12,8 +12,9 @@ test.describe('TC-CAT-002: Product Creation Validation Errors', () => {
 
     await page.getByRole('button', { name: 'Create product' }).last().click();
 
-    await expect(page.getByText(/required/i)).toBeVisible();
+    await expect(
+      page.locator('p.text-red-600', { hasText: 'catalog.products.validation.titleRequired' }),
+    ).toBeVisible();
     await expect(page).toHaveURL(/\/backend\/catalog\/products\/create$/);
   });
 });
-

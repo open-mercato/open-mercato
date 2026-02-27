@@ -112,10 +112,10 @@ describe('resolveFieldList', () => {
     })
   })
 
-  describe('custom field defs augmentation', () => {
-    it('appends text custom fields', () => {
-      registerTranslatableFields({ 'test:with_cf': ['title'] })
-      const result = resolveFieldList('test:with_cf', undefined, [
+  describe('custom field defs augmentation (auto-detect path)', () => {
+    it('appends text custom fields when using auto-detect', () => {
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_text_entity', undefined, [
         { key: 'custom_note', kind: 'text', label: 'Custom Note' },
       ])
       expect(result).toHaveLength(2)
@@ -123,24 +123,24 @@ describe('resolveFieldList', () => {
     })
 
     it('appends multiline custom fields as multiline', () => {
-      registerTranslatableFields({ 'test:with_multiline_cf': ['title'] })
-      const result = resolveFieldList('test:with_multiline_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_multiline_entity', undefined, [
         { key: 'long_text', kind: 'multiline' },
       ])
       expect(result[1].multiline).toBe(true)
     })
 
     it('appends richtext custom fields as multiline', () => {
-      registerTranslatableFields({ 'test:with_richtext_cf': ['title'] })
-      const result = resolveFieldList('test:with_richtext_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_richtext_entity', undefined, [
         { key: 'rich_content', kind: 'richtext' },
       ])
       expect(result[1].multiline).toBe(true)
     })
 
     it('skips non-text kinds (number, boolean, etc.)', () => {
-      registerTranslatableFields({ 'test:skip_cf': ['title'] })
-      const result = resolveFieldList('test:skip_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_skip_entity', undefined, [
         { key: 'quantity', kind: 'number' },
         { key: 'is_active', kind: 'boolean' },
         { key: 'created_at', kind: 'date' },
@@ -149,28 +149,40 @@ describe('resolveFieldList', () => {
     })
 
     it('does not duplicate fields already in the list', () => {
-      registerTranslatableFields({ 'test:no_dup_cf': ['title'] })
-      const result = resolveFieldList('test:no_dup_cf', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_nodup_entity', undefined, [
         { key: 'title', kind: 'text' },
       ])
       expect(result).toHaveLength(1)
     })
 
     it('uses formatFieldLabel when custom field has no label', () => {
-      registerTranslatableFields({ 'test:cf_no_label': ['title'] })
-      const result = resolveFieldList('test:cf_no_label', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_nolabel_entity', undefined, [
         { key: 'product_note', kind: 'text' },
       ])
       expect(result[1].label).toBe('Product Note')
     })
 
     it('skips custom fields with empty key', () => {
-      registerTranslatableFields({ 'test:cf_empty_key': ['title'] })
-      const result = resolveFieldList('test:cf_empty_key', undefined, [
+      mockedGetEntityFields.mockReturnValue({ field1: 'title' })
+      const result = resolveFieldList('unknown:cf_emptykey_entity', undefined, [
         { key: '', kind: 'text' },
         { key: '  ', kind: 'text' },
       ])
       expect(result).toHaveLength(1)
+    })
+  })
+
+  describe('custom fields with registered fields', () => {
+    it('does NOT append custom fields when registered fields exist', () => {
+      registerTranslatableFields({ 'test:no_cf_when_registered': ['title', 'description'] })
+      const result = resolveFieldList('test:no_cf_when_registered', undefined, [
+        { key: 'focus_areas', kind: 'text', label: 'Focus Areas' },
+        { key: 'custom_note', kind: 'text', label: 'Custom Note' },
+      ])
+      expect(result).toHaveLength(2)
+      expect(result.map((f) => f.key)).toEqual(['title', 'description'])
     })
   })
 })

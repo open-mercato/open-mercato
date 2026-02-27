@@ -234,7 +234,7 @@ function main() {
       process.exit(0)
     } else {
       console.log(red(`${totalIssues} issues found across ${modulesWithIssues} modules`))
-      console.log(dim(`Run with --fix to auto-repair: tsx scripts/i18n-check-sync.ts --fix`))
+      console.log(dim(`Run with --fix to auto-repair: yarn i18n:check-sync --fix`))
       process.exit(1)
     }
   }

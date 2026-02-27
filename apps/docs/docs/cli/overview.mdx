@@ -20,6 +20,8 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - [`yarn db:generate`](./db-generate) – per-module migration diffing (alias for `mercato db generate`).
   - [`yarn db:migrate`](./db-migrate) – apply migrations and refresh generated metadata.
   - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
+- **Development Runtime**
+  - [`yarn dev:ephemeral`](./dev-ephemeral) – start a dev server on a free port, open browser automatically, and register active instances in `.ai/dev-ephemeral-envs.json`.
 - **Code Generation**
   - `mercato generate` or `mercato generate all` – run all generators (entity IDs, registry, entities, DI, API client).
   - `mercato generate entity-ids` – generate entity ID mappings.
@@ -53,6 +55,7 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - `mercato scaffold crud <module> <Entity> [route]` – generate CRUD route for an entity.
 - **Entities**
   - [`mercato entities install`](./entities-install)
+  - [`mercato entities decrypt-database`](./entities-decrypt-database)
 - **Module Ejection**
   - [`mercato eject --list`](./eject) – list modules available for ejection.
   - [`mercato eject <moduleId>`](./eject) – copy a core module into your local `src/modules/` for full customization.

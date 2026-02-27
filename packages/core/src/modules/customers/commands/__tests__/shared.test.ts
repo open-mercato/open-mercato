@@ -11,7 +11,7 @@ const {
   ensureOrganizationScope,
   ensureSameScope,
   extractUndoPayload,
-  assertRecordFound,
+  assertFound,
   ensureDictionaryEntry,
   loadEntityTagIds,
   syncEntityTags,
@@ -56,11 +56,11 @@ describe('customers commands shared utilities', () => {
     })
   })
 
-  describe('assertRecordFound', () => {
-    it('returns record when present and throws otherwise', () => {
+  describe('assertFound', () => {
+    it('returns value when present and throws otherwise', () => {
       const record = { id: '123' }
-      expect(assertRecordFound(record, 'Missing')).toBe(record)
-      expect(() => assertRecordFound(null, 'Missing')).toThrow(CrudHttpError)
+      expect(assertFound(record, 'Missing')).toBe(record)
+      expect(() => assertFound(null, 'Missing')).toThrow(CrudHttpError)
     })
   })
 

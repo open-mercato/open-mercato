@@ -25,6 +25,8 @@ const listSchema = z
     search: z.string().optional(),
     status: z.string().optional(),
     pipelineStage: z.string().optional(),
+    pipelineId: z.string().uuid().optional(),
+    pipelineStageId: z.string().uuid().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     personEntityId: z.string().uuid().optional(),
@@ -98,6 +100,8 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       'description',
       'status',
       'pipeline_stage',
+      'pipeline_id',
+      'pipeline_stage_id',
       'value_amount',
       'value_currency',
       'probability',
@@ -128,6 +132,12 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       }
       if (query.pipelineStage) {
         filters.pipeline_stage = { $eq: query.pipelineStage }
+      }
+      if (query.pipelineId) {
+        filters.pipeline_id = { $eq: query.pipelineId }
+      }
+      if (query.pipelineStageId) {
+        filters.pipeline_stage_id = { $eq: query.pipelineStageId }
       }
       return filters
     },
@@ -394,6 +404,8 @@ const dealListItemSchema = z
     description: z.string().nullable().optional(),
     status: z.string().nullable().optional(),
     pipeline_stage: z.string().nullable().optional(),
+    pipeline_id: z.string().uuid().nullable().optional(),
+    pipeline_stage_id: z.string().uuid().nullable().optional(),
     value_amount: z.number().nullable().optional(),
     value_currency: z.string().nullable().optional(),
     probability: z.number().nullable().optional(),

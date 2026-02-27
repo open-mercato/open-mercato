@@ -47,6 +47,8 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
       db,
     }
   } catch {
+    const safeUrl = url.replace(/\/\/[^:]*:[^@]*@/, '//<redacted>@')
+    console.warn(`[redis] Failed to parse URL "${safeUrl}", falling back to localhost:6379`)
     return { host: 'localhost', port: 6379 }
   }
 }

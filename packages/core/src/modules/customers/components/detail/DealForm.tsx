@@ -20,6 +20,8 @@ export type DealFormBaseValues = {
   title: string
   status?: string | null
   pipelineStage?: string | null
+  pipelineId?: string | null
+  pipelineStageId?: string | null
   valueAmount?: number | null
   valueCurrency?: string | null
   probability?: number | null
@@ -88,6 +90,8 @@ const schema = z.object({
     .trim()
     .max(100, 'customers.people.detail.deals.pipelineTooLong')
     .optional(),
+  pipelineId: z.string().uuid().optional(),
+  pipelineStageId: z.string().uuid().optional(),
   valueAmount: z
     .preprocess((value) => {
       if (value === '' || value === null || value === undefined) return undefined
@@ -441,7 +445,6 @@ export function DealForm({
 
   const dictionaryLabels = React.useMemo(() => ({
     status: createDictionarySelectLabels('deal-statuses', translate),
-    pipeline: createDictionarySelectLabels('pipeline-stages', translate),
   }), [translate])
 
   const resolvedCurrencyError = React.useMemo(() => {
@@ -577,6 +580,51 @@ export function DealForm({
   const disabled = pending || isSubmitting
   const canDelete = mode === 'edit' && typeof onDelete === 'function'
 
+  type PipelineOption = { id: string; name: string; isDefault: boolean }
+  type PipelineStageOption = { id: string; label: string; order: number }
+
+  const [pipelines, setPipelines] = React.useState<PipelineOption[]>([])
+  const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>([])
+
+  const loadStagesForPipeline = React.useCallback(async (pipelineId: string) => {
+    if (!pipelineId) {
+      setPipelineStages([])
+      return
+    }
+    try {
+      const call = await apiCall<{ items: PipelineStageOption[] }>(`/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(pipelineId)}`)
+      if (call.ok && call.result?.items) {
+        const sorted = [...call.result.items].sort((a, b) => a.order - b.order)
+        setPipelineStages(sorted)
+      }
+    } catch {
+      setPipelineStages([])
+    }
+  }, [])
+
+  React.useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const call = await apiCall<{ items: PipelineOption[] }>('/api/customers/pipelines')
+        if (cancelled) return
+        if (call.ok && call.result?.items) {
+          setPipelines(call.result.items)
+        }
+      } catch {
+        // ignore
+      }
+    })().catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  React.useEffect(() => {
+    const pid = initialValues?.pipelineId
+    if (typeof pid === 'string' && pid.length) {
+      loadStagesForPipeline(pid).catch(() => {})
+    }
+  }, [initialValues?.pipelineId, loadStagesForPipeline])
+
   const baseFields = React.useMemo<CrudField[]>(() => [
     {
       id: 'title',
@@ -600,18 +648,44 @@ export function DealForm({
       ),
     } as CrudField,
     {
-      id: 'pipelineStage',
+      id: 'pipelineId',
+      label: t('customers.people.detail.deals.fields.pipeline', 'Pipeline'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }) => (
+        <select
+          className="w-full rounded border px-2 py-1.5 text-sm"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => {
+            setValue(e.target.value)
+            loadStagesForPipeline(e.target.value).catch(() => {})
+          }}
+          disabled={disabled}
+        >
+          <option value="">{t('customers.deals.form.pipeline.placeholder', 'Select pipeline…')}</option>
+          {pipelines.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      ),
+    } as CrudField,
+    {
+      id: 'pipelineStageId',
       label: t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage'),
       type: 'custom',
       layout: 'half',
       component: ({ value, setValue }) => (
-        <DictionarySelectField
-          kind="pipeline-stages"
-          value={typeof value === 'string' ? value : undefined}
-          onChange={(next) => setValue(next ?? '')}
-          labels={dictionaryLabels.pipeline}
-          selectClassName="w-full"
-        />
+        <select
+          className="w-full rounded border px-2 py-1.5 text-sm"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={disabled || !pipelineStages.length}
+        >
+          <option value="">{t('customers.deals.form.pipelineStage.placeholder', 'Select stage…')}</option>
+          {pipelineStages.map((s) => (
+            <option key={s.id} value={s.id}>{s.label}</option>
+          ))}
+        </select>
       ),
     } as CrudField,
     {
@@ -703,14 +777,14 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, dictionaryLabels.pipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'details',
       title: t('customers.people.detail.deals.form.details', 'Deal details'),
       column: 1,
-      fields: ['title', 'status', 'pipelineStage', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'description'],
+      fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'description'],
     },
     {
       id: 'associations',
@@ -756,6 +830,8 @@ export function DealForm({
       title: initialValues?.title ?? '',
       status: initialValues?.status ?? '',
       pipelineStage: initialValues?.pipelineStage ?? '',
+      pipelineId: initialValues?.pipelineId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_id as string : ''),
+      pipelineStageId: initialValues?.pipelineStageId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_stage_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_stage_id as string : ''),
       valueAmount: normalizeNumber(initialValues?.valueAmount ?? null),
       valueCurrency: normalizeCurrency(initialValues?.valueCurrency ?? null),
       probability: normalizeNumber(initialValues?.probability ?? null),
@@ -790,6 +866,8 @@ export function DealForm({
           title: parsed.data.title,
           status: parsed.data.status || undefined,
           pipelineStage: parsed.data.pipelineStage || undefined,
+          pipelineId: parsed.data.pipelineId || undefined,
+          pipelineStageId: parsed.data.pipelineStageId || undefined,
           valueAmount:
             typeof parsed.data.valueAmount === 'number' ? parsed.data.valueAmount : undefined,
           valueCurrency: parsed.data.valueCurrency || undefined,

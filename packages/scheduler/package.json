@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/scheduler",
-  "version": "0.1.0",
+  "version": "0.4.5",
   "description": "Database-managed scheduled jobs with admin UI",
   "type": "module",
   "main": "./dist/index.js",

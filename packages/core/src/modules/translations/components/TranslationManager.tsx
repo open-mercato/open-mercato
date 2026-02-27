@@ -14,7 +14,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
 import { ISO_639_1, isValidIso639, getIso639Label } from '@open-mercato/shared/lib/i18n/iso639'
-import { formatEntityLabel, buildEntityListUrl, getRecordLabel } from '../lib/helpers'
+import { formatEntityLabel, buildEntityListUrl, getRecordLabel, resolveBaseValue } from '../lib/helpers'
 import { resolveFieldList } from '../lib/resolve-field-list'
 import type { ResolvedField } from '../lib/resolve-field-list'
 
@@ -137,7 +137,8 @@ export function TranslationManager({
     enabled: !isEmbedded && !!entityType && !!recordId && !!listUrl,
     queryFn: async () => {
       const res = await apiCall<{ items: Array<Record<string, unknown>> }>(
-        `${listUrl}?id=${encodeURIComponent(recordId)}&pageSize=1`,
+        // Some APIs filter by `id` (catalog), others by `ids` (resources) — send both so the one recognized by the target route's buildFilters is applied
+        `${listUrl}?id=${encodeURIComponent(recordId)}&ids=${encodeURIComponent(recordId)}&pageSize=1`,
       )
       if (!res.ok) return null
       const items = res.result?.items
@@ -260,13 +261,7 @@ export function TranslationManager({
     }))
   }
 
-  const getBaseValue = (fieldKey: string): string => {
-    if (baseValues && fieldKey in baseValues) {
-      const val = baseValues[fieldKey]
-      return typeof val === 'string' ? val : ''
-    }
-    return ''
-  }
+  const getBaseValue = (fieldKey: string): string => resolveBaseValue(baseValues, fieldKey)
 
   const renderRecordPicker = () => {
     if (isEmbedded) return null

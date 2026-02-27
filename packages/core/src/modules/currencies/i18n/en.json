@@ -1,5 +1,8 @@
 {
   "audit_logs.resource_kind.currencies.exchange_rate": "Exchange Rate",
+  "currencies.audit.create": "Create currency",
+  "currencies.audit.delete": "Delete currency",
+  "currencies.audit.update": "Update currency",
   "currencies.create.title": "Create Currency",
   "currencies.currencies.update": "Update currency",
   "currencies.edit.title": "Edit Currency",
@@ -80,6 +83,9 @@
   "currencies.module.title": "Currencies & Exchange Rates",
   "currencies.nav.group": "Currencies",
   "currencies.page.title": "Currencies",
+  "currencies.rates.audit.create": "Create exchange rate",
+  "currencies.rates.audit.delete": "Delete exchange rate",
+  "currencies.rates.audit.update": "Update exchange rate",
   "exchangeRates.create.title": "Create Exchange Rate",
   "exchangeRates.edit.title": "Edit Exchange Rate",
   "exchangeRates.flash.created": "Exchange rate created successfully",

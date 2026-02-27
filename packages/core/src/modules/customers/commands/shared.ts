@@ -2,8 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-export { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
+export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 export function normalizeDictionaryColor(input: unknown): string | null {
@@ -22,17 +23,7 @@ export function normalizeDictionaryIcon(input: unknown): string | null {
   return trimmed.slice(0, 48)
 }
 
-export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
-  const currentTenant = ctx.auth?.tenantId ?? null
-  if (currentTenant && currentTenant !== tenantId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-}
-
-export function assertRecordFound<T>(record: T | null | undefined, message: string): T {
-  if (!record) throw new CrudHttpError(404, { error: message })
-  return record
-}
+export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 
 export async function requireCustomerEntity(
   em: EntityManager,
@@ -46,16 +37,6 @@ export async function requireCustomerEntity(
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
   }
   return entity
-}
-
-export function ensureSameScope(
-  entity: Pick<CustomerEntity, 'organizationId' | 'tenantId'>,
-  organizationId: string,
-  tenantId: string
-): void {
-  if (entity.organizationId !== organizationId || entity.tenantId !== tenantId) {
-    throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
-  }
 }
 
 export async function syncEntityTags(

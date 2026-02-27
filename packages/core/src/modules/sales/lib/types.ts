@@ -1,9 +1,36 @@
 import type { EventBus } from '@open-mercato/events'
+import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
 import type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind } from '../data/entities'
 
 export type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind }
 
 export type NumericLike = number | string
+
+export type SalesLineUomSnapshot = {
+  version: 1
+  productId: string | null
+  productVariantId: string | null
+  baseUnitCode: string | null
+  enteredUnitCode: string | null
+  enteredQuantity: string
+  toBaseFactor: string
+  normalizedQuantity: string
+  rounding: {
+    mode: 'half_up' | 'down' | 'up'
+    scale: number
+  }
+  source: {
+    conversionId: string | null
+    resolvedAt: string
+  }
+  unitPriceReference?: {
+    enabled: boolean
+    referenceUnitCode: ReferenceUnitCode | null
+    baseQuantity: string | null
+    grossPerReference?: string | null
+    netPerReference?: string | null
+  }
+}
 
 export type SalesLineSnapshot = {
   id?: string
@@ -16,6 +43,9 @@ export type SalesLineSnapshot = {
   comment?: string | null
   quantity: number
   quantityUnit?: string | null
+  normalizedQuantity?: number | null
+  normalizedUnit?: string | null
+  uomSnapshot?: SalesLineUomSnapshot | null
   currencyCode: string
   unitPriceNet?: number | null
   unitPriceGross?: number | null

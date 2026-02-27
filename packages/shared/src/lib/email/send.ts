@@ -8,9 +8,14 @@ export type SendEmailOptions = {
   react: React.ReactElement
   from?: string
   replyTo?: string
+  attachments?: Array<{
+    filename: string
+    content: string
+    contentType?: string
+  }>
 }
 
-export async function sendEmail({ to, subject, react, from, replyTo }: SendEmailOptions) {
+export async function sendEmail({ to, subject, react, from, replyTo, attachments }: SendEmailOptions) {
   const emailDisabled =
     parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false) ||
     parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
@@ -26,6 +31,7 @@ export async function sendEmail({ to, subject, react, from, replyTo }: SendEmail
     from: fromAddr,
     react,
     ...(replyTo ? { reply_to: replyTo } : {}),
+    ...(attachments?.length ? { attachments } : {}),
   }
   const result = await resend.emails.send(payload)
   const errorMessage =

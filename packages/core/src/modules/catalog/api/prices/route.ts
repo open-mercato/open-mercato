@@ -1,21 +1,34 @@
-import { z } from 'zod'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogProductPrice } from '../../data/entities'
-import { priceCreateSchema, priceUpdateSchema } from '../../data/validators'
-import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
-import { E } from '#generated/entities.ids.generated'
-import * as FP from '#generated/entities/catalog_product_price'
+import { z } from "zod";
+import type { EntityManager } from "@mikro-orm/postgresql";
+import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
+import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import {
+  buildCustomFieldFiltersFromQuery,
+  extractAllCustomFieldEntries,
+} from "@open-mercato/shared/lib/crud/custom-fields";
+import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import {
+  CatalogProduct,
+  CatalogProductPrice,
+  CatalogProductUnitConversion,
+  CatalogProductVariant,
+} from "../../data/entities";
+import { priceCreateSchema, priceUpdateSchema } from "../../data/validators";
+import { parseScopedCommandInput, resolveCrudRecordId } from "../utils";
+import { E } from "#generated/entities.ids.generated";
+import * as FP from "#generated/entities/catalog_product_price";
 import {
   createCatalogCrudOpenApi,
   createPagedListResponseSchema,
   defaultOkResponseSchema,
-} from '../openapi'
+} from "../openapi";
+import { toUnitLookupKey } from "../../lib/unitCodes";
+import {
+  findWithDecryption,
+  findOneWithDecryption,
+} from "@open-mercato/shared/lib/encryption/find";
 
-const rawBodySchema = z.object({}).passthrough()
+const rawBodySchema = z.object({}).passthrough();
 
 const listSchema = z
   .object({
@@ -32,74 +45,154 @@ const listSchema = z
     userGroupId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     customerGroupId: z.string().uuid().optional(),
+    quantity: z.coerce.number().min(1).max(100000).optional(),
+    quantityUnit: z.string().trim().max(50).optional(),
     withDeleted: z.coerce.boolean().optional(),
     sortField: z.string().optional(),
-    sortDir: z.enum(['asc', 'desc']).optional(),
+    sortDir: z.enum(["asc", "desc"]).optional(),
   })
-  .passthrough()
+  .passthrough();
 
-type PriceQuery = z.infer<typeof listSchema>
+type PriceQuery = z.infer<typeof listSchema>;
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
-  POST: { requireAuth: true, requireFeatures: ['catalog.pricing.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['catalog.pricing.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['catalog.pricing.manage'] },
+  GET: { requireAuth: true, requireFeatures: ["catalog.products.view"] },
+  POST: { requireAuth: true, requireFeatures: ["catalog.pricing.manage"] },
+  PUT: { requireAuth: true, requireFeatures: ["catalog.pricing.manage"] },
+  DELETE: { requireAuth: true, requireFeatures: ["catalog.pricing.manage"] },
+};
+
+export const metadata = routeMetadata;
+
+async function resolveNormalizedQuantityForFilter(params: {
+  em: EntityManager;
+  organizationId: string | null;
+  tenantId: string | null;
+  productId?: string;
+  variantId?: string;
+  quantity: number;
+  quantityUnit?: string;
+}): Promise<number> {
+  const quantity = params.quantity;
+  const quantityUnitKey = toUnitLookupKey(params.quantityUnit);
+  if ((!params.productId && !params.variantId) || !quantityUnitKey)
+    return quantity;
+  if (!params.organizationId || !params.tenantId) return quantity;
+  let targetProductId = params.productId;
+  if (!targetProductId && params.variantId) {
+    const variant = await findOneWithDecryption(
+      params.em,
+      CatalogProductVariant,
+      {
+        id: params.variantId,
+        organizationId: params.organizationId,
+        tenantId: params.tenantId,
+        deletedAt: null,
+      },
+      { fields: ["id", "product"] },
+    );
+    if (variant) {
+      targetProductId =
+        typeof variant.product === "string"
+          ? variant.product
+          : (variant.product?.id ?? null);
+    }
+  }
+  if (!targetProductId) return quantity;
+  const product = await findOneWithDecryption(
+    params.em,
+    CatalogProduct,
+    {
+      id: targetProductId,
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
+      deletedAt: null,
+    },
+    { fields: ["id", "defaultUnit", "uomRoundingScale"] },
+  );
+  if (!product) return quantity;
+  const baseUnitKey = toUnitLookupKey(product.defaultUnit);
+  if (!baseUnitKey || baseUnitKey === quantityUnitKey) return quantity;
+  const conversions = await findWithDecryption(
+    params.em,
+    CatalogProductUnitConversion,
+    {
+      product: product.id,
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
+      isActive: true,
+      deletedAt: null,
+    },
+    { fields: ["id", "unitCode", "toBaseFactor"] },
+  );
+  const conversion = conversions.find(
+    (entry) => toUnitLookupKey(entry.unitCode) === quantityUnitKey,
+  );
+  if (!conversion) return quantity;
+  const factor = Number(conversion.toBaseFactor);
+  if (!Number.isFinite(factor) || factor <= 0) return quantity;
+  const rawNormalized = quantity * factor;
+  const scale = Number(product.uomRoundingScale ?? 4);
+  const pow = Math.pow(10, scale);
+  const normalized = Math.round(rawNormalized * pow) / pow;
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : quantity;
 }
 
-export const metadata = routeMetadata
-
 export async function buildPriceFilters(
-  query: PriceQuery
+  query: PriceQuery,
 ): Promise<Record<string, unknown>> {
-  const filters: Record<string, unknown> = {}
+  const filters: Record<string, unknown> = {};
   if (query.productId) {
-    filters.product_id = { $eq: query.productId }
+    filters.product_id = { $eq: query.productId };
   }
   if (query.variantId) {
-    filters.variant_id = { $eq: query.variantId }
+    filters.variant_id = { $eq: query.variantId };
   }
   if (query.offerId) {
-    filters.offer_id = { $eq: query.offerId }
+    filters.offer_id = { $eq: query.offerId };
   }
   if (query.channelId) {
-    filters.channel_id = { $eq: query.channelId }
+    filters.channel_id = { $eq: query.channelId };
   }
   if (query.currencyCode) {
-    filters.currency_code = { $eq: query.currencyCode.trim().toUpperCase() }
+    filters.currency_code = { $eq: query.currencyCode.trim().toUpperCase() };
   }
   if (query.priceKindId) {
-    filters.price_kind_id = { $eq: query.priceKindId }
+    filters.price_kind_id = { $eq: query.priceKindId };
   }
   if (query.kind) {
-    filters.kind = { $eq: query.kind }
+    filters.kind = { $eq: query.kind };
   }
-  if (query.userId) filters.user_id = { $eq: query.userId }
-  if (query.userGroupId) filters.user_group_id = { $eq: query.userGroupId }
-  if (query.customerId) filters.customer_id = { $eq: query.customerId }
-  if (query.customerGroupId) filters.customer_group_id = { $eq: query.customerGroupId }
-  return filters
+  if (query.userId) filters.user_id = { $eq: query.userId };
+  if (query.userGroupId) filters.user_group_id = { $eq: query.userGroupId };
+  if (query.customerId) filters.customer_id = { $eq: query.customerId };
+  if (query.customerGroupId)
+    filters.customer_group_id = { $eq: query.customerGroupId };
+  return filters;
 }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
     entity: CatalogProductPrice,
-    idField: 'id',
-    orgField: 'organizationId',
-    tenantField: 'tenantId',
+    idField: "id",
+    orgField: "organizationId",
+    tenantField: "tenantId",
     softDeleteField: null,
+  },
+  indexer: {
+    entityType: E.catalog.catalog_product_price,
   },
   list: {
     schema: listSchema,
     entityId: E.catalog.catalog_product_price,
     fields: [
       FP.id,
-      'product_id',
-      'variant_id',
-      'offer_id',
+      "product_id",
+      "variant_id",
+      "offer_id",
       FP.currency_code,
-      'price_kind_id',
+      "price_kind_id",
       FP.kind,
       FP.min_quantity,
       FP.max_quantity,
@@ -120,77 +213,116 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       currencyCode: FP.currency_code,
-      priceKindId: 'price_kind_id',
+      priceKindId: "price_kind_id",
       kind: FP.kind,
       minQuantity: FP.min_quantity,
       createdAt: FP.created_at,
       updatedAt: FP.updated_at,
     },
     buildFilters: async (query, ctx) => {
-      const filters = await buildPriceFilters(query)
-      const tenantId = ctx.auth?.tenantId ?? null
+      const filters = await buildPriceFilters(query);
+      const tenantId = ctx.auth?.tenantId ?? null;
+      const organizationId =
+        ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null;
+      const em = ctx.container.resolve("em") as EntityManager;
       try {
-        const em = ctx.container.resolve('em') as EntityManager
         const cfFilters = await buildCustomFieldFiltersFromQuery({
           entityIds: [E.catalog.catalog_product_price],
           query,
           em,
           tenantId,
-        })
-        Object.assign(filters, cfFilters)
-      } catch {
-        // ignore
+        });
+        Object.assign(filters, cfFilters);
+      } catch (err) {
+        // Custom field filter parsing may fail for non-existent or misconfigured fields.
+        if (process.env.NODE_ENV === 'development') console.warn('[catalog:prices] custom field filter error', err);
       }
-      return filters
+      if (
+        typeof query.quantity === "number" &&
+        Number.isFinite(query.quantity) &&
+        query.quantity > 0
+      ) {
+        const normalizedQuantity = await resolveNormalizedQuantityForFilter({
+          em,
+          organizationId,
+          tenantId,
+          productId: query.productId,
+          variantId: query.variantId,
+          quantity: query.quantity,
+          quantityUnit: query.quantityUnit,
+        });
+        filters.min_quantity = { $lte: normalizedQuantity };
+        filters.$or = [
+          { max_quantity: null },
+          { max_quantity: { $gte: normalizedQuantity } },
+        ];
+      }
+      return filters;
     },
-    transformItem: (item: any) => {
-      if (!item) return item
-      const normalized = { ...item }
-      const cfEntries = extractAllCustomFieldEntries(item)
+    transformItem: (item: Record<string, unknown> | null | undefined) => {
+      if (!item) return item;
+      const normalized = { ...item };
+      const cfEntries = extractAllCustomFieldEntries(item);
       for (const key of Object.keys(normalized)) {
-        if (key.startsWith('cf:')) delete normalized[key]
+        if (key.startsWith("cf:")) delete normalized[key];
       }
-      return { ...normalized, ...cfEntries }
+      return { ...normalized, ...cfEntries };
     },
   },
   actions: {
     create: {
-      commandId: 'catalog.prices.create',
+      commandId: "catalog.prices.create",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
-        const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(priceCreateSchema, raw ?? {}, ctx, translate)
+        const { translate } = await resolveTranslations();
+        return parseScopedCommandInput(
+          priceCreateSchema,
+          raw ?? {},
+          ctx,
+          translate,
+        );
       },
       response: ({ result }) => ({ id: result?.priceId ?? result?.id ?? null }),
       status: 201,
     },
     update: {
-      commandId: 'catalog.prices.update',
+      commandId: "catalog.prices.update",
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
-        const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(priceUpdateSchema, raw ?? {}, ctx, translate)
+        const { translate } = await resolveTranslations();
+        return parseScopedCommandInput(
+          priceUpdateSchema,
+          raw ?? {},
+          ctx,
+          translate,
+        );
       },
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'catalog.prices.delete',
+      commandId: "catalog.prices.delete",
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
-        const { translate } = await resolveTranslations()
-        const id = resolveCrudRecordId(parsed, ctx, translate)
-        if (!id) throw new CrudHttpError(400, { error: translate('catalog.errors.id_required', 'Price id is required.') })
-        return { id }
+        const { translate } = await resolveTranslations();
+        const id = resolveCrudRecordId(parsed, ctx, translate);
+        if (!id)
+          throw new CrudHttpError(400, {
+            error: translate(
+              "catalog.errors.id_required",
+              "Price id is required.",
+            ),
+          });
+        return { id };
       },
       response: () => ({ ok: true }),
     },
   },
-})
+});
 
-export const GET = crud.GET
-export const POST = crud.POST
-export const PUT = crud.PUT
-export const DELETE = crud.DELETE
+export const GET = crud.GET;
+export const POST = crud.POST;
+export const PUT = crud.PUT;
+export const DELETE = crud.DELETE;
 
 const priceListItemSchema = z.object({
   id: z.string().uuid(),
@@ -216,25 +348,25 @@ const priceListItemSchema = z.object({
   ends_at: z.string().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
-})
+});
 
 export const openApi = createCatalogCrudOpenApi({
-  resourceName: 'Price',
-  pluralName: 'Prices',
+  resourceName: "Price",
+  pluralName: "Prices",
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(priceListItemSchema),
   create: {
     schema: priceCreateSchema,
-    description: 'Creates a new price entry for a product or variant.',
+    description: "Creates a new price entry for a product or variant.",
   },
   update: {
     schema: priceUpdateSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates an existing price by id.',
+    description: "Updates an existing price by id.",
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Deletes a price by id.',
+    description: "Deletes a price by id.",
   },
-})
+});

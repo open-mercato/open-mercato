@@ -5,30 +5,15 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
+
+export { parseSelectedOrganizationCookie, parseSelectedTenantCookie }
 
 export type OrganizationScope = {
   selectedId: string | null
   filterIds: string[] | null
   allowedIds: string[] | null
   tenantId: string | null
-}
-
-export function parseSelectedOrganizationCookie(header: string | null | undefined): string | null {
-  if (!header) return null
-  const parts = header.split(';')
-  for (const part of parts) {
-    const trimmed = part.trim()
-    if (trimmed.startsWith('om_selected_org=')) {
-      const raw = trimmed.slice('om_selected_org='.length)
-      try {
-        const decoded = decodeURIComponent(raw)
-        return decoded || null
-      } catch {
-        return raw || null
-      }
-    }
-  }
-  return null
 }
 
 export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { get: (name: string) => { value: string } | undefined }; headers?: { get(name: string): string | null } }): string | null {
@@ -40,24 +25,6 @@ export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { 
   const headerContainer = (req as { headers?: { get(name: string): string | null } }).headers
   const header = typeof headerContainer?.get === 'function' ? headerContainer.get('cookie') : null
   return parseSelectedOrganizationCookie(header)
-}
-
-export function parseSelectedTenantCookie(header: string | null | undefined): string | null {
-  if (!header) return null
-  const parts = header.split(';')
-  for (const part of parts) {
-    const trimmed = part.trim()
-    if (trimmed.startsWith('om_selected_tenant=')) {
-      const raw = trimmed.slice('om_selected_tenant='.length)
-      try {
-        const decoded = decodeURIComponent(raw)
-        return decoded || null
-      } catch {
-        return raw || null
-      }
-    }
-  }
-  return null
 }
 
 export function getSelectedTenantFromRequest(

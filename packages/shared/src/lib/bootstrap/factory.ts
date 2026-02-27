@@ -6,6 +6,7 @@ import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerResponseEnrichers } from '../crud/enricher-registry'
 
 let _bootstrapped = false
 
@@ -52,6 +53,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6. Analytics module configs (for dashboard widgets and analytics API) ===
     if (data.analyticsModuleConfigs) {
       registerAnalyticsModuleConfigs(data.analyticsModuleConfigs)
+    }
+
+    // === 6b. Response enrichers (for CRUD response enrichment) ===
+    if (data.enricherEntries) {
+      registerResponseEnrichers(data.enricherEntries)
     }
 
     // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===
