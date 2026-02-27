@@ -181,6 +181,9 @@ export class AccountLinkingService {
     tenantId: string,
     idpGroups?: string[],
   ): Promise<void> {
+    const hasMappings = config.appRoleMappings && Object.keys(config.appRoleMappings).length > 0
+    if (!hasMappings) return
+
     await this.syncMappedRoles(em, user, config, tenantId, idpGroups)
 
     const hasAnySsoRole = await em.findOne(SsoRoleGrant, {

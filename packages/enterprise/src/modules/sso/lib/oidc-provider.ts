@@ -65,10 +65,6 @@ export class OidcProvider implements SsoProtocolProvider {
 
     const mergedClaims = await mergeWithUserInfoClaims(oidcConfig, tokens, claims)
 
-    console.log('[SSO:OIDC] Raw ID token:', tokens.id_token)
-    console.log('[SSO:OIDC] ID token claims:', JSON.stringify(claims, null, 2))
-    console.log('[SSO:OIDC] Merged claims (with userinfo):', JSON.stringify(mergedClaims, null, 2))
-
     const subject = String(mergedClaims.sub ?? claims.sub ?? '')
     const email = (mergedClaims.email ?? mergedClaims.upn ?? mergedClaims.unique_name) as string | undefined
     if (!email) {
