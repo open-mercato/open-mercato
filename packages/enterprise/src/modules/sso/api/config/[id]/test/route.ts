@@ -20,11 +20,11 @@ export async function POST(req: Request, ctx: RouteContext) {
     const result = await service.testConnection(scope, id)
 
     return NextResponse.json(result)
-  } catch (err) {
-    if (err instanceof SsoAdminAuthError) {
+  } catch (err: any) {
+    if (err instanceof SsoAdminAuthError || err?.name === 'SsoAdminAuthError') {
       return NextResponse.json({ error: err.message }, { status: err.statusCode })
     }
-    if (err instanceof SsoConfigError) {
+    if (err instanceof SsoConfigError || err?.name === 'SsoConfigError') {
       return NextResponse.json({ error: err.message }, { status: err.statusCode })
     }
     console.error('[SSO Config API] Error:', err)

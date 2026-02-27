@@ -75,11 +75,12 @@ export async function DELETE(req: Request, ctx: RouteContext) {
 }
 
 function handleError(err: unknown): NextResponse {
-  if (err instanceof SsoAdminAuthError) {
-    return NextResponse.json({ error: err.message }, { status: err.statusCode })
+  const e = err as any
+  if (err instanceof SsoAdminAuthError || e?.name === 'SsoAdminAuthError') {
+    return NextResponse.json({ error: e.message }, { status: e.statusCode })
   }
-  if (err instanceof SsoConfigError) {
-    return NextResponse.json({ error: err.message }, { status: err.statusCode })
+  if (err instanceof SsoConfigError || e?.name === 'SsoConfigError') {
+    return NextResponse.json({ error: e.message }, { status: e.statusCode })
   }
   console.error('[SSO Config API] Error:', err)
   return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

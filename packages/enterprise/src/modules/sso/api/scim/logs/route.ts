@@ -45,8 +45,8 @@ export async function GET(req: Request) {
       })),
     })
   } catch (err) {
-    if (err instanceof SsoAdminAuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode })
+    if (err instanceof SsoAdminAuthError || (err as any)?.name === 'SsoAdminAuthError') {
+      return NextResponse.json({ error: (err as any).message }, { status: (err as any).statusCode })
     }
     console.error('[SCIM Logs API] Error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
