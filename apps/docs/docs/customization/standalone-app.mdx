@@ -63,7 +63,7 @@ yarn dev
 ```
 
 :::info
-`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately.
+`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately. It also seeds default data and will abort if existing users are found. For upgrades on an existing database, run `yarn db:migrate` instead of `yarn initialize`.
 :::
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
