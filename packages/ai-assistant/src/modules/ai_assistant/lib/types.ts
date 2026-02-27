@@ -14,6 +14,8 @@ export interface McpToolContext {
   isSuperAdmin: boolean
   /** API key secret for authenticating HTTP requests to internal APIs */
   apiKeySecret?: string
+  /** Form state from the AI form bridge (set via /form-state endpoint) */
+  formState?: Record<string, unknown>
 }
 
 /**

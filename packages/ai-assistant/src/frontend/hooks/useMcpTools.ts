@@ -35,12 +35,20 @@ export function useMcpTools() {
           body: JSON.stringify({ toolName, args }),
         })
 
-        const data = await response.json()
+        let data: Record<string, unknown>
+        try {
+          data = await response.json()
+        } catch {
+          return {
+            success: false,
+            error: `Tool execution failed: ${response.status} (non-JSON response)`,
+          }
+        }
 
         if (!response.ok) {
           return {
             success: false,
-            error: data.error || `Tool execution failed: ${response.status}`,
+            error: data.error as string || `Tool execution failed: ${response.status}`,
           }
         }
 
