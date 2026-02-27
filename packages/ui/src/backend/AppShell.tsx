@@ -17,13 +17,24 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID } from './injection/mutationEvents'
+import { mergeMenuItems } from './injection/mergeMenuItems'
+import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
+import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
+import { useEventBridge } from './injection/eventBridge'
+import { SseEventIndicator } from './injection/SseEventIndicator'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
   BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID,
   BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID,
   BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID,
+  BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID,
+  BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID,
+  GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID,
+  GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
 
 export type AppShellProps = {
@@ -34,6 +45,7 @@ export type AppShellProps = {
     name: string
     defaultName?: string
     items: {
+      id?: string
       href: string
       title: string
       defaultTitle?: string
@@ -42,6 +54,7 @@ export type AppShellProps = {
       hidden?: boolean
       pageContext?: 'main' | 'admin' | 'settings' | 'profile'
       children?: {
+        id?: string
         href: string
         title: string
         defaultTitle?: string
@@ -82,10 +95,195 @@ type SidebarGroup = AppShellProps['groups'][number]
 type SidebarItem = SidebarGroup['items'][number]
 type SidebarRoleTarget = { id: string; name: string; hasPreference: boolean }
 
+function convertInjectedMenuItemToSidebarItem(item: InjectionMenuItem, title: string): SidebarItem | null {
+  if (!item.href) return null
+  return {
+    id: item.id,
+    href: item.href,
+    title,
+    defaultTitle: title,
+    icon: resolveInjectedIcon(item.icon) ?? undefined,
+    enabled: true,
+    hidden: false,
+    pageContext: 'main',
+  }
+}
+
+function resolveInjectedMenuLabel(
+  item: { id: string; label?: string; labelKey?: string },
+  t: (key: string, fallback?: string) => string,
+): string {
+  if (item.labelKey && item.label) return t(item.labelKey, item.label)
+  if (item.labelKey) return t(item.labelKey, item.id)
+  if (item.label && item.label.includes('.')) return t(item.label, item.id)
+  return item.label ?? item.id
+}
+
+function mergeSidebarItemsWithInjected(
+  items: SidebarItem[],
+  injectedItems: InjectionMenuItem[],
+  t: (key: string, fallback?: string) => string,
+): SidebarItem[] {
+  if (injectedItems.length === 0) return items
+
+  const builtInById = new Map<string, SidebarItem>()
+  for (const item of items) {
+    builtInById.set(item.id ?? item.href, item)
+  }
+
+  const merged = mergeMenuItems(
+    items.map((item) => ({
+      id: item.id ?? item.href,
+    })),
+    injectedItems,
+  )
+
+  const result: SidebarItem[] = []
+  for (const entry of merged) {
+    if (entry.source === 'built-in') {
+      const original = builtInById.get(entry.id)
+      if (original) result.push(original)
+      continue
+    }
+    const translatedLabel = resolveInjectedMenuLabel(
+      { id: entry.id, label: entry.label, labelKey: entry.labelKey },
+      t,
+    )
+    const converted = convertInjectedMenuItemToSidebarItem(
+      {
+        id: entry.id,
+        label: translatedLabel,
+        icon: entry.icon,
+        href: entry.href,
+      },
+      translatedLabel,
+    )
+    if (converted) result.push(converted)
+  }
+
+  return result
+}
+
+function mergeSidebarGroupsWithInjected(
+  groups: SidebarGroup[],
+  injectedItems: InjectionMenuItem[],
+  t: (key: string, fallback?: string) => string,
+): SidebarGroup[] {
+  if (injectedItems.length === 0) return groups
+
+  const injectedByGroup = new Map<string, InjectionMenuItem[]>()
+  const ungrouped: InjectionMenuItem[] = []
+
+  for (const item of injectedItems) {
+    if (item.groupId && item.groupId.trim().length > 0) {
+      const groupItems = injectedByGroup.get(item.groupId) ?? []
+      groupItems.push(item)
+      injectedByGroup.set(item.groupId, groupItems)
+      continue
+    }
+    ungrouped.push(item)
+  }
+
+  const nextGroups = groups.map((group, index) => {
+    const groupId = group.id || resolveGroupKey(group)
+    const groupInjected = [
+      ...(injectedByGroup.get(groupId) ?? []),
+      ...(index === 0 ? ungrouped : []),
+    ]
+    return {
+      ...group,
+      items: mergeSidebarItemsWithInjected(group.items, groupInjected, t),
+    }
+  })
+
+  const existingIds = new Set(nextGroups.map((group) => group.id || resolveGroupKey(group)))
+  for (const [groupId, items] of injectedByGroup.entries()) {
+    if (existingIds.has(groupId)) continue
+    const first = items[0]
+    const label = first.groupLabelKey
+      ? t(first.groupLabelKey, first.groupLabel ?? groupId)
+      : (first.groupLabel ?? groupId)
+    const groupItems = mergeSidebarItemsWithInjected([], items, t)
+    if (groupItems.length === 0) continue
+    nextGroups.push({
+      id: groupId,
+      name: label,
+      defaultName: label,
+      items: groupItems,
+    })
+  }
+
+  return nextGroups
+}
+
+function mergeSectionGroupsWithInjected(
+  sections: SectionNavGroup[],
+  injectedItems: InjectionMenuItem[],
+  t: (key: string, fallback?: string) => string,
+): SectionNavGroup[] {
+  if (injectedItems.length === 0) return sections
+  const byGroup = new Map<string, InjectionMenuItem[]>()
+  for (const item of injectedItems) {
+    const groupId = item.groupId && item.groupId.trim().length > 0 ? item.groupId : 'injected'
+    const bucket = byGroup.get(groupId) ?? []
+    bucket.push(item)
+    byGroup.set(groupId, bucket)
+  }
+
+  const nextSections = sections.map((section) => {
+    const sectionItems = byGroup.get(section.id) ?? []
+    if (sectionItems.length === 0) return section
+    const mergedItems = mergeMenuItems(
+      section.items.map((item) => ({ id: item.id, item })),
+      sectionItems,
+    ).flatMap((item) => {
+      if (item.source === 'built-in') {
+        const original = section.items.find((entry) => entry.id === item.id)
+        return original ? [original] : []
+      }
+      if (!item.href) return []
+      const label = resolveInjectedMenuLabel(item, t)
+      return [{
+        id: item.id,
+        label,
+        href: item.href,
+      }]
+    })
+    return {
+      ...section,
+      items: mergedItems,
+    }
+  })
+
+  for (const [sectionId, sectionItems] of byGroup.entries()) {
+    const exists = nextSections.some((section) => section.id === sectionId)
+    if (exists) continue
+    const first = sectionItems[0]
+    const label = first.groupLabelKey
+      ? t(first.groupLabelKey, first.groupLabel ?? sectionId)
+      : (first.groupLabel ?? sectionId)
+    const items = sectionItems.flatMap((item) => {
+      if (!item.href) return []
+      const itemLabel = resolveInjectedMenuLabel(item, t)
+      return [{ id: item.id, label: itemLabel, href: item.href }]
+    })
+    if (items.length === 0) continue
+    nextSections.push({ id: sectionId, label, items })
+  }
+
+  return nextSections
+}
+
 function resolveGroupKey(group: SidebarGroup): string {
   if (group.id && group.id.length) return group.id
   if (group.defaultName && group.defaultName.length) return slugifySidebarId(group.defaultName)
   return slugifySidebarId(group.name)
+}
+
+function resolveItemKey(item: { id?: string; href: string }): string {
+  const candidate = item.id?.trim()
+  if (candidate && candidate.length > 0) return candidate
+  return item.href
 }
 
 const HeaderContext = React.createContext<{
@@ -161,6 +359,11 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const searchParams = useSearchParams()
   const t = useT()
   const locale = useLocale()
+  const { items: mainSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:main')
+  const { items: settingsSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:settings')
+  const { items: profileSidebarInjectedMenuItems } = useInjectedMenuItems('menu:sidebar:profile')
+  const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
+  useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
@@ -207,6 +410,11 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     isOnSettingsPath ? 'settings' :
     isOnProfilePath ? 'profile' :
     'main'
+
+  const mainNavGroupsWithInjected = React.useMemo(
+    () => mergeSidebarGroupsWithInjected(navGroups, mainSidebarInjectedMenuItems, t),
+    [mainSidebarInjectedMenuItems, navGroups, t],
+  )
 
   // Lock body scroll when mobile drawer is open so touch scroll stays in the drawer
   React.useEffect(() => {
@@ -288,8 +496,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       }
       const responseHiddenItems = Array.isArray(rawSettings?.hiddenItems)
         ? rawSettings.hiddenItems
-            .map((href: unknown) => (typeof href === 'string' ? href.trim() : ''))
-            .filter((href: string) => href.length > 0)
+            .map((itemId: unknown) => (typeof itemId === 'string' ? itemId.trim() : ''))
+            .filter((itemId: string) => itemId.length > 0)
         : []
       const canManageRoles = data?.canApplyToRoles === true
       setCanApplyToRoles(canManageRoles)
@@ -312,9 +520,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       const order = mergeGroupOrder(responseOrder, currentIds)
       const { itemDefaults } = collectSidebarDefaults(baseSnapshot)
       const hiddenItemIds: Record<string, boolean> = {}
-      for (const href of responseHiddenItems) {
-        if (!itemDefaults.has(href)) continue
-        hiddenItemIds[href] = true
+      for (const itemId of responseHiddenItems) {
+        if (!itemDefaults.has(itemId)) continue
+        hiddenItemIds[itemId] = true
       }
       const draft: SidebarCustomizationDraft = {
         order,
@@ -375,17 +583,17 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         if (trimmed !== base) sanitizedGroupLabels[key] = trimmed
       }
       const sanitizedItemLabels: Record<string, string> = {}
-      for (const [href, value] of Object.entries(customDraft.itemLabels)) {
+      for (const [itemId, value] of Object.entries(customDraft.itemLabels)) {
         const trimmed = value.trim()
-        const base = itemDefaults.get(href)
+        const base = itemDefaults.get(itemId)
         if (!trimmed || !base) continue
-        if (trimmed !== base) sanitizedItemLabels[href] = trimmed
+        if (trimmed !== base) sanitizedItemLabels[itemId] = trimmed
       }
       const sanitizedHiddenItems: string[] = []
-      for (const [href, hidden] of Object.entries(customDraft.hiddenItemIds)) {
+      for (const [itemId, hidden] of Object.entries(customDraft.hiddenItemIds)) {
         if (!hidden) continue
-        if (!itemDefaults.has(href)) continue
-        sanitizedHiddenItems.push(href)
+        if (!itemDefaults.has(itemId)) continue
+        sanitizedHiddenItems.push(itemId)
       }
       const applyToRolesPayload = canApplyToRoles ? [...selectedRoleIds] : []
       const clearRoleIdsPayload = canApplyToRoles
@@ -463,19 +671,19 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     })
   }, [updateDraft])
 
-  const setItemLabel = React.useCallback((href: string, value: string) => {
+  const setItemLabel = React.useCallback((itemId: string, value: string) => {
     updateDraft((draft) => {
       const next = { ...draft.itemLabels }
-      if (value.trim().length === 0) delete next[href]
-      else next[href] = value
+      if (value.trim().length === 0) delete next[itemId]
+      else next[itemId] = value
       return { ...draft, itemLabels: next }
     })
   }, [updateDraft])
-  const setItemHidden = React.useCallback((href: string, hidden: boolean) => {
+  const setItemHidden = React.useCallback((itemId: string, hidden: boolean) => {
     updateDraft((draft) => {
       const next = { ...draft.hiddenItemIds }
-      if (hidden) next[href] = true
-      else delete next[href]
+      if (hidden) next[itemId] = true
+      else delete next[itemId]
       return { ...draft, hiddenItemIds: next }
     })
   }, [updateDraft])
@@ -675,6 +883,56 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             const sectionLabel = section.labelKey ? t(section.labelKey, section.label) : section.label
             const sectionKey = `settings:${section.id}`
             const open = openGroups[sectionKey] !== false
+            const sortSectionItems = (items: typeof section.items = []) =>
+              [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+            const renderSectionItem = (item: (typeof section.items)[number], depth = 0): React.ReactNode => {
+              const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+              const childItems = sortSectionItems(item.children)
+              const isOnItemBranch = !!pathname && (
+                pathname === item.href ||
+                pathname.startsWith(`${item.href}/`)
+              )
+              const hasActiveChild = !!(pathname && childItems.some((child) => (
+                pathname === child.href ||
+                pathname.startsWith(`${child.href}/`)
+              )))
+              const showChildren = childItems.length > 0 && isOnItemBranch
+              const isActive = isOnItemBranch || hasActiveChild
+              const base = compact ? 'w-10 h-10 justify-center' : 'py-1 gap-2'
+              const spacingStyle = !compact
+                ? {
+                    paddingLeft: `${8 + depth * 16}px`,
+                    paddingRight: '8px',
+                  }
+                : undefined
+
+              return (
+                <React.Fragment key={item.id}>
+                  <Link
+                    href={item.href}
+                    className={`relative text-sm rounded inline-flex items-center ${base} ${
+                      isActive
+                        ? 'bg-background border shadow-sm'
+                        : 'hover:bg-accent hover:text-accent-foreground'
+                    }`}
+                    style={spacingStyle}
+                    title={compact ? label : undefined}
+                    data-menu-item-id={item.id}
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+                    )}
+                    <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+                      {item.icon ?? (item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
+                    </span>
+                    {!compact && <span className="truncate">{label}</span>}
+                  </Link>
+                  {showChildren ? childItems.map((child) => renderSectionItem(child, depth + 1)) : null}
+                </React.Fragment>
+              )
+            }
 
             return (
               <div key={section.id}>
@@ -689,33 +947,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 </Button>
                 {open && (
                   <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1 ${!compact ? 'pl-1' : ''}`}>
-                    {sortedItems.map((item) => {
-                      const isActive = pathname === item.href || pathname?.startsWith(item.href + '/')
-                      const label = item.labelKey ? t(item.labelKey, item.label) : item.label
-                      const base = compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-
-                      return (
-                        <Link
-                          key={item.id}
-                          href={item.href}
-                          className={`relative text-sm rounded inline-flex items-center ${base} ${
-                            isActive
-                              ? 'bg-background border shadow-sm'
-                              : 'hover:bg-accent hover:text-accent-foreground'
-                          }`}
-                          title={compact ? label : undefined}
-                          onClick={() => setMobileOpen(false)}
-                        >
-                          {isActive && (
-                            <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                          )}
-                          <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                            {item.icon ?? DefaultIcon}
-                          </span>
-                          {!compact && <span className="truncate">{label}</span>}
-                        </Link>
-                      )
-                    })}
+                    {sortedItems.map((item) => renderSectionItem(item))}
                   </div>
                 )}
                 {sectionIndex !== lastVisibleIndex && <div className="my-2 border-t border-dotted" />}
@@ -730,8 +962,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
   function renderSidebar(compact: boolean, hideHeader?: boolean) {
     if (sidebarMode === 'settings' && settingsSections && settingsSections.length > 0) {
-      return renderSectionSidebar(
+      const mergedSettingsSections = mergeSectionGroupsWithInjected(
         settingsSections,
+        settingsSidebarInjectedMenuItems,
+        t,
+      )
+      return renderSectionSidebar(
+        mergedSettingsSections,
         settingsSectionTitle ?? t('backend.nav.settings', 'Settings'),
         compact,
         hideHeader
@@ -739,8 +976,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     }
 
     if (sidebarMode === 'profile' && profileSections && profileSections.length > 0) {
-      return renderSectionSidebar(
+      const mergedProfileSections = mergeSectionGroupsWithInjected(
         profileSections,
+        profileSidebarInjectedMenuItems,
+        t,
+      )
+      return renderSectionSidebar(
+        mergedProfileSections,
         profileSectionTitle ?? t('backend.nav.profile', 'Profile'),
         compact,
         hideHeader
@@ -749,7 +991,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
     const isMobileVariant = !!hideHeader
     const shouldRenderSidebarInjectionSpots = !isMobileVariant
-    const baseGroupsForDefaults = originalNavRef.current ?? navGroups
+    const baseGroupsForDefaults = originalNavRef.current ?? mainNavGroupsWithInjected
     const baseGroupMap = new Map<string, SidebarGroup>()
     for (const group of baseGroupsForDefaults) {
       baseGroupMap.set(resolveGroupKey(group), group)
@@ -758,7 +1000,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
     const orderedGroupIds = customDraft
       ? mergeGroupOrder(customDraft.order, Array.from(baseGroupMap.keys()))
-      : navGroups.map((group) => resolveGroupKey(group))
+      : mainNavGroupsWithInjected.map((group) => resolveGroupKey(group))
 
     const lastVisibleGroupIndex = (() => {
       for (let idx = navGroups.length - 1; idx >= 0; idx -= 1) {
@@ -770,13 +1012,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     const renderEditableItems = (baseItems: SidebarItem[], currentItems: SidebarItem[], depth = 0): React.ReactNode => {
       if (!customDraft) return null
       return baseItems.map((baseItem) => {
+        const itemKey = resolveItemKey(baseItem)
         const current = currentItems.find((item) => item.href === baseItem.href) ?? baseItem
         const placeholder = baseItem.defaultTitle ?? baseItem.title
-        const value = customDraft.itemLabels[baseItem.href] ?? ''
-        const hidden = customDraft.hiddenItemIds[baseItem.href] === true
+        const value = customDraft.itemLabels[itemKey] ?? ''
+        const hidden = customDraft.hiddenItemIds[itemKey] === true
         return (
           <div
-            key={baseItem.href}
+            key={itemKey}
             className={`flex flex-col gap-1 ${hidden ? 'opacity-60' : ''}`}
             style={depth ? { marginLeft: depth * 16 } : undefined}
           >
@@ -786,14 +1029,14 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 type="checkbox"
                 className="h-4 w-4 accent-foreground"
                 checked={!hidden}
-                onChange={(event) => setItemHidden(baseItem.href, !event.target.checked)}
+                onChange={(event) => setItemHidden(itemKey, !event.target.checked)}
                 disabled={savingPreferences}
                 aria-label={t('appShell.sidebarCustomizationShowItem')}
                 title={t('appShell.sidebarCustomizationShowItem')}
               />
               <input
                 value={value}
-                onChange={(event) => setItemLabel(baseItem.href, event.target.value)}
+                onChange={(event) => setItemLabel(itemKey, event.target.value)}
                 placeholder={placeholder}
                 disabled={savingPreferences}
                 className="h-8 flex-1 rounded border bg-background px-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
@@ -968,7 +1211,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                 return true
               }
 
-              const mainGroups = navGroups.map((g) => ({
+              const mainGroups = mainNavGroupsWithInjected.map((g) => ({
                 ...g,
                 items: g.items.filter((item) => isMainItem(item) && item.hidden !== true),
               })).filter((g) => g.items.length > 0)
@@ -982,7 +1225,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
               return (
                 <>
-                  <nav className="flex flex-col gap-2">
+                  <nav className="flex flex-col gap-2" data-testid="sidebar">
+                    {shouldRenderSidebarInjectionSpots ? (
+                      <InjectionSpot
+                        spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
+                        context={injectionContext}
+                      />
+                    ) : null}
                     {mainGroups.map((g, gi) => {
                       const groupId = resolveGroupKey(g)
                       const open = openGroups[groupId] !== false
@@ -1016,6 +1265,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                       } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                       aria-disabled={i.enabled === false}
                                       title={compact ? i.title : undefined}
+                                      data-menu-item-id={i.id ?? i.href}
                                       onClick={() => setMobileOpen(false)}
                                     >
                                       {isParentActive ? (
@@ -1040,6 +1290,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                               } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                               aria-disabled={c.enabled === false}
                                               title={compact ? c.title : undefined}
+                                              data-menu-item-id={c.id ?? c.href}
                                               onClick={() => setMobileOpen(false)}
                                             >
                                               {childActive ? (
@@ -1065,6 +1316,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                     })}
                   </nav>
                   <div className="mt-4 pt-4 border-t">
+                    {shouldRenderSidebarInjectionSpots ? (
+                      <InjectionSpot
+                        spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
+                        context={injectionContext}
+                      />
+                    ) : null}
                     <Link
                       href="/backend/settings"
                       className={`relative text-sm rounded inline-flex items-center w-full ${
@@ -1096,6 +1353,12 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         </div>
         {!customizing && (
           <>
+          {shouldRenderSidebarInjectionSpots ? (
+            <InjectionSpot
+              spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          ) : null}
           {compact || isMobileVariant ? (
             <IconButton
               variant="outline"
@@ -1139,6 +1402,38 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setBreadcrumb: setHeaderBreadcrumb,
     setTitle: setHeaderTitle,
   }), [])
+  const renderedTopbarInjectedActions = React.useMemo(
+    () =>
+      topbarInjectedMenuItems.map((item) => {
+        const label = resolveInjectedMenuLabel(item, t)
+        if (item.href) {
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              className="inline-flex items-center rounded border px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground"
+              data-menu-item-id={item.id}
+            >
+              {label}
+            </Link>
+          )
+        }
+        return (
+          <Button
+            key={item.id}
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            data-menu-item-id={item.id}
+            onClick={() => item.onClick?.()}
+          >
+            {label}
+          </Button>
+        )
+      }),
+    [t, topbarInjectedMenuItems],
+  )
 
   return (
     <HeaderContext.Provider value={headerCtxValue}>
@@ -1204,6 +1499,15 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
+            <InjectionSpot
+              spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+            <InjectionSpot
+              spotId={BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+            {renderedTopbarInjectedActions}
             {rightHeaderSlot ? (
               rightHeaderSlot
             ) : (
@@ -1215,6 +1519,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <main className="flex-1 p-4 lg:p-6">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
+          <SseEventIndicator />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
@@ -1276,6 +1581,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 // Helper: deep-clone minimal shape we mutate (children arrays)
 AppShell.cloneGroups = function cloneGroups(groups: AppShellProps['groups']): AppShellProps['groups'] {
   const cloneItem = (item: SidebarItem): SidebarItem => ({
+    id: item.id,
     href: item.href,
     title: item.title,
     defaultTitle: item.defaultTitle,
@@ -1319,13 +1625,14 @@ function applyCustomizationDraft(baseGroups: SidebarGroup[], draft: SidebarCusto
 }
 
 function applyItemDraft(item: SidebarItem, draft: SidebarCustomizationDraft): SidebarItem {
+  const itemKey = resolveItemKey(item)
   const baseTitle = item.defaultTitle ?? item.title
-  const override = draft.itemLabels[item.href]?.trim()
+  const override = draft.itemLabels[itemKey]?.trim()
   const children = item.children
     ? item.children
         .map((child) => applyItemDraft(child, draft))
     : undefined
-  const hidden = draft.hiddenItemIds[item.href] === true
+  const hidden = draft.hiddenItemIds[itemKey] === true
   return {
     ...item,
     title: override && override.length > 0 ? override : baseTitle,
@@ -1357,7 +1664,10 @@ function collectSidebarDefaults(groups: SidebarGroup[]) {
 
   const visitItems = (items: SidebarItem[]) => {
     for (const item of items) {
+      const key = resolveItemKey(item)
       const baseTitle = item.defaultTitle ?? item.title
+      itemDefaults.set(key, baseTitle)
+      // Backward-compatible alias for legacy stored href-based preferences.
       itemDefaults.set(item.href, baseTitle)
       if (item.children && item.children.length > 0) visitItems(item.children)
     }

@@ -6,7 +6,7 @@
 | **Phase** | A (PR 1) |
 | **Branch** | `feat/umes-foundation` |
 | **Depends On** | Nothing |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-25) |
 
 ## Goal
 
@@ -319,27 +319,29 @@ Every backend page automatically gets slots at predictable positions:
 
 ## Example Module Additions
 
-### `example/widgets/injection/todo-menu-items/widget.ts`
+### `example/widgets/injection/example-menus/widget.ts`
 
 A headless `InjectionMenuItemWidget` that adds "Example Todos" to the sidebar under the Example group:
 
 ```typescript
-// packages/core/src/modules/example/widgets/injection/todo-menu-items/widget.ts
+// apps/mercato/src/modules/example/widgets/injection/example-menus/widget.ts
 import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
 import type { InjectionMenuItemWidget } from '@open-mercato/shared/modules/widgets/injection'
 
 export default {
   metadata: {
-    id: 'example.injection.todo-menu-items',
-    features: ['example.view'],
+    id: 'example.injection.example-menus',
   },
   menuItems: [
     {
       id: 'example-todos-shortcut',
-      label: 'example.menu.todosShortcut',
+      labelKey: 'example.menu.todosShortcut',
+      label: 'Example Todos',
       icon: 'CheckSquare',
-      href: '/backend/example/todos',
-      groupId: 'example',
+      href: '/backend/todos',
+      features: ['example.todos.view'],
+      groupId: 'example.nav.group',
+      groupLabelKey: 'example.nav.group',
       placement: { position: InjectionPosition.Last },
     },
   ],
@@ -353,7 +355,7 @@ Add the menu spot mapping:
 ```typescript
 // Add to existing injection-table.ts
 'menu:sidebar:main': {
-  widgetId: 'example.injection.todo-menu-items',
+  widgetId: 'example.injection.example-menus',
   priority: 50,
 },
 ```
@@ -366,7 +368,7 @@ Add the menu spot mapping:
 
 **Type**: UI (Playwright)
 
-**Preconditions**: Example module is enabled, user has `example.view` feature
+**Preconditions**: Example module is enabled, user has `example.todos.view` feature
 
 **Steps**:
 1. Log in as admin user
@@ -375,13 +377,13 @@ Add the menu spot mapping:
 
 **Expected**: The "Example Todos" menu item appears in the sidebar under the Example group
 
-**Example module file exercised**: `example/widgets/injection/todo-menu-items/widget.ts`
+**Example module file exercised**: `apps/mercato/src/modules/example/widgets/injection/example-menus/widget.ts`
 
 **Testing notes**:
 - Use `page.locator('[data-testid="sidebar"]')` to find the sidebar
 - Look for the injected item by text content or `data-menu-item-id` attribute
 - Verify the icon renders (CheckSquare)
-- Verify clicking navigates to `/backend/example/todos`
+- Verify clicking navigates to `/backend/todos`
 
 ### TC-UMES-F02: `InjectionPosition` enum values resolve correctly
 
@@ -412,10 +414,10 @@ Add the menu spot mapping:
 | **NEW** | `packages/ui/src/backend/injection/useInjectionDataWidgets.ts` |
 | **NEW** | `packages/ui/src/backend/injection/WidgetSharedState.ts` |
 | **NEW** | `packages/ui/src/backend/injection/useWidgetSharedState.ts` |
-| **NEW** | `packages/core/src/modules/example/widgets/injection/todo-menu-items/widget.ts` |
+| **NEW** | `apps/mercato/src/modules/example/widgets/injection/example-menus/widget.ts` |
 | **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add headless types, custom field, wizard, status badge, visibility) |
 | **MODIFY** | `packages/shared/src/modules/widgets/injection-loader.ts` (add headless loading path) |
-| **MODIFY** | `packages/core/src/modules/example/widgets/injection-table.ts` (add menu spot) |
+| **MODIFY** | `apps/mercato/src/modules/example/widgets/injection-table.ts` (add menu spot) |
 | **MODIFY** | Generator scripts (discover headless widgets) |
 | **MODIFY** | Bootstrap registration (register headless widgets) |
 
@@ -430,3 +432,8 @@ Add the menu spot mapping:
 - All existing `widget.ts` files that export `Widget` component unchanged
 - New headless loading path is additive — does not modify existing `loadInjectionWidgetById`
 - `InjectionPosition` is a new export — no existing code affected
+
+## Changelog
+
+- **2026-02-25**: Implemented `InjectionPosition`, `insertByInjectionPlacement`, headless injection loader path (`loadInjectionDataWidgetById`, `loadInjectionDataWidgetsForSpot`), `useInjectionDataWidgets`, widget shared state primitives, and foundational example widget coverage.
+- **2026-02-25**: Added phase A/B usage docs with i18n guidance in `apps/docs/docs/framework/widget-injection.md` and `apps/docs/src/framework/admin-ui/widget-injection.mdx`.

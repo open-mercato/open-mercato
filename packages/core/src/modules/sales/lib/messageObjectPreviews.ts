@@ -3,7 +3,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ObjectPreviewData } from '@open-mercato/shared/modules/messages/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { SalesOrder, SalesQuote } from '../data/entities'
+import { SalesChannel, SalesOrder, SalesQuote } from '../data/entities'
 
 type PreviewContext = {
   tenantId: string
@@ -84,9 +84,12 @@ async function buildPreview(kind: DocumentKind, entityId: string, record: SalesD
   const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' • ') : entityId
 
   const metadata: Record<string, string> = {}
-  if (number) metadata.Number = number
-  if (customerName) metadata.Customer = customerName
-  if (total) metadata.Total = total
+  const numberLabel = t('sales.documents.detail.number')
+  const customerLabel = t('sales.documents.detail.customer')
+  const totalLabel = t('sales.documents.detail.totals.grandTotalGross')
+  if (number) metadata[numberLabel] = number
+  if (customerName) metadata[customerLabel] = customerName
+  if (total) metadata[totalLabel] = total
 
   return {
     title: number && number.trim().length > 0 ? number : defaultTitle,
@@ -145,6 +148,53 @@ export async function loadSalesQuotePreview(entityId: string, ctx: PreviewContex
 export async function loadSalesOrderPreview(entityId: string, ctx: PreviewContext): Promise<ObjectPreviewData> {
   const record = await loadDocumentRecord('order', entityId, ctx)
   return await buildPreview('order', entityId, record)
+}
+
+export async function loadSalesChannelPreview(entityId: string, ctx: PreviewContext): Promise<ObjectPreviewData> {
+  const { t } = await resolveTranslations()
+  const defaultTitle = t('sales.messageObjects.channel.title')
+
+  if (!ctx.organizationId) {
+    return { title: defaultTitle, subtitle: entityId }
+  }
+
+  const { resolve } = await createRequestContainer()
+  const em = resolve('em') as EntityManager
+  const entity = await findOneWithDecryption(
+    em,
+    SalesChannel,
+    {
+      id: entityId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+
+  if (!entity) {
+    return {
+      title: defaultTitle,
+      subtitle: entityId,
+      status: t('sales.messageObjects.notFound'),
+      statusColor: 'gray',
+    }
+  }
+
+  const metadata: Record<string, string> = {}
+  const contactEmailLabel = t('sales.channels.form.contactEmail')
+  const websiteUrlLabel = t('sales.channels.form.websiteUrl')
+  if (entity.contactEmail && entity.contactEmail.trim().length > 0) metadata[contactEmailLabel] = entity.contactEmail
+  if (entity.websiteUrl && entity.websiteUrl.trim().length > 0) metadata[websiteUrlLabel] = entity.websiteUrl
+
+  return {
+    title: entity.name,
+    subtitle: entity.status ?? undefined,
+    status: entity.status ?? undefined,
+    statusColor: statusColor(entity.status),
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+  }
 }
 
 

@@ -3,11 +3,12 @@
  */
 
 import * as React from 'react'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const mockInjectionSpot = jest.fn()
+let mockPathname = '/backend/users'
 
 jest.mock('next/link', () => {
   const React = require('react')
@@ -21,7 +22,7 @@ jest.mock('next/link', () => {
 jest.mock('next/image', () => (props: any) => <img alt={props.alt} {...props} />)
 
 jest.mock('next/navigation', () => ({
-  usePathname: () => '/backend/users',
+  usePathname: () => mockPathname,
   useSearchParams: () => new URLSearchParams('tab=profile'),
   useRouter: () => ({
     refresh: jest.fn(),
@@ -86,6 +87,7 @@ const groups = [
 describe('AppShell', () => {
   beforeEach(() => {
     mockInjectionSpot.mockClear()
+    mockPathname = '/backend/users'
   })
 
   beforeAll(() => {
@@ -149,5 +151,87 @@ describe('AppShell', () => {
         },
       }),
     )
+  })
+
+  it('renders nested settings links when settings parent route is active', async () => {
+    mockPathname = '/backend/entities/user'
+
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        settingsPathPrefixes={['/backend/entities/user']}
+        settingsSections={[
+          {
+            id: 'data-designer',
+            label: 'Data Designer',
+            items: [
+              {
+                id: 'user-entities',
+                label: 'User Entities',
+                href: '/backend/entities/user',
+                children: [
+                  {
+                    id: 'calendar-entity',
+                    label: 'Calendar Entity',
+                    href: '/backend/entities/user/example%3Acalendar_entity/records',
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      >
+        <div>Settings content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Calendar Entity' })).toHaveAttribute(
+        'href',
+        '/backend/entities/user/example%3Acalendar_entity/records',
+      )
+    })
+  })
+
+  it('keeps settings parent item active on descendant routes outside explicit child list', async () => {
+    mockPathname = '/backend/entities/user/example%3Acalendar_entity'
+
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        settingsPathPrefixes={['/backend/entities/user']}
+        settingsSections={[
+          {
+            id: 'data-designer',
+            label: 'Data Designer',
+            items: [
+              {
+                id: 'user-entities',
+                label: 'User Entities',
+                href: '/backend/entities/user',
+                children: [
+                  {
+                    id: 'calendar-entity',
+                    label: 'Calendar Entity',
+                    href: '/backend/entities/user/example%3Acalendar_entity/records',
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      >
+        <div>Settings content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'User Entities' })).toHaveClass('bg-background')
+      expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
+    })
   })
 })

@@ -8,6 +8,8 @@ export const features = [
   { id: 'customers.activities.view', title: 'View activities', module: 'customers' },
   { id: 'customers.activities.manage', title: 'Manage activities', module: 'customers' },
   { id: 'customers.settings.manage', title: 'Manage customer settings', module: 'customers' },
+  { id: 'customers.pipelines.view', title: 'View pipelines', module: 'customers' },
+  { id: 'customers.pipelines.manage', title: 'Manage pipelines', module: 'customers' },
   { id: 'customers.widgets.todos', title: 'Use customer todos widget', module: 'customers' },
   { id: 'customers.widgets.next-interactions', title: 'Use customer next interactions widget', module: 'customers' },
   { id: 'customers.widgets.new-customers', title: 'Use customer new customers widget', module: 'customers' },

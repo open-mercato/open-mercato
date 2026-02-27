@@ -8,6 +8,7 @@ import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { createResolver } from '../resolver'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
+import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
 type EphemeralRuntimeOptions = {
   verbose: boolean
@@ -160,6 +161,7 @@ const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
 const ANSI_ESCAPE_REGEX = /\u001b\[[0-?]*[ -/]*[@-~]/g
+const NEXT_STATIC_ASSET_PATTERN = /\/_next\/static\/[^"'`\s)]+?\.(?:js|css)/g
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
@@ -609,26 +611,6 @@ function startYarnWorkspaceCommand(
   opts: { silent?: boolean } = {},
 ): ChildProcess {
   return startYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
-}
-
-function runCommandAndCapture(command: string, args: string[]): Promise<{ code: number | null; stderr: string }> {
-  return new Promise((resolve) => {
-    const processHandle = spawn(command, args, {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
-    let stderr = ''
-    processHandle.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += chunk.toString()
-    })
-    processHandle.on('error', () => {
-      resolve({ code: -1, stderr })
-    })
-    processHandle.on('exit', (code) => {
-      resolve({ code, stderr })
-    })
-  })
 }
 
 async function assertContainerRuntimeAvailable(): Promise<void> {
@@ -1113,10 +1095,50 @@ async function isApplicationReachable(baseUrl: string): Promise<boolean> {
       method: 'GET',
       redirect: 'manual',
     })
-    return response.status === 200 || response.status === 302
+    if (response.status === 302) {
+      return true
+    }
+    if (response.status !== 200) {
+      return false
+    }
+    const html = await response.text()
+    return isLoginHtmlHealthy(html) && await areReferencedNextAssetsReachable(baseUrl, html)
   } catch {
     return false
   }
+}
+
+function isLoginHtmlHealthy(html: string): boolean {
+  return !/Application error: a client-side exception has occurred/i.test(html)
+}
+
+function extractReferencedNextAssets(html: string, maxAssets = 8): string[] {
+  const matches = html.match(NEXT_STATIC_ASSET_PATTERN) ?? []
+  const unique = Array.from(new Set(matches))
+  return unique.slice(0, maxAssets)
+}
+
+async function areReferencedNextAssetsReachable(baseUrl: string, html: string): Promise<boolean> {
+  const assets = extractReferencedNextAssets(html)
+  if (assets.length === 0) {
+    return false
+  }
+
+  for (const assetPath of assets) {
+    try {
+      const response = await fetch(`${baseUrl}${assetPath}`, {
+        method: 'GET',
+        redirect: 'manual',
+      })
+      if (response.status !== 200 && response.status !== 304) {
+        return false
+      }
+    } catch {
+      return false
+    }
+  }
+
+  return true
 }
 
 async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> {
@@ -1246,6 +1268,7 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     NODE_ENV: 'test',
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
+    NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     CI: 'true',
     OM_CLI_QUIET: '1',
     MERCATO_QUIET: '1',
@@ -1321,19 +1344,38 @@ async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildPro
     const responsePromise = fetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
-    }).catch(() => null)
+    })
+      .then(async (response) => ({
+        response,
+        body: response.status === 200 ? await response.text().catch(() => '') : '',
+      }))
+      .catch(() => null)
     const result = await Promise.race([
-      responsePromise.then((response) => {
-        if (!response) {
+      responsePromise.then((payload) => {
+        if (!payload) {
           return { kind: 'network_error' as const }
         }
-        return { kind: 'response' as const, status: response.status }
+        return {
+          kind: 'response' as const,
+          status: payload.response.status,
+          body: payload.body,
+        }
       }),
       exitPromise.then((code) => ({ kind: 'exit' as const, code })),
       delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
     ])
 
     if (result.kind === 'response' && (result.status === 200 || result.status === 302)) {
+      if (result.status === 200) {
+        const loginHtml = result.body ?? ''
+        if (!isLoginHtmlHealthy(loginHtml)) {
+          continue
+        }
+        const assetsReachable = await areReferencedNextAssetsReachable(baseUrl, loginHtml)
+        if (!assetsReachable) {
+          continue
+        }
+      }
       const processExited = await Promise.race([
         exitPromise.then(() => true),
         delay(readinessStabilizationMs).then(() => false),
@@ -2391,6 +2433,14 @@ async function promptAfterRun(
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
   await assertContainerRuntimeAvailable()
+
+  // Auto-detect Docker socket from active context for non-standard setups (e.g., Colima)
+  const dockerConfig = await resolveDockerHostFromContext(options.logPrefix)
+  if (dockerConfig) {
+    process.env.DOCKER_HOST = dockerConfig.dockerHost
+    process.env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = dockerConfig.socketOverride
+  }
+
   const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
     const existingStateBeforeReuseAttempt = await readEphemeralEnvironmentState()
@@ -2449,6 +2499,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
       ENABLE_CRUD_API_CACHE: 'true',
+      NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
       AUTO_SPAWN_WORKERS: 'false',

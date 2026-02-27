@@ -213,6 +213,8 @@
     "ai": "^6.0.0",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
+    "@types/html-to-text": "^9.0.4",
+    "html-to-text": "^9.0.5",
     "semver": "^7.6.3"
   },
   "devDependencies": {

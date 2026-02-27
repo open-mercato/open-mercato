@@ -92,6 +92,15 @@ export function getDeclaredEvents(): EventDefinition[] {
   return [...allDeclaredEvents]
 }
 
+/**
+ * Check if an event has clientBroadcast enabled.
+ * Used by the SSE endpoint to filter events for the DOM Event Bridge.
+ */
+export function isBroadcastEvent(eventId: string): boolean {
+  const event = allDeclaredEvents.find(e => e.id === eventId)
+  return event?.clientBroadcast === true
+}
+
 // =============================================================================
 // Bootstrap Registration (similar to searchModuleConfigs pattern)
 // =============================================================================

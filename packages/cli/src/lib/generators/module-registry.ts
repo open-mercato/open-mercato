@@ -321,6 +321,36 @@ function processTranslations(options: {
   return translations
 }
 
+/**
+ * Resolves a convention file and pushes its import + config entry to standalone arrays.
+ * Used for files that produce their own generated output (notifications, AI tools, events, analytics, enrichers, etc.).
+ *
+ * @returns The generated import name, or null if the file was not found.
+ */
+function processStandaloneConfig(options: {
+  roots: ModuleRoots
+  imps: ModuleImports
+  modId: string
+  relativePath: string
+  prefix: string
+  importIdRef: { value: number }
+  standaloneImports: string[]
+  standaloneConfigs: string[]
+  configExpr: (importName: string, modId: string) => string
+  /** Also push the import to the shared imports array (used by modules.generated.ts) */
+  sharedImports?: string[]
+}): string | null {
+  const { roots, imps, modId, relativePath, prefix, importIdRef, standaloneImports, standaloneConfigs, configExpr, sharedImports } = options
+  const resolved = resolveModuleFile(roots, imps, relativePath)
+  if (!resolved) return null
+  const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
+  const importStmt = `import * as ${importName} from '${resolved.importPath}'`
+  standaloneImports.push(importStmt)
+  if (sharedImports) sharedImports.push(importStmt)
+  standaloneConfigs.push(configExpr(importName, modId))
+  return importName
+}
+
 function resolveConventionFile(
   roots: ModuleRoots,
   imps: ModuleImports,
@@ -375,6 +405,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
   const transFieldsOutFile = path.join(outputDir, 'translations-fields.generated.ts')
   const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
+  const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
+  const enrichersChecksumFile = path.join(outputDir, 'enrichers.generated.checksum')
+  const inboxActionsOutFile = path.join(outputDir, 'inbox-actions.generated.ts')
+  const inboxActionsChecksumFile = path.join(outputDir, 'inbox-actions.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
@@ -404,6 +438,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const analyticsImports: string[] = []
   const transFieldsConfigs: string[] = []
   const transFieldsImports: string[] = []
+  const enricherConfigs: string[] = []
+  const enricherImports: string[] = []
+  const inboxActionsConfigs: string[] = []
+  const inboxActionsImports: string[] = []
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -515,18 +553,24 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     }
 
     // 7. Notifications: notifications.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'notifications.ts')
-      if (resolved) {
-        const importName = `NOTIF_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        notificationImports.push(importStmt)
-        notificationTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? ${importName}.notificationTypes ?? []) }`
-        )
-      }
-    }
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'notifications.ts',
+      prefix: 'NOTIF',
+      standaloneImports: notificationImports,
+      standaloneConfigs: notificationTypes,
+      configExpr: (n, id) => `{ moduleId: '${id}', types: ((${n}.default ?? ${n}.notificationTypes ?? (${n} as any).types ?? []) as NotificationTypeDefinition[]) }`,
+    })
 
+    // Notification client renderers: notifications.client.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'notifications.client.ts',
+      prefix: 'NOTIF_CLIENT',
+      standaloneImports: notificationClientImports,
+      standaloneConfigs: notificationClientTypes,
+      configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? []) }`,
+    })
     // Message types: module root message-types.ts
     {
       const resolved = resolveModuleFile(roots, imps, 'message-types.ts')
@@ -567,52 +611,69 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     }
 
     // 8. AI Tools: ai-tools.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'ai-tools.ts')
-      if (resolved) {
-        const importName = `AI_TOOLS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        aiToolsImports.push(importStmt)
-        aiToolsConfigs.push(
-          `{ moduleId: '${modId}', tools: (${importName}.aiTools ?? ${importName}.default ?? []) }`
-        )
-      }
-    }
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'ai-tools.ts',
+      prefix: 'AI_TOOLS',
+      standaloneImports: aiToolsImports,
+      standaloneConfigs: aiToolsConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', tools: (${n}.aiTools ?? ${n}.default ?? []) }`,
+    })
 
-    // 9. Events: events.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'events.ts')
-      if (resolved) {
-        const importName = `EVENTS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        eventsImports.push(importStmt)
-        eventsImportName = importName
-      }
-    }
+    // 9. Events: events.ts (also referenced in module declarations)
+    eventsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'events.ts',
+      prefix: 'EVENTS',
+      standaloneImports: eventsImports,
+      standaloneConfigs: eventsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.eventsConfig ?? null) as EventModuleConfigBase | null }`,
+    })
 
-    // 10. Analytics: analytics.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'analytics.ts')
-      if (resolved) {
-        const importName = `ANALYTICS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        analyticsImports.push(importStmt)
-        analyticsImportName = importName
-      }
-    }
+    // 10. Analytics: analytics.ts (also referenced in module declarations)
+    analyticsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'analytics.ts',
+      prefix: 'ANALYTICS',
+      standaloneImports: analyticsImports,
+      standaloneConfigs: analyticsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.analyticsConfig ?? ${n}.config ?? null) }`,
+    })
 
-    // Translatable fields: module root translations.ts
+    // 10b. Enrichers: data/enrichers.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'data/enrichers.ts',
+      prefix: 'ENRICHERS',
+      standaloneImports: enricherImports,
+      standaloneConfigs: enricherConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', enrichers: ((${n} as any).enrichers ?? (${n} as any).default ?? []) }`,
+    })
+
+    // Translatable fields: translations.ts (also referenced in module declarations)
     let transFieldsImportName: string | null = null
+    transFieldsImportName = processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'translations.ts',
+      prefix: 'TRANS_FIELDS',
+      standaloneImports: transFieldsImports,
+      standaloneConfigs: transFieldsConfigs,
+      sharedImports: imports,
+      configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
+    })
+
+    // Inbox Actions: inbox-actions.ts
     {
-      const resolved = resolveModuleFile(roots, imps, 'translations.ts')
+      const resolved = resolveModuleFile(roots, imps, 'inbox-actions.ts')
       if (resolved) {
-        const importName = `TRANS_FIELDS_${toVar(modId)}_${importIdRef.value++}`
+        const importName = `INBOX_ACTIONS_${toVar(modId)}_${importIdRef.value++}`
         const importStmt = `import * as ${importName} from '${resolved.importPath}'`
-        imports.push(importStmt)
-        transFieldsImports.push(importStmt)
-        transFieldsImportName = importName
+        inboxActionsImports.push(importStmt)
+        inboxActionsConfigs.push(
+          `{ moduleId: '${modId}', actions: (${importName}.default ?? ${importName}.inboxActions ?? []) }`
+        )
       }
     }
 
@@ -771,13 +832,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       searchConfigs.push(`{ moduleId: '${modId}', config: (${searchImportName}.default ?? ${searchImportName}.searchConfig ?? ${searchImportName}.config ?? null) }`)
     }
 
-    if (eventsImportName) {
-      eventsConfigs.push(`{ moduleId: '${modId}', config: (${eventsImportName}.default ?? ${eventsImportName}.eventsConfig ?? null) as EventModuleConfigBase | null }`)
-    }
-
-    if (analyticsImportName) {
-      analyticsConfigs.push(`{ moduleId: '${modId}', config: (${analyticsImportName}.default ?? ${analyticsImportName}.analyticsConfig ?? ${analyticsImportName}.config ?? null) }`)
-    }
+    // Note: events, analytics, enrichers, notifications, AI tools, and translatable fields
+    // configs are pushed inside processStandaloneConfig() above — no separate push needed here.
 
     if (transFieldsImportName) {
       transFieldsConfigs.push(`{ moduleId: '${modId}', fields: (${transFieldsImportName}.default ?? ${transFieldsImportName}.translatableFields ?? {}) as Record<string, string[]> }`)
@@ -1001,6 +1057,8 @@ import type {
   ObjectDetailProps,
   ObjectPreviewProps,
 } from '@open-mercato/shared/modules/messages/types'
+import { registerMessageObjectTypes } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
+import { configureMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 ${messageTypeImportSection ? `\n${messageTypeImportSection}\n` : '\n'}${messageObjectImportSection ? `\n${messageObjectImportSection}\n` : ''}type MessageTypeEntry = { moduleId: string; types: MessageTypeDefinition[] }
 type MessageObjectTypeEntry = { moduleId: string; types: MessageObjectTypeDefinition[] }
 
@@ -1071,6 +1129,12 @@ export const messageUiComponentRegistry = registry
 export function getMessageUiComponentRegistry(): MessageUiComponentRegistry {
   return registry
 }
+
+// Side-effects: register all message object types and configure the UI component registry on import.
+for (const entry of messageObjectTypeEntriesRaw) {
+  registerMessageObjectTypes(entry.types)
+}
+configureMessageUiComponentRegistry(registry)
 `
 
   // Validate module dependencies declared via ModuleInfo.requires
@@ -1153,6 +1217,44 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
+
+  // Enrichers generated file
+  const enricherEntriesLiteral = enricherConfigs.join(',\n  ')
+  const enricherImportSection = enricherImports.join('\n')
+  const enrichersOutput = `// AUTO-GENERATED by mercato generate registry
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+${enricherImportSection ? `\n${enricherImportSection}\n` : '\n'}type EnricherEntry = { moduleId: string; enrichers: ResponseEnricher[] }
+
+export const enricherEntries: EnricherEntry[] = [
+${enricherEntriesLiteral ? `  ${enricherEntriesLiteral}\n` : ''}]
+`
+  writeGeneratedFile({ outFile: enrichersOutFile, checksumFile: enrichersChecksumFile, content: enrichersOutput, structureChecksum, result, quiet })
+  // Inbox Actions generated file
+  const inboxActionsEntriesLiteral = inboxActionsConfigs.join(',\n  ')
+  const inboxActionsImportSection = inboxActionsImports.join('\n')
+  const inboxActionsOutput = `// AUTO-GENERATED by mercato generate registry — do not edit
+import type { InboxActionDefinition } from '@open-mercato/shared/modules/inbox-actions'
+${inboxActionsImportSection ? `\n${inboxActionsImportSection}\n` : '\n'}
+type InboxActionConfigEntry = { moduleId: string; actions: InboxActionDefinition[] }
+
+const entriesRaw: InboxActionConfigEntry[] = [
+${inboxActionsEntriesLiteral ? `  ${inboxActionsEntriesLiteral}\n` : ''}]
+
+const entries = entriesRaw.filter((e): e is InboxActionConfigEntry => Array.isArray(e.actions) && e.actions.length > 0)
+
+export const inboxActionConfigEntries = entries
+export const inboxActions: InboxActionDefinition[] = entries.flatMap((e) => e.actions)
+
+const actionTypeMap = new Map(inboxActions.map((a) => [a.type, a]))
+export function getInboxAction(type: string): InboxActionDefinition | undefined {
+  return actionTypeMap.get(type)
+}
+export function getRegisteredActionTypes(): string[] {
+  return Array.from(actionTypeMap.keys())
+}
+`
+  writeGeneratedFile({ outFile: inboxActionsOutFile, checksumFile: inboxActionsChecksumFile, content: inboxActionsOutput, structureChecksum, result, quiet })
+
   return result
 }
 

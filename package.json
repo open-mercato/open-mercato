@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "dev": "yarn build:packages && yarn watch:packages & sleep 3 && yarn dev:app",
+    "dev:ephemeral": "tsx scripts/dev-ephemeral.ts",
     "dev:greenfield": "yarn build:packages && yarn generate && yarn build:packages && yarn initialize -- --reinstall && yarn dev",
     "dev:app": "turbo run dev --filter=@open-mercato/app",
     "watch:packages": "turbo run watch --filter='./packages/*' --parallel",
@@ -53,7 +54,8 @@
     "test:integration:ephemeral": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:integration",
     "test:integration:ephemeral:interactive": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:integration:interactive",
     "test:integration:ephemeral:start": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:ephemeral",
-    "test:integration:ephemeral:start:verbose": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:ephemeral --verbose"
+    "test:integration:ephemeral:start:verbose": "cross-env ENABLE_CRUD_API_CACHE=true yarn mercato test:ephemeral --verbose",
+    "prepare": "husky"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",
@@ -96,6 +98,7 @@
     "@eslint/eslintrc": "^3.3.3",
     "@playwright/test": "^1.50.0",
     "@types/better-sqlite3": "^7.6.11",
+    "@types/html-to-text": "^9.0.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.16.0",
@@ -106,6 +109,7 @@
     "esbuild": "^0.25.0",
     "eslint": "^9.39.1",
     "glob": "^13.0.6",
+    "husky": "^9.1.7",
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "openapi-typescript": "^7.10.1",

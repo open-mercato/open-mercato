@@ -8,6 +8,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TeamRoleForm, type TeamRoleFormValues, type TeamRoleOption, buildTeamRolePayload } from '@open-mercato/core/modules/staff/components/TeamRoleForm'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
@@ -143,6 +144,17 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
           onDelete={handleDelete}
           isLoading={!initialValues}
           loadingMessage={t('staff.teamRoles.form.loading', 'Loading team role...')}
+          extraActions={roleId ? (
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'staff',
+                entityType: 'team_role',
+                entityId: roleId,
+                previewData: { title: initialValues?.name ?? ''},
+              }}
+              viewHref={`/backend/staff/team-roles/${roleId}/edit`}
+            />
+          ) : undefined}
         />
       </PageBody>
     </Page>

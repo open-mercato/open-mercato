@@ -12,10 +12,10 @@ export const metadata = {
   requireFeatures: ['inbox_ops.proposals.view'],
   pageTitle: 'Proposals',
   pageTitleKey: 'inbox_ops.nav.proposals',
-  pageGroup: 'InboxOps',
+  pageGroup: 'AI Inbox Actions',
   pageGroupKey: 'inbox_ops.nav.group',
   pagePriority: 45,
   pageOrder: 100,
   icon: inboxIcon,
-  breadcrumb: [{ label: 'InboxOps', labelKey: 'inbox_ops.nav.group' }],
+  breadcrumb: [{ label: 'AI Inbox Actions', labelKey: 'inbox_ops.nav.group' }],
 } as const

@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import type { ObjectPreviewData } from '@open-mercato/shared/modules/messages/types'
 import type { MessagePriority } from './message-priority'
 
 export type MessageTypeItem = {
@@ -34,6 +35,7 @@ export type MessageComposerContextObject = {
   actionLabel?: string
   sourceEntityType?: string | null
   sourceEntityId?: string | null
+  previewData?: ObjectPreviewData | null
 }
 
 export type MessageComposerRequiredActionOption = {

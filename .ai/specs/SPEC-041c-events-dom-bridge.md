@@ -6,7 +6,7 @@
 | **Phase** | C (PR 3) |
 | **Branch** | `feat/umes-event-bridge` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-25; Phase M operation filter remains in SPEC-041m) |
 
 ## Goal
 
@@ -95,7 +95,26 @@ if (isTransformerEvent(event)) {
 
 The delete-to-save fallback chain is preserved.
 
-### 3. DOM Event Bridge
+### 3. CrudForm Emission Toggle
+
+CrudForm automatic emission of Phase C extended events is controlled by:
+
+```bash
+NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=true
+```
+
+- Default: `true`
+- When `false`, CrudForm skips automatic emission for:
+  - `onFieldChange`
+  - `onBeforeNavigate`
+  - `onVisibilityChange`
+  - `onAppEvent`
+  - `transformFormData`
+  - `transformDisplayData`
+  - `transformValidation`
+- Core save/delete lifecycle handlers remain unchanged.
+
+### 4. DOM Event Bridge
 
 #### Architecture
 
@@ -116,7 +135,7 @@ example.todo.created ──► event bus
 
 #### Transport
 
-Uses the **existing notification SSE channel** (`/api/auth/notifications/stream`). Extended to include app events when `clientBroadcast: true`.
+Uses the dedicated SSE channel at `/api/events/stream`. It bridges only events marked with `clientBroadcast: true`.
 
 #### Event Declaration Extension
 
@@ -135,7 +154,7 @@ const events = [
 
 Only events with `clientBroadcast: true` are bridged. Default is `false`.
 
-### 4. `useAppEvent` Hook
+### 5. `useAppEvent` Hook
 
 ```typescript
 // packages/ui/src/backend/injection/useAppEvent.ts
@@ -163,7 +182,7 @@ function matchesPattern(pattern: string, eventId: string): boolean {
 }
 ```
 
-### 5. Async Operation Progress Pattern
+### 6. Async Operation Progress Pattern
 
 Long-running operations (data sync imports, bulk exports, webhook replay) need real-time progress tracking within widgets. This pattern leverages the DOM Event Bridge to deliver structured progress events.
 
@@ -266,10 +285,42 @@ await emitEvent('integration.sync.progress', {
 
 ### 6. Performance & Security
 
-- Events scoped to `organizationId` (SSE channel is already org-scoped)
-- Payload limit: 4KB; larger payloads send only entity reference
-- Deduplication: 500ms window for identical event IDs
+- Events MUST be server-filtered by audience before SSE send (tenant + organization + recipient user/role)
+- Payload limit: 4KB; larger payloads send a truncated entity reference payload
+- Deduplication: 500ms window for identical event+payload fingerprints
 - Opt-in: `clientBroadcast: true` required; default is `false`
+
+### 7. Audience Filtering Contract (Mandatory)
+
+`clientBroadcast: true` events are treated as potentially sensitive and MUST be filtered server-side in `packages/events/src/modules/events/api/stream/route.ts`.
+Client-side filtering (`useAppEvent`) is optional defense-in-depth only and MUST NOT be the primary access control.
+
+#### Supported audience fields in event payload
+
+```typescript
+interface BroadcastAudience {
+  tenantId: string                           // required for broadcast
+  organizationId?: string | null             // single org scope
+  organizationIds?: string[]                 // multi-org scope
+  recipientUserId?: string                   // single recipient user
+  recipientUserIds?: string[]                // multiple recipient users
+  recipientRoleId?: string                   // single recipient role
+  recipientRoleIds?: string[]                // multiple recipient roles
+}
+```
+
+#### Server-side matching rules
+
+1. `tenantId` MUST match connection tenant exactly; if missing, drop event.
+2. If event has `organizationId`/`organizationIds`, connection organization MUST match one of them; if connection has no organization selected, drop org-scoped event.
+3. If event has `recipientUserId`/`recipientUserIds`, connection `userId` MUST match one of them.
+4. If event has `recipientRoleId`/`recipientRoleIds`, connection role set MUST intersect the event role set.
+5. When multiple audience dimensions are present, treat them as logical AND.
+6. If no recipient field exists, event is tenant/org broadcast within allowed scope.
+
+#### Security requirement
+
+An authenticated user MUST NOT receive `om:event` payloads for another user/role/organization. "Receive then ignore on client" is not acceptable for notification-like events.
 
 ---
 
@@ -414,6 +465,54 @@ export default {
 
 **Expected**: Saved todo title is "My Todo" (whitespace trimmed by transformer)
 
+### TC-UMES-E07: `onBeforeNavigate` blocks restricted targets and allows valid targets
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers` (Phase C test harness)
+2. Set target to `/backend/blocked` and trigger `onBeforeNavigate`
+3. Set target to `/backend/todos` and trigger `onBeforeNavigate` again
+
+**Expected**:
+- First run returns `{ ok: false, message: "Navigation blocked..." }`
+- Second run returns `{ ok: true }`
+
+### TC-UMES-E08: `onVisibilityChange` persists visibility transitions
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers`
+2. Toggle visibility off, then on
+3. Verify the widget state reflects the latest `visible` value
+
+**Expected**: Shared widget state records visibility changes; final state is `visible: true`
+
+### TC-UMES-E09: `onAppEvent` receives bridged app event payload
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers`
+2. Dispatch a mock `om:event` with `id: "example.todo.created"`
+3. Verify widget `onAppEvent` state updates
+
+**Expected**: Captured event id equals `example.todo.created`
+
+### TC-UMES-E10: `transformDisplayData` and `transformValidation` pipelines mutate output
+
+**Type**: UI (Playwright)
+
+**Steps**:
+1. Open `/backend/umes-handlers`
+2. Trigger `transformDisplayData` for title `display me`
+3. Trigger `transformValidation` for `{ title: "Title is required" }`
+
+**Expected**:
+- Display data title is transformed to `DISPLAY ME`
+- Validation output title is prefixed with `[widget]`
+
 ### TC-UMES-E05: Events without `clientBroadcast: true` do NOT arrive at client
 
 **Type**: API+UI (Playwright)
@@ -437,6 +536,45 @@ export default {
 
 **Expected**: All pattern matching assertions pass
 
+### TC-UMES-E11: Cross-user recipient isolation
+
+**Type**: API+UI (Playwright)
+
+**Steps**:
+1. Open two browser contexts in same tenant and organization (User A, User B)
+2. Emit a `clientBroadcast: true` event with `recipientUserId = UserA`
+3. Listen for `om:event` in both contexts
+
+**Expected**:
+- User A receives event
+- User B does not receive event payload at all
+
+### TC-UMES-E12: Role-based recipient isolation
+
+**Type**: API+UI (Playwright)
+
+**Steps**:
+1. Open two users in same tenant/org with non-overlapping roles
+2. Emit event with `recipientRoleIds` containing only Role X
+3. Listen for `om:event` in both contexts
+
+**Expected**:
+- User with Role X receives event
+- User without Role X does not receive event
+
+### TC-UMES-E13: Organization hard boundary
+
+**Type**: API+UI (Playwright)
+
+**Steps**:
+1. Open two users in same tenant but different selected organizations
+2. Emit event scoped to Organization A
+3. Listen for `om:event` in both contexts
+
+**Expected**:
+- User in Organization A receives event
+- User in Organization B does not receive event
+
 ---
 
 ## Files Touched
@@ -447,6 +585,8 @@ export default {
 | **NEW** | `packages/ui/src/backend/injection/useOperationProgress.ts` |
 | **NEW** | `packages/shared/src/modules/widgets/injection-progress.ts` |
 | **NEW** | `packages/core/src/modules/example/widgets/injection/crud-validation/widget.ts` |
+| **MODIFY** | `packages/ui/src/backend/CrudForm.tsx` (extended event emission + env toggle) |
+| **MODIFY** | `apps/mercato/.env.example` (`NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED`) |
 | **MODIFY** | `packages/shared/src/modules/widgets/injection.ts` (add new event handler types) |
 | **MODIFY** | `packages/ui/src/backend/injection/InjectionSpot.tsx` (dual dispatch in `useInjectionSpotEvents`) |
 | **MODIFY** | `packages/core/src/modules/example/events.ts` (add clientBroadcast) |
@@ -464,3 +604,60 @@ export default {
 - `onEvent` callback prop union updated to include new event names (additive)
 - Events without `clientBroadcast: true` have zero behavior change
 - Existing `om:` DOM events (mutation error, sidebar refresh) continue to work alongside the bridge
+
+## Implementation Notes (2026-02-25)
+
+### SSE Endpoint
+- Implemented at `packages/events/src/modules/events/api/stream/route.ts`
+- Uses `ReadableStream` with SSE format (`text/event-stream`)
+- Heartbeat every 30s (`:heartbeat\n\n`)
+- Global connection registry pattern: single `*` event bus handler broadcasts to all SSE connections
+- Connection context MUST include `tenantId`, `organizationId`, `userId`, and `roleIds`
+- Server-side audience filtering MUST enforce tenant + organization + recipient user/role checks before enqueueing event to stream
+- Max payload: 4096 bytes per event
+
+### Audience Filtering (Implemented)
+- Implemented in `packages/events/src/modules/events/api/stream/route.ts` with `normalizeAudience()` + `matchesAudience()`
+- Supported payload fields:
+  - `tenantId` (required for delivery)
+  - `organizationId` / `organizationIds`
+  - `recipientUserId` / `recipientUserIds`
+  - `recipientRoleId` / `recipientRoleIds`
+- Match semantics:
+  - Tenant must match exactly
+  - Organization, when provided, must match the selected org on the SSE connection
+  - Recipient user, when provided, must include connection user
+  - Recipient role, when provided, must intersect connection role set
+  - Multiple audience dimensions are AND-combined
+
+### Client-Side
+- `eventBridge.ts` — `useEventBridge()` hook with auto-reconnect (exponential backoff, 1s–30s)
+- `useAppEvent.ts` — wildcard pattern matching using regex (`*` → `.*`)
+- `useOperationProgress.ts` — tracks async operation status with elapsed time ticker
+- Events dispatched as `om:event` CustomEvents on `window`
+- 500ms deduplication window on client
+
+### Widget Event Dispatch
+- Dual-mode dispatch in `InjectionSpot.tsx`:
+  - **Transformer events** (`transformFormData`, `transformDisplayData`, `transformValidation`): pipeline where output of widget N flows to widget N+1
+  - **Action events** (`onFieldChange`, `onBeforeNavigate`, `onVisibilityChange`, `onAppEvent`): fire-and-forget, results accumulated
+- `TRANSFORMER_EVENTS` Set classifies event types
+- New event arguments passed via `meta` parameter
+- CrudForm emission gate: `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED` (default `true`)
+
+### Files Created/Modified
+- `packages/shared/src/modules/widgets/injection.ts` — new event handler types
+- `packages/shared/src/modules/events/types.ts` — `clientBroadcast` field
+- `packages/shared/src/modules/widgets/injection-progress.ts` — OperationProgressEvent type
+- `packages/ui/src/backend/injection/useAppEvent.ts`
+- `packages/ui/src/backend/injection/useOperationProgress.ts`
+- `packages/ui/src/backend/injection/eventBridge.ts`
+- `packages/ui/src/backend/injection/InjectionSpot.tsx` — dual-mode dispatch
+- `packages/events/src/modules/events/api/stream/route.ts` — SSE endpoint
+- `packages/shared/src/modules/events/factory.ts` — `isBroadcastEvent()` helper
+- `apps/mercato/src/modules/example/api/assignees/route.ts` — test-only SSE probe emitter used by integration coverage
+- `apps/mercato/src/modules/example/__integration__/TC-UMES-003.spec.ts` — TC-UMES-E12/E13/E14 audience isolation coverage
+
+## Changelog
+
+- 2026-02-25: Added mandatory server-side audience filtering contract (tenant/org/user/role), added negative isolation integration coverage requirements (E11-E13), and aligned implementation notes with `/api/events/stream`.

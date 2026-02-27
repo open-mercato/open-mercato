@@ -102,13 +102,23 @@ export async function POST(req: Request) {
     roles: userRoleNames
   })
   void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
-  const res = NextResponse.json({ ok: true, token, redirect: '/backend' })
-  res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
+    ok: true,
+    token,
+    redirect: '/backend',
+  }
   if (remember) {
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
     const sess = await auth.createSession(user, expiresAt)
-    res.cookies.set('session_token', sess.token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
+    responseData.refreshToken = sess.token
+  }
+  const res = NextResponse.json(responseData)
+  res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  if (remember && responseData.refreshToken) {
+    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    res.cookies.set('session_token', responseData.refreshToken, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
   }
   return res
 }
@@ -122,6 +132,7 @@ const loginSuccessSchema = z.object({
   ok: z.literal(true),
   token: z.string().describe('JWT token issued for subsequent API calls'),
   redirect: z.string().nullable().describe('Next location the client should navigate to'),
+  refreshToken: z.string().optional().describe('Long-lived refresh token for obtaining new access tokens (only present when remember=true)'),
 })
 
 const loginErrorSchema = z.object({
