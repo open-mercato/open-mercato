@@ -462,7 +462,7 @@ export default function SsoConfigDetailPage() {
           )}
 
           {activeTab === 'scim' && (
-            <ScimProvisioningTab configId={configId} jitEnabled={config.jitEnabled} onProvisioningChange={fetchConfig} />
+            <ScimProvisioningTab configId={configId} jitEnabled={config.jitEnabled} issuer={config.issuer ?? undefined} onProvisioningChange={fetchConfig} />
           )}
 
           {activeTab === 'activity' && (
@@ -651,7 +651,8 @@ interface ScimLogRow {
   createdAt: string
 }
 
-function ScimProvisioningTab({ configId, jitEnabled, onProvisioningChange }: { configId: string; jitEnabled: boolean; onProvisioningChange: () => void }) {
+function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChange }: { configId: string; jitEnabled: boolean; issuer?: string; onProvisioningChange: () => void }) {
+  const isGoogleProvider = issuer?.includes('accounts.google.com') === true
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -742,8 +743,17 @@ function ScimProvisioningTab({ configId, jitEnabled, onProvisioningChange }: { c
 
   return (
     <div className="space-y-6">
+      {/* Google provider banner — SCIM not supported */}
+      {isGoogleProvider && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <p className="text-sm text-blue-900">
+            {t('sso.admin.scim.googleNotSupported', 'Google Workspace does not support SCIM provisioning. Users are provisioned via Just-In-Time (JIT) on first login.')}
+          </p>
+        </div>
+      )}
+
       {/* JIT active banner */}
-      {jitEnabled && (
+      {!isGoogleProvider && jitEnabled && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
           <p className="text-sm text-amber-900">
             {t('sso.admin.scim.jitActiveWarning', 'SCIM provisioning is unavailable while JIT provisioning is enabled. Disable JIT in the General tab to configure SCIM.')}
@@ -751,6 +761,7 @@ function ScimProvisioningTab({ configId, jitEnabled, onProvisioningChange }: { c
         </div>
       )}
 
+      {isGoogleProvider ? null : <>
       {/* SCIM Endpoint URL */}
       <div>
         <h3 className="text-sm font-medium mb-2">{t('sso.admin.scim.endpointUrl', 'SCIM Endpoint URL')}</h3>
@@ -894,6 +905,8 @@ function ScimProvisioningTab({ configId, jitEnabled, onProvisioningChange }: { c
           </div>
         </div>
       )}
+
+      </>}
 
       {ConfirmDialogElement}
     </div>
