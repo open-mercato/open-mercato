@@ -22,12 +22,7 @@ import {
 import {
   lookupSearchCache,
   storeSearchResult,
-  lookupGetCache,
-  storeGetResult,
-  invalidateGetCacheForPath,
   buildMemoryContext,
-  extractApiCallInfo,
-  buildGetCacheKey,
   buildSearchLabel,
   incrementToolCallCount,
 } from './session-memory'
@@ -682,24 +677,6 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
         const codePreview = input.code.slice(0, 120).replace(/\n/g, ' ')
         console.error(`[AI Usage] execute: code="${codePreview}${input.code.length > 120 ? '...' : ''}" user=${ctx.userId || 'unknown'}`)
 
-        // Check session memory for cached GET responses
-        const apiInfo = extractApiCallInfo(input.code)
-        if (ctx.sessionId && apiInfo && apiInfo.method === 'GET') {
-          const cacheKey = buildGetCacheKey(apiInfo.path, apiInfo.query)
-          const cached = lookupGetCache(ctx.sessionId, cacheKey)
-          if (cached) {
-            console.error(`[AI Usage] execute: CACHE HIT GET ${apiInfo.path} (label="${cached.label}")`)
-            const memoryContext = buildMemoryContext(ctx.sessionId)
-            return {
-              success: true,
-              result: cached.result,
-              fromCache: true,
-              apiCallCount: 0,
-              _memoryContext: memoryContext,
-            }
-          }
-        }
-
         // Enforce tool call limit
         if (ctx.sessionId) {
           const { count, exceeded } = incrementToolCallCount(ctx.sessionId)
@@ -753,19 +730,6 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
 
         const truncated = truncateResult(result.result)
         console.error(`[AI Usage] execute: OK in ${result.durationMs}ms — apiCalls=${apiCallCount} — ${truncated.length} chars`)
-
-        // Cache GET results / invalidate on mutations
-        if (ctx.sessionId && apiInfo) {
-          if (apiInfo.method === 'GET') {
-            const cacheKey = buildGetCacheKey(apiInfo.path, apiInfo.query)
-            storeGetResult(ctx.sessionId, cacheKey, truncated, `GET ${apiInfo.path}`)
-          } else {
-            const invalidated = invalidateGetCacheForPath(ctx.sessionId, apiInfo.path)
-            if (invalidated > 0) {
-              console.error(`[AI Usage] execute: invalidated ${invalidated} cached GET(s) for ${apiInfo.path}`)
-            }
-          }
-        }
 
         const memoryContext = ctx.sessionId ? buildMemoryContext(ctx.sessionId) : undefined
         return {

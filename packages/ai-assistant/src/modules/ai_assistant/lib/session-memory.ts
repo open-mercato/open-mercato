@@ -2,14 +2,15 @@
  * Session Memory
  *
  * Process-level in-memory cache keyed by session token (`sess_xxx`).
- * Deduplicates search queries and GET requests within a single conversation,
+ * Deduplicates schema/spec search queries within a single conversation,
  * reducing redundant tool calls by the AI agent.
  *
  * - Search cache: exact code string match → return cached result (max 50 entries)
- * - GET cache: same method+path+query → return cached result (max 100 entries)
- * - Mutations (POST/PUT/PATCH/DELETE) invalidate GET cache for the affected path
  * - Memory context summary appended to every response to remind the agent
  * - Sessions auto-expire after 5 minutes (short-lived cache for active conversations)
+ *
+ * NOTE: Only schema/spec lookups are cached. API responses are NEVER cached
+ * because data can change from external sources between calls.
  */
 
 import { createHash } from 'node:crypto'
@@ -17,7 +18,6 @@ import { createHash } from 'node:crypto'
 const SESSION_TTL_MS = 5 * 60 * 1000 // 5 minutes
 const CLEANUP_INTERVAL_MS = 2 * 60 * 1000 // 2 minutes
 const MAX_SEARCH_ENTRIES = 50
-const MAX_GET_ENTRIES = 100
 const MAX_MEMORY_CONTEXT_LENGTH = 500
 
 interface CacheEntry {
@@ -31,7 +31,6 @@ const TOOL_CALL_WINDOW_MS = 60 * 1000 // 60 seconds — resets for new user mess
 
 interface SessionMemory {
   searchCache: Map<string, CacheEntry>
-  getCache: Map<string, CacheEntry>
   createdAt: number
   lastAccessedAt: number
   toolCallCount: number
@@ -45,7 +44,6 @@ function getOrCreateSession(token: string): SessionMemory {
   if (!session) {
     session = {
       searchCache: new Map(),
-      getCache: new Map(),
       createdAt: Date.now(),
       lastAccessedAt: Date.now(),
       toolCallCount: 0,
@@ -103,49 +101,6 @@ export function storeSearchResult(token: string, code: string, result: unknown, 
 }
 
 /**
- * Look up a cached GET response by cache key (e.g. "GET /api/customers/companies?search=Acme").
- */
-export function lookupGetCache(token: string, cacheKey: string): CacheEntry | null {
-  const session = sessions.get(token)
-  if (!session) return null
-  session.lastAccessedAt = Date.now()
-
-  return session.getCache.get(cacheKey) ?? null
-}
-
-/**
- * Store a GET response in the session cache.
- */
-export function storeGetResult(token: string, cacheKey: string, result: unknown, label: string): void {
-  const session = getOrCreateSession(token)
-
-  evictOldest(session.getCache, MAX_GET_ENTRIES)
-  session.getCache.set(cacheKey, { result, timestamp: Date.now(), label })
-}
-
-/**
- * Invalidate all cached GETs whose path starts with the given prefix.
- * Called after a mutation (PUT/PATCH/DELETE/POST) to ensure stale data is not served.
- * Returns the number of invalidated entries.
- */
-export function invalidateGetCacheForPath(token: string, path: string): number {
-  const session = sessions.get(token)
-  if (!session) return 0
-
-  let count = 0
-  for (const [key] of session.getCache) {
-    // Cache keys are like "GET /api/customers/companies?search=Acme"
-    // Extract path portion (after method and space, before ? or end)
-    const keyPath = key.replace(/^GET\s+/, '').split('?')[0]
-    if (keyPath === path || keyPath.startsWith(path + '/')) {
-      session.getCache.delete(key)
-      count++
-    }
-  }
-  return count
-}
-
-/**
  * Increment the tool call counter for a session.
  * Resets the counter if more than TOOL_CALL_WINDOW_MS has elapsed (new user message).
  * Returns the current count and whether the hard cap has been exceeded.
@@ -177,80 +132,18 @@ export function buildMemoryContext(token: string): string {
   if (!session) return ''
 
   const searchCount = session.searchCache.size
-  const getCount = session.getCache.size
-  if (searchCount === 0 && getCount === 0) return ''
+  if (searchCount === 0) return ''
 
-  const parts: string[] = []
+  const labels = Array.from(session.searchCache.values())
+    .slice(-3)
+    .map((e) => e.label)
+    .join(', ')
 
-  if (searchCount > 0) {
-    const labels = Array.from(session.searchCache.values())
-      .slice(-3)
-      .map((e) => e.label)
-      .join(', ')
-    parts.push(`${searchCount} searches (${labels})`)
-  }
-
-  if (getCount > 0) {
-    parts.push(`${getCount} GETs cached`)
-  }
-
-  parts.push('Reuse previous results instead of re-calling.')
-
-  const context = `[Memory: ${parts.join('. ')}]`
+  const context = `[Memory: ${searchCount} schema searches cached (${labels}). Reuse previous schema results instead of re-calling.]`
   if (context.length > MAX_MEMORY_CONTEXT_LENGTH) {
     return context.slice(0, MAX_MEMORY_CONTEXT_LENGTH - 3) + '...]'
   }
   return context
-}
-
-/**
- * Extract API call info (method, path, query) from execute tool code.
- * Only matches SIMPLE passthrough patterns — code with post-processing returns null
- * to prevent caching filtered/transformed results as if they were raw API responses.
- */
-export function extractApiCallInfo(code: string): { method: string; path: string; query?: string } | null {
-  // Match api.request({ method: "GET", path: "/api/..." })
-  // Handles both single and double quotes
-  const methodMatch = code.match(/method:\s*['"](\w+)['"]/)
-  const pathMatch = code.match(/path:\s*['"]([^'"]+)['"]/)
-
-  if (!methodMatch || !pathMatch) return null
-
-  const method = methodMatch[1].toUpperCase()
-
-  // Require exactly one api.request() call — multi-call code is ambiguous for caching
-  const requestCount = (code.match(/api\.request\s*\(/g) || []).length
-  if (requestCount !== 1) return null
-
-  // For GETs: only cache simple passthrough calls (no post-processing).
-  // If the code contains assignments, filtering, mapping, or control flow after api.request(),
-  // the result may be transformed and should NOT be cached as the raw API response.
-  if (method === 'GET') {
-    // Strip the async arrow wrapper to get the body
-    const body = code.replace(/^\s*async\s*\(\)\s*=>\s*/, '').trim()
-    // Simple passthrough: the body IS the api.request() call (possibly with trailing whitespace/semicolons)
-    const isSimplePassthrough = /^api\.request\s*\(/.test(body)
-    if (!isSimplePassthrough) return null
-  }
-
-  const path = pathMatch[1]
-
-  // Try to extract query params
-  const queryMatch = code.match(/query:\s*\{([^}]*)\}/)
-  let query: string | undefined
-  if (queryMatch) {
-    // Normalize the query object to a stable string for cache key
-    query = queryMatch[1].replace(/\s+/g, ' ').trim()
-  }
-
-  return { method, path, query }
-}
-
-/**
- * Build a cache key for GET requests.
- */
-export function buildGetCacheKey(path: string, query?: string): string {
-  return query ? `GET ${path}?${query}` : `GET ${path}`
 }
 
 /**
