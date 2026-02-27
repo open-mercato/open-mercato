@@ -180,6 +180,9 @@ export default async function BackendLayout({ children, params }: { children: Re
     (key, fallback) => (key ? translate(key, fallback) : fallback),
     featureChecker ? { checkFeatures: featureChecker } : undefined,
   )
+  const canViewMessages = featureChecker
+    ? (await featureChecker(['messages.view'])).has('messages.view')
+    : false
 
   const groupMap = new Map<string, {
     id: string
@@ -361,7 +364,7 @@ export default async function BackendLayout({ children, params }: { children: Re
       <SettingsButton />
       <ProfileDropdown email={auth?.email} />
       <NotificationBellWrapper />
-      <MessagesIcon />
+      <MessagesIcon canViewMessages={canViewMessages} />
     </>
   )
 

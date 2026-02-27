@@ -72,6 +72,7 @@ Use this structure for every review:
 - [ ] Non-`CrudForm` backend writes use `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in context
 - [ ] `apiCall` used instead of raw `fetch`
 - [ ] ACL features mirrored in `setup.ts` `defaultRoleFeatures`
+- [ ] ACL features use object format `{ id, title, module }` (not string arrays)
 - [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
 - [ ] No empty `catch` blocks (all catches must handle, log, rethrow, or explicitly document intentional ignore)
 - [ ] New migrations are scoped to intended entities only (no unrelated bulk drop/alter/create statements)
@@ -164,7 +165,7 @@ Examples of suspicious patterns that MUST be flagged:
 | Subscribers | `metadata` with `{ event, persistent?, id? }` | MUST for auto-discovery |
 | Workers | `metadata` with `{ queue, id?, concurrency? }` | MUST for auto-discovery |
 | `events.ts` | `eventsConfig` via `createModuleEvents()` with `as const` | MUST for type-safe events |
-| `acl.ts` | `features` | MUST mirror in `setup.ts` `defaultRoleFeatures` |
+| `acl.ts` | `features` | MUST use object entries `{ id, title, module }` and mirror IDs in `setup.ts` `defaultRoleFeatures` |
 | `search.ts` | `searchConfig` with `checksumSource` in every `buildSource` | MUST for change detection |
 
 ### UI & HTTP (Medium/High)
@@ -215,6 +216,7 @@ When reviewing, pay special attention to:
 7. **Queue workers**: Verify idempotency, `metadata` export, concurrency <= 20.
 8. **Commands**: Verify undoable, before/after snapshots, `withAtomicFlush` for multi-phase mutations.
 9. **Setup changes**: Verify `defaultRoleFeatures` matches `acl.ts` features. Hooks MUST be idempotent.
+9a. **ACL shape validation**: Verify `acl.ts` exports feature objects (with `id`, `title`, `module`) rather than raw string IDs; flag wrong shape as **High** because permission UI and role assignment can break.
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
 11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
 12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` are both wired.

@@ -2,6 +2,8 @@
   "messages.actions.archive": "Archive",
   "messages.actions.archiveConversation": "Archive conversation",
   "messages.actions.backToList": "Back to messages",
+  "messages.access.disabled.description": "Ask your administrator to enable the required Messages permissions.",
+  "messages.access.disabled.title": "Messages module is disabled for your role.",
   "messages.actions.confirmation": "Confirm",
   "messages.actions.conversationActions": "Conversation actions",
   "messages.actions.delete": "Delete",

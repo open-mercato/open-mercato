@@ -2,6 +2,8 @@
   "messages.actions.archive": "Archivieren",
   "messages.actions.archiveConversation": "Konversation archivieren",
   "messages.actions.backToList": "Zurück zu Nachrichten",
+  "messages.access.disabled.description": "Bitte wenden Sie sich an Ihren Administrator, um die erforderlichen Nachrichten-Berechtigungen zu aktivieren.",
+  "messages.access.disabled.title": "Das Nachrichtenmodul ist für Ihre Rolle deaktiviert.",
   "messages.actions.confirmation": "Bestätigen",
   "messages.actions.conversationActions": "Konversationsaktionen",
   "messages.actions.delete": "Löschen",
