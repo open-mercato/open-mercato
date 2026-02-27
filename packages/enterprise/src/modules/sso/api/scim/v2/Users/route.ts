@@ -12,7 +12,6 @@ export async function POST(req: Request) {
     if (!ctx.ok) return ctx.response
 
     const body = await req.json()
-    console.log('[SCIM DEBUG] POST /Users', JSON.stringify(body, null, 2))
     const baseUrl = new URL(req.url).origin
 
     const container = await createRequestContainer()
@@ -39,7 +38,6 @@ export async function GET(req: Request) {
     const filter = url.searchParams.get('filter')
     const startIndex = Math.max(1, parseInt(url.searchParams.get('startIndex') ?? '1', 10) || 1)
     const count = Math.min(200, Math.max(1, parseInt(url.searchParams.get('count') ?? '100', 10) || 100))
-    console.log('[SCIM DEBUG] GET /Users', { filter, startIndex, count })
     const baseUrl = url.origin
 
     const container = await createRequestContainer()
