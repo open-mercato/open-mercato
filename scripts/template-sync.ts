@@ -22,6 +22,14 @@ const ROOT = path.resolve(path.dirname(__filename_), '..')
 const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
 const SYNC_FOLDERS = ['app', 'modules'] as const
+const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
+  'modules/auth/__integration__/TC-AUTH-001.spec.ts',
+  'modules/auth/__integration__/helpers/auth.ts',
+])
+const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
+  // Standalone template has shallower node_modules path than monorepo app.
+  'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
+}
 const MAX_DIFFS_TO_SHOW = 20
 
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`
@@ -30,7 +38,7 @@ const green = (s: string) => `\x1b[32m${s}\x1b[0m`
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 
-type DriftKind = 'missing_in_template' | 'content_mismatch'
+type DriftKind = 'missing_in_template' | 'content_mismatch' | 'extra_in_template'
 
 type Drift = {
   kind: DriftKind
@@ -55,9 +63,30 @@ function collectSourceFiles(): string[] {
   return files.sort()
 }
 
+function collectTemplateFiles(): string[] {
+  const files = SYNC_FOLDERS.flatMap((folder) =>
+    globSync(`${folder}/**/*`, {
+      cwd: TEMPLATE_SRC_ROOT,
+      absolute: true,
+      nodir: true,
+      ignore: ['**/node_modules/**', '**/.DS_Store'],
+    }),
+  )
+  return files.sort()
+}
+
+function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {
+  const transform = TEMPLATE_CONTENT_TRANSFORMS[rel]
+  if (!transform) return source
+  const sourceText = source.toString('utf8')
+  return Buffer.from(transform(sourceText), 'utf8')
+}
+
 function computeDrift(): Drift[] {
   const sourceFiles = collectSourceFiles()
+  const templateFiles = collectTemplateFiles()
   const drifts: Drift[] = []
+  const sourceRelSet = new Set(sourceFiles.map((file) => path.relative(APP_SRC_ROOT, file)))
 
   for (const sourceFile of sourceFiles) {
     const rel = path.relative(APP_SRC_ROOT, sourceFile)
@@ -74,7 +103,8 @@ function computeDrift(): Drift[] {
 
     const source = fs.readFileSync(sourceFile)
     const template = fs.readFileSync(templateFile)
-    if (!source.equals(template)) {
+    const expectedTemplate = getExpectedTemplateContent(rel, source)
+    if (!expectedTemplate.equals(template)) {
       drifts.push({
         kind: 'content_mismatch',
         sourceFile,
@@ -82,6 +112,18 @@ function computeDrift(): Drift[] {
         rel,
       })
     }
+  }
+
+  for (const templateFile of templateFiles) {
+    const rel = path.relative(TEMPLATE_SRC_ROOT, templateFile)
+    if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
+    if (sourceRelSet.has(rel)) continue
+    drifts.push({
+      kind: 'extra_in_template',
+      sourceFile: path.join(APP_SRC_ROOT, rel),
+      templateFile,
+      rel,
+    })
   }
 
   return drifts
@@ -95,14 +137,20 @@ function printDrift(drifts: Drift[]): void {
 
   const missing = drifts.filter((d) => d.kind === 'missing_in_template').length
   const changed = drifts.filter((d) => d.kind === 'content_mismatch').length
+  const extra = drifts.filter((d) => d.kind === 'extra_in_template').length
 
   console.log(red(`Template drift detected: ${drifts.length} file(s)`))
   console.log(dim(`  missing in template: ${missing}`))
   console.log(dim(`  content mismatch:    ${changed}`))
+  console.log(dim(`  extra in template:   ${extra}`))
 
   const preview = drifts.slice(0, MAX_DIFFS_TO_SHOW)
   for (const drift of preview) {
-    const marker = drift.kind === 'missing_in_template' ? yellow('MISSING') : yellow('DIFF')
+    const marker = drift.kind === 'missing_in_template'
+      ? yellow('MISSING')
+      : drift.kind === 'content_mismatch'
+        ? yellow('DIFF')
+        : yellow('EXTRA')
     console.log(`  - [${marker}] ${drift.rel}`)
   }
   if (drifts.length > preview.length) {
@@ -113,8 +161,15 @@ function printDrift(drifts: Drift[]): void {
 function applySync(drifts: Drift[]): number {
   let updated = 0
   for (const drift of drifts) {
+    if (drift.kind === 'extra_in_template') {
+      fs.rmSync(drift.templateFile, { force: true })
+      updated++
+      continue
+    }
     fs.mkdirSync(path.dirname(drift.templateFile), { recursive: true })
-    fs.copyFileSync(drift.sourceFile, drift.templateFile)
+    const source = fs.readFileSync(drift.sourceFile)
+    const expectedTemplate = getExpectedTemplateContent(drift.rel, source)
+    fs.writeFileSync(drift.templateFile, expectedTemplate)
     updated++
   }
   return updated
