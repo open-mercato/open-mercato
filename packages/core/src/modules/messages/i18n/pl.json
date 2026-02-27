@@ -1,9 +1,9 @@
 {
+  "messages.access.disabled.description": "Poproś administratora o włączenie wymaganych uprawnień modułu wiadomości.",
+  "messages.access.disabled.title": "Moduł wiadomości jest wyłączony dla Twojej roli.",
   "messages.actions.archive": "Archiwizuj",
   "messages.actions.archiveConversation": "Archiwizuj konwersację",
   "messages.actions.backToList": "Powrót do wiadomości",
-  "messages.access.disabled.description": "Poproś administratora o włączenie wymaganych uprawnień modułu wiadomości.",
-  "messages.access.disabled.title": "Moduł wiadomości jest wyłączony dla Twojej roli.",
   "messages.actions.confirmation": "Potwierdź",
   "messages.actions.conversationActions": "Akcje konwersacji",
   "messages.actions.delete": "Usuń",
