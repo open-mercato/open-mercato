@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -95,18 +95,13 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
-  const injectedNamespaces: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(item)) {
-    if (!key.startsWith('_')) continue
-    injectedNamespaces[key] = value
-  }
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
     if (key.startsWith('cf_')) {
       customFields[key] = value
     }
   }
-  return {
+  return withDataTableNamespaces({
     id,
     name,
     description,
@@ -120,9 +115,8 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     nextInteractionColor,
     organizationId,
     source,
-    ...injectedNamespaces,
     ...customFields,
-  }
+  }, item)
 }
 
 export default function CustomersPeoplePage() {

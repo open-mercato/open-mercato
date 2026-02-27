@@ -8,7 +8,7 @@ import type { PluggableList } from 'unified'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -317,7 +317,6 @@ function mapApiResourceType(item: Record<string, unknown>): ResourceTypeRow {
     : typeof item.resource_count === 'number'
       ? item.resource_count
       : 0
-  return { id, name, description, appearanceIcon, appearanceColor, updatedAt, resourceCount }
+  return withDataTableNamespaces({ id, name, description, appearanceIcon, appearanceColor, updatedAt, resourceCount }, item)
 }
-
 

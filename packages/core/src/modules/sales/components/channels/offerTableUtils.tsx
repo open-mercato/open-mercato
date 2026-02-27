@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 
 type Translator = (key: string, fallback: string, vars?: Record<string, unknown>) => string
 
@@ -45,7 +46,7 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
       : item.product_channel_price && typeof item.product_channel_price === 'object'
         ? item.product_channel_price as Record<string, unknown>
         : null
-  return {
+  return withDataTableNamespaces({
     id: typeof item.id === 'string' ? item.id : '',
     channelId: typeof item.channelId === 'string'
       ? item.channelId
@@ -80,7 +81,7 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
       : typeof item.updated_at === 'string'
         ? item.updated_at
         : null,
-  }
+  }, item)
 }
 
 export function renderOfferPriceSummary(

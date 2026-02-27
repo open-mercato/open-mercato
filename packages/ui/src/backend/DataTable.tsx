@@ -71,6 +71,21 @@ export type DataTableRefreshButton = {
 
 const DEFAULT_ROW_CLICK_ACTION_IDS = ['edit', 'open']
 
+export function withDataTableNamespaces<T extends Record<string, unknown>>(
+  mappedRow: T,
+  sourceItem: Record<string, unknown>,
+): T & Record<string, unknown> {
+  const namespaced: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(sourceItem)) {
+    if (!key.startsWith('_')) continue
+    namespaced[key] = value
+  }
+  return {
+    ...mappedRow,
+    ...namespaced,
+  }
+}
+
 function resolveDefaultRowAction(items: RowActionItem[], preferredIds: string[]): RowActionItem | null {
   for (const preferredId of preferredIds) {
     const match = items.find((item) => item.id === preferredId && (item.href || item.onSelect))
