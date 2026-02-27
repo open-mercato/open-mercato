@@ -134,6 +134,7 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
 
   test('TC-UMES-D01/D02/D03/D04: DataTable extensions render column, row action, filters, and bulk action button', async ({ page, request }) => {
     let personId: string | null = null
+    let priorityId: string | null = null
     const displayName = `QA UMES D ${Date.now()}`
     try {
       personId = await createPersonFixture(request, adminToken, {
@@ -141,6 +142,14 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
         lastName: 'Table',
         displayName,
       })
+      const priorityResponse = await apiRequest(
+        request,
+        'POST',
+        '/api/example/customer-priorities',
+        { token: adminToken, data: { customerId: personId, priority: 'high' } },
+      )
+      expect(priorityResponse.ok()).toBeTruthy()
+      priorityId = (await priorityResponse.json())?.id ?? null
 
       await login(page, 'admin')
       await page.goto('/backend/customers/people')
@@ -148,7 +157,9 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
       await expect(page.getByRole('button', { name: 'Set normal priority' })).toBeVisible()
 
       await page.getByPlaceholder(/search/i).first().fill(displayName)
-      await expect(page.locator('tbody tr', { hasText: displayName }).first()).toBeVisible({ timeout: 10_000 })
+      const targetRow = page.locator('tbody tr', { hasText: displayName }).first()
+      await expect(targetRow).toBeVisible({ timeout: 10_000 })
+      await expect(targetRow.getByText('high')).toBeVisible({ timeout: 10_000 })
 
       await page.getByRole('button', { name: 'Filters' }).first().click()
       await expect(page.getByText('Priority').first()).toBeVisible()
@@ -156,6 +167,7 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
 
       await expect(page.getByText('Open actions').first()).toBeVisible()
     } finally {
+      await deleteEntityIfExists(request, adminToken, '/api/example/customer-priorities', priorityId)
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
     }
   })

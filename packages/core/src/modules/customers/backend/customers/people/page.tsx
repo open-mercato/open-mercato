@@ -95,6 +95,11 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const injectedNamespaces: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(item)) {
+    if (!key.startsWith('_')) continue
+    injectedNamespaces[key] = value
+  }
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
     if (key.startsWith('cf_')) {
@@ -115,6 +120,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     nextInteractionColor,
     organizationId,
     source,
+    ...injectedNamespaces,
     ...customFields,
   }
 }

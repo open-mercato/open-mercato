@@ -70,7 +70,7 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
       organizationId: context.organizationId,
       tenantId: context.tenantId,
       deletedAt: null,
-    }, { orderBy: { updatedAt: 'DESC', createdAt: 'DESC' } })
+    }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } })
 
     return {
       ...record,
@@ -97,7 +97,7 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
           organizationId: context.organizationId,
           tenantId: context.tenantId,
           deletedAt: null,
-        }, { orderBy: { updatedAt: 'DESC', createdAt: 'DESC' } })
+        }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } })
       : []
     const priorityByCustomerId = new Map<string, ExampleCustomerPriority['priority']>()
     for (const entry of priorities) {

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { E } from '@/.mercato/generated/entities.ids.generated'
 import { id, customer_id, priority, organization_id, tenant_id, created_at } from '@/.mercato/generated/entities/example_customer_priority'
 import { ExampleCustomerPriority } from '../../data/entities'
@@ -81,6 +82,52 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     idFrom: 'body',
     softDelete: true,
     response: () => ({ ok: true }),
+  },
+  hooks: {
+    afterCreate: async (entity, ctx) => {
+      if (!ctx.auth) return
+      await invalidateCrudCache(
+        ctx.container,
+        'customers.person',
+        {
+          id: entity.customerId,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          tenantId: ctx.auth.tenantId ?? null,
+        },
+        ctx.auth.tenantId ?? null,
+        'example.customer-priority.create',
+        ['customers.customer_entity', 'customers.people'],
+      )
+    },
+    afterUpdate: async (entity, ctx) => {
+      if (!ctx.auth) return
+      await invalidateCrudCache(
+        ctx.container,
+        'customers.person',
+        {
+          id: entity.customerId,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          tenantId: ctx.auth.tenantId ?? null,
+        },
+        ctx.auth.tenantId ?? null,
+        'example.customer-priority.update',
+        ['customers.customer_entity', 'customers.people'],
+      )
+    },
+    afterDelete: async (_id, ctx) => {
+      if (!ctx.auth) return
+      await invalidateCrudCache(
+        ctx.container,
+        'customers.person',
+        {
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+          tenantId: ctx.auth.tenantId ?? null,
+        },
+        ctx.auth.tenantId ?? null,
+        'example.customer-priority.delete',
+        ['customers.customer_entity', 'customers.people'],
+      )
+    },
   },
 })
 

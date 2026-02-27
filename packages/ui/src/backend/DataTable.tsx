@@ -459,6 +459,18 @@ function getColumnTruncateConfig(columnId: string, accessorKey?: string, columnM
   }
 }
 
+function readInjectedColumnValue(row: unknown, accessorKey: string): unknown {
+  if (!row || typeof row !== 'object' || !accessorKey) return undefined
+  const segments = accessorKey.split('.').filter((segment) => segment.length > 0)
+  if (segments.length === 0) return undefined
+  let current: unknown = row
+  for (const segment of segments) {
+    if (!current || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
 // Check if a column should skip truncation (e.g., actions column)
 function shouldSkipTruncation(columnId: string): boolean {
   const skipColumns = ['actions', 'select', 'checkbox', 'expand']
@@ -796,7 +808,7 @@ export function DataTable<T>({
     }
     return collectUniqueById(entries, 'column').map((definition) => ({
       id: definition.id,
-      accessorKey: definition.accessorKey,
+      accessorFn: (row: T) => readInjectedColumnValue(row, definition.accessorKey),
       header: t(definition.header, definition.header),
       cell: definition.cell as ColumnDef<T, unknown>['cell'],
       size: definition.size,
