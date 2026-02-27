@@ -5,6 +5,7 @@ import { MessageComposer } from '@open-mercato/ui/backend/messages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   getMessageUiComponentRegistry,
 } from './utils/typeUiRegistry'
@@ -136,7 +137,7 @@ function MessageConversationDetailItem({
   )
 }
 
-export function MessageDetailPageClient({ id }: { id: string }) {
+function MessageDetailPageClientContent({ id }: { id: string }) {
   const state = useMessageDetails(id)
   const [activeInlineComposer, setActiveInlineComposer] = React.useState<{
     variant: 'reply' | 'forward'
@@ -284,4 +285,20 @@ export function MessageDetailPageClient({ id }: { id: string }) {
       {ConfirmDialogElement}
     </div>
   )
+}
+
+export function MessageDetailPageClient({ id, canViewMessages = true }: { id: string; canViewMessages?: boolean }) {
+  const t = useT()
+  if (!canViewMessages) {
+    return (
+      <ErrorMessage
+        label={t('messages.access.disabled.title', 'Messages module is disabled for your role.')}
+        description={t(
+          'messages.access.disabled.description',
+          'Ask your administrator to enable the required Messages permissions.',
+        )}
+      />
+    )
+  }
+  return <MessageDetailPageClientContent id={id} />
 }

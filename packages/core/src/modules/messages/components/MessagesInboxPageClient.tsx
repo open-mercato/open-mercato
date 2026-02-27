@@ -9,6 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -45,6 +46,15 @@ type MessageListResponse = {
   page?: number
   pageSize?: number
   totalPages?: number
+}
+
+type MessageListQueryResult = {
+  items: MessageListItem[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+  accessDenied: boolean
 }
 
 type MessageTypeItem = {
@@ -85,7 +95,7 @@ function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-export function MessagesInboxPageClient() {
+export function MessagesInboxPageClient({ canViewMessages = true }: { canViewMessages?: boolean }) {
   const router = useRouter()
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
@@ -110,6 +120,7 @@ export function MessagesInboxPageClient() {
       JSON.stringify(filterValues),
       scopeVersion,
     ],
+    enabled: canViewMessages,
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('folder', folder)
@@ -138,6 +149,16 @@ export function MessagesInboxPageClient() {
 
       const call = await apiCall<MessageListResponse>(`/api/messages?${params.toString()}`)
       if (!call.ok) {
+        if (call.status === 403) {
+          return {
+            items: [],
+            total: 0,
+            page,
+            pageSize,
+            totalPages: 1,
+            accessDenied: true,
+          } satisfies MessageListQueryResult
+        }
         throw new Error(
           toErrorMessage(call.result)
           ?? t('messages.errors.loadListFailed', 'Failed to load messages.'),
@@ -150,15 +171,18 @@ export function MessagesInboxPageClient() {
         page: Number(call.result?.page ?? page),
         pageSize: Number(call.result?.pageSize ?? pageSize),
         totalPages: Number(call.result?.totalPages ?? 1),
-      }
+        accessDenied: false,
+      } satisfies MessageListQueryResult
     },
   })
 
   const messageTypesQuery = useQuery({
     queryKey: ['messages', 'types', scopeVersion],
+    enabled: canViewMessages,
     queryFn: async () => {
       const call = await apiCall<{ items?: MessageTypeItem[] }>('/api/messages/types')
       if (!call.ok) {
+        if (call.status === 403) return []
         throw new Error(
           toErrorMessage(call.result)
           ?? t('messages.errors.loadTypesFailed', 'Failed to load message types.'),
@@ -169,16 +193,19 @@ export function MessagesInboxPageClient() {
   })
 
   React.useEffect(() => {
+    if (!canViewMessages) return
     if (!listQuery.error) return
+    if (listQuery.data?.accessDenied) return
     flash(
       listQuery.error instanceof Error
         ? listQuery.error.message
         : t('messages.errors.loadListFailed', 'Failed to load messages.'),
       'error',
     )
-  }, [listQuery.error, t])
+  }, [canViewMessages, listQuery.error, t])
 
   React.useEffect(() => {
+    if (!canViewMessages) return
     if (!messageTypesQuery.error) return
     flash(
       messageTypesQuery.error instanceof Error
@@ -186,7 +213,7 @@ export function MessagesInboxPageClient() {
         : t('messages.errors.loadTypesFailed', 'Failed to load message types.'),
       'error',
     )
-  }, [messageTypesQuery.error, t])
+  }, [canViewMessages, messageTypesQuery.error, t])
 
   const messageTypeLabelMap = React.useMemo(() => {
     const map: Record<string, string> = {}
@@ -373,9 +400,24 @@ export function MessagesInboxPageClient() {
     }
   }, [folderMenuOpen])
 
+  const accessDenied = !canViewMessages || listQuery.data?.accessDenied === true
   const rows = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
   const totalPages = listQuery.data?.totalPages ?? 1
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-4">
+        <ErrorMessage
+          label={t('messages.access.disabled.title', 'Messages module is disabled for your role.')}
+          description={t(
+            'messages.access.disabled.description',
+            'Ask your administrator to enable the required Messages permissions.',
+          )}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

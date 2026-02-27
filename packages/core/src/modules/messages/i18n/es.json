@@ -1,4 +1,6 @@
 {
+  "messages.access.disabled.description": "Pide a tu administrador que habilite los permisos requeridos de Mensajes.",
+  "messages.access.disabled.title": "El módulo de mensajes está deshabilitado para tu rol.",
   "messages.actions.archive": "Archivar",
   "messages.actions.archiveConversation": "Archivar conversación",
   "messages.actions.backToList": "Volver a mensajes",

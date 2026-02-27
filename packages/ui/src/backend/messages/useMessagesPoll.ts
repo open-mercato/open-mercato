@@ -35,22 +35,37 @@ export type UseMessagesPollResult = {
 
 const POLL_INTERVAL = 5000
 
-export function useMessagesPoll(): UseMessagesPollResult {
+export type UseMessagesPollOptions = {
+  enabled?: boolean
+}
+
+export function useMessagesPoll(options?: UseMessagesPollOptions): UseMessagesPollResult {
+  const enabled = options?.enabled ?? true
   const [messages, setMessages] = React.useState<MessagePollItem[]>([])
   const [unreadCount, setUnreadCount] = React.useState(0)
   const [hasNew, setHasNew] = React.useState(false)
-  const [isLoading, setIsLoading] = React.useState(true)
+  const [isLoading, setIsLoading] = React.useState(enabled)
   const [error, setError] = React.useState<string | null>(null)
 
   const lastMessageIdRef = React.useRef<string | null>(null)
   const pulseTimeoutRef = React.useRef<number | null>(null)
 
   const fetchMessages = React.useCallback(async () => {
+    if (!enabled) return
     try {
       const [listResult, countResult] = await Promise.all([
         apiCall<{ items?: MessagePollItem[] }>('/api/messages?folder=inbox&page=1&pageSize=20'),
         apiCall<{ unreadCount?: number }>('/api/messages/unread-count'),
       ])
+
+      const accessDenied = listResult.status === 403 || countResult.status === 403
+      if (accessDenied) {
+        setMessages([])
+        setUnreadCount(0)
+        setHasNew(false)
+        setError(null)
+        return
+      }
 
       if (listResult.ok) {
         const nextMessages = Array.isArray(listResult.result?.items) ? listResult.result?.items ?? [] : []
@@ -83,9 +98,20 @@ export function useMessagesPoll(): UseMessagesPollResult {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [enabled])
 
   React.useEffect(() => {
+    if (!enabled) {
+      setMessages([])
+      setUnreadCount(0)
+      setHasNew(false)
+      setError(null)
+      setIsLoading(false)
+      lastMessageIdRef.current = null
+      return
+    }
+
+    setIsLoading(true)
     void fetchMessages()
     const interval = window.setInterval(() => {
       void fetchMessages()
@@ -97,7 +123,7 @@ export function useMessagesPoll(): UseMessagesPollResult {
         window.clearTimeout(pulseTimeoutRef.current)
       }
     }
-  }, [fetchMessages])
+  }, [enabled, fetchMessages])
 
   return {
     messages,
@@ -105,6 +131,6 @@ export function useMessagesPoll(): UseMessagesPollResult {
     hasNew,
     isLoading,
     error,
-    refresh: fetchMessages,
+    refresh: enabled ? fetchMessages : async () => {},
   }
 }

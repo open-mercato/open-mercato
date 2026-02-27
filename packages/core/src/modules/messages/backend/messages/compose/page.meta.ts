@@ -1,6 +1,5 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['messages.compose'],
   pageTitle: 'Compose message',
   pageTitleKey: 'messages.nav.compose',
   pageGroup: 'Messages',

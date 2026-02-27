@@ -10,11 +10,12 @@ import { useMessagesPoll } from './useMessagesPoll'
 
 export type MessagesIconProps = {
   className?: string
+  canViewMessages?: boolean
 }
 
-export function MessagesIcon({ className }: MessagesIconProps) {
+export function MessagesIcon({ className, canViewMessages = true }: MessagesIconProps) {
   const t = useT()
-  const { unreadCount, hasNew } = useMessagesPoll()
+  const { unreadCount, hasNew } = useMessagesPoll({ enabled: canViewMessages })
 
   const ariaLabel = unreadCount > 0
     ? t('messages.badge.unread', '{count} unread messages', { count: unreadCount })
