@@ -140,26 +140,28 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
 
   test('TC-UMES-D01/D02/D03/D04: DataTable extensions render column, row action, filters, and bulk action button', async ({ page, request }) => {
     let personId: string | null = null
+    const displayName = `QA UMES D ${Date.now()}`
     try {
       personId = await createPersonFixture(request, adminToken, {
         firstName: `QA-UMES-D-${Date.now()}`,
         lastName: 'Table',
-        displayName: `QA UMES D ${Date.now()}`,
+        displayName,
       })
 
       await login(page, 'admin')
       await page.goto('/backend/customers/people')
       await page.waitForLoadState('domcontentloaded')
-      const hasPriorityColumn = await page.getByText('Example priority').isVisible({ timeout: 1500 }).catch(() => false)
-      test.skip(!hasPriorityColumn, 'Example customer table injections are not active in this runtime')
-
-      await expect(page.getByText('Example priority')).toBeVisible()
+      await expect(page.getByText('Example priority')).toBeVisible({ timeout: 10_000 })
       await expect(page.getByRole('button', { name: 'Set normal priority' })).toBeVisible()
+
+      await page.getByPlaceholder(/search/i).first().fill(displayName)
+      await expect(page.locator('tbody tr', { hasText: displayName }).first()).toBeVisible({ timeout: 10_000 })
 
       await page.getByRole('button', { name: 'Filters' }).first().click()
       await expect(page.getByText('Priority')).toBeVisible()
 
-      await page.getByLabel('Open actions').first().click()
+      const targetRow = page.locator('tbody tr', { hasText: displayName }).first()
+      await targetRow.getByLabel('Open actions').click()
       await expect(page.getByRole('menuitem', { name: 'Open customer' })).toBeVisible()
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
@@ -169,11 +171,12 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
   test('TC-UMES-D06: injected bulk action executes against selected rows', async ({ page, request }) => {
     let personId: string | null = null
     let priorityId: string | null = null
+    const displayName = `QA UMES BULK ${Date.now()}`
     try {
       personId = await createPersonFixture(request, adminToken, {
         firstName: `QA-UMES-BULK-${Date.now()}`,
         lastName: 'Bulk',
-        displayName: `QA UMES BULK ${Date.now()}`,
+        displayName,
       })
       const priorityResponse = await apiRequest(
         request,
@@ -187,9 +190,12 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
       await login(page, 'admin')
       await page.goto('/backend/customers/people')
       await page.waitForLoadState('domcontentloaded')
-      const hasBulkAction = await page.getByRole('button', { name: 'Set normal priority' }).isVisible({ timeout: 1500 }).catch(() => false)
-      test.skip(!hasBulkAction, 'Example customer table injections are not active in this runtime')
-      await page.getByRole('checkbox', { name: 'Select row' }).first().check()
+
+      await expect(page.getByRole('button', { name: 'Set normal priority' })).toBeVisible({ timeout: 10_000 })
+      await page.getByPlaceholder(/search/i).first().fill(displayName)
+      const targetRow = page.locator('tbody tr', { hasText: displayName }).first()
+      await expect(targetRow).toBeVisible({ timeout: 10_000 })
+      await targetRow.getByRole('checkbox', { name: 'Select row' }).check()
       await page.getByRole('button', { name: 'Set normal priority' }).click()
 
       await expect
@@ -215,10 +221,8 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
     await login(page, 'employee')
     await page.goto('/backend/customers/people')
     await page.waitForLoadState('domcontentloaded')
-    const hasPriorityColumn = await page.getByText('Example priority').isVisible({ timeout: 1500 }).catch(() => false)
-    test.skip(!hasPriorityColumn, 'Example customer table injections are not active in this runtime')
 
-    await expect(page.getByText('Example priority')).toBeVisible()
+    await expect(page.getByText('Example priority')).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('button', { name: 'Set normal priority' })).toBeVisible()
   })
 
@@ -243,9 +247,7 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
       await page.waitForLoadState('domcontentloaded')
 
       const priorityField = page.locator('[data-crud-field-id="_example.priority"] select').first()
-      const hasPriorityField = await priorityField.isVisible({ timeout: 1500 }).catch(() => false)
-      test.skip(!hasPriorityField, 'Example customer form injections are not active in this runtime')
-      await expect(priorityField).toBeVisible()
+      await expect(priorityField).toBeVisible({ timeout: 10_000 })
       await expect(priorityField).toHaveValue('high')
       await priorityField.selectOption('critical')
       await page.getByRole('button', { name: 'Save' }).first().click()
@@ -306,6 +308,11 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
       await login(page, 'admin')
       await page.goto('/backend/umes-extensions')
       await page.waitForLoadState('domcontentloaded')
+      const interceptorHint = page.getByText(
+        'Note: red network entries for probes 3-5 are expected and indicate correct fail-closed behavior.',
+      )
+      await expect(interceptorHint).toBeVisible()
+      await expect(interceptorHint.locator('xpath=ancestor::div[1]')).toHaveClass(/border-amber-400\/40/)
 
       await expect(page.locator('[data-component-handle="page:/backend/umes-extensions"]')).toHaveCount(1)
       await expect(page.locator('[data-component-handle="data-table:example.umes.extensions"]')).toHaveCount(1)

@@ -6,13 +6,12 @@ export const componentOverrides: ComponentOverride[] = [
   {
     target: { componentId: ComponentReplacementHandles.section('ui.detail', 'NotesSection') },
     priority: 50,
-    features: ['example.view'],
     metadata: { module: 'example' },
     wrapper: (Original) => {
       const WrappedSection = (props: unknown) =>
         React.createElement(
           'div',
-          { className: 'rounded-md border border-dashed border-muted-foreground/40 p-2' },
+          { className: 'rounded-md border border-dashed border-amber-500/80 bg-amber-50 p-2' },
           React.createElement(Original, props as object)
         )
       WrappedSection.displayName = 'ExampleNotesSectionWrapper'

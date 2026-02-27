@@ -50,6 +50,7 @@ const SAMPLE_HANDLES: HandleRow[] = [
 ]
 
 const probeOrder: InterceptorProbeKey[] = ['default', 'wildcard', 'badQuery', 'timeout', 'crash']
+const hintClassName = 'rounded-md border border-amber-400/40 bg-amber-400/10 p-2 text-xs text-amber-100/90'
 
 function print(value: unknown): string {
   try {
@@ -253,13 +254,14 @@ export default function UmesExtensionsPage() {
               Run the full probe suite: metadata merge, wildcard route matching, query revalidation, timeout fail-closed, and crash fail-closed.
             </p>
           </div>
-          <div className="grid gap-1 rounded border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
-            <div className="font-medium text-foreground">What should be visible and how it should work</div>
+          <div className={`grid gap-1 ${hintClassName}`}>
+            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
             <div>1. `default` probe: must return `_example.interceptor` metadata in `/api/example/todos` response.</div>
             <div>2. `wildcard` probe: must return `_example.wildcardProbe=true` for wildcard route interceptor.</div>
             <div>3. `bad-query` probe: must fail with HTTP `400` (route schema revalidation after interceptor rewrite).</div>
             <div>4. `timeout` probe: must fail closed with HTTP `504`.</div>
             <div>5. `crash` probe: must fail closed with HTTP `500`.</div>
+            <div>Note: red network entries for probes 3-5 are expected and indicate correct fail-closed behavior.</div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button data-testid="phase-e-run-probe" type="button" onClick={() => void runInterceptorProbe()}>
@@ -292,8 +294,8 @@ export default function UmesExtensionsPage() {
               This table exposes `replacementHandle` and known component handles. Use it to validate replacement registration and then verify injected columns/actions on Customers list.
             </p>
           </div>
-          <div className="grid gap-1 rounded border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
-            <div className="font-medium text-foreground">What should be visible and how it should work</div>
+          <div className={`grid gap-1 ${hintClassName}`}>
+            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
             <div>1. On `/backend/customers/people` table: column `Example priority` should be visible.</div>
             <div>2. In filters drawer: select filter `Priority` should be visible.</div>
             <div>3. In row actions menu: action `Open customer` should be visible.</div>
@@ -321,8 +323,8 @@ export default function UmesExtensionsPage() {
               This harness keeps the injected widget active on `crud-form:example.todo`. Submit once to confirm the field/event pipeline executes.
             </p>
           </div>
-          <div className="grid gap-1 rounded border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
-            <div className="font-medium text-foreground">What should be visible and how it should work</div>
+          <div className={`grid gap-1 ${hintClassName}`}>
+            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
             <div>1. Injected widget card `Example Injection Widget` should be visible above form fields.</div>
             <div>2. Saving valid form should update `submitResult` below the form.</div>
             <div>3. In customer detail form (`/backend/customers/people/:id`), injected `_example.priority` field should persist via onSave handler.</div>
@@ -346,8 +348,8 @@ export default function UmesExtensionsPage() {
           <p className="text-sm text-muted-foreground">
             Active replacement handles in this area: page, DataTable, CrudForm, and the `ui.detail:NotesSection` wrapper declared in `example/widgets/components.ts`.
           </p>
-          <div className="grid gap-1 rounded border border-border bg-muted/20 p-2 text-xs text-muted-foreground">
-            <div className="font-medium text-foreground">What should be visible and how it should work</div>
+          <div className={`grid gap-1 ${hintClassName}`}>
+            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
             <div>1. This page root should expose `data-component-handle=&quot;page:/backend/umes-extensions&quot;`.</div>
             <div>2. Handles list table should expose `data-table:example.umes.extensions` replacement handle.</div>
             <div>3. Form should expose `crud-form:example.todo` replacement handle.</div>
