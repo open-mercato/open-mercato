@@ -159,7 +159,6 @@ export function MessagesInboxPageClient() {
     queryFn: async () => {
       const call = await apiCall<{ items?: MessageTypeItem[] }>('/api/messages/types')
       if (!call.ok) {
-        if (call.status === 403) return []
         throw new Error(
           toErrorMessage(call.result)
           ?? t('messages.errors.loadTypesFailed', 'Failed to load message types.'),

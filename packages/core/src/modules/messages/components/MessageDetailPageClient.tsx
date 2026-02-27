@@ -5,7 +5,6 @@ import { MessageComposer } from '@open-mercato/ui/backend/messages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   getMessageUiComponentRegistry,
 } from './utils/typeUiRegistry'
@@ -137,7 +136,7 @@ function MessageConversationDetailItem({
   )
 }
 
-function MessageDetailPageClientContent({ id }: { id: string }) {
+export function MessageDetailPageClient({ id }: { id: string }) {
   const state = useMessageDetails(id)
   const [activeInlineComposer, setActiveInlineComposer] = React.useState<{
     variant: 'reply' | 'forward'
@@ -285,8 +284,4 @@ function MessageDetailPageClientContent({ id }: { id: string }) {
       {ConfirmDialogElement}
     </div>
   )
-}
-
-export function MessageDetailPageClient({ id }: { id: string }) {
-  return <MessageDetailPageClientContent id={id} />
 }
