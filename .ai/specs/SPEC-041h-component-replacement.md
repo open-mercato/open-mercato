@@ -6,7 +6,7 @@
 | **Phase** | H (PR 8) |
 | **Branch** | `feat/umes-component-replacement` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Done |
+| **Status** | Implemented (2026-02-26) |
 
 ## Goal
 

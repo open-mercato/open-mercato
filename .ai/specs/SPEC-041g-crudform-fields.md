@@ -6,7 +6,7 @@
 | **Phase** | G (PR 7) |
 | **Branch** | `feat/umes-crudform-fields` |
 | **Depends On** | Phase A (Foundation), Phase D (Response Enrichers) |
-| **Status** | Done |
+| **Status** | Implemented (2026-02-26) |
 
 ## Goal
 

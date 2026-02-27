@@ -7,7 +7,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -424,7 +424,7 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberRow {
     : typeof item.team_id === 'string'
       ? item.team_id
       : null
-  return {
+  return withDataTableNamespaces({
     id,
     displayName,
     description,
@@ -434,7 +434,6 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberRow {
     isActive,
     updatedAt,
     teamId,
-  }
+  }, item)
 }
-
 

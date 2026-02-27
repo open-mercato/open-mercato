@@ -6,7 +6,7 @@
 | **Phase** | E (PR 5) |
 | **Branch** | `feat/umes-api-interceptors` |
 | **Depends On** | Phase D (Response Enrichers — for execution order), [SPEC-042](./SPEC-042-2026-02-24-multi-id-query-parameter.md) for multi-id query rewriting |
-| **Status** | Done |
+| **Status** | Implemented (2026-02-26) |
 
 ## Goal
 

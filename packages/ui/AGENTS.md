@@ -128,6 +128,14 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - Support exports using `buildCrudExportUrl` and pass `exportOptions` to `DataTable`.
 - Use `RowActions` for per-row actions and include navigation via `onRowClick` or action links.
 - Keep table state (paging, sorting, filters, search) in component state and reload on scope changes.
+- Keep `extensionTableId` stable and deterministic; host pages should not derive it from transient UI state.
+- Render injected row actions and bulk actions through `RowActions`/bulk action handlers so injected actions follow the same guard and i18n behavior as built-ins.
+
+## CrudForm Field Injection (UMES Phase G)
+
+- `CrudForm` automatically resolves injected field widgets from `crud-form:<entityId>:fields`; always pass a stable `entityId`.
+- Keep host field/group IDs stable so injected fields can target groups deterministically across versions.
+- Use injected fields for cross-module form augmentation; keep core module fields in the base form config.
 
 ## Menu Injection (UMES Phase A/B)
 
@@ -163,3 +171,9 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - Reference @`.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md` for the reusable component catalog and usage patterns.
 - For dialogs and forms, keep the interaction model consistent: `Cmd/Ctrl + Enter` to submit, `Escape` to cancel.
 - Favor composable, data-first helpers (custom field helpers, CRUD helpers, filter utilities) over bespoke logic.
+
+## Component Replacement (UMES Phase H)
+
+- When a host surface is replacement-aware, resolve implementations via `useRegisteredComponent(handle, Fallback)` instead of hardcoded component references.
+- Prefer additive override modes (`wrapper`, `props`) before full `replace`; reserve `replace` for cases where compatibility is preserved.
+- Keep handle IDs stable and document them when introducing new replacement-aware surfaces.

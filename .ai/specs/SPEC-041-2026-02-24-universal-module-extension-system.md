@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft |
+| **Status** | In Progress (Phases A-H Implemented) |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-02-24 |
 | **Issue** | [#675](https://github.com/open-mercato/open-mercato/issues/675) |
@@ -35,10 +35,14 @@ Each phase is a separate PR, independently mergeable, with example module demons
 | **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, sync event subscribers (lifecycle events), client-side event filtering, command interceptors | E |
 | **N** | [SPEC-041n — Query Engine Extensibility](./SPEC-041n-query-engine-extensibility.md) | `feat/umes-query-engine-extensibility` | Query-level enricher opt-in, unified enricher registry for Basic/Hybrid query engines, sync query events (`*.querying`/`*.queried`) with filter/query/result transforms | D, M |
 
-### Implementation Progress Snapshot (2026-02-26)
+### Implementation Progress Snapshot (2026-02-27)
 
 | Phase | Status | Notes |
 |-------|--------|-------|
+| A — Foundation | Done | `InjectionPosition`, headless injection loader path, and `useInjectionDataWidgets` are implemented with docs and tests. |
+| B — Menu Injection | Done | `useInjectedMenuItems` + `mergeMenuItems` are implemented for sidebar/topbar/profile surfaces with integration coverage. |
+| C — Events & DOM Bridge | Done | Extended widget event handlers and SSE DOM bridge (`useAppEvent`, `useOperationProgress`) are implemented. |
+| D — Response Enrichers | Done | Enricher contract/registry/runner and CRUD factory integration are implemented with generator/bootstrap wiring. |
 | E — API Interceptors | Done | Core contracts/registry/runner, CRUD integration, generation/bootstrap, unit tests, and Playwright coverage are implemented. |
 | F — DataTable Extensions | Done | Column/row-action/filter deep extension surfaces and bulk-actions runtime execution are wired with unit/integration coverage. |
 | G — CrudForm Fields | Done | Injected field pipeline, full example triad flow, and Playwright coverage are implemented. |
@@ -653,3 +657,4 @@ Key implementation details from deep-diving into the actual codebase:
 | 2026-02-25 | Refactor Phase M — replace `data/crud-handlers.ts` file convention with sync event subscribers reusing existing subscriber auto-discovery. Remove `crud-handlers.generated.ts`, `CrudEventHandler` interface. Lifecycle before-events auto-derived from `events.ts` config. |
 | 2026-02-26 | Fix save flow ordering in Phase G and parent to match CrudForm.tsx reality (widget onSave fires BEFORE core API call). Remove rollout/kill-switch section. Phase E: add error handling (fail-closed), timeout, query re-validation, dual-path coverage, container in context, priority collision handling. Phase F: add tableId convention, sorting constraint, Tier 3 pagination UX, bulk action error contract, ID deduplication, client-side filter strategy. Phase G: fix stray code fence, add custom field type to InjectedField, add group fallback, dirty tracking, optionsLoader empty-state, visibleWhen dot-path clarification, fix carrier example to upsert. Phase H: require propsSchema for replace mode, remove displayName targeting, add wrapper composition order, error boundary, HMR cleanup, SSR note, cross-module example, propsTransform and error boundary tests. |
 | 2026-02-26 | Add Phase N (SPEC-041n) — query-engine extensibility with opt-in query enrichers, unified enricher registry shared by API and query engines, and synchronous query lifecycle events (`*.querying`/`*.queried`) for safe filter/query/result transformation across Basic and Hybrid engines. |
+| 2026-02-27 | Refresh implementation progress snapshot: phases A-H marked done in parent spec and status moved to "In Progress (Phases A-H Implemented)". |
