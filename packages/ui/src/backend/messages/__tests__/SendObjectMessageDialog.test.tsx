@@ -29,7 +29,6 @@ describe('SendObjectMessageDialog', () => {
           entityType: 'order',
           entityId: '11111111-1111-4111-8111-111111111111',
         }}
-        canCompose
       />,
       { dict: {} },
     )
@@ -56,7 +55,6 @@ describe('SendObjectMessageDialog', () => {
           entityType: 'leave_request',
           entityId: '11111111-1111-4111-8111-111111111111',
         }}
-        canCompose
         requiredActionConfig={{
           mode: 'optional',
           options: [{ id: 'approve', label: 'Approve' }],
@@ -75,21 +73,5 @@ describe('SendObjectMessageDialog', () => {
       },
       open: true,
     }))
-  })
-
-  it('hides compose action when compose permission is disabled', async () => {
-    renderWithProviders(
-      <SendObjectMessageDialog
-        object={{
-          entityModule: 'sales',
-          entityType: 'order',
-          entityId: '11111111-1111-4111-8111-111111111111',
-        }}
-        canCompose={false}
-      />,
-      { dict: {} },
-    )
-
-    expect(screen.queryByRole('button', { name: 'Compose message' })).toBeNull()
   })
 })
