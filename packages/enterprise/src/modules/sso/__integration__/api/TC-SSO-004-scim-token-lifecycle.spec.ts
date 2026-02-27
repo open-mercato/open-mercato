@@ -3,6 +3,8 @@ import {
   apiRequest,
   createSsoConfigFixture,
   createScimTokenFixture,
+  addDomainFixture,
+  activateConfigFixture,
   getAuthToken,
   scimRequest,
 } from '../helpers/ssoFixtures'
@@ -40,18 +42,29 @@ test.describe('TC-SSO-004: SCIM Token Lifecycle', () => {
 
   test('should authenticate SCIM requests with valid token', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    // SCIM context requires active config — use real issuer
     const { configId, cleanup: cleanupConfig } = await createSsoConfigFixture(request, token, {
       jitEnabled: false,
+      issuer: 'https://accounts.google.com',
     })
 
     const { rawToken, cleanup: cleanupToken } = await createScimTokenFixture(request, token, configId)
 
+    // Activate config (required by resolveScimContext)
+    await addDomainFixture(request, token, configId, `scim-auth-${stamp}.example.com`)
+    await activateConfigFixture(request, token, configId)
+
     try {
-      // Valid token should work
+      // Valid token should work on active config
       const response = await scimRequest(request, 'GET', '/api/sso/scim/v2/Users', rawToken)
       expect(response.ok()).toBeTruthy()
     } finally {
       await cleanupToken()
+      await apiRequest(request, 'POST', `/api/sso/config/${configId}/activate`, {
+        token,
+        data: { active: false },
+      }).catch(() => {})
       await cleanupConfig()
     }
   })
