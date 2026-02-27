@@ -98,6 +98,7 @@
     "@eslint/eslintrc": "^3.3.3",
     "@playwright/test": "^1.50.0",
     "@types/better-sqlite3": "^7.6.11",
+    "@types/html-to-text": "^9.0.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.16.0",

@@ -18,6 +18,26 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
 }))
 
+jest.mock('@/.mercato/generated/inbox-actions.generated', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sales = require('@open-mercato/core/modules/sales/inbox-actions')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const customers = require('@open-mercato/core/modules/customers/inbox-actions')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const catalog = require('@open-mercato/core/modules/catalog/inbox-actions')
+  const allActions = [
+    ...(sales.default ?? sales.inboxActions ?? []),
+    ...(customers.default ?? customers.inboxActions ?? []),
+    ...(catalog.default ?? catalog.inboxActions ?? []),
+  ]
+  const actionTypeMap = new Map(allActions.map((a: { type: string }) => [a.type, a]))
+  return {
+    inboxActions: allActions,
+    getInboxAction: (type: string) => actionTypeMap.get(type),
+    getRegisteredActionTypes: () => Array.from(actionTypeMap.keys()),
+  }
+})
+
 function createMockEm() {
   const em: Record<string, jest.Mock> = {
     fork: jest.fn(),
@@ -103,7 +123,7 @@ function makeAction(overrides?: Partial<InboxProposalAction>): InboxProposalActi
 
 describe('executionEngine', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    jest.resetAllMocks()
     mockRbacService.userHasAllFeatures.mockResolvedValue(true)
     mockEventBus.emit.mockResolvedValue(undefined)
     mockCommandBus.execute.mockResolvedValue({ result: {} })
