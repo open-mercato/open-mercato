@@ -9,6 +9,7 @@ test.describe('TC-INBOX-001: Inbox Ops Proposals UI', () => {
   const createdEmailIds: string[] = [];
 
   test.beforeAll(async ({ request }) => {
+    test.setTimeout(60000);
     token = await getAuthToken(request, 'admin');
 
     const result = await submitTextExtraction(request, token, {

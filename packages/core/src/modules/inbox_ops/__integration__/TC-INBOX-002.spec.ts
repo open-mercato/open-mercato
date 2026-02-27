@@ -94,11 +94,11 @@ test.describe('TC-INBOX-002: Inbox Ops Text Extract API', () => {
       // Verify stored values by fetching the created email
       const fetchResponse = await apiRequest(request, 'GET', `/api/inbox_ops/emails/${result.emailId}`, { token });
       expect(fetchResponse.status()).toBe(200);
-      const emailBody = await readJsonSafe<{ id?: string; subject?: string; metadata?: Record<string, unknown> }>(fetchResponse);
+      const emailBody = await readJsonSafe<{ email?: { id?: string; subject?: string; metadata?: Record<string, unknown> } }>(fetchResponse);
       expect(emailBody).toBeDefined();
-      expect(emailBody!.id).toBe(result.emailId);
-      if (emailBody!.subject) {
-        expect(emailBody!.subject).toContain(customTitle);
+      expect(emailBody!.email!.id).toBe(result.emailId);
+      if (emailBody!.email!.subject) {
+        expect(emailBody!.email!.subject).toContain(customTitle);
       }
     });
 

@@ -37,8 +37,8 @@ export async function waitForEmailProcessed(
     const response = await apiRequest(request, 'GET', `/api/inbox_ops/emails/${emailId}`, { token });
     if (!response.ok()) return null
 
-    const body = await readJsonSafe<{ status?: string; id?: string }>(response);
-    const status = body?.status
+    const body = await readJsonSafe<{ email?: { status?: string; id?: string } }>(response);
+    const status = body?.email?.status
 
     if (status === 'processed' || status === 'needs_review' || status === 'failed') {
       const proposalsResponse = await apiRequest(request, 'GET', '/api/inbox_ops/proposals?pageSize=5', { token });
