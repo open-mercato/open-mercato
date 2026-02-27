@@ -30,6 +30,8 @@ import {
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { recordPriceHistoryEntry } from '../lib/omnibus'
+import type { PriceSnapshot } from '../lib/omnibus'
 
 const priceCrudEvents: CrudEventsConfig = {
   module: 'catalog',
@@ -40,36 +42,6 @@ const priceCrudEvents: CrudEventsConfig = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
-}
-
-type PriceSnapshot = {
-  id: string
-  variantId: string | null
-  productId: string | null
-  offerId: string | null
-  organizationId: string
-  tenantId: string
-  currencyCode: string
-  priceKindId: string
-  priceKindCode: string
-  kind: string
-  minQuantity: number
-  maxQuantity: number | null
-  unitPriceNet: string | null
-  unitPriceGross: string | null
-  taxRate: string | null
-  taxAmount: string | null
-  channelId: string | null
-  userId: string | null
-  userGroupId: string | null
-  customerId: string | null
-  customerGroupId: string | null
-  metadata: Record<string, unknown> | null
-  startsAt: string | null
-  endsAt: string | null
-  createdAt: string
-  updatedAt: string
-  custom: Record<string, unknown> | null
 }
 
 type PriceUndoPayload = {
@@ -353,6 +325,33 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     })
     em.persist(record)
     await em.flush()
+    const historyEmForCreate = em.fork()
+    await recordPriceHistoryEntry(
+      historyEmForCreate,
+      {
+        id: record.id,
+        variantId: typeof record.variant === 'object' && record.variant ? record.variant.id : (record.variant as string | null | undefined) ?? null,
+        productId: productEntity ? productEntity.id : null,
+        offerId: offer ? offer.id : null,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        currencyCode: record.currencyCode,
+        priceKindId: priceKind.id,
+        priceKindCode: priceKind.code,
+        minQuantity: record.minQuantity,
+        maxQuantity: record.maxQuantity ?? null,
+        unitPriceNet: record.unitPriceNet ?? null,
+        unitPriceGross: record.unitPriceGross ?? null,
+        taxRate: record.taxRate ?? null,
+        taxAmount: record.taxAmount ?? null,
+        channelId: record.channelId ?? null,
+        startsAt: record.startsAt ? record.startsAt.toISOString() : null,
+        endsAt: record.endsAt ? record.endsAt.toISOString() : null,
+      },
+      'create',
+      'api',
+      { announce: (rawInput as Record<string, unknown>).announce === true },
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_price,
@@ -506,6 +505,9 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (!targetProduct) {
       throw new CrudHttpError(400, { error: 'Unable to resolve product for price.' })
     }
+    if (!targetProduct.tenantId) {
+      targetProduct = await requireProduct(em, targetProduct.id)
+    }
 
     let targetOffer: CatalogOffer | null = null
     if (record.offer) {
@@ -632,6 +634,33 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       record.endsAt = parsed.endsAt ?? null
     }
     await em.flush()
+    const historyEmForUpdate = em.fork()
+    await recordPriceHistoryEntry(
+      historyEmForUpdate,
+      {
+        id: record.id,
+        variantId: targetVariant ? targetVariant.id : null,
+        productId: targetProduct ? targetProduct.id : null,
+        offerId: targetOffer ? targetOffer.id : null,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        currencyCode: record.currencyCode,
+        priceKindId: targetPriceKind.id,
+        priceKindCode: targetPriceKind.code,
+        minQuantity: record.minQuantity,
+        maxQuantity: record.maxQuantity ?? null,
+        unitPriceNet: record.unitPriceNet ?? null,
+        unitPriceGross: record.unitPriceGross ?? null,
+        taxRate: record.taxRate ?? null,
+        taxAmount: record.taxAmount ?? null,
+        channelId: record.channelId ?? null,
+        startsAt: record.startsAt ? record.startsAt.toISOString() : null,
+        endsAt: record.endsAt ? record.endsAt.toISOString() : null,
+      },
+      'update',
+      'api',
+      { announce: (rawInput as Record<string, unknown>).announce === true },
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
@@ -728,6 +757,32 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    const undoHistoryEm = em.fork()
+    await recordPriceHistoryEntry(
+      undoHistoryEm,
+      {
+        id: before.id,
+        variantId: before.variantId,
+        productId: before.productId,
+        offerId: before.offerId,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        currencyCode: before.currencyCode,
+        priceKindId: before.priceKindId,
+        priceKindCode: before.priceKindCode,
+        minQuantity: before.minQuantity,
+        maxQuantity: before.maxQuantity,
+        unitPriceNet: before.unitPriceNet,
+        unitPriceGross: before.unitPriceGross,
+        taxRate: before.taxRate,
+        taxAmount: before.taxAmount,
+        channelId: before.channelId,
+        startsAt: before.startsAt,
+        endsAt: before.endsAt,
+      },
+      'undo',
+      'api',
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
       after?.custom ?? undefined
@@ -774,6 +829,34 @@ const deletePriceCommand: CommandHandler<
 
     em.remove(record)
     await em.flush()
+    if (snapshot) {
+      const historyEmForDelete = em.fork()
+      await recordPriceHistoryEntry(
+        historyEmForDelete,
+        {
+          id: snapshot.id,
+          variantId: snapshot.variantId,
+          productId: snapshot.productId,
+          offerId: snapshot.offerId,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          currencyCode: snapshot.currencyCode,
+          priceKindId: snapshot.priceKindId,
+          priceKindCode: snapshot.priceKindCode,
+          minQuantity: snapshot.minQuantity,
+          maxQuantity: snapshot.maxQuantity,
+          unitPriceNet: snapshot.unitPriceNet,
+          unitPriceGross: snapshot.unitPriceGross,
+          taxRate: snapshot.taxRate,
+          taxAmount: snapshot.taxAmount,
+          channelId: snapshot.channelId,
+          startsAt: snapshot.startsAt,
+          endsAt: snapshot.endsAt,
+        },
+        'delete',
+        'api',
+      ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
+    }
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
@@ -860,6 +943,32 @@ const deletePriceCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    const deleteUndoHistoryEm = em.fork()
+    await recordPriceHistoryEntry(
+      deleteUndoHistoryEm,
+      {
+        id: before.id,
+        variantId: before.variantId,
+        productId: before.productId,
+        offerId: before.offerId,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        currencyCode: before.currencyCode,
+        priceKindId: before.priceKindId,
+        priceKindCode: before.priceKindCode,
+        minQuantity: before.minQuantity,
+        maxQuantity: before.maxQuantity,
+        unitPriceNet: before.unitPriceNet,
+        unitPriceGross: before.unitPriceGross,
+        taxRate: before.taxRate,
+        taxAmount: before.taxAmount,
+        channelId: before.channelId,
+        startsAt: before.startsAt,
+        endsAt: before.endsAt,
+      },
+      'undo',
+      'api',
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

@@ -110,6 +110,9 @@ export class CatalogProduct {
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
+  @Property({ name: 'omnibus_exempt', type: 'boolean', default: false })
+  omnibusExempt: boolean = false
+
   @Property({ name: 'product_type', type: 'text', default: 'simple' })
   productType: CatalogProductType = 'simple'
 
@@ -181,6 +184,9 @@ export class CatalogProduct {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'first_listed_at', type: Date, nullable: true })
+  firstListedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -533,6 +539,9 @@ export class CatalogProductVariant {
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
+  @Property({ name: 'omnibus_exempt', type: 'boolean', nullable: true })
+  omnibusExempt?: boolean | null
+
   @Property({ name: 'option_values', type: 'jsonb', nullable: true })
   optionValues?: Record<string, string> | null
 
@@ -768,4 +777,109 @@ export class CatalogProductPrice {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+export type CatalogPriceHistoryChangeType = 'create' | 'update' | 'delete' | 'undo'
+export type CatalogPriceHistorySource = 'manual' | 'import' | 'api' | 'rule' | 'system'
+
+@Entity({ tableName: 'catalog_price_history_entries' })
+@Index({
+  name: 'catalog_price_history_product_channel_agnostic_idx',
+  properties: ['tenantId', 'organizationId', 'productId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_product_channel_scoped_idx',
+  properties: ['tenantId', 'organizationId', 'productId', 'channelId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_variant_channel_agnostic_idx',
+  properties: ['tenantId', 'organizationId', 'variantId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_variant_channel_scoped_idx',
+  properties: ['tenantId', 'organizationId', 'variantId', 'channelId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_offer_idx',
+  properties: ['tenantId', 'organizationId', 'offerId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_price_id_idx',
+  properties: ['tenantId', 'organizationId', 'priceId'],
+})
+export class CatalogPriceHistoryEntry {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'price_id', type: 'uuid' })
+  priceId!: string
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ name: 'offer_id', type: 'uuid', nullable: true })
+  offerId?: string | null
+
+  @Property({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId?: string | null
+
+  @Property({ name: 'price_kind_id', type: 'uuid' })
+  priceKindId!: string
+
+  @Property({ name: 'price_kind_code', type: 'text' })
+  priceKindCode!: string
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 14, scale: 4, nullable: true })
+  unitPriceNet?: string | null
+
+  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 14, scale: 4, nullable: true })
+  unitPriceGross?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 6, scale: 4, nullable: true })
+  taxRate?: string | null
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 14, scale: 4, nullable: true })
+  taxAmount?: string | null
+
+  @Property({ name: 'min_quantity', type: 'integer', nullable: true })
+  minQuantity?: number | null
+
+  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
+  maxQuantity?: number | null
+
+  @Property({ name: 'starts_at', type: Date, nullable: true })
+  startsAt?: Date | null
+
+  @Property({ name: 'ends_at', type: Date, nullable: true })
+  endsAt?: Date | null
+
+  @Property({ name: 'recorded_at', type: Date })
+  recordedAt!: Date
+
+  @Property({ name: 'change_type', type: 'text' })
+  changeType!: CatalogPriceHistoryChangeType
+
+  @Property({ name: 'source', type: 'text' })
+  source!: CatalogPriceHistorySource
+
+  @Property({ name: 'is_announced', type: 'boolean', nullable: true })
+  isAnnounced?: boolean | null
+
+  @Property({ name: 'idempotency_key', type: 'text', nullable: true })
+  idempotencyKey?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
 }

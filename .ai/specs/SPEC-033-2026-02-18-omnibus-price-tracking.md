@@ -1286,6 +1286,18 @@ Omnibus compliance failures are legal failures. The following observability requ
 
 ## Changelog
 
+### 2026-02-26 (rev 13)
+- **Bug fix — `resolveOmnibusBlock` applicabilityReason loss**: when `lowestRow` was null (no prior history), `applicabilityReason` pre-set to `'insufficient_history'` was silently overwritten by the `applicable` branch. Fix moves the `insufficientHistory` check before the `applicable` branch so the reason propagates correctly.
+- **Bug fix — `previousRow` derivation**: was using `inWindow[inWindow.length - 1]` (last element of a DESC-ordered list, i.e., the oldest), which is semantically correct but fragile. Replaced with an explicit ASC `ORDER BY recorded_at, id LIMIT 1` query via `fetchOldestInWindow()` per spec §Phase 2 Step 6.
+- **DRY refactor — duplicate `PriceSnapshot` type eliminated**: `commands/prices.ts` had a local 28-field type duplicating `omnibusTypes.ts`. Renamed the minimal 19-field type to `PriceHistorySnapshot` (used by `buildHistoryEntry`); `PriceSnapshot` is now `PriceHistorySnapshot & { kind, userId, userGroupId, customerId, customerGroupId, metadata, createdAt, updatedAt, custom }`. `commands/prices.ts` imports from `lib/omnibus`.
+- **DRY refactor — `MS_PER_DAY` constant**: exported from `lib/omnibus.ts` and used across `catalogOmnibusService.ts` and `cli.ts` in place of inline `24 * 60 * 60 * 1000` literals.
+- **DRY refactor — `subtractDays` / `getPriceValue` helpers**: private module-level functions in `catalogOmnibusService.ts` eliminate 4× repeated window-date arithmetic and 6× repeated unsafe `priceField` casts.
+- **DRY refactor — double `getConfig()` eliminated**: extracted `_computeLowestPrice(em, ctx, config, …)` private method so `resolveOmnibusBlock` loads config once and passes it through, avoiding a second DB read inside `getLowestPrice`.
+- **Security fix — `findOneWithDecryption` in omnibus-preview route**: `api/prices/omnibus-preview/route.ts` was using raw `em.findOne` for `CatalogProduct`; replaced with `findOneWithDecryption` per architecture rules.
+- **DRY refactor — CLI backfill uses `buildHistoryEntry()`**: CLI was manually assembling 26-field history entry objects; now calls `buildHistoryEntry({ snapshot, changeType: 'create', source: 'system' })` and overrides `recordedAt` / `idempotencyKey: null` for backfill semantics.
+- **Phase 5 — `SalesQuoteLine` omnibus snapshot fields**: 6 nullable columns added to `SalesQuoteLine` entity matching the `SalesOrderLine` schema: `omnibusReferenceNet`, `omnibusReferenceGross`, `omnibusPromotionAnchorAt`, `omnibusApplicabilityReason`, `isPersonalized`, `personalizationReason`. Migration generated.
+- **Phase 5 — Quote line omnibus capture wired**: `applyQuoteLineResults` and `replaceQuoteLines` in `sales/commands/documents.ts` now resolve `catalogOmnibusService` from DI and capture the omnibus block + personalization meta for new lines, matching the pattern already in `applyOrderLineResults`.
+
 ### 2026-02-19 (rev 12)
 - **Task 10 — Cache key collision fix**: added `anchorDay` as a distinct cache dimension (`promotionAnchorAt ? floorToDay(promotionAnchorAt) : 'none'`). Prevents collision between sliding-window results and promotion-anchored results that happen to share the same computed `windowStartDay`. Documented why this collision is a real legal risk.
 - **Task 11 — Order snapshot expanded**: Phase 5 now explicitly lists all fields to persist on order line snapshots: `omnibusReferenceNet/Gross`, `omnibusPromotionAnchorAt`, `omnibusApplicabilityReason`, `isPersonalized`, `personalizationReason`. Snapshot immutability requirement stated. `packages/core/src/modules/sales/data/entities.ts` added to File Manifest.
@@ -1399,6 +1411,14 @@ Omnibus compliance failures are legal failures. The following observability requ
 - All lookback indexes now prefixed with `(tenant_id, organization_id, ...)` to match mandatory dual-column isolation filter
 - Expanded testing strategy with baseline, channel-scope, cross-org isolation, and `includeTotal` integration tests
 - Remaining open questions: retention policy; B2B net vs. gross minimization axis
+
+### 2026-02-20 (rev 5 — implementation)
+- **Implemented**: Phase 1 fully delivered — `CatalogPriceHistoryEntry` entity + migration, `recordPriceHistoryEntry` wired into price commands (create/update/delete/undo), `GET /api/catalog/prices/history` with cursor pagination, `GET /api/catalog/prices/omnibus-preview`, `GET|PATCH /api/catalog/config/omnibus`
+- **Implemented**: Phase 2 core delivered — `DefaultCatalogOmnibusService` with baseline+window algorithm, promotion anchoring, per-channel scope, EU country-code gating, `noChannelMode` config, 5-min TTL cache with tag-based invalidation
+- **Implemented**: Phase 3 admin UI delivered — `OmnibusSettings` component in catalog config page, backfill CLI command (`yarn omnibus:backfill`)
+- **Integration tests**: TC-CAT-015 (history on create/update/delete), TC-CAT-016 (history filtering + pagination), TC-CAT-017 (omnibus config GET/PATCH + 422 backfill guard) — all passing
+- **Refactored (DRY)**: Omnibus types (`OmnibusResolutionContext`, `OmnibusLowestPriceResult`, `OmnibusBlock`, `OmnibusHistoryRow`) moved to `lib/omnibusTypes.ts`; `OMNIBUS_MODULE_ID`/`OMNIBUS_CONFIG_KEY` constants exported from `lib/omnibus.ts` (was: duplicated in service + route); `buildScopeKey()` extracted from `buildCacheKey`/`buildCacheTag`; `buildEmptyBlock()` extracted from repeated null-block construction in `resolveOmnibusBlock`; `fetchFirstOfferEntry` refactored to reuse `buildScopeFilters`; `isAnnounced` ternary simplified
+- **Note**: `catalogOmnibusService` registered as `.singleton()` — `moduleConfigService` used without tenant parameters (consistent with how config route calls it). If multi-tenant config isolation is required, `getConfig()` must pass tenant context to `moduleConfigService.getValue()`
 
 ### 2026-02-18
 - Initial specification

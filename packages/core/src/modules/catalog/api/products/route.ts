@@ -38,10 +38,12 @@ import {
   resolvePriceKindCode,
   type PricingContext,
   type PriceRow,
-} from "../../lib/pricing";
-import type { CatalogPricingService } from "../../services/catalogPricingService";
-import { fieldsetCodeRegex } from "@open-mercato/core/modules/entities/data/validators";
-import { SalesChannel } from "@open-mercato/core/modules/sales/data/entities";
+} from '../../lib/pricing'
+import type { CatalogPricingService } from '../../services/catalogPricingService'
+import { detectPersonalization } from '../../services/catalogPricingService'
+import type { CatalogOmnibusService } from '../../services/catalogOmnibusService'
+import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
+import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
 import {
   createCatalogCrudOpenApi,
   createPagedListResponseSchema,
@@ -49,6 +51,7 @@ import {
 } from "../openapi";
 import { findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import { canonicalizeUnitCode, toUnitLookupKey } from "../../lib/unitCodes";
+
 const rawBodySchema = z.object({}).passthrough();
 
 const UUID_REGEX =
@@ -162,6 +165,7 @@ export async function buildProductFilters(
     }
     filters.id = ids.length === 1 ? { $eq: ids[0] } : { $in: ids };
   };
+
   if (query.id) {
     filters.id = { $eq: query.id };
   }
@@ -255,6 +259,7 @@ export async function buildProductFilters(
       .filter((id): id is string => !!id);
     intersectProductIds(productIds);
   }
+
   const customFieldset =
     typeof query.customFieldset === "string" &&
     query.customFieldset.trim().length
@@ -272,10 +277,10 @@ export async function buildProductFilters(
     });
     Object.assign(filters, cfFilters);
   } catch (err) {
-    // Custom field filter parsing may fail for non-existent or misconfigured fields.
-    // Fall back to base filters to avoid blocking the product listing.
-    if (process.env.NODE_ENV === 'development') console.warn('[catalog:products] custom field filter error', err);
+    if (process.env.NODE_ENV === 'development')
+      console.warn('[catalog:products] custom field filter error', err);
   }
+
   applyRestrictedProducts();
   return filters;
 }
@@ -302,37 +307,39 @@ export function buildPricingContext(
 }
 
 type ProductListItem = Record<string, unknown> & {
-  id?: string;
-  title?: string | null;
-  subtitle?: string | null;
-  description?: string | null;
-  sku?: string | null;
-  handle?: string | null;
-  product_type?: CatalogProductType | null;
-  primary_currency_code?: string | null;
-  default_unit?: string | null;
-  default_sales_unit?: string | null;
-  default_sales_unit_quantity?: number | null;
-  uom_rounding_scale?: number | null;
-  uom_rounding_mode?: "half_up" | "down" | "up" | null;
-  unit_price_enabled?: boolean | null;
-  unit_price_reference_unit?: "kg" | "l" | "m2" | "m3" | "pc" | null;
-  unit_price_base_quantity?: number | null;
-  default_media_id?: string | null;
-  default_media_url?: string | null;
-  weight_value?: string | null;
-  weightValue?: string | null;
-  weight_unit?: string | null;
-  weightUnit?: string | null;
-  dimensions?: Record<string, unknown> | null;
-  custom_fieldset_code?: string | null;
-  option_schema_id?: string | null;
-  offers?: Array<Record<string, unknown>>;
-  channelIds?: string[];
-  categories?: Array<Record<string, unknown>>;
-  categoryIds?: string[];
-  tags?: string[];
-};
+  id?: string
+  title?: string | null
+  subtitle?: string | null
+  description?: string | null
+  sku?: string | null
+  handle?: string | null
+  product_type?: CatalogProductType | null
+  primary_currency_code?: string | null
+  default_unit?: string | null
+  default_sales_unit?: string | null
+  default_sales_unit_quantity?: number | null
+  uom_rounding_scale?: number | null
+  uom_rounding_mode?: 'half_up' | 'down' | 'up' | null
+  unit_price_enabled?: boolean | null
+  unit_price_reference_unit?: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+  unit_price_base_quantity?: number | null
+  default_media_id?: string | null
+  default_media_url?: string | null
+  weight_value?: string | null
+  weightValue?: string | null
+  weight_unit?: string | null
+  weightUnit?: string | null
+  dimensions?: Record<string, unknown> | null
+  custom_fieldset_code?: string | null
+  option_schema_id?: string | null
+  omnibusExempt?: boolean | null
+  firstListedAt?: Date | string | null
+  offers?: Array<Record<string, unknown>>
+  channelIds?: string[]
+  categories?: Array<Record<string, unknown>>
+  categoryIds?: string[]
+  tags?: string[]
+}
 
 async function decorateProductsAfterList(
   payload: { items?: ProductListItem[] },
@@ -344,12 +351,15 @@ async function decorateProductsAfterList(
     .map((item) => (typeof item.id === "string" ? item.id : null))
     .filter((id): id is string => !!id);
   if (!productIds.length) return;
+
   try {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const scope = {
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
       tenantId: ctx.auth?.tenantId ?? null,
     };
+
+    // ── Offers ────────────────────────────────────────────────────────────────
     const offers = await findWithDecryption(
       em,
       CatalogOffer,
@@ -415,6 +425,7 @@ async function decorateProductsAfterList(
       offersByProduct.set(productId, entry);
     }
 
+    // ── Categories ────────────────────────────────────────────────────────────
     const categoryAssignments = await findWithDecryption(
       em,
       CatalogProductCategoryAssignment,
@@ -481,6 +492,7 @@ async function decorateProductsAfterList(
       categoriesByProduct.set(productId, bucket);
     }
 
+    // ── Tags ──────────────────────────────────────────────────────────────────
     const tagAssignments = await findWithDecryption(
       em,
       CatalogProductTagAssignment,
@@ -511,23 +523,24 @@ async function decorateProductsAfterList(
       tagsByProduct.set(productId, bucket);
     }
 
+
     const variants = await findWithDecryption(
       em,
       CatalogProductVariant,
       { product: { $in: productIds }, deletedAt: null, ...scope },
       { fields: ["id", "product"] },
       scope,
-    );
-    const variantToProduct = new Map<string, string>();
+    )
+    const variantToProduct = new Map<string, string>()
     for (const variant of variants) {
       const productId =
         typeof variant.product === "string"
           ? variant.product
-          : (variant.product?.id ?? null);
-      if (!productId) continue;
-      variantToProduct.set(variant.id, productId);
+          : (variant.product?.id ?? null)
+      if (!productId) continue
+      variantToProduct.set(variant.id, productId)
     }
-    const variantIds = Array.from(variantToProduct.keys());
+    const variantIds = Array.from(variantToProduct.keys())
     const priceWhere =
       variantIds.length > 0
         ? {
@@ -536,46 +549,38 @@ async function decorateProductsAfterList(
               { variant: { $in: variantIds } },
             ],
           }
-        : { product: { $in: productIds } };
+        : { product: { $in: productIds } }
     const priceRows = await findWithDecryption(
       em,
       CatalogProductPrice,
       { ...priceWhere, ...scope },
       { populate: ["offer", "variant", "product", "priceKind"] },
       scope,
-    );
-    const pricesByProduct = new Map<string, PriceRow[]>();
+    )
+    const pricesByProduct = new Map<string, PriceRow[]>()
     for (const price of priceRows) {
-      let productId: string | null = null;
+      let productId: string | null = null
       if (price.product) {
         productId =
           typeof price.product === "string"
             ? price.product
-            : (price.product?.id ?? null);
+            : (price.product?.id ?? null)
       } else if (price.variant) {
         const variantId =
-          typeof price.variant === "string" ? price.variant : price.variant.id;
-        productId = variantToProduct.get(variantId) ?? null;
+          typeof price.variant === "string" ? price.variant : price.variant.id
+        productId = variantToProduct.get(variantId) ?? null
       }
-      if (!productId) continue;
-      const entry = pricesByProduct.get(productId) ?? [];
-      entry.push(price);
-      pricesByProduct.set(productId, entry);
+      if (!productId) continue
+      const entry = pricesByProduct.get(productId) ?? []
+      entry.push(price)
+      pricesByProduct.set(productId, entry)
     }
 
-    const requestQuantityUnitKey = toUnitLookupKey(
-      ctx.query.quantityUnit,
-    );
-    const conversionsByProduct = new Map<string, Map<string, number>>();
-    const conversionOrganizationId =
-      ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null;
-    const conversionTenantId = ctx.auth?.tenantId ?? null;
-    if (
-      requestQuantityUnitKey &&
-      productIds.length &&
-      conversionOrganizationId &&
-      conversionTenantId
-    ) {
+    const requestQuantityUnitKey = toUnitLookupKey(ctx.query.quantityUnit)
+    const conversionsByProduct = new Map<string, Map<string, number>>()
+    const conversionOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+    const conversionTenantId = ctx.auth?.tenantId ?? null
+    if (requestQuantityUnitKey && productIds.length && conversionOrganizationId && conversionTenantId) {
       const conversionRows = await findWithDecryption(
         em,
         CatalogProductUnitConversion,
@@ -588,38 +593,39 @@ async function decorateProductsAfterList(
         },
         { fields: ["id", "product", "unitCode", "toBaseFactor"] },
         { organizationId: conversionOrganizationId, tenantId: conversionTenantId },
-      );
+      )
       for (const row of conversionRows) {
         const productId =
           typeof row.product === "string"
             ? row.product
-            : (row.product?.id ?? null);
-        const unitKey = toUnitLookupKey(row.unitCode);
-        const factor = Number(row.toBaseFactor);
-        if (!productId || !unitKey || !Number.isFinite(factor) || factor <= 0)
-          continue;
-        const bucket =
-          conversionsByProduct.get(productId) ?? new Map<string, number>();
-        bucket.set(unitKey, factor);
-        conversionsByProduct.set(productId, bucket);
+            : (row.product?.id ?? null)
+        const unitKey = toUnitLookupKey(row.unitCode)
+        const factor = Number(row.toBaseFactor)
+        if (!productId || !unitKey || !Number.isFinite(factor) || factor <= 0) continue
+        const bucket = conversionsByProduct.get(productId) ?? new Map<string, number>()
+        bucket.set(unitKey, factor)
+        conversionsByProduct.set(productId, bucket)
       }
     }
 
+    // ── Pricing & Omnibus ─────────────────────────────────────────────────────
     const channelFilterIds = parseIdList(ctx.query.channelIds);
     const channelContext =
       ctx.query.channelId ??
       (channelFilterIds.length === 1 ? channelFilterIds[0] : null);
     const pricingContext = buildPricingContext(ctx.query, channelContext);
-    const pricingService = ctx.container.resolve<CatalogPricingService>(
-      "catalogPricingService",
-    );
+    const pricingService = ctx.container.resolve<CatalogPricingService>('catalogPricingService')
+    const catalogOmnibusService = ctx.container.resolve<CatalogOmnibusService>('catalogOmnibusService')
+    const tenantId = ctx.auth?.tenantId ?? null
+    const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
 
     for (const item of items) {
       const id = typeof item.id === "string" ? item.id : null;
       if (!id) continue;
+
       const offerEntries = offersByProduct.get(id) ?? [];
       item.offers = offerEntries;
-      const channelIds = Array.from(
+      const itemChannelIds = Array.from(
         new Set(
           offerEntries
             .map((offer) =>
@@ -628,11 +634,13 @@ async function decorateProductsAfterList(
             .filter((channelId): channelId is string => !!channelId),
         ),
       );
-      item.channelIds = channelIds;
+      item.channelIds = itemChannelIds;
+
       const categories = categoriesByProduct.get(id) ?? [];
       item.categories = categories;
       item.categoryIds = categories.map((category) => category.id);
       item.tags = tagsByProduct.get(id) ?? [];
+
       const priceCandidates = pricesByProduct.get(id) ?? [];
       const normalizedQuantityForPricing = (() => {
         if (!requestQuantityUnitKey) return pricingContext.quantity;
@@ -642,7 +650,10 @@ async function decorateProductsAfterList(
         const productConversions = conversionsByProduct.get(id);
         const factor = productConversions?.get(requestQuantityUnitKey) ?? null;
         if (!factor || !Number.isFinite(factor) || factor <= 0) {
-          if (process.env.NODE_ENV === 'development') console.warn(`[catalog.products] Invalid conversion factor for product=${id} unit=${requestQuantityUnitKey} factor=${factor}`);
+          if (process.env.NODE_ENV === "development")
+            console.warn(
+              `[catalog.products] Invalid conversion factor for product=${id} unit=${requestQuantityUnitKey} factor=${factor}`,
+            );
           return pricingContext.quantity;
         }
         const normalized = pricingContext.quantity * factor;
@@ -650,15 +661,19 @@ async function decorateProductsAfterList(
           ? normalized
           : pricingContext.quantity;
       })();
+
       const channelScopedContext =
-        pricingContext.channelId || channelIds.length !== 1
+        pricingContext.channelId || itemChannelIds.length !== 1
           ? pricingContext
-          : { ...pricingContext, channelId: channelIds[0] };
+          : { ...pricingContext, channelId: itemChannelIds[0] };
+
       const best = await pricingService.resolvePrice(priceCandidates, {
         ...channelScopedContext,
         quantity: normalizedQuantityForPricing,
       });
+
       if (best) {
+        const personalization = detectPersonalization(best);
         item.pricing = {
           kind: resolvePriceKindCode(best),
           price_kind_id:
@@ -682,13 +697,51 @@ async function decorateProductsAfterList(
             customer_id: best.customerId ?? null,
             customer_group_id: best.customerGroupId ?? null,
           },
+          is_personalized: personalization.isPersonalized,
+          personalization_reason: personalization.personalizationReason,
         };
+
+        const resolvedPriceKindId =
+          typeof best.priceKind === "string"
+            ? best.priceKind
+            : (best.priceKind?.id ?? null);
+        const priceKindIsPromotion =
+          typeof best.priceKind !== "string" &&
+          (best.priceKind?.isPromotion ?? false);
+
+        if (
+          resolvedPriceKindId &&
+          best.currencyCode &&
+          tenantId &&
+          organizationId
+        ) {
+          const omnibusCtx = {
+            tenantId,
+            organizationId,
+            productId: id,
+            variantId: resolvePriceVariantId(best) ?? null,
+            offerId: resolvePriceOfferId(best) ?? null,
+            priceKindId: resolvedPriceKindId,
+            currencyCode: best.currencyCode,
+            channelId: resolvePriceChannelId(best) ?? channelScopedContext.channelId ?? null,
+            isStorefront: false,
+            omnibusExempt: typeof item.omnibusExempt === 'boolean' ? item.omnibusExempt : null,
+            firstListedAt: item.firstListedAt instanceof Date ? item.firstListedAt : (item.firstListedAt ? new Date(item.firstListedAt as string | number) : null),
+          }
+          item.omnibus = await catalogOmnibusService.resolveOmnibusBlock(em, omnibusCtx, null, priceKindIsPromotion)
+        } else {
+          item.omnibus = null
+        }
       } else {
-        item.pricing = null;
+        item.pricing = null
+        item.omnibus = null
       }
     }
   } catch (error) {
-    console.error("[decorateProductsAfterList] Failed to load unit conversions", error);
+    console.error(
+      "[decorateProductsAfterList] Failed to load unit conversions",
+      error,
+    );
   }
 }
 
@@ -735,8 +788,10 @@ const crud = makeCrudRoute({
       F.is_configurable,
       F.is_active,
       F.metadata,
-      "custom_fieldset_code",
-      "option_schema_id",
+      'custom_fieldset_code',
+      'option_schema_id',
+      'omnibus_exempt',
+      'first_listed_at',
       F.created_at,
       F.updated_at,
     ],
@@ -890,6 +945,7 @@ const productListItemSchema = z.object({
   categoryIds: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   pricing: z.record(z.string(), z.unknown()).nullable().optional(),
+  omnibus: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const openApi = createCatalogCrudOpenApi({
