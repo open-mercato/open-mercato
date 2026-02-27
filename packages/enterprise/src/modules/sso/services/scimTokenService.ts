@@ -32,8 +32,13 @@ export class ScimTokenService {
     name: string,
     scope: SsoAdminScope,
   ): Promise<ScimTokenCreateResult> {
-    const config = await this.em.findOne(SsoConfig, { id: ssoConfigId, deletedAt: null })
-    if (config?.jitEnabled) {
+    const where: Record<string, unknown> = { id: ssoConfigId, deletedAt: null }
+    if (!scope.isSuperAdmin && scope.organizationId) {
+      where.organizationId = scope.organizationId
+    }
+    const config = await this.em.findOne(SsoConfig, where)
+    if (!config) throw new ScimTokenError('SSO configuration not found', 404)
+    if (config.jitEnabled) {
       throw new ScimTokenError('Cannot create SCIM tokens while JIT provisioning is enabled. Disable JIT first.', 409)
     }
 
