@@ -12,7 +12,6 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     const ctx = await resolveScimContext(req)
     if (!ctx.ok) return ctx.response
 
-    console.log('[SCIM DEBUG] GET /Users/' + params.id)
     const baseUrl = new URL(req.url).origin
     const container = await createRequestContainer()
     const service = container.resolve<ScimService>('scimService')
@@ -30,7 +29,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (!ctx.ok) return ctx.response
 
     const body = await req.json()
-    console.log('[SCIM DEBUG] PATCH /Users/' + params.id, JSON.stringify(body, null, 2))
     const operations = parseScimPatchOperations(body)
     const baseUrl = new URL(req.url).origin
 
@@ -49,7 +47,6 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     const ctx = await resolveScimContext(req)
     if (!ctx.ok) return ctx.response
 
-    console.log('[SCIM DEBUG] DELETE /Users/' + params.id)
     const container = await createRequestContainer()
     const service = container.resolve<ScimService>('scimService')
     await service.deleteUser(params.id, ctx.scope)
