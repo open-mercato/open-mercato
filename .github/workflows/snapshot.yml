@@ -225,6 +225,7 @@ jobs:
           OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
           OM_DISABLE_EMAIL_DELIVERY=1
           ENABLE_CRUD_API_CACHE=true
+          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
           CACHE_STRATEGY=memory
