@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test'
 import {
+  apiRequest,
   createSsoConfigFixture,
   createScimTokenFixture,
+  addDomainFixture,
+  activateConfigFixture,
   getAuthToken,
   scimRequest,
 } from '../helpers/ssoFixtures'
@@ -10,11 +13,19 @@ test.describe('TC-SSO-003: SCIM User Lifecycle', () => {
   test('should create, read, list, patch, and delete a SCIM user', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
+    // Use real OIDC issuer so activation discovery succeeds
     const { configId, cleanup: cleanupConfig } = await createSsoConfigFixture(request, token, {
       jitEnabled: false,
+      issuer: 'https://accounts.google.com',
     })
 
+    // Create SCIM token (before activation — token creation only requires JIT off)
     const { rawToken, cleanup: cleanupToken } = await createScimTokenFixture(request, token, configId)
+
+    // SCIM context resolver requires config to be active — add domain + activate
+    await addDomainFixture(request, token, configId, `scim-test-${stamp}.example.com`)
+    await activateConfigFixture(request, token, configId)
+
     let scimUserId: string | null = null
 
     try {
@@ -82,6 +93,11 @@ test.describe('TC-SSO-003: SCIM User Lifecycle', () => {
         await scimRequest(request, 'DELETE', `/api/sso/scim/v2/Users/${scimUserId}`, rawToken).catch(() => {})
       }
       await cleanupToken()
+      // Deactivate before cleanup can delete
+      await apiRequest(request, 'POST', `/api/sso/config/${configId}/activate`, {
+        token,
+        data: { active: false },
+      }).catch(() => {})
       await cleanupConfig()
     }
   })

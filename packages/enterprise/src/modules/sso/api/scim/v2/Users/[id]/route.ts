@@ -58,8 +58,9 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 }
 
 function handleScimError(err: unknown): Response {
-  if (err instanceof ScimServiceError) {
-    return scimJson(buildScimError(err.statusCode, err.message), err.statusCode)
+  const e = err as any
+  if (err instanceof ScimServiceError || e?.name === 'ScimServiceError') {
+    return scimJson(buildScimError(e.statusCode, e.message), e.statusCode)
   }
   console.error('[SCIM Users API] Error:', err)
   return scimJson(buildScimError(500, 'Internal server error'), 500)

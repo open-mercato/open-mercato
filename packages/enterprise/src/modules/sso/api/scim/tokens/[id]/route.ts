@@ -23,11 +23,12 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 }
 
 function handleError(err: unknown): NextResponse {
-  if (err instanceof SsoAdminAuthError) {
-    return NextResponse.json({ error: err.message }, { status: err.statusCode })
+  const e = err as any
+  if (err instanceof SsoAdminAuthError || e?.name === 'SsoAdminAuthError') {
+    return NextResponse.json({ error: e.message }, { status: e.statusCode })
   }
-  if (err instanceof ScimTokenError) {
-    return NextResponse.json({ error: err.message }, { status: err.statusCode })
+  if (err instanceof ScimTokenError || e?.name === 'ScimTokenError') {
+    return NextResponse.json({ error: e.message }, { status: e.statusCode })
   }
   console.error('[SCIM Tokens API] Error:', err)
   return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
