@@ -1607,6 +1607,12 @@ export function DataTable<T>({
             ?? t('ui.dataTable.bulkAction.success', 'Bulk action completed.'),
           'success',
         )
+        setRowSelection({})
+        if (refreshButton?.onRefresh) {
+          refreshButton.onRefresh()
+        } else {
+          scheduleRouterRefresh(router)
+        }
       } catch (error) {
         flash(
           error instanceof Error
@@ -1616,7 +1622,7 @@ export function DataTable<T>({
         )
       }
     },
-    [extensionTableId, router, selectedRows, t],
+    [extensionTableId, refreshButton, router, selectedRows, t],
   )
 
   const builtToolbar = React.useMemo(() => {
