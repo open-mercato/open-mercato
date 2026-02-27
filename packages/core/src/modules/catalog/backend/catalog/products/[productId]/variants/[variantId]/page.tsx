@@ -444,7 +444,6 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                   },
                 },
               }}
-              viewHref={`/backend/catalog/products/${currentProductId}/variants/${variantId}`}
             />
           )}
           fields={[]}

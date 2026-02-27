@@ -746,7 +746,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                     },
                   },
                 }}
-                viewHref={`/backend/customers/companies/${companyId}`}
               />
             )}
             onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}

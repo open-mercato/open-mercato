@@ -672,7 +672,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     },
                   },
                 }}
-                viewHref={`/backend/customers/people/${personId}`}
               />
             )}
             onDisplayNameSave={updateDisplayName}

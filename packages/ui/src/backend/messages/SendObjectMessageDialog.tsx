@@ -19,7 +19,6 @@ export type SendObjectMessageDialogProps = {
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
   disabled?: boolean
   canCompose?: boolean
-  viewHref?: string | null
   onSuccess?: MessageComposerProps['onSuccess']
 }
 
@@ -63,7 +62,6 @@ export function SendObjectMessageDialog({
   requiredActionConfig = null,
   disabled = false,
   canCompose,
-  viewHref: _viewHref = null,
   onSuccess,
 }: SendObjectMessageDialogProps) {
   const t = useT()

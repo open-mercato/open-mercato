@@ -138,7 +138,6 @@ export default function EditTodoPage({ params }: { params?: { id?: string } }) {
                     },
                   },
                 }}
-                viewHref={`/backend/todos/${id}/edit`}
               />
             )}
             entityId="example:todo"

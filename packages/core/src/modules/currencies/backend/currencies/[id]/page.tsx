@@ -197,7 +197,6 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
                   },
                 },
               }}
-              viewHref={`/backend/currencies/${currency.id}`}
             />
           )}
           fields={[]}

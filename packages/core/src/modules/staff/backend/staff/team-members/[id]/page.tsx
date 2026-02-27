@@ -342,7 +342,6 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
                       },
                     },
                   }}
-                  viewHref={`/backend/staff/team-members/${memberId}`}
                 />
               ) : null}
               <TranslationDrawerAction

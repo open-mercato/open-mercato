@@ -178,7 +178,6 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
                     status: record?.status ?? undefined,
                   },
                 }}
-                viewHref={`/backend/staff/leave-requests/${record.id}`}
                 lockedType="staff.leave_request_approval"
                 requiredActionConfig={{
                   mode: 'required',

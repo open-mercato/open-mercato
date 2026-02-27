@@ -81,7 +81,6 @@ Add `<SendObjectMessageDialog>` to the detail (and where appropriate, list/table
 - `object.entityType` — the entity type string
 - `object.entityId` — the record ID
 - `object.previewData` — lightweight preview populated from the page's already-loaded data
-- `viewHref` — direct link to the entity detail page
 - `lockedType="messages.defaultWithObjects"` — default; can be overridden per context
 
 ---

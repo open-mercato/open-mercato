@@ -342,7 +342,6 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
                     entityId: teamId,
                     previewData: { title: initialValues?.name ?? ''},
                   }}
-                  viewHref={`/backend/staff/teams/${teamId}/edit`}
                 />
               ) : undefined}
             />

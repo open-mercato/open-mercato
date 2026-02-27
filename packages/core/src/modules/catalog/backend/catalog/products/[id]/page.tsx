@@ -1215,7 +1215,6 @@ export default function EditCatalogProductPage({
                   title: initialValues?.title ?? productId,
                 }
               }}
-              viewHref={`/backend/catalog/products/${productId}/edit`}
             />
           ) : undefined}
           fields={[]}

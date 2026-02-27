@@ -502,7 +502,6 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
                         title: resourceTitle,
                       },
                     }}
-                    viewHref={`/backend/resources/resources/${resourceId}`}
                   />
                 ) : null}
                 <VersionHistoryAction

@@ -122,7 +122,6 @@ export default function StaffMyAvailabilityPage() {
                   entityId: member.availabilityRuleSetId,
                   previewData: { title: member.displayName ?? t('staff.myAvailability.title', 'My Availability') },
                 }}
-                viewHref="/backend/staff/my-availability"
               />
             </div>
           ) : null}

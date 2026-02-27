@@ -141,7 +141,6 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
                     },
                   },
                 }}
-                viewHref={`/backend/sales/channels/${channelId}/edit`}
               />
             ) : undefined}
             entityId={E.sales.sales_channel}

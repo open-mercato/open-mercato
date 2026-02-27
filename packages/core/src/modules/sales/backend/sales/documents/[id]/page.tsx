@@ -4457,7 +4457,6 @@ export default function SalesDocumentDetailPage({
                     metadata: Object.keys(messagePreviewMetadata).length > 0 ? messagePreviewMetadata : undefined,
                   },
                 }}
-                viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
                 defaultValues={{
                   sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
                   sourceEntityId: record.id,

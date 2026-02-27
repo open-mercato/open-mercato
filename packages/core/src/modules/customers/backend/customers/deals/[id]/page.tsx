@@ -422,7 +422,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                       metadata: Object.keys(dealPreviewMetadata).length > 0 ? dealPreviewMetadata : undefined,
                     },
                   }}
-                  viewHref={`/backend/customers/deals/${data.deal.id}`}
                   defaultValues={{
                     sourceEntityType: 'customers.deal',
                     sourceEntityId: data.deal.id,

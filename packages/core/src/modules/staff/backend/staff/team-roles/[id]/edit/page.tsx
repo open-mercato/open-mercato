@@ -152,7 +152,6 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
                 entityId: roleId,
                 previewData: { title: initialValues?.name ?? ''},
               }}
-              viewHref={`/backend/staff/team-roles/${roleId}/edit`}
             />
           ) : undefined}
         />

@@ -224,7 +224,6 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
                   entityId: categoryId,
                   previewData: { title: initialValues?.name ?? categoryId },
                 }}
-                viewHref={`/backend/catalog/categories/${categoryId}/edit`}
               />
               {pathLabel ? (
                 <span className="text-xs text-muted-foreground">
