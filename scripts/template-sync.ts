@@ -1,12 +1,12 @@
 /**
  * Template sync checker/fixer for create-app scaffold parity.
  *
- * Keeps `packages/create-app/template/src/{app,modules}` aligned with
- * `apps/mercato/src/{app,modules}` for shared layout/routes/module scaffolding.
+ * Keeps `packages/create-app/template/src/{app,components,modules}` aligned with
+ * `apps/mercato/src/{app,components,modules}` for shared layout/routes/module scaffolding.
  *
  * Usage:
  *   tsx scripts/template-sync.ts          # check only (exit 1 on drift)
- *   tsx scripts/template-sync.ts --fix    # sync template from app source
+ *   tsx scripts/template-sync.ts --fix    # full mirror sync (overwrite from app source)
  *   tsx scripts/template-sync.ts --ask    # when drift is found, prompt to sync
  */
 
@@ -21,7 +21,7 @@ const ROOT = path.resolve(path.dirname(__filename_), '..')
 
 const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
-const SYNC_FOLDERS = ['app', 'modules'] as const
+const SYNC_FOLDERS = ['app', 'components', 'modules'] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
@@ -131,7 +131,7 @@ function computeDrift(): Drift[] {
 
 function printDrift(drifts: Drift[]): void {
   if (drifts.length === 0) {
-    console.log(green('Template sync check passed: app and template are in sync for src/app and src/modules.'))
+    console.log(green('Template sync check passed: app and template are in sync for src/app, src/components, and src/modules.'))
     return
   }
 
@@ -156,6 +156,37 @@ function printDrift(drifts: Drift[]): void {
   if (drifts.length > preview.length) {
     console.log(dim(`  ... and ${drifts.length - preview.length} more`))
   }
+}
+
+function applyFullSync(): number {
+  const sourceFiles = collectSourceFiles()
+  const templateFiles = collectTemplateFiles()
+  const sourceRelSet = new Set(sourceFiles.map((file) => path.relative(APP_SRC_ROOT, file)))
+  let updated = 0
+
+  // Always rewrite template targets from source of truth.
+  for (const sourceFile of sourceFiles) {
+    const rel = path.relative(APP_SRC_ROOT, sourceFile)
+    const templateFile = path.join(TEMPLATE_SRC_ROOT, rel)
+    const source = fs.readFileSync(sourceFile)
+    const expectedTemplate = getExpectedTemplateContent(rel, source)
+    const current = fs.existsSync(templateFile) ? fs.readFileSync(templateFile) : null
+    if (current && current.equals(expectedTemplate)) continue
+    fs.mkdirSync(path.dirname(templateFile), { recursive: true })
+    fs.writeFileSync(templateFile, expectedTemplate)
+    updated++
+  }
+
+  // Remove template files that are not in source (except explicit template-only files).
+  for (const templateFile of templateFiles) {
+    const rel = path.relative(TEMPLATE_SRC_ROOT, templateFile)
+    if (TEMPLATE_ONLY_RELATIVE_FILES.has(rel)) continue
+    if (sourceRelSet.has(rel)) continue
+    fs.rmSync(templateFile, { force: true })
+    updated++
+  }
+
+  return updated
 }
 
 function applySync(drifts: Drift[]): number {
@@ -222,7 +253,7 @@ async function main() {
     }
   }
 
-  const updated = applySync(drifts)
+  const updated = applyFullSync()
   console.log(green(`Synced ${updated} file(s) into packages/create-app/template/src.`))
   process.exit(0)
 }
