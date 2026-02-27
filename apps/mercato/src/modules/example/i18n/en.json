@@ -7,6 +7,8 @@
   "example.menu.quickAddTodo": "Quick Add Todo",
   "example.menu.todosShortcut": "Example Todos",
   "example.menu.umesExtensions": "UMES E-H",
+  "example.messageObjects.notFound": "Not found",
+  "example.messageObjects.todo.title": "Todo",
   "example.moduleTitle": "Example Module",
   "example.nav.group": "Example",
   "example.priority.action.open": "Open customer",

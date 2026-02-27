@@ -7,6 +7,8 @@
   "example.menu.quickAddTodo": "Schnell Aufgabe anlegen",
   "example.menu.todosShortcut": "Beispielaufgaben",
   "example.menu.umesExtensions": "UMES E-H",
+  "example.messageObjects.notFound": "Nicht gefunden",
+  "example.messageObjects.todo.title": "To-do",
   "example.moduleTitle": "Beispielmodul",
   "example.nav.group": "Beispiel",
   "example.priority.action.open": "Kunde öffnen",

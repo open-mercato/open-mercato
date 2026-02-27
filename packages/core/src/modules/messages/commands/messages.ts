@@ -477,6 +477,10 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
           }
         }
       }
+
+      if (recipientIds.size === 0 && original.senderUserId === input.userId) {
+        recipientIds.add(input.userId)
+      }
     }
     if (recipientIds.size === 0) throw new Error('No recipients available for reply')
 

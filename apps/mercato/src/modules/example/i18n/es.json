@@ -7,6 +7,8 @@
   "example.menu.quickAddTodo": "Agregar tarea rápida",
   "example.menu.todosShortcut": "Tareas de ejemplo",
   "example.menu.umesExtensions": "UMES E-H",
+  "example.messageObjects.notFound": "No encontrado",
+  "example.messageObjects.todo.title": "Tarea",
   "example.moduleTitle": "Módulo de ejemplo",
   "example.nav.group": "Ejemplo",
   "example.priority.action.open": "Open customer",
