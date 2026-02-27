@@ -9,7 +9,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -46,15 +45,6 @@ type MessageListResponse = {
   page?: number
   pageSize?: number
   totalPages?: number
-}
-
-type MessageListQueryResult = {
-  items: MessageListItem[]
-  total: number
-  page: number
-  pageSize: number
-  totalPages: number
-  accessDenied: boolean
 }
 
 type MessageTypeItem = {
@@ -148,16 +138,6 @@ export function MessagesInboxPageClient() {
 
       const call = await apiCall<MessageListResponse>(`/api/messages?${params.toString()}`)
       if (!call.ok) {
-        if (call.status === 403) {
-          return {
-            items: [],
-            total: 0,
-            page,
-            pageSize,
-            totalPages: 1,
-            accessDenied: true,
-          } satisfies MessageListQueryResult
-        }
         throw new Error(
           toErrorMessage(call.result)
           ?? t('messages.errors.loadListFailed', 'Failed to load messages.'),
@@ -170,8 +150,7 @@ export function MessagesInboxPageClient() {
         page: Number(call.result?.page ?? page),
         pageSize: Number(call.result?.pageSize ?? pageSize),
         totalPages: Number(call.result?.totalPages ?? 1),
-        accessDenied: false,
-      } satisfies MessageListQueryResult
+      }
     },
   })
 
@@ -192,14 +171,13 @@ export function MessagesInboxPageClient() {
 
   React.useEffect(() => {
     if (!listQuery.error) return
-    if (listQuery.data?.accessDenied) return
     flash(
       listQuery.error instanceof Error
         ? listQuery.error.message
         : t('messages.errors.loadListFailed', 'Failed to load messages.'),
       'error',
     )
-  }, [listQuery.error, listQuery.data?.accessDenied, t])
+  }, [listQuery.error, t])
 
   React.useEffect(() => {
     if (!messageTypesQuery.error) return
@@ -396,24 +374,9 @@ export function MessagesInboxPageClient() {
     }
   }, [folderMenuOpen])
 
-  const accessDenied = listQuery.data?.accessDenied === true
   const rows = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
   const totalPages = listQuery.data?.totalPages ?? 1
-
-  if (accessDenied) {
-    return (
-      <div className="space-y-4">
-        <ErrorMessage
-          label={t('messages.access.disabled.title', 'Messages module is disabled for your role.')}
-          description={t(
-            'messages.access.disabled.description',
-            'Ask your administrator to enable the required Messages permissions.',
-          )}
-        />
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-4">
