@@ -1,8 +1,8 @@
 /**
  * Template sync checker/fixer for create-app scaffold parity.
  *
- * Keeps `packages/create-app/template/src/{app,components,modules}` aligned with
- * `apps/mercato/src/{app,components,modules}` for shared layout/routes/module scaffolding.
+ * Keeps `packages/create-app/template/src/{app,components,modules}` and selected
+ * root src files aligned with app source for shared layout/routes/module scaffolding.
  *
  * Usage:
  *   tsx scripts/template-sync.ts          # check only (exit 1 on drift)
@@ -22,6 +22,7 @@ const ROOT = path.resolve(path.dirname(__filename_), '..')
 const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
 const SYNC_FOLDERS = ['app', 'components', 'modules'] as const
+const SYNC_ROOT_FILES = ['bootstrap.ts'] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
@@ -52,7 +53,7 @@ function relFromRoot(absPath: string): string {
 }
 
 function collectSourceFiles(): string[] {
-  const files = SYNC_FOLDERS.flatMap((folder) =>
+  const folderFiles = SYNC_FOLDERS.flatMap((folder) =>
     globSync(`${folder}/**/*`, {
       cwd: APP_SRC_ROOT,
       absolute: true,
@@ -60,11 +61,14 @@ function collectSourceFiles(): string[] {
       ignore: ['**/node_modules/**', '**/.DS_Store'],
     }),
   )
-  return files.sort()
+  const rootFiles = SYNC_ROOT_FILES
+    .map((rel) => path.join(APP_SRC_ROOT, rel))
+    .filter((abs) => fs.existsSync(abs))
+  return [...folderFiles, ...rootFiles].sort()
 }
 
 function collectTemplateFiles(): string[] {
-  const files = SYNC_FOLDERS.flatMap((folder) =>
+  const folderFiles = SYNC_FOLDERS.flatMap((folder) =>
     globSync(`${folder}/**/*`, {
       cwd: TEMPLATE_SRC_ROOT,
       absolute: true,
@@ -72,7 +76,10 @@ function collectTemplateFiles(): string[] {
       ignore: ['**/node_modules/**', '**/.DS_Store'],
     }),
   )
-  return files.sort()
+  const rootFiles = SYNC_ROOT_FILES
+    .map((rel) => path.join(TEMPLATE_SRC_ROOT, rel))
+    .filter((abs) => fs.existsSync(abs))
+  return [...folderFiles, ...rootFiles].sort()
 }
 
 function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {
@@ -131,7 +138,7 @@ function computeDrift(): Drift[] {
 
 function printDrift(drifts: Drift[]): void {
   if (drifts.length === 0) {
-    console.log(green('Template sync check passed: app and template are in sync for src/app, src/components, and src/modules.'))
+    console.log(green('Template sync check passed: app and template are in sync for src/app, src/components, src/modules, and synced root src files.'))
     return
   }
 
@@ -227,7 +234,7 @@ async function main() {
     process.exit(2)
   }
 
-  console.log(cyan('[template-sync] Checking src/app and src/modules parity...'))
+  console.log(cyan('[template-sync] Checking template parity for synced src folders and root files...'))
   const drifts = computeDrift()
   printDrift(drifts)
 
