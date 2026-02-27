@@ -158,11 +158,9 @@ export function normalizeCode(code: string): string {
     .replace(/\n?```\s*$/, '')
     .trim()
 
-  // Validate it looks like an async arrow function
+  // Auto-wrap bare expressions into async arrow functions
   if (!/^\s*async\s*\(/.test(normalized)) {
-    throw new Error(
-      'Code must be an async arrow function, e.g.: async () => { ... }'
-    )
+    normalized = `async () => { return ${normalized} }`
   }
 
   return normalized
