@@ -5,6 +5,7 @@
 - Replace split model (`activities` + external `todo links` + manual `next interaction`) with one first-class object: `CustomerInteraction`.
 - Compute `next interaction` automatically from the nearest open interaction date.
 - Keep existing API paths (`/customers/activities`, `/customers/todos`) as deprecated adapter bridges for at least one minor release.
+- Move external task providers (e.g., Trello) to UMES extension sync around canonical interactions, not into the core write path.
 
 **Scope:**
 - New `customer_interactions` entity and CRUD API.
@@ -12,11 +13,13 @@
 - UI migration of Tasks/Activities to one interaction backend.
 - Data migration from `customer_activities` and `customer_todo_links`.
 - Legacy endpoints stay available as compatibility adapters; no legacy table drops in this spec.
+- UMES-ready integration contract: external ID mapping + event-driven outbound/inbound sync with idempotency.
 
 **Concerns:**
 - Migration quality when old todo providers are unavailable.
 - Backward compatibility for existing clients and UI hooks.
 - Temporary dual-contract maintenance (canonical + legacy adapters) during the deprecation window.
+- Preventing sync loops and duplicate objects when external providers are enabled.
 
 ## Overview
 Customers module currently represents follow-up work in three places:
@@ -34,8 +37,9 @@ This specification unifies all planned/completed customer interactions into one 
 Current UX and data model issues:
 1. Same business intent is split between tasks and activities.
 2. `next_interaction_*` is mutable data that can drift from actual open work.
-3. Tasks depend on provider link indirection (`todoSource`), adding complexity for listing, updating, and migration.
+3. Tasks currently depend on provider delegation (`todoSource` -> `<module>.todos.create`), coupling core CRM writes to provider availability.
 4. Dashboard "next interactions" reads from manual fields, not from source-of-truth action items.
+5. Existing provider model conflicts with UMES direction where integrations extend core behavior via enrichers/interceptors/subscribers instead of owning primary core persistence.
 
 Result: users are confused, reporting and prioritization are harder, and consistency must be maintained manually.
 
@@ -51,6 +55,7 @@ Introduce a single `CustomerInteraction` domain object for both planned and comp
    - scoped per customer entity,
    - with deterministic tie-breakers.
 5. `customer_entities.next_interaction_*` remains as read-optimized projection, not user-authored truth.
+6. External providers are optional mirrors implemented as UMES/integration extensions; `customer_interactions` is the only source-of-truth in OM core.
 
 ### Design Decisions
 | Decision | Rationale |
@@ -60,6 +65,7 @@ Introduce a single `CustomerInteraction` domain object for both planned and comp
 | Keep old APIs as adapters for >=1 minor | Comply with backward-compatibility contract while moving all new domain writes to canonical commands |
 | Compute projection synchronously on writes + background reconciler | Immediate UX consistency with recovery safety net |
 | Keep legacy tables additive/read-only in this release | Schema removals are not allowed in the same release under repo BC rules |
+| Use UMES extension sync for external systems | Preserves provider extensibility (Trello, etc.) without making provider calls part of core transaction |
 
 ### Alternatives Considered
 | Alternative | Why Rejected |
@@ -67,6 +73,7 @@ Introduce a single `CustomerInteraction` domain object for both planned and comp
 | Keep split model and add stronger UI hints | Does not remove data drift; still cognitively expensive |
 | Remove projection columns, compute next on every read | Heavier queries on high-volume lists/widgets |
 | Keep provider-linked todos as primary model | Preserves indirection and complexity causing current confusion |
+| Make external provider authoritative (core as mirror) | Breaks offline/local reliability and makes CRM unusable when provider is unavailable |
 
 ## User Stories / Use Cases
 - **SDR** wants one place to add call/email/task follow-ups so that planning is simple.
@@ -79,12 +86,34 @@ Unified write path:
 1. UI/API create/update/complete/cancel interaction.
 2. Command mutates `customer_interactions`.
 3. Same command recalculates customer projection (`next_interaction_*`) for affected entity.
-4. Event emitted for indexing/audit (`customers.interaction.*`).
+4. Events emitted for indexing/audit/integration hooks (`customers.interaction.*`).
 
 Read path:
 1. Detail pages query interactions directly.
 2. Legacy endpoints map to filtered interaction queries.
 3. Dashboard next interactions reads projection fields (kept current by write path and reconciler).
+
+### UMES Integration Model (Post-SPEC-041)
+Authoritative model:
+1. OM core persists canonical `customer_interactions`.
+2. Integration modules observe interaction events and optionally sync to external providers.
+3. External references are stored as mappings (e.g., `sync_external_id_mappings`) keyed by `integrationId + entityType(customers.interaction) + localId`.
+
+Outbound sync (OM -> provider):
+1. `customers.interaction.created|updated|completed|canceled|deleted` event is emitted.
+2. Integration subscriber enqueues provider sync job (never blocks core transaction).
+3. Job upserts provider object (e.g., Trello card), then upserts mapping row idempotently.
+
+Inbound sync (provider -> OM):
+1. Integration webhook/worker resolves mapping by `integrationId + externalId`.
+2. If mapping exists, apply canonical interaction command (`update|complete|cancel`).
+3. If mapping does not exist and policy allows, create canonical interaction then mapping.
+4. Tag mutation metadata with `_syncOrigin=<integrationId>`; outbound subscriber skips same-origin events to prevent loops.
+
+Conflict policy:
+1. Core fields (`status`, `scheduledAt`, `occurredAt`) use last-write-wins with source timestamp.
+2. Provider-specific fields stay in extension namespace (`_integrations.<integrationId>.*`) via enrichers.
+3. If conflict cannot be auto-resolved, keep core state and record integration warning for manual resolution.
 
 ### Commands & Events
 - **Commands**
@@ -99,6 +128,7 @@ Read path:
   - `customers.interaction.updated`
   - `customers.interaction.completed`
   - `customers.interaction.canceled`
+  - `customers.interaction.deleted`
   - `customers.next_interaction.updated`
 
 ## Data Models
@@ -138,6 +168,11 @@ Legacy tables:
 - `customer_activities`: deprecated (read-only compatibility window).
 - `customer_todo_links`: deprecated (read-only compatibility window).
 
+### External Mapping (UMES/Integrations)
+- Use integration mapping storage (per SPEC-045b / SPEC-041l pattern) to link `customer_interactions.id` to external task IDs.
+- Mapping records are additive and tenant/org scoped; they do not duplicate interaction business state.
+- Canonical interaction payload is provider-agnostic; provider-specific metadata is exposed via enrichers (`_integrations` namespace).
+
 ## API Contracts
 ### New canonical endpoints
 #### `GET /api/customers/interactions`
@@ -149,6 +184,9 @@ Legacy tables:
 #### `POST /api/customers/interactions`
 - Body: `entityId`, `interactionType`, optional `title`, `body`, `scheduledAt`, `ownerUserId`, `priority`, `dealId`.
 - Response: `{ id: "<uuid>" }` + undo metadata header.
+- Notes:
+  - No provider-specific required fields in canonical contract.
+  - Extension sync runs asynchronously through event subscribers/queues.
 
 #### `PUT /api/customers/interactions`
 - Body: `id` + mutable fields.
@@ -189,6 +227,15 @@ Legacy tables:
 - No writes to `customer_todo_links` table.
 - Response includes deprecation headers (`Deprecation`, `Sunset`) and migration docs link.
 
+### UMES integration response contract
+- Detail/list endpoints MAY include enriched integration data under `_integrations`.
+- Canonical shape remains stable even when no integrations are installed.
+- Example namespace:
+  - `_integrations.trello.externalId`
+  - `_integrations.trello.externalUrl`
+  - `_integrations.trello.syncStatus`
+  - `_integrations.trello.lastSyncedAt`
+
 ### Detail endpoint include tokens
 - Add `include=interactions`.
 - Keep `include=activities` and `include=todos|tasks` as filtered views over interactions.
@@ -217,9 +264,15 @@ New keys:
 - `next-interactions` widget continues reading projection fields.
 - `customer-todos` widget queries interactions filtered as actionable.
 
+### UMES extension widgets (optional)
+- Integration status badges (SPEC-041l) can expose per-provider health.
+- External ID mapping widget can show linked provider object for an interaction/customer.
+- Disabling an integration extension does not remove local interactions.
+
 ## Configuration
 - Feature flag: `customers.interactions.unified` (default off in first release, on by default after migration validation).
 - Feature flag: `customers.interactions.legacy-adapters` (default on during transition, removable later).
+- Feature flag: `customers.interactions.external-sync` (default off; enabled per integration rollout).
 
 ## Migration & Compatibility
 ### Backward compatibility contract
@@ -240,11 +293,13 @@ This spec follows the deprecation protocol for contract surfaces (API routes, re
    - resolve linked todo records using query engine where possible,
    - map title/status/due/priority/severity to interaction fields,
    - set `source = migration:todo_link`.
-4. Recompute `next_interaction_*` for all customer entities.
-5. Enable compatibility adapters.
-6. Switch UI to canonical interactions API.
-7. Freeze legacy tables to read-only compatibility/audit role; do not drop in this release.
-8. Publish deprecation timeline and release notes, then schedule dedicated legacy-removal spec for a later release.
+4. For resolvable external links, upsert integration mappings to canonical interaction IDs (idempotent).
+5. Recompute `next_interaction_*` for all customer entities.
+6. Enable compatibility adapters.
+7. Switch UI to canonical interactions API.
+8. Freeze legacy tables to read-only compatibility/audit role; do not drop in this release.
+9. Enable outbound sync per integration after backfill validation to avoid duplicate provider objects.
+10. Publish deprecation timeline and release notes, then schedule dedicated legacy-removal spec for a later release.
 
 ### Next interaction derivation algorithm
 Given all interactions for one `entity_id`:
@@ -267,11 +322,13 @@ Given all interactions for one `entity_id`:
 - Derived `next_interaction_*` projection maintained on every write.
 - Legacy API adapters (`/activities`, `/todos`) preserved with deprecation headers for compatibility.
 - Backfill + reconciler rollout with feature flags and integration coverage.
+- UMES-compatible sync contract for external providers (async, idempotent, non-blocking).
 
 ### Future Work (out of scope here)
 - Hard removal of legacy APIs (`/customers/activities`, `/customers/todos`) after deprecation window.
 - Hard removal/archival strategy for legacy tables in a dedicated breaking-change spec.
 - Optional dedicated worker-only mode for very large-tenant projection recompute.
+- Provider-specific setup wizards/status dashboards beyond baseline sync contract (delivered by integration modules).
 
 ## Implementation Plan
 ### Phase 1: Domain foundation
@@ -295,10 +352,16 @@ Given all interactions for one `entity_id`:
 1. Update customer todos table query source to interactions.
 2. Validate next interactions widget correctness with derived projection.
 
-### Phase 5: Data migration and rollout
+### Phase 5: UMES integration bridge
+1. Emit full interaction lifecycle events (including `deleted`) for sync subscribers.
+2. Add integration enricher contract for `_integrations` payload on interaction-aware endpoints.
+3. Implement sync subscriber/webhook reference flow with `_syncOrigin` loop protection.
+4. Ensure integration failures are non-blocking for canonical writes (queue + retry).
+
+### Phase 6: Data migration and rollout
 1. Generate DB migration via `yarn db:generate` (no hand-written migration files).
-2. Run recompute and consistency checks.
-3. Enable feature flag progressively.
+2. Backfill interaction + mapping data and run recompute/consistency checks.
+3. Enable feature flags progressively.
 4. Publish release notes with deprecation timeline and adapter sunset target.
 
 ### File Manifest
@@ -317,6 +380,11 @@ Given all interactions for one `entity_id`:
 | `packages/core/src/modules/customers/components/detail/hooks/usePersonTasks.ts` | Modify | Use interactions API |
 | `packages/core/src/modules/customers/components/detail/*Activities*` | Modify | Use interactions API |
 | `packages/core/src/modules/customers/api/dashboard/widgets/next-interactions/route.ts` | Modify | Ensure projection contract stays stable |
+| `packages/core/src/modules/customers/events.ts` | Modify | Ensure full lifecycle events (including `deleted`) for integration hooks |
+| `packages/core/src/modules/integrations/data/enrichers.ts` | Modify | Add `_integrations` mapping enrichment for interaction-backed views |
+| `packages/core/src/modules/<integration>/subscribers/*interaction*` | Create | Outbound sync subscriber from interaction events |
+| `packages/core/src/modules/<integration>/workers/*sync*` | Create | Provider sync workers with retry/idempotency |
+| `packages/core/src/modules/<integration>/api/post/webhooks/*` | Create | Inbound provider updates mapped to canonical interaction commands |
 | `packages/core/src/modules/customers/migrations/<generated>.ts` | Generate | DB schema/backfill generated by `yarn db:generate` |
 | `RELEASE_NOTES.md` | Modify | Add deprecation notice and migration timeline for legacy endpoints |
 
@@ -332,12 +400,16 @@ API paths:
 8. `GET /api/customers/companies/{id}?include=activities,todos,interactions`
 9. Cursor pagination contract on `GET /api/customers/interactions` (`limit <= 100`, `nextCursor`)
 10. Verify legacy adapter writes do not persist to legacy tables
+11. Verify interaction lifecycle events trigger integration sync enqueue (when extension enabled)
+12. Verify inbound provider webhook update is idempotent and loop-safe (`_syncOrigin` guard)
+13. Verify `_integrations` enrichment appears when mapping exists and is absent when extension disabled
 
 Key UI paths:
 1. `/backend/customers/people/[id]` (tabs: tasks/activities)
 2. `/backend/customers/companies/[id]` (tabs: tasks/activities)
 3. `/backend/customer-tasks`
 4. Dashboard widget: next interactions
+5. Integration status badge and external mapping section (if extension installed)
 
 ## Risks & Impact Review
 ### Data Integrity Failures
@@ -391,7 +463,28 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Mitigation**: dedicated indexes and strict page-size caps.
 - **Residual risk**: hotspots for very large tenants until tuning.
 
-## Final Compliance Report — 2026-02-27
+#### Sync Loop / Duplicate External Objects
+- **Scenario**: outbound sync triggers inbound webhook that re-triggers outbound sync, creating loop or duplicates.
+- **Severity**: High
+- **Affected area**: external provider data quality, queue load.
+- **Mitigation**: `_syncOrigin` tag, idempotent mapping upserts, dedupe keys in queue jobs.
+- **Residual risk**: provider-side eventual consistency may still create short-lived duplicate attempts.
+
+#### Provider Outage Affecting Core Writes
+- **Scenario**: provider API outage during sync attempts.
+- **Severity**: High
+- **Affected area**: integration freshness.
+- **Mitigation**: async non-blocking sync with retries; core interaction write succeeds independently.
+- **Residual risk**: delayed external consistency until provider recovery.
+
+#### Mapping Drift
+- **Scenario**: local interaction exists but external mapping is stale or missing.
+- **Severity**: Medium
+- **Affected area**: deep links/status rendering for integrated providers.
+- **Mitigation**: periodic reconciliation worker and missing-mapping repair flow.
+- **Residual risk**: stale badge/status until next successful reconcile.
+
+## Final Compliance Report — 2026-02-28
 
 ### AGENTS.md Files Reviewed
 - `AGENTS.md` (root)
@@ -399,6 +492,7 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - `packages/core/AGENTS.md`
 - `packages/core/src/modules/customers/AGENTS.md`
 - `packages/ui/AGENTS.md`
+- `packages/events/AGENTS.md`
 
 ### Compliance Matrix
 | Rule Source | Rule | Status | Notes |
@@ -411,9 +505,11 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 | root `AGENTS.md` | Database schema is additive-only | Compliant | No table drop in this release |
 | root `AGENTS.md` | Keep `pageSize` at or below 100 | Compliant | Canonical list contract enforces `limit <= 100` |
 | root `AGENTS.md` | Never hand-write migrations | Compliant | Migration files generated via `yarn db:generate` |
+| root `AGENTS.md` | Module isolation via events, not direct cross-module coupling | Compliant | UMES sync uses subscribers/enrichers + mapping IDs, not direct provider coupling in core commands |
 | `.ai/specs/AGENTS.md` | Include required spec sections | Compliant | All mandatory sections included |
 | `customers/AGENTS.md` | Use customers module CRUD patterns | Compliant | Commands/routes follow existing customers conventions |
 | `packages/ui/AGENTS.md` | Non-`CrudForm` writes use guarded mutation | Compliant | UI migration section requires existing guarded mutation patterns for adapter writes |
+| `packages/events/AGENTS.md` | Event-driven side effects and durable subscribers | Compliant | External sync flows are event-driven and retryable by worker/subscriber design |
 
 ### Internal Consistency Check
 | Check | Status | Notes |
@@ -424,6 +520,7 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 | Commands defined for all mutations | Pass | Full mutation set listed |
 | Cache/projection strategy covers read APIs | Pass | `next_interaction_*` remains read projection |
 | Backward-compatibility contract is explicit | Pass | Deprecation protocol and release-note requirement documented |
+| UMES integration path preserves core source-of-truth | Pass | External providers are extensions around canonical interactions |
 
 ### Non-Compliant Items
 - None.
@@ -432,6 +529,12 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Fully compliant**: Approved for implementation planning.
 
 ## Changelog
+### 2026-02-28 (rev 3)
+- Reframed spec as UMES-native: canonical interactions remain core source-of-truth, providers become optional extension mirrors.
+- Added integration contract for outbound/inbound sync (events, queue retries, idempotent mapping upserts, `_syncOrigin` loop protection).
+- Added external mapping/enrichment model (`_integrations` namespace) aligned with integration specs.
+- Expanded phases, file manifest, tests, risks, and compliance to include UMES integration behavior.
+
 ### 2026-02-27 (rev 2)
 - Switched rollout strategy to bridge mode: legacy APIs remain as deprecated adapters for >=1 minor release.
 - Removed legacy table drop from this release scope; marked as follow-up removal spec.
