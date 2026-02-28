@@ -344,7 +344,7 @@ export default function UmesExtensionsPage() {
         </div>
 
         <div className="space-y-2 rounded border border-border p-4">
-          <h2 className="text-base font-semibold">Phase H — Component replacement</h2>
+          <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseH.title', 'Phase H — Component replacement')}</h2>
           <p className="text-sm text-muted-foreground">
             Active replacement handles in this area: page, DataTable, CrudForm, and the `ui.detail:NotesSection` wrapper declared in `example/widgets/components.ts`.
           </p>

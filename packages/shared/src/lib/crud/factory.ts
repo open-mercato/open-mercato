@@ -811,7 +811,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
     let userFeatures: string[] | undefined
     try {
-      const rbac = (ctx.container.resolve('rbacService') as any)
+      const rbac = ctx.container.resolve('rbacService') as { getGrantedFeatures?: (userId: string, scope: { tenantId: string | null; organizationId: string | null }) => Promise<string[]> } | undefined
       if (rbac?.getGrantedFeatures) {
         userFeatures = await rbac.getGrantedFeatures(ctx.auth.sub, {
           tenantId: ctx.auth.tenantId,
@@ -835,7 +835,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
     if (!ctx.auth) return undefined
     try {
-      const rbac = (ctx.container.resolve('rbacService') as any)
+      const rbac = ctx.container.resolve('rbacService') as { getGrantedFeatures?: (userId: string, scope: { tenantId: string | null; organizationId: string | null }) => Promise<string[]> } | undefined
       if (rbac?.getGrantedFeatures) {
         return await rbac.getGrantedFeatures(ctx.auth.sub, {
           tenantId: ctx.auth.tenantId,
@@ -901,7 +901,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     headers?: Record<string, string>
   }): Promise<{ ok: boolean; statusCode: number; body: Record<string, unknown>; headers: Record<string, string> } | null> {
     const interceptorContext = await buildInterceptorContext(args.ctx)
-    if (!interceptorContext) return null
+    if (!interceptorContext) return { ok: true, statusCode: args.statusCode, body: args.body, headers: args.headers ?? {} }
     const result = await runApiInterceptorsAfter({
       routePath: normalizeInterceptorRoutePath(args.request),
       method: args.method,
@@ -1483,16 +1483,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           statusCode: 200,
           body: emptyPayload as Record<string, unknown>,
         })
-          if (!fallbackEmptyAfterInterceptors) {
-            finishProfile({
-              result: 'interceptor_after_empty',
+        if (!fallbackEmptyAfterInterceptors) {
+          finishProfile({
+            result: 'interceptor_after_empty',
             cacheStatus,
             itemCount: 0,
             total: 0,
             branch: 'fallback',
-            })
-            return json({ error: 'Internal interceptor error' }, { status: 500 })
-          }
+          })
+          return json({ error: 'Internal interceptor error' }, { status: 500 })
+        }
         if (!fallbackEmptyAfterInterceptors.ok) {
           finishProfile({ result: 'interceptor_after_failed', cacheStatus, itemCount: 0, total: 0, branch: 'fallback' })
           return json(fallbackEmptyAfterInterceptors.body, { status: fallbackEmptyAfterInterceptors.statusCode, headers: fallbackEmptyAfterInterceptors.headers })

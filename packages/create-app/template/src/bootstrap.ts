@@ -73,7 +73,7 @@ export const bootstrap = createBootstrap({
   analyticsModuleConfigs,
   enricherEntries,
   interceptorEntries,
-  componentOverrideEntries
+  componentOverrideEntries,
 })
 
 export { isBootstrapped }

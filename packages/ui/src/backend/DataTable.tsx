@@ -37,6 +37,7 @@ import type {
   InjectionRowActionDefinition,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 
 let refreshScheduled = false
 function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
@@ -209,7 +210,7 @@ function collectUniqueById<T extends { id: string }>(
     if (!entry.id) continue
     if (byId.has(entry.id)) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn(`[UMES] Duplicate injected ${warningScope} id "${entry.id}" detected. Keeping the higher-priority entry.`)
+        console.warn(`[UMES] Duplicate injected ${warningScope} id "${entry.id}" detected. Keeping the first entry.`)
       }
       continue
     }
@@ -813,7 +814,7 @@ export function DataTable<T>({
   const { widgets: filterWidgets } = useInjectionDataWidgets(
     extensionTableId ? `data-table:${extensionTableId}:filters` : '__disabled__:filters',
   )
-  const injectedColumns = React.useMemo<ColumnDef<T, unknown>[]>(() => {
+  const injectedColumnDefs = React.useMemo<{ def: ColumnDef<T, unknown>; placement: InjectionColumnDefinition['placement'] }[]>(() => {
     const entries: InjectionColumnDefinition[] = []
     for (const widget of columnWidgets) {
       if (!('columns' in widget)) continue
@@ -822,12 +823,15 @@ export function DataTable<T>({
       }
     }
     return collectUniqueById(entries, 'column').map((definition) => ({
-      id: definition.id,
-      accessorFn: (row: T) => readInjectedColumnValue(row, definition.accessorKey),
-      header: t(definition.header, definition.header),
-      cell: definition.cell as ColumnDef<T, unknown>['cell'],
-      size: definition.size,
-      enableSorting: definition.sortable === true,
+      def: {
+        id: definition.id,
+        accessorFn: (row: T) => readInjectedColumnValue(row, definition.accessorKey),
+        header: t(definition.header, definition.header),
+        cell: definition.cell as ColumnDef<T, unknown>['cell'],
+        size: definition.size,
+        enableSorting: definition.sortable === true,
+      },
+      placement: definition.placement,
     }))
   }, [columnWidgets, t])
   const injectedRowActions = React.useMemo<InjectionRowActionDefinition[]>(() => {
@@ -850,13 +854,16 @@ export function DataTable<T>({
     }
     return collectUniqueById(entries, 'bulk action')
   }, [bulkActionWidgets])
-  const injectedFilters = React.useMemo<FilterDef[]>(() => {
+  const { serverFilters: injectedFilters, clientFilters: injectedClientFilters } = React.useMemo<{
+    serverFilters: FilterDef[]
+    clientFilters: { id: string; filterFn: (row: unknown, value: unknown) => boolean }[]
+  }>(() => {
     const byId = new Map<string, FilterDef>()
+    const clientEntries: { id: string; filterFn: (row: unknown, value: unknown) => boolean }[] = []
     for (const widget of filterWidgets) {
       if (!('filters' in widget)) continue
       for (const definition of widget.filters ?? []) {
         const filter = definition as InjectionFilterDefinition
-        if (filter.strategy !== 'server') continue
         const mappedType: FilterDef['type'] =
           filter.type === 'date-range'
             ? 'dateRange'
@@ -866,6 +873,9 @@ export function DataTable<T>({
                 ? 'select'
                 : 'text'
         const id = filter.queryParam ?? filter.id
+        if (filter.strategy === 'client' && filter.filterFn) {
+          clientEntries.push({ id, filterFn: filter.filterFn })
+        }
         if (!byId.has(id)) {
           const translatedOptions = Array.isArray(filter.options)
             ? filter.options.map((option) => ({
@@ -882,30 +892,45 @@ export function DataTable<T>({
         }
       }
     }
-    return Array.from(byId.values())
+    return { serverFilters: Array.from(byId.values()), clientFilters: clientEntries }
   }, [filterWidgets, t])
   const mergedColumns = React.useMemo<ColumnDef<T, unknown>[]>(() => {
-    if (!injectedColumns.length) return columns
-    return [...columns, ...injectedColumns]
-  }, [columns, injectedColumns])
+    if (!injectedColumnDefs.length) return columns
+    let result = [...columns]
+    for (const { def, placement } of injectedColumnDefs) {
+      result = insertByInjectionPlacement(
+        result,
+        def,
+        placement,
+        (col) => (col as { id?: string }).id ?? '',
+      )
+    }
+    return result
+  }, [columns, injectedColumnDefs])
   const resolvedRowActions = React.useCallback((row: T) => {
-    const injectedItems: RowActionItem[] = injectedRowActions.map((action) => ({
+    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions.map((action) => ({
       id: action.id,
       label: t(action.label, action.label),
       onSelect: () => action.onSelect(row, { navigate: (href: string) => router.push(href) }),
+      placement: action.placement,
     }))
     const baseNode = rowActions ? rowActions(row) : null
     if (!injectedItems.length) return baseNode
     if (React.isValidElement(baseNode)) {
       const baseItems = (baseNode.props as { items?: RowActionItem[] }).items
       if (Array.isArray(baseItems)) {
-        const merged = [...baseItems]
+        let merged = [...baseItems]
         const existingIds = new Set(
           baseItems.map((item) => item.id).filter((id): id is string => typeof id === 'string' && id.length > 0)
         )
         for (const item of injectedItems) {
           if (item.id && existingIds.has(item.id)) continue
-          merged.push(item)
+          merged = insertByInjectionPlacement(
+            merged,
+            item,
+            item.placement,
+            (entry) => entry.id ?? '',
+          )
         }
         return <RowActions items={merged} />
       }
@@ -1006,10 +1031,20 @@ export function DataTable<T>({
     if (initialSorting.length) return initialSorting
     return []
   })
+  const clientFilteredData = React.useMemo(() => {
+    if (!injectedClientFilters.length || !filterValues) return data
+    const activeClientFilters = injectedClientFilters.filter(
+      (cf) => filterValues[cf.id] !== undefined && filterValues[cf.id] !== '' && filterValues[cf.id] !== null,
+    )
+    if (!activeClientFilters.length) return data
+    return data.filter((row) =>
+      activeClientFilters.every((cf) => cf.filterFn(row, filterValues[cf.id])),
+    )
+  }, [data, injectedClientFilters, filterValues])
   const hasInjectedBulkActions = injectedBulkActions.length > 0
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const table = useReactTable<T>({
-    data,
+    data: clientFilteredData,
     columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
     ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),

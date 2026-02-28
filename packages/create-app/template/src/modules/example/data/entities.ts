@@ -51,6 +51,7 @@ export class ExampleCustomerPriority {
   @Property({ name: 'customer_id', type: 'uuid' })
   customerId!: string
 
+  /** Customer priority level. Valid values: 'low' | 'normal' | 'high' | 'critical'. */
   @Property({ type: 'text', default: 'normal' })
   priority: string = 'normal'
 

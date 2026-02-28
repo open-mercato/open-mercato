@@ -76,14 +76,14 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
     })
     expect(timeout.status()).toBe(504)
     const timeoutBody = await timeout.json()
-    expect(timeoutBody.interceptorId).toBe('example.todos-probe-timeout')
+    expect(timeoutBody.error).toBe('Interceptor timeout')
 
     const crash = await apiRequest(request, 'GET', '/api/example/todos?interceptorProbe=crash', {
       token: adminToken,
     })
     expect(crash.status()).toBe(500)
     const crashBody = await crash.json()
-    expect(crashBody.interceptorId).toBe('example.todos-probe-crash')
+    expect(crashBody.error).toBe('Internal interceptor error')
   })
 
   test('TC-UMES-I10: extension page probe reports interceptor metadata rows as ok', async ({ page }) => {

@@ -71,7 +71,8 @@ import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { InjectedField } from './injection/InjectedField'
-import type { InjectionFieldDefinition, FieldContext, FieldVisibilityRule } from '@open-mercato/shared/modules/widgets/injection'
+import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
+import { isFieldVisible } from './injection/InjectedField'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 
 // Stable empty options array to avoid creating a new [] every render
@@ -238,26 +239,7 @@ function evaluateInjectedVisibility(
   values: Record<string, unknown>,
   context: FieldContext,
 ): boolean {
-  if (!condition) return true
-  if (typeof condition === 'function') return condition(values, context)
-  const rule = condition as FieldVisibilityRule
-  const current = values[rule.field]
-  switch (rule.operator) {
-    case 'eq':
-      return current === rule.value
-    case 'neq':
-      return current !== rule.value
-    case 'in':
-      return Array.isArray(rule.value) ? rule.value.includes(current) : false
-    case 'notIn':
-      return Array.isArray(rule.value) ? !rule.value.includes(current) : true
-    case 'truthy':
-      return Boolean(current)
-    case 'falsy':
-      return !current
-    default:
-      return true
-  }
+  return isFieldVisible(condition, values, context)
 }
 
 function readByDotPath(source: Record<string, unknown> | undefined, path: string): unknown {
@@ -1137,6 +1119,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const definition of injectedFieldDefinitions) {
       const targetIndex = cloned.findIndex((group) => group.id === definition.group)
       const index = targetIndex >= 0 ? targetIndex : fallbackIndex
+      if (targetIndex < 0 && process.env.NODE_ENV !== 'production') {
+        console.warn(`[CrudForm] Injected field "${definition.id}" targets group "${definition.group}" which does not exist. Appended to last group.`)
+      }
       if (index < 0) continue
       const fieldEntries = cloned[index].fields ?? []
       if (!fieldEntries.some((entry) => typeof entry === 'string' && entry === definition.id)) {
