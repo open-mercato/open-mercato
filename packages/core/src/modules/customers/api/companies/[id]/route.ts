@@ -27,7 +27,7 @@ import {
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const paramsSchema = z.object({
@@ -298,14 +298,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
   const em = (container.resolve('em') as EntityManager)
-  const encScope = { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null }
 
-  const company = await findOneWithDecryption(
-    em,
+  const company = await em.findOne(
     CustomerEntity,
     { id: parse.data.id, kind: 'company', deletedAt: null },
     { populate: ['companyProfile'] },
-    encScope,
   )
   if (!company) return notFound('Company not found')
 
@@ -319,11 +316,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   const profile = company.companyProfile
-    ? await findOneWithDecryption(em, CustomerCompanyProfile, { id: company.companyProfile.id }, {}, encScope)
-    : await findOneWithDecryption(em, CustomerCompanyProfile, { entity: company }, {}, encScope)
+    ? await em.findOne(CustomerCompanyProfile, { id: company.companyProfile.id })
+    : await em.findOne(CustomerCompanyProfile, { entity: company })
 
   const addresses = includeAddresses
-    ? await findWithDecryption(em, CustomerAddress, { entity: company.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } }, encScope)
+    ? await em.find(CustomerAddress, { entity: company.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
     : []
   const tagAssignments = await findWithDecryption(
     em,
@@ -334,10 +331,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   )
 
   const comments = includeComments
-    ? await findWithDecryption(em, CustomerComment, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, encScope)
+    ? await em.find(CustomerComment, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
     : []
   const activities = includeActivities
-    ? await findWithDecryption(em, CustomerActivity, { entity: company.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 }, encScope)
+    ? await em.find(CustomerActivity, { entity: company.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
     : []
   const todoLinks = includeTodos
     ? await em.find(CustomerTodoLink, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
