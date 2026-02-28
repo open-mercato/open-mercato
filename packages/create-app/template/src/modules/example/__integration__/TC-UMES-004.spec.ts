@@ -320,7 +320,7 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
         'Note: red network entries for probes 3-5 are expected and indicate correct fail-closed behavior.',
       )
       await expect(interceptorHint).toBeVisible()
-      await expect(interceptorHint.locator('xpath=ancestor::div[1]')).toHaveClass(/border-amber-400\/40/)
+      await expect(interceptorHint.locator('xpath=ancestor::div[1]')).toHaveClass(/border-amber-500\/40/)
 
       await expect(page.locator('[data-component-handle="page:/backend/umes-extensions"]')).toHaveCount(1)
       await expect(page.locator('[data-component-handle="data-table:example.umes.extensions"]')).toHaveCount(1)
