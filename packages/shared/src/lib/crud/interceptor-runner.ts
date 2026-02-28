@@ -64,9 +64,9 @@ async function runWithTimeout<T>(
 function toErrorBody(interceptorId: string, error: unknown): Record<string, unknown> {
   const body: Record<string, unknown> = {
     error: 'Internal interceptor error',
-    interceptorId,
   }
   if (process.env.NODE_ENV !== 'production') {
+    body.interceptorId = interceptorId
     body.message = error instanceof Error ? error.message : String(error)
   }
   return body
@@ -104,13 +104,16 @@ export async function runApiInterceptorsBefore(args: {
 
       const normalized: InterceptorBeforeResult = result ?? { ok: true }
       if (!normalized.ok) {
+        const blockBody: Record<string, unknown> = {
+          error: normalized.message ?? 'Request blocked by API interceptor',
+        }
+        if (process.env.NODE_ENV !== 'production') {
+          blockBody.interceptorId = interceptor.id
+        }
         return {
           ok: false,
           statusCode: normalized.statusCode ?? 400,
-          body: {
-            error: normalized.message ?? 'Request blocked by API interceptor',
-            interceptorId: interceptor.id,
-          },
+          body: blockBody,
         }
       }
 
@@ -141,10 +144,7 @@ export async function runApiInterceptorsBefore(args: {
         return {
           ok: false,
           statusCode: 504,
-          body: {
-            error: 'Interceptor timeout',
-            interceptorId: interceptor.id,
-          },
+          body: toErrorBody(interceptor.id, error),
         }
       }
       return {
@@ -202,10 +202,7 @@ export async function runApiInterceptorsAfter(args: {
         return {
           ok: false,
           statusCode: 504,
-          body: {
-            error: 'Interceptor timeout',
-            interceptorId: interceptor.id,
-          },
+          body: toErrorBody(interceptor.id, error),
           headers,
         }
       }

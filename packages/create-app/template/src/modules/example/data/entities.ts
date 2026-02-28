@@ -52,7 +52,7 @@ export class ExampleCustomerPriority {
   customerId!: string
 
   @Property({ type: 'text', default: 'normal' })
-  priority: string = 'normal'
+  priority: 'low' | 'normal' | 'high' | 'critical' = 'normal'
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string

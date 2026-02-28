@@ -251,17 +251,17 @@ export default function UmesExtensionsPage() {
           <div>
             <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseE.title', 'Phase E — API interceptors')}</h2>
             <p className="text-sm text-muted-foreground">
-              Run the full probe suite: metadata merge, wildcard route matching, query revalidation, timeout fail-closed, and crash fail-closed.
+              {t('example.umes.extensions.phaseE.description', 'Run the full probe suite: metadata merge, wildcard route matching, query revalidation, timeout fail-closed, and crash fail-closed.')}
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
-            <div>1. `default` probe: must return `_example.interceptor` metadata in `/api/example/todos` response.</div>
-            <div>2. `wildcard` probe: must return `_example.wildcardProbe=true` for wildcard route interceptor.</div>
-            <div>3. `bad-query` probe: must fail with HTTP `400` (route schema revalidation after interceptor rewrite).</div>
-            <div>4. `timeout` probe: must fail closed with HTTP `504`.</div>
-            <div>5. `crash` probe: must fail closed with HTTP `500`.</div>
-            <div>Note: red network entries for probes 3-5 are expected and indicate correct fail-closed behavior.</div>
+            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div>{t('example.umes.extensions.phaseE.hint1', '1. `default` probe: must return `_example.interceptor` metadata in `/api/example/todos` response.')}</div>
+            <div>{t('example.umes.extensions.phaseE.hint2', '2. `wildcard` probe: must return `_example.wildcardProbe=true` for wildcard route interceptor.')}</div>
+            <div>{t('example.umes.extensions.phaseE.hint3', '3. `bad-query` probe: must fail with HTTP `400` (route schema revalidation after interceptor rewrite).')}</div>
+            <div>{t('example.umes.extensions.phaseE.hint4', '4. `timeout` probe: must fail closed with HTTP `504`.')}</div>
+            <div>{t('example.umes.extensions.phaseE.hint5', '5. `crash` probe: must fail closed with HTTP `500`.')}</div>
+            <div>{t('example.umes.extensions.phaseE.hint6', 'Note: red network entries for probes 3-5 are expected and indicate correct fail-closed behavior.')}</div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button data-testid="phase-e-run-probe" type="button" onClick={() => void runInterceptorProbe()}>
@@ -291,15 +291,15 @@ export default function UmesExtensionsPage() {
           <div>
             <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseF.title', 'Phase F — DataTable extensions')}</h2>
             <p className="text-sm text-muted-foreground">
-              This table exposes `replacementHandle` and known component handles. Use it to validate replacement registration and then verify injected columns/actions on Customers list.
+              {t('example.umes.extensions.phaseF.description', 'This table exposes `replacementHandle` and known component handles. Use it to validate replacement registration and then verify injected columns/actions on Customers list.')}
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
-            <div>1. On `/backend/customers/people` table: column `Example priority` should be visible.</div>
-            <div>2. In filters drawer: select filter `Priority` should be visible.</div>
-            <div>3. In row actions menu: action `Open customer` should be visible.</div>
-            <div>4. After selecting rows: bulk action `Set normal priority` should update priorities via API.</div>
+            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div>{t('example.umes.extensions.phaseF.hint1', '1. On `/backend/customers/people` table: column `Example priority` should be visible.')}</div>
+            <div>{t('example.umes.extensions.phaseF.hint2', '2. In filters drawer: select filter `Priority` should be visible.')}</div>
+            <div>{t('example.umes.extensions.phaseF.hint3', '3. In row actions menu: action `Open customer` should be visible.')}</div>
+            <div>{t('example.umes.extensions.phaseF.hint4', '4. After selecting rows: bulk action `Set normal priority` should update priorities via API.')}</div>
           </div>
           <DataTable
             title={t('example.umes.extensions.table.title', 'Replacement Handles')}
@@ -310,9 +310,9 @@ export default function UmesExtensionsPage() {
           />
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Button asChild type="button" variant="outline">
-              <Link href="/backend/customers/people">Open customers table</Link>
+              <Link href="/backend/customers/people">{t('example.umes.extensions.phaseF.openCustomers', 'Open customers table')}</Link>
             </Button>
-            <span>Expect: injected column, row action, filters, and bulk action.</span>
+            <span>{t('example.umes.extensions.phaseF.expect', 'Expect: injected column, row action, filters, and bulk action.')}</span>
           </div>
         </div>
 
@@ -320,14 +320,14 @@ export default function UmesExtensionsPage() {
           <div>
             <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseG.title', 'Phase G — CrudForm field injection')}</h2>
             <p className="text-sm text-muted-foreground">
-              This harness keeps the injected widget active on `crud-form:example.todo`. Submit once to confirm the field/event pipeline executes.
+              {t('example.umes.extensions.phaseG.description', 'This harness keeps the injected widget active on `crud-form:example.todo`. Submit once to confirm the field/event pipeline executes.')}
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
-            <div>1. Injected widget card `Example Injection Widget` should be visible above form fields.</div>
-            <div>2. Saving valid form should update `submitResult` below the form.</div>
-            <div>3. In customer detail form (`/backend/customers/people/:id`), injected `_example.priority` field should persist via onSave handler.</div>
+            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div>{t('example.umes.extensions.phaseG.hint1', '1. Injected widget card `Example Injection Widget` should be visible above form fields.')}</div>
+            <div>{t('example.umes.extensions.phaseG.hint2', '2. Saving valid form should update `submitResult` below the form.')}</div>
+            <div>{t('example.umes.extensions.phaseG.hint3', '3. In customer detail form (`/backend/customers/people/:id`), injected `_example.priority` field should persist via onSave handler.')}</div>
           </div>
           <CrudForm<{ title: string; note?: string }>
             schema={z.object({ title: z.string().min(1), note: z.string().optional() })}
@@ -344,16 +344,16 @@ export default function UmesExtensionsPage() {
         </div>
 
         <div className="space-y-2 rounded border border-border p-4">
-          <h2 className="text-base font-semibold">Phase H — Component replacement</h2>
+          <h2 className="text-base font-semibold">{t('example.umes.extensions.phaseH.title', 'Phase H — Component replacement')}</h2>
           <p className="text-sm text-muted-foreground">
-            Active replacement handles in this area: page, DataTable, CrudForm, and the `ui.detail:NotesSection` wrapper declared in `example/widgets/components.ts`.
+            {t('example.umes.extensions.phaseH.description', 'Active replacement handles in this area: page, DataTable, CrudForm, and the `ui.detail:NotesSection` wrapper declared in `example/widgets/components.ts`.')}
           </p>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">What should be visible and how it should work</div>
-            <div>1. This page root should expose `data-component-handle=&quot;page:/backend/umes-extensions&quot;`.</div>
-            <div>2. Handles list table should expose `data-table:example.umes.extensions` replacement handle.</div>
-            <div>3. Form should expose `crud-form:example.todo` replacement handle.</div>
-            <div>4. Customer detail notes section should render wrapped border from `ExampleNotesSectionWrapper`.</div>
+            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div>{t('example.umes.extensions.phaseH.hint1', '1. This page root should expose `data-component-handle="page:/backend/umes-extensions"`.')}</div>
+            <div>{t('example.umes.extensions.phaseH.hint2', '2. Handles list table should expose `data-table:example.umes.extensions` replacement handle.')}</div>
+            <div>{t('example.umes.extensions.phaseH.hint3', '3. Form should expose `crud-form:example.todo` replacement handle.')}</div>
+            <div>{t('example.umes.extensions.phaseH.hint4', '4. Customer detail notes section should render wrapped border from `ExampleNotesSectionWrapper`.')}</div>
           </div>
           <div className="rounded border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
             handles={print(SAMPLE_HANDLES)}

@@ -68,7 +68,7 @@ export function useRegisteredComponent<TProps>(
 
     const Resolved = (props: TProps) => {
       const transformed = transforms.reduce((current, transform) => transform(current), props)
-      const Fallback = React.createElement(original as React.ComponentType<any>, transformed as any)
+      const Fallback = React.createElement(original as ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)
       if (
         process.env.NODE_ENV !== 'production'
         && replacementOverride
@@ -91,7 +91,7 @@ export function useRegisteredComponent<TProps>(
             console.error(`[UMES] Component replacement failed for "${componentId}" from module "${replacementModule}"`, error)
           }}
         >
-          {React.createElement(wrapped as React.ComponentType<any>, transformed as any)}
+          {React.createElement(wrapped as ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)}
         </ReplacementErrorBoundary>
       )
     }

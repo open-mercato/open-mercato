@@ -13,6 +13,9 @@ export function ComponentOverrideProvider({
 }) {
   React.useEffect(() => {
     registerComponentOverrides(overrides)
+    return () => {
+      registerComponentOverrides([])
+    }
   }, [overrides])
 
   return <>{children}</>

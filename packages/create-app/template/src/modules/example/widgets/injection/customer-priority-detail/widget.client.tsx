@@ -109,7 +109,7 @@ export default function CustomerPriorityDetailWidget({ context, data, disabled }
     } finally {
       setSaving(false)
     }
-  }, [customerId, priorityId, t])
+  }, [customerId, priorityId, t, runMutation])
 
   if (!customerId) return null
 

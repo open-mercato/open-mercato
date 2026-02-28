@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import type { InjectionFieldDefinition, FieldContext, FieldVisibilityCondition, FieldVisibilityRule } from '@open-mercato/shared/modules/widgets/injection'
+import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
+import { evaluateInjectedVisibility } from './visibility-utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type InjectedFieldProps = {
@@ -16,32 +17,6 @@ type InjectedFieldProps = {
 type Option = { value: string; label: string }
 
 const optionsCache = new Map<string, { expiresAt: number; options: Option[] }>()
-
-function evaluateRule(rule: FieldVisibilityRule, formData: Record<string, unknown>): boolean {
-  const current = formData[rule.field]
-  switch (rule.operator) {
-    case 'eq':
-      return current === rule.value
-    case 'neq':
-      return current !== rule.value
-    case 'in':
-      return Array.isArray(rule.value) ? rule.value.includes(current) : false
-    case 'notIn':
-      return Array.isArray(rule.value) ? !rule.value.includes(current) : true
-    case 'truthy':
-      return Boolean(current)
-    case 'falsy':
-      return !current
-    default:
-      return true
-  }
-}
-
-function isVisible(condition: FieldVisibilityCondition | undefined, formData: Record<string, unknown>, context: FieldContext): boolean {
-  if (!condition) return true
-  if (typeof condition === 'function') return condition(formData, context)
-  return evaluateRule(condition, formData)
-}
 
 export function InjectedField({ field, value, onChange, context, formData, readOnly = false }: InjectedFieldProps) {
   const t = useT()
@@ -78,7 +53,7 @@ export function InjectedField({ field, value, onChange, context, formData, readO
     }
   }, [context, field.id, field.options, field.optionsCacheTtl, field.optionsLoader])
 
-  if (!isVisible(field.visibleWhen, formData, context)) return null
+  if (!evaluateInjectedVisibility(field.visibleWhen, formData, context)) return null
 
   const label = t(field.label, field.label)
   const disabled = readOnly || field.readOnly

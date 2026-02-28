@@ -71,7 +71,8 @@ import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { InjectedField } from './injection/InjectedField'
-import type { InjectionFieldDefinition, FieldContext, FieldVisibilityRule } from '@open-mercato/shared/modules/widgets/injection'
+import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
+import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 
 // Stable empty options array to avoid creating a new [] every render
@@ -231,33 +232,6 @@ export type CrudFormGroup = {
   kind?: 'customFields'
   // When true, render component output inline without wrapping group chrome
   bare?: boolean
-}
-
-function evaluateInjectedVisibility(
-  condition: InjectionFieldDefinition['visibleWhen'],
-  values: Record<string, unknown>,
-  context: FieldContext,
-): boolean {
-  if (!condition) return true
-  if (typeof condition === 'function') return condition(values, context)
-  const rule = condition as FieldVisibilityRule
-  const current = values[rule.field]
-  switch (rule.operator) {
-    case 'eq':
-      return current === rule.value
-    case 'neq':
-      return current !== rule.value
-    case 'in':
-      return Array.isArray(rule.value) ? rule.value.includes(current) : false
-    case 'notIn':
-      return Array.isArray(rule.value) ? !rule.value.includes(current) : true
-    case 'truthy':
-      return Boolean(current)
-    case 'falsy':
-      return !current
-    default:
-      return true
-  }
 }
 
 function readByDotPath(source: Record<string, unknown> | undefined, path: string): unknown {

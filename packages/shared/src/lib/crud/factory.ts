@@ -54,6 +54,10 @@ import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 
+type RbacServiceLike = {
+  getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
+}
+
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
   afterList?: (res: any, ctx: CrudCtx & { query: TList }) => Promise<void> | void
@@ -811,7 +815,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
     let userFeatures: string[] | undefined
     try {
-      const rbac = (ctx.container.resolve('rbacService') as any)
+      const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
       if (rbac?.getGrantedFeatures) {
         userFeatures = await rbac.getGrantedFeatures(ctx.auth.sub, {
           tenantId: ctx.auth.tenantId,
@@ -835,7 +839,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   async function resolveUserFeatures(ctx: CrudCtx): Promise<string[] | undefined> {
     if (!ctx.auth) return undefined
     try {
-      const rbac = (ctx.container.resolve('rbacService') as any)
+      const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
       if (rbac?.getGrantedFeatures) {
         return await rbac.getGrantedFeatures(ctx.auth.sub, {
           tenantId: ctx.auth.tenantId,
@@ -848,7 +852,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     return undefined
   }
 
-  async function buildInterceptorContext(ctx: CrudCtx) {
+  const interceptorContextCache = new WeakMap<object, ReturnType<typeof buildInterceptorContextInner>>()
+
+  async function buildInterceptorContextInner(ctx: CrudCtx) {
     if (!ctx.auth) return null
     return {
       userId: ctx.auth.sub,
@@ -858,6 +864,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       container: ctx.container,
       userFeatures: await resolveUserFeatures(ctx),
     }
+  }
+
+  function buildInterceptorContext(ctx: CrudCtx) {
+    const cached = interceptorContextCache.get(ctx)
+    if (cached) return cached
+    const promise = buildInterceptorContextInner(ctx)
+    interceptorContextCache.set(ctx, promise)
+    return promise
   }
 
   async function applyInterceptorsBefore(args: {
@@ -901,7 +915,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     headers?: Record<string, string>
   }): Promise<{ ok: boolean; statusCode: number; body: Record<string, unknown>; headers: Record<string, string> } | null> {
     const interceptorContext = await buildInterceptorContext(args.ctx)
-    if (!interceptorContext) return null
+    if (!interceptorContext) return { ok: true, statusCode: args.statusCode, body: args.body, headers: args.headers ?? {} }
     const result = await runApiInterceptorsAfter({
       routePath: normalizeInterceptorRoutePath(args.request),
       method: args.method,
@@ -1483,16 +1497,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           statusCode: 200,
           body: emptyPayload as Record<string, unknown>,
         })
-          if (!fallbackEmptyAfterInterceptors) {
-            finishProfile({
-              result: 'interceptor_after_empty',
+        if (!fallbackEmptyAfterInterceptors) {
+          finishProfile({
+            result: 'interceptor_after_empty',
             cacheStatus,
             itemCount: 0,
             total: 0,
             branch: 'fallback',
-            })
-            return json({ error: 'Internal interceptor error' }, { status: 500 })
-          }
+          })
+          return json({ error: 'Internal interceptor error' }, { status: 500 })
+        }
         if (!fallbackEmptyAfterInterceptors.ok) {
           finishProfile({ result: 'interceptor_after_failed', cacheStatus, itemCount: 0, total: 0, branch: 'fallback' })
           return json(fallbackEmptyAfterInterceptors.body, { status: fallbackEmptyAfterInterceptors.statusCode, headers: fallbackEmptyAfterInterceptors.headers })
