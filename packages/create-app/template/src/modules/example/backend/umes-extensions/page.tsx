@@ -50,7 +50,7 @@ const SAMPLE_HANDLES: HandleRow[] = [
 ]
 
 const probeOrder: InterceptorProbeKey[] = ['default', 'wildcard', 'badQuery', 'timeout', 'crash']
-const hintClassName = 'rounded-md border border-amber-400/40 bg-amber-400/10 p-2 text-xs text-amber-100/90'
+const hintClassName = 'rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-400/10 p-2 text-xs text-amber-800 dark:text-amber-100/90'
 
 function print(value: unknown): string {
   try {
@@ -255,7 +255,7 @@ export default function UmesExtensionsPage() {
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseE.hint1', '1. `default` probe: must return `_example.interceptor` metadata in `/api/example/todos` response.')}</div>
             <div>{t('example.umes.extensions.phaseE.hint2', '2. `wildcard` probe: must return `_example.wildcardProbe=true` for wildcard route interceptor.')}</div>
             <div>{t('example.umes.extensions.phaseE.hint3', '3. `bad-query` probe: must fail with HTTP `400` (route schema revalidation after interceptor rewrite).')}</div>
@@ -295,7 +295,7 @@ export default function UmesExtensionsPage() {
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseF.hint1', '1. On `/backend/customers/people` table: column `Example priority` should be visible.')}</div>
             <div>{t('example.umes.extensions.phaseF.hint2', '2. In filters drawer: select filter `Priority` should be visible.')}</div>
             <div>{t('example.umes.extensions.phaseF.hint3', '3. In row actions menu: action `Open customer` should be visible.')}</div>
@@ -324,7 +324,7 @@ export default function UmesExtensionsPage() {
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseG.hint1', '1. Injected widget card `Example Injection Widget` should be visible above form fields.')}</div>
             <div>{t('example.umes.extensions.phaseG.hint2', '2. Saving valid form should update `submitResult` below the form.')}</div>
             <div>{t('example.umes.extensions.phaseG.hint3', '3. In customer detail form (`/backend/customers/people/:id`), injected `_example.priority` field should persist via onSave handler.')}</div>
@@ -349,7 +349,7 @@ export default function UmesExtensionsPage() {
             {t('example.umes.extensions.phaseH.description', 'Active replacement handles in this area: page, DataTable, CrudForm, and the `ui.detail:NotesSection` wrapper declared in `example/widgets/components.ts`.')}
           </p>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseH.hint1', '1. This page root should expose `data-component-handle="page:/backend/umes-extensions"`.')}</div>
             <div>{t('example.umes.extensions.phaseH.hint2', '2. Handles list table should expose `data-table:example.umes.extensions` replacement handle.')}</div>
             <div>{t('example.umes.extensions.phaseH.hint3', '3. Form should expose `crud-form:example.todo` replacement handle.')}</div>
