@@ -4,6 +4,7 @@ import React from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -246,13 +247,19 @@ export default function SsoConfigDetailPage() {
     { id: 'activity', label: t('sso.admin.tab.activity', 'Activity') },
   ]
 
+  const statusBadge = (
+    <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${config.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+      {config.isActive ? t('sso.admin.status.active', 'Active') : t('sso.admin.status.inactive', 'Inactive')}
+    </span>
+  )
+
   return (
     <Page>
       <PageBody>
-        <div className="max-w-3xl">
+        <div className="flex flex-col gap-6 max-w-3xl">
           {/* Activation banner after creation */}
           {showActivationBanner && !config.isActive && (
-            <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
               <p className="text-sm font-medium text-blue-900 mb-3">
                 {t('sso.admin.banner.created', 'Your SSO configuration has been created. Would you like to activate it now?')}
               </p>
@@ -272,35 +279,36 @@ export default function SsoConfigDetailPage() {
             </div>
           )}
 
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-xl font-semibold">{config.name || config.issuer || t('sso.admin.detail.title', 'SSO Configuration')}</h1>
-              <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium mt-1 ${config.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                {config.isActive ? t('sso.admin.status.active', 'Active') : t('sso.admin.status.inactive', 'Inactive')}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleTestConnection}>
-                {t('sso.admin.action.test', 'Verify Discovery')}
-              </Button>
-              <Button
-                variant={config.isActive ? 'outline' : 'default'}
-                size="sm"
-                onClick={handleToggleActivation}
-              >
-                {config.isActive
-                  ? t('sso.admin.action.deactivate', 'Deactivate')
-                  : t('sso.admin.action.activate', 'Activate')}
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleDelete} className="text-destructive">
-                {t('common.delete', 'Delete')}
-              </Button>
-            </div>
-          </div>
+          <FormHeader
+            mode="detail"
+            backHref="/backend/sso"
+            backLabel={t('sso.admin.detail.backToList', 'Back to SSO')}
+            title={config.name || config.issuer || t('sso.admin.detail.title', 'SSO Configuration')}
+            statusBadge={statusBadge}
+            actionsContent={
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={handleTestConnection}>
+                  {t('sso.admin.action.test', 'Verify Discovery')}
+                </Button>
+                <Button
+                  type="button"
+                  variant={config.isActive ? 'outline' : 'default'}
+                  size="sm"
+                  onClick={handleToggleActivation}
+                >
+                  {config.isActive
+                    ? t('sso.admin.action.deactivate', 'Deactivate')
+                    : t('sso.admin.action.activate', 'Activate')}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleDelete} className="text-destructive">
+                  {t('common.delete', 'Delete')}
+                </Button>
+              </div>
+            }
+          />
 
           {/* Tabs */}
-          <div className="flex gap-1 border-b mb-6">
+          <div className="flex gap-1 border-b">
             {tabs.map((tab) => (
               <Button
                 key={tab.id}
@@ -321,102 +329,110 @@ export default function SsoConfigDetailPage() {
 
           {/* Tab content */}
           {activeTab === 'general' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('sso.admin.field.name', 'Configuration Name')}</label>
-                <input
-                  type="text"
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('sso.admin.field.protocol', 'Protocol')}</label>
-                <input type="text" className="w-full rounded-md border px-3 py-2 text-sm bg-muted" value={config.protocol.toUpperCase()} disabled />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('sso.admin.field.issuer', 'Issuer URL')}</label>
-                <input
-                  type="url"
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                  value={issuer}
-                  onChange={(e) => setIssuer(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('sso.admin.field.clientId', 'Client ID')}</label>
-                <input
-                  type="text"
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">{t('sso.admin.field.clientSecret', 'Client Secret')}</label>
-                {config.hasClientSecret && !showSecretField ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">{t('sso.admin.field.secretSet', 'Client secret is configured')}</span>
-                    <Button variant="outline" size="sm" onClick={() => setShowSecretField(true)}>
-                      {t('sso.admin.field.changeSecret', 'Change')}
-                    </Button>
-                  </div>
-                ) : (
+            <div className="rounded-lg border bg-card p-4">
+              <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                {t('sso.admin.section.oidcSettings', 'OIDC Settings')}
+              </h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('sso.admin.field.name', 'Configuration Name')}</label>
                   <input
-                    type="password"
+                    type="text"
                     className="w-full rounded-md border px-3 py-2 text-sm"
-                    value={newClientSecret}
-                    onChange={(e) => setNewClientSecret(e.target.value)}
-                    placeholder={config.hasClientSecret
-                      ? t('sso.admin.field.secretPlaceholder', 'Enter new secret to replace existing')
-                      : t('sso.admin.field.secretRequired', 'Enter client secret')}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
                   />
-                )}
-              </div>
-              <div className="space-y-3 pt-2">
-                <label className="flex items-center gap-3">
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('sso.admin.field.protocol', 'Protocol')}</label>
+                  <input type="text" className="w-full rounded-md border px-3 py-2 text-sm bg-muted" value={config.protocol.toUpperCase()} disabled />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('sso.admin.field.issuer', 'Issuer URL')}</label>
                   <input
-                    type="checkbox"
-                    checked={jitEnabled}
-                    onChange={(e) => setJitEnabled(e.target.checked)}
-                    disabled={config.hasActiveScimTokens}
-                    className="accent-primary"
+                    type="url"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={issuer}
+                    onChange={(e) => setIssuer(e.target.value)}
                   />
-                  <div>
-                    <span className="text-sm font-medium">{t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      {config.hasActiveScimTokens
-                        ? t('sso.admin.field.jitDisabledByScim', 'Unavailable — SCIM directory sync is active. Revoke SCIM tokens to enable JIT.')
-                        : t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
-                    </span>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3">
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('sso.admin.field.clientId', 'Client ID')}</label>
                   <input
-                    type="checkbox"
-                    checked={autoLinkByEmail}
-                    onChange={(e) => setAutoLinkByEmail(e.target.checked)}
-                    className="accent-primary"
+                    type="text"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
                   />
-                  <div>
-                    <span className="text-sm font-medium">{t('sso.admin.field.autoLinkByEmail', 'Auto-link by Email')}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      {t('sso.admin.field.autoLinkByEmailDesc', 'Automatically link existing users by matching email address')}
-                    </span>
-                  </div>
-                </label>
-              </div>
-              <div className="pt-4">
-                <Button onClick={handleSave} disabled={isSaving}>
-                  {isSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
-                </Button>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">{t('sso.admin.field.clientSecret', 'Client Secret')}</label>
+                  {config.hasClientSecret && !showSecretField ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">{t('sso.admin.field.secretSet', 'Client secret is configured')}</span>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setShowSecretField(true)}>
+                        {t('sso.admin.field.changeSecret', 'Change')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <input
+                      type="password"
+                      className="w-full rounded-md border px-3 py-2 text-sm"
+                      value={newClientSecret}
+                      onChange={(e) => setNewClientSecret(e.target.value)}
+                      placeholder={config.hasClientSecret
+                        ? t('sso.admin.field.secretPlaceholder', 'Enter new secret to replace existing')
+                        : t('sso.admin.field.secretRequired', 'Enter client secret')}
+                    />
+                  )}
+                </div>
+                <div className="space-y-3 pt-2">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={jitEnabled}
+                      onChange={(e) => setJitEnabled(e.target.checked)}
+                      disabled={config.hasActiveScimTokens}
+                      className="accent-primary"
+                    />
+                    <div>
+                      <span className="text-sm font-medium">{t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {config.hasActiveScimTokens
+                          ? t('sso.admin.field.jitDisabledByScim', 'Unavailable — SCIM directory sync is active. Revoke SCIM tokens to enable JIT.')
+                          : t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
+                      </span>
+                    </div>
+                  </label>
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={autoLinkByEmail}
+                      onChange={(e) => setAutoLinkByEmail(e.target.checked)}
+                      className="accent-primary"
+                    />
+                    <div>
+                      <span className="text-sm font-medium">{t('sso.admin.field.autoLinkByEmail', 'Auto-link by Email')}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {t('sso.admin.field.autoLinkByEmailDesc', 'Automatically link existing users by matching email address')}
+                      </span>
+                    </div>
+                  </label>
+                </div>
+                <div className="pt-4">
+                  <Button onClick={handleSave} disabled={isSaving}>
+                    {isSaving ? t('common.saving', 'Saving...') : t('common.save', 'Save')}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
 
           {activeTab === 'domains' && (
-            <div>
+            <div className="rounded-lg border bg-card p-4">
+              <h2 className="mb-4 text-sm font-semibold uppercase text-muted-foreground">
+                {t('sso.admin.section.allowedDomains', 'Allowed Domains')}
+              </h2>
               <p className="text-sm text-muted-foreground mb-4">
                 {t('sso.admin.wizard.domains.description', 'Users with email addresses matching these domains will be redirected to your SSO provider.')}
               </p>
@@ -429,7 +445,7 @@ export default function SsoConfigDetailPage() {
                   onChange={(e) => { setDomainInput(e.target.value); setDomainError('') }}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddDomain() } }}
                 />
-                <Button variant="outline" onClick={handleAddDomain}>
+                <Button type="button" variant="outline" onClick={handleAddDomain}>
                   {t('common.add', 'Add')}
                 </Button>
               </div>
@@ -439,7 +455,7 @@ export default function SsoConfigDetailPage() {
                   {config.allowedDomains.map((domain) => (
                     <div key={domain} className="flex items-center justify-between p-3 border rounded-md">
                       <code className="text-sm font-mono">{domain}</code>
-                      <Button variant="ghost" size="sm" onClick={() => handleRemoveDomain(domain)}>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveDomain(domain)}>
                         {t('common.remove', 'Remove')}
                       </Button>
                     </div>
@@ -454,19 +470,25 @@ export default function SsoConfigDetailPage() {
           )}
 
           {activeTab === 'roles' && config && (
-            <RoleMappingsTab
-              configId={configId}
-              appRoleMappings={config.appRoleMappings ?? {}}
-              onSaved={fetchConfig}
-            />
+            <div className="rounded-lg border bg-card p-4">
+              <RoleMappingsTab
+                configId={configId}
+                appRoleMappings={config.appRoleMappings ?? {}}
+                onSaved={fetchConfig}
+              />
+            </div>
           )}
 
           {activeTab === 'scim' && (
-            <ScimProvisioningTab configId={configId} jitEnabled={config.jitEnabled} issuer={config.issuer ?? undefined} onProvisioningChange={fetchConfig} />
+            <div className="rounded-lg border bg-card p-4">
+              <ScimProvisioningTab configId={configId} jitEnabled={config.jitEnabled} issuer={config.issuer ?? undefined} onProvisioningChange={fetchConfig} />
+            </div>
           )}
 
           {activeTab === 'activity' && (
-            <SsoActivityTab configId={configId} />
+            <div className="rounded-lg border bg-card p-4">
+              <SsoActivityTab configId={configId} />
+            </div>
           )}
         </div>
         {ConfirmDialogElement}
