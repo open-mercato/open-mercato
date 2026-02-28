@@ -151,7 +151,7 @@ export const interceptors: ApiInterceptor[] = [
 
       const matches = await context.em.find(ExampleCustomerPriority, {
         customerId: { $in: customerIds },
-        priority,
+        priority: priority as ExampleCustomerPriority['priority'],
         organizationId: context.organizationId,
         tenantId: context.tenantId,
         deletedAt: null,
