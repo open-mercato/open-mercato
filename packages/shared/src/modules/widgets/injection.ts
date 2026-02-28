@@ -122,8 +122,12 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
   /**
    * Transform form data before submission. Output of widget N becomes input of widget N+1.
    * Transformer event — pipeline dispatch.
+   *
+   * Return `{ data, applyToForm: true }` to also reflect the transformed values back into
+   * the visible form fields (opt-in). Default behavior (returning plain `TData`) only
+   * modifies the submit payload and leaves the visible form unchanged.
    */
-  transformFormData?: (data: TData, context: TContext) => Promise<TData>
+  transformFormData?: (data: TData, context: TContext) => Promise<TData | { data: TData; applyToForm: true }>
 
   /**
    * Transform data for display purposes. Output of widget N becomes input of widget N+1.
