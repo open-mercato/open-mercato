@@ -6,7 +6,7 @@
 | **Phase** | H (PR 8) |
 | **Branch** | `feat/umes-component-replacement` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-26) |
 
 ## Goal
 
@@ -318,3 +318,32 @@ This demonstrates the core use case: cross-module component extension without fo
 - No existing component rendering changed — opt-in per component
 - `registerComponent` is additive — no existing code needs modification
 - `ComponentOverrideProvider` at app root is transparent when no overrides exist
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase H — Component Replacement | Done | 2026-02-26 | Added component registry primitives, override auto-discovery (`widgets/components.ts`), generated `component-overrides.generated.ts`, bootstrap registration, client provider wiring in backend layout, page-level replacement resolution, automatic page/table/form handles, section-level handles for core detail sections, replace-mode props schema validation, and integration coverage. |
+
+### Phase H — Detailed Progress
+
+- [x] Component registry implemented in shared package with global runtime state
+- [x] Override resolution supports replacement, wrapper, and props-transform modes
+- [x] `useRegisteredComponent` hook implemented with error-boundary fallback behavior
+- [x] `ComponentOverrideProvider` implemented and mounted in backend layout
+- [x] Generator auto-discovers `widgets/components.ts` and generates `component-overrides.generated.ts`
+- [x] Bootstrap wiring added for `componentOverrideEntries`
+- [x] Page-level replacement handle wiring added in backend catch-all page (`page:<path>`)
+- [x] DataTable and CrudForm automatic replacement handles added
+- [x] Section-level automatic handles added for:
+- `section:ui.detail.NotesSection`
+- `section:ui.detail.ActivitiesSection`
+- `section:ui.detail.AddressesSection`
+- `section:ui.detail.TagsSection`
+- `section:ui.detail.CustomDataSection`
+- `section:ui.detail.DetailFieldsSection`
+- `section:ui.detail.AttachmentsSection`
+- [x] Unit tests added for replacement fallback/wrapper behavior and section-handle rendering
+- [x] Full props schema validation in replace mode implemented with fallback in `useRegisteredComponent`
+- [x] Playwright scenarios TC-UMES-CR01..CR03 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`
+- [x] Unit scenarios TC-UMES-CR04..CR06 covered in `packages/ui/src/backend/__tests__/component-replacement.test.tsx`

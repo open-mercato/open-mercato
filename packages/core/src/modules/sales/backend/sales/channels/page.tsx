@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -217,7 +217,7 @@ export default function SalesChannelsPage() {
 
 function mapApiChannel(item: Record<string, unknown>): ChannelRow {
   const id = typeof item.id === 'string' ? item.id : ''
-  return {
+  return withDataTableNamespaces({
     id,
     name: typeof item.name === 'string' ? item.name : id,
     code: typeof item.code === 'string' && item.code.length ? item.code : null,
@@ -233,5 +233,5 @@ function mapApiChannel(item: Record<string, unknown>): ChannelRow {
       : typeof item.updated_at === 'string'
         ? item.updated_at
         : null,
-  }
+  }, item)
 }

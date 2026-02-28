@@ -44,6 +44,8 @@ import { eventModuleConfigs, allEvents } from '@/.mercato/generated/events.gener
 import { registerEventModuleConfigs } from '@open-mercato/shared/modules/events'
 import { analyticsModuleConfigs } from '@/.mercato/generated/analytics.generated'
 import { enricherEntries } from '@/.mercato/generated/enrichers.generated'
+import { interceptorEntries } from '@/.mercato/generated/interceptors.generated'
+import { componentOverrideEntries } from '@/.mercato/generated/component-overrides.generated'
 import { messageTypes } from '@/.mercato/generated/message-types.generated'
 import { messageObjectTypes } from '@/.mercato/generated/message-objects.generated'
 import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/message-types-registry'
@@ -70,6 +72,8 @@ export const bootstrap = createBootstrap({
   searchModuleConfigs,
   analyticsModuleConfigs,
   enricherEntries,
+  interceptorEntries,
+  componentOverrideEntries,
 })
 
 export { isBootstrapped }

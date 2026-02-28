@@ -15,7 +15,7 @@ function print(value: unknown) {
   return JSON.stringify(value ?? null)
 }
 
-const hintClassName = 'inline-flex items-center rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-xs text-amber-100/90'
+const hintClassName = 'inline-flex items-center rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-400/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-100/90'
 
 type CustomerRecord = {
   id?: string

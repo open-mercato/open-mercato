@@ -20,6 +20,10 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 jest.mock('next/link', () => ({ children, href }: any) => <a href={href}>{children}</a>)
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
+  withDataTableNamespaces: (mappedRow: Record<string, unknown>, sourceItem: Record<string, unknown>) => ({
+    ...mappedRow,
+    ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
+  }),
   DataTable: (props: any) => (
     <div data-testid="data-table-mock">
       <div data-testid="data-table-title">{props.title}</div>

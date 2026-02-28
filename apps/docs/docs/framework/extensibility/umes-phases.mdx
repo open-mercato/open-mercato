@@ -1,0 +1,44 @@
+---
+title: UMES Phases (A-N)
+description: Universal Module Extension System phase-by-phase coverage with status and references.
+---
+
+This is the consolidated UMES matrix from SPEC-041 and the current codebase.
+
+## Master references
+
+- [SPEC-041 (UMES master)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041-2026-02-24-universal-module-extension-system.md)
+- [Issue #675](https://github.com/open-mercato/open-mercato/issues/675)
+- [PR #635 (record locks baseline)](https://github.com/open-mercato/open-mercato/pull/635)
+
+## Phase matrix
+
+| Phase | Topic | Status (current) | Where to start |
+|---|---|---|---|
+| A | Foundation (injection positioning, headless widgets) | Implemented | [Widget injection](/framework/widget-injection) |
+| B | Menu injection | Implemented | [Widget injection](/framework/widget-injection) |
+| C | Events + DOM bridge (`clientBroadcast`, `useAppEvent`) | Implemented | [Widget injection](/framework/widget-injection), [Events overview](/framework/events/overview) |
+| D | Response enrichers | Implemented | [Data extensibility](/framework/database/data-extensibility) |
+| E | API interceptors | Implemented | [API extension guide](/framework/api/extending-api) |
+| F | DataTable extensions | Implemented | [Data grids](/framework/admin-ui/data-grids), [Widget injection](/framework/widget-injection) |
+| G | CrudForm field injections | Implemented | [Crud form](/framework/admin-ui/crud-form), [Widget injection](/framework/widget-injection) |
+| H | Component replacement | Implemented | [Widget injection](/framework/widget-injection) |
+| I | Detail page bindings (`useExtensibleDetail`) | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
+| J | Recursive widgets (widgets extending widgets) | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
+| K | UMES DevTools + conflict diagnostics | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
+| L | Integration extensions (wizards, status badges, external ID views) | Not implemented yet | [Integration enhancements](./integration-enhancements) |
+| M | Mutation lifecycle unification (sync lifecycle subscribers + command interceptors + filtered widget handlers) | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
+| N | Query engine extensibility (query-level enrichers + query events) | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
+
+## How to verify what is active in your app
+
+Inspect generated registries in `apps/mercato/.mercato/generated/`:
+
+- `injection-tables.generated.ts`
+- `injection-widgets.generated.ts`
+- `interceptors.generated.ts`
+- `enrichers.generated.ts`
+- `component-overrides.generated.ts`
+- `events.generated.ts`
+
+These files are the runtime truth for what is currently discovered and wired.
