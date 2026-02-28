@@ -384,6 +384,7 @@ Given all interactions for one `entity_id`:
 - Hard removal/archival strategy for legacy tables in a dedicated breaking-change spec.
 - Optional dedicated worker-only mode for very large-tenant projection recompute.
 - Provider-specific setup wizards/status dashboards beyond baseline sync contract (delivered by integration modules).
+- Example module UMES alignment and customer-task sync decoupling tracked in `SPEC-050-2026-02-28-example-module-umes-alignment-customer-tasks.md`.
 
 ## Implementation Plan
 ### Phase 1: Domain foundation
