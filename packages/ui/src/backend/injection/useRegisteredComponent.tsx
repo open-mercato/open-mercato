@@ -3,6 +3,7 @@
 import * as React from 'react'
 import type { ComponentType } from 'react'
 import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useOverrideUserFeatures } from './ComponentOverrideProvider'
 
 class ReplacementErrorBoundary extends React.Component<
   { fallback: React.ReactNode; onError: (error: unknown) => void; children: React.ReactNode },
@@ -31,6 +32,7 @@ export function useRegisteredComponent<TProps>(
   componentId: string,
   fallback?: ComponentType<TProps>,
 ): ComponentType<TProps> {
+  const userFeatures = useOverrideUserFeatures()
   return React.useMemo(() => {
     const entry = getComponentEntry(componentId)
     const original = (entry?.component as ComponentType<TProps> | undefined) ?? fallback ?? null
@@ -41,7 +43,7 @@ export function useRegisteredComponent<TProps>(
       const Missing = () => null
       return Missing as ComponentType<TProps>
     }
-    const overrides = getComponentOverrides(componentId)
+    const overrides = getComponentOverrides(componentId, userFeatures)
     const replacementOverrides = overrides.filter((override) => 'replacement' in override)
     if (process.env.NODE_ENV !== 'production' && replacementOverrides.length > 1) {
       console.warn(
@@ -68,7 +70,7 @@ export function useRegisteredComponent<TProps>(
 
     const Resolved = (props: TProps) => {
       const transformed = transforms.reduce((current, transform) => transform(current), props)
-      const Fallback = React.createElement(original as ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)
+      const Fallback = React.createElement(original as React.ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)
       if (
         process.env.NODE_ENV !== 'production'
         && replacementOverride
@@ -91,14 +93,14 @@ export function useRegisteredComponent<TProps>(
             console.error(`[UMES] Component replacement failed for "${componentId}" from module "${replacementModule}"`, error)
           }}
         >
-          {React.createElement(wrapped as ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)}
+          {React.createElement(wrapped as React.ComponentType<Record<string, unknown>>, transformed as Record<string, unknown>)}
         </ReplacementErrorBoundary>
       )
     }
 
     Resolved.displayName = `RegisteredComponent(${componentId})`
     return Resolved
-  }, [componentId, fallback])
+  }, [componentId, fallback, userFeatures])
 }
 
 export default useRegisteredComponent

@@ -104,16 +104,16 @@ export async function runApiInterceptorsBefore(args: {
 
       const normalized: InterceptorBeforeResult = result ?? { ok: true }
       if (!normalized.ok) {
-        const blockBody: Record<string, unknown> = {
+        const rejectBody: Record<string, unknown> = {
           error: normalized.message ?? 'Request blocked by API interceptor',
         }
         if (process.env.NODE_ENV !== 'production') {
-          blockBody.interceptorId = interceptor.id
+          rejectBody.interceptorId = interceptor.id
         }
         return {
           ok: false,
           statusCode: normalized.statusCode ?? 400,
-          body: blockBody,
+          body: rejectBody,
         }
       }
 
@@ -141,10 +141,14 @@ export async function runApiInterceptorsBefore(args: {
       metadataByInterceptor[interceptor.id] = normalized.metadata
     } catch (error) {
       if (isTimeoutError(error)) {
+        const timeoutBody: Record<string, unknown> = { error: 'Interceptor timeout' }
+        if (process.env.NODE_ENV !== 'production') {
+          timeoutBody.interceptorId = interceptor.id
+        }
         return {
           ok: false,
           statusCode: 504,
-          body: toErrorBody(interceptor.id, error),
+          body: timeoutBody,
         }
       }
       return {
@@ -199,10 +203,14 @@ export async function runApiInterceptorsAfter(args: {
       }
     } catch (error) {
       if (isTimeoutError(error)) {
+        const timeoutBody: Record<string, unknown> = { error: 'Interceptor timeout' }
+        if (process.env.NODE_ENV !== 'production') {
+          timeoutBody.interceptorId = interceptor.id
+        }
         return {
           ok: false,
           statusCode: 504,
-          body: toErrorBody(interceptor.id, error),
+          body: timeoutBody,
           headers,
         }
       }

@@ -1111,6 +1111,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const definition of injectedFieldDefinitions) {
       const targetIndex = cloned.findIndex((group) => group.id === definition.group)
       const index = targetIndex >= 0 ? targetIndex : fallbackIndex
+      if (targetIndex < 0 && process.env.NODE_ENV !== 'production') {
+        console.warn(`[CrudForm] Injected field "${definition.id}" targets group "${definition.group}" which does not exist. Appended to last group.`)
+      }
       if (index < 0) continue
       const fieldEntries = cloned[index].fields ?? []
       if (!fieldEntries.some((entry) => typeof entry === 'string' && entry === definition.id)) {

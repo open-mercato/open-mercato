@@ -4,6 +4,11 @@ import * as React from 'react'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './visibility-utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Input } from '../../primitives/input'
+import { Checkbox } from '../../primitives/checkbox'
+import { Textarea } from '../../primitives/textarea'
+import { Label } from '../../primitives/label'
+import { Spinner } from '../../primitives/spinner'
 
 type InjectedFieldProps = {
   field: InjectionFieldDefinition
@@ -16,7 +21,57 @@ type InjectedFieldProps = {
 
 type Option = { value: string; label: string }
 
+const MAX_CACHE_ENTRIES = 100
 const optionsCache = new Map<string, { expiresAt: number; options: Option[] }>()
+
+function evictExpiredCacheEntries() {
+  if (optionsCache.size <= MAX_CACHE_ENTRIES) return
+  const now = Date.now()
+  for (const [key, entry] of optionsCache) {
+    if (entry.expiresAt < now) optionsCache.delete(key)
+  }
+}
+
+function SelectField({
+  field,
+  value,
+  onChange,
+  disabled,
+  options,
+  optionsError,
+  label,
+}: {
+  field: InjectionFieldDefinition
+  value: unknown
+  onChange: (fieldId: string, value: unknown) => void
+  disabled?: boolean
+  options: Option[]
+  optionsError: boolean
+  label: string
+}) {
+  const t = useT()
+  return (
+    <div className="space-y-2" data-crud-field-id={field.id}>
+      <Label htmlFor={field.id}>{label}</Label>
+      <select
+        id={field.id}
+        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        value={typeof value === 'string' ? value : ''}
+        disabled={disabled || (options.length === 0 && !field.options?.length)}
+        onChange={(event) => onChange(field.id, event.target.value || undefined)}
+      >
+        <option value="">{t('ui.filters.select.placeholder', 'Select...')}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+      {optionsError ? (
+        <div className="text-xs text-muted-foreground">{t('ui.forms.optionsUnavailable', 'Options unavailable')}</div>
+      ) : null}
+    </div>
+  )
+}
+
 
 export function InjectedField({ field, value, onChange, context, formData, readOnly = false }: InjectedFieldProps) {
   const t = useT()
@@ -40,6 +95,7 @@ export function InjectedField({ field, value, onChange, context, formData, readO
         const normalized = Array.isArray(loaded) ? loaded : []
         setDynamicOptions(normalized)
         setOptionsError(false)
+        evictExpiredCacheEntries()
         optionsCache.set(cacheKey, { options: normalized, expiresAt: Date.now() + ttl * 1000 })
       } catch {
         if (cancelled) return
@@ -62,22 +118,24 @@ export function InjectedField({ field, value, onChange, context, formData, readO
   if (field.type === 'custom' && field.customComponent) {
     const CustomComponent = field.customComponent
     return (
-      <CustomComponent
-        value={value}
-        onChange={(next) => onChange(field.id, next)}
-        context={context}
-        disabled={disabled}
-      />
+      <React.Suspense fallback={<Spinner size="sm" />}>
+        <CustomComponent
+          value={value}
+          onChange={(next) => onChange(field.id, next)}
+          context={context}
+          disabled={disabled}
+        />
+      </React.Suspense>
     )
   }
 
   if (field.type === 'textarea') {
     return (
       <div className="space-y-2" data-crud-field-id={field.id}>
-        <label className="text-sm font-medium" htmlFor={field.id}>{label}</label>
-        <textarea
+        <Label htmlFor={field.id}>{label}</Label>
+        <Textarea
           id={field.id}
-          className="w-full min-h-[96px] rounded border px-3 py-2 text-sm"
+          className="min-h-[96px]"
           value={typeof value === 'string' ? value : ''}
           disabled={disabled}
           onChange={(event) => onChange(field.id, event.target.value)}
@@ -88,35 +146,25 @@ export function InjectedField({ field, value, onChange, context, formData, readO
 
   if (field.type === 'select') {
     return (
-      <div className="space-y-2" data-crud-field-id={field.id}>
-        <label className="text-sm font-medium" htmlFor={field.id}>{label}</label>
-        <select
-          id={field.id}
-          className="h-9 w-full rounded border bg-background px-2 text-sm"
-          value={typeof value === 'string' ? value : ''}
-          disabled={disabled || (options.length === 0 && !field.options?.length)}
-          onChange={(event) => onChange(field.id, event.target.value || undefined)}
-        >
-          <option value="">{t('ui.filters.select.placeholder', 'Select...')}</option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-        {optionsError ? (
-          <div className="text-xs text-muted-foreground">{t('ui.forms.optionsUnavailable', 'Options unavailable')}</div>
-        ) : null}
-      </div>
+      <SelectField
+        field={field}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        options={options}
+        optionsError={optionsError}
+        label={label}
+      />
     )
   }
 
   if (field.type === 'boolean') {
     return (
       <label className="flex items-center gap-2 text-sm" data-crud-field-id={field.id}>
-        <input
-          type="checkbox"
+        <Checkbox
           checked={value === true}
           disabled={disabled}
-          onChange={(event) => onChange(field.id, event.target.checked)}
+          onCheckedChange={(checked) => onChange(field.id, checked === true)}
         />
         <span>{label}</span>
       </label>
@@ -125,11 +173,10 @@ export function InjectedField({ field, value, onChange, context, formData, readO
 
   return (
     <div className="space-y-2" data-crud-field-id={field.id}>
-      <label className="text-sm font-medium" htmlFor={field.id}>{label}</label>
-      <input
+      <Label htmlFor={field.id}>{label}</Label>
+      <Input
         id={field.id}
         type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-        className="h-9 w-full rounded border px-3 text-sm"
         value={typeof value === 'string' || typeof value === 'number' ? String(value) : ''}
         disabled={disabled}
         onChange={(event) => {

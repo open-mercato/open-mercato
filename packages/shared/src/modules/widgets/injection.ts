@@ -248,6 +248,7 @@ export type InjectionFilterDefinition = {
   strategy: 'server' | 'client'
   queryParam?: string
   enrichedField?: string
+  filterFn?: (row: unknown, value: unknown) => boolean
 }
 
 export type FieldVisibilityRule = {

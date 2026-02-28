@@ -1,6 +1,7 @@
 import * as React from 'react'
 import type { ComponentType, LazyExoticComponent } from 'react'
 import type { ZodType } from 'zod'
+import { hasAllFeatures } from '../../security/features'
 
 export type ComponentRegistryEntry<TProps = unknown> = {
   id: string
@@ -70,17 +71,24 @@ export function getComponentEntry(componentId: string): ComponentRegistryEntry |
   return state.components.get(componentId) ?? null
 }
 
-export function getComponentOverrides(componentId: string): ComponentOverride[] {
+export function getComponentOverrides(componentId: string, userFeatures?: readonly string[]): ComponentOverride[] {
   const state = getState()
-  const relevant = state.overrides.filter((override) => override.target.componentId === componentId)
+  const relevant = state.overrides.filter((override) => {
+    if (override.target.componentId !== componentId) return false
+    if (override.features && override.features.length > 0) {
+      if (!hasAllFeatures(userFeatures, override.features)) return false
+    }
+    return true
+  })
   return relevant.sort((a, b) => a.priority - b.priority)
 }
 
 export function resolveRegisteredComponent<TProps>(
   componentId: string,
   fallback: ComponentType<TProps>,
+  userFeatures?: readonly string[],
 ): ComponentType<TProps> {
-  const overrides = getComponentOverrides(componentId)
+  const overrides = getComponentOverrides(componentId, userFeatures)
   let resolved: ComponentType<TProps> = fallback
   for (const override of overrides) {
     if ('replacement' in override) {

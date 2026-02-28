@@ -34,6 +34,10 @@ export const DataTableInjectionSpots = {
   footer: (tableId: string): InjectionSpotId => `data-table:${tableId}:footer`,
   toolbar: (tableId: string): InjectionSpotId => `data-table:${tableId}:toolbar`,
   emptyState: (tableId: string): InjectionSpotId => `data-table:${tableId}:empty-state`,
+  columns: (tableId: string): InjectionSpotId => `data-table:${tableId}:columns`,
+  rowActions: (tableId: string): InjectionSpotId => `data-table:${tableId}:row-actions`,
+  bulkActions: (tableId: string): InjectionSpotId => `data-table:${tableId}:bulk-actions`,
+  filters: (tableId: string): InjectionSpotId => `data-table:${tableId}:filters`,
 } as const
 
 export const DetailInjectionSpots = {
