@@ -1428,6 +1428,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         const result = await triggerInjectionEvent('transformFormData', submitValues, injectionContext)
         if (result.data) {
           submitValues = result.data as TValues
+          if (result.applyToForm) {
+            setValues(result.data as CrudFormValues<TValues>)
+          }
         }
       } catch (err) {
         console.error('[CrudForm] Error in transformFormData:', err)
