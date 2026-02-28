@@ -131,6 +131,22 @@ Conflict policy:
   - `customers.interaction.deleted`
   - `customers.next_interaction.updated`
 
+### Transaction & Undo Contract
+Write atomicity:
+1. Canonical interaction mutation + projection recompute run in one DB transaction.
+2. Event enqueue happens after commit (no external provider call inside core transaction).
+
+Undo policy:
+1. `create` undo -> hard delete created interaction + recompute projection.
+2. `update` undo -> restore previous mutable fields + recompute projection.
+3. `complete`/`cancel` undo -> restore previous status/timestamps + recompute projection.
+4. `delete` undo -> restore interaction snapshot + recompute projection.
+
+External side effects:
+1. Provider sync is asynchronous and not part of command transaction.
+2. Undo does not synchronously call provider APIs; instead emits compensating lifecycle event and lets extension workers converge state.
+3. Failed provider compensation is retried and surfaced as integration warning, without rolling back canonical core state.
+
 ## Data Models
 ### CustomerInteraction (Singular)
 New table: `customer_interactions`
@@ -236,6 +252,18 @@ Legacy tables:
   - `_integrations.trello.syncStatus`
   - `_integrations.trello.lastSyncedAt`
 
+### Security & Validation Contract
+1. Every request body/query for canonical and compatibility endpoints is validated with zod before business logic.
+2. Route metadata uses declarative guards:
+   - read: `requireAuth`, `requireFeatures: ['customers.view']`
+   - write: `requireAuth`, `requireFeatures: ['customers.create'|'customers.edit'|'customers.delete']` as applicable
+3. Custom write handlers (non-CRUD factory routes like `complete`/`cancel`) must run mutation guard hooks before/after success.
+4. Interaction `title`/`body` are treated as plain text; UI rendering forbids unsafe raw HTML injection.
+5. Integration secrets/tokens are never stored in interaction payloads and never logged by customers module routes/commands.
+6. Error payloads must not reveal provider credentials or internal stack traces.
+7. Persistence/query layer uses ORM parameterized queries only; no dynamic SQL string interpolation for user input.
+8. External URLs surfaced in `_integrations.*.externalUrl` must be validated and encoded before rendering/navigation.
+
 ### Detail endpoint include tokens
 - Add `include=interactions`.
 - Keep `include=activities` and `include=todos|tasks` as filtered views over interactions.
@@ -273,6 +301,33 @@ New keys:
 - Feature flag: `customers.interactions.unified` (default off in first release, on by default after migration validation).
 - Feature flag: `customers.interactions.legacy-adapters` (default on during transition, removable later).
 - Feature flag: `customers.interactions.external-sync` (default off; enabled per integration rollout).
+
+## Performance & Cache Strategy
+### Query and N+1 Strategy
+1. `GET /api/customers/interactions` uses keyset pagination and returns at most `100` rows per request.
+2. List endpoint target query budget:
+   - 1 query for interaction rows,
+   - 1 optional dictionary join/batch lookup for type labels,
+   - 1 optional enrichment batch query (`enrichMany`) when integrations are enabled.
+3. Detail endpoint with `include=interactions` fetches interactions in one scoped query; no per-row provider lookups.
+4. Integration mapping enrichment must use batch lookup (`enrichMany`) to avoid N+1 across list responses.
+
+### Cache Policy
+1. MVP introduces no mandatory new cache layer; correctness-first path is direct DB reads plus projection columns.
+2. If endpoint-level cache is enabled later, keys/tags must include tenant and organization scope.
+3. Recommended invalidation tags:
+   - `customers:interaction:entity:<entityId>`
+   - `customers:next-interaction:entity:<entityId>`
+   - `customers:interaction:list:<tenantId>:<organizationId>`
+   - `integrations:interaction-mapping:<integrationId>:<tenantId>:<organizationId>`
+4. Every interaction write invalidates entity and list tags in the same request cycle.
+5. Mapping upsert/delete invalidates related integration mapping tags and affected detail/list tags.
+6. Cache TTL is N/A in MVP (no new read cache enabled); when enabled later, default TTL must be explicit per endpoint.
+7. Cache miss behavior in MVP is direct scoped DB read (no stale fallback response).
+
+### Heavy Operation Threshold
+1. Backfill and recompute jobs touching >1000 interaction rows run in workers.
+2. Foreground request path is limited to single-interaction mutations and bounded list reads.
 
 ## Migration & Compatibility
 ### Backward compatibility contract
@@ -335,6 +390,7 @@ Given all interactions for one `entity_id`:
 1. Add `CustomerInteraction` entity + validator schemas.
 2. Add commands + undo support for interaction lifecycle.
 3. Add projection recompute service and invoke from commands.
+4. Register services in customers `di.ts` (recompute service, interaction repository helpers).
 
 ### Phase 2: API and adapters
 1. Add `/api/customers/interactions` route with OpenAPI.
@@ -369,6 +425,7 @@ Given all interactions for one `entity_id`:
 |------|--------|---------|
 | `packages/core/src/modules/customers/data/entities.ts` | Modify | Add `CustomerInteraction`; deprecate old references |
 | `packages/core/src/modules/customers/data/validators.ts` | Modify | Add interaction schemas and compatibility schemas |
+| `packages/core/src/modules/customers/di.ts` | Modify | Register interaction services via DI container |
 | `packages/core/src/modules/customers/commands/interactions.ts` | Create | Canonical interaction commands |
 | `packages/core/src/modules/customers/commands/todos.ts` | Modify | Convert to adapter behavior |
 | `packages/core/src/modules/customers/commands/activities.ts` | Modify | Convert to adapter behavior |
@@ -403,6 +460,9 @@ API paths:
 11. Verify interaction lifecycle events trigger integration sync enqueue (when extension enabled)
 12. Verify inbound provider webhook update is idempotent and loop-safe (`_syncOrigin` guard)
 13. Verify `_integrations` enrichment appears when mapping exists and is absent when extension disabled
+14. Verify write routes reject invalid payloads with zod validation errors
+15. Verify write routes enforce `requireFeatures` guards for unauthorized users
+16. Verify list/detail enrichment remains N+1-safe under 100-row page
 
 Key UI paths:
 1. `/backend/customers/people/[id]` (tabs: tasks/activities)
@@ -506,6 +566,8 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 | root `AGENTS.md` | Keep `pageSize` at or below 100 | Compliant | Canonical list contract enforces `limit <= 100` |
 | root `AGENTS.md` | Never hand-write migrations | Compliant | Migration files generated via `yarn db:generate` |
 | root `AGENTS.md` | Module isolation via events, not direct cross-module coupling | Compliant | UMES sync uses subscribers/enrichers + mapping IDs, not direct provider coupling in core commands |
+| root `AGENTS.md` | Validate all inputs with zod | Compliant | Security contract requires zod validation for canonical + compatibility routes |
+| root `AGENTS.md` | Prefer declarative guards (`requireAuth`, `requireFeatures`) | Compliant | Security contract defines route guard matrix for read/write |
 | `.ai/specs/AGENTS.md` | Include required spec sections | Compliant | All mandatory sections included |
 | `customers/AGENTS.md` | Use customers module CRUD patterns | Compliant | Commands/routes follow existing customers conventions |
 | `packages/ui/AGENTS.md` | Non-`CrudForm` writes use guarded mutation | Compliant | UI migration section requires existing guarded mutation patterns for adapter writes |
@@ -534,6 +596,9 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - Added integration contract for outbound/inbound sync (events, queue retries, idempotent mapping upserts, `_syncOrigin` loop protection).
 - Added external mapping/enrichment model (`_integrations` namespace) aligned with integration specs.
 - Expanded phases, file manifest, tests, risks, and compliance to include UMES integration behavior.
+- Added explicit transaction/undo contract and non-blocking external side-effect compensation model.
+- Added explicit security/validation contract (`zod`, guards, mutation guard hooks, XSS-safe rendering constraints).
+- Added performance/cache section with N+1 expectations, tenant-scoped invalidation tags, and worker thresholds.
 
 ### 2026-02-27 (rev 2)
 - Switched rollout strategy to bridge mode: legacy APIs remain as deprecated adapters for >=1 minor release.
@@ -548,6 +613,15 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - Added derived `next interaction` algorithm and migration strategy.
 
 ### Review — 2026-02-27
+- **Reviewer**: Agent
+- **Security**: Passed
+- **Performance**: Passed
+- **Cache**: Passed
+- **Commands**: Passed
+- **Risks**: Passed
+- **Verdict**: Approved
+
+### Review — 2026-02-28
 - **Reviewer**: Agent
 - **Security**: Passed
 - **Performance**: Passed
