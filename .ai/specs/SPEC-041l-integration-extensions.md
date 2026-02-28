@@ -512,3 +512,36 @@ This widget auto-appears on any entity detail page where `_integrations` is pres
 - New injection spots (`global:sidebar:status-badges`, etc.) are additive
 - External ID enricher targets `*` but only adds data when mappings exist — zero impact on entities without mappings
 - `buildExternalUrl` is optional on `IntegrationDefinition` — existing integrations unaffected
+
+---
+
+## Implementation Status
+
+| Section | Status | Date | Notes |
+|---------|--------|------|-------|
+| 1. Multi-Step Wizard Widget | Done | 2026-03-01 | `InjectionWizard.tsx` + `WizardInjectionSpot.tsx` |
+| 2. Status Badge Injection | Done | 2026-03-01 | `StatusBadgeRenderer.tsx` + `StatusBadgeInjectionSpot.tsx` + AppShell wired |
+| 3. External ID Mapping Display | Done | 2026-03-01 | Types, entity, enricher, widget, injection-table |
+| Integration Tests | Not Started | — | Requires running app instance |
+
+### Detailed Progress
+- [x] `InjectionWizard.tsx` — Step indicator, Back/Next/Complete, per-step validation, field + custom component support
+- [x] `StatusBadgeRenderer.tsx` — Status polling, color-coded dots, count badge, tooltip, deep link
+- [x] `StatusBadgeInjectionSpot.tsx` — Loads data widgets, filters to status-badge kind, renders
+- [x] `WizardInjectionSpot.tsx` — Loads data widgets, filters to wizard kind, renders
+- [x] `AppShell.tsx` — Sidebar + header status badge spots use `StatusBadgeInjectionSpot`
+- [x] `packages/shared/src/modules/integrations/types.ts` — `IntegrationDefinition`, registry, `buildExternalUrl`
+- [x] `packages/core/src/modules/integrations/data/entities.ts` — `SyncExternalIdMapping` entity
+- [x] `packages/core/src/modules/integrations/data/enrichers.ts` — External ID enricher (batch + single)
+- [x] `packages/core/src/modules/integrations/widgets/injection/external-ids/widget.client.tsx` — ExternalIds widget
+- [x] `packages/core/src/modules/integrations/widgets/injection-table.ts` — Wildcard detail sidebar mapping
+- [x] `packages/core/src/modules/integrations/acl.ts` — `integrations.view`, `integrations.manage`
+- [x] `packages/core/src/modules/integrations/setup.ts` — Default role features
+- [x] `packages/core/src/modules/integrations/index.ts` — Module metadata
+- [x] Build verification — all 14 packages build successfully
+
+### Implementation Notes
+- Types (`InjectionWizardWidget`, `InjectionStatusBadgeWidget`, etc.) were already defined in `injection.ts` from Phase A
+- Spot IDs (`global:sidebar:status-badges`, `global:header:status-indicators`) were already defined in `spotIds.ts`
+- Instead of modifying the generic `InjectionSpot.tsx`, created dedicated `StatusBadgeInjectionSpot` and `WizardInjectionSpot` components that use `useInjectionDataWidgets` to load and filter data widgets by kind — cleaner separation of concerns
+- The `SyncExternalIdMapping` entity will need a migration generated via `yarn db:generate` when the module is enabled
