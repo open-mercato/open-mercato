@@ -23,7 +23,7 @@ import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '.
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const paramsSchema = z.object({
@@ -428,8 +428,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       scopedOrganizations: Array.isArray(scope?.filterIds) ? scope.filterIds.length : 0,
     })
     const em = (container.resolve('em') as EntityManager)
+    const encScope = { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null }
 
-    const person = await em.findOne(CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null })
+    const person = await findOneWithDecryption(em, CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null }, {}, encScope)
     profiler.mark('person_loaded', { found: !!person })
     if (!person) {
       statusCode = 404
@@ -452,11 +453,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return forbidden('Access denied')
     }
 
-    profile = await em.findOne(CustomerPersonProfile, { entity: person })
+    profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, {}, encScope)
     profiler.mark('profile_loaded', { found: !!profile })
 
     if (includeAddresses) {
-      addresses = await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
+      addresses = await findWithDecryption(em, CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } }, encScope)
       profiler.mark('addresses_loaded', { count: addresses.length })
     }
 
@@ -470,12 +471,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('tags_loaded', { count: tagAssignments.length })
 
     if (includeComments) {
-      comments = await em.find(CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+      comments = await findWithDecryption(em, CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, encScope)
       profiler.mark('comments_loaded', { count: comments.length })
     }
 
     if (includeActivities) {
-      activities = await em.find(CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
+      activities = await findWithDecryption(em, CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 }, encScope)
       profiler.mark('activities_loaded', { count: activities.length })
     }
 
