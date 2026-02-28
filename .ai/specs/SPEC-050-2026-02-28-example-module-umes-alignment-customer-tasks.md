@@ -3,7 +3,7 @@
 ## TLDR
 **Key Points:**
 - Keep `example` as a self-contained demo module (`example.todo`), but remove its implicit role as customers task provider.
-- Move customer-task synchronization to an explicit UMES-style extension module around canonical `customer_interactions` from SPEC-049.
+- Move customer-task synchronization to an explicit UMES-style extension module around canonical `customer_interactions` from `SPEC-049-2026-02-27-customers-interactions-unification.md`.
 - Make `/backend/customer-tasks` owned by customers domain, so it works even when `example` is disabled.
 
 **Scope:**
@@ -20,7 +20,7 @@
 1. A standalone demo module (`example.todo`, demo pages/widgets/APIs).
 2. A de facto customers task provider role in legacy flows (`todoSource`, `customer_todo_links`, `/backend/customer-tasks` route placement in `example`).
 
-After SPEC-049, customers tasks become canonical `customer_interactions`. Keeping cross-module task-provider behavior inside `example` as an implicit provider creates unclear ownership and upgrade risk.
+After `SPEC-049-2026-02-27-customers-interactions-unification.md`, customers tasks become canonical `customer_interactions`. Keeping cross-module task-provider behavior inside `example` as an implicit provider creates unclear ownership and upgrade risk.
 
 This spec aligns `example` with UMES by separating concerns:
 - `example` remains demo/self-contained.
@@ -114,6 +114,24 @@ Inbound (example -> customers):
   - `example_customers_sync.mapping.deleted`
   - `example_customers_sync.sync.failed`
 
+### Transaction, Idempotency, and Compensation Contract
+1. `example_customers_sync.mapping.upsert`:
+   - idempotent by unique keys `(org, tenant, interaction_id)` and `(org, tenant, todo_id)`,
+   - on retry, same input must converge to one mapping row.
+2. `example_customers_sync.mapping.delete`:
+   - idempotent delete (safe if row already missing),
+   - optional compensation path restores mapping from snapshot when invoked by replay tooling.
+3. `example_customers_sync.sync.from_interaction` and `example_customers_sync.sync.from_todo`:
+   - never run in customers/example core write transaction,
+   - on failure set mapping `sync_status='error'`, persist `last_error`, emit `example_customers_sync.sync.failed`,
+   - retries must not create duplicate todos/interactions.
+4. `example_customers_sync.reconcile`:
+   - operational command (no business undo requirement),
+   - safe to rerun with cursor/idempotency key.
+5. External side effects are eventually consistent:
+   - canonical writes remain committed even if sync fails,
+   - reconciliation/worker retries provide compensation to convergence.
+
 ## Data Models
 ### ExampleCustomerInteractionMapping (Singular)
 New table: `example_customer_interaction_mappings`
@@ -144,18 +162,18 @@ Indexes:
 #### `GET /api/example-customers-sync/mappings`
 - Query: `interactionId?`, `todoId?`, `cursor?`, `limit?`
 - Response: paged mapping rows (`limit <= 100`)
-- Guard: `requireAuth`, `requireFeatures: ['example.todos.view']`
+- Guard: `requireAuth`, `requireFeatures: ['example_customers_sync.view']`
 
 #### `POST /api/example-customers-sync/reconcile`
 - Body: optional filters (`organizationId`, `tenantId`, `limit`, `cursor`)
 - Response: `{ queued: number }`
-- Guard: `requireAuth`, `requireFeatures: ['example.todos.manage']`
+- Guard: `requireAuth`, `requireFeatures: ['example_customers_sync.manage']`
 
 ### Route ownership change
 1. Create canonical `/backend/customer-tasks` page in customers module.
-2. Keep `example` route adapter for one minor:
-   - if hit and customers route exists -> redirect to canonical route,
-   - mark as deprecated in docs/release notes.
+2. Remove conflicting `example` page file for the same route in the same release (single owner, no duplicate route registration).
+3. Keep backward compatibility at URL level because path stays `/backend/customer-tasks`; only module ownership changes.
+4. Mark ownership move in docs/release notes.
 
 ## Internationalization (i18n)
 New keys:
@@ -174,20 +192,23 @@ New keys:
 ## Configuration
 - Feature flag: `example.customers_sync.enabled` (default `false`)
 - Feature flag: `example.customers_sync.bidirectional` (default `false` initially)
-- Feature flag: `example.customers_sync.route_adapter` (default `true` during transition)
+
+### ACL features (new module)
+- `example_customers_sync.view`
+- `example_customers_sync.manage`
 
 ## Migration & Compatibility
 ### Backward compatibility contract
 1. Do not remove `/api/example/todos` or `/backend/todos`.
 2. Do not remove `example` module todo schema in this release.
-3. Move `/backend/customer-tasks` ownership to customers but keep example adapter for >=1 minor.
+3. Move `/backend/customer-tasks` ownership to customers with no URL change (module/file ownership only).
 4. Keep legacy behavior behind feature flags until sync validation passes.
 5. Publish deprecation/migration notes in `RELEASE_NOTES.md`.
 
 ### Migration plan
 1. Create `example_customer_interaction_mappings` table.
 2. Add customers-owned `/backend/customer-tasks`.
-3. Add example route adapter redirect to customers route.
+3. Remove conflicting example page file for `/backend/customer-tasks`.
 4. Enable outbound sync first (`customers -> example`) with bidirectional off.
 5. Run reconcile job to map/create missing example todos for active interactions.
 6. Enable bidirectional sync after validation in staging.
@@ -196,13 +217,14 @@ New keys:
 ## Implementation Plan
 ### Phase 1: Route and ownership decoupling
 1. Create `/backend/customer-tasks` in customers module.
-2. Keep deprecated adapter route in `example`.
+2. Remove conflicting `/backend/customer-tasks` page from `example`.
 3. Update docs and navigation ownership.
 
 ### Phase 2: Sync module foundation
 1. Scaffold `example_customers_sync` module (`index.ts`, `di.ts`, `events.ts`, `data/entities.ts`, `data/validators.ts`, `acl.ts`, `setup.ts`).
 2. Add mapping entity and zod schemas.
 3. Register module in app modules list behind feature flag.
+4. Run `npm run modules:prepare` after adding events/subscribers/workers/routes.
 
 ### Phase 3: Event-driven sync
 1. Add subscribers for customers interaction lifecycle events.
@@ -224,7 +246,7 @@ New keys:
 | File | Action | Purpose |
 |------|--------|---------|
 | `packages/core/src/modules/customers/backend/customer-tasks/page.tsx` | Create | Canonical customer tasks page ownership |
-| `apps/mercato/src/modules/example/backend/customer-tasks/page.tsx` | Modify | Deprecated adapter/redirect to canonical page |
+| `apps/mercato/src/modules/example/backend/customer-tasks/page.tsx` | Delete | Remove duplicate route owner to avoid path collision |
 | `apps/mercato/src/modules/example_customers_sync/index.ts` | Create | Module metadata |
 | `apps/mercato/src/modules/example_customers_sync/acl.ts` | Create | Feature declarations |
 | `apps/mercato/src/modules/example_customers_sync/di.ts` | Create | Service/worker wiring via DI |
@@ -268,7 +290,7 @@ Sync queue failures can delay example todo updates. Mitigation: non-blocking ret
 Cross-module mapping bugs could leak references across orgs. Mitigation: strict tenant/org filters in all mapping queries and tests.
 
 ### Migration & Deployment Risks
-Moving route ownership may confuse bookmarks/custom docs. Mitigation: keep adapter redirect and release-note migration notice.
+Moving route ownership may confuse docs/navigation assumptions. Mitigation: same URL is preserved and release notes call out ownership change.
 
 ### Operational Risks
 Bidirectional sync may produce event storms if guards fail. Mitigation: `_syncOrigin` + dedupe keys + alerting on failure rate.
@@ -328,8 +350,9 @@ Bidirectional sync may produce event storms if guards fail. Mitigation: `_syncOr
 | root `AGENTS.md` | API routes MUST export `openApi` | Compliant | New sync operational routes include OpenAPI docs |
 | root `AGENTS.md` | Undoability default for state changes | Compliant | Sync commands are idempotent and compensating via events/reconcile |
 | root `AGENTS.md` | Keep pageSize at or below 100 | Compliant | Mapping list endpoint enforces `limit <= 100` |
-| root `AGENTS.md` | Backward-compatibility deprecation protocol | Compliant | Example route adapter and no immediate route/API removals |
+| root `AGENTS.md` | Backward-compatibility deprecation protocol | Compliant | `/backend/customer-tasks` URL remains stable; ownership moves to customers without route removal |
 | `packages/core/AGENTS.md` | Event declarations in `events.ts` with `as const` | Compliant | Sync and customers events explicitly declared |
+| `packages/core/AGENTS.md` | Run `npm run modules:prepare` after event/subscriber changes | Compliant | Explicit implementation step added in Phase 2 |
 | `packages/events/AGENTS.md` | Persistent subscribers must be idempotent | Compliant | Sync workers/subscribers use mapping upsert + dedupe keys |
 | `customers/AGENTS.md` | Follow customers CRUD/UI patterns | Compliant | Customer tasks page ownership moved to customers module conventions |
 | `packages/ui/AGENTS.md` | Use guarded mutations for non-`CrudForm` writes | Compliant | Any custom sync-trigger UI actions must use guarded mutation path |
@@ -350,6 +373,13 @@ Bidirectional sync may produce event storms if guards fail. Mitigation: `_syncOr
 - **Fully compliant**: Approved — ready for implementation planning.
 
 ## Changelog
+### 2026-02-28 (rev 2)
+- Removed conflicting dual-owner route strategy for `/backend/customer-tasks`; defined single ownership in customers module.
+- Added explicit idempotency/compensation contract for sync commands and side effects.
+- Split sync module ACL from `example.todos.*` to `example_customers_sync.*`.
+- Added required `npm run modules:prepare` step for generator registration after event/subscriber changes.
+- Clarified explicit dependency on `SPEC-049-2026-02-27-customers-interactions-unification.md`.
+
 ### 2026-02-28
 - Initial specification for splitting `example` demo ownership from customers task integration behavior.
 - Added UMES-aligned sync extension design (`example_customers_sync`) with explicit mapping, loop guards, and route ownership migration.
