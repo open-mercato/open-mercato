@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/core",
-  "version": "0.4.3",
+  "version": "0.4.5",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -208,10 +208,13 @@
   },
   "dependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@types/html-to-text": "^9.0.4",
     "@types/semver": "^7.5.8",
     "@xyflow/react": "^12.6.0",
+    "ai": "^6.0.0",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
+    "html-to-text": "^9.0.5",
     "semver": "^7.6.3"
   },
   "devDependencies": {

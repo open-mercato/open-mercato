@@ -10,10 +10,17 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import * as startValidator from '../../../lib/start-validator'
+import {
+  workflowsTag,
+  validateStartRequestSchema,
+  validateStartResponseSchema,
+  workflowErrorSchema,
+} from '../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -92,4 +99,27 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: workflowsTag,
+  summary: 'Validate workflow start',
+  methods: {
+    POST: {
+      summary: 'Validate if workflow can be started',
+      description: 'Evaluates pre-conditions defined on the START step and returns validation errors with localized messages if any fail. Returns canStart: true/false with details.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: validateStartRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Validation result (canStart, errors, validatedRules)', schema: validateStartResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request body or missing context', schema: workflowErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
+        { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
+      ],
+    },
+  },
 }

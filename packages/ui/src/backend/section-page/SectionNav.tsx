@@ -3,7 +3,10 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { IconButton } from '../../primitives/icon-button'
 import type { SectionNavGroup, SectionNavItem } from './types'
+import { mergeMenuItems } from '../injection/mergeMenuItems'
+import { useInjectedMenuItems, type MenuSurfaceId } from '../injection/useInjectedMenuItems'
 
 const DefaultIcon = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -20,6 +23,7 @@ export type SectionNavProps = {
   userFeatures?: Set<string>
   collapsed: boolean
   onToggleCollapse: () => void
+  menuSurfaceId?: MenuSurfaceId
 }
 
 export function SectionNav({
@@ -30,8 +34,10 @@ export function SectionNav({
   userFeatures,
   collapsed,
   onToggleCollapse,
+  menuSurfaceId,
 }: SectionNavProps) {
   const t = useT()
+  const { items: injectedMenuItems } = useInjectedMenuItems(menuSurfaceId ?? 'menu:sidebar:settings')
 
   const hasRequiredFeatures = (item: SectionNavItem): boolean => {
     if (!item.requireFeatures || item.requireFeatures.length === 0) return true
@@ -68,7 +74,23 @@ export function SectionNav({
   }
 
   const renderSection = (section: SectionNavGroup) => {
-    const visibleItems = section.items.filter(hasRequiredFeatures)
+    const sectionInjected = injectedMenuItems.filter((item) => (item.groupId ?? section.id) === section.id)
+    const mergedItems = mergeMenuItems(
+      section.items.map((item) => ({ id: item.id, item })),
+      sectionInjected,
+    ).flatMap((item) => {
+      if (item.source === 'built-in') {
+        const original = section.items.find((entry) => entry.id === item.id)
+        return original ? [original] : []
+      }
+      if (!item.href) return []
+      return [{
+        id: item.id,
+        label: item.labelKey ? t(item.labelKey, item.label ?? item.id) : (item.label ?? item.id),
+        href: item.href,
+      }]
+    })
+    const visibleItems = mergedItems.filter(hasRequiredFeatures)
     if (visibleItems.length === 0) return null
 
     const sortedItems = [...visibleItems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -94,14 +116,16 @@ export function SectionNav({
         {!collapsed && (
           <span className="text-sm font-medium truncate">{resolvedTitle}</span>
         )}
-        <button
+        <IconButton
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={onToggleCollapse}
-          className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
           title={collapsed ? t('common.expand', 'Expand') : t('common.collapse', 'Collapse')}
+          aria-label={collapsed ? t('common.expand', 'Expand') : t('common.collapse', 'Collapse')}
         >
           {collapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
-        </button>
+        </IconButton>
       </div>
       <div className="border-t" />
       <div className={`flex flex-col gap-4 ${collapsed ? 'items-center' : ''}`}>

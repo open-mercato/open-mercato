@@ -10,12 +10,12 @@ import {
   Unique,
 } from '@mikro-orm/core'
 import type {
-  CatalogOfferLocalizedContent,
   CatalogPriceDisplayMode,
   CatalogProductOptionSchema,
   CatalogProductRelationType,
   CatalogProductType,
 } from './types'
+import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
 
 @Entity({ tableName: 'catalog_product_option_schemas' })
 @Index({
@@ -71,7 +71,14 @@ export class CatalogOptionSchemaTemplate {
 @Unique({ name: 'catalog_products_sku_scope_unique', properties: ['organizationId', 'tenantId', 'sku'] })
 @Unique({ name: 'catalog_products_handle_scope_unique', properties: ['organizationId', 'tenantId', 'handle'] })
 export class CatalogProduct {
-  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'defaultSalesUnitQuantity'
+    | 'uomRoundingScale'
+    | 'uomRoundingMode'
+    | 'unitPriceEnabled'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -114,6 +121,27 @@ export class CatalogProduct {
 
   @Property({ name: 'default_unit', type: 'text', nullable: true })
   defaultUnit?: string | null
+
+  @Property({ name: 'default_sales_unit', type: 'text', nullable: true })
+  defaultSalesUnit?: string | null
+
+  @Property({ name: 'default_sales_unit_quantity', type: 'numeric', precision: 18, scale: 6, default: '1' })
+  defaultSalesUnitQuantity: string = '1'
+
+  @Property({ name: 'uom_rounding_scale', type: 'smallint', default: 4 })
+  uomRoundingScale: number = 4
+
+  @Property({ name: 'uom_rounding_mode', type: 'text', default: 'half_up' })
+  uomRoundingMode: 'half_up' | 'down' | 'up' = 'half_up'
+
+  @Property({ name: 'unit_price_enabled', type: 'boolean', default: false })
+  unitPriceEnabled: boolean = false
+
+  @Property({ name: 'unit_price_reference_unit', type: 'text', nullable: true })
+  unitPriceReferenceUnit?: ReferenceUnitCode | null
+
+  @Property({ name: 'unit_price_base_quantity', type: 'numeric', precision: 18, scale: 6, nullable: true })
+  unitPriceBaseQuantity?: string | null
 
   @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
   defaultMediaId?: string | null
@@ -175,7 +203,59 @@ export class CatalogProduct {
   @OneToMany(() => CatalogProductTagAssignment, (assignment) => assignment.product)
   tagAssignments = new Collection<CatalogProductTagAssignment>(this)
 
+  @OneToMany(() => CatalogProductUnitConversion, (conversion) => conversion.product)
+  unitConversions = new Collection<CatalogProductUnitConversion>(this)
 }
+
+@Entity({ tableName: 'catalog_product_unit_conversions' })
+@Index({
+  name: 'catalog_product_unit_conversions_scope_idx',
+  properties: ['organizationId', 'tenantId', 'product'],
+})
+@Unique({
+  name: 'catalog_product_unit_conversions_unique',
+  properties: ['product', 'unitCode'],
+})
+export class CatalogProductUnitConversion {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt' | 'sortOrder' | 'isActive'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'unit_code', type: 'text' })
+  unitCode!: string
+
+  @Property({ name: 'to_base_factor', type: 'numeric', precision: 24, scale: 12 })
+  toBaseFactor!: string
+
+  @Property({ name: 'sort_order', type: 'integer', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'catalog_product_categories' })
 @Index({ name: 'catalog_product_categories_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({ name: 'catalog_product_categories_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
@@ -371,9 +451,6 @@ export class CatalogOffer {
 
   @Property({ name: 'default_media_url', type: 'text', nullable: true })
   defaultMediaUrl?: string | null
-
-  @Property({ name: 'localized_content', type: 'jsonb', nullable: true })
-  localizedContent?: CatalogOfferLocalizedContent | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null

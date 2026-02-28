@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { Bell } from 'lucide-react'
-import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useNotificationsPoll } from './useNotificationsPoll'
 import { NotificationPanel } from './NotificationPanel'
@@ -45,9 +45,9 @@ export function NotificationBell({ className, t, customRenderers }: Notification
 
   return (
     <>
-      <Button
+      <IconButton
         variant="ghost"
-        size="icon"
+        size="sm"
         className={cn('relative', className)}
         onClick={() => setPanelOpen(true)}
         aria-label={ariaLabel}
@@ -58,7 +58,7 @@ export function NotificationBell({ className, t, customRenderers }: Notification
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
-      </Button>
+      </IconButton>
 
       <NotificationPanel
         open={panelOpen}

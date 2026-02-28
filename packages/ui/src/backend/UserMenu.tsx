@@ -3,6 +3,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { User, LogOut, Key } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
 
 export { ProfileDropdown } from './ProfileDropdown'
 export type { ProfileDropdownProps } from './ProfileDropdown'
@@ -69,19 +71,19 @@ export function UserMenu({ email }: { email?: string }) {
 
   return (
     <div className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-      <button
+      <IconButton
         ref={buttonRef}
-        className="text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2"
+        variant="ghost"
+        size="sm"
         onClick={() => setOpen(true)}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-controls="user-menu-dropdown"
         id="user-menu-button"
-        type="button"
         title={email || t('ui.userMenu.userFallback', 'User')}
       >
         <User className="size-4" />
-      </button>
+      </IconButton>
       {open && (
         <div
           ref={menuRef}
@@ -122,9 +124,11 @@ export function UserMenu({ email }: { email?: string }) {
           </Link>
           <div className="my-1 border-t" aria-hidden="true" />
           <form action="/api/auth/logout" method="POST">
-            <button
+            <Button
               ref={logoutButtonRef}
-              className="w-full text-left text-sm px-2 py-1 rounded hover:bg-accent inline-flex items-center gap-2 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start"
               type="submit"
               role="menuitem"
               tabIndex={0}
@@ -140,7 +144,7 @@ export function UserMenu({ email }: { email?: string }) {
             >
               <LogOut className="size-4" />
               <span>{t('ui.userMenu.logout', 'Logout')}</span>
-            </button>
+            </Button>
           </form>
         </div>
       )}

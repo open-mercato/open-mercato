@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,6 +16,9 @@
     "db:greenfield": "mercato db greenfield",
     "initialize": "mercato init",
     "reinstall": "mercato init --reinstall"
+  },
+  "engines": {
+    "node": "24.x"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.80",

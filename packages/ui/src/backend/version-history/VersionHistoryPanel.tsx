@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { ChevronLeft, Clock, Loader2, RotateCcw, Undo2, X } from 'lucide-react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button } from '../../primitives/button'
 import type { VersionHistoryEntry } from './types'
 import { VersionHistoryDetail } from './VersionHistoryDetail'
 import { formatDate } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
@@ -239,10 +239,11 @@ export function VersionHistoryPanel({
                           key={entry.id}
                           className={`flex items-start justify-between gap-3 py-3 transition-colors hover:bg-muted/40 ${isRelatedEntry ? 'pl-8 pr-4 border-l-2 border-l-muted-foreground/20' : 'px-4'}`}
                         >
-                          <button
+                          <Button
                             type="button"
+                            variant="ghost"
+                            className="flex-1 text-left flex flex-col gap-1"
                             onClick={() => setSelectedEntry(entry)}
-                            className="flex flex-1 flex-col gap-1 text-left"
                           >
                             {isRelatedEntry ? (
                               <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
@@ -259,7 +260,7 @@ export function VersionHistoryPanel({
                               <span>•</span>
                               <span>{statusLabel}</span>
                             </div>
-                          </button>
+                          </Button>
                           <div className="flex items-center gap-1 pt-1">
                             {canUndo ? (
                               <Button

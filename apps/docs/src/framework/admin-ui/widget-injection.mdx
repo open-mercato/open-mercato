@@ -4,6 +4,40 @@ title: Widget injection
 
 The widget injection system lets modules drop extra UI into shared surfaces without forking core code. Widgets declare themselves once, map to one or more slots, and hosts choose how to render them (stacked, grouped cards, or as tabs).
 
+## UMES Foundation + Menu Injection
+
+UMES Phase A and B introduce:
+
+- `InjectionPosition` / `InjectionPlacement` for deterministic ordering (`First`, `Last`, `Before`, `After`).
+- Headless widget loading for declarative payloads (`useInjectionDataWidgets`).
+- Chrome menu extension via `InjectionMenuItemWidget`.
+
+### Supported menu surface IDs
+
+- `menu:sidebar:main`
+- `menu:sidebar:settings`
+- `menu:sidebar:profile`
+- `menu:topbar:profile-dropdown`
+- `menu:topbar:actions`
+
+Scoped IDs are also valid (`menu:sidebar:settings:<sectionId>`).
+
+### i18n contract for menu items
+
+Always provide both translation key and fallback:
+
+```ts
+{
+  id: 'example-todos-shortcut',
+  labelKey: 'example.menu.todosShortcut',
+  label: 'Example Todos',
+  groupId: 'example.nav.group',
+  groupLabelKey: 'example.nav.group',
+}
+```
+
+This prevents raw keys from being rendered when a dictionary entry is missing.
+
 ## Slot types and placement hints
 
 - **Stacked (`kind: 'stack'`)** – renders inline where the slot is placed. Default when no `kind` is provided.
@@ -31,6 +65,10 @@ export const injectionTable: ModuleInjectionTable = {
 - **Dashboard** – `dashboard:before` and `dashboard:after` wrap the widget grid.
 - **Sales documents** – `sales.document.detail.quote:tabs`, `sales.document.detail.order:tabs` (new tabs) and `sales.document.detail.<kind>:details` for blocks beneath the details section.
 - **Customers** – `customers.company.detail:tabs` and `customers.company.detail:details`; `customers.person.detail:tabs` and `customers.person.detail:details`.
+- **Backend record context** – `backend:record:current` is mounted once per backend page and receives `{ path, query }` context for page-level record widgets.
+- **Backend layout** – `backend:layout:top` and `backend:layout:footer` render at the start and end of the main backend content area.
+- **Backend sidebar** – `backend:sidebar:top` and `backend:sidebar:footer` render in the desktop sidebar shell above and below navigation/customization actions.
+- **Global backend mutations** – `GLOBAL_MUTATION_INJECTION_SPOT_ID` now resolves to `backend:record:current`; `backend-mutation:global` remains mounted as a legacy compatibility slot in `AppShell`.
 - **Admin layout** – `admin.page:<normalized-path>:before` / `after` wraps every backend page (path is lowercased, stripped of query, `/` → `:`).
 
 ## Example: Sales todos tab (example module)

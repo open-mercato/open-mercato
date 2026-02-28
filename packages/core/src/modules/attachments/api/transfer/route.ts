@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { mergeAttachmentMetadata, readAttachmentMetadata } from '../../lib/metadata'
+import {
+  attachmentsTag,
+  transferAttachmentsRequestSchema,
+  transferAttachmentsResponseSchema,
+  attachmentErrorSchema,
+} from '../openapi'
 
 const transferSchema = z.object({
   entityId: z.string().min(1),
@@ -17,7 +24,7 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const json = await req.json().catch(() => null)
@@ -38,8 +45,8 @@ export async function POST(req: Request) {
   const filters: Record<string, unknown> = {
     id: { $in: attachmentIds },
     entityId,
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
   }
   if (fromRecordId) {
     filters.recordId = fromRecordId
@@ -67,4 +74,28 @@ export async function POST(req: Request) {
   }
   await em.persistAndFlush(records)
   return NextResponse.json({ ok: true, updated: records.length })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: attachmentsTag,
+  summary: 'Transfer attachments between records',
+  methods: {
+    POST: {
+      summary: 'Transfer attachments to different record',
+      description: 'Transfers one or more attachments from one record to another within the same entity type. Updates attachment assignments and metadata to reflect the new record.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: transferAttachmentsRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Attachments transferred successfully', schema: transferAttachmentsResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 404, description: 'Attachments not found', schema: attachmentErrorSchema },
+        { status: 500, description: 'Attachment model missing', schema: attachmentErrorSchema },
+      ],
+    },
+  },
 }

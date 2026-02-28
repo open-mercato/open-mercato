@@ -10,9 +10,14 @@ Design and review specifications (SPECs) against Open Mercato's architecture, na
 ## Workflow
 
 1.  **Load Context**: Load initial context, take user provided context prompt, and load related files using the Task-Routing table from root `AGENTS.md`.
-2.  **Initialize**: Create an empty file with the naming convention `SPEC-{number}-{date}-{title}.md`.
+2.  **Initialize**: Create an empty file with the correct naming convention for scope:
+    - OSS scope: `SPEC-{number}-{date}-{title}.md` in `.ai/specs/`
+    - Enterprise scope: `SPEC-ENT-{number}-{date}-{title}.md` in `.ai/specs/enterprise/`
 3.  **Start Minimal**: Write a **Skeleton Spec** first (TLDR + 2-3 key sections). Do NOT write the full spec in one pass.
-4.  **Iterate**: Iterate with the user to refine the scope and requirements.
+    - Before writing the skeleton, scan the brief for **critical unknowns** — decisions that block architecture, data model, or scope. These are questions where a wrong assumption would require rewriting large parts of the spec.
+    - If critical unknowns exist, add a numbered **Open Questions** block (`Q1`, `Q2`, …) directly in the skeleton, immediately after the TLDR. One question per line. Keep each question short and answerable (binary or multiple-choice where possible).
+    - **STOP after presenting the skeleton.** Do not proceed to Step 5 (Research) or beyond until the user has answered all questions. This is a hard gate.
+4.  **Iterate**: Apply answers from the Open Questions gate to fill in the skeleton. Remove the Open Questions block once all are resolved. If new unknowns surface during research or design, repeat the gate for those questions only.
 5.  **Research**: Challenge requirements against open-source market leaders in the domain.
 6.  **Design**: Create the spec design and architecture.
 7.  **Implementation Breakdown**: Create implementation details broken down into **Phases** (stories) and **Steps** (testable tasks). Each step should result in a working application.

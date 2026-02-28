@@ -5,6 +5,23 @@ import { flash } from '../FlashMessages'
 import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { pushOperation } from '../operations/store'
 import { pushPartialIndexWarning } from '../indexes/store'
+import { createScopedHeaderStack } from './scopedHeaderStack'
+
+const scopedHeaders = createScopedHeaderStack()
+
+function mergeHeaders(base: HeadersInit | undefined, scoped: Record<string, string>): Headers {
+  const headers = new Headers(base ?? {})
+  for (const [key, value] of Object.entries(scoped)) {
+    if (headers.has(key)) continue
+    headers.set(key, value)
+  }
+  return headers
+}
+
+export async function withScopedApiHeaders<T>(headers: Record<string, string>, run: () => Promise<T>): Promise<T> {
+  return scopedHeaders.withScopedHeaders(headers, run)
+}
+
 export class UnauthorizedError extends Error {
   readonly status = 401
   constructor(message = 'Unauthorized') {
@@ -46,16 +63,21 @@ export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly st
 
 export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
   if (typeof window === 'undefined') return
-  // We don't know required roles from the API response; use a generic hint.
   if (window.location.pathname.startsWith('/login')) return
   try {
     const current = window.location.pathname + window.location.search
     const features = options?.requiredFeatures?.filter(Boolean) ?? []
     const roles = options?.requiredRoles?.filter(Boolean) ?? []
+    const fallbackRoles = DEFAULT_FORBIDDEN_ROLES.filter(Boolean)
+    const effectiveRoles = roles.length ? roles : fallbackRoles
     const query = features.length
       ? `requireFeature=${encodeURIComponent(features.join(','))}`
-      : `requireRole=${encodeURIComponent((roles.length ? roles : DEFAULT_FORBIDDEN_ROLES).map(String).join(','))}`
-    const url = `/login?${query}&redirect=${encodeURIComponent(current)}`
+      : effectiveRoles.length
+        ? `requireRole=${encodeURIComponent(effectiveRoles.map(String).join(','))}`
+        : ''
+    const url = query
+      ? `/login?${query}&redirect=${encodeURIComponent(current)}`
+      : `/login?redirect=${encodeURIComponent(current)}`
     flash('Insufficient permissions. Redirecting to login…', 'warning')
     setTimeout(() => { window.location.href = url }, 60)
   } catch {
@@ -64,11 +86,24 @@ export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | 
 }
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-  const baseFetch: FetchType = (typeof window !== 'undefined' && (window as any).__omOriginalFetch)
-    ? ((window as any).__omOriginalFetch as FetchType)
-    : fetch;
-  const res = await baseFetch(input, init);
+  type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  const originalFetch =
+    typeof window !== 'undefined'
+      ? (window as Window & { __omOriginalFetch?: FetchType }).__omOriginalFetch
+      : undefined
+  const fallbackFetch = (globalThis as typeof globalThis & { fetch?: FetchType }).fetch
+  const baseFetch = originalFetch ?? fallbackFetch
+  if (!baseFetch) {
+    return new Response(
+      JSON.stringify({ error: 'Fetch API is not available in this runtime' }),
+      { status: 503, headers: { 'content-type': 'application/json' } },
+    )
+  }
+  const scoped = scopedHeaders.resolveScopedHeaders()
+  const mergedInit = Object.keys(scoped).length
+    ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
+    : init
+  const res = await baseFetch(input, mergedInit)
   const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
@@ -111,8 +146,11 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
           details: payload,
         })
       } catch {}
-      redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
-      const msg = await res.text().catch(() => 'Forbidden')
+      const hasAclHints = Boolean((roles && roles.length) || (features && features.length))
+      if (hasAclHints) {
+        redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
+      }
+      const msg = await res.clone().text().catch(() => 'Forbidden')
       throw new ForbiddenError(msg)
     }
     // If already on login, just return the response for the caller to handle

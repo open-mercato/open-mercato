@@ -5,7 +5,7 @@ description: Run and create QA integration tests (Playwright TypeScript), includ
 
 # Integration Tests Skill
 
-This skill generates executable Playwright tests (`.ai/qa/tests/<category>/TC-*.spec.ts`) by exploring the running application. It also covers running existing integration tests after feature/bug implementation and reporting failures with artifact-based diagnosis. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
+This skill generates executable Playwright tests in module-local `__integration__` directories (for example `packages/core/src/modules/sales/__integration__/TC-SALES-*.spec.ts`) by exploring the running application. It also covers running existing integration tests after feature/bug implementation and reporting failures with artifact-based diagnosis. It optionally produces a markdown scenario (`.ai/qa/scenarios/TC-*.md`) for documentation — the scenario is **not required**.
 
 ## Quick Reference
 
@@ -17,7 +17,7 @@ This skill generates executable Playwright tests (`.ai/qa/tests/<category>/TC-*.
 | Run interactive ephemeral mode | `yarn test:integration:ephemeral:interactive` |
 | Start ephemeral app only (for MCP exploration, tests development, and debugging) | `yarn test:integration:ephemeral:start` |
 | View report | `yarn test:integration:report` |
-| Test files location | `.ai/qa/tests/<category>/TC-XXX.spec.ts` |
+| Test files location | `<module>/__integration__/TC-XXX.spec.ts` (legacy `.ai/qa/tests` still supported) |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
 | Reusable env state file | `.ai/qa/ephemeral-env.json` |
 
@@ -56,7 +56,7 @@ List existing test cases in the target category to determine the next sequential
 
 ```bash
 ls .ai/qa/scenarios/TC-{CATEGORY}-*.md 2>/dev/null | sort | tail -1
-ls .ai/qa/tests/<category>/TC-{CATEGORY}-*.spec.ts 2>/dev/null | sort | tail -1
+find apps packages .ai/qa/tests -type f -name "TC-{CATEGORY}-*.spec.ts" 2>/dev/null | sort | tail -1
 ```
 
 Use the highest number found across both directories, then increment. For example, if the last scenario is TC-CRM-011 but the last test is TC-CRM-013, use TC-CRM-014.
@@ -92,22 +92,50 @@ For API tests, use cURL to discover:
 
 ### Phase 5 — Write the Playwright Test
 
-Create `.ai/qa/tests/<category>/TC-{CATEGORY}-{XXX}.spec.ts`
+Create the test in the module where the behavior lives:
+
+- Core/shared module: `packages/<package>/src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
+- App-specific module: `apps/mercato/src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
+- Create-app template module: `packages/create-app/template/src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
+- Enterprise overlay test: `packages/enterprise/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
+  - Only create enterprise overlay tests as additions to modules that already have base module tests.
+  - Do not add dependencies from base code to the enterprise package.
+  - Subfolders inside `__integration__` are supported.
 
 Use the locators discovered in Phase 3 (not guessed). If a scenario was written, reference it in a comment.
 Do not hardcode entity IDs in routes, payloads, or assertions. Resolve entities dynamically at runtime by creating fixtures through API/UI steps or by selecting existing rows via stable UI text/role locators.
 
-Category-to-folder mapping:
+Metadata for conditional test enablement:
 
-| Category | Folder |
-|----------|--------|
-| AUTH | `auth/` |
-| CAT | `catalog/` |
-| CRM | `crm/` |
-| SALES | `sales/` |
-| ADMIN | `admin/` |
-| INT | `integration/` |
-| API-* | `api/` |
+- Helpers:
+  - Put shared helpers in a central reusable location (recommended: `packages/core/src/modules/core/__integration__/helpers/`).
+  - Module-local `__integration__/helpers/` files should re-export central helpers where possible.
+
+- Folder-level metadata:
+  - Add `meta.ts` or `index.ts` anywhere under `__integration__/`.
+  - Supported keys: `dependsOnModules`, `requiredModules`, `requiresModules`.
+  - Example:
+
+```ts
+export const integrationMeta = {
+  description: 'Billing integration coverage',
+  dependsOnModules: ['sales', 'currencies'],
+}
+```
+
+- Per-test metadata:
+  - Add metadata directly inside the `.spec.ts` file using the same keys, or create sibling file `TC-XXX.meta.ts`.
+  - Example sibling file:
+
+```ts
+export const integrationMeta = {
+  dependsOnModules: ['catalog'],
+}
+```
+
+- Evaluation model:
+  - Dependencies inherit from `__integration__/` root through nested subfolders and then per-test metadata is applied.
+  - If any required module is not enabled in the app, matching tests are skipped automatically (excluded from discovery/run).
 
 ### Phase 6 — Optionally Write the Markdown Scenario
 
@@ -157,13 +185,13 @@ This step is **optional** — skip it if the user only wants the executable test
 Run the new test to confirm it passes:
 
 ```bash
-npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts
+npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-file>
 ```
 
 When developing/debugging the test, run fail-fast with no retries:
 
 ```bash
-npx playwright test --config .ai/qa/tests/playwright.config.ts <category>/TC-{CATEGORY}-{XXX}.spec.ts --retries=0
+npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-file> --retries=0
 ```
 
 If it fails, fix it. Do not leave broken tests.
@@ -218,6 +246,10 @@ If the run fails, apply the shared failure-analysis section above.
 - MUST analyze failed test artifacts (`stdout`, `error-context.md`, screenshots/report) before reporting failures
 - MUST report failures in a per-test table that includes reason, evidence, and suggested owner
 - MUST apply the same failure-analysis and table-reporting rules when only running existing tests after implementation work
+- MUST place new tests in module-local `__integration__` directories; use legacy `.ai/qa/tests/` only when there is no module context
+- MUST keep helper utilities next to tests under `<module>/__integration__/helpers/` (avoid cross-module helper imports)
+- MUST treat `packages/enterprise/modules/<module>/__integration__/` as an optional overlay and keep base code independent from enterprise
+- MUST use `meta.ts` or `index.ts` dependency metadata for module-gated folders and per-test `.meta.ts` (or in-file metadata) for individual gating
 - When deriving from a spec, focus on the happy path first, then add edge cases as separate test cases if they warrant it
 - Each test file covers one scenario — create multiple files for multiple scenarios
 
@@ -241,9 +273,9 @@ Typical spec produces 3-8 test cases. Prioritize:
 
 Given SPEC-017 (Version History Panel), the skill would produce:
 
-- `tests/admin/TC-ADMIN-011.spec.ts` — UI: open history panel on an entity
-- `tests/api/TC-API-AUD-007.spec.ts` — API: fetch audit logs for entity
-- `tests/admin/TC-ADMIN-012.spec.ts` — UI: restore a previous version
+- `packages/core/src/modules/admin/__integration__/TC-ADMIN-011.spec.ts` — UI: open history panel on an entity
+- `packages/core/src/modules/admin/__integration__/TC-API-AUD-007.spec.ts` — API: fetch audit logs for entity
+- `packages/core/src/modules/admin/__integration__/TC-ADMIN-012.spec.ts` — UI: restore a previous version
 - Optionally: matching `.ai/qa/scenarios/TC-ADMIN-011-*.md` files for documentation
 
 ## Running Existing Tests
@@ -252,14 +284,14 @@ Given SPEC-017 (Version History Panel), the skill would produce:
 # Run all integration tests headlessly (zero token cost)
 yarn test:integration
 
-# Run a specific category
-npx playwright test --config .ai/qa/tests/playwright.config.ts auth/
+# Run tests matching a module/category path fragment
+npx playwright test --config .ai/qa/tests/playwright.config.ts sales
 
 # Run a single test
-npx playwright test --config .ai/qa/tests/playwright.config.ts .ai/qa/tests/auth/TC-AUTH-001.spec.ts
+npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/auth/__integration__/TC-AUTH-001.spec.ts
 
 # Run fail-fast in local debugging
-npx playwright test --config .ai/qa/tests/playwright.config.ts .ai/qa/tests/auth/TC-AUTH-001.spec.ts --retries=0
+npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src/modules/auth/__integration__/TC-AUTH-001.spec.ts --retries=0
 
 # Run in ephemeral containers (Docker required)
 yarn test:integration:ephemeral
@@ -272,7 +304,7 @@ yarn test:integration:ephemeral:interactive
 
 When converting multiple scenarios at once:
 
-1. List unconverted scenarios by comparing `.ai/qa/scenarios/` vs `.ai/qa/tests/`
+1. List unconverted scenarios by comparing `.ai/qa/scenarios/` vs discovered `**/__integration__/**/*.spec.ts` (plus legacy `.ai/qa/tests/**/*.spec.ts`)
 2. Convert one category at a time
 3. Run the full suite after each category to catch cross-test issues
 4. Report summary: total converted, passed, failed

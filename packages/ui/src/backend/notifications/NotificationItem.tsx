@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { X, Bell, AlertTriangle, CheckCircle2, XCircle, Info, Loader2 } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import type { NotificationDto, NotificationRendererProps, NotificationTypeAction } from '@open-mercato/shared/modules/notifications/types'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { ComponentType } from 'react'
@@ -44,20 +45,6 @@ export type NotificationItemProps = {
   customRenderer?: ComponentType<NotificationRendererProps>
 }
 
-function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString()
-}
 
 function resolveNotificationText(params: {
   key?: string | null
@@ -209,7 +196,7 @@ export function NotificationItem({
               {titleText}
             </h4>
             <span className="flex-shrink-0 text-xs text-muted-foreground">
-              {formatTimeAgo(notification.createdAt)}
+              {formatRelativeTime(notification.createdAt, { translate: t }) ?? ''}
             </span>
           </div>
 
@@ -220,7 +207,7 @@ export function NotificationItem({
           )}
 
           {hasActions && notification.status !== 'actioned' && (
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap items-start gap-2">
               {notification.actions.map((action) => (
                 <Button
                   key={action.id}
@@ -229,6 +216,7 @@ export function NotificationItem({
                     'outline'
                   }
                   size="sm"
+                  className="h-auto min-h-8 max-w-full min-w-0 whitespace-normal break-words text-left"
                   onClick={(event) => handleAction(action.id, event)}
                   disabled={executing !== null}
                 >

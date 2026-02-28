@@ -6,10 +6,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { UserTask } from '../../../data/entities'
+import {
+  workflowsTag,
+  userTaskDetailResponseSchema,
+  workflowErrorSchema,
+} from '../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -71,4 +78,24 @@ export async function GET(
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: workflowsTag,
+  summary: 'User task detail',
+  methods: {
+    GET: {
+      summary: 'Get task details',
+      description: 'Returns complete details of a user task by ID.',
+      responses: [
+        { status: 200, description: 'User task details', schema: userTaskDetailResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
+        { status: 404, description: 'Task not found', schema: workflowErrorSchema },
+        { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
+      ],
+    },
+  },
 }

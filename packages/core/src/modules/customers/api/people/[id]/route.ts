@@ -24,7 +24,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -91,14 +91,6 @@ function extractTodoTitle(record: Record<string, unknown>): string | null {
     if (typeof value === 'string' && value.trim().length > 0) {
       return value.trim()
     }
-  }
-  return null
-}
-
-function parseBoolean(value: unknown): boolean | null {
-  if (typeof value === 'boolean') return value
-  if (typeof value === 'string') {
-    return parseBooleanToken(value)
   }
   return null
 }
@@ -265,13 +257,13 @@ async function resolveTodoDetails(
         if (!rawId) continue
         const title = extractTodoTitle(record)
         const isDone = (() => {
-          const direct = parseBoolean(record.is_done)
+          const direct = parseBooleanFromUnknown(record.is_done)
           if (direct !== null) return direct
-          const custom = parseBoolean(readCustomField(record, 'is_done'))
+          const custom = parseBooleanFromUnknown(readCustomField(record, 'is_done'))
           if (custom !== null) return custom
-          const generic = parseBoolean(record.isDone)
+          const generic = parseBooleanFromUnknown(record.isDone)
           if (generic !== null) return generic
-          return parseBoolean(readCustomField(record, 'isDone'))
+          return parseBooleanFromUnknown(readCustomField(record, 'isDone'))
         })()
         const priority = (() => {
           const candidates = [

@@ -105,6 +105,8 @@ export const dealCreateSchema = scopedSchema.extend({
   description: z.string().max(4000).optional(),
   status: z.string().max(50).optional(),
   pipelineStage: z.string().max(100).optional(),
+  pipelineId: uuid().optional(),
+  pipelineStageId: uuid().optional(),
   valueAmount: z.coerce.number().min(0).optional(),
   valueCurrency: z.string().min(3).max(3).optional(),
   probability: z.number().min(0).max(100).optional(),
@@ -313,3 +315,58 @@ export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
 export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
 export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
 export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
+
+// --- Pipeline schemas ---
+
+export const pipelineCreateSchema = scopedSchema.extend({
+  name: z.string().trim().min(1).max(200),
+  isDefault: z.boolean().optional(),
+})
+
+export const pipelineUpdateSchema = z.object({
+  id: uuid(),
+  name: z.string().trim().min(1).max(200).optional(),
+  isDefault: z.boolean().optional(),
+})
+
+export const pipelineDeleteSchema = z.object({
+  id: uuid(),
+})
+
+export type PipelineCreateInput = z.infer<typeof pipelineCreateSchema>
+export type PipelineUpdateInput = z.infer<typeof pipelineUpdateSchema>
+export type PipelineDeleteInput = z.infer<typeof pipelineDeleteSchema>
+
+// --- Pipeline Stage schemas ---
+
+export const pipelineStageCreateSchema = scopedSchema.extend({
+  pipelineId: uuid(),
+  label: z.string().trim().min(1).max(200),
+  order: z.number().int().min(0).optional(),
+  color: z.string().trim().max(20).optional(),
+  icon: z.string().trim().max(100).optional(),
+})
+
+export const pipelineStageUpdateSchema = z.object({
+  id: uuid(),
+  label: z.string().trim().min(1).max(200).optional(),
+  order: z.number().int().min(0).optional(),
+  color: z.string().trim().max(20).optional(),
+  icon: z.string().trim().max(100).optional(),
+})
+
+export const pipelineStageDeleteSchema = z.object({
+  id: uuid(),
+})
+
+export const pipelineStageReorderSchema = scopedSchema.extend({
+  stages: z.array(z.object({
+    id: uuid(),
+    order: z.number().int().min(0),
+  })).min(1),
+})
+
+export type PipelineStageCreateInput = z.infer<typeof pipelineStageCreateSchema>
+export type PipelineStageUpdateInput = z.infer<typeof pipelineStageUpdateSchema>
+export type PipelineStageDeleteInput = z.infer<typeof pipelineStageDeleteSchema>
+export type PipelineStageReorderInput = z.infer<typeof pipelineStageReorderSchema>

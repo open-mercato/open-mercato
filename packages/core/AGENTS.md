@@ -48,6 +48,10 @@ All module paths use `src/modules/<module>/` as shorthand.
 
 All API route files MUST export an `openApi` object for automatic API documentation generation.
 
+For custom write routes that do not use `makeCrudRoute` (`POST`/`PUT`/`PATCH`/`DELETE`), MUST wire the mutation guard contract:
+- call `validateCrudMutationGuard` before mutation logic
+- call `runCrudMutationGuardAfterSuccess` after successful mutation when requested
+
 ### CRUD Routes
 
 Create an `openapi.ts` helper in your module's `api/` directory:
@@ -179,6 +183,21 @@ MUST use `as const` — provides compile-time safety; undeclared events trigger 
 
 Run `npm run modules:prepare` after creating/modifying `events.ts` files.
 
+## Translatable Fields
+
+Declare translatable fields in the module's `translations.ts` at the module root (like `events.ts`). The generator auto-discovers these files and aggregates them into `translations-fields.generated.ts`.
+
+```typescript
+// src/modules/<module>/translations.ts
+export const translatableFields: Record<string, string[]> = {
+  '<module>:<entity>': ['title', 'description'],
+}
+```
+
+When a module defines `translations.ts`, all its entity types automatically get the Translation Manager widget injected into their CrudForm edit pages.
+
+Run `npm run modules:prepare` after creating/modifying `translations.ts` files.
+
 ### Event Subscribers
 
 React to events by creating subscriber files in `subscribers/`:
@@ -228,6 +247,8 @@ Widget injection is the preferred way to build inter-module UI extensions. Avoid
 - Declare widgets under `widgets/injection/`
 - Map them to slots via `widgets/injection-table.ts`
 - Keep metadata in colocated `*.meta.ts` files
+- For headless widgets (menu items, field/column/action declarations), export declarative payloads from `widget.ts` without a React `Widget` component
+- Use `InjectionPosition` from `@open-mercato/shared/modules/widgets/injection-position` for deterministic before/after/first/last placement
 
 ### Spot IDs
 
@@ -235,8 +256,20 @@ Hosts expose consistent spot ids:
 - `crud-form:<entityId>` — forms
 - `data-table:<tableId>[:header|:footer]` — data tables
 - `admin.page:<path>:before|after` — admin pages
+- `menu:sidebar:main` — main sidebar items/groups
+- `menu:sidebar:settings` — settings sidebar
+- `menu:sidebar:profile` — profile sidebar
+- `menu:topbar:profile-dropdown` — user/profile dropdown
+- `menu:topbar:actions` — header action area
 
 Widgets can opt into grouped cards or tabs via `placement.kind`.
+
+### Menu Injection
+
+- Define menu widgets with `menuItems: InjectionMenuItem[]` and map them to one or more `menu:*` spots in `widgets/injection-table.ts`.
+- Prefer stable `menuItems[].id` values (`<module>-<feature>-<action>`) because sidebar customization and tests rely on these IDs.
+- Always use i18n keys for labels (`labelKey`), never hard-code user-facing text in widget payloads.
+- When placing relative to an existing item, provide `placement: { position: InjectionPosition.Before|After, relativeTo: '<target-id>' }`.
 
 ## Custom Fields
 
@@ -302,6 +335,7 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 
 ## Command Side Effects
 
+- Implement write operations via the Command pattern (don’t mutate domain state directly inside route handlers). Reference: `src/modules/customers/commands/*`.
 - Include `indexer: { entityType, cacheAliases }` in both `emitCrudSideEffects` and `emitCrudUndoSideEffects`
 - This ensures undo refreshes the query index and caches
 - Reference: customers commands at `src/modules/customers/commands/people.ts`
@@ -365,7 +399,7 @@ await emitCrudSideEffects({ ... })
 ## Database Entities
 
 - Live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts`, `schema.ts`)
-- Tables: plural snake_case (e.g., `users`, `sales_orders`)
+- Tables: plural snake_case; prefer `<module>_` prefixes for module-owned tables (e.g., `catalog_products`, `sales_orders`)
 - UUID PKs, explicit FKs, junction tables for M2M
 - Include `deleted_at timestamptz null` for soft delete
 
@@ -387,6 +421,58 @@ Output to `apps/mercato/.mercato/generated/`. Never edit manually. Never import 
 | `modules.cli.generated.ts` | CLI module registrations |
 
 Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
+
+## Response Enrichers
+
+Response enrichers let a module add computed fields to another module's CRUD API responses (similar to GraphQL Federation).
+
+### Creating an Enricher
+
+Create `data/enrichers.ts` in your module:
+
+```typescript
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const myEnricher: ResponseEnricher = {
+  id: 'mymodule.customer-metrics',
+  targetEntity: 'customers.person',     // entity to enrich
+  features: ['mymodule.view'],           // required ACL features
+  priority: 10,                          // higher runs first
+  timeout: 2000,                         // ms, default 2000
+  fallback: { _mymodule: { count: 0 } },// returned on failure
+  critical: false,                       // true = error propagates to client
+  async enrichOne(record, context) {
+    // Add fields to a single record
+    return { ...record, _mymodule: { count: 42 } }
+  },
+  async enrichMany(records, context) {
+    // Batch enrichment (prevents N+1)
+    return records.map(r => ({ ...r, _mymodule: { count: 42 } }))
+  },
+}
+
+export const enrichers: ResponseEnricher[] = [myEnricher]
+```
+
+### Opt-in on CRUD routes
+
+Target entity routes must opt in via `enrichers` option:
+```typescript
+const crud = makeCrudRoute({
+  // ...
+  enrichers: { entityId: 'customers.person' },
+})
+```
+
+### Key Rules
+
+- MUST implement `enrichMany()` for batch endpoints (prevents N+1 queries)
+- MUST namespace enriched fields with `_moduleName` prefix (e.g. `_example.todoCount`)
+- MUST use `features` array for ACL gating — enricher runs only if user has all listed features
+- Export fields are stripped: `_meta` and `_`-prefixed fields are removed from CSV/Excel exports
+- Enrichers run after `CrudHooks.afterList`, before HTTP response serialization
+- `critical: true` propagates errors to the HTTP response; `false` (default) uses fallback silently
+- Run `yarn generate` after adding `data/enrichers.ts` to auto-discover
 
 ## Upgrade Actions
 

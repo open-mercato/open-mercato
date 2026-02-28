@@ -41,6 +41,7 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 - 🧠 **AI-supportive foundation** – structured for assistive workflows, automation, and conversational interfaces.
 - ⚙️ **Modern stack** – Next.js App Router, TypeScript, zod, Awilix DI, MikroORM, and bcryptjs out of the box.
 
+
 ## Screenshots
 
 <table>
@@ -166,7 +167,7 @@ We have migrated Open Mercato to a monorepo structure. If you're upgrading from 
 ### File Structure
 
 The codebase is now organized into:
-- `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`)
+- `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`, `@open-mercato/enterprise`)
 - `apps/` - Applications (main app in `apps/mercato`, docs in `apps/docs`)
 
 **Important note on storage:** The storage folder has been moved to the `apps/mercato` folder as well. If you instance has got any attachments uploaded, please make sure you run:
@@ -225,6 +226,12 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
 
 **Prerequisites:** Yarn 4+
 
+Quick single-line starter (ephemeral dev on a free port):
+
+```bash
+yarn dev:ephemeral
+```
+
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
@@ -243,6 +250,12 @@ For a fresh greenfield boot (build packages, generate registries, reinstall modu
 
 ```bash
 yarn dev:greenfield
+```
+
+For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
+
+```bash
+yarn dev:ephemeral
 ```
 
 Navigate to `http://localhost:3000/backend` and sign in with the default credentials printed by `yarn initialize`.
@@ -345,6 +358,46 @@ export const enabledModules: ModuleEntry[] = [
 
 Run `yarn generate` and `yarn dev` — your module's pages, APIs, and entities are auto-discovered.
 
+### Extend backend navigation with menu injection (SPEC-041 A/B)
+
+Open Mercato now supports declarative menu injection for backend chrome surfaces without touching core files.
+
+1. Create a headless widget in your module:
+
+```ts
+// src/modules/example/widgets/injection/example-menus/widget.ts
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+import type { InjectionMenuItemWidget } from '@open-mercato/shared/modules/widgets/injection'
+
+export default {
+  metadata: { id: 'example.injection.example-menus', features: ['example.view'] },
+  menuItems: [
+    {
+      id: 'example-todos-shortcut',
+      label: 'example.menu.todosShortcut',
+      href: '/backend/example/todos',
+      groupId: 'example.nav.group',
+      groupLabelKey: 'example.nav.group',
+      placement: { position: InjectionPosition.Last },
+    },
+  ],
+} satisfies InjectionMenuItemWidget
+```
+
+2. Map it in `widgets/injection-table.ts`:
+
+```ts
+export const injectionTable = {
+  'menu:sidebar:main': { widgetId: 'example.injection.example-menus', priority: 50 },
+  'menu:topbar:actions': { widgetId: 'example.injection.example-menus', priority: 50 },
+  'menu:topbar:profile-dropdown': { widgetId: 'example.injection.example-menus', priority: 50 },
+}
+```
+
+3. Run `yarn generate`.
+
+Available surfaces: `menu:sidebar:main`, `menu:sidebar:settings`, `menu:sidebar:profile`, `menu:topbar:actions`, `menu:topbar:profile-dropdown`.
+
 ### Eject core modules for deep customization
 
 When you need to change the internals of a core module (entities, business logic, UI), **eject** it. The `mercato eject` command copies the module source into your `src/modules/` directory and switches it to local, so you can modify it freely while all other modules keep receiving package updates.
@@ -429,6 +482,40 @@ Open Mercato is proudly supported by [Catch The Tornado](https://catchthetornado
 
 Open Mercato let the module developers to expose the custom CLI commands for variouse maintenance tasks. Read more on the [CLI documentation](https://docs.openmercato.com/cli/overview)
 
+## Considering a project on Open Mercato?
+
+If you're planning to build on Open Mercato, don’t go it alone.
+
+### Certified Partner Agencies
+
+**Reach out to us** - we will connect you with one of our Certified Partner Agencies. Our Partnership Program certifies software consultancies that actively use and contribute to Open Mercato.
+
+Our mission is simple: ensure every Open Mercato deployment is successful, secure, and scalable.
+
 ## License
 
-- MIT — see `LICENSE` for details.
+- MIT — see `LICENSE` for details. Enterprise licensing details are documented in [`packages/enterprise/README.md`](packages/enterprise/README.md).
+
+## Enterprise Edition
+
+Open Mercato Core is and always will be MIT Licensed, fully Open Source.
+
+### Open Mercato Enterprise Subscription
+
+The Open Mercato Enterprise Subscription helps ensure your deployment is secure, scalable, and production-ready without surprises before go-live.
+
+It combines certification, expert reviews, and ongoing advisory support for teams building serious systems on Open Mercato.
+
+What’s included:
+- Architecture & Production Readiness
+- Pre-deployment architecture audit
+- Production approval before go-live
+- Hosting and deployment best practices
+- Security & Quality (monthly reviews)
+- Customer Success Manager (pre-go-live)
+- Priority technical support channel
+- Platform Continuity - access to security patches and new features
+
+Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
+
+Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.

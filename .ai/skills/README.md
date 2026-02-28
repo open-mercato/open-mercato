@@ -19,7 +19,17 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │       └── review-checklist.md
 ├── create-agents-md/
 │   └── SKILL.md
+├── fix-specs/
+│   ├── SKILL.md
+│   └── scripts/
+│       └── fix_spec_conflicts.py
+├── implement-spec/
+│   ├── SKILL.md
+│   └── references/
+│       └── code-review-compliance.md
 ├── integration-tests/
+│   └── SKILL.md
+├── pre-implement-spec/
 │   └── SKILL.md
 └── skill-creator/
     ├── SKILL.md
@@ -146,7 +156,10 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | `backend-ui-design` | Building admin pages, CRUD interfaces, data tables, forms, or detail pages with @open-mercato/ui |
 | `code-review` | Reviewing PRs, code changes, or auditing code quality against project conventions |
 | `create-agents-md` | Creating or rewriting AGENTS.md files for packages and modules |
+| `fix-specs` | Detecting duplicate SPEC/SPEC-ENT numbers and renumbering only the newest conflicting spec while updating references/links |
+| `implement-spec` | Implementing a spec (or specific phases) using coordinated subagents with unit tests, integration tests, docs, progress tracking, and code-review compliance gates. Asks whether to build as an external extension (UMES) or core modification |
 | `integration-tests` | Running existing integration tests and generating new QA tests (Playwright TypeScript, with optional markdown scenarios) from specs or feature descriptions |
+| `pre-implement-spec` | Analyzing a spec before implementation: backward compatibility audit, risk assessment, gap analysis, and readiness report |
 | `skill-creator` | Creating a new skill or updating an existing skill |
 
 ---

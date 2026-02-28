@@ -304,6 +304,7 @@ export type ResourcesResourceFormProps = {
   submitLabel?: string
   backHref: string
   cancelHref: string
+  embedded?: boolean
   successRedirect?: string
   initialValues?: Record<string, unknown>
   onSubmit: (values: Record<string, unknown>) => Promise<void>
@@ -319,6 +320,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
     submitLabel,
     backHref,
     cancelHref,
+    embedded = false,
     successRedirect,
     initialValues,
     onSubmit,
@@ -347,6 +349,7 @@ export function ResourcesResourceForm(props: ResourcesResourceFormProps) {
 
   return (
     <CrudForm
+      embedded={embedded}
       title={title}
       backHref={backHref}
       versionHistory={recordId ? { resourceKind: 'resources.resource', resourceId: recordId } : undefined}
