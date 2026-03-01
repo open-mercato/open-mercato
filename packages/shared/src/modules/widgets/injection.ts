@@ -309,12 +309,13 @@ export type InjectionContext = {
 export type InjectionWizardStep = {
   id: string
   label: string
+  description?: string
   fields?: InjectionFieldDefinition[]
   customComponent?: LazyExoticComponent<ComponentType<WizardStepProps>>
   validate?: (
     data: Record<string, unknown>,
     context: InjectionContext,
-  ) => Promise<{ ok: boolean; message?: string }>
+  ) => Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string> }>
 }
 
 export type InjectionWizardWidget = {
