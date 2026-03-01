@@ -8,6 +8,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import AddressTiles, { type AddressInput, type AddressValue } from './AddressTiles'
 import type { AddressTypesAdapter } from './AddressEditor'
 import type { AddressFormatStrategy } from './addressFormat'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -69,7 +71,7 @@ function generateTempId() {
   return `tmp_${Math.random().toString(36).slice(2)}`
 }
 
-export function AddressesSection<C = unknown>({
+function AddressesSectionImpl<C = unknown>({
   entityId,
   emptyLabel,
   addActionLabel,
@@ -339,6 +341,20 @@ export function AddressesSection<C = unknown>({
           formatContext={formatContext}
         />
       )}
+    </div>
+  )
+}
+
+export function AddressesSection<C = unknown>(props: AddressesSectionProps<C>) {
+  const handle = ComponentReplacementHandles.section('ui.detail', 'AddressesSection')
+  const Resolved = useRegisteredComponent<AddressesSectionProps<C>>(
+    handle,
+    AddressesSectionImpl as React.ComponentType<AddressesSectionProps<C>>,
+  )
+
+  return (
+    <div data-component-handle={handle}>
+      <Resolved {...props} />
     </div>
   )
 }

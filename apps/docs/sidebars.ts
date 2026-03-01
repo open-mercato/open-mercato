@@ -250,6 +250,17 @@ const sidebars: SidebarsConfig = {
             "framework/modules/sales-calculations",
           ],
         },
+        {
+          type: "category",
+          label: "Extensibility Directory",
+          items: [
+            "framework/extensibility/index",
+            "framework/extensibility/current-surfaces",
+            "framework/extensibility/umes-phases",
+            "framework/extensibility/integration-enhancements",
+            "framework/extensibility/umes-2-09-roadmap",
+          ],
+        },
         "framework/commands/overview",
         {
           type: "category",

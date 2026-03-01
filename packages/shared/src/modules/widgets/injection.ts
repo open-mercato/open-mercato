@@ -234,7 +234,10 @@ export type InjectionBulkActionDefinition = {
   id: string
   label: string
   icon?: string
-  onExecute: (selectedRows: unknown[], context: unknown) => Promise<void>
+  onExecute: (
+    selectedRows: unknown[],
+    context: unknown,
+  ) => Promise<void | { ok: boolean; message?: string; affectedCount?: number }>
 }
 
 export type InjectionFilterDefinition = {
@@ -245,12 +248,21 @@ export type InjectionFilterDefinition = {
   strategy: 'server' | 'client'
   queryParam?: string
   enrichedField?: string
+  filterFn?: (row: unknown, value: unknown) => boolean
 }
 
-export type FieldVisibilityCondition<TContext = unknown> = (
-  values: Record<string, unknown>,
-  context: TContext,
-) => boolean
+export type FieldVisibilityRule = {
+  field: string
+  operator: 'eq' | 'neq' | 'in' | 'notIn' | 'truthy' | 'falsy'
+  value?: unknown
+}
+
+export type FieldVisibilityCondition<TContext = unknown> =
+  | FieldVisibilityRule
+  | ((
+      values: Record<string, unknown>,
+      context: TContext,
+    ) => boolean)
 
 export type CustomFieldProps<TContext = unknown> = {
   value: unknown

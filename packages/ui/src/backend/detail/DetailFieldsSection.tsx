@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from 'react'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 import {
   InlineMultilineEditor,
   InlineSelectEditor,
@@ -66,7 +68,7 @@ export type DetailFieldsSectionProps = {
   className?: string
 }
 
-export function DetailFieldsSection({ fields, className }: DetailFieldsSectionProps) {
+function DetailFieldsSectionImpl({ fields, className }: DetailFieldsSectionProps) {
   return (
     <div className={['grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3', className].filter(Boolean).join(' ')}>
       {fields.map((field) => {
@@ -142,6 +144,20 @@ export function DetailFieldsSection({ fields, className }: DetailFieldsSectionPr
           </div>
         )
       })}
+    </div>
+  )
+}
+
+export function DetailFieldsSection(props: DetailFieldsSectionProps) {
+  const handle = ComponentReplacementHandles.section('ui.detail', 'DetailFieldsSection')
+  const Resolved = useRegisteredComponent<DetailFieldsSectionProps>(
+    handle,
+    DetailFieldsSectionImpl as React.ComponentType<DetailFieldsSectionProps>,
+  )
+
+  return (
+    <div data-component-handle={handle}>
+      <Resolved {...props} />
     </div>
   )
 }

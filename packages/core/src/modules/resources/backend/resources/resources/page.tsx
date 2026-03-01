@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -534,7 +534,7 @@ function mapApiResource(item: Record<string, unknown>): ResourceRow {
       ? item.appearance_color
       : null
   const tags = Array.isArray(item.tags) ? item.tags as TagOption[] : []
-  return {
+  return withDataTableNamespaces({
     id,
     name,
     resourceTypeId,
@@ -543,5 +543,5 @@ function mapApiResource(item: Record<string, unknown>): ResourceRow {
     isActive,
     appearanceIcon,
     appearanceColor,
-  }
+  }, item)
 }

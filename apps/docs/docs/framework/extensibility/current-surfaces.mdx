@@ -1,0 +1,85 @@
+---
+title: Current Extension Surfaces
+description: Everything that is extendable today, with quick-start pointers and links.
+---
+
+Below is the current-state inventory of extension surfaces in Open Mercato.
+
+## Module contracts and auto-discovery
+
+| Surface | How to start | Primary contract/docs |
+|---|---|---|
+| Module metadata and boot hooks | Add `src/modules/<module>/index.ts`, then optional `di.ts`, `setup.ts`, `acl.ts` | [Modules overview](/framework/modules/overview), [Container](/framework/ioc/container) |
+| Routes and pages discovery | Add files under `api/`, `backend/`, `frontend/` in module root | [Routes and pages](/framework/modules/routes-and-pages), [API modules](/framework/api/building-api-modules) |
+| CLI commands | Add `cli.ts` in module and export command handlers | [CLI overview](/cli/overview) |
+| OpenAPI participation | Export `openApi` from API handlers | [API development guide](/framework/api/api-development-guide) |
+
+## API and mutation extension
+
+| Surface | How to start | Primary contract/docs |
+|---|---|---|
+| CRUD extension points | Use `makeCrudRoute` with validators/hooks | [CRUD factory](/framework/api/crud-factory) |
+| API interceptors (UMES E) | Add `api/interceptors.ts`, export `interceptors` | [API extension guide](/framework/api/extending-api) |
+| Response enrichers (UMES D) | Add `data/enrichers.ts`, export `enrichers` | [Data extensibility](/framework/database/data-extensibility) |
+| Mutation guards | Register guards through mutation guard service/registry | [API extension guide](/framework/api/extending-api) |
+| Command handlers | Register commands with `registerCommand` | [Commands overview](/framework/commands/overview) |
+
+## UI extension
+
+| Surface | How to start | Primary contract/docs |
+|---|---|---|
+| Widget injection (classic) | Add widgets under `widgets/injection/*` + `widgets/injection-table.ts` | [Widget injection](/framework/widget-injection) |
+| Headless DataTable injections (UMES F) | Inject columns, row actions, bulk actions, filters via injection widgets | [Data grids](/framework/admin-ui/data-grids), [Widget injection](/framework/widget-injection) |
+| CrudForm field injections (UMES G) | Inject fields/widgets into form groups via injection spots | [Crud form](/framework/admin-ui/crud-form), [Widget injection](/framework/widget-injection) |
+| Menu injection (UMES B) | Inject menu entries into sidebar/topbar/profile surfaces | [Widget injection](/framework/widget-injection) |
+| Component replacement (UMES H) | Add `widgets/components.ts`, export `componentOverrides` | [Widget injection](/framework/widget-injection) |
+
+## Events, subscribers, workers
+
+| Surface | How to start | Primary contract/docs |
+|---|---|---|
+| Typed module events | Add `events.ts` with `createModuleEvents` | [Events overview](/framework/events/overview) |
+| DOM Event Bridge + realtime UI (UMES C) | Mark events `clientBroadcast: true`, consume with `useAppEvent` / `useOperationProgress` | [Widget injection](/framework/widget-injection), [Events & queue](/framework/events/queue-workers) |
+| Async subscribers | Add `subscribers/*.ts` + `metadata` | [Events overview](/framework/events/overview) |
+| Queue workers | Add `workers/*.ts` + worker metadata | [Queue workers](/framework/events/queue-workers), [Runtime workers](/framework/runtime/workers) |
+
+## Data model and entity extension
+
+| Surface | How to start | Primary contract/docs |
+|---|---|---|
+| Custom entities + custom fields | Add/update `ce.ts` with field DSL helpers | [Custom entities](/framework/custom-entities/overview), [Data extensibility](/framework/database/data-extensibility) |
+| Cross-module entity extensions | Add `data/extensions.ts` for module links | [Data extensibility](/framework/database/data-extensibility) |
+| Translation fields | Add `translations.ts` for translatable entity fields | [Modules configs](/framework/modules/configs) |
+| Query/index coverage | Use CRUD indexer integration and query-index tooling | [Query index](/framework/database/query-index) |
+
+## Search, vector, cache, AI
+
+| Surface | How to start | Primary contract/docs |
+|---|---|---|
+| Search module config | Add `search.ts` and declare indexed entities/strategies | [Hybrid search](/framework/database/hybrid-search) |
+| Fulltext driver extension | Implement `FullTextSearchDriver` and wire into strategy | [Hybrid search](/framework/database/hybrid-search) |
+| Vector entity config | Declare vector config (`vector.ts`) with `buildSource`/presenter/links | [Hybrid search](/framework/database/hybrid-search) |
+| Vector DB backends (current set) | Use built-in driver IDs: `pgvector`, `qdrant`, `chromadb` | [Hybrid search](/framework/database/hybrid-search) |
+| Cache backends | Configure cache strategy (`memory`, `redis`, `sqlite`, `jsonfile`) | [Cache management](/user-guide/cache-management) |
+| AI tools (MCP) | Add `ai-tools.ts`, register tools via ai-assistant contracts | [AI assistant package guide](/framework/modules/overview) |
+
+## Notifications, messages, and domain integrations
+
+| Surface | How to start | Primary contract/docs |
+|---|---|---|
+| Notification type registry | Add `notifications.ts` and export `notificationTypes` | [Notifications](/framework/modules/notifications) |
+| Notification renderers | Add `notifications.client.ts` for client rendering | [Notifications](/framework/modules/notifications) |
+| Message types | Add `message-types.ts` in your module | [Messages system](/framework/modules/messages) |
+| Message object types | Add `message-objects.ts` for attachable domain objects | [Messages system](/framework/modules/messages) |
+| Payment/shipping providers | Register `registerPaymentProvider` / `registerShippingProvider` | [Shipping & payment providers](/framework/modules/sales-providers), [Sales calculations](/framework/modules/sales-calculations) |
+| Currency providers | Add custom rate provider implementations | [Currencies module](/framework/modules/currencies) |
+| Workflow integrations | Add custom workflow activities/signals/subscribers | [Workflows extending](/framework/workflows/extending) |
+
+## What else is extendable right now
+
+- RBAC features (`acl.ts`) and role defaults (`setup.ts`)
+- Feature toggles for runtime behavior control
+- Dashboard widgets and sidebar menu composition
+- Scheduler jobs and automation-like recurring tasks (via scheduler module)
+
+See: [RBAC](/framework/rbac/overview), [Feature toggles](/framework/feature-toggles/overview), [Scheduler](/framework/scheduler/overview)

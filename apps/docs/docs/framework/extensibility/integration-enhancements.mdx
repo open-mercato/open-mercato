@@ -1,0 +1,71 @@
+---
+title: Integration Enhancements
+description: Current integration-oriented extension options and quick-starts.
+---
+
+This page focuses on extension points used to integrate Open Mercato with external systems.
+
+## Payment and shipping gateways
+
+- Register custom providers with `registerPaymentProvider` and `registerShippingProvider`.
+- Providers can declare UI settings fields, validation schema, and runtime adjustment calculators.
+- Provider settings are persisted and reused in totals calculation.
+
+Start with: [Shipping & payment providers](/framework/modules/sales-providers)
+
+## Messaging as an integration boundary
+
+- Extend `message-types.ts` to define workflow-specific messages.
+- Extend `message-objects.ts` to attach domain records (customers, orders, staff, etc.).
+- Combine with message actions to trigger commands or links.
+
+Start with: [Messages system](/framework/modules/messages)
+
+## Notifications and inbox delivery
+
+- Add notification definitions in `notifications.ts`.
+- Add client renderers in `notifications.client.ts`.
+- Emit domain events and subscribe to produce user-facing notifications.
+
+Start with: [Notifications](/framework/modules/notifications), [Events overview](/framework/events/overview)
+
+## Search and vector integrations
+
+- Fulltext integration: implement a compatible fulltext driver.
+- Vector integration: configure vector entities and choose vector driver/backend.
+- Embedding provider integration supports OpenAI/Google/Mistral/Cohere/Bedrock/Ollama.
+
+Start with: [Hybrid search](/framework/database/hybrid-search)
+
+## Workflow and scheduler integration patterns
+
+- Use workflow activities/signals for external system orchestration.
+- Use scheduler jobs for recurring pull/sync integrations.
+- Use progress events for UI status during long-running sync jobs.
+
+Start with: [Workflows extending](/framework/workflows/extending), [Scheduler](/framework/scheduler/overview), [Progress](/framework/progress/overview)
+
+## API-level integration hooks
+
+- Route-level interception: `api/interceptors.ts`
+- Response composition: `data/enrichers.ts`
+- Event-driven side effects: `subscribers/*.ts`
+- Long-running processing: `workers/*.ts`
+
+Start with: [API extension guide](/framework/api/extending-api), [Queue workers](/framework/events/queue-workers)
+
+## Data integration and entity mapping today
+
+Currently available:
+
+- Custom entities and custom fields for schema-level adaptation
+- Message object type mapping for cross-module record linking
+- Query index and search indexing for downstream lookup/search use cases
+
+Planned for UMES 2.09:
+
+- First-class external ID mapping widgets/bindings
+- Integration wizard widgets for OAuth/config onboarding
+- Query-level transform hooks for integration-specific query shaping
+
+See: [UMES 2.09 roadmap](./umes-2-09-roadmap)

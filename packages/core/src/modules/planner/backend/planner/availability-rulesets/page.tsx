@@ -8,7 +8,7 @@ import type { PluggableList } from 'unified'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -233,13 +233,12 @@ function mapRuleSet(item: Record<string, unknown>): RuleSetRow {
       : typeof item.updated_at === 'string'
         ? item.updated_at
         : null
-  return {
+  return withDataTableNamespaces({
     id,
     name,
     description,
     timezone,
     updatedAt,
-  }
+  }, item)
 }
-
 
