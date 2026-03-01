@@ -198,7 +198,6 @@ At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_
 
 Yarn 4 is now required. Ensure you have Yarn 4+ installed before proceeding.
 
-
 ## Getting Started
 
 
@@ -245,6 +244,14 @@ yarn generate
 yarn initialize # or yarn reinstall
 yarn dev
 ```
+
+After upgrading to a newer version, apply any new module migrations:
+
+```bash
+yarn db:migrate
+```
+
+Note: `yarn initialize` seeds demo data and may abort if users already exist. For upgrades on an existing database, use `yarn db:migrate` instead.
 
 For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
 
