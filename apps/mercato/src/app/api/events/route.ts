@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
   // Optional filters
   const category = searchParams.get('category')
-  const module = searchParams.get('module')
+  const moduleFilter = searchParams.get('module')
   const excludeTriggerExcluded = searchParams.get('excludeTriggerExcluded') !== 'false'
 
   // Get events from the global registry (populated during bootstrap)
@@ -26,8 +26,8 @@ export async function GET(request: NextRequest) {
     filteredEvents = filteredEvents.filter(e => e.category === category)
   }
 
-  if (module) {
-    filteredEvents = filteredEvents.filter(e => e.module === module)
+  if (moduleFilter) {
+    filteredEvents = filteredEvents.filter(e => e.module === moduleFilter)
   }
 
   return NextResponse.json({

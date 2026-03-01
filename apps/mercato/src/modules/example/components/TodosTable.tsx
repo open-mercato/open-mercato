@@ -137,7 +137,7 @@ export default function TodosTable() {
     const base = buildBaseColumns(t, severityPreset)
     if (!cfDefs.length) return base
     return applyCustomFieldVisibility(base, cfDefs)
-  }, [cfDefs, t])
+  }, [cfDefs, t, severityPreset])
 
   React.useEffect(() => {
     setColumns(computedColumns)
