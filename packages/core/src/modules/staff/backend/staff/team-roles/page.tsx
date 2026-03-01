@@ -7,7 +7,7 @@ import type { PluggableList } from 'unified'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -394,7 +394,7 @@ function mapApiTeamRole(item: Record<string, unknown>): TeamRoleApiRow {
     : null
   const teamName = typeof team?.name === 'string' ? team.name : null
   const memberCount = typeof item.memberCount === 'number' ? item.memberCount : 0
-  return { id, name, description, updatedAt, teamId, teamName, memberCount }
+  return withDataTableNamespaces({ id, name, description, updatedAt, teamId, teamName, memberCount }, item)
 }
 
 function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): TeamRoleRow[] {

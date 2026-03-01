@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -1026,7 +1026,7 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
   for (const [key, value] of Object.entries(item)) {
     if (key.startsWith('cf_')) customFields[key] = value
   }
-  return {
+  return withDataTableNamespaces({
     id,
     title,
     status,
@@ -1041,5 +1041,5 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
     people,
     companies,
     ...customFields,
-  }
+  }, item)
 }

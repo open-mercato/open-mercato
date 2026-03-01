@@ -11,11 +11,12 @@ Review code changes against Open Mercato's architecture rules, security requirem
 
 1. **Scope**: Identify changed files. Classify each file by layer (API route, entity, validator, backend page, frontend page, subscriber, worker, command, search config, setup, ACL, events, DI, widget, test).
 2. **Gather context**: Read relevant AGENTS.md for each touched module/package. Check `.ai/specs/` for active specs on the module. Read `.ai/lessons.md` for known pitfalls.
-3. **Backward compatibility gate**: Check every change against `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS.md`). Flag any violation as **Critical**. See section below.
-4. **Run checklist**: Apply all applicable rules from `references/review-checklist.md`. Flag violations with severity, file, line, and fix suggestion.
-5. **Test coverage**: Verify changed behavior is covered by unit tests and/or integration tests. If coverage is missing, flag it with severity, file references, and exact test cases to add.
-6. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
-7. **Output**: Produce the review report in the format below.
+3. **Template parity gate**: Run `yarn template:sync`. If drift is reported, ask the user whether to sync now; if approved, run `yarn template:sync:fix` and include synced files in the change.
+4. **Backward compatibility gate**: Check every change against `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS.md`). Flag any violation as **Critical**. See section below.
+5. **Run checklist**: Apply all applicable rules from `references/review-checklist.md`. Flag violations with severity, file, line, and fix suggestion.
+6. **Test coverage**: Verify changed behavior is covered by unit tests and/or integration tests. If coverage is missing, flag it with severity, file references, and exact test cases to add.
+7. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
+8. **Output**: Produce the review report in the format below.
 
 ## Output Format
 
@@ -72,6 +73,8 @@ Use this structure for every review:
 - [ ] Non-`CrudForm` backend writes use `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in context
 - [ ] `apiCall` used instead of raw `fetch`
 - [ ] ACL features mirrored in `setup.ts` `defaultRoleFeatures`
+- [ ] ACL features use object format `{ id, title, module }` (not string arrays)
+- [ ] `yarn template:sync` passes for `apps/mercato/src/{app,modules}` vs `packages/create-app/template/src/{app,modules}`
 - [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
 - [ ] No empty `catch` blocks (all catches must handle, log, rethrow, or explicitly document intentional ignore)
 - [ ] New migrations are scoped to intended entities only (no unrelated bulk drop/alter/create statements)
@@ -164,7 +167,7 @@ Examples of suspicious patterns that MUST be flagged:
 | Subscribers | `metadata` with `{ event, persistent?, id? }` | MUST for auto-discovery |
 | Workers | `metadata` with `{ queue, id?, concurrency? }` | MUST for auto-discovery |
 | `events.ts` | `eventsConfig` via `createModuleEvents()` with `as const` | MUST for type-safe events |
-| `acl.ts` | `features` | MUST mirror in `setup.ts` `defaultRoleFeatures` |
+| `acl.ts` | `features` | MUST use object entries `{ id, title, module }` and mirror IDs in `setup.ts` `defaultRoleFeatures` |
 | `search.ts` | `searchConfig` with `checksumSource` in every `buildSource` | MUST for change detection |
 
 ### UI & HTTP (Medium/High)
@@ -215,10 +218,12 @@ When reviewing, pay special attention to:
 7. **Queue workers**: Verify idempotency, `metadata` export, concurrency <= 20.
 8. **Commands**: Verify undoable, before/after snapshots, `withAtomicFlush` for multi-phase mutations.
 9. **Setup changes**: Verify `defaultRoleFeatures` matches `acl.ts` features. Hooks MUST be idempotent.
+9a. **ACL shape validation**: Verify `acl.ts` exports feature objects (with `id`, `title`, `module`) rather than raw string IDs; flag wrong shape as **High** because permission UI and role assignment can break.
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
 11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
 12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` are both wired.
 13. **Spec numbering hygiene**: If specs were added or renamed, verify there are no duplicate exact spec IDs in `.ai/specs` and `.ai/specs/enterprise` (`SPEC-*`, `SPEC-ENT-*`). Treat staged IDs (for example `SPEC-041a`, `SPEC-041b`) as valid distinct specs, not conflicts.
+14. **Template sync prompt**: If `yarn template:sync` finds drift in `src/app` or `src/modules` (especially layout/routes), ask the user whether to sync; when approved, run `yarn template:sync:fix` and include those updates.
 
 ## Lessons Learned
 

@@ -24,6 +24,10 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Injecting UI widgets into other modules, defining spot IDs, cross-module UI extensions | `packages/core/AGENTS.md` → Widgets |
 | Building headless injection widgets (menu items, columns, fields), using `InjectionPosition`, or `useInjectionDataWidgets` | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` |
 | Injecting menu items into main/settings/profile sidebars or topbar/profile dropdown (`useInjectedMenuItems`, `mergeMenuItems`) | `packages/ui/AGENTS.md` |
+| Adding API route interceptors (`api/interceptors.ts`, before/after hooks, body/query rewrite contracts) | `packages/core/AGENTS.md` → API Interceptors |
+| Adding DataTable extension widgets (columns/row actions/bulk actions/filters) | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` → DataTable Guidelines |
+| Adding CrudForm field injection widgets (`crud-form:<entityId>:fields`) | `packages/core/AGENTS.md` → Widget Injection + `packages/ui/AGENTS.md` → CrudForm Guidelines |
+| Replacing or wrapping UI components via `widgets/components.ts` (`replace`/`wrapper`/`props`) | `packages/core/AGENTS.md` → Component Replacement + `packages/ui/AGENTS.md` |
 | Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
 | Adding entity extensions, cross-module data links, `data/extensions.ts` | `packages/core/AGENTS.md` → Extensions |
 | Configuring RBAC features in `acl.ts`, declarative guards, permission checks | `packages/core/AGENTS.md` → Access Control |
@@ -131,9 +135,11 @@ All packages use the `@open-mercato/<package>` naming convention:
 | Injection positioning | `import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'` |
 | Headless injection widgets hook | `import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'` |
 | Menu injection hook | `import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'` |
+| Component replacement hook | `import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'` |
 | UI primitives | `import { Spinner } from '@open-mercato/ui/primitives/spinner'` |
 | API calls (backend pages) | `import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'` |
 | CRUD forms | `import { CrudForm } from '@open-mercato/ui/backend/crud'` |
+| API interceptor types | `import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'` |
 | Response enricher types | `import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'` |
 | App event hook | `import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'` |
 | Event bridge hook | `import { useEventBridge } from '@open-mercato/ui/backend/injection/eventBridge'` |
@@ -184,11 +190,13 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
 | `ai-tools.ts` | `aiTools` | MCP AI tool definitions |
+| `api/interceptors.ts` | `interceptors` | API route interception hooks (before/after) |
 | `data/entities.ts` | — | MikroORM entities |
 | `data/validators.ts` | — | Zod validation schemas |
 | `data/extensions.ts` | `extensions` | Entity extensions (module links) |
 | `widgets/injection/` | — | Injected UI widgets |
 | `widgets/injection-table.ts` | — | Widget-to-slot mappings |
+| `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper/props override definitions |
 | `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
 
 ### Key Rules
@@ -202,6 +210,8 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
 - Widget injection: declare in `widgets/injection/`, map via `injection-table.ts`
+- API interception: declare interceptors in `api/interceptors.ts`; keep hooks fail-closed and scoped by route + method
+- Component replacement: use handle-based IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic overrides
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files

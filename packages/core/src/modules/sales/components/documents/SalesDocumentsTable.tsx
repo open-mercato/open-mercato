@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -449,7 +449,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       const validUntil = doc.validUntil ?? null
       const createdAt = doc.createdAt ?? null
       const date = placedAt ?? validUntil ?? createdAt ?? null
-      return {
+      return withDataTableNamespaces({
         id,
         number,
         status: doc.status ?? null,
@@ -461,7 +461,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         totalGross,
         currency: doc.currencyCode ?? null,
         date,
-      }
+      }, item)
     },
     [kind]
   )

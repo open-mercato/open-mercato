@@ -1,0 +1,35 @@
+---
+title: UMES 2.09 Roadmap (Not Extensible Yet)
+description: Gaps in current extensibility and the planned UMES 2.09 roadmap.
+---
+
+This is the short list of extension capabilities not fully available yet, based on current implementation and UMES phase backlog.
+
+## Not yet extensible (or not first-class yet)
+
+| Gap | Why it matters | Planned UMES track |
+|---|---|---|
+| Detail-page binding framework (`useExtensibleDetail`) | No unified API to inject typed fields/sections/actions into detail pages with save orchestration | Phase I |
+| Recursive widget extension points | Widgets cannot define their own child extension zones in a standardized way | Phase J |
+| UMES DevTools and conflict diagnostics | Hard to inspect extension precedence, collisions, and active registrations at runtime | Phase K |
+| Integration-first UI blocks (wizard widgets, status badges, external ID presentation) | Integration UX remains mostly custom and repetitive | Phase L |
+| Command interceptors (`beforeExecute`, `afterExecute`, undo hooks) | Missing cross-cut command-level policy and audit hooks | Phase M |
+| Sync lifecycle subscribers for CRUD stages (`creating`, `updating`, etc.) | No unified event-driven mutation lifecycle interception model | Phase M |
+| Query-engine extension hooks (query/result transform + query lifecycle events) | Cannot plug into query pipelines as first-class extensibility points | Phase N |
+| Generic external data connector registry ("data integrators") | No built-in connector abstraction for pull/push sync providers yet | Phase L + marketplace specs |
+| Integration marketplace hub | Discovery/install governance for integration packages is not productized yet | SPEC-045 series |
+
+## Related specs for this roadmap
+
+- [SPEC-041 (UMES master)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041-2026-02-24-universal-module-extension-system.md)
+- [SPEC-041i (detail bindings)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041i-detail-page-bindings.md)
+- [SPEC-041j (recursive widgets)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041j-recursive-widgets.md)
+- [SPEC-041k (UMES devtools)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041k-devtools.md)
+- [SPEC-041l (integration extensions)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041l-integration-extensions.md)
+- [SPEC-041m (mutation lifecycle)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041m-mutation-lifecycle.md)
+- [SPEC-041n (query engine extensibility)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-041n-query-engine-extensibility.md)
+- [SPEC-045 (integration marketplace)](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/SPEC-045-2026-02-24-integration-marketplace.md)
+
+## Target outcome for UMES 2.09
+
+UMES 2.09 should make integration and extension work predictable across UI, API, data, and runtime layers, with explicit ordering, diagnostics, and testable contracts for each extension type.
