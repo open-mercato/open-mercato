@@ -1706,8 +1706,38 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
         const interceptedBody = interceptorRequestPayload.body ?? {}
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
-        const input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
+        let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
+
+        // Sync before-event (*.creating) — command path
+        const createLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'created')
+        if (createLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload: SyncCrudEventPayload = {
+              eventId: createLifecycleCmd.beforeEventId,
+              entity: createLifecycleCmd.entity!,
+              operation: 'create',
+              timing: 'before',
+              resourceId: null,
+              payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+              userId: ctx.auth.sub,
+              organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+              tenantId: ctx.auth.tenantId!,
+              em,
+              request,
+            }
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+            if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+              input = { ...input as Record<string, unknown>, ...syncResult.modifiedPayload }
+            }
+          }
+        }
+
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1716,6 +1746,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
         const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+
+        // Sync after-event (*.created) — command path
+        if (createLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload: SyncCrudEventPayload = {
+              eventId: createLifecycleCmd.afterEventId,
+              entity: createLifecycleCmd.entity!,
+              operation: 'create',
+              timing: 'after',
+              resourceId: (result as Record<string, unknown>)?.id as string ?? null,
+              payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+              userId: ctx.auth.sub,
+              organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+              tenantId: ctx.auth.tenantId!,
+              em,
+              request,
+            }
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
@@ -1969,9 +2022,45 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
         const interceptedBody = interceptorRequestPayload.body ?? {}
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
-        const input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
+        let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
         const candidateId = normalizeIdentifierValue((input as Record<string, unknown> | null | undefined)?.id)
+
+        // Sync before-event (*.updating) — command path
+        const updateLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'updated')
+        if (updateLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            let previousData: Record<string, unknown> | undefined
+            if (candidateId) {
+              const prevEntity = await em.findOne(ormCfg.entity as any, { [ormCfg.idField!]: candidateId } as any)
+              if (prevEntity) previousData = JSON.parse(JSON.stringify(prevEntity))
+            }
+            const syncPayload: SyncCrudEventPayload = {
+              eventId: updateLifecycleCmd.beforeEventId,
+              entity: updateLifecycleCmd.entity!,
+              operation: 'update',
+              timing: 'before',
+              resourceId: candidateId ?? null,
+              payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+              previousData,
+              userId: ctx.auth.sub,
+              organizationId: scopeOrganizationId,
+              tenantId: ctx.auth.tenantId!,
+              em,
+              request,
+            }
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+            if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+              input = { ...input as Record<string, unknown>, ...syncResult.modifiedPayload }
+            }
+          }
+        }
+
         let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
         if (ctx.auth.tenantId && candidateId) {
           mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
@@ -2039,6 +2128,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             metadata: mutationGuardValidation.metadata ?? null,
           })
         }
+
+        // Sync after-event (*.updated) — command path
+        if (updateLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload: SyncCrudEventPayload = {
+              eventId: updateLifecycleCmd.afterEventId,
+              entity: updateLifecycleCmd.entity!,
+              operation: 'update',
+              timing: 'after',
+              resourceId: candidateId ?? null,
+              payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+              userId: ctx.auth.sub,
+              organizationId: scopeOrganizationId,
+              tenantId: ctx.auth.tenantId!,
+              em,
+              request,
+            }
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -2068,13 +2180,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycle.beforeEventId)
         if (syncSubs.length) {
           const em = ctx.container.resolve('em') as EntityManager
+          const updateCandidateId = (input as Record<string, unknown>)?.id as string ?? null
+          let previousData: Record<string, unknown> | undefined
+          if (updateCandidateId) {
+            const prevEntity = await em.findOne(ormCfg.entity as any, { [ormCfg.idField!]: updateCandidateId } as any)
+            if (prevEntity) previousData = JSON.parse(JSON.stringify(prevEntity))
+          }
           const syncPayload: SyncCrudEventPayload = {
             eventId: updateLifecycle.beforeEventId,
             entity: updateLifecycle.entity!,
             operation: 'update',
             timing: 'before',
-            resourceId: (input as Record<string, unknown>)?.id as string ?? null,
+            resourceId: updateCandidateId,
             payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined,
+            previousData,
             userId: ctx.auth.sub,
             organizationId: scopeOrganizationId,
             tenantId: ctx.auth.tenantId!,
@@ -2297,6 +2416,32 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             ?? (raw.query as Record<string, unknown> | null | undefined)?.id
             ?? (raw.body as Record<string, unknown> | null | undefined)?.id
         )
+
+        // Sync before-event (*.deleting) — command path
+        const deleteLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'deleted')
+        if (deleteLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload: SyncCrudEventPayload = {
+              eventId: deleteLifecycleCmd.beforeEventId,
+              entity: deleteLifecycleCmd.entity!,
+              operation: 'delete',
+              timing: 'before',
+              resourceId: candidateId ?? null,
+              userId: ctx.auth.sub,
+              organizationId: scopeOrganizationId,
+              tenantId: ctx.auth.tenantId!,
+              em,
+              request,
+            }
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+          }
+        }
+
         let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
         if (ctx.auth.tenantId && candidateId) {
           mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
@@ -2361,6 +2506,28 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             metadata: mutationGuardValidation.metadata ?? null,
           })
         }
+
+        // Sync after-event (*.deleted) — command path
+        if (deleteLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload: SyncCrudEventPayload = {
+              eventId: deleteLifecycleCmd.afterEventId,
+              entity: deleteLifecycleCmd.entity!,
+              operation: 'delete',
+              timing: 'after',
+              resourceId: candidateId ?? null,
+              userId: ctx.auth.sub,
+              organizationId: scopeOrganizationId,
+              tenantId: ctx.auth.tenantId!,
+              em,
+              request,
+            }
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
