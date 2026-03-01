@@ -101,6 +101,9 @@ newrelic_agent.log
 /generated/
 .queue
 
+# Dev Container auto-generated compose volumes
+.devcontainer/docker-compose.volumes.yml
+
 # OpenCode local config (generated at runtime, may contain secrets)
 docker/opencode/opencode.jsonc
 .vscode/launch.json
