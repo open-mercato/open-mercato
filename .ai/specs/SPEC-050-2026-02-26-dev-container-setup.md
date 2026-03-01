@@ -36,7 +36,7 @@ Open Mercato's monorepo requires PostgreSQL with pgvector, Redis, Meilisearch, N
 ## Proposed Solution
 
 A `.devcontainer/` directory containing a Docker Compose-based Dev Container configuration with:
-- A custom `Dockerfile` for the workspace container (Node.js 24 Alpine + build tools + Claude Code CLI)
+- A custom `Dockerfile` for the workspace container (Node.js 24 Debian-slim + build tools + Python 3/pip + Ruby + Homebrew + Claude Code CLI)
 - A `docker-compose.yml` defining four services (workspace, postgres, redis, meilisearch) on a private bridge network
 - An auto-generated `docker-compose.volumes.yml` with named volumes for every `packages/*/dist` directory (eliminates manual maintenance)
 - Lifecycle scripts that automate the full bootstrap chain
@@ -48,13 +48,13 @@ A `.devcontainer/` directory containing a Docker Compose-based Dev Container con
 | Decision | Rationale |
 |----------|-----------|
 | Self-contained compose (not reusing root `docker-compose.yml`) | Existing root compose includes services and `container_name` directives that conflict with Dev Containers naming requirements |
-| Node 24 Alpine base image | Matches project's Node.js requirement; Alpine minimizes image size |
+| Node 24 Debian-slim base image | Matches project's Node.js requirement; Debian-slim provides glibc (required by Homebrew) with modest image size increase vs Alpine |
 | Auto-generated named volumes for `dist/` dirs | `generate-compose-volumes.sh` scans `packages/*/` and writes `docker-compose.volumes.yml` at `initializeCommand` time — new packages require zero manual devcontainer changes |
 | `init: true` on workspace service | Proper signal forwarding and zombie process reaping for `yarn dev` (turbo + watchers + Next.js + workers) |
 | `WATCHPACK_POLLING` + `CHOKIDAR_USEPOLLING` | macOS Docker Desktop bind mounts lack native filesystem events — polling is required for hot reload |
 | 12 GB Docker Desktop memory recommendation | Turbopack compilation + 14 package watchers + workers spike to ~8-10 GB during page compilation |
 | Always regenerate `.env` on rebuild | New keys from `.env.example` appear automatically; personal overrides live in `.env.local` (Next.js native priority) |
-| Claude Code CLI pre-installed globally | Enables AI-assisted development out of the box; ownership adjusted for auto-updates |
+| Claude Code CLI native install (`~/.claude/bin/`) | Enables AI-assisted development out of the box; native install supports auto-updates without sudo |
 | Database query for first-run detection | Queries `information_schema.tables` to determine init vs migrate — no marker volume needed, eliminates stale state issues |
 
 ### Alternatives Considered
@@ -82,7 +82,7 @@ A `.devcontainer/` directory containing a Docker Compose-based Dev Container con
 ┌─────────────────────────────────────────────────┐
 │  VS Code (Host)                                 │
 │  ┌───────────────────────────────────────────┐  │
-│  │  workspace (Node 24 Alpine)               │  │
+│  │  workspace (Node 24 Debian-slim)           │  │
 │  │  - yarn dev / build / test                │  │
 │  │  - claude CLI                             │  │
 │  │  - Bind mount: host repo → /workspace     │  │
@@ -175,7 +175,7 @@ Host env vars `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are forwarded into the co
 
 | Service | Image | Version |
 |---------|-------|---------|
-| Node.js | `node:24-alpine` | 24.x |
+| Node.js | `node:24-slim` | 24.x |
 | PostgreSQL | `pgvector/pgvector:pg17-trixie` | 17 + pgvector |
 | Redis | `redis:7-alpine` | 7.x |
 | Meilisearch | `getmeili/meilisearch:v1.11` | 1.11 |
@@ -192,7 +192,7 @@ This is a single-phase implementation. All files are already developed.
 | File | Action | Purpose |
 |------|--------|---------|
 | `.devcontainer/devcontainer.json` | Create | Dev Container metadata — service binding, lifecycle hooks, ports, extensions, env forwarding |
-| `.devcontainer/Dockerfile` | Create | Workspace image — Node 24 Alpine, build tools, Claude Code CLI, Corepack/Yarn |
+| `.devcontainer/Dockerfile` | Create | Workspace image — Node 24 Debian-slim, build tools, Python 3, Ruby, Homebrew, Claude Code CLI, Corepack/Yarn |
 | `.devcontainer/docker-compose.yml` | Create | Four-service stack with static named volumes, health checks, bridge network |
 | `.devcontainer/docker-compose.volumes.yml` | Generated | Auto-generated named volumes for every `packages/*/dist` directory (gitignored) |
 | `.devcontainer/scripts/generate-compose-volumes.sh` | Create | Scans `packages/*/` and generates `docker-compose.volumes.yml` (runs on host via `initializeCommand`) |
@@ -210,7 +210,7 @@ When the project evolves, the Dev Container needs corresponding updates:
 | Project Change | Dev Container Update |
 |----------------|---------------------|
 | New package in `packages/` | Nothing — `generate-compose-volumes.sh` detects it automatically on rebuild |
-| New system dependency | Add `apk add <pkg>` to `Dockerfile` |
+| New system dependency | Add `apt-get install <pkg>` to `Dockerfile` or `brew install <pkg>` at runtime |
 | New infrastructure service | Add service to `docker-compose.yml`, forward port in `devcontainer.json` |
 | New keys in `.env.example` | Add `sed` rules to `setup-env.sh` if container-specific values needed |
 | Node.js version bump | Update `FROM` in `Dockerfile` and `corepack prepare` version |
@@ -249,6 +249,13 @@ When the project evolves, the Dev Container needs corresponding updates:
 - **Affected area**: Package builds fail or produce empty output inside the container
 - **Mitigation**: `generate-compose-volumes.sh` runs via `initializeCommand` on every container start, scanning `packages/*/` and auto-generating `docker-compose.volumes.yml`. New packages are detected automatically.
 - **Residual risk**: Minimal — only fails if the script itself is broken or `packages/` structure changes convention
+
+#### Increased image size from Debian-slim + Homebrew
+- **Scenario**: Switching from Alpine (~180 MB) to Debian-slim + Homebrew + Python + Ruby increases the workspace image to ~800+ MB, slowing first-time pulls and rebuilds
+- **Severity**: Low
+- **Affected area**: First container build time and disk usage
+- **Mitigation**: Debian-slim (not full Debian) keeps the base layer small; Homebrew and language runtimes are required for the dev tooling workflow; subsequent builds use Docker layer cache
+- **Residual risk**: Developers on slow connections may experience longer first builds; acceptable tradeoff for Homebrew/glibc availability
 
 #### Database migration conflict after rebase
 - **Scenario**: Developer rebases onto a branch with new DB migrations. Named volumes persist across "Rebuild Container" — the `postgres_data` volume still has tables from the old branch, and the new migration tries to create a table that already exists (e.g., "relation already exists").
@@ -313,3 +320,14 @@ None.
 - Removed stale init marker risk from risk register (no longer applicable)
 - Added `attachments_storage` volume to documentation
 - Added DATABASE_URL precedence comment in setup-env.sh (compose env var takes priority over .env)
+
+### 2026-03-01
+- Switched base image from `node:24-alpine` to `node:24-slim` (Debian) — Homebrew requires glibc which Alpine (musl) does not provide
+- Added Python 3 + pip3 + venv — needed for `.ai/skills/` Python scripts
+- Added Ruby + ruby-dev — general scripting and dev tooling
+- Added Homebrew (Linuxbrew) — enables on-the-fly installation of dev tools (`brew install ...`)
+- Replaced `apk add` with `apt-get install` (Alpine → Debian package manager)
+- Added `procps` and `file` packages (Homebrew dependencies)
+- Added Homebrew shellenv to `.bashrc`, `.profile`, and `.zshrc` for the `node` user
+- Switched Claude Code CLI from npm-global install to native install (`curl https://claude.ai/install.sh | bash`) — installs to `~/.claude/bin/`, enabling auto-updates without sudo; uses `bash` explicitly because Debian-slim's `/bin/sh` is `dash` which doesn't support bash-specific syntax
+- Updated README: new "Included Developer Tools" section, updated services table, added Debian design decision, updated maintenance guide

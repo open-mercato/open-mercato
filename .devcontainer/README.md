@@ -1,6 +1,6 @@
 # Dev Container
 
-One-click development environment for Open Mercato. Open VS Code, "Reopen in Container", and everything works — Node.js 24, Yarn 4, PostgreSQL (pgvector), Redis, Meilisearch, and Claude Code CLI.
+One-click development environment for Open Mercato. Open VS Code, "Reopen in Container", and everything works — Node.js 24, Yarn 4, PostgreSQL (pgvector), Redis, Meilisearch, Claude Code CLI, Python 3 + pip, Ruby, and Homebrew.
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ Default credentials (dev only — never use in production): `superadmin@acme.com
 
 | Service | Image | Purpose |
 |---------|-------|---------|
-| **workspace** | Node 24 Alpine (custom Dockerfile) | Development container — VS Code connects here |
+| **workspace** | Node 24 Debian-slim (custom Dockerfile) | Development container — VS Code connects here |
 | **postgres** | pgvector/pgvector:pg17-trixie | PostgreSQL 17 with pgvector extension |
 | **redis** | redis:7-alpine | Event transport, queue backend, caching |
 | **meilisearch** | getmeili/meilisearch:v1.11 | Full-text search engine |
@@ -78,11 +78,24 @@ Package `dist/` volumes are **auto-generated** by `scripts/generate-compose-volu
 
 Alternatively, run `claude` inside the container and use the OAuth login flow (works with Max plan subscriptions).
 
+## Included Developer Tools
+
+The workspace container ships with additional runtimes and tools beyond Node.js:
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **Python 3 + pip** | Debian default | Run `.ai/skills/` Python scripts, general scripting |
+| **Ruby** | Debian default | General scripting and dev tooling |
+| **Homebrew** | Latest | Install additional dev tools on-the-fly (`brew install jq`, etc.) |
+
+Homebrew is available in all terminal sessions (bash, zsh). Install tools as needed — they persist across container restarts but are lost on rebuild.
+
 ## Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | Self-contained compose (not reusing `docker-compose.yml`) | Existing file includes unneeded services, uses `container_name` directives that conflict with Dev Containers |
+| Debian-slim instead of Alpine | Homebrew requires glibc (Alpine uses musl); Debian-slim provides glibc with a modest image size increase |
 | `init: true` on workspace | Proper signal forwarding and zombie process reaping for the complex process tree (`yarn dev` spawns turbo + watchers + Next.js + workers) |
 | `WATCHPACK_POLLING` + `CHOKIDAR_USEPOLLING` | macOS Docker bind mounts don't support native filesystem events — polling is required |
 | 12 GB Docker Desktop memory | Turbopack compilation + 14 package watchers + workers spike to ~8-10 GB during page compilation |
@@ -105,19 +118,19 @@ When the project evolves, the Dev Container setup may need updates. Here's when 
 
 | Change | What to Update | User Action |
 |--------|---------------|-------------|
-| New system dependency (e.g., `jq`, `imagemagick`) | Add `apk add <pkg>` to `Dockerfile` | Rebuild Container |
+| New system dependency (e.g., `jq`, `imagemagick`) | Add `apt-get install <pkg>` to `Dockerfile`, or use `brew install <pkg>` at runtime | Rebuild Container (for Dockerfile); immediate (for brew) |
 | New infrastructure service (e.g., Elasticsearch) | Add service to `docker-compose.yml`, forward port in `devcontainer.json` | Rebuild Container |
 | New package added to monorepo | Nothing — `generate-compose-volumes.sh` detects it automatically | Rebuild Container |
 | New keys in `.env.example` | If they need container-specific values, add `sed` rules to `scripts/setup-env.sh` | Rebuild Container or run `bash .devcontainer/scripts/setup-env.sh` |
 | New VS Code extension for all contributors | Add extension ID to `devcontainer.json` `customizations.vscode.extensions` | Rebuild Container |
-| Node.js major version bump | Update `FROM node:<version>-alpine` in `Dockerfile` and `corepack prepare yarn@<version>` | Rebuild Container |
+| Node.js major version bump | Update `FROM node:<version>-slim` in `Dockerfile` and `corepack prepare yarn@<version>` | Rebuild Container |
 | New lifecycle step (e.g., a new init command) | Add to `scripts/post-create.sh` (runs once) or `scripts/post-start.sh` (runs each start) | Rebuild Container for post-create changes; restart for post-start changes |
 
 ### File Responsibilities
 
 | File | Owns |
 |------|------|
-| `Dockerfile` | Base image, system packages, global npm tools, Yarn version |
+| `Dockerfile` | Base image (Debian-slim), system packages, Python/Ruby/Homebrew, Claude Code (native install), Yarn version |
 | `docker-compose.yml` | Service definitions, static named volumes, environment variables, health checks, networking |
 | `docker-compose.volumes.yml` | Auto-generated — named volumes for every `packages/*/dist` directory (gitignored) |
 | `devcontainer.json` | VS Code integration — lifecycle commands, port forwarding, extensions, env forwarding |
@@ -138,4 +151,6 @@ When the project evolves, the Dev Container setup may need updates. Here's when 
 | `.env` changes lost after rebuild | Edited `.env` instead of `.env.local` | Use `apps/mercato/.env.local` for overrides |
 | New system tool needed | Not in Dockerfile | Edit `Dockerfile`, then Command Palette → **Rebuild Container** |
 | Migration fails after rebase ("relation already exists") | Database has tables from old branch; new migrations conflict | Wipe DB: `docker volume rm open-mercato_devcontainer_postgres_data` then reopen. Only needed when rebasing across branches with new DB migrations. |
+| `brew: command not found` | Shell profile not loaded | Run `eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"` or open a new terminal |
+| `Syntax error: "(" unexpected` during build (Claude CLI install) | Install script piped to `sh` (dash on Debian) instead of `bash` | Already fixed in Dockerfile — `curl ... \| bash`. If you see this, pull latest `.devcontainer/Dockerfile` and rebuild |
 | Stale build artifacts | Named volumes persisted old `dist/` | Wipe all: `docker volume ls -q \| grep open-mercato_devcontainer \| xargs docker volume rm` then reopen |
