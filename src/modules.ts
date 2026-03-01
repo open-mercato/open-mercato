@@ -30,4 +30,5 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
   { id: 'events', from: '@open-mercato/events' },
+  { id: 'instructors', from: '@app' },
 ]
