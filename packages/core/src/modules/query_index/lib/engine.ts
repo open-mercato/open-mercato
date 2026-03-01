@@ -1350,7 +1350,7 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private customFieldKeysCacheKey(entityIds: string[], tenantId: string | null): string {
-    const sorted = entityIds.slice().sort().join(',')
+    const sorted = entityIds.slice().sort((a, b) => a.localeCompare(b)).join(',')
     return `${tenantId ?? '__none__'}|${sorted}`
   }
 

@@ -134,7 +134,7 @@ async function loadResourceSnapshot(em: EntityManager, id: string): Promise<Reso
   const tags = assignments
     .map((assignment) => (assignment.tag as ResourcesResourceTag | undefined)?.id ?? null)
     .filter((tagId): tagId is string => typeof tagId === 'string' && tagId.length > 0)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
   return {
     id: resource.id,
     tenantId: resource.tenantId,

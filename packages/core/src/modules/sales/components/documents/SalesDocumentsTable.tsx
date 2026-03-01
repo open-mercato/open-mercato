@@ -232,7 +232,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
             ? item.primary_email.trim()
             : null
         const label = email ? `${name} (${email})` : name
-        return { value: id, label: kind === 'company' ? label : label }
+        return { value: id, label }
       }
       const options = [...peopleItems.map((i) => parseOption(i, 'person')), ...companyItems.map((i) => parseOption(i, 'company'))]
         .filter((opt): opt is FilterOption => !!opt)

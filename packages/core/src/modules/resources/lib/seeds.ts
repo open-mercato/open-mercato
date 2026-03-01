@@ -317,7 +317,7 @@ function normalizeAssetTag(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return 'RESOURCE'
   const upper = trimmed.toUpperCase()
-  const normalized = upper.replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  const normalized = upper.replace(/[^A-Z0-9]+/g, '-').replace(/(?:^-+|-+$)/g, '')
   return normalized || 'RESOURCE'
 }
 

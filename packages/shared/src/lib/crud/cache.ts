@@ -55,7 +55,7 @@ export function canonicalizeResourceTag(value: string | null | undefined): strin
     .replace(/_/g, '.')
     .replace(/-+/g, '.')
   const withCamelBreaks = withSeparators.replace(/([a-z0-9])([A-Z])/g, '$1.$2')
-  const collapsed = withCamelBreaks.replace(/\.{2,}/g, '.').replace(/^\.+|\.+$/g, '')
+  const collapsed = withCamelBreaks.replace(/\.{2,}/g, '.').replace(/(?:^\.+|\.+$)/g, '')
   const lowered = collapsed.toLowerCase()
   return lowered.length ? lowered : null
 }

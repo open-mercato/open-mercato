@@ -75,7 +75,7 @@ function hydrateEntry(entry: unknown): OperationEntry {
     id: String(source.id),
     undoToken: String(source.undoToken),
     commandId: String(source.commandId),
-    actionLabel: typeof source.actionLabel === 'string' ? source.actionLabel : source.actionLabel === null ? null : null,
+    actionLabel: typeof source.actionLabel === 'string' ? source.actionLabel : null,
     resourceKind: typeof source.resourceKind === 'string' ? source.resourceKind : null,
     resourceId: typeof source.resourceId === 'string' ? source.resourceId : null,
     executedAt: typeof source.executedAt === 'string' ? source.executedAt : new Date((source.receivedAt as number | undefined) || now()).toISOString(),

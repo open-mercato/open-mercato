@@ -36,7 +36,7 @@ function normalizeToken(token: string): string {
 
 function serializeCombination(tokens: string[]): string {
   const filtered = tokens.filter(Boolean)
-  filtered.sort()
+  filtered.sort((a, b) => a.localeCompare(b))
   return filtered.join('+')
 }
 

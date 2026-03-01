@@ -1605,7 +1605,7 @@ export function DataTable<T>({
             ) : error ? (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-destructive">
-                  {typeof error === 'string' ? error : error}
+                  {error}
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (

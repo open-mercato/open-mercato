@@ -631,7 +631,7 @@ export function sanitizeId(input: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '_')
     .replace(/_{2,}/g, '_') // Replace multiple underscores with single
-    .replace(/^_|_$/g, '') // Remove leading/trailing underscores
+    .replace(/(?:^_|_$)/g, '') // Remove leading/trailing underscores
 }
 
 /**

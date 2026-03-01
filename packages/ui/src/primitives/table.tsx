@@ -5,8 +5,8 @@ export function Table({ className, ...props }: React.HTMLAttributes<HTMLTableEle
   return <table className={cn('w-full text-sm', className)} {...props} />
 }
 
-export function TableHeader(props: React.HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead {...props} />
+export function TableHeader({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
+  return <thead className={cn(className)} {...props} />
 }
 
 export function TableBody(props: React.HTMLAttributes<HTMLTableSectionElement>) {

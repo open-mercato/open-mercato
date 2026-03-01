@@ -284,7 +284,7 @@ export const buildOptionValuesKey = (
 ): string => {
   if (!optionValues) return "";
   return Object.keys(optionValues)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .map((key) => `${key}:${optionValues[key] ?? ""}`)
     .join("|");
 };

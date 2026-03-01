@@ -302,7 +302,7 @@ const seedEncryptionMaps: ModuleCli = {
 }
 
 function normalizeKeyInput(value: string): string {
-  return value.trim().replace(/^['"]|['"]$/g, '')
+  return value.trim().replace(/(?:^['"]|['"]$)/g, '')
 }
 
 class DerivedKeyKmsService implements KmsService {
