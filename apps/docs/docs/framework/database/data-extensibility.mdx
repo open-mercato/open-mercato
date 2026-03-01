@@ -117,6 +117,85 @@ The CLI runs quickly thanks to checksum caching stored under `custom-entity:*` c
 
 Why not migrations? Migrations are module-scoped, run in isolation, and should alter schema deterministically. Field sets aggregate across all enabled modules at the app level and may target specific tenants; executing them in each module’s migration would cause duplication, ordering problems, and environment coupling. Use the CLI to seed or re-seed idempotently whenever modules change.
 
+## External ID Mapping (UMES Phase L)
+
+The integrations module provides a built-in entity and enricher for tracking external system IDs alongside internal records.
+
+### SyncExternalIdMapping entity
+
+`SyncExternalIdMapping` (table: `sync_external_id_mappings`) stores the link between an internal entity record and its counterpart in an external system.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID PK | Auto-generated |
+| `integration_id` | text | Identifies the integration (e.g. `sync_shopify`) |
+| `internal_entity_type` | text | Target entity type (e.g. `catalog.product`) |
+| `internal_entity_id` | UUID | Internal record ID |
+| `external_id` | text | ID in the external system |
+| `sync_status` | text | `synced`, `pending`, `error`, or `not_synced` |
+| `last_synced_at` | timestamp | Last successful sync time |
+| `organization_id` | UUID | Tenant-scoped |
+| `tenant_id` | UUID | Tenant-scoped |
+
+Entity source: `packages/core/src/modules/integrations/data/entities.ts`
+
+### External ID mapping enricher
+
+The `externalIdMappingEnricher` response enricher adds an `_integrations` namespace to any entity's API response. It targets all entities (`targetEntity: '*'`) and uses batch queries via `enrichMany` to prevent N+1.
+
+Enriched response shape:
+
+```json
+{
+  "id": "abc-123",
+  "name": "Example Product",
+  "_integrations": {
+    "sync_shopify": {
+      "externalId": "shp_prod_123",
+      "externalUrl": "https://admin.shopify.com/store/demo/products/shp_prod_123",
+      "lastSyncedAt": "2026-02-28T10:00:00.000Z",
+      "syncStatus": "synced"
+    },
+    "gateway_stripe": {
+      "externalId": "cus_abc456",
+      "syncStatus": "pending"
+    }
+  }
+}
+```
+
+The `externalUrl` field is populated when the integration registers a `buildExternalUrl` callback.
+
+### Integration registry
+
+Register integration definitions at module bootstrap so the enricher and UI widgets can resolve metadata:
+
+```ts
+import { registerIntegration } from '@open-mercato/shared/modules/integrations/types'
+
+registerIntegration({
+  id: 'sync_shopify',
+  title: 'Shopify',
+  icon: 'shopify',
+  buildExternalUrl: (externalId) =>
+    `https://admin.shopify.com/store/demo/products/${externalId}`,
+})
+```
+
+Available helpers:
+
+| Function | Description |
+|----------|-------------|
+| `registerIntegration(def)` | Register a single integration definition |
+| `registerIntegrations(defs)` | Register multiple definitions at once |
+| `getIntegration(id)` | Get definition by ID |
+| `getAllIntegrations()` | List all registered definitions |
+| `getIntegrationTitle(id)` | Get title, falling back to the raw ID |
+
+Types: `IntegrationDefinition`, `ExternalIdEnrichment`, `ExternalIdMapping` from `@open-mercato/shared/modules/integrations/types`.
+
+See also: [Integration enhancements](/framework/extensibility/integration-enhancements), [Widget injection](/framework/widget-injection)
+
 ## Multi-tenant
 - Custom fields and values are tenant-scoped for querying: the query layer filters by `tenant_id` only. `organization_id` is not applied to custom field discovery or value joins.
 - Virtual/custom entities are filtered by `tenant_id` and, when provided, additionally by `organization_id`.

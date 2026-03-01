@@ -54,6 +54,61 @@ Start with: [Workflows extending](/framework/workflows/extending), [Scheduler](/
 
 Start with: [API extension guide](/framework/api/extending-api), [Queue workers](/framework/events/queue-workers)
 
+## Integration extension widgets (UMES Phase L)
+
+Phase L adds first-class UI widgets and data primitives for building integration modules.
+
+### InjectionWizard
+
+Multi-step wizard widget for integration onboarding (OAuth flows, API credential entry, scope configuration). Renders a numbered step indicator with navigation and per-step validation.
+
+- Define steps as `InjectionWizardStep[]` with `id`, `label`, optional `fields`, optional `validate`, and optional `customComponent`
+- Step validation returns `{ ok, message?, fieldErrors? }` to block progression
+- `onComplete` callback receives accumulated data from all steps
+- Supports `Escape` to cancel
+
+Import: `import { InjectionWizard } from '@open-mercato/ui/backend/injection/InjectionWizard'`
+
+### StatusBadgeRenderer
+
+Status badge widget with pollable status loaders. Displays a color-coded dot, label, optional count badge, and optional tooltip.
+
+- Statuses: `healthy` (green), `warning` (yellow), `error` (red), `unknown` (gray)
+- `statusLoader` is called on mount and at `pollInterval` (default 60 s)
+- Optional `href` makes the badge a link
+
+Import: `import { StatusBadgeRenderer } from '@open-mercato/ui/backend/injection/StatusBadgeRenderer'`
+
+### ExternalIdsWidget
+
+Injection widget for displaying external system ID mappings. Reads the `_integrations` namespace from enriched API responses and renders a row per integration with provider name, external ID code badge, sync status dot, and optional external link.
+
+- Sync statuses: `synced`, `pending`, `error`, `not_synced`
+- Provider name resolved via `getIntegrationTitle()` from the integration registry
+
+Widget: `packages/core/src/modules/integrations/widgets/injection/external-ids/widget.client.tsx`
+
+### Integration registry
+
+Register integration definitions at module bootstrap so the platform can discover metadata and build deep links.
+
+```ts
+import { registerIntegration, getAllIntegrations, getIntegrationTitle } from '@open-mercato/shared/modules/integrations/types'
+
+registerIntegration({
+  id: 'sync_shopify',
+  title: 'Shopify',
+  icon: 'shopify',
+  buildExternalUrl: (externalId) => `https://admin.shopify.com/store/demo/products/${externalId}`,
+})
+
+getAllIntegrations()              // returns all registered IntegrationDefinition[]
+getIntegrationTitle('sync_shopify') // 'Shopify'
+getIntegrationTitle('unknown')      // 'unknown' (falls back to ID)
+```
+
+Start with: [Widget injection](/framework/widget-injection), [Data extensibility](/framework/database/data-extensibility)
+
 ## Data integration and entity mapping today
 
 Currently available:
@@ -61,11 +116,10 @@ Currently available:
 - Custom entities and custom fields for schema-level adaptation
 - Message object type mapping for cross-module record linking
 - Query index and search indexing for downstream lookup/search use cases
+- External ID mapping enricher and ExternalIdsWidget (UMES Phase L — see above)
 
 Planned for UMES 2.09:
 
-- First-class external ID mapping widgets/bindings
-- Integration wizard widgets for OAuth/config onboarding
 - Query-level transform hooks for integration-specific query shaping
 
 See: [UMES 2.09 roadmap](./umes-2-09-roadmap)
