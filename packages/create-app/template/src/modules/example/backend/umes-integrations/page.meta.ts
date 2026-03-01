@@ -10,7 +10,7 @@ const linkIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['example.todos.view'],
-  pageTitle: 'Phase I-L integrations',
+  pageTitle: 'Phase L integrations',
   pageTitleKey: 'example.menu.umesIntegrations',
   pageGroup: 'Example',
   pageGroupKey: 'example.nav.group',
@@ -18,7 +18,7 @@ export const metadata = {
   icon: linkIcon,
   breadcrumb: [
     { label: 'General tasks', labelKey: 'example.todos.page.title', href: '/backend/todos' },
-    { label: 'Phase I-L integrations', labelKey: 'example.umes.integrations.title' },
+    { label: 'Phase L integrations', labelKey: 'example.umes.integrations.title' },
   ],
 }
 

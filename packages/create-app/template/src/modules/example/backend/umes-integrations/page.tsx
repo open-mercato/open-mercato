@@ -194,23 +194,23 @@ export default function UmesIntegrationsPage() {
     <Page>
       <PageBody className="space-y-4">
         <div>
-          <h1 className="text-xl font-semibold">{t('example.umes.integrations.title', 'UMES Phase I-L Integrations')}</h1>
+          <h1 className="text-xl font-semibold">{t('example.umes.integrations.title', 'UMES Phase L — Integration Extensions')}</h1>
           <p className="text-sm text-muted-foreground">
-            {t('example.umes.integrations.description', 'Validation page for integration wizards, status badges, external ID widgets, and the integration registry.')}
+            {t('example.umes.integrations.description', 'Validation page for Phase L integration extensions: multi-step wizard, status badges, external ID mapping, and integration registry.')}
           </p>
         </div>
 
         <div className="grid gap-2 rounded border border-border p-3 text-xs text-muted-foreground">
-          <div data-testid="phase-il-status-wizard">phaseL_wizard={wizardStatus}</div>
-          <div data-testid="phase-il-status-badges">phaseL_badges={badgeStatus}</div>
-          <div data-testid="phase-il-status-external-ids">phaseL_externalIds={externalIdsStatus}</div>
-          <div data-testid="phase-il-status-registry">phaseL_registry={registryStatus}</div>
+          <div data-testid="phase-l-status-wizard">phaseL_wizard={wizardStatus}</div>
+          <div data-testid="phase-l-status-badges">phaseL_badges={badgeStatus}</div>
+          <div data-testid="phase-l-status-external-ids">phaseL_externalIds={externalIdsStatus}</div>
+          <div data-testid="phase-l-status-registry">phaseL_registry={registryStatus}</div>
         </div>
 
-        {/* Section 1: InjectionWizard Demo */}
+        {/* L.1 Multi-Step Wizard Widget */}
         <div className="space-y-3 rounded border border-border p-4">
           <div>
-            <h2 className="text-base font-semibold">{t('example.umes.integrations.wizard.title', 'Phase I — Injection Wizard')}</h2>
+            <h2 className="text-base font-semibold">{t('example.umes.integrations.wizard.title', 'L.1 Multi-Step Wizard Widget')}</h2>
             <p className="text-sm text-muted-foreground">
               {t('example.umes.integrations.wizard.description', 'Complete the 3-step wizard to validate step navigation, per-step validation, and onComplete callback.')}
             </p>
@@ -222,15 +222,15 @@ export default function UmesIntegrationsPage() {
             <div>{t('example.umes.integrations.wizard.hint3', '3. Completing all steps should display the accumulated wizard data below.')}</div>
           </div>
           <InjectionWizard widget={wizardWidget} context={wizardContext} />
-          <div data-testid="phase-i-wizard-result" className="rounded border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
+          <div data-testid="phase-l-wizard-result" className="rounded border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
             wizardResult={print(wizardResult)}
           </div>
         </div>
 
-        {/* Section 2: StatusBadgeRenderer Demo */}
+        {/* L.2 Status Badge Injection */}
         <div className="space-y-3 rounded border border-border p-4">
           <div>
-            <h2 className="text-base font-semibold">{t('example.umes.integrations.badges.title', 'Phase J — Status Badges')}</h2>
+            <h2 className="text-base font-semibold">{t('example.umes.integrations.badges.title', 'L.2 Status Badge Injection')}</h2>
             <p className="text-sm text-muted-foreground">
               {t('example.umes.integrations.badges.description', 'Four status badge renderers with fixed loaders demonstrating healthy, warning, error, and unknown states.')}
             </p>
@@ -242,24 +242,24 @@ export default function UmesIntegrationsPage() {
             <div>{t('example.umes.integrations.badges.hint3', '3. Clicking `Cycle statuses` should rotate all badge statuses forward.')}</div>
           </div>
           <TooltipProvider delayDuration={300}>
-            <div className="flex flex-wrap items-center gap-3" data-testid="phase-j-badges">
+            <div className="flex flex-wrap items-center gap-3" data-testid="phase-l-badges">
               {badgeWidgets.map(({ widget, context }) => (
                 <StatusBadgeRenderer key={widget.metadata.id} widget={widget} context={context} />
               ))}
             </div>
           </TooltipProvider>
           <div className="flex flex-wrap items-center gap-2">
-            <Button data-testid="phase-j-cycle" type="button" onClick={handleCycleBadges}>
+            <Button data-testid="phase-l-cycle-badges" type="button" onClick={handleCycleBadges}>
               {t('example.umes.integrations.badges.cycle', 'Cycle statuses')}
             </Button>
-            <span data-testid="phase-j-status" className="text-xs text-muted-foreground">status={badgeStatus}</span>
+            <span data-testid="phase-l-badge-status" className="text-xs text-muted-foreground">status={badgeStatus}</span>
           </div>
         </div>
 
-        {/* Section 3: ExternalIdsWidget Demo */}
+        {/* L.3 External ID Mapping Display */}
         <div className="space-y-3 rounded border border-border p-4">
           <div>
-            <h2 className="text-base font-semibold">{t('example.umes.integrations.externalIds.title', 'Phase K — External IDs Widget')}</h2>
+            <h2 className="text-base font-semibold">{t('example.umes.integrations.externalIds.title', 'L.3 External ID Mapping Display')}</h2>
             <p className="text-sm text-muted-foreground">
               {t('example.umes.integrations.externalIds.description', 'ExternalIdsWidget renders mock integration mappings for Shopify and Stripe.')}
             </p>
@@ -270,15 +270,15 @@ export default function UmesIntegrationsPage() {
             <div>{t('example.umes.integrations.externalIds.hint2', '2. Shopify row should show an external link icon.')}</div>
             <div>{t('example.umes.integrations.externalIds.hint3', '3. Each row shows the external ID in a monospace code badge.')}</div>
           </div>
-          <div data-testid="phase-k-external-ids">
+          <div data-testid="phase-l-external-ids">
             <ExternalIdsWidget context={{}} data={externalIdsData} />
           </div>
         </div>
 
-        {/* Section 4: Integration Registry Demo */}
+        {/* L.4 Integration Registry */}
         <div className="space-y-3 rounded border border-border p-4">
           <div>
-            <h2 className="text-base font-semibold">{t('example.umes.integrations.registry.title', 'Phase L — Integration Registry')}</h2>
+            <h2 className="text-base font-semibold">{t('example.umes.integrations.registry.title', 'L.4 Integration Registry')}</h2>
             <p className="text-sm text-muted-foreground">
               {t('example.umes.integrations.registry.description', 'Demonstrates registerIntegration(), getAllIntegrations(), and getIntegrationTitle() from the shared registry.')}
             </p>
