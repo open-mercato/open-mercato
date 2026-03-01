@@ -44,7 +44,7 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
   async enrichOne(record, context: EnricherContext & { targetEntity?: string }) {
     const em = (context.em as any).fork()
     const targetEntity = (context as any).targetEntity as string | undefined
-    if (!targetEntity) return record
+    if (!targetEntity) return { ...record, _integrations: {} }
 
     const mappings: SyncExternalIdMapping[] = await em.find(SyncExternalIdMapping, {
       internalEntityType: targetEntity,
@@ -53,7 +53,7 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
       deletedAt: null,
     })
 
-    if (mappings.length === 0) return record
+    if (mappings.length === 0) return { ...record, _integrations: {} }
 
     return {
       ...record,
@@ -64,7 +64,7 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
   async enrichMany(records, context: EnricherContext & { targetEntity?: string }) {
     const em = (context.em as any).fork()
     const targetEntity = (context as any).targetEntity as string | undefined
-    if (!targetEntity || records.length === 0) return records
+    if (!targetEntity || records.length === 0) return records.map((r) => ({ ...r, _integrations: {} }))
 
     const recordIds = records.map((r) => r.id)
     const allMappings: SyncExternalIdMapping[] = await em.find(SyncExternalIdMapping, {
@@ -74,7 +74,7 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
       deletedAt: null,
     })
 
-    if (allMappings.length === 0) return records
+    if (allMappings.length === 0) return records.map((r) => ({ ...r, _integrations: {} }))
 
     const mappingsByRecord = new Map<string, SyncExternalIdMapping[]>()
     for (const mapping of allMappings) {
@@ -85,7 +85,7 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
 
     return records.map((record) => {
       const mappings = mappingsByRecord.get(record.id)
-      if (!mappings || mappings.length === 0) return record
+      if (!mappings || mappings.length === 0) return { ...record, _integrations: {} }
 
       return {
         ...record,
