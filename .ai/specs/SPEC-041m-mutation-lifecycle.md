@@ -463,3 +463,19 @@ export async function runCrudMutationGuardAfterSuccess(...)
 | New sync subscribers | Purely additive — via existing `subscribers/*.ts` | None |
 
 **Estimated scope**: Large — CRUD factory pipeline + CommandBus modifications are the critical path
+
+---
+
+## Implementation Status
+
+| Sub-Spec | Status | Date | Notes |
+|----------|--------|------|-------|
+| m1 — Mutation Guard Registry | Done | 2026-03-01 | `mutation-guard-registry.ts`, `mutation-guard-store.ts`, legacy bridge, `@deprecated` on old functions |
+| m2 — Sync Event Subscribers | Done | 2026-03-01 | `sync-event-types.ts`, `sync-event-runner.ts`, `sync-subscriber-store.ts` |
+| Factory Modifications (m1+m2) | Done | 2026-03-01 | POST/PUT/DELETE handlers updated with sync events + multi-guard |
+| m3 — Client-Side Event Filtering | Done | 2026-03-01 | `WidgetInjectionEventFilter` type, InjectionSpot filter check, CrudForm operation context |
+| m4 — Command Interceptors | Done | 2026-03-01 | `command-interceptor.ts`, `errors.ts`, `command-interceptor-store.ts`, `command-interceptor-runner.ts`, command-bus wiring |
+| Generator & Bootstrap | Done | 2026-03-01 | `processStandaloneConfig` for guards + command interceptors, generated file output, bootstrap registration |
+| Example Module | Done | 2026-03-01 | `data/guards.ts`, 3 sync subscribers, `commands/interceptors.ts` |
+| Unit Tests | Done | 2026-03-01 | 41 tests: guard registry, sync event runner, command interceptor runner, error class |
+| Build Verification | Done | 2026-03-01 | `yarn build:packages` passes, all 286 shared package tests pass |

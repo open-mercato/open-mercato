@@ -148,8 +148,12 @@ export type Module = {
     id: string
     event: string
     persistent?: boolean
+    /** When true, subscriber runs synchronously inside the mutation pipeline */
+    sync?: boolean
+    /** Execution priority for sync subscribers (lower = earlier). Default: 50 */
+    priority?: number
     // Imported function reference; will be registered into event bus
-    handler: (payload: any, ctx: any) => Promise<void> | void
+    handler: (payload: any, ctx: any) => Promise<any> | any
   }>
   // Auto-discovered queue workers
   workers?: Array<{

@@ -1,0 +1,6 @@
+export class CommandInterceptorError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CommandInterceptorError'
+  }
+}

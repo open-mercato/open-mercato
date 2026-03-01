@@ -21,6 +21,15 @@ import {
   isCrudCacheDebugEnabled,
 } from '@open-mercato/shared/lib/crud/cache'
 import { normalizeCustomFieldKey } from '@open-mercato/shared/lib/custom-fields/keys'
+import { getAllCommandInterceptorInstances } from './command-interceptor-store'
+import {
+  runCommandInterceptorsBefore,
+  runCommandInterceptorsAfter,
+  runCommandInterceptorsBeforeUndo,
+  runCommandInterceptorsAfterUndo,
+} from './command-interceptor-runner'
+import type { CommandInterceptorContext } from './command-interceptor'
+import { CommandInterceptorError } from './errors'
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -173,17 +182,46 @@ export class CommandBus {
     options: CommandExecutionOptions<TInput>
   ): Promise<CommandExecuteResult<TResult>> {
     const handler = this.resolveHandler<TInput, TResult>(commandId)
-    const snapshots = await this.prepareSnapshots(handler, options)
-    const result = await handler.execute(options.input, options.ctx)
-    const afterSnapshot = await this.captureAfter(handler, options, result)
+
+    // Run beforeExecute command interceptors
+    const allInterceptors = getAllCommandInterceptorInstances()
+    let interceptorMetadata = new Map<string, Record<string, unknown>>()
+    let effectiveOptions = options
+    if (allInterceptors.length) {
+      const userFeatures = await this.resolveUserFeaturesForInterceptors(options.ctx)
+      const interceptorCtx: CommandInterceptorContext = {
+        commandId,
+        auth: options.ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null,
+        container: options.ctx.container,
+      }
+      const beforeResult = await runCommandInterceptorsBefore(
+        allInterceptors, commandId, options.input, interceptorCtx, userFeatures,
+      )
+      if (!beforeResult.ok) {
+        throw new CommandInterceptorError(beforeResult.error!.message)
+      }
+      interceptorMetadata = beforeResult.metadataByInterceptor
+      if (beforeResult.modifiedInput) {
+        effectiveOptions = {
+          ...options,
+          input: { ...(options.input as object), ...beforeResult.modifiedInput } as TInput,
+        }
+      }
+    }
+
+    const snapshots = await this.prepareSnapshots(handler, effectiveOptions)
+    const result = await handler.execute(effectiveOptions.input, effectiveOptions.ctx)
+    const afterSnapshot = await this.captureAfter(handler, effectiveOptions, result)
     const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
-    const logMeta = await this.buildLog(handler, options, result, snapshotsWithAfter)
-    let mergedMeta = this.mergeMetadata(options.metadata, logMeta)
+    const logMeta = await this.buildLog(handler, effectiveOptions, result, snapshotsWithAfter)
+    let mergedMeta = this.mergeMetadata(effectiveOptions.metadata, logMeta)
     const undoable = this.isUndoable(handler)
     if (undoable) {
       mergedMeta = mergedMeta ?? {}
       if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
-      if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = options.ctx.auth?.sub ?? null
+      if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = effectiveOptions.ctx.auth?.sub ?? null
     }
     if (afterSnapshot !== undefined && afterSnapshot !== null) {
       if (!mergedMeta) {
@@ -210,10 +248,31 @@ export class CommandBus {
         if (inferred) mergedMeta.changes = inferred
       }
     }
-    const logEntry = await this.persistLog(commandId, options, mergedMeta)
-    await this.invalidateCacheAfterExecute(commandId, options, result, mergedMeta)
-    await this.flushCrudSideEffects(options.ctx.container)
-    return { result, logEntry }
+    const logEntry = await this.persistLog(commandId, effectiveOptions, mergedMeta)
+
+    // Run afterExecute command interceptors
+    let finalResult = result
+    if (allInterceptors.length) {
+      const userFeatures = await this.resolveUserFeaturesForInterceptors(effectiveOptions.ctx)
+      const interceptorCtx: CommandInterceptorContext = {
+        commandId,
+        auth: effectiveOptions.ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
+        container: effectiveOptions.ctx.container,
+      }
+      const afterResult = await runCommandInterceptorsAfter(
+        allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
+        userFeatures, interceptorMetadata,
+      )
+      if (afterResult.modifiedResult && typeof result === 'object' && result) {
+        finalResult = { ...(result as object), ...afterResult.modifiedResult } as Awaited<TResult>
+      }
+    }
+
+    await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+    await this.flushCrudSideEffects(effectiveOptions.ctx.container)
+    return { result: finalResult, logEntry }
   }
 
   async undo(undoToken: string, ctx: CommandRuntimeContext): Promise<void> {
@@ -224,14 +283,72 @@ export class CommandBus {
     if (!handler.undo || this.isUndoable(handler) === false) {
       throw new Error(`Command ${log.commandId} is not undoable`)
     }
+
+    // Run beforeUndo command interceptors
+    const allInterceptors = getAllCommandInterceptorInstances()
+    let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
+    if (allInterceptors.length) {
+      const userFeatures = await this.resolveUserFeaturesForInterceptors(ctx)
+      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+      const interceptorCtx: CommandInterceptorContext = {
+        commandId: log.commandId,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        container: ctx.container,
+      }
+      const beforeResult = await runCommandInterceptorsBeforeUndo(
+        allInterceptors, log.commandId, undoCtx, interceptorCtx, userFeatures,
+      )
+      if (!beforeResult.ok) {
+        throw new CommandInterceptorError(beforeResult.error!.message)
+      }
+      undoInterceptorMetadata = beforeResult.metadataByInterceptor
+    }
+
     await handler.undo({
       input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
       ctx,
       logEntry: log,
     })
     await service.markUndone(log.id)
+
+    // Run afterUndo command interceptors
+    if (allInterceptors.length) {
+      const userFeatures = await this.resolveUserFeaturesForInterceptors(ctx)
+      const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
+      const interceptorCtx: CommandInterceptorContext = {
+        commandId: log.commandId,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        container: ctx.container,
+      }
+      await runCommandInterceptorsAfterUndo(
+        allInterceptors, log.commandId, undoCtx, interceptorCtx,
+        userFeatures, undoInterceptorMetadata,
+      )
+    }
+
     await this.invalidateCacheAfterUndo(log, ctx)
     await this.flushCrudSideEffects(ctx.container)
+  }
+
+  private async resolveUserFeaturesForInterceptors(ctx: CommandRuntimeContext): Promise<string[]> {
+    if (!ctx.auth) return []
+    try {
+      type RbacLike = { getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]> }
+      const rbac = ctx.container.resolve('rbacService') as RbacLike | undefined
+      if (rbac?.getGrantedFeatures) {
+        return await rbac.getGrantedFeatures(ctx.auth.sub, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId,
+        })
+      }
+    } catch {
+      // rbacService is optional in some contexts
+    }
+    return []
   }
 
   private resolveHandler<TInput, TResult>(commandId: string): CommandHandler<TInput, TResult> {

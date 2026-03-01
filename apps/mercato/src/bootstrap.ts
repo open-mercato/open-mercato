@@ -46,6 +46,8 @@ import { analyticsModuleConfigs } from '@/.mercato/generated/analytics.generated
 import { enricherEntries } from '@/.mercato/generated/enrichers.generated'
 import { interceptorEntries } from '@/.mercato/generated/interceptors.generated'
 import { componentOverrideEntries } from '@/.mercato/generated/component-overrides.generated'
+import { guardEntries } from '@/.mercato/generated/guards.generated'
+import { commandInterceptorEntries } from '@/.mercato/generated/command-interceptors.generated'
 import { messageTypes } from '@/.mercato/generated/message-types.generated'
 import { messageObjectTypes } from '@/.mercato/generated/message-objects.generated'
 import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/message-types-registry'
@@ -74,6 +76,8 @@ export const bootstrap = createBootstrap({
   enricherEntries,
   interceptorEntries,
   componentOverrideEntries,
+  guardEntries,
+  commandInterceptorEntries,
 })
 
 export { isBootstrapped }
