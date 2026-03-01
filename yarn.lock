@@ -52,19 +52,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/gateway@npm:2.0.28":
-  version: 2.0.28
-  resolution: "@ai-sdk/gateway@npm:2.0.28"
-  dependencies:
-    "@ai-sdk/provider": "npm:2.0.1"
-    "@ai-sdk/provider-utils": "npm:3.0.20"
-    "@vercel/oidc": "npm:3.1.0"
-  peerDependencies:
-    zod: ^3.25.76 || ^4.1.8
-  checksum: 10/79ea9cf4144b304f75adb63c2c89fb1f44de04cd795032072aa59c5105e27b18e3407cae0c6ca385fc738776a93d5354c80fad8ac542c7402670362d15423f11
-  languageName: node
-  linkType: hard
-
 "@ai-sdk/gateway@npm:3.0.18":
   version: 3.0.18
   resolution: "@ai-sdk/gateway@npm:3.0.18"
@@ -5402,6 +5389,7 @@ __metadata:
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/content": "workspace:*"
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/enterprise": "workspace:*"
     "@open-mercato/events": "workspace:*"
     "@open-mercato/onboarding": "workspace:*"
     "@open-mercato/queue": "workspace:*"
@@ -5426,7 +5414,7 @@ __metadata:
     "@types/react-dom": "npm:^19.2.3"
     "@uiw/react-markdown-preview": "npm:^5.1.5"
     "@uiw/react-md-editor": "npm:^4.0.11"
-    ai: "npm:^5.0.108"
+    ai: "npm:^6.0.0"
     awilix: "npm:^12.0.5"
     bcryptjs: "npm:^3.0.3"
     better-sqlite3: "npm:^12.5.0"
@@ -5539,7 +5527,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/enterprise@workspace:packages/enterprise":
+"@open-mercato/enterprise@workspace:*, @open-mercato/enterprise@workspace:packages/enterprise":
   version: 0.0.0-use.local
   resolution: "@open-mercato/enterprise@workspace:packages/enterprise"
   dependencies:
@@ -5548,6 +5536,7 @@ __metadata:
     "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
+    openid-client: "npm:^6.3.3"
     ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
@@ -9402,21 +9391,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ai@npm:^5.0.108":
-  version: 5.0.122
-  resolution: "ai@npm:5.0.122"
-  dependencies:
-    "@ai-sdk/gateway": "npm:2.0.28"
-    "@ai-sdk/provider": "npm:2.0.1"
-    "@ai-sdk/provider-utils": "npm:3.0.20"
-    "@opentelemetry/api": "npm:1.9.0"
-  peerDependencies:
-    zod: ^3.25.76 || ^4.1.8
-  checksum: 10/a91778e8d4c48fd802fa69554dbd4d2fb25279e705e362769f9d4e4b267cb74dc421f93f294848d1c03432023e26d3f8c0564f137d5095f1a8a1906c0a0f60d3
-  languageName: node
-  linkType: hard
-
-"ai@npm:^6.0.0, ai@npm:^6.0.33":
+"ai@npm:6.0.44":
   version: 6.0.44
   resolution: "ai@npm:6.0.44"
   dependencies:
@@ -19675,6 +19650,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"oauth4webapi@npm:^3.8.4":
+  version: 3.8.5
+  resolution: "oauth4webapi@npm:3.8.5"
+  checksum: 10/5c39d4dbd95b795438e79444a1d710631b3f8311e8b8913150b385b5815857b32f617a49d4869a4476b2318f614adfbc9d19510360df198719973f6f69a2e75b
+  languageName: node
+  linkType: hard
+
 "object-assign@npm:^4, object-assign@npm:^4.1.1":
   version: 4.1.1
   resolution: "object-assign@npm:4.1.1"
@@ -19866,7 +19848,7 @@ __metadata:
     "@uiw/react-markdown-preview": "npm:^5.1.5"
     "@uiw/react-md-editor": "npm:^4.0.11"
     "@xyflow/react": "npm:^12.10.0"
-    ai: "npm:^5.0.108"
+    ai: "npm:^6.0.0"
     awilix: "npm:^12.0.5"
     bcryptjs: "npm:^3.0.3"
     class-variance-authority: "npm:^0.7.1"
@@ -19951,6 +19933,16 @@ __metadata:
   bin:
     opener: bin/opener-bin.js
   checksum: 10/0504efcd6546e14c016a261f58a68acf9f2e5c23d84865d7d5470d5169788327ceaa5386253682f533b3fba4821748aa37ecb395f3dae7acb3261b9b22e36814
+  languageName: node
+  linkType: hard
+
+"openid-client@npm:^6.3.3":
+  version: 6.8.2
+  resolution: "openid-client@npm:6.8.2"
+  dependencies:
+    jose: "npm:^6.1.3"
+    oauth4webapi: "npm:^3.8.4"
+  checksum: 10/5d30ff2419c4847d0037c43cf136dd7189b16399aaee98faaad5bcea105c4e1e4e43d2dac1141ea77049b446b50d1b26f2bb882f717b3e38a5f996645abfc1d0
   languageName: node
   linkType: hard
 

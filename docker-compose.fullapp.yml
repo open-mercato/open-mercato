@@ -64,6 +64,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      SSO_FORCE_ROLE_ON_LOGIN: employee
     depends_on:
       postgres:
         condition: service_healthy

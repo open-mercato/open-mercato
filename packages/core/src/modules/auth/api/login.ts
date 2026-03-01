@@ -8,6 +8,7 @@ import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EventBus } from '@open-mercato/events/types'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit, resetAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
@@ -62,10 +63,12 @@ export async function POST(req: Request) {
     user = users[0] ?? null
   }
   if (!user || !user.passwordHash) {
+    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'invalid_credentials' }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   const ok = await auth.verifyPassword(user, parsed.data.password)
   if (!ok) {
+    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'invalid_password' }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   // Optional role requirement
@@ -98,6 +101,7 @@ export async function POST(req: Request) {
     email: user.email,
     roles: userRoleNames
   })
+  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,

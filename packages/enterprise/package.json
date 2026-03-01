@@ -66,7 +66,8 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/shared": "workspace:*",
-    "@open-mercato/ui": "workspace:*"
+    "@open-mercato/ui": "workspace:*",
+    "openid-client": "^6.3.3"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
