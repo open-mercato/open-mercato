@@ -32,14 +32,15 @@ Run these commands and verify each one exits successfully (exit code 0):
 | 1 | `yarn build:packages` | All packages compile | Fix TypeScript/build errors in the changed package |
 | 2 | `yarn generate` | Module auto-discovery files are up to date | Run it — it generates missing files |
 | 3 | `yarn build:packages` | Rebuild with generated files included | Fix any type errors exposed by generated files |
-| 4 | `yarn tsx scripts/i18n-check-sync.ts` | All 4 locale files (en, de, es, pl) + template locales are in sync | Add missing i18n keys to all locale files |
-| 5 | `yarn typecheck` | TypeScript types are correct across all 14+ packages | Fix type errors — do NOT dismiss as "pre-existing" |
-| 6 | `yarn test` | All unit tests pass across all packages | Fix failing tests — do NOT dismiss as "flaky" or "pre-existing" |
-| 7 | `yarn build:app` | The Next.js app builds successfully | Fix build errors |
+| 4 | `yarn i18n:check-sync` | All 4 locale files (en, de, es, pl) + template locales are in sync | Add missing i18n keys to all locale files |
+| 5 | `yarn i18n:check-usage` | No unused or missing i18n keys | Remove unused keys or add missing ones (CI uses `continue-on-error` so non-blocking, but still report) |
+| 6 | `yarn typecheck` | TypeScript types are correct across all 14+ packages | Fix type errors — do NOT dismiss as "pre-existing" |
+| 7 | `yarn test` | All unit tests pass across all packages | Fix failing tests — do NOT dismiss as "flaky" or "pre-existing" |
+| 8 | `yarn build:app` | The Next.js app builds successfully | Fix build errors |
 
 ### Rules
 
-- **Run steps 5 and 6 in parallel** (they are independent) to save time.
+- **Run steps 6 and 7 in parallel** (they are independent) to save time.
 - **Every failure is a finding**: If `yarn typecheck` or `yarn test` fails, it is a **Critical** finding in the review — even if the failure appears unrelated to the current changes. The PR will fail CI regardless of whose fault it is.
 - **No excuses**: "Pre-existing on develop", "flaky test", "not our code" are not valid reasons to skip. If it fails on your branch, it will fail on CI. Fix it or flag it as a blocker.
 - **Evidence required**: The review output MUST include the actual pass/fail result of each gate step. Do not assume — run the commands and report what happened.
@@ -54,7 +55,8 @@ Run these commands and verify each one exits successfully (exit code 0):
 | `yarn build:packages` | PASS/FAIL | |
 | `yarn generate` | PASS/FAIL | |
 | `yarn build:packages` (rebuild) | PASS/FAIL | |
-| `yarn tsx scripts/i18n-check-sync.ts` | PASS/FAIL | |
+| `yarn i18n:check-sync` | PASS/FAIL | |
+| `yarn i18n:check-usage` | PASS/FAIL/WARN | (non-blocking in CI) |
 | `yarn typecheck` | PASS/FAIL | |
 | `yarn test` | PASS/FAIL | |
 | `yarn build:app` | PASS/FAIL | |
@@ -77,7 +79,8 @@ Use this structure for every review:
 | `yarn build:packages` | PASS/FAIL | |
 | `yarn generate` | PASS/FAIL | |
 | `yarn build:packages` (rebuild) | PASS/FAIL | |
-| `yarn tsx scripts/i18n-check-sync.ts` | PASS/FAIL | |
+| `yarn i18n:check-sync` | PASS/FAIL | |
+| `yarn i18n:check-usage` | PASS/FAIL/WARN | (non-blocking in CI) |
 | `yarn typecheck` | PASS/FAIL | |
 | `yarn test` | PASS/FAIL | |
 | `yarn build:app` | PASS/FAIL | |
