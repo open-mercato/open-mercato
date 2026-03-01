@@ -5,10 +5,17 @@ import type { SyncSubscriberEntry } from './sync-subscriber-store'
 // Event pattern matching
 // ---------------------------------------------------------------------------
 
+function escapeRegex(input: string): string {
+  // Escape all characters with special meaning in regular expressions
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function matchesEventPattern(pattern: string, eventId: string): boolean {
   if (pattern === eventId) return true
   if (pattern === '*') return true
-  const regex = new RegExp('^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
+  // Escape the pattern for literal use in a RegExp, then turn "\*" into ".*" for wildcard support
+  const escaped = escapeRegex(pattern).replace(/\\\*/g, '.*')
+  const regex = new RegExp('^' + escaped + '$')
   return regex.test(eventId)
 }
 
