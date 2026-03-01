@@ -9,6 +9,8 @@ import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
 import { registerComponentOverrides } from '../../modules/widgets/component-registry'
+import { registerMutationGuards } from '../crud/mutation-guard-store'
+import { registerCommandInterceptors } from '../commands/command-interceptor-store'
 
 let _bootstrapped = false
 
@@ -71,6 +73,16 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     if (data.componentOverrideEntries) {
       const allOverrides = data.componentOverrideEntries.flatMap((entry) => entry.componentOverrides ?? [])
       registerComponentOverrides(allOverrides)
+    }
+
+    // === 6e. Mutation guards (for CRUD mutation lifecycle) ===
+    if (data.guardEntries) {
+      registerMutationGuards(data.guardEntries)
+    }
+
+    // === 6f. Command interceptors (for command bus lifecycle) ===
+    if (data.commandInterceptorEntries) {
+      registerCommandInterceptors(data.commandInterceptorEntries)
     }
 
     // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===

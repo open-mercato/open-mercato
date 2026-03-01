@@ -57,6 +57,10 @@ function resolveCrudMutationGuardService(container: AwilixContainer): CrudMutati
   }
 }
 
+/**
+ * @deprecated Use `runMutationGuards()` from `@open-mercato/shared/lib/crud/mutation-guard-registry` instead.
+ * This function is bridged internally via `bridgeLegacyGuard()` and will be removed in a future release.
+ */
 export async function validateCrudMutationGuard(
   container: AwilixContainer,
   input: CrudMutationGuardValidateInput,
@@ -66,6 +70,10 @@ export async function validateCrudMutationGuard(
   return service.validateMutation(input)
 }
 
+/**
+ * @deprecated Use `runMutationGuards()` afterSuccess callbacks from `@open-mercato/shared/lib/crud/mutation-guard-registry` instead.
+ * This function is bridged internally via `bridgeLegacyGuard()` and will be removed in a future release.
+ */
 export async function runCrudMutationGuardAfterSuccess(
   container: AwilixContainer,
   input: CrudMutationGuardAfterSuccessInput,
