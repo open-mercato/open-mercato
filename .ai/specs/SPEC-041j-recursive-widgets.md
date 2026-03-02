@@ -6,7 +6,7 @@
 | **Phase** | J (PR 10) |
 | **Branch** | `feat/umes-recursive-widgets` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Draft |
+| **Status** | Implemented |
 
 ## Goal
 

@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 
 export default function ValidationWidget({ context, data, disabled }: InjectionWidgetComponentProps) {
   const sharedState =
@@ -66,6 +67,12 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
       <div data-testid="widget-transform-form-data" className="text-xs text-muted-foreground">transformFormData={print(lastTransformFormData)}</div>
       <div data-testid="widget-transform-display-data" className="text-xs text-muted-foreground">transformDisplayData={print(lastTransformDisplayData)}</div>
       <div data-testid="widget-transform-validation" className="text-xs text-muted-foreground">transformValidation={print(lastTransformValidation)}</div>
+      <InjectionSpot
+        spotId="widget:example.injection.crud-validation:addon"
+        context={context}
+        data={data}
+        disabled={disabled}
+      />
     </div>
   )
 }
