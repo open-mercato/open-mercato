@@ -29,6 +29,11 @@ export interface ComponentOverrideBootstrapEntry {
   componentOverrides: import('../../modules/widgets/component-registry').ComponentOverride[]
 }
 
+export interface NotificationHandlerBootstrapEntry {
+  moduleId: string
+  handlers: import('../../modules/notifications/handler').NotificationHandler[]
+}
+
 export interface BootstrapData {
   modules: Module[]
   entities: OrmEntity[]
@@ -43,6 +48,7 @@ export interface BootstrapData {
   enricherEntries?: EnricherBootstrapEntry[]
   interceptorEntries?: InterceptorBootstrapEntry[]
   componentOverrideEntries?: ComponentOverrideBootstrapEntry[]
+  notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
 }
 
 export interface BootstrapOptions {

@@ -9,6 +9,7 @@ import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
 import { registerComponentOverrides } from '../../modules/widgets/component-registry'
+import { registerNotificationHandlers } from '../notifications/handler-registry'
 
 let _bootstrapped = false
 
@@ -71,6 +72,11 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     if (data.componentOverrideEntries) {
       const allOverrides = data.componentOverrideEntries.flatMap((entry) => entry.componentOverrides ?? [])
       registerComponentOverrides(allOverrides)
+    }
+
+    // === 6e. Notification handlers (reactive notification side-effects) ===
+    if (data.notificationHandlerEntries) {
+      registerNotificationHandlers(data.notificationHandlerEntries)
     }
 
     // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===
