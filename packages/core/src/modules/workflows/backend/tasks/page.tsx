@@ -296,7 +296,7 @@ export default function UserTasksListPage() {
           items.push({
             id: 'claim',
             label: t('workflows.tasks.actions.claim'),
-            onSelect: () => handleClaim(row.original.id, row.original.taskName),
+            onSelect: () => void handleClaim(row.original.id, row.original.taskName),
           })
         }
 

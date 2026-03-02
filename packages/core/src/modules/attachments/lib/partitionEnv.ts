@@ -6,7 +6,7 @@ function toEnvFragment(code: string): string {
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/[^a-zA-Z0-9]+/g, '_')
     .replace(/_{2,}/g, '_')
-    .replace(/^_|_$/g, '')
+    .replace(/(?:^_|_$)/g, '')
     .toUpperCase()
 }
 

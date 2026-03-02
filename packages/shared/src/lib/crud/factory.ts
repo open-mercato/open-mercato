@@ -648,7 +648,7 @@ function serializeSearchParams(params: URLSearchParams): string {
     existing.push(value)
     grouped.set(key, existing)
   })
-  const normalized: Array<[string, string[]]> = Array.from(grouped.entries()).map(([key, values]) => [key, values.sort()])
+  const normalized: Array<[string, string[]]> = Array.from(grouped.entries()).map(([key, values]) => [key, values.sort((a, b) => a.localeCompare(b))])
   normalized.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   return JSON.stringify(normalized)
 }
@@ -657,7 +657,7 @@ function buildCrudCacheKey(resource: string, request: Request, ctx: CrudCtx): st
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
   const scopeSegment = scopeIds.length
-    ? scopeIds.map((id) => normalizeTagSegment(id)).sort().join(',')
+    ? scopeIds.map((id) => normalizeTagSegment(id)).sort((a, b) => a.localeCompare(b)).join(',')
     : 'none'
   return [
     'crud',

@@ -288,7 +288,7 @@ export default function WorkflowInstancesListPage() {
           items.push({
             id: 'cancel',
             label: t('workflows.instances.actions.cancel'),
-            onSelect: () => handleCancel(row.original.id, row.original.workflowId),
+            onSelect: () => void handleCancel(row.original.id, row.original.workflowId),
           })
         }
 
@@ -296,7 +296,7 @@ export default function WorkflowInstancesListPage() {
           items.push({
             id: 'retry',
             label: t('workflows.instances.actions.retry'),
-            onSelect: () => handleRetry(row.original.id, row.original.workflowId),
+            onSelect: () => void handleRetry(row.original.id, row.original.workflowId),
           })
         }
 

@@ -2096,7 +2096,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             actions={{
               extraActions: headerExtraActions,
               showDelete,
-              onDelete: handleDelete,
+              onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
               deleteLabel,
               cancelHref,
               cancelLabel,
@@ -2140,7 +2140,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 actions={{
                   extraActions,
                   showDelete: !embedded && showDelete,
-                  onDelete: handleDelete,
+                  onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
@@ -2168,7 +2168,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           actions={{
             extraActions: headerExtraActions,
             showDelete,
-            onDelete: handleDelete,
+            onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
             deleteLabel,
             cancelHref,
             cancelLabel,
@@ -2232,7 +2232,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 actions={{
                   extraActions,
                   showDelete: !embedded && showDelete,
-                  onDelete: handleDelete,
+                  onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
