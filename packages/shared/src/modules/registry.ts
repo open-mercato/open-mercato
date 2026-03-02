@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi/types'
+import type { SyncCrudEventResult } from '../lib/crud/sync-event-types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
 
@@ -153,7 +154,7 @@ export type Module = {
     /** Execution priority for sync subscribers (lower = earlier). Default: 50 */
     priority?: number
     // Imported function reference; will be registered into event bus
-    handler: (payload: any, ctx: any) => Promise<void | Record<string, unknown>> | void | Record<string, unknown>
+    handler: (payload: any, ctx: any) => Promise<void | SyncCrudEventResult> | void | SyncCrudEventResult
   }>
   // Auto-discovered queue workers
   workers?: Array<{
