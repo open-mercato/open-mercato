@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
-import { ExternalLink, Send } from 'lucide-react'
+import { Send } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
 import {
@@ -28,7 +27,7 @@ export function SendObjectMessageDialog({
   lockedType = 'messages.defaultWithObjects',
   requiredActionConfig = null,
   disabled = false,
-  viewHref = null,
+  viewHref: _viewHref = null,
   onSuccess,
 }: SendObjectMessageDialogProps) {
   const t = useT()
@@ -49,20 +48,6 @@ export function SendObjectMessageDialog({
 
   return (
     <>
-      {viewHref ? (
-        <Button
-          type="button"
-          size="icon"
-          variant="outline"
-          asChild
-          aria-label={t('common.view', 'View')}
-          title={t('common.view', 'View')}
-        >
-          <Link href={viewHref}>
-            <ExternalLink className="h-4 w-4" />
-          </Link>
-        </Button>
-      ) : null}
       <Button
         type="button"
         size="icon"

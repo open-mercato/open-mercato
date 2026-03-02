@@ -174,21 +174,43 @@ jobs:
       - name: Wait for npm registry propagation
         run: |
           VERSION="${{ needs.snapshot.outputs.snapshot_version }}"
-          echo "Waiting for @open-mercato/shared@${VERSION} on npm..."
-          for i in $(seq 1 30); do
-            if npm view "@open-mercato/shared@${VERSION}" version 2>/dev/null; then
-              echo "Available after attempt ${i}"
-              exit 0
+          PACKAGES=(
+            "@open-mercato/ai-assistant"
+            "@open-mercato/cache"
+            "@open-mercato/cli"
+            "@open-mercato/content"
+            "@open-mercato/core"
+            "@open-mercato/events"
+            "@open-mercato/onboarding"
+            "@open-mercato/queue"
+            "@open-mercato/scheduler"
+            "@open-mercato/search"
+            "@open-mercato/shared"
+            "@open-mercato/ui"
+          )
+
+          echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
+          for pkg in "${PACKAGES[@]}"; do
+            echo "Checking ${pkg}@${VERSION}..."
+            ok=false
+            for i in $(seq 1 30); do
+              if npm view "${pkg}@${VERSION}" version 2>/dev/null; then
+                echo "  ${pkg} available after attempt ${i}"
+                ok=true
+                break
+              fi
+              echo "  Attempt ${i}/30: waiting 10s..."
+              sleep 10
+            done
+            if [ "$ok" != "true" ]; then
+              echo "Package ${pkg}@${VERSION} not available after 5 minutes"
+              exit 1
             fi
-            echo "Attempt ${i}/30: waiting 10s..."
-            sleep 10
           done
-          echo "Package not available after 5 minutes"
-          exit 1
 
       # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
-        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app
+        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --registry https://registry.npmjs.org
 
       - name: Configure standalone app environment
         working-directory: /tmp/standalone-app
@@ -203,6 +225,7 @@ jobs:
           OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in
           OM_DISABLE_EMAIL_DELIVERY=1
           ENABLE_CRUD_API_CACHE=true
+          NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
           CACHE_STRATEGY=memory

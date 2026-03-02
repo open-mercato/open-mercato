@@ -19856,6 +19856,7 @@ __metadata:
     "@tanstack/react-query": "npm:^5.90.12"
     "@tanstack/react-table": "npm:^8.20.5"
     "@types/better-sqlite3": "npm:^7.6.11"
+    "@types/html-to-text": "npm:^9.0.4"
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^20.0.0"
     "@types/pg": "npm:^8.16.0"

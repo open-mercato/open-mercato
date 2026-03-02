@@ -226,6 +226,8 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] `npm run modules:prepare` run after adding/modifying module files
 - [ ] No imports from generated files in packages (only app bootstrap imports)
 - [ ] Project still builds after changes (`yarn build`)
+- [ ] Template parity check passes: `yarn template:sync` (for `apps/mercato/src/{app,modules}` vs `packages/create-app/template/src/{app,modules}`)
+- [ ] If template drift exists (especially app layout/routes), reviewer asked whether to sync and, if approved, applied `yarn template:sync:fix`
 
 ## 20. Testing Coverage
 

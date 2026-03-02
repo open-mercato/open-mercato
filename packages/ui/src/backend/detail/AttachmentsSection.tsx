@@ -9,6 +9,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { AttachmentVisualPreview, formatAttachmentFileSize } from './AttachmentVisualPreview'
 import { AttachmentDeleteDialog } from './AttachmentDeleteDialog'
 import { AttachmentMetadataDialog, type AttachmentItem, type AttachmentMetadataSavePayload } from './AttachmentMetadataDialog'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
 type AttachmentsResponse = {
   items?: AttachmentItem[]
@@ -26,7 +28,7 @@ type Props = {
   onChanged?: () => void
 }
 
-export function AttachmentsSection({
+function AttachmentsSectionImpl({
   entityId,
   recordId,
   title,
@@ -306,6 +308,20 @@ export function AttachmentsSection({
         onConfirm={handleDelete}
         isDeleting={false}
       />
+    </div>
+  )
+}
+
+export function AttachmentsSection(props: Props) {
+  const handle = ComponentReplacementHandles.section('ui.detail', 'AttachmentsSection')
+  const Resolved = useRegisteredComponent<Props>(
+    handle,
+    AttachmentsSectionImpl as React.ComponentType<Props>,
+  )
+
+  return (
+    <div data-component-handle={handle}>
+      <Resolved {...props} />
     </div>
   )
 }

@@ -81,6 +81,10 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
+  withDataTableNamespaces: (mappedRow: Record<string, unknown>, sourceItem: Record<string, unknown>) => ({
+    ...mappedRow,
+    ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
+  }),
   DataTable: ({ title, data = [], children }: any) => {
     const key = typeof title === 'string' ? title.replace(/\\s+/g, '-').toLowerCase() : 'table'
     return (

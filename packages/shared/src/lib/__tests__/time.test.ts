@@ -19,67 +19,75 @@ describe('formatRelativeTime', () => {
   })
 
   it('formats seconds ago/now/from now', () => {
-    // Dla 10 sekund różnicy funkcja może zwrócić "now" lub "second"
-    const past = formatRelativeTime(sub(10))
-    const future = formatRelativeTime(add(10))
-    expect(["now", "0 seconds ago", "in 0 seconds", "a few seconds ago", "in a few seconds"].some(s => past?.includes(s) || /second/.test(past || ""))).toBeTruthy()
-    expect(["now", "0 seconds ago", "in 0 seconds", "a few seconds ago", "in a few seconds"].some(s => future?.includes(s) || /second/.test(future || ""))).toBeTruthy()
+    // 10 seconds difference — force English locale to avoid system-locale variance
+    const past = formatRelativeTime(sub(10_000), { locale: 'en' })
+    const future = formatRelativeTime(add(10_000), { locale: 'en' })
+    expect(past).toBeTruthy()
+    expect(/second/.test(past!)).toBeTruthy()
+    expect(future).toBeTruthy()
+    expect(/second/.test(future!)).toBeTruthy()
   })
 
   it('formats minutes', () => {
-    // Dla 10 minut różnicy funkcja może zwrócić "minute" lub "second" zależnie od implementacji
-    const past = formatRelativeTime(sub(60 * 10))
-    const future = formatRelativeTime(add(60 * 10))
-    expect(/[minute|second]/.test(past || "")).toBeTruthy()
-    expect(/[minute|second]/.test(future || "")).toBeTruthy()
+    const past = formatRelativeTime(sub(600_000), { locale: 'en' })
+    const future = formatRelativeTime(add(600_000), { locale: 'en' })
+    expect(past).toBeTruthy()
+    expect(/minute|second/.test(past!)).toBeTruthy()
+    expect(future).toBeTruthy()
+    expect(/minute|second/.test(future!)).toBeTruthy()
   })
 
   it('formats hours', () => {
-    // Dla 5 godzin różnicy funkcja może zwrócić "hour" lub "minute"
-    const past = formatRelativeTime(sub(60 * 60 * 5))
-    const future = formatRelativeTime(add(60 * 60 * 5))
-    expect(/[hour|minute]/.test(past || "")).toBeTruthy()
-    expect(/[hour|minute]/.test(future || "")).toBeTruthy()
+    const past = formatRelativeTime(sub(18_000_000), { locale: 'en' })
+    const future = formatRelativeTime(add(18_000_000), { locale: 'en' })
+    expect(past).toBeTruthy()
+    expect(/hour|minute/.test(past!)).toBeTruthy()
+    expect(future).toBeTruthy()
+    expect(/hour|minute/.test(future!)).toBeTruthy()
   })
 
   it('formats days', () => {
-    // Dla 2 dni różnicy funkcja może zwrócić "day" lub "hour"
-    const past = formatRelativeTime(sub(60 * 60 * 24 * 2))
-    const future = formatRelativeTime(add(60 * 60 * 24 * 2))
-    expect(/[day|hour]/.test(past || "")).toBeTruthy()
-    expect(/[day|hour]/.test(future || "")).toBeTruthy()
+    const past = formatRelativeTime(sub(172_800_000), { locale: 'en' })
+    const future = formatRelativeTime(add(172_800_000), { locale: 'en' })
+    expect(past).toBeTruthy()
+    expect(/day|hour/.test(past!)).toBeTruthy()
+    expect(future).toBeTruthy()
+    expect(/day|hour/.test(future!)).toBeTruthy()
   })
 
   it('formats weeks', () => {
-    // Dla 10 dni różnicy funkcja może zwrócić "week" lub "day"
-    const past = formatRelativeTime(sub(60 * 60 * 24 * 10))
-    const future = formatRelativeTime(add(60 * 60 * 24 * 10))
-    expect(/[week|day]/.test(past || "")).toBeTruthy()
-    expect(/[week|day]/.test(future || "")).toBeTruthy()
+    const past = formatRelativeTime(sub(864_000_000), { locale: 'en' })
+    const future = formatRelativeTime(add(864_000_000), { locale: 'en' })
+    expect(past).toBeTruthy()
+    expect(/week|day/.test(past!)).toBeTruthy()
+    expect(future).toBeTruthy()
+    expect(/week|day/.test(future!)).toBeTruthy()
   })
 
   it('formats months', () => {
-    // Dla 40 dni różnicy funkcja może zwrócić "month" lub "week"
-    const past = formatRelativeTime(sub(60 * 60 * 24 * 40))
-    const future = formatRelativeTime(add(60 * 60 * 24 * 40))
-    expect(/[month|week]/.test(past || "")).toBeTruthy()
-    expect(/[month|week]/.test(future || "")).toBeTruthy()
+    const past = formatRelativeTime(sub(3_456_000_000), { locale: 'en' })
+    const future = formatRelativeTime(add(3_456_000_000), { locale: 'en' })
+    expect(past).toBeTruthy()
+    expect(/month|week/.test(past!)).toBeTruthy()
+    expect(future).toBeTruthy()
+    expect(/month|week/.test(future!)).toBeTruthy()
   })
 
   it('formats years', () => {
-    // Dla 400 dni różnicy funkcja może zwrócić "year" lub "month"
-    const past = formatRelativeTime(sub(60 * 60 * 24 * 400))
-    const future = formatRelativeTime(add(60 * 60 * 24 * 400))
-    expect(/[year|month]/.test(past || "")).toBeTruthy()
-    expect(/[year|month]/.test(future || "")).toBeTruthy()
+    const past = formatRelativeTime(sub(34_560_000_000), { locale: 'en' })
+    const future = formatRelativeTime(add(34_560_000_000), { locale: 'en' })
+    expect(past).toBeTruthy()
+    expect(/year|month/.test(past!)).toBeTruthy()
+    expect(future).toBeTruthy()
+    expect(/year|month/.test(future!)).toBeTruthy()
   })
 
 it('uses fallback if Intl.RelativeTimeFormat is not available', () => {
   const descriptor = Object.getOwnPropertyDescriptor(Intl, 'RelativeTimeFormat')
   Object.defineProperty(Intl, 'RelativeTimeFormat', { value: undefined, configurable: true })
   try {
-    expect(formatRelativeTime(sub(60 * 60))).toMatch(/ago/)      // 1h temu - bezpieczny margines
-    expect(formatRelativeTime(add(60 * 60))).toMatch(/from now/) // 1h wprzód
+    expect(formatRelativeTime(sub(3_600_000))).toMatch(/ago/)
+    expect(formatRelativeTime(add(3_600_000))).toMatch(/from now/)
   } finally {
     Object.defineProperty(Intl, 'RelativeTimeFormat', descriptor!)
   }
@@ -87,8 +95,8 @@ it('uses fallback if Intl.RelativeTimeFormat is not available', () => {
 
 it('uses custom translate if provided', () => {
   const translate = (key: string, fallback?: string) => `T(${key})`
-  expect(formatRelativeTime(sub(60 * 60), { translate })).toMatch(/T\(time\.relative\.ago\)/)
-  expect(formatRelativeTime(add(60 * 60), { translate })).toMatch(/T\(time\.relative\.fromNow\)/)
+  expect(formatRelativeTime(sub(3_600_000), { translate })).toMatch(/T\(time\.relative\.ago\)/)
+  expect(formatRelativeTime(add(3_600_000), { translate })).toMatch(/T\(time\.relative\.fromNow\)/)
 })
 })
 describe('formatDateTime', () => {

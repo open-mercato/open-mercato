@@ -11,11 +11,39 @@ Review code changes against Open Mercato's architecture rules, security requirem
 
 1. **Scope**: Identify changed files. Classify each file by layer (API route, entity, validator, backend page, frontend page, subscriber, worker, command, search config, setup, ACL, events, DI, widget, test).
 2. **Gather context**: Read relevant AGENTS.md for each touched module/package. Check `.ai/specs/` for active specs on the module. Read `.ai/lessons.md` for known pitfalls.
-3. **Backward compatibility gate**: Check every change against `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS.md`). Flag any violation as **Critical**. See section below.
-4. **Run checklist**: Apply all applicable rules from `references/review-checklist.md`. Flag violations with severity, file, line, and fix suggestion.
-5. **Test coverage**: Verify changed behavior is covered by unit tests and/or integration tests. If coverage is missing, flag it with severity, file references, and exact test cases to add.
-6. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
-7. **Output**: Produce the review report in the format below.
+3. **CI/CD verification gate (MANDATORY)**: Run the same checks that CI runs, in order. Every gate MUST pass before the review can conclude. If any gate fails, fix the issue first — do NOT mark the review as passing. See **CI/CD Verification Gate** section below.
+4. **Template parity gate**: Run `yarn template:sync`. If drift is reported, ask the user whether to sync now; if approved, run `yarn template:sync:fix` and include synced files in the change.
+5. **Backward compatibility gate**: Check every change against `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS.md`). Flag any violation as **Critical**. See section below.
+6. **Run checklist**: Apply all applicable rules from `references/review-checklist.md`. Flag violations with severity, file, line, and fix suggestion.
+7. **Test coverage**: Verify changed behavior is covered by unit tests and/or integration tests. If coverage is missing, flag it with severity, file references, and exact test cases to add.
+8. **Cross-module impact**: If the change touches events, extensions, or widgets, verify the consuming side handles the contract correctly.
+9. **Output**: Produce the review report in the format below.
+
+## CI/CD Verification Gate (MANDATORY)
+
+**NEVER claim code is "ready to ship", "ready to merge", or "CI will pass" without running these checks first and confirming they all pass.** This gate mirrors exactly what `.github/workflows/ci.yml` runs on every PR to `develop`/`main`. If any step fails, it MUST be fixed before the review can pass.
+
+### Gate Steps (run in order)
+
+Run these commands and verify each one exits successfully (exit code 0):
+
+| # | Command | What it checks | If it fails |
+|---|---------|----------------|-------------|
+| 1 | `yarn build:packages` | All packages compile | Fix TypeScript/build errors in the changed package |
+| 2 | `yarn generate` | Module auto-discovery files are up to date | Run it — it generates missing files |
+| 3 | `yarn build:packages` | Rebuild with generated files included | Fix any type errors exposed by generated files |
+| 4 | `yarn i18n:check-sync` | All 4 locale files (en, de, es, pl) + template locales are in sync | Add missing i18n keys to all locale files |
+| 5 | `yarn i18n:check-usage` | No unused or missing i18n keys | Remove unused keys or add missing ones (CI uses `continue-on-error` so non-blocking, but still report) |
+| 6 | `yarn typecheck` | TypeScript types are correct across all 14+ packages | Fix type errors — do NOT dismiss as "pre-existing" |
+| 7 | `yarn test` | All unit tests pass across all packages | Fix failing tests — do NOT dismiss as "flaky" or "pre-existing" |
+| 8 | `yarn build:app` | The Next.js app builds successfully | Fix build errors |
+
+### Rules
+
+- **Run steps 6 and 7 in parallel** (they are independent) to save time.
+- **Every failure is a finding**: If `yarn typecheck` or `yarn test` fails, it is a **Critical** finding in the review — even if the failure appears unrelated to the current changes. The PR will fail CI regardless of whose fault it is.
+- **No excuses**: "Pre-existing on develop", "flaky test", "not our code" are not valid reasons to skip. If it fails on your branch, it will fail on CI. Fix it or flag it as a blocker.
+- **Evidence required**: The review output MUST include the actual pass/fail result of each gate step. Do not assume — run the commands and report what happened.
 
 ## Output Format
 
@@ -26,6 +54,19 @@ Use this structure for every review:
 
 ## Summary
 {1-3 sentences: what the change does, overall assessment}
+
+## CI/CD Verification
+
+| Gate | Status | Notes |
+|------|--------|-------|
+| `yarn build:packages` | PASS/FAIL | |
+| `yarn generate` | PASS/FAIL | |
+| `yarn build:packages` (rebuild) | PASS/FAIL | |
+| `yarn i18n:check-sync` | PASS/FAIL | |
+| `yarn i18n:check-usage` | PASS/FAIL/WARN | (non-blocking in CI) |
+| `yarn typecheck` | PASS/FAIL | |
+| `yarn test` | PASS/FAIL | |
+| `yarn build:app` | PASS/FAIL | |
 
 ## Findings
 
@@ -72,6 +113,8 @@ Use this structure for every review:
 - [ ] Non-`CrudForm` backend writes use `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in context
 - [ ] `apiCall` used instead of raw `fetch`
 - [ ] ACL features mirrored in `setup.ts` `defaultRoleFeatures`
+- [ ] ACL features use object format `{ id, title, module }` (not string arrays)
+- [ ] `yarn template:sync` passes for `apps/mercato/src/{app,modules}` vs `packages/create-app/template/src/{app,modules}`
 - [ ] Behavior changes covered by unit and/or integration tests (or explicitly justified as not applicable)
 - [ ] No empty `catch` blocks (all catches must handle, log, rethrow, or explicitly document intentional ignore)
 - [ ] New migrations are scoped to intended entities only (no unrelated bulk drop/alter/create statements)
@@ -164,7 +207,7 @@ Examples of suspicious patterns that MUST be flagged:
 | Subscribers | `metadata` with `{ event, persistent?, id? }` | MUST for auto-discovery |
 | Workers | `metadata` with `{ queue, id?, concurrency? }` | MUST for auto-discovery |
 | `events.ts` | `eventsConfig` via `createModuleEvents()` with `as const` | MUST for type-safe events |
-| `acl.ts` | `features` | MUST mirror in `setup.ts` `defaultRoleFeatures` |
+| `acl.ts` | `features` | MUST use object entries `{ id, title, module }` and mirror IDs in `setup.ts` `defaultRoleFeatures` |
 | `search.ts` | `searchConfig` with `checksumSource` in every `buildSource` | MUST for change detection |
 
 ### UI & HTTP (Medium/High)
@@ -215,10 +258,12 @@ When reviewing, pay special attention to:
 7. **Queue workers**: Verify idempotency, `metadata` export, concurrency <= 20.
 8. **Commands**: Verify undoable, before/after snapshots, `withAtomicFlush` for multi-phase mutations.
 9. **Setup changes**: Verify `defaultRoleFeatures` matches `acl.ts` features. Hooks MUST be idempotent.
+9a. **ACL shape validation**: Verify `acl.ts` exports feature objects (with `id`, `title`, `module`) rather than raw string IDs; flag wrong shape as **High** because permission UI and role assignment can break.
 10. **UI changes**: Verify `CrudForm`/`DataTable` usage, `flash()` for feedback, keyboard shortcuts, loading/error states.
 11. **Behavior changes**: Verify unit and/or integration tests cover new behavior, regressions, and edge cases.
 12. **Mutation guard coverage**: For backend pages with manual save/delete logic (non-`CrudForm`), verify `useGuardedMutation` is wired for all writes and context includes `retryLastMutation`; for custom write API routes, verify `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` are both wired.
 13. **Spec numbering hygiene**: If specs were added or renamed, verify there are no duplicate exact spec IDs in `.ai/specs` and `.ai/specs/enterprise` (`SPEC-*`, `SPEC-ENT-*`). Treat staged IDs (for example `SPEC-041a`, `SPEC-041b`) as valid distinct specs, not conflicts.
+14. **Template sync prompt**: If `yarn template:sync` finds drift in `src/app` or `src/modules` (especially layout/routes), ask the user whether to sync; when approved, run `yarn template:sync:fix` and include those updates.
 
 ## Lessons Learned
 

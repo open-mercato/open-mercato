@@ -7,6 +7,13 @@ set -euo pipefail
 COMMIT_HASH=$(git rev-parse --short=10 HEAD)
 SUFFIX="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 
+if [ "${CI:-}" != "true" ]; then
+  echo "==> Syncing create-app template from apps/mercato/src..."
+  yarn template:sync:fix
+else
+  echo "==> Skipping template sync in CI"
+fi
+
 # Get base version from shared package, bump patch, add suffix
 BASE_VERSION=$(jq -r '.version' packages/shared/package.json | sed -E 's/-.*$//')
 IFS='.' read -r major minor patch <<< "$BASE_VERSION"
