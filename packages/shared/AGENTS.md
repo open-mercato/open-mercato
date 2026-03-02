@@ -75,6 +75,11 @@ const { t } = await resolveTranslations()
 import { withScopedPayload, createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 ```
 
+### CRUD Multi-ID Filtering
+
+- Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
+- Keep `ids` format as comma-separated UUIDs (`?ids=uuid1,uuid2`) and intersect with existing `id` filters.
+
 ## Before Adding a New Utility
 
 1. Search existing `src/lib/` directories for similar functionality

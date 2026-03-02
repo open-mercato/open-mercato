@@ -1045,6 +1045,48 @@ Files:
 5. **Parse notification data**: Extract structured data from title/body for richer display
 6. **Handle all statuses**: Account for unread, read, actioned, and dismissed states
 
+## Reactive Notification Handlers
+
+Use `notifications.handlers.ts` when a notification should trigger side effects automatically after it arrives on the client.
+
+```typescript
+// src/modules/example/notifications.handlers.ts
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import type { NotificationHandler } from '@open-mercato/shared/modules/notifications/handler'
+
+export const notificationHandlers: NotificationHandler[] = [
+  {
+    id: 'example.sync-on-notification',
+    notificationType: 'example.sync.required',
+    features: ['example.view'],
+    async handle(notification, ctx) {
+      await apiCall('/api/example/sync', {
+        method: 'POST',
+        body: JSON.stringify({ notificationId: notification.id }),
+      })
+
+      ctx.toast({
+        title: 'Sync started',
+        severity: 'info',
+      })
+
+      ctx.emitEvent('om:example:sync-started', {
+        notificationId: notification.id,
+      })
+    },
+  },
+]
+```
+
+Handler context supports:
+
+- `toast()` and `popup()` for UI feedback
+- `emitEvent()` for DOM-event reactivity
+- `markAsRead()` and `dismiss()` for inbox state changes
+- `navigate()` and `refreshNotifications()` for workflow control
+
+This is the preferred replacement for module-specific `setInterval(() => /api/notifications?... )` loops.
+
 ## How Users Receive Notifications
 
 Users receive notifications **automatically without any action required**:

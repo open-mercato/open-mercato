@@ -9,6 +9,8 @@ import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open
 import { registerInjectionWidgets } from '@open-mercato/ui/backend/injection/widgetRegistry'
 import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
 import { registerDashboardWidgets } from '@open-mercato/ui/backend/dashboard/widgetRegistry'
+import { notificationHandlerEntries } from '@/.mercato/generated/notification-handlers.generated'
+import { registerNotificationHandlers } from '@open-mercato/shared/lib/notifications/handler-registry'
 // Side-effect: registers translatable fields for client-side TranslationManager
 import '@/.mercato/generated/translations-fields.generated'
 // Side-effect: configures message UI component and object type registries on the client.
@@ -27,6 +29,9 @@ function clientBootstrap() {
 
   // Register dashboard widgets
   registerDashboardWidgets(dashboardWidgetEntries)
+
+  // Register notification handlers for client-side reactive effects
+  registerNotificationHandlers(notificationHandlerEntries)
 }
 
 export function ClientBootstrapProvider({ children }: { children: React.ReactNode }) {

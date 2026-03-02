@@ -68,6 +68,17 @@ export type CrudOpenApiFactoryConfig = {
   makeDeleteRequestBodyDescription?: (ctx: CrudTextContext) => string
 }
 
+function withIdsQueryParam(schema: ZodTypeAny | undefined): ZodTypeAny | undefined {
+  if (!schema) return schema
+  if (!(schema instanceof z.ZodObject)) return schema
+  return schema.extend({
+    ids: z
+      .string()
+      .optional()
+      .describe('Comma-separated list of record UUIDs to filter by (max 200).'),
+  })
+}
+
 function resolveDefault(
   factory: ((ctx: CrudTextContext) => string) | undefined,
   ctx: CrudTextContext,
@@ -110,7 +121,7 @@ export function createCrudOpenApiFactory(config: CrudOpenApiFactoryConfig) {
       summary: `List ${pluralLower}`,
       description:
         description ?? resolveDefault(config.makeListDescription, context, `Returns a paginated collection of ${pluralLower}.`),
-      query: querySchema,
+      query: withIdsQueryParam(querySchema),
       responses: [
         {
           status: 200,

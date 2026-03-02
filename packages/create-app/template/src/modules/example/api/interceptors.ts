@@ -122,51 +122,30 @@ export const interceptors: ApiInterceptor[] = [
     targetRoute: 'customers/people',
     methods: ['GET'],
     priority: 70,
-    async before(request) {
+    async before(request, context) {
       const priority = readString(request.query?.examplePriority)
       if (!priority) return { ok: true }
-      return {
-        ok: true,
-        query: {
-          ...(request.query ?? {}),
-          examplePriority: undefined,
-        },
-        metadata: {
-          examplePriority: priority,
-        },
-      }
-    },
-    async after(_request, response, context) {
-      const priority = readString(context.metadata?.examplePriority)
-      if (!priority) return {}
-      const responseBody = response.body as UnknownRecord
-      const items = Array.isArray(responseBody.items)
-        ? responseBody.items
-        : (Array.isArray(responseBody.data) ? responseBody.data : [])
-      if (items.length === 0) return {}
-      const customerIds = items
-        .map((item) => (item && typeof item === 'object' ? readString((item as UnknownRecord).id) : null))
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
-      if (customerIds.length === 0) return {}
-
       const matches = await context.em.find(ExampleCustomerPriority, {
-        customerId: { $in: customerIds },
         priority: priority as ExampleCustomerPriority['priority'],
         organizationId: context.organizationId,
         tenantId: context.tenantId,
         deletedAt: null,
       }, { fields: ['customerId'] })
-      const matchedIds = new Set(matches.map((entry) => entry.customerId))
-      const filtered = items.filter((item) => {
-        if (!item || typeof item !== 'object') return false
-        const id = readString((item as UnknownRecord).id)
-        return id ? matchedIds.has(id) : false
-      })
+      const matchedCustomerIds = Array.from(new Set(matches.map((entry) => entry.customerId)))
+      const existingIdsRaw = readString(request.query?.ids)
+      const existingIds = existingIdsRaw
+        ? existingIdsRaw.split(',').map((value) => value.trim()).filter((value) => value.length > 0)
+        : []
+      const ids = existingIds.length > 0
+        ? existingIds.filter((value) => matchedCustomerIds.includes(value))
+        : matchedCustomerIds
+
       return {
-        replace: {
-          ...responseBody,
-          items: filtered,
-          total: filtered.length,
+        ok: true,
+        query: {
+          ...(request.query ?? {}),
+          examplePriority: undefined,
+          ids: ids.length > 0 ? ids.join(',') : undefined,
         },
       }
     },
