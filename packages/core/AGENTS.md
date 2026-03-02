@@ -234,9 +234,11 @@ src/modules/<module>/
 ```
 
 - **Notification types**: Declare in `notifications.ts` exporting `notificationTypes: NotificationTypeDefinition[]`
+- **Reactive handlers**: Declare in `notifications.handlers.ts` exporting `notificationHandlers: NotificationHandler[]`
 - **Subscribers**: Create event subscribers in `subscribers/` to emit notifications on domain events
 - **Client renderers**: Declare in `notifications.client.ts`; store components in `widgets/notifications/`
 - **i18n**: Add translations to `i18n/<locale>.json` under `<module>.notifications.*` keys
+- **Handler behavior**: Keep handlers idempotent; use `ctx.emitEvent(...)` for cross-component updates and `ctx.toast(...)`/`ctx.popup(...)` for UX side-effects
 
 ## Widget Injection
 
@@ -274,6 +276,7 @@ Define route interceptors in `api/interceptors.ts` and export `interceptors`.
 - Keep scope explicit with `targetRoute` + `methods`; use wildcards only when required.
 - `before`/`after` hooks must be fail-closed and timeout-safe.
 - If `before` rewrites body/query, return a schema-compatible payload (route handler re-validates it).
+- For CRUD list narrowing, prefer writing `query.ids` (comma-separated UUIDs). The CRUD factory merges/intersects `ids` with existing `id` filters.
 
 ## Component Replacement
 

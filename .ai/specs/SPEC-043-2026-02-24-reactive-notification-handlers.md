@@ -855,3 +855,20 @@ function OrderDashboard() {
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-02-24 | Piotr Karwatka | Initial draft |
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Handler contracts + runtime dispatch | Done | 2026-03-02 | Added handler types, registry, dispatcher runtime, feature gating, wildcard matching, idempotent dispatch |
+| Phase 2 — Discovery + bootstrap wiring | Done | 2026-03-02 | Added `notifications.handlers.ts` generator output and bootstrap registration (`notification-handlers.generated.ts`) |
+| Phase 3 — Example module + tests | Done | 2026-03-02 | Added example notification type/handler, emit API route, new validation page, and unit/integration coverage |
+
+### Phase 1-3 — Detailed Progress
+- [x] Add shared notification handler contracts (`NotificationHandler`, `NotificationHandlerContext`, effect option types)
+- [x] Add shared handler registry with globalThis-backed HMR-safe storage
+- [x] Add UI dispatcher + `useNotificationEffect` hook, integrated into `useNotificationsPoll`
+- [x] Add CLI discovery for `notifications.handlers.ts` and generated `notificationHandlerEntries`
+- [x] Register notification handlers in bootstrap for app and create-app template
+- [x] Add example actionable notification flow and handler-driven page-side reactivity demo
+- [x] Add unit tests for dispatcher behavior (priority, wildcard, features, idempotency, subscriptions)
