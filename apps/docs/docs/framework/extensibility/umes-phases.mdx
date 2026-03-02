@@ -27,7 +27,7 @@ This is the consolidated UMES matrix from SPEC-041 and the current codebase.
 | J | Recursive widgets (widgets extending widgets) | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
 | K | UMES DevTools + conflict diagnostics | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
 | L | Integration extensions (wizards, status badges, external ID views) | Implemented | [Integration enhancements](./integration-enhancements), [Widget injection](/framework/widget-injection) |
-| M | Mutation lifecycle unification (sync lifecycle subscribers + command interceptors + filtered widget handlers) | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
+| M | Mutation lifecycle unification (sync lifecycle subscribers + command interceptors + filtered widget handlers) | Implemented | [Events overview](/framework/events/overview), [Commands overview](/framework/commands/overview), [Widget injection](/framework/widget-injection) |
 | N | Query engine extensibility (query-level enrichers + query events) | Not implemented yet | [UMES 2.09 roadmap](./umes-2-09-roadmap) |
 
 ## How to verify what is active in your app
@@ -40,5 +40,7 @@ Inspect generated registries in `apps/mercato/.mercato/generated/`:
 - `enrichers.generated.ts`
 - `component-overrides.generated.ts`
 - `events.generated.ts`
+- `guards.generated.ts`
+- `command-interceptors.generated.ts`
 
 These files are the runtime truth for what is currently discovered and wired.

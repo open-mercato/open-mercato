@@ -49,7 +49,9 @@ Start with: [Workflows extending](/framework/workflows/extending), [Scheduler](/
 
 - Route-level interception: `api/interceptors.ts`
 - Response composition: `data/enrichers.ts`
-- Event-driven side effects: `subscribers/*.ts`
+- Mutation guards (UMES M): `data/guards.ts` — register guards with priority ordering, payload modification, and `afterSuccess` callbacks
+- Command interceptors (UMES M): `commands/interceptors.ts` — `beforeExecute`/`afterExecute` hooks for execute and undo flows
+- Event-driven side effects: `subscribers/*.ts` (supports `sync: true` metadata for in-pipeline lifecycle events — UMES M)
 - Long-running processing: `workers/*.ts`
 
 Start with: [API extension guide](/framework/api/extending-api), [Queue workers](/framework/events/queue-workers)
