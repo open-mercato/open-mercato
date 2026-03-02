@@ -1,0 +1,13 @@
+services:
+  preview-app:
+    build:
+      context: .
+      dockerfile: ./docker/preview/Dockerfile
+    image: open-mercato/preview:local
+    restart: "no"
+    ports:
+      - "5000:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
