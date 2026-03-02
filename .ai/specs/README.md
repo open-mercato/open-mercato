@@ -126,9 +126,10 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-046b](SPEC-046b-2026-02-27-customers-interactions-unification.md) | 2026-02-27 | Customers Interactions Unification | Canonical customer interactions model and compatibility adapters for activities/todos, scoped as child workstream of SPEC-046 |
 | [SPEC-046c](SPEC-046c-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks | Decouples example task sync and moves `/backend/customer-tasks` ownership to customers, scoped as child workstream of SPEC-046 |
 | [SPEC-047](SPEC-047-2026-02-25-sales-document-detail-pages-v2.md) | 2026-02-25 | Sales Document Detail Pages v2 | CrudForm-based rewrite of quote and order detail pages with two-zone layout and UMES injection slots |
-| [SPEC-048](SPEC-048-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
+| [SPEC-048](SPEC-048-2026-02-25-notifications-sse-migration.md) | 2026-02-25 | Migrate Notifications from Polling to SSE | Replaces 5-second notifications polling with SSE event delivery using the DOM Event Bridge |
 | [SPEC-049](SPEC-049-2026-02-26-message-objects-universal-view-attachments.md) | 2026-02-26 | Universal Message Object Attachments | Generic message object attachment previews/details and compose-flow wiring across modules |
 | [SPEC-050](SPEC-050-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks (Moved) | Pointer retained for backward links; canonical workstream spec is SPEC-046c |
+| [SPEC-052](SPEC-052-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
 
 ## Specification Structure
 
