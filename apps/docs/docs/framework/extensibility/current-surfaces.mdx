@@ -21,8 +21,9 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | CRUD extension points | Use `makeCrudRoute` with validators/hooks | [CRUD factory](/framework/api/crud-factory) |
 | API interceptors (UMES E) | Add `api/interceptors.ts`, export `interceptors` | [API extension guide](/framework/api/extending-api) |
 | Response enrichers (UMES D) | Add `data/enrichers.ts`, export `enrichers` | [Data extensibility](/framework/database/data-extensibility) |
-| Mutation guards | Register guards through mutation guard service/registry | [API extension guide](/framework/api/extending-api) |
+| Mutation guards (UMES M) | Add `data/guards.ts`, export `guards: MutationGuard[]` with priority ordering, payload modification, `afterSuccess` callbacks | [API extension guide](/framework/api/extending-api) |
 | Command handlers | Register commands with `registerCommand` | [Commands overview](/framework/commands/overview) |
+| Command interceptors (UMES M) | Add `commands/interceptors.ts`, export `interceptors` with `beforeExecute`/`afterExecute` hooks | [Commands overview](/framework/commands/overview) |
 
 ## UI extension
 
@@ -35,6 +36,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Component replacement (UMES H) | Add `widgets/components.ts`, export `componentOverrides` | [Widget injection](/framework/widget-injection) |
 | Integration wizard widget (UMES L) | Use `InjectionWizard` for multi-step integration onboarding | [Widget injection](/framework/widget-injection), [Integration enhancements](/framework/extensibility/integration-enhancements) |
 | Status badge injection (UMES L) | Use `StatusBadgeRenderer` for service health display | [Widget injection](/framework/widget-injection), [Integration enhancements](/framework/extensibility/integration-enhancements) |
+| Client-side event filtering (UMES M) | Set `filter.operations` on widget `eventHandlers` to scope handlers by operation type | [Widget injection](/framework/widget-injection) |
 
 ## Events, subscribers, workers
 
@@ -43,6 +45,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Typed module events | Add `events.ts` with `createModuleEvents` | [Events overview](/framework/events/overview) |
 | DOM Event Bridge + realtime UI (UMES C) | Mark events `clientBroadcast: true`, consume with `useAppEvent` / `useOperationProgress` | [Widget injection](/framework/widget-injection), [Events & queue](/framework/events/queue-workers) |
 | Async subscribers | Add `subscribers/*.ts` + `metadata` | [Events overview](/framework/events/overview) |
+| Sync lifecycle subscribers (UMES M) | Add `subscribers/*.ts` with `metadata { sync: true, priority }` for in-pipeline CRUD lifecycle events | [Events overview](/framework/events/overview) |
 | Queue workers | Add `workers/*.ts` + worker metadata | [Queue workers](/framework/events/queue-workers), [Runtime workers](/framework/runtime/workers) |
 
 ## Data model and entity extension
