@@ -1556,6 +1556,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             delete projectedCoreValues[injectedId]
           }
           coreSubmitValues = schema ? schema.parse(projectedCoreValues) : (projectedCoreValues as TValues)
+          if (result.applyToForm) {
+            setValues(result.data as CrudFormValues<TValues>)
+          }
         }
       } catch (err) {
         console.error('[CrudForm] Error in transformFormData:', err)
