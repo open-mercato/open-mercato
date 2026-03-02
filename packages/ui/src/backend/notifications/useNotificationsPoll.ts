@@ -6,6 +6,10 @@ import {
   emitNotificationCountChanged,
 } from '@open-mercato/shared/lib/frontend/notificationEvents'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import {
+  dispatchNotificationHandlers,
+  getRequiredNotificationHandlerFeatures,
+} from './NotificationDispatcher'
 
 export type UseNotificationsPollResult = {
   notifications: NotificationDto[]
@@ -30,8 +34,11 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
   const [hasNew, setHasNew] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const grantedFeaturesRef = React.useRef<string[]>([])
   const lastIdRef = React.useRef<string | null>(null)
   const prevUnreadRef = React.useRef(0)
+  const markAsReadRef = React.useRef<(id: string) => Promise<void>>(async () => {})
+  const dismissRef = React.useRef<(id: string) => Promise<void>>(async () => {})
   const [dismissUndo, setDismissUndo] = React.useState<{
     notification: NotificationDto
     previousStatus: 'read' | 'unread'
@@ -61,6 +68,26 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
         }
 
         setNotifications(newNotifications)
+
+        if (newNotifications.length > 0) {
+          dispatchNotificationHandlers(newNotifications, {
+            features: grantedFeaturesRef.current,
+            currentPath:
+              typeof window === 'undefined'
+                ? '/'
+                : `${window.location.pathname}${window.location.search}`,
+            refreshNotifications: () => {
+              void fetchNotifications()
+            },
+            navigate: (href) => {
+              if (typeof window === 'undefined') return
+              if (!href.startsWith('/')) return
+              window.location.assign(href)
+            },
+            markAsRead: async (notificationId) => markAsReadRef.current(notificationId),
+            dismiss: async (notificationId) => dismissRef.current(notificationId),
+          })
+        }
       }
 
       if (countResult.ok && countResult.result) {
@@ -85,6 +112,30 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
   }, [fetchNotifications])
 
   React.useEffect(() => {
+    let mounted = true
+    const run = async () => {
+      const requiredFeatures = getRequiredNotificationHandlerFeatures()
+      if (requiredFeatures.length === 0) {
+        grantedFeaturesRef.current = []
+        return
+      }
+      const response = await apiCall<{ granted?: string[] }>('/api/auth/feature-check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ features: requiredFeatures }),
+      })
+      if (!mounted) return
+      grantedFeaturesRef.current = response.ok
+        ? (response.result?.granted ?? [])
+        : []
+    }
+    void run()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  React.useEffect(() => {
     fetchNotifications()
     const interval = setInterval(fetchNotifications, POLL_INTERVAL)
     return () => clearInterval(interval)
@@ -104,6 +155,10 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
     )
     setUnreadCount((prev) => Math.max(0, prev - 1))
   }, [])
+
+  React.useEffect(() => {
+    markAsReadRef.current = markAsRead
+  }, [markAsRead])
 
   const executeAction = React.useCallback(async (id: string, actionId: string) => {
     const result = await apiCall<{ ok: boolean; href?: string }>(
@@ -144,6 +199,10 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
     },
     [notifications]
   )
+
+  React.useEffect(() => {
+    dismissRef.current = dismiss
+  }, [dismiss])
 
   const undoDismiss = React.useCallback(async () => {
     if (!dismissUndo) return

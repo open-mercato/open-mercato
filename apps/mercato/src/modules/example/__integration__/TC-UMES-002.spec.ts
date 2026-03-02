@@ -102,6 +102,45 @@ test.describe('TC-UMES-002: Response Enrichers', () => {
     }
   })
 
+  test('TC-UMES-R07: multi-id query returns only requested IDs with enrichment metadata', async ({
+    request,
+  }) => {
+    let personIdA: string | null = null
+    let personIdB: string | null = null
+    try {
+      const testSuffix = Date.now()
+      personIdA = await createPersonFixture(request, token, {
+        firstName: `QA-UMES-R07A-${testSuffix}`,
+        lastName: 'Ids',
+        displayName: `QA UMES R07 A ${testSuffix}`,
+      })
+      personIdB = await createPersonFixture(request, token, {
+        firstName: `QA-UMES-R07B-${testSuffix}`,
+        lastName: 'Ids',
+        displayName: `QA UMES R07 B ${testSuffix}`,
+      })
+
+      const ids = `${personIdA},${personIdB}`
+      const response = await apiRequest(request, 'GET', `/api/customers/people?ids=${encodeURIComponent(ids)}&pageSize=50`, {
+        token,
+      })
+      expect(response.ok()).toBeTruthy()
+      const body = await response.json()
+      const items = body?.items ?? body?.data ?? []
+      const idsInResponse = items
+        .map((item: Record<string, unknown>) => item.id)
+        .filter((id: unknown): id is string => typeof id === 'string')
+
+      expect(idsInResponse).toContain(personIdA)
+      expect(idsInResponse).toContain(personIdB)
+      expect(body._meta?.enrichedBy ?? []).toContain('example.customer-todo-count')
+      expect(items.every((item: Record<string, unknown>) => item._example != null)).toBe(true)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/people', personIdA)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personIdB)
+    }
+  })
+
   test('TC-UMES-R04: Core fields remain unchanged after enrichment', async ({
     request,
   }) => {

@@ -1,4 +1,4 @@
-# SPEC-040: Integration Test Coverage Quick Wins (API Tests)
+# SPEC-052: Integration Test Coverage Quick Wins (API Tests)
 
 **Date:** 2026-02-22
 **Updated:** 2026-02-23
