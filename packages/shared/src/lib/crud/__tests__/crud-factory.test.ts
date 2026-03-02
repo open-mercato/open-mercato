@@ -232,6 +232,30 @@ describe('CRUD Factory', () => {
     })
   })
 
+  it('GET applies ids query filter in ORM fallback path', async () => {
+    const fallbackRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema,
+        buildFilters: () => ({} as any),
+      },
+    })
+
+    const first = em.create(Todo, { title: 'One', organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000' }) as Rec
+    first.id = '550e8400-e29b-41d4-a716-446655440010'
+    await em.persistAndFlush(first)
+    const second = em.create(Todo, { title: 'Two', organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000' }) as Rec
+    second.id = '550e8400-e29b-41d4-a716-446655440011'
+    await em.persistAndFlush(second)
+
+    const res = await fallbackRoute.GET(new Request(`http://x/api/example/todos?ids=${first.id}`))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]?.id).toBe(first.id)
+  })
+
   it('GET returns CSV when format=csv', async () => {
     const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc&format=csv'))
     expect(res.headers.get('content-type')).toContain('text/csv')
