@@ -94,6 +94,22 @@ export async function bootstrap(container: AwilixContainer) {
     } catch {}
     const subs = loadedModules.flatMap((m) => m.subscribers || [])
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
+
+    // Extract sync subscribers and register in the sync-subscriber-store
+    const syncSubs = subs.filter((s: any) => s.sync === true)
+    if (syncSubs.length) {
+      try {
+        const { registerSyncSubscribers } = await import('@open-mercato/shared/lib/crud/sync-subscriber-store')
+        registerSyncSubscribers(
+          syncSubs.map((s: any) => ({
+            metadata: { event: s.event, sync: true as const, priority: s.priority, id: s.id },
+            handler: s.handler,
+          })),
+        )
+      } catch {
+        // sync-subscriber-store may not be available
+      }
+    }
   } catch (err) {
     console.error("Failed to register module subscribers:", err);
   }
