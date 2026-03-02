@@ -24,6 +24,7 @@ import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { SseEventIndicator } from './injection/SseEventIndicator'
+import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -1354,7 +1355,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         {!customizing && (
           <>
           {shouldRenderSidebarInjectionSpots ? (
-            <InjectionSpot
+            <StatusBadgeInjectionSpot
               spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
               context={injectionContext}
             />
@@ -1499,7 +1500,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
-            <InjectionSpot
+            <StatusBadgeInjectionSpot
               spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
               context={injectionContext}
             />
