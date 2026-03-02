@@ -13,6 +13,10 @@ import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
 import {
+  RECORD_LOCKS_LOCK_CONTENDED_EVENT,
+  RECORD_LOCKS_RECORD_DELETED_EVENT,
+} from '@open-mercato/enterprise/modules/record_locks/notifications.handlers'
+import {
   ChangedFieldsTable,
   type ChangeRow,
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
@@ -84,8 +88,23 @@ type CrudSaveErrorEventDetail = {
   error?: unknown
 }
 
+type RecordLockContendedEventDetail = {
+  sourceEntityId?: string | null
+}
+
+type RecordDeletedEventDetail = {
+  resourceId?: string | null
+  resourceKind?: string | null
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object'
+}
+
+function readStringOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 function isUuid(value: string | null | undefined): value is string {
@@ -685,28 +704,20 @@ export default function RecordLockingWidget({
   React.useEffect(() => {
     if (!isPrimaryInstance) return
     if (!mine || !state?.lock?.id) return
-    let cancelled = false
 
-    const syncContentionBanner = async () => {
-      const call = await apiCall<{ items?: Array<{ sourceEntityId?: string | null; type?: string }> }>(
-        '/api/notifications?status=unread&type=record_locks.lock.contended&pageSize=20'
-      )
-      if (cancelled) return
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      const hasUnreadContention = items.some((item) => item.sourceEntityId === state.lock?.id)
-      if (hasUnreadContention) {
-        setShowLockContentionBanner(true)
-      }
+    const onContention = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordLockContendedEventDetail)
+        : null
+      if (!detail) return
+      if (detail.sourceEntityId !== state.lock?.id) return
+      setShowLockContentionBanner(true)
     }
 
-    void syncContentionBanner()
-    const interval = window.setInterval(() => {
-      void syncContentionBanner()
-    }, 5000)
+    window.addEventListener(RECORD_LOCKS_LOCK_CONTENDED_EVENT, onContention)
 
     return () => {
-      cancelled = true
-      window.clearInterval(interval)
+      window.removeEventListener(RECORD_LOCKS_LOCK_CONTENDED_EVENT, onContention)
     }
   }, [isPrimaryInstance, mine, state?.lock?.id])
 
@@ -714,27 +725,14 @@ export default function RecordLockingWidget({
     if (!isPrimaryInstance) return
     if (!state?.resourceKind || !state?.resourceId) return
     if (state.recordDeleted === true) return
-    let cancelled = false
-
-    const syncRecordDeletedState = async () => {
-      const call = await apiCall<{
-        items?: Array<{
-          sourceEntityId?: string | null
-          bodyVariables?: Record<string, string> | null
-        }>
-      }>('/api/notifications?status=unread&type=record_locks.record.deleted&pageSize=20')
-      if (cancelled) return
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      const hasUnreadRecordDeleted = items.some((item) => {
-        const matchesResourceId = item.sourceEntityId === state.resourceId
-        if (!matchesResourceId) return false
-        const kindFromBody = typeof item.bodyVariables?.resourceKind === 'string'
-          ? item.bodyVariables.resourceKind.trim()
-          : ''
-        if (!kindFromBody) return true
-        return kindFromBody === state.resourceKind
-      })
-      if (!hasUnreadRecordDeleted) return
+    const onRecordDeleted = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordDeletedEventDetail)
+        : null
+      if (!detail) return
+      if (detail.resourceId !== state.resourceId) return
+      const kind = readStringOrNull(detail.resourceKind)
+      if (kind && kind !== state.resourceKind) return
       setIsConflictDialogOpen(true)
       setRecordLockFormState(formId, {
         recordDeleted: true,
@@ -747,14 +745,10 @@ export default function RecordLockingWidget({
       })
     }
 
-    void syncRecordDeletedState()
-    const interval = window.setInterval(() => {
-      void syncRecordDeletedState()
-    }, 5000)
+    window.addEventListener(RECORD_LOCKS_RECORD_DELETED_EVENT, onRecordDeleted)
 
     return () => {
-      cancelled = true
-      window.clearInterval(interval)
+      window.removeEventListener(RECORD_LOCKS_RECORD_DELETED_EVENT, onRecordDeleted)
     }
   }, [formId, isPrimaryInstance, state?.recordDeleted, state?.resourceId, state?.resourceKind])
 
