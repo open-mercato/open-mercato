@@ -10,6 +10,12 @@ const alwaysEnabledInjectionTable: ModuleInjectionTable = {
   // Keep example module demo surfaces always available
   'crud-form:example.todo': 'example.injection.crud-validation',
   'example:phase-c-handlers': 'example.injection.crud-validation',
+  'example:phase-j-recursive': 'example.injection.crud-validation',
+  // Recursive widget: addon injected into validation widget's nested spot
+  'widget:example.injection.crud-validation:addon': {
+    widgetId: 'example.injection.crud-validation-addon',
+    priority: 50,
+  },
   'menu:sidebar:main': {
     widgetId: 'example.injection.example-menus',
     priority: 50,

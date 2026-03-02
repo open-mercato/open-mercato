@@ -160,5 +160,15 @@
   "example.widgets.todo.settings.showCompleted": "Show completed items",
   "example.widgets.todo.state.allCaughtUp": "All caught up!",
   "example.widgets.todo.state.empty": "No todos found.",
+  "example.umes.next.form.group": "Recursive widget test fields",
+  "example.umes.next.form.title": "Phase J — Recursive widget form",
+  "example.umes.next.page.description": "Demonstrates UMES next phases including recursive widget extensibility (Phase J).",
+  "example.umes.next.page.title": "UMES Next Phases",
+  "example.umes.next.phaseJ.label": "Recursive widget injection",
+  "example.umes.next.readiness.description": "Live readiness for UMES next phases. Addon detected means the recursive injection spot is working.",
+  "example.umes.next.readiness.title": "Phase readiness",
+  "example.umes.next.recursive.description": "A widget (crud-validation) declares its own InjectionSpot. Another widget (crud-validation-addon) injects into it, creating a layered composition.",
+  "example.umes.next.recursive.spotLabel": "Injection spot:",
+  "example.umes.next.recursive.title": "Phase J — Recursive widget extensibility",
   "example.workPlan.nav.group": "Work plan"
 }
