@@ -7,6 +7,7 @@ import { E } from '#generated/entities.ids.generated'
 import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
+import { normalizePersonPayload } from './payload'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -203,7 +204,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base, custom } = splitCustomFieldPayload(scoped)
+        const normalized = normalizePersonPayload(scoped)
+        const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = personCreateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
@@ -219,7 +221,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base, custom } = splitCustomFieldPayload(scoped)
+        const normalized = normalizePersonPayload(scoped)
+        const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = personUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
