@@ -30,7 +30,7 @@ export function isValidSocialUrl(
   if (!pathRequired) {
     return true
   }
-  const normalizedPath = parsed.pathname.replace(/\/+/g, '/').replace(/^\/|\/$/g, '')
+  const normalizedPath = parsed.pathname.replace(/\/+/g, '/').replace(/(?:^\/|\/$)/g, '')
   return normalizedPath.length > 0
 }
 

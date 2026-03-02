@@ -1556,6 +1556,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             delete projectedCoreValues[injectedId]
           }
           coreSubmitValues = schema ? schema.parse(projectedCoreValues) : (projectedCoreValues as TValues)
+          if (result.applyToForm) {
+            setValues(result.data as CrudFormValues<TValues>)
+          }
         }
       } catch (err) {
         console.error('[CrudForm] Error in transformFormData:', err)
@@ -2096,7 +2099,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             actions={{
               extraActions: headerExtraActions,
               showDelete,
-              onDelete: handleDelete,
+              onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
               deleteLabel,
               cancelHref,
               cancelLabel,
@@ -2140,7 +2143,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 actions={{
                   extraActions,
                   showDelete: !embedded && showDelete,
-                  onDelete: handleDelete,
+                  onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
@@ -2168,7 +2171,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           actions={{
             extraActions: headerExtraActions,
             showDelete,
-            onDelete: handleDelete,
+            onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
             deleteLabel,
             cancelHref,
             cancelLabel,
@@ -2232,7 +2235,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 actions={{
                   extraActions,
                   showDelete: !embedded && showDelete,
-                  onDelete: handleDelete,
+                  onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,

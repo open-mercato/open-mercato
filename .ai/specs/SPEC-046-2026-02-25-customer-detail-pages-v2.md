@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-02-25 |
-| **Related** | SPEC-041 (UMES), SPEC-016 (Form Headers/Footers), SPEC-017 (Version History) |
+| **Related** | SPEC-041 (UMES), SPEC-016 (Form Headers/Footers), SPEC-017 (Version History), SPEC-046b (Interactions Unification), SPEC-046c (Example Task Sync Alignment) |
 
 ## TLDR
 
@@ -26,6 +26,15 @@
 **Concerns:**
 - Transition from per-field to whole-document save changes UX behavior (no auto-save on blur)
 - Related data sections (notes, activities) remain independent — not part of form save
+
+---
+
+## Workstream Dependencies
+
+This rewrite is implemented together with two child specs:
+- `SPEC-046b` defines canonical customer interactions (including activities/todos compatibility adapters) consumed by Zone 2 tabs.
+- `SPEC-046c` defines customer-task ownership and example sync boundaries; `/backend/customer-tasks` ownership follows that spec.
+- During implementation, customer detail tabs and task-related APIs MUST align with `SPEC-046b` and `SPEC-046c` contracts.
 
 ---
 
@@ -636,4 +645,5 @@ Same pattern as TC-CRM-V2-003 but for person:
 
 | Date | Change |
 |------|--------|
+| 2026-03-02 | Formally linked child workstreams `SPEC-046b` and `SPEC-046c` to this spec and marked implementation dependency alignment |
 | 2026-02-25 | Initial draft |

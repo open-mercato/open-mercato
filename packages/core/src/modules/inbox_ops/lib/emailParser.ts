@@ -106,7 +106,7 @@ function parseAddressField(value: string | undefined | null): { name?: string; e
   if (!value) return { email: '' }
   const match = value.match(/^(.+?)\s*<([^>]+)>$/)
   if (match) {
-    return { name: match[1].trim().replace(/^["']|["']$/g, ''), email: match[2].trim().toLowerCase() }
+    return { name: match[1].trim().replace(/(?:^["']|["']$)/g, ''), email: match[2].trim().toLowerCase() }
   }
   return { email: value.trim().toLowerCase() }
 }

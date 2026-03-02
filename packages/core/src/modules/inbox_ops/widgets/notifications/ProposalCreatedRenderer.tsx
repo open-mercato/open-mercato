@@ -43,6 +43,14 @@ export function ProposalCreatedRenderer({
         isUnread && 'bg-amber-50/50 dark:bg-amber-950/20',
       )}
       onClick={handleReview}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleReview()
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
       {isUnread && (
         <div className="absolute left-1.5 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full bg-primary" />
