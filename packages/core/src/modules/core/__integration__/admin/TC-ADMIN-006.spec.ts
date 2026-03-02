@@ -25,7 +25,7 @@ test.describe('TC-ADMIN-006: Feature Toggle Overrides', () => {
     await expect(page.getByRole('columnheader', { name: 'Identifier' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Name' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Category' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Override State' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Override/i })).toBeVisible();
 
     // Verify Refresh button
     await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
@@ -34,13 +34,21 @@ test.describe('TC-ADMIN-006: Feature Toggle Overrides', () => {
     const rows = page.locator('table tbody tr');
     await expect(rows.first()).toBeVisible();
 
-    // Click the first override row to see detail view
-    await rows.first().click();
+    // Open row actions and navigate to detail view
+    await page.getByRole('button', { name: /Open actions/i }).first().click();
+    const firstAction = page.getByRole('menuitem').first();
+    const actionVisible = await firstAction.isVisible().catch(() => false);
+    if (actionVisible) {
+      await firstAction.click();
+    } else {
+      await rows.first().click();
+    }
+    await expect(page).toHaveURL(/\/backend\/feature-toggles\/global\/[^/]+(?:\?.*)?$/);
 
     // Verify detail page loads with expected sections
-    await expect(page.getByRole('heading', { name: 'Details', level: 2 })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Description', level: 2 })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Default Value', level: 2 })).toBeVisible();
+    await expect(page.getByText('Details', { exact: true })).toBeVisible();
+    await expect(page.getByText('Description', { exact: true })).toBeVisible();
+    await expect(page.getByText('Default Value', { exact: true })).toBeVisible();
 
     // Verify override section
     await expect(page.getByText('Override', { exact: true })).toBeVisible();

@@ -63,6 +63,7 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord } from './enriche
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
+import { mergeIdFilter, parseIdsParam } from './ids'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -1160,6 +1161,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ...rawQueryParams,
         ...(interceptorRequest.query ?? {}),
       } as Record<string, unknown>
+      const parsedIds = parseIdsParam(queryParams.ids)
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
       profiler.mark('before_list_hook')
@@ -1343,6 +1345,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filters = exportFullRequested
           ? ({} as Where<any>)
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
@@ -1386,7 +1389,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           includeCustomFields: true,
           sort,
           page,
-          filters,
+          filters: mergedFilters,
           withDeleted,
         }
         if (opts.list.customFieldSources) {
@@ -1606,8 +1609,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return response
       }
+      const fallbackFilters = exportFullRequested
+        ? ({} as Where<any>)
+        : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+      const mergedFallbackFilters = exportFullRequested
+        ? fallbackFilters
+        : mergeIdFilter(fallbackFilters, parsedIds)
       const where: any = buildScopedWhere(
-        {},
+        mergedFallbackFilters as Record<string, any>,
         {
           organizationId: ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
           organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,

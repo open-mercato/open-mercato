@@ -151,9 +151,11 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 ## Notifications
 
 - Define notification types in `src/modules/<module>/notifications.ts` and client renderers in `notifications.client.ts`.
+- Define reactive notification handlers in `src/modules/<module>/notifications.handlers.ts` when notifications should trigger automatic side-effects.
 - Renderers live in `widgets/notifications/` and should use `useT()` for copy.
 - Use the shared action labels where possible (for example, `notifications.actions.dismiss`).
 - Prefer notification creation in commands or subscribers and keep UI renderers lightweight.
+- For component-scoped reactions, use `useNotificationEffect(notificationType, effect)` instead of module-specific polling loops.
 
 ## Component Reuse
 

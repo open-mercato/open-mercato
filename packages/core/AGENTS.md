@@ -234,9 +234,11 @@ src/modules/<module>/
 ```
 
 - **Notification types**: Declare in `notifications.ts` exporting `notificationTypes: NotificationTypeDefinition[]`
+- **Reactive handlers**: Declare in `notifications.handlers.ts` exporting `notificationHandlers: NotificationHandler[]`
 - **Subscribers**: Create event subscribers in `subscribers/` to emit notifications on domain events
 - **Client renderers**: Declare in `notifications.client.ts`; store components in `widgets/notifications/`
 - **i18n**: Add translations to `i18n/<locale>.json` under `<module>.notifications.*` keys
+- **Handler behavior**: Keep handlers idempotent; use `ctx.emitEvent(...)` for cross-component updates and `ctx.toast(...)`/`ctx.popup(...)` for UX side-effects
 
 ## Widget Injection
 
@@ -258,6 +260,29 @@ Hosts expose consistent spot ids:
 - `admin.page:<path>:before|after` — admin pages
 - `menu:sidebar:main` — main sidebar items/groups
 - `menu:sidebar:settings` — settings sidebar
+
+DataTable deep-extension surfaces:
+- `data-table:<tableId>:columns`
+- `data-table:<tableId>:row-actions`
+- `data-table:<tableId>:bulk-actions`
+- `data-table:<tableId>:filters`
+
+CrudForm field-injection surface:
+- `crud-form:<entityId>:fields`
+
+## API Interceptors
+
+Define route interceptors in `api/interceptors.ts` and export `interceptors`.
+- Keep scope explicit with `targetRoute` + `methods`; use wildcards only when required.
+- `before`/`after` hooks must be fail-closed and timeout-safe.
+- If `before` rewrites body/query, return a schema-compatible payload (route handler re-validates it).
+- For CRUD list narrowing, prefer writing `query.ids` (comma-separated UUIDs). The CRUD factory merges/intersects `ids` with existing `id` filters.
+
+## Component Replacement
+
+Define component overrides in `widgets/components.ts` and export `componentOverrides`.
+- Prefer handle-based targets (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic replacement.
+- Use wrapper/props-transform modes when possible; replacement mode should preserve props compatibility.
 - `menu:sidebar:profile` — profile sidebar
 - `menu:topbar:profile-dropdown` — user/profile dropdown
 - `menu:topbar:actions` — header action area
