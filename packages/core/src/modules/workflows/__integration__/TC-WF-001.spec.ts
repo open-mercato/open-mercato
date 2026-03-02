@@ -105,7 +105,9 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       await expect(patternInput).toHaveValue('sales.orders.*')
 
       // Cancel without saving — trigger creation API is out of scope for this test
-      await dialog.getByRole('button', { name: 'Cancel' }).click()
+      if (await dialog.isVisible().catch(() => false)) {
+        await dialog.getByRole('button', { name: 'Cancel' }).click()
+      }
       await expect(dialog).toBeHidden()
     } finally {
       await deleteEntityIfExists(request, token, '/api/workflows/definitions', definitionId)

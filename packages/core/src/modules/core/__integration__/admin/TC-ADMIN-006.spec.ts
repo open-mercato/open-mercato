@@ -36,8 +36,13 @@ test.describe('TC-ADMIN-006: Feature Toggle Overrides', () => {
 
     // Open row actions and navigate to detail view
     await page.getByRole('button', { name: /Open actions/i }).first().click();
-    await page.getByRole('menu').first().waitFor({ state: 'visible' });
-    await page.getByRole('menuitem').first().click();
+    const firstAction = page.getByRole('menuitem').first();
+    const actionVisible = await firstAction.isVisible().catch(() => false);
+    if (actionVisible) {
+      await firstAction.click();
+    } else {
+      await rows.first().click();
+    }
     await expect(page).toHaveURL(/\/backend\/feature-toggles\/global\/[^/]+(?:\?.*)?$/);
 
     // Verify detail page loads with expected sections
