@@ -45,23 +45,6 @@ Run these commands and verify each one exits successfully (exit code 0):
 - **No excuses**: "Pre-existing on develop", "flaky test", "not our code" are not valid reasons to skip. If it fails on your branch, it will fail on CI. Fix it or flag it as a blocker.
 - **Evidence required**: The review output MUST include the actual pass/fail result of each gate step. Do not assume — run the commands and report what happened.
 
-### Gate Output (include in review report)
-
-```markdown
-## CI/CD Verification
-
-| Gate | Status | Notes |
-|------|--------|-------|
-| `yarn build:packages` | PASS/FAIL | |
-| `yarn generate` | PASS/FAIL | |
-| `yarn build:packages` (rebuild) | PASS/FAIL | |
-| `yarn i18n:check-sync` | PASS/FAIL | |
-| `yarn i18n:check-usage` | PASS/FAIL/WARN | (non-blocking in CI) |
-| `yarn typecheck` | PASS/FAIL | |
-| `yarn test` | PASS/FAIL | |
-| `yarn build:app` | PASS/FAIL | |
-```
-
 ## Output Format
 
 Use this structure for every review:
