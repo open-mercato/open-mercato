@@ -53,6 +53,8 @@ describe('notification service', () => {
     em.create.mockImplementation((_entity, data: Notification) => ({
       id: 'note-1',
       ...data,
+      createdAt: data.createdAt ?? new Date(),
+      readAt: data.readAt ?? null,
     }))
 
     const service = createNotificationService({ em, eventBus })
@@ -115,6 +117,8 @@ describe('notification service', () => {
     em.create.mockImplementation((_entity, data: Notification) => ({
       id: `note-${data.recipientUserId}`,
       ...data,
+      createdAt: data.createdAt ?? new Date(),
+      readAt: data.readAt ?? null,
     }))
 
     const service = createNotificationService({ em, eventBus })
@@ -130,7 +134,7 @@ describe('notification service', () => {
 
     expect(notifications).toHaveLength(2)
     expect(em.flush).toHaveBeenCalled()
-    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(eventBus.emit).toHaveBeenCalledTimes(3)
   })
 
   it('returns empty list when no recipients match feature', async () => {

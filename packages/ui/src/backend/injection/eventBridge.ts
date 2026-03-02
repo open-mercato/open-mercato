@@ -25,6 +25,7 @@ const DEDUP_WINDOW_MS = 500
 export function useEventBridge(): void {
   const sourceRef = useRef<EventSource | null>(null)
   const reconnectAttempts = useRef(0)
+  const hasConnectedRef = useRef(false)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const heartbeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const recentEvents = useRef<Map<string, number>>(new Map())
@@ -65,8 +66,22 @@ export function useEventBridge(): void {
         sourceRef.current = source
 
         source.onopen = () => {
+          const wasDisconnected = hasConnectedRef.current && reconnectAttempts.current > 0
           reconnectAttempts.current = 0
+          hasConnectedRef.current = true
           resetHeartbeatTimer()
+          if (wasDisconnected) {
+            window.dispatchEvent(
+              new CustomEvent(APP_EVENT_DOM_NAME, {
+                detail: {
+                  id: 'om:bridge:reconnected',
+                  payload: {},
+                  timestamp: Date.now(),
+                  organizationId: '',
+                },
+              }),
+            )
+          }
         }
 
         source.onmessage = (event) => {

@@ -1,5 +1,7 @@
 export const NOTIFICATION_EVENTS = {
   CREATED: 'notifications.created',
+  SSE_CREATED: 'notifications.notification.created',
+  SSE_BATCH_CREATED: 'notifications.notification.batch_created',
   READ: 'notifications.read',
   ACTIONED: 'notifications.actioned',
   DISMISSED: 'notifications.dismissed',

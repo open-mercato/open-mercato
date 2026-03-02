@@ -3,12 +3,31 @@ import { Notification } from '../data/entities'
 import type { CreateNotificationInput } from '../data/validators'
 import { NOTIFICATION_EVENTS } from './events'
 import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
+import { toNotificationDto } from './notificationMapper'
 
 export type NotificationContentInput = Omit<CreateNotificationInput, 'recipientUserId'>
 
 export type NotificationTenantContext = {
   tenantId: string
   organizationId?: string | null
+}
+
+type NotificationEventBus = {
+  emit: (event: string, payload: unknown) => Promise<void>
+  emitEvent?: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void>
+}
+
+async function emitEvent(
+  eventBus: NotificationEventBus,
+  event: string,
+  payload: unknown,
+  options?: { persistent?: boolean },
+): Promise<void> {
+  if (typeof eventBus.emitEvent === 'function') {
+    await eventBus.emitEvent(event, payload, options)
+    return
+  }
+  await eventBus.emit(event, payload)
 }
 
 export function buildNotificationEntity(
@@ -51,11 +70,31 @@ export function buildNotificationEntity(
 }
 
 export async function emitNotificationCreated(
-  eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
+  eventBus: NotificationEventBus,
   notification: Notification,
   ctx: NotificationTenantContext
 ): Promise<void> {
-  await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
+  await emitNotificationCreatedLegacy(eventBus, notification, ctx)
+
+  await emitEvent(
+    eventBus,
+    NOTIFICATION_EVENTS.SSE_CREATED,
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId ?? null,
+      recipientUserId: notification.recipientUserId,
+      notification: toNotificationDto(notification),
+    },
+    { persistent: false },
+  )
+}
+
+async function emitNotificationCreatedLegacy(
+  eventBus: NotificationEventBus,
+  notification: Notification,
+  ctx: NotificationTenantContext,
+): Promise<void> {
+  await emitEvent(eventBus, NOTIFICATION_EVENTS.CREATED, {
     notificationId: notification.id,
     recipientUserId: notification.recipientUserId,
     type: notification.type,
@@ -66,11 +105,24 @@ export async function emitNotificationCreated(
 }
 
 export async function emitNotificationCreatedBatch(
-  eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
+  eventBus: NotificationEventBus,
   notifications: Notification[],
   ctx: NotificationTenantContext
 ): Promise<void> {
   for (const notification of notifications) {
-    await emitNotificationCreated(eventBus, notification, ctx)
+    await emitNotificationCreatedLegacy(eventBus, notification, ctx)
   }
+
+  const recipientUserIds = Array.from(new Set(notifications.map((notification) => notification.recipientUserId)))
+  await emitEvent(
+    eventBus,
+    NOTIFICATION_EVENTS.SSE_BATCH_CREATED,
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId ?? null,
+      recipientUserIds,
+      count: notifications.length,
+    },
+    { persistent: false },
+  )
 }
