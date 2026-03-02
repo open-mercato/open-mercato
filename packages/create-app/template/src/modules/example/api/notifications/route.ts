@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { resolveNotificationContext } from '@open-mercato/core/modules/notifications/lib/routeHelpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const emitNotificationSchema = z.object({
   linkHref: z.string().optional(),
@@ -11,6 +12,7 @@ export const metadata = {
 
 export async function POST(request: Request) {
   const { service, scope } = await resolveNotificationContext(request)
+  const { t } = await resolveTranslations()
   if (!scope.userId || !scope.tenantId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -28,6 +30,11 @@ export async function POST(request: Request) {
       type: 'example.umes.actionable',
       titleKey: 'example.notifications.umesActionable.title',
       bodyKey: 'example.notifications.umesActionable.body',
+      title: t('example.notifications.umesActionable.title', 'Action required in UMES next phases'),
+      body: t(
+        'example.notifications.umesActionable.body',
+        'Open the UMES next phases page to verify reactive notification handlers.',
+      ),
       severity: 'info',
       actions: [
         {
