@@ -94,6 +94,8 @@ const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
 }
 
+const AI_DIR = join(__dirname, 'ai')
+
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])
 
 function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
@@ -197,6 +199,10 @@ async function main(): Promise<void> {
   try {
     copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
 
+    if (existsSync(AI_DIR)) {
+      copyDirRecursive(AI_DIR, join(targetDir, '.ai'), placeholders)
+    }
+
     console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
     console.log('')
     console.log('Next steps:')
@@ -209,6 +215,9 @@ async function main(): Promise<void> {
     console.log(pc.cyan('  yarn db:migrate'))
     console.log(pc.cyan('  yarn initialize'))
     console.log(pc.cyan('  yarn dev'))
+    console.log('')
+    console.log(pc.dim('  # Set up AI skills for spec-driven development'))
+    console.log(pc.cyan('  yarn install-skills'))
     console.log('')
     console.log('Docker alternatives:')
     console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))

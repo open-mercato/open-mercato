@@ -107,6 +107,47 @@ Add new modules to `src/modules.ts` with `from: '@app'`.
 
 Translation files in `src/i18n/{locale}.json`. Supported locales: en, pl, es, de.
 
+## Spec-Driven Development
+
+This app includes the `.ai/` directory for spec-driven development workflows.
+
+### Structure
+
+```
+.ai/
+├── lessons.md          # Debugging insights and recurring fixes
+├── qa/                 # QA integration testing instructions
+│   ├── AGENTS.md       # Testing conventions and templates
+│   └── scenarios/      # Optional markdown test case descriptions
+├── skills/             # Reusable AI agent workflows
+│   ├── README.md       # Skill installation and usage guide
+│   ├── spec-writing/   # Writing feature specifications
+│   ├── implement-spec/ # Implementing specs with coordinated agents
+│   ├── code-review/    # Code review against project conventions
+│   └── ...             # Additional skills
+└── specs/              # Feature specifications
+    ├── AGENTS.md       # Spec naming and structure conventions
+    └── enterprise/     # Enterprise-only specs
+```
+
+### Setup
+
+Install skills for your AI coding tool:
+
+```bash
+yarn install-skills
+```
+
+This creates symlinks so Claude Code (`/skills`) and Codex (`/skills`) can discover the skills.
+
+### Workflow
+
+1. Write a spec in `.ai/specs/` using `/spec-writing` skill
+2. Review with `/pre-implement-spec` before coding
+3. Implement with `/implement-spec` for coordinated execution
+4. Test with `/integration-tests` for automated QA
+5. Review with `/code-review` for quality gates
+
 ## Requirements
 
 - Node.js >= 24

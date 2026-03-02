@@ -15,6 +15,7 @@
     "db:greenfield": "mercato db greenfield",
     "initialize": "mercato init",
     "reinstall": "mercato init --reinstall",
+    "install-skills": "./scripts/install-skills.sh",
     "preinstall": "node -e \"const v = process.versions.node.split('.').map(Number); if (v[0] < 24) { console.error('Node >= 24 required'); process.exit(1); }\""
   },
   "dependencies": {
