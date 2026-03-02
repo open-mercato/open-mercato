@@ -17,6 +17,16 @@ const em = {
   findOne: async (_entity: any, where: any) => (em.getRepository(_entity).findOne(where) as any),
   getRepository: (_cls: any) => ({
     find: async (where: any) => Object.values(db).filter((r) => {
+      const idClause = where.id
+      const matchesId = !idClause
+        ? true
+        : (typeof idClause === 'string'
+          ? r.id === idClause
+          : (typeof idClause === 'object' && Array.isArray(idClause.$in))
+            ? idClause.$in.includes(r.id)
+            : (typeof idClause === 'object' && typeof idClause.$eq === 'string')
+              ? r.id === idClause.$eq
+              : true)
       const orgClause = where.organizationId
       const matchesOrg = !orgClause
         ? true
@@ -25,7 +35,7 @@ const em = {
           : r.organizationId === orgClause
       const matchesTenant = !where.tenantId || r.tenantId === where.tenantId
       const matchesDeleted = where.deletedAt === null ? !r.deletedAt : true
-      return matchesOrg && matchesTenant && matchesDeleted
+      return matchesId && matchesOrg && matchesTenant && matchesDeleted
     }),
     findOne: async (where: any) => Object.values(db).find((r) => {
       if (r.id !== where.id) return false

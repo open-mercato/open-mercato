@@ -19,6 +19,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Surface | How to start | Primary contract/docs |
 |---|---|---|
 | CRUD extension points | Use `makeCrudRoute` with validators/hooks | [CRUD factory](/framework/api/crud-factory) |
+| Multi-ID list filtering (`ids`) | Call any CRUD list endpoint with `?ids=<uuid1,uuid2,...>`; combine with interceptors for cross-module narrowing | [CRUD factory](/framework/api/crud-factory), [API extension guide](/framework/api/extending-api) |
 | API interceptors (UMES E) | Add `api/interceptors.ts`, export `interceptors` | [API extension guide](/framework/api/extending-api) |
 | Response enrichers (UMES D) | Add `data/enrichers.ts`, export `enrichers` | [Data extensibility](/framework/database/data-extensibility) |
 | Mutation guards | Register guards through mutation guard service/registry | [API extension guide](/framework/api/extending-api) |
@@ -72,6 +73,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 |---|---|---|
 | Notification type registry | Add `notifications.ts` and export `notificationTypes` | [Notifications](/framework/modules/notifications) |
 | Notification renderers | Add `notifications.client.ts` for client rendering | [Notifications](/framework/modules/notifications) |
+| Reactive notification handlers | Add `notifications.handlers.ts` and export `notificationHandlers`; react via `useNotificationEffect` | [Notifications](/framework/modules/notifications), [Widget injection](/framework/widget-injection) |
 | Message types | Add `message-types.ts` in your module | [Messages system](/framework/modules/messages) |
 | Message object types | Add `message-objects.ts` for attachable domain objects | [Messages system](/framework/modules/messages) |
 | Payment/shipping providers | Register `registerPaymentProvider` / `registerShippingProvider` | [Shipping & payment providers](/framework/modules/sales-providers), [Sales calculations](/framework/modules/sales-calculations) |
