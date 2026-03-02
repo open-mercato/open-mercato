@@ -153,7 +153,7 @@ export type Module = {
     /** Execution priority for sync subscribers (lower = earlier). Default: 50 */
     priority?: number
     // Imported function reference; will be registered into event bus
-    handler: (payload: any, ctx: any) => Promise<any> | any
+    handler: (payload: any, ctx: any) => Promise<void | Record<string, unknown>> | void | Record<string, unknown>
   }>
   // Auto-discovered queue workers
   workers?: Array<{

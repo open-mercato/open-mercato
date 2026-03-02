@@ -55,9 +55,9 @@ export default function MutationLifecyclePage() {
   const [syncError, setSyncError] = React.useState<string | null>(null)
   const [syncPayloads, setSyncPayloads] = React.useState<unknown>(null)
   const [syncProbeResults, setSyncProbeResults] = React.useState<Record<SyncProbeKey, SyncProbeResult>>({
-    defaultPriority: createSyncProbeResult({ key: 'defaultPriority', label: 'auto-default-priority (before-create)' }),
-    preventUncomplete: createSyncProbeResult({ key: 'preventUncomplete', label: 'prevent-uncomplete (before-update)' }),
-    auditDelete: createSyncProbeResult({ key: 'auditDelete', label: 'audit-delete (after-delete)' }),
+    defaultPriority: createSyncProbeResult({ key: 'defaultPriority', label: t('example.mutationLifecycle.m2.probe.defaultPriority.label', 'auto-default-priority (before-create)') }),
+    preventUncomplete: createSyncProbeResult({ key: 'preventUncomplete', label: t('example.mutationLifecycle.m2.probe.preventUncomplete.label', 'prevent-uncomplete (before-update)') }),
+    auditDelete: createSyncProbeResult({ key: 'auditDelete', label: t('example.mutationLifecycle.m2.probe.auditDelete.label', 'audit-delete (after-delete)') }),
   })
 
   // Phase m3/m4 are informational
@@ -119,9 +119,9 @@ export default function MutationLifecyclePage() {
     })
 
     const nextResults: Record<SyncProbeKey, SyncProbeResult> = {
-      defaultPriority: createSyncProbeResult({ key: 'defaultPriority', label: 'auto-default-priority (before-create)', status: 'pending' }),
-      preventUncomplete: createSyncProbeResult({ key: 'preventUncomplete', label: 'prevent-uncomplete (before-update)', status: 'pending' }),
-      auditDelete: createSyncProbeResult({ key: 'auditDelete', label: 'audit-delete (after-delete)', status: 'pending' }),
+      defaultPriority: createSyncProbeResult({ key: 'defaultPriority', label: t('example.mutationLifecycle.m2.probe.defaultPriority.label', 'auto-default-priority (before-create)'), status: 'pending' }),
+      preventUncomplete: createSyncProbeResult({ key: 'preventUncomplete', label: t('example.mutationLifecycle.m2.probe.preventUncomplete.label', 'prevent-uncomplete (before-update)'), status: 'pending' }),
+      auditDelete: createSyncProbeResult({ key: 'auditDelete', label: t('example.mutationLifecycle.m2.probe.auditDelete.label', 'audit-delete (after-delete)'), status: 'pending' }),
     }
 
     const payloads: Record<string, unknown> = {}
@@ -144,20 +144,21 @@ export default function MutationLifecyclePage() {
         httpStatus: createResponse.status,
         ok: createOk,
         details: createOk
-          ? 'Todo created (201). Sync before-event example.todo.creating fired — auto-default-priority subscriber injects priority if absent.'
-          : `Expected 201, got ${createResponse.status}.`,
+          ? t('example.mutationLifecycle.m2.probe.defaultPriority.ok', 'Todo created (201). Sync before-event example.todo.creating fired — auto-default-priority subscriber injects priority if absent.')
+          : t('example.mutationLifecycle.m2.probe.defaultPriority.error', `Expected 201, got ${createResponse.status}.`),
       }
 
       if (!createdTodoId) {
+        const skipMsg = t('example.mutationLifecycle.m2.probe.skipped', 'Skipped — no todo was created in probe 1.')
         nextResults.preventUncomplete = {
           ...nextResults.preventUncomplete,
           status: 'error',
-          details: 'Skipped — no todo was created in probe 1.',
+          details: skipMsg,
         }
         nextResults.auditDelete = {
           ...nextResults.auditDelete,
           status: 'error',
-          details: 'Skipped — no todo was created in probe 1.',
+          details: skipMsg,
         }
         setSyncStatus('error')
         setSyncError(t('example.mutationLifecycle.m2.createFailed', 'Could not create todo for sync subscriber probe.'))
@@ -181,7 +182,7 @@ export default function MutationLifecyclePage() {
           ...nextResults.preventUncomplete,
           status: 'error',
           httpStatus: markDoneResponse.status,
-          details: `Failed to mark todo as done: status ${markDoneResponse.status}.`,
+          details: t('example.mutationLifecycle.m2.probe.preventUncomplete.markDoneFailed', `Failed to mark todo as done: status ${markDoneResponse.status}.`),
         }
       } else {
         // Step 2b: Try to revert to pending — should be blocked by prevent-uncomplete subscriber
@@ -198,8 +199,8 @@ export default function MutationLifecyclePage() {
           httpStatus: revertResponse.status,
           ok: revertBlocked,
           details: revertBlocked
-            ? 'Revert blocked (422). Sync before-event example.todo.updating fired — prevent-uncomplete subscriber rejected the operation.'
-            : `Expected 422 (blocked), got ${revertResponse.status}.`,
+            ? t('example.mutationLifecycle.m2.probe.preventUncomplete.ok', 'Revert blocked (422). Sync before-event example.todo.updating fired — prevent-uncomplete subscriber rejected the operation.')
+            : t('example.mutationLifecycle.m2.probe.preventUncomplete.error', `Expected 422 (blocked), got ${revertResponse.status}.`),
         }
       }
 
@@ -215,8 +216,8 @@ export default function MutationLifecyclePage() {
         httpStatus: deleteResponse.status,
         ok: deleteOk,
         details: deleteOk
-          ? 'Todo deleted (200). Sync after-event example.todo.deleted fired — audit-delete subscriber logged to server console.'
-          : `Expected 200, got ${deleteResponse.status}.`,
+          ? t('example.mutationLifecycle.m2.probe.auditDelete.ok', 'Todo deleted (200). Sync after-event example.todo.deleted fired — audit-delete subscriber logged to server console.')
+          : t('example.mutationLifecycle.m2.probe.auditDelete.error', `Expected 200, got ${deleteResponse.status}.`),
       }
       createdTodoId = null
 

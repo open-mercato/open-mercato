@@ -187,12 +187,13 @@ export class CommandBus {
     const allInterceptors = getAllCommandInterceptorInstances()
     let interceptorMetadata = new Map<string, Record<string, unknown>>()
     let effectiveOptions = options
+    const userFeatures = allInterceptors.length
+      ? await this.resolveUserFeaturesForInterceptors(options.ctx)
+      : []
     if (allInterceptors.length) {
-      const userFeatures = await this.resolveUserFeaturesForInterceptors(options.ctx)
       const interceptorCtx: CommandInterceptorContext = {
         commandId,
         auth: options.ctx.auth ?? null,
-        organizationScope: null,
         selectedOrganizationId: options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null,
         container: options.ctx.container,
       }
@@ -253,11 +254,9 @@ export class CommandBus {
     // Run afterExecute command interceptors
     let finalResult = result
     if (allInterceptors.length) {
-      const userFeatures = await this.resolveUserFeaturesForInterceptors(effectiveOptions.ctx)
       const interceptorCtx: CommandInterceptorContext = {
         commandId,
         auth: effectiveOptions.ctx.auth ?? null,
-        organizationScope: null,
         selectedOrganizationId: effectiveOptions.ctx.selectedOrganizationId ?? effectiveOptions.ctx.auth?.orgId ?? null,
         container: effectiveOptions.ctx.container,
       }
@@ -287,13 +286,14 @@ export class CommandBus {
     // Run beforeUndo command interceptors
     const allInterceptors = getAllCommandInterceptorInstances()
     let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
+    const userFeatures = allInterceptors.length
+      ? await this.resolveUserFeaturesForInterceptors(ctx)
+      : []
     if (allInterceptors.length) {
-      const userFeatures = await this.resolveUserFeaturesForInterceptors(ctx)
       const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
       const interceptorCtx: CommandInterceptorContext = {
         commandId: log.commandId,
         auth: ctx.auth ?? null,
-        organizationScope: null,
         selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
         container: ctx.container,
       }
@@ -315,12 +315,10 @@ export class CommandBus {
 
     // Run afterUndo command interceptors
     if (allInterceptors.length) {
-      const userFeatures = await this.resolveUserFeaturesForInterceptors(ctx)
       const undoCtx = { input: log.commandPayload, logEntry: log, undoToken }
       const interceptorCtx: CommandInterceptorContext = {
         commandId: log.commandId,
         auth: ctx.auth ?? null,
-        organizationScope: null,
         selectedOrganizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
         container: ctx.container,
       }
@@ -346,7 +344,8 @@ export class CommandBus {
         })
       }
     } catch {
-      // rbacService is optional in some contexts
+      // Intentional: rbacService is not registered in all runtime contexts (CLI, tests, bootstrap).
+      // Falling through to return [] is safe — interceptors without feature gating still run.
     }
     return []
   }

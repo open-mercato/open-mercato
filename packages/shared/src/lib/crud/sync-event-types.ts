@@ -16,7 +16,7 @@ export interface SyncCrudEventPayload {
   /** For updates: entity data before the mutation */
   previousData?: Record<string, unknown>
   /** The mutated entity (only available for after-events) */
-  entity_data?: Record<string, unknown>
+  entityData?: Record<string, unknown>
   /** Current user ID */
   userId: string
   /** Current organization ID */

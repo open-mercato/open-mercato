@@ -1,6 +1,5 @@
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export interface CommandInterceptor {
   /** Unique interceptor ID (e.g., 'example.log-customer-saves', 'compliance.block-inactive-edits') */
@@ -46,8 +45,6 @@ export interface CommandInterceptorContext {
   commandId: string
   /** Current user auth context */
   auth: AuthContext | null
-  /** Organization scope */
-  organizationScope: OrganizationScope | null
   /** Selected organization ID */
   selectedOrganizationId: string | null
   /** DI container (read-only usage recommended) */

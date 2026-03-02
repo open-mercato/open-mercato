@@ -10,7 +10,6 @@ import type { CommandInterceptor, CommandInterceptorContext, CommandInterceptorU
 const baseContext: CommandInterceptorContext = {
   commandId: 'customers.create-person',
   auth: null,
-  organizationScope: null,
   selectedOrganizationId: 'org-1',
   container: {} as any,
 }

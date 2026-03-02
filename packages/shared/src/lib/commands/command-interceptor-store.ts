@@ -21,6 +21,7 @@ function readGlobal(): CommandInterceptorRegistryEntry[] | null {
     const value = (globalThis as Record<string, unknown>)[GLOBAL_KEY]
     return Array.isArray(value) ? (value as CommandInterceptorRegistryEntry[]) : null
   } catch {
+    // globalThis access can throw in restricted environments (e.g., edge runtimes); fall back to local cache
     return null
   }
 }
