@@ -193,6 +193,45 @@ describe('CRUD Factory', () => {
     }))
   })
 
+  it('GET applies ids query filter in query engine path', async () => {
+    const idA = '550e8400-e29b-41d4-a716-446655440001'
+    const idB = '550e8400-e29b-41d4-a716-446655440002'
+    await route.GET(new Request(`http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc&ids=${idA},${idB}`))
+
+    expect(queryEngine.query).toHaveBeenCalled()
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.filters).toEqual({
+      id: { $in: [idA, idB] },
+    })
+  })
+
+  it('GET intersects ids with existing buildFilters id constraint', async () => {
+    const routeWithIdFilter = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema.extend({ id: z.string().optional() }),
+        entityId: 'example.todo',
+        fields: ['id', 'title'],
+        buildFilters: (query) => query.id ? ({ id: { $eq: query.id } } as any) : ({} as any),
+      },
+    })
+    const selected = '550e8400-e29b-41d4-a716-446655440001'
+    const other = '550e8400-e29b-41d4-a716-446655440002'
+
+    await routeWithIdFilter.GET(new Request(`http://x/api/example/todos?id=${selected}&ids=${selected},${other}`))
+    const matchingArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(matchingArgs?.filters).toEqual({
+      id: { $in: [selected] },
+    })
+
+    await routeWithIdFilter.GET(new Request(`http://x/api/example/todos?id=${selected}&ids=${other}`))
+    const missingArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(missingArgs?.filters).toEqual({
+      id: { $in: [] },
+    })
+  })
+
   it('GET returns CSV when format=csv', async () => {
     const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc&format=csv'))
     expect(res.headers.get('content-type')).toContain('text/csv')
