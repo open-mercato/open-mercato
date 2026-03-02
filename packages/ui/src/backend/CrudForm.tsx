@@ -404,6 +404,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       : String(versionHistory.resourceId).trim() || undefined
   )
 
+  const operation = recordId ? 'update' : 'create'
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
@@ -412,7 +413,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     recordId: fallbackRecordId,
     isLoading,
     pending,
-  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending])
+    operation,
+  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext

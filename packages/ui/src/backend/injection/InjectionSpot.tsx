@@ -316,6 +316,14 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
 
       for (const widget of widgets) {
         const eventHandlers = widget.module.eventHandlers
+        // Check operation filter — skip widget if current operation is filtered out
+        const operationFilter = eventHandlers?.filter?.operations
+        if (operationFilter) {
+          const currentOperation = (context as Record<string, unknown>)?.operation as string | undefined
+          if (currentOperation && !operationFilter.includes(currentOperation as 'create' | 'update' | 'delete')) {
+            continue
+          }
+        }
         let handler = eventHandlers?.[event]
         // Delete-to-save fallback chain
         if (!handler && event === 'onBeforeDelete') handler = eventHandlers?.onBeforeSave as typeof handler
