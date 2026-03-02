@@ -39,14 +39,14 @@ export async function POST(request: Request) {
       actions: [
         {
           id: 'open',
-          label: 'Open',
+          label: t('common.open', 'Open'),
           labelKey: 'common.open',
           variant: 'outline',
           href: targetHref,
         },
         {
           id: 'dismiss',
-          label: 'Dismiss',
+          label: t('notifications.actions.dismiss', 'Dismiss'),
           labelKey: 'notifications.actions.dismiss',
           variant: 'ghost',
         },
