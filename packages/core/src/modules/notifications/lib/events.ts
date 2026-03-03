@@ -9,6 +9,7 @@ export const NOTIFICATION_EVENTS = {
 
 export const NOTIFICATION_SSE_EVENTS = {
   CREATED: 'notifications.notification.created',
+  BATCH_CREATED: 'notifications.notification.batch_created',
 } as const
 
 export type NotificationCreatedPayload = {

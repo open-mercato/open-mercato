@@ -196,6 +196,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
+      await eventBus.emit(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, {
+        tenantId: ctx.tenantId,
+        organizationId: normalizeOrgScope(ctx.organizationId),
+        recipientUserIds,
+        count: notifications.length,
+      })
       for (const notification of notifications) {
         await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
           tenantId: notification.tenantId,
@@ -231,6 +237,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
+      await eventBus.emit(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, {
+        tenantId: ctx.tenantId,
+        organizationId: normalizeOrgScope(ctx.organizationId),
+        recipientUserIds: uniqueRecipientUserIds,
+        count: notifications.length,
+      })
       for (const notification of notifications) {
         await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
           tenantId: notification.tenantId,
@@ -269,6 +281,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
+      await eventBus.emit(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, {
+        tenantId: ctx.tenantId,
+        organizationId: normalizeOrgScope(ctx.organizationId),
+        recipientUserIds: uniqueRecipientUserIds,
+        count: notifications.length,
+      })
       for (const notification of notifications) {
         await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
           tenantId: notification.tenantId,

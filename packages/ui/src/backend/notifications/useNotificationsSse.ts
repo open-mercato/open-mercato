@@ -14,6 +14,11 @@ type NotificationCreatedPayload = {
   notification?: NotificationDto
 }
 
+type NotificationBatchCreatedPayload = {
+  recipientUserIds?: string[]
+  count?: number
+}
+
 export type UseNotificationsSseResult = {
   notifications: NotificationDto[]
   unreadCount: number
@@ -151,6 +156,16 @@ export function useNotificationsSse(): UseNotificationsSseResult {
         markAsRead: async (notificationId) => markAsReadRef.current(notificationId),
         dismiss: async (notificationId) => dismissRef.current(notificationId),
       })
+    },
+    [fetchNotifications],
+  )
+
+  useAppEvent(
+    'notifications.notification.batch_created',
+    (event: AppEventPayload) => {
+      const payload = event.payload as NotificationBatchCreatedPayload
+      if (!payload || typeof payload !== 'object') return
+      void fetchNotifications()
     },
     [fetchNotifications],
   )

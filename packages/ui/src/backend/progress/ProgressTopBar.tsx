@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, Loader2, CheckCircle, XCircle, X } from 'lucide
 import { Button } from '../../primitives/button'
 import { Progress } from '../../primitives/progress'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useProgressSse } from './useProgressSse'
+import { useProgress } from './useProgress'
 import type { ProgressJobDto } from './useProgressPoll'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '../utils/apiCall'
@@ -15,7 +15,7 @@ export type ProgressTopBarProps = {
 }
 
 export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
-  const { activeJobs, recentlyCompleted, refresh } = useProgressSse()
+  const { activeJobs, recentlyCompleted, refresh } = useProgress()
   const [expanded, setExpanded] = React.useState(false)
 
   React.useEffect(() => {
