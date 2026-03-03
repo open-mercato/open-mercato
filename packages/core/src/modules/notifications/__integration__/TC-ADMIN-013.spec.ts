@@ -53,6 +53,23 @@ async function hasNotificationEvent(
   }, { userId: recipientUserId, titleText: title })
 }
 
+async function hasNotificationBatchEvent(
+  page: Page,
+  recipientUserId: string,
+): Promise<boolean> {
+  return page.evaluate(({ userId }) => {
+    const events = (window as unknown as { __capturedOmEvents?: CapturedEvent[] }).__capturedOmEvents ?? []
+    return events.some((event) => {
+      if (event.id !== 'notifications.notification.batch_created') return false
+      const payload = event.payload
+      if (!payload || typeof payload !== 'object') return false
+      const recipientUserIds = (payload as { recipientUserIds?: unknown }).recipientUserIds
+      if (!Array.isArray(recipientUserIds)) return false
+      return recipientUserIds.includes(userId)
+    })
+  }, { userId: recipientUserId })
+}
+
 test.describe('TC-ADMIN-013: Notifications SSE', () => {
   test('delivers notifications.notification.created to target user without polling', async ({ page, request }) => {
     await login(page, 'superadmin')
@@ -76,6 +93,31 @@ test.describe('TC-ADMIN-013: Notifications SSE', () => {
 
     await expect
       .poll(async () => hasNotificationEvent(page, claims.sub, uniqueTitle), { timeout: 8_000 })
+      .toBe(true)
+  })
+
+  test('delivers notifications.notification.batch_created when batch notification is created', async ({ page, request }) => {
+    await login(page, 'superadmin')
+    await page.goto('/backend')
+    await page.waitForLoadState('domcontentloaded')
+    await installCollector(page)
+
+    const token = await getAuthToken(request, 'superadmin')
+    const claims = decodeJwtClaims(token)
+    const uniqueTitle = `Integration Notification Batch ${Date.now()}`
+
+    const createRes = await apiRequest(request, 'POST', '/api/notifications/batch', {
+      token,
+      data: {
+        type: 'integration.test.batch',
+        title: uniqueTitle,
+        recipientUserIds: [claims.sub],
+      },
+    })
+    expect(createRes.ok()).toBeTruthy()
+
+    await expect
+      .poll(async () => hasNotificationBatchEvent(page, claims.sub), { timeout: 8_000 })
       .toBe(true)
   })
 })
