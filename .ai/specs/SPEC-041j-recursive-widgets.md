@@ -6,7 +6,7 @@
 | **Phase** | J (PR 10) |
 | **Branch** | `feat/umes-recursive-widgets` |
 | **Depends On** | Phase A (Foundation) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-03-03) |
 
 ## Goal
 
@@ -173,9 +173,12 @@ export default {
 
 | Action | File |
 |--------|------|
-| **NEW** | `packages/core/src/modules/example/widgets/injection/crud-validation-addon/widget.ts` |
-| **MODIFY** | `packages/core/src/modules/example/widgets/injection/crud-validation/widget.client.tsx` (add nested InjectionSpot) |
-| **MODIFY** | `packages/core/src/modules/example/widgets/injection-table.ts` (add nested spot mapping) |
+| **NEW** | `apps/mercato/src/modules/example/widgets/injection/crud-validation-addon/widget.ts` |
+| **MODIFY** | `apps/mercato/src/modules/example/widgets/injection/crud-validation/widget.client.tsx` (add nested InjectionSpot) |
+| **MODIFY** | `apps/mercato/src/modules/example/widgets/injection/crud-validation/widget.ts` (delegate lifecycle events to nested widget spot) |
+| **MODIFY** | `apps/mercato/src/modules/example/widgets/injection-table.ts` (add nested spot mapping) |
+| **MIRROR** | `packages/create-app/template/src/modules/example/widgets/injection/*` + `injection-table.ts` (template sync) |
+| **NEW** | `apps/mercato/src/modules/example/__integration__/TC-UMES-009.spec.ts` (TC-UMES-RW01, TC-UMES-RW02) |
 
 **Estimated scope**: Small — mostly documentation + example
 
