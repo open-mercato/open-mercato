@@ -6,6 +6,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Progress } from '@open-mercato/ui/primitives/progress'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 
@@ -21,6 +22,8 @@ type ReindexLock = {
   action: string
   startedAt: string
   elapsedMinutes: number
+  processedCount?: number | null
+  totalCount?: number | null
 }
 
 type FulltextEnvVarStatus = {
@@ -247,6 +250,15 @@ export function FulltextSearchSection({
     </svg>
   )
 
+  const fulltextProgress = React.useMemo(() => {
+    if (!fulltextReindexLock) return null
+    const processedCount = Math.max(0, fulltextReindexLock.processedCount ?? 0)
+    const totalCount = Math.max(0, fulltextReindexLock.totalCount ?? 0)
+    if (totalCount <= 0) return null
+    const progressPercent = Math.max(0, Math.min(100, Math.round((processedCount / totalCount) * 100)))
+    return { processedCount, totalCount, progressPercent }
+  }, [fulltextReindexLock])
+
   return (
     <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
       <h2 className="text-lg font-semibold mb-2">
@@ -444,6 +456,18 @@ export function FulltextSearchSection({
                           minutes: fulltextReindexLock.elapsedMinutes,
                         })}
                       </p>
+                      {fulltextProgress && (
+                        <div className="mt-2 space-y-1">
+                          <Progress value={fulltextProgress.progressPercent} className="h-2" />
+                          <p className="text-xs text-blue-700 dark:text-blue-300">
+                            {t('search.settings.reindexProgress', '{{processed}} / {{total}} ({{progress}}%)', {
+                              processed: fulltextProgress.processedCount,
+                              total: fulltextProgress.totalCount,
+                              progress: fulltextProgress.progressPercent,
+                            })}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -7,6 +7,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Progress } from '@open-mercato/ui/primitives/progress'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 
@@ -82,6 +83,8 @@ type ReindexLock = {
   action: string
   startedAt: string
   elapsedMinutes: number
+  processedCount?: number | null
+  totalCount?: number | null
 }
 
 type ActivityLog = {
@@ -448,6 +451,14 @@ export function VectorSearchSection({
 
   const autoIndexingChecked = embeddingSettings ? embeddingSettings.autoIndexingEnabled : true
   const autoIndexingDisabled = embeddingLoading || embeddingSaving || Boolean(embeddingSettings?.autoIndexingLocked)
+  const vectorProgress = React.useMemo(() => {
+    if (!vectorReindexLock) return null
+    const processedCount = Math.max(0, vectorReindexLock.processedCount ?? 0)
+    const totalCount = Math.max(0, vectorReindexLock.totalCount ?? 0)
+    if (totalCount <= 0) return null
+    const progressPercent = Math.max(0, Math.min(100, Math.round((processedCount / totalCount) * 100)))
+    return { processedCount, totalCount, progressPercent }
+  }, [vectorReindexLock])
 
   return (
     <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
@@ -786,6 +797,18 @@ export function VectorSearchSection({
                             minutes: vectorReindexLock.elapsedMinutes,
                           })}
                         </p>
+                        {vectorProgress && (
+                          <div className="mt-2 space-y-1">
+                            <Progress value={vectorProgress.progressPercent} className="h-2" />
+                            <p className="text-xs text-blue-700 dark:text-blue-300">
+                              {t('search.settings.reindexProgress', '{{processed}} / {{total}} ({{progress}}%)', {
+                                processed: vectorProgress.processedCount,
+                                total: vectorProgress.totalCount,
+                                progress: vectorProgress.progressPercent,
+                              })}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

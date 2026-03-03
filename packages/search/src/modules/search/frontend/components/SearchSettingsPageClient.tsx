@@ -30,6 +30,8 @@ type ReindexLock = {
   action: string
   startedAt: string
   elapsedMinutes: number
+  processedCount?: number | null
+  totalCount?: number | null
 }
 
 type SearchSettings = {
