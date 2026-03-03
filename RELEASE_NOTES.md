@@ -2,6 +2,23 @@
 
 **Date:** January 29, 2026
 
+## Unreleased
+
+### Agent Governance V2 (in progress)
+- Added provider-agnostic harness adapter registry with `opencode` support and `claude_agent_sdk` feature-flagged skeleton.
+- Added canonical MCP tool names (`agent_run`, `risk_check`, `precedent_search`, `precedent_explain`, `context_expand`, `skill_capture`) with deprecated legacy aliases retained for compatibility.
+- Added policy-aware MCP tool grant enforcement at execution time.
+- Added asynchronous decision projection pipeline from `DecisionEvent` to `DecisionEntityLink`, `DecisionWhyLink`, and `PrecedentIndex` with checksum-based incremental skip.
+- Added retrieval planner with bounded token/cost/time budgets, fallback behavior, and trace linkage of retrieved context into decision telemetry.
+- Added contract and security tests for tenant-scoped retrieval APIs, approval spoofing rejection, immutable trace tamper detection, and frozen contract surface validation.
+- Added scheduler-backed governed automation path with idempotent dispatch/projection/repair workers.
+- Added deterministic run-control stale-state guard (`expectedStatus`) to reduce concurrent operator race conditions.
+- Added skill lifecycle extensions (trace capture + validation workflows) and measurable `skillGuidanceImpact30d` observability metric.
+- Added anti-fatigue alert routing telemetry (`alertRouting`) and governance dashboard exposure.
+- Added baseline migration for `agent_governance` module schema (`Migration20260303195244.ts`).
+- Added external retrieval adapter extension points (`native`, `lightrag`, `graphrag_rs`) with provider fallback support.
+- Added retrieval provider benchmarking API (`POST /api/agent_governance/retrieval/benchmark`) for evidence-based provider selection.
+
 ## Highlights
 
 This release introduces the **Notifications module**, **Agent Skills infrastructure**, **Dashboard Analytics Widgets**, and a major architectural improvement decoupling module setup with a centralized config. It also includes important security fixes, Docker infrastructure improvements, and dependency updates.
