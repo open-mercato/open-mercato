@@ -7,106 +7,14 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { LoadingMessage, ErrorMessage } from "@open-mercato/ui/backend/detail";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type ImportSessionStatus =
-  | "draft"
-  | "analyzing"
-  | "analyzed"
-  | "ready"
-  | "planning"
-  | "planned"
-  | "importing"
-  | "done"
-  | "failed"
-  | "cancelled";
-
-type FieldMapping = {
-  airtableFieldId: string;
-  airtableFieldName: string;
-  airtableFieldType: string;
-  omFieldKey: string | null;
-  omFieldType: string | null;
-  isMappedToCreatedAt: boolean;
-  isMappedToUpdatedAt: boolean;
-  skip: boolean;
-  sampleValues: unknown[];
-};
-
-type TableMapping = {
-  airtableTableId: string;
-  airtableTableName: string;
-  targetModule: string | null;
-  targetEntitySlug: string | null;
-  confidence?: number;
-  skip: boolean;
-  fieldMappings: FieldMapping[];
-};
-
-type ImportMapping = {
-  tables: TableMapping[];
-};
-
-type ImportConfig = {
-  importUsers: boolean;
-  importAttachments: boolean;
-  preserveDates: boolean;
-  addAirtableIdField: boolean;
-  overwriteExisting: boolean;
-  userRoleMapping: Record<string, string>;
-};
-
-type ImportProgress = {
-  tables: Record<
-    string,
-    { total: number; done: number; failed: number; needsAttention: number }
-  >;
-  currentTable: string | null;
-  startedAt: string;
-  pass: number;
-  logs: Array<{ level: string; message: string; timestamp: string }>;
-};
-
-type ImportReport = {
-  tables: Record<
-    string,
-    {
-      imported: number;
-      needsAttention: number;
-      hardErrors: number;
-      records: Array<{
-        airtableId: string;
-        omId: string | null;
-        airtableUrl: string;
-        omUrl: string | null;
-        issue: string | null;
-        issueType: string;
-      }>;
-    }
-  >;
-  completedAt: string;
-  durationMs: number;
-};
-
-type ImportPlan = {
-  tables: Record<string, { records: unknown[] }>;
-  totalRecords: number;
-};
-
-type ImportSession = {
-  id: string;
-  status: ImportSessionStatus;
-  currentStep: number;
-  airtableBaseId: string;
-  airtableBaseName?: string | null;
-  mappingJson?: ImportMapping | null;
-  configJson?: ImportConfig | null;
-  planJson?: ImportPlan | null;
-  progressJson?: ImportProgress | null;
-  reportJson?: ImportReport | null;
-  createdAt: string;
-};
+import type {
+  ImportSession,
+  ImportMapping,
+  ImportConfig,
+  ImportProgress,
+  StepProps,
+  ImportLogEntry,
+} from "./types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -134,17 +42,6 @@ const STEP_LABELS = [
   "Import",
   "Raport",
 ];
-
-// ─── Step props ───────────────────────────────────────────────────────────────
-
-type StepProps = {
-  session: ImportSession;
-  sessionId: string;
-  onNext: () => void;
-  onBack: () => void;
-  reload: () => void;
-  onRestart: () => void;
-};
 
 // ─── Step 1: Connect ──────────────────────────────────────────────────────────
 
@@ -836,12 +733,6 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
 }
 
 // ─── Step 7: Execute ──────────────────────────────────────────────────────────
-
-type ImportLogEntry = {
-  level: string;
-  message: string;
-  timestamp: string;
-};
 
 function StepExecute({
   session,
