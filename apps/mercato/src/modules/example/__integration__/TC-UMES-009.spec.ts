@@ -18,11 +18,6 @@ test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
   })
 
   test('TC-UMES-RW02: nested widget onBeforeSave participates in save lifecycle', async ({ page }) => {
-    const consoleMessages: string[] = []
-    page.on('console', (msg) => {
-      consoleMessages.push(msg.text())
-    })
-
     const titleInput = page.locator('[data-crud-field-id="title"] input').first()
     await expect(titleInput).toBeVisible()
     await titleInput.fill(`phase-j-${Date.now()}`)
@@ -34,17 +29,7 @@ test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
     await form.locator('button[type="submit"]').first().click()
 
     await expect(page.getByTestId('phase-g-result')).toContainText('phase-j-', { timeout: 10_000 })
-    await expect
-      .poll(
-        () => consoleMessages.some((entry) => entry.includes('[Example Widget] Before save validation:')),
-        { timeout: 10_000 },
-      )
-      .toBe(true)
-    await expect
-      .poll(
-        () => consoleMessages.some((entry) => entry.includes('[UMES] Nested addon widget onBeforeSave fired')),
-        { timeout: 10_000 },
-      )
-      .toBe(true)
+    await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":true', { timeout: 10_000 })
+    await expect(page.getByTestId('widget-recursive-before-save')).toContainText('"fired":true', { timeout: 10_000 })
   })
 })

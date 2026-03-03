@@ -17,7 +17,12 @@ const widget: InjectionWidgetModule = {
       "Addon injected into validation widget's nested spot",
     ),
   eventHandlers: {
-    onBeforeSave: async () => {
+    onBeforeSave: async (_data, context) => {
+      const sharedState =
+        context && typeof context === 'object'
+          ? (context as { sharedState?: { set?: (key: string, value: unknown) => void } }).sharedState
+          : undefined
+      sharedState?.set?.('lastRecursiveAddonBeforeSave', { fired: true, firedAt: Date.now() })
       console.log('[UMES] Nested addon widget onBeforeSave fired')
       return { ok: true }
     },

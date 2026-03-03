@@ -30,6 +30,9 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
   const [lastTransformValidation, setLastTransformValidation] = React.useState<unknown>(
     sharedState?.get?.('lastTransformValidation') ?? null,
   )
+  const [lastRecursiveAddonBeforeSave, setLastRecursiveAddonBeforeSave] = React.useState<unknown>(
+    sharedState?.get?.('lastRecursiveAddonBeforeSave') ?? null,
+  )
 
   React.useEffect(() => {
     if (!sharedState?.subscribe) return
@@ -43,6 +46,7 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
       sharedState.subscribe('lastTransformFormData', setLastTransformFormData),
       sharedState.subscribe('lastTransformDisplayData', setLastTransformDisplayData),
       sharedState.subscribe('lastTransformValidation', setLastTransformValidation),
+      sharedState.subscribe('lastRecursiveAddonBeforeSave', setLastRecursiveAddonBeforeSave),
     ]
     return () => {
       unsubscribers.forEach((unsubscribe) => unsubscribe())
@@ -67,6 +71,7 @@ export default function ValidationWidget({ context, data, disabled }: InjectionW
       <div data-testid="widget-transform-form-data" className="text-xs text-muted-foreground">transformFormData={print(lastTransformFormData)}</div>
       <div data-testid="widget-transform-display-data" className="text-xs text-muted-foreground">transformDisplayData={print(lastTransformDisplayData)}</div>
       <div data-testid="widget-transform-validation" className="text-xs text-muted-foreground">transformValidation={print(lastTransformValidation)}</div>
+      <div data-testid="widget-recursive-before-save" className="text-xs text-muted-foreground">recursiveBeforeSave={print(lastRecursiveAddonBeforeSave)}</div>
       <div data-testid="widget-recursive-addon-host" className="mt-2 rounded border border-dashed border-border/80 bg-background/60 p-2">
         <InjectionSpot
           spotId="widget:example.injection.crud-validation:addon"
