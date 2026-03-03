@@ -51,7 +51,7 @@ async function fetchProductsNeedingSeo(): Promise<ProductSeoIssue[]> {
   return issues.slice(0, 5)
 }
 
-export default function CatalogSeoReportWidget(_props: InjectionWidgetComponentProps) {
+export default function CatalogSeoReportWidget({ }: InjectionWidgetComponentProps) {
   const t = useT()
   const [issues, setIssues] = React.useState<ProductSeoIssue[]>([])
   const [loading, setLoading] = React.useState(true)

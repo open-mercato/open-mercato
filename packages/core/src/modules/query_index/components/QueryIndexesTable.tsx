@@ -376,17 +376,17 @@ export default function QueryIndexesTable() {
         perspective={{ tableId: 'query_index.status.list' }}
         rowActions={(row) => {
           const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = [
-            { id: 'reindex', label: t('query_index.table.actions.reindex'), onSelect: () => void trigger('reindex', row.entityId) },
+            { id: 'reindex', label: t('query_index.table.actions.reindex'), onSelect: () => trigger('reindex', row.entityId) },
             {
               id: 'reindex-force',
               label: t('query_index.table.actions.reindexForce'),
-              onSelect: () => void trigger('reindex', row.entityId, { force: true }),
+              onSelect: () => trigger('reindex', row.entityId, { force: true }),
             },
             {
               id: 'purge',
               label: t('query_index.table.actions.purge'),
               destructive: true,
-              onSelect: () => void trigger('purge', row.entityId),
+              onSelect: () => trigger('purge', row.entityId),
             },
           ]
 
@@ -395,13 +395,13 @@ export default function QueryIndexesTable() {
               {
                 id: 'vector-reindex',
                 label: t('query_index.table.actions.vectorReindex'),
-                onSelect: () => void triggerVector('reindex', row.entityId),
+                onSelect: () => triggerVector('reindex', row.entityId),
               },
               {
                 id: 'vector-purge',
                 label: t('query_index.table.actions.vectorPurge'),
                 destructive: true,
-                onSelect: () => void triggerVector('purge', row.entityId),
+                onSelect: () => triggerVector('purge', row.entityId),
               },
             )
           }
@@ -411,13 +411,13 @@ export default function QueryIndexesTable() {
               {
                 id: 'fulltext-reindex',
                 label: t('query_index.table.actions.fulltextReindex'),
-                onSelect: () => void triggerFulltext('reindex', row.entityId),
+                onSelect: () => triggerFulltext('reindex', row.entityId),
               },
               {
                 id: 'fulltext-purge',
                 label: t('query_index.table.actions.fulltextPurge'),
                 destructive: true,
-                onSelect: () => void triggerFulltext('purge', row.entityId),
+                onSelect: () => triggerFulltext('purge', row.entityId),
               },
             )
           }

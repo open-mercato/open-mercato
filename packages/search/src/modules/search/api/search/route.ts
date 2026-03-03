@@ -23,7 +23,7 @@ function parseLimit(value: string | null): number {
 
 function parseStrategies(value: string | null): SearchStrategyId[] | undefined {
   if (!value) return undefined
-  const strategies = value.split(',').map((s) => s.trim()).filter(Boolean) as SearchStrategyId[]
+  const strategies = value.split(',').map((s) => s.trim()).filter(Boolean)
   return strategies.length > 0 ? strategies : undefined
 }
 

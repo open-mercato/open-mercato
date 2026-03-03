@@ -160,7 +160,7 @@ const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
 const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
-const ANSI_ESCAPE_REGEX = /\x1b\[[0-?]*[ -/]*[@-~]/g // NOSONAR — ANSI escape sequence pattern
+const ANSI_ESCAPE_REGEX = /\u001b\[[0-?]*[ -/]*[@-~]/g
 const NEXT_STATIC_ASSET_PATTERN = /\/_next\/static\/[^"'`\s)]+?\.(?:js|css)/g
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
@@ -755,7 +755,7 @@ async function buildSourceFingerprint(options: BuildCacheOptions = {}): Promise<
   }
 
   const fingerprintParts: string[] = []
-  for (const filePath of absoluteFiles.sort((a, b) => a.localeCompare(b))) {
+  for (const filePath of absoluteFiles.sort()) {
     const fileStat = await stat(filePath)
     if (!fileStat.isFile()) {
       continue
@@ -1265,7 +1265,7 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
   return buildEnvironment({
     BASE_URL: baseUrl,
-    NODE_ENV: process.env.NODE_ENV ?? 'test',
+    NODE_ENV: 'test',
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
@@ -2494,7 +2494,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
       JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
-      NODE_ENV: process.env.NODE_ENV ?? 'test',
+      NODE_ENV: 'test',
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',

@@ -27,7 +27,7 @@ export function flattenSystemEntityIds(
       seen.add(id)
     }
   }
-  return Array.from(seen).sort((a, b) => a.localeCompare(b))
+  return Array.from(seen).sort()
 }
 
 export function filterSelectableSystemEntityIds(entityIds: Iterable<string>): string[] {

@@ -1255,10 +1255,10 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
     }
   }
 
-  const sortedPaths = Object.keys(doc.paths).sort((a, b) => a.localeCompare(b))
+  const sortedPaths = Object.keys(doc.paths).sort()
   for (const path of sortedPaths) {
     const operations = doc.paths[path]
-    const methods = Object.keys(operations).sort((a, b) => a.localeCompare(b))
+    const methods = Object.keys(operations).sort()
     for (const method of methods) {
       const op: any = operations[method]
       lines.push('')
@@ -1335,7 +1335,7 @@ export function generateMarkdownFromOpenApi(doc: OpenApiDocument): string {
       }
 
       const responses = op.responses ?? {}
-      const responseStatuses = Object.keys(responses).sort((a, b) => a.localeCompare(b))
+      const responseStatuses = Object.keys(responses).sort()
       if (responseStatuses.length) {
         lines.push('')
         lines.push('### Responses')

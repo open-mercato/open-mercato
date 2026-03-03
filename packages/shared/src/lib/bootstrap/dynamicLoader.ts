@@ -155,8 +155,6 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     dashboardWidgetEntries: [],
     injectionWidgetEntries: [],
     injectionTables: [],
-    interceptorEntries: [],
-    componentOverrideEntries: [],
   }
 }
 
