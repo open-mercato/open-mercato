@@ -69,7 +69,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
                 ? '/'
                 : `${window.location.pathname}${window.location.search}`,
             refreshNotifications: () => {
-              void fetchNotifications()
+              // No-op: data was just fetched — avoid redundant refetch loop.
             },
             navigate: (href) => {
               if (typeof window === 'undefined' || !href.startsWith('/')) return
@@ -147,7 +147,8 @@ export function useNotificationsSse(): UseNotificationsSseResult {
             ? '/'
             : `${window.location.pathname}${window.location.search}`,
         refreshNotifications: () => {
-          void fetchNotifications()
+          // No-op: notification was already applied optimistically from the SSE payload.
+          // Full refetch is only needed for batch_created, reconnect, or missing payload.
         },
         navigate: (href) => {
           if (typeof window === 'undefined' || !href.startsWith('/')) return
