@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 
 export default function ValidationWidget({ context, data, disabled }: InjectionWidgetComponentProps) {
   const sharedState =

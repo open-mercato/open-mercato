@@ -248,5 +248,15 @@
   "example.widgets.todo.settings.showCompleted": "Erledigte Einträge anzeigen",
   "example.widgets.todo.state.allCaughtUp": "Alles erledigt!",
   "example.widgets.todo.state.empty": "Keine To-dos gefunden.",
+  "example.umes.next.form.group": "Testfelder für rekursive Widgets",
+  "example.umes.next.form.title": "Phase J — Formular für rekursive Widgets",
+  "example.umes.next.page.description": "Demonstriert UMES-Folgephasen einschließlich rekursiver Widget-Erweiterbarkeit (Phase J).",
+  "example.umes.next.page.title": "UMES Nächste Phasen",
+  "example.umes.next.phaseJ.label": "Rekursive Widget-Injektion",
+  "example.umes.next.readiness.description": "Live-Bereitschaft für UMES-Folgephasen. Erkanntes Addon bedeutet, dass der rekursive Injektionspunkt funktioniert.",
+  "example.umes.next.readiness.title": "Phasenbereitschaft",
+  "example.umes.next.recursive.description": "Ein Widget (crud-validation) deklariert einen eigenen InjectionSpot. Ein anderes Widget (crud-validation-addon) injiziert sich dort hinein und erzeugt eine geschichtete Komposition.",
+  "example.umes.next.recursive.spotLabel": "Injektionspunkt:",
+  "example.umes.next.recursive.title": "Phase J — Rekursive Widget-Erweiterbarkeit",
   "example.workPlan.nav.group": "Arbeitsplan"
 }

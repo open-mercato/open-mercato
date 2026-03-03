@@ -248,5 +248,15 @@
   "example.widgets.todo.settings.showCompleted": "Mostrar elementos completados",
   "example.widgets.todo.state.allCaughtUp": "¡Todo al día!",
   "example.widgets.todo.state.empty": "No se encontraron tareas.",
+  "example.umes.next.form.group": "Campos de prueba de widget recursivo",
+  "example.umes.next.form.title": "Fase J — Formulario de widget recursivo",
+  "example.umes.next.page.description": "Demuestra las siguientes fases de UMES, incluyendo la extensibilidad recursiva de widgets (Fase J).",
+  "example.umes.next.page.title": "UMES Próximas Fases",
+  "example.umes.next.phaseJ.label": "Inyección recursiva de widgets",
+  "example.umes.next.readiness.description": "Estado de preparación en vivo para las siguientes fases de UMES. Addon detectado significa que el punto de inyección recursiva funciona.",
+  "example.umes.next.readiness.title": "Preparación de fases",
+  "example.umes.next.recursive.description": "Un widget (crud-validation) declara su propio InjectionSpot. Otro widget (crud-validation-addon) se inyecta en él, creando una composición en capas.",
+  "example.umes.next.recursive.spotLabel": "Punto de inyección:",
+  "example.umes.next.recursive.title": "Fase J — Extensibilidad recursiva de widgets",
   "example.workPlan.nav.group": "Plan de trabajo"
 }

@@ -248,5 +248,15 @@
   "example.widgets.todo.settings.showCompleted": "Pokaż ukończone elementy",
   "example.widgets.todo.state.allCaughtUp": "Wszystko załatwione!",
   "example.widgets.todo.state.empty": "Nie znaleziono zadań.",
+  "example.umes.next.form.group": "Pola testowe rekurencyjnych widżetów",
+  "example.umes.next.form.title": "Faza J — Formularz rekurencyjnych widżetów",
+  "example.umes.next.page.description": "Demonstracja kolejnych faz UMES, w tym rekurencyjnej rozszerzalności widżetów (Faza J).",
+  "example.umes.next.page.title": "UMES Kolejne Fazy",
+  "example.umes.next.phaseJ.label": "Rekurencyjna iniekcja widżetów",
+  "example.umes.next.readiness.description": "Status gotowości kolejnych faz UMES. Wykryty addon oznacza, że rekurencyjny punkt iniekcji działa.",
+  "example.umes.next.readiness.title": "Gotowość faz",
+  "example.umes.next.recursive.description": "Widżet (crud-validation) deklaruje własny InjectionSpot. Inny widżet (crud-validation-addon) wstrzykuje się w niego, tworząc warstwową kompozycję.",
+  "example.umes.next.recursive.spotLabel": "Punkt iniekcji:",
+  "example.umes.next.recursive.title": "Faza J — Rekurencyjna rozszerzalność widżetów",
   "example.workPlan.nav.group": "Plan pracy"
 }
