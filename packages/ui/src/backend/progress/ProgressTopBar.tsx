@@ -33,12 +33,12 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
   if (!hasActiveJobs && !hasRecentJobs) return null
 
   return (
-    <div className={cn('border-b bg-muted/30', className)}>
+    <div className={cn('border-b bg-background', className)}>
       <Button
         type="button"
         variant="ghost"
         onClick={() => setExpanded(!expanded)}
-        className="h-auto w-full justify-between rounded-none px-4 py-2 hover:bg-muted/50"
+        className="h-auto w-full justify-between rounded-none bg-background px-4 py-2 hover:bg-muted"
       >
         <div className="flex items-center gap-2 text-sm">
           {hasActiveJobs ? (
@@ -70,7 +70,7 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
       </Button>
 
       {expanded && (
-        <div className="px-4 pb-3 space-y-2">
+        <div className="space-y-2 bg-background px-4 pb-3">
           {activeJobs.map((job) => (
             <ProgressJobCard key={job.id} job={job} t={t} onCancel={refresh} />
           ))}
@@ -103,7 +103,7 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
 
   return (
     <div className={cn(
-      'rounded-md border p-3',
+      'rounded-md border bg-card p-3',
       isFailed && 'border-destructive/50 bg-destructive/5',
       isCompleted && 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20',
     )}>
