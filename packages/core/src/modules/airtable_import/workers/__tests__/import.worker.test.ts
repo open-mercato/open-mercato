@@ -184,6 +184,43 @@ function makeJob(
   } as unknown as QueuedJob<WorkerPayload>;
 }
 
+/**
+ * Shorthand for the most common test setup: single table "tbl1" with one record "rec1"/"uuid-1".
+ * Use buildMockEm() directly for multi-table, multi-record, or custom-structure tests.
+ */
+function buildSingleRecordSession(
+  recordOverrides: Partial<{
+    airtableId: string;
+    omId: string;
+    originalCreatedAt: string | null;
+    originalUpdatedAt: string | null;
+  }> = {},
+  sessionOverrides: Partial<ImportSession> = {},
+) {
+  return buildMockEm({
+    planJson: {
+      importOrder: ["tbl1"],
+      tables: {
+        tbl1: makePlanTable({
+          records: [
+            {
+              airtableId: "rec1",
+              omId: "uuid-1",
+              originalCreatedAt: null,
+              originalUpdatedAt: null,
+              ...recordOverrides,
+            },
+          ],
+        }),
+      },
+      users: {},
+      totalRecords: 1,
+      generatedAt: new Date().toISOString(),
+    },
+    ...sessionOverrides,
+  });
+}
+
 function wireContainer(em: ReturnType<typeof buildMockEm>["em"]) {
   const mockedCreate = createRequestContainer as jest.MockedFunction<
     typeof createRequestContainer
@@ -499,26 +536,7 @@ describe("import.worker handler", () => {
 
   describe("record processing — ok results", () => {
     it("marks a single record as done and increments done counter", async () => {
-      const { em, mockSession } = buildMockEm({
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
-      });
+      const { em, mockSession } = buildSingleRecordSession();
       wireContainer(em);
       wireImporter(makeOkImporter("uuid-1"));
       wireAirtableRecords([{ id: "rec1", fields: { Email: "a@b.com" } }]);
@@ -616,26 +634,7 @@ describe("import.worker handler", () => {
 
   describe("record processing — needsAttention results", () => {
     it("increments needsAttention counter when importer returns needsAttention: true", async () => {
-      const { em, mockSession } = buildMockEm({
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
-      });
+      const { em, mockSession } = buildSingleRecordSession();
       wireContainer(em);
       wireImporter(makeNeedsAttentionImporter("brak email"));
       wireAirtableRecords([{ id: "rec1", fields: {} }]);
@@ -649,26 +648,7 @@ describe("import.worker handler", () => {
     });
 
     it("adds a needsAttention record to reportJson with issueType missing_field", async () => {
-      const { em, mockSession } = buildMockEm({
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
-      });
+      const { em, mockSession } = buildSingleRecordSession();
       wireContainer(em);
       wireImporter(makeNeedsAttentionImporter("brak email"));
       wireAirtableRecords([{ id: "rec1", fields: {} }]);
@@ -682,27 +662,7 @@ describe("import.worker handler", () => {
     });
 
     it("builds correct airtableUrl in the needs_attention report record", async () => {
-      const { em, mockSession } = buildMockEm({
-        airtableBaseId: "appBase123",
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
-      });
+      const { em, mockSession } = buildSingleRecordSession({}, { airtableBaseId: "appBase123" });
       wireContainer(em);
       wireImporter(makeNeedsAttentionImporter("reason"));
       wireAirtableRecords([{ id: "rec1", fields: {} }]);
@@ -722,26 +682,7 @@ describe("import.worker handler", () => {
 
   describe("record processing — hard error results", () => {
     it("increments failed counter when importer returns ok: false without needsAttention", async () => {
-      const { em, mockSession } = buildMockEm({
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
-      });
+      const { em, mockSession } = buildSingleRecordSession();
       wireContainer(em);
       wireImporter(makeFailedImporter("HTTP 500"));
       wireAirtableRecords([{ id: "rec1", fields: {} }]);
@@ -755,26 +696,7 @@ describe("import.worker handler", () => {
     });
 
     it("adds a hard_error report record with the importer error message", async () => {
-      const { em, mockSession } = buildMockEm({
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
-      });
+      const { em, mockSession } = buildSingleRecordSession();
       wireContainer(em);
       wireImporter(makeFailedImporter("HTTP 500"));
       wireAirtableRecords([{ id: "rec1", fields: {} }]);
@@ -824,27 +746,7 @@ describe("import.worker handler", () => {
     });
 
     it("builds correct airtableUrl in the hard_error report record", async () => {
-      const { em, mockSession } = buildMockEm({
-        airtableBaseId: "appXYZ",
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
-      });
+      const { em, mockSession } = buildSingleRecordSession({}, { airtableBaseId: "appXYZ" });
       wireContainer(em);
       wireImporter(makeFailedImporter("error"));
       wireAirtableRecords([{ id: "rec1", fields: {} }]);
@@ -1216,31 +1118,13 @@ describe("import.worker handler", () => {
 
   describe("preserveDates SQL patch", () => {
     it("calls knex.raw to patch created_at for records with originalCreatedAt and status done", async () => {
-      const { em, mockRaw } = buildMockEm({
+      const { em, mockRaw } = buildSingleRecordSession({}, {
         configJson: {
           importUsers: false,
           importAttachments: false,
           preserveDates: true,
           addAirtableIdField: true,
           userRoleMapping: {},
-        },
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
         },
       });
       wireContainer(em);
@@ -1331,7 +1215,7 @@ describe("import.worker handler", () => {
 
   describe("field mapping", () => {
     it("calls transformFieldValue for each non-skipped fieldMapping", async () => {
-      const { em } = buildMockEm({
+      const { em } = buildSingleRecordSession({}, {
         mappingJson: {
           tables: [
             {
@@ -1368,24 +1252,6 @@ describe("import.worker handler", () => {
             },
           ],
         },
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
       });
       wireContainer(em);
       wireImporter(makeOkImporter());
@@ -1407,7 +1273,7 @@ describe("import.worker handler", () => {
     });
 
     it("skips fieldMappings that are mapped to createdAt or updatedAt", async () => {
-      const { em } = buildMockEm({
+      const { em } = buildSingleRecordSession({}, {
         mappingJson: {
           tables: [
             {
@@ -1433,24 +1299,6 @@ describe("import.worker handler", () => {
             },
           ],
         },
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
-        },
       });
       wireContainer(em);
       wireImporter(makeOkImporter());
@@ -1470,7 +1318,7 @@ describe("import.worker handler", () => {
     });
 
     it("does not include null-transformed field values in the importer payload", async () => {
-      const { em } = buildMockEm({
+      const { em } = buildSingleRecordSession({}, {
         mappingJson: {
           tables: [
             {
@@ -1495,24 +1343,6 @@ describe("import.worker handler", () => {
               ],
             },
           ],
-        },
-        planJson: {
-          importOrder: ["tbl1"],
-          tables: {
-            tbl1: makePlanTable({
-              records: [
-                {
-                  airtableId: "rec1",
-                  omId: "uuid-1",
-                  originalCreatedAt: null,
-                  originalUpdatedAt: null,
-                },
-              ],
-            }),
-          },
-          users: {},
-          totalRecords: 1,
-          generatedAt: new Date().toISOString(),
         },
       });
       wireContainer(em);
