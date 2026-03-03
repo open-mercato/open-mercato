@@ -15,7 +15,6 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
   test('should revoke an existing API key', async ({ page, request }) => {
     const keyName = `QA TC-ADMIN-002 ${Date.now()}`;
     let token: string | null = null;
-    let keyId: string | null = null;
 
     try {
       token = await getAuthToken(request);
@@ -64,14 +63,14 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
     } finally {
       // Cleanup via API
       if (token) {
-        const listResponse = await apiRequest(request, 'GET', '/api/auth/api-keys', { token });
-        const listData = await listResponse.json().catch(() => null);
-        if (listData && Array.isArray(listData.items)) {
-          const keyToDelete = listData.items.find((item: Record<string, unknown>) =>
+        const listResponse = await apiRequest(request, 'GET', '/api/api_keys/keys', { token }).catch(() => null);
+        const listData = listResponse ? await listResponse.json().catch(() => null) : null;
+        if (listData && typeof listData === 'object' && Array.isArray((listData as { items?: unknown }).items)) {
+          const keyToDelete = ((listData as { items: Record<string, unknown>[] }).items).find((item: Record<string, unknown>) =>
             item.name === keyName,
           );
           if (keyToDelete && typeof keyToDelete.id === 'string') {
-            await apiRequest(request, 'DELETE', `/api/auth/api-keys?id=${keyToDelete.id}`, { token }).catch(() => {});
+            await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${keyToDelete.id}`, { token }).catch(() => {});
           }
         }
       }
