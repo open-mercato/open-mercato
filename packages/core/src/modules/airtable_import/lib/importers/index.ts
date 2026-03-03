@@ -5,7 +5,10 @@ import { importOrder } from "./sales";
 import { importStaffMember } from "./staff";
 import { importCustomEntityRecord } from "./custom-entity";
 
-export function resolveImporter(targetModule: string | null): ModuleImporter {
+export function resolveImporter(
+  targetModule: string | null,
+  entitySlug?: string | null,
+): ModuleImporter {
   switch (targetModule) {
     case "customers.people":
       return importPerson;
@@ -20,6 +23,7 @@ export function resolveImporter(targetModule: string | null): ModuleImporter {
     case "staff.members":
       return importStaffMember;
     default:
-      return importCustomEntityRecord as ModuleImporter;
+      return (input) =>
+        importCustomEntityRecord({ ...input, entitySlug: entitySlug ?? "" });
   }
 }

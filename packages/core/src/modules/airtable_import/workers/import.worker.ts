@@ -140,7 +140,10 @@ export default async function handler(job: QueuedJob<WorkerPayload>) {
     const recordMap = new Map(airtableRecords.map((r) => [r.id, r]));
 
     const reportRecords: ReportRecord[] = [];
-    const importer = resolveImporter(planTable.targetModule ?? null);
+    const importer = resolveImporter(
+      planTable.targetModule ?? null,
+      planTable.targetEntitySlug,
+    );
 
     for (const planRecord of recordsToProcess) {
       const airtableRecord = recordMap.get(planRecord.airtableId);

@@ -1,4 +1,10 @@
 import { postToOmApi } from "../types";
+import { resolveImporter } from "../index";
+import { importCustomEntityRecord } from "../custom-entity";
+
+jest.mock("../custom-entity", () => ({
+  importCustomEntityRecord: jest.fn().mockResolvedValue({ ok: true, omId: "x" }),
+}));
 
 describe("postToOmApi", () => {
   const mockFetch = jest.fn();
@@ -341,5 +347,24 @@ describe("postToOmApi", () => {
 
     expect(result.ok).toBe(true);
     expect(result.omId).toBe("");
+  });
+});
+
+describe("resolveImporter — custom entity", () => {
+  it("threads entitySlug into custom entity importer call", async () => {
+    const importer = resolveImporter(null, "my-entity-slug");
+    const baseInput = {
+      omId: "uuid-1",
+      airtableId: "rec1",
+      fields: {},
+      tenantId: "t1",
+      organizationId: "o1",
+      omUrl: "http://localhost:3000",
+      omApiKey: "key",
+    };
+    await importer(baseInput);
+    expect(importCustomEntityRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ entitySlug: "my-entity-slug" }),
+    );
   });
 });
