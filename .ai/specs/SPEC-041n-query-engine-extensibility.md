@@ -6,7 +6,7 @@
 | **Phase** | N |
 | **Branch** | `feat/umes-query-engine-extensibility` |
 | **Depends On** | [SPEC-041d — Response Enrichers](./SPEC-041d-response-enrichers.md), [SPEC-041m2 — Sync Event Subscribers](./SPEC-041m2-sync-event-subscribers.md) |
-| **Status** | Draft |
+| **Status** | Implemented |
 | **Created** | 2026-02-26 |
 
 ## TLDR
@@ -403,8 +403,20 @@ const res = await queryEngine.query('customers:customer_person_profile', {
 
 ---
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase N.1 — Shared Contracts + Registry | Done | 2026-03-03 | `queryEngine?` added to ResponseEnricher, EnricherSurfaceSelector added to registry, 12 unit tests |
+| Phase N.2 — Query Sync Event Runner | Done | 2026-03-03 | query-extension-runner.ts created with before/after pipeline, scope guards, enricher application, 29 unit tests |
+| Phase N.3 — Basic + Hybrid Engine Integration | Done | 2026-03-03 | Both engines wired with before/after pipeline, extensions stripped to prevent double-execution |
+| Phase N.4 — Integration Tests + Docs | Done | 2026-03-03 | AGENTS.md updated, full test suite passing |
+
+---
+
 ## Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-02-26 | Initial draft of Phase N: query-engine extensibility with query-level enricher opt-in, unified registry, and sync query events. |
+| 2026-03-03 | Phases N.1–N.4 implemented: query-level enricher opt-in, unified registry selectors, sync query event runner, BasicQueryEngine + HybridQueryEngine integration. |
