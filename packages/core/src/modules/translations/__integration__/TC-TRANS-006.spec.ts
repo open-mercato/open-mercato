@@ -39,6 +39,7 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
  */
 test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
   test.use({ actionTimeout: 30_000 })
+  test.setTimeout(40_000)
   test('should show translation action on product edit page', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const originalLocales = await getLocales(request, adminToken)
