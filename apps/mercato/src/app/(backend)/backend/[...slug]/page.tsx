@@ -7,6 +7,7 @@ import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 
 type Awaitable<T> = T | Promise<T>
 
@@ -47,12 +48,15 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
       if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
     }
   }
-  const Component = match.route.Component
+  const pageHandle = ComponentReplacementHandles.page(pathname)
+  const Component = resolveRegisteredComponent(pageHandle, match.route.Component)
 
   return (
     <>
       <ApplyBreadcrumb breadcrumb={match.route.breadcrumb} title={match.route.title} titleKey={match.route.titleKey} />
-      <Component params={match.params} />
+      <div data-component-handle={pageHandle}>
+        <Component params={match.params} />
+      </div>
     </>
   )
 }

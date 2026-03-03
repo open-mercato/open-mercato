@@ -81,7 +81,7 @@ type VaultReadResponse = {
 
 function normalizeEnv(value: string | undefined): string {
   if (!value) return ''
-  return value.trim().replace(/^['"]|['"]$/g, '')
+  return value.trim().replace(/(?:^['"]|['"]$)/g, '')
 }
 
 type DerivedSecret = { secret: string; source: 'explicit' | 'dev-default'; envName: string }

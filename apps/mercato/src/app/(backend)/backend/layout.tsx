@@ -38,6 +38,7 @@ import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
 import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
+import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBootstrap'
 
 type NavItem = {
   href: string
@@ -383,34 +384,36 @@ export default async function BackendLayout({ children, params }: { children: Re
     <>
       <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
       <I18nProvider locale={locale} dict={dict}>
-        <AiAssistantIntegration
-          tenantId={auth?.tenantId ?? null}
-          organizationId={auth?.orgId ?? null}
-        >
-          <AppShell
-            key={path}
-            productName={productName}
-            email={auth?.email}
-            groups={groups}
-            currentTitle={currentTitle}
-            breadcrumb={breadcrumb}
-            sidebarCollapsedDefault={initialCollapsed}
-            rightHeaderSlot={rightHeaderContent}
-            mobileSidebarSlot={mobileSidebarContent}
-            adminNavApi="/api/auth/admin/nav"
-            version={APP_VERSION}
-            settingsPathPrefixes={settingsPathPrefixes}
-            settingsSections={filteredSettingsSections}
-            settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
-            profileSections={profileSections}
-            profileSectionTitle={translate('profile.page.title', 'Profile')}
-            profilePathPrefixes={profilePathPrefixes}
+        <ComponentOverridesBootstrap>
+          <AiAssistantIntegration
+            tenantId={auth?.tenantId ?? null}
+            organizationId={auth?.orgId ?? null}
           >
-            <PageInjectionBoundary path={path} context={injectionContext}>
-              {children}
-            </PageInjectionBoundary>
-          </AppShell>
-        </AiAssistantIntegration>
+            <AppShell
+              key={path}
+              productName={productName}
+              email={auth?.email}
+              groups={groups}
+              currentTitle={currentTitle}
+              breadcrumb={breadcrumb}
+              sidebarCollapsedDefault={initialCollapsed}
+              rightHeaderSlot={rightHeaderContent}
+              mobileSidebarSlot={mobileSidebarContent}
+              adminNavApi="/api/auth/admin/nav"
+              version={APP_VERSION}
+              settingsPathPrefixes={settingsPathPrefixes}
+              settingsSections={filteredSettingsSections}
+              settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
+              profileSections={profileSections}
+              profileSectionTitle={translate('profile.page.title', 'Profile')}
+              profilePathPrefixes={profilePathPrefixes}
+            >
+              <PageInjectionBoundary path={path} context={injectionContext}>
+                {children}
+              </PageInjectionBoundary>
+            </AppShell>
+          </AiAssistantIntegration>
+        </ComponentOverridesBootstrap>
       </I18nProvider>
     </>
   )

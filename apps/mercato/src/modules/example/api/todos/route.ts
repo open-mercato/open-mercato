@@ -34,7 +34,7 @@ const querySchema = z
     organizationId: z.string().uuid().optional(),
     createdFrom: z.string().optional(),
     createdTo: z.string().optional(),
-    format: z.enum(['json', 'csv']).optional().default('json'),
+    format: z.enum(['json', 'csv']).optional(),
   })
   .passthrough()
 

@@ -1,0 +1,42 @@
+---
+title: Extensibility Directory
+description: Complete map of what can be extended in Open Mercato today, including UMES coverage and integration enhancement paths.
+---
+
+This directory is a practical map of Open Mercato extension surfaces.
+
+Use it to answer three questions quickly:
+
+1. What can I extend today?
+2. Where do I hook in (file + contract)?
+3. What is still missing and planned for UMES 2.09?
+
+## Start here
+
+- [Current extension surfaces](./current-surfaces)
+- [UMES phases status and links](./umes-phases)
+- [Integration enhancements](./integration-enhancements)
+- [Not extensible yet (UMES 2.09 roadmap)](./umes-2-09-roadmap)
+
+## Generated registry files (current app state)
+
+When you run `yarn generate`, extension points are discovered and wired into generated registries in `apps/mercato/.mercato/generated/`.
+
+Important generated files:
+
+- `interceptors.generated.ts` (API interceptors)
+- `enrichers.generated.ts` (response enrichers)
+- `component-overrides.generated.ts` (component replacements)
+- `injection-tables.generated.ts` (widget-to-spot mappings)
+- `injection-widgets.generated.ts` (widget loaders)
+- `events.generated.ts` (typed events registry)
+- `search.generated.ts` (search module configs)
+- `notifications.generated.ts` / `notifications.client.generated.ts`
+- `message-types.generated.ts` / `message-objects.generated.ts`
+- `ai-tools.generated.ts`
+
+See also:
+
+- [Modules overview](/framework/modules/overview)
+- [Widget injection](/framework/widget-injection)
+- [API extension guide](/framework/api/extending-api)

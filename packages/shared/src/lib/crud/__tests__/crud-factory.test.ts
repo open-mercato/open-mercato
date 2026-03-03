@@ -1,4 +1,5 @@
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { z } from 'zod'
 
 // ---- Mocks ----
@@ -127,6 +128,7 @@ describe('CRUD Factory', () => {
       execute: jest.fn(async () => ({ result: {}, logEntry: { id: 'log-1' } })),
     }
     crudMutationGuardService = null
+    registerApiInterceptors([])
   })
 
   const querySchema = z.object({
@@ -367,5 +369,69 @@ describe('CRUD Factory', () => {
     // CommandBus via flushCrudSideEffects(). The factory itself must NOT emit events
     // to avoid duplicates (see commit 3f999f35).
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('POST is blocked by interceptor before hook', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.block-title',
+            targetRoute: 'example/todos',
+            methods: ['POST'],
+            async before(request) {
+              const title = request.body?.title
+              if (typeof title === 'string' && title.includes('BLOCKED')) {
+                return { ok: false, statusCode: 422, message: 'Blocked by interceptor' }
+              }
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'BLOCKED item', is_done: false }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(422)
+    const payload = await res.json()
+    expect(payload).toMatchObject({
+      error: 'Blocked by interceptor',
+      interceptorId: 'example.block-title',
+    })
+  })
+
+  it('GET response is augmented by interceptor after hook', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.add-response-flag',
+            targetRoute: 'example/todos',
+            methods: ['GET'],
+            async after(_request, response) {
+              return {
+                merge: {
+                  _interceptor: {
+                    ok: true,
+                    count: Array.isArray(response.body.items) ? response.body.items.length : 0,
+                  },
+                },
+              }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body._interceptor).toEqual({ ok: true, count: 1 })
   })
 })

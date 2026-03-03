@@ -268,7 +268,7 @@ export default function UsersListPage() {
   const normalizedRoleIds = React.useMemo(() => {
     if (!effectiveRoleIds.length) return [] as string[]
     const unique = Array.from(new Set(effectiveRoleIds))
-    unique.sort()
+    unique.sort((a, b) => a.localeCompare(b))
     return unique
   }, [effectiveRoleIds])
 

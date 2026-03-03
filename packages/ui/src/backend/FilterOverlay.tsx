@@ -172,7 +172,7 @@ export function FilterOverlay({
     <>
       {open && (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} />
+          <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} role="presentation" />
           <div className="absolute left-0 top-0 h-full w-full sm:w-[380px] bg-background shadow-xl border-r flex flex-col">
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="text-base font-semibold">{defaultTitle}</h2>

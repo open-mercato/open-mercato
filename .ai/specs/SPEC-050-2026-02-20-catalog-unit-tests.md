@@ -1,4 +1,4 @@
-# SPEC-030: Catalog Module Test Coverage
+# SPEC-050: Catalog Module Test Coverage
 
 **Date:** 2026-02-20
 **Status:** Draft
@@ -538,6 +538,21 @@ None.
 
 **Fully compliant** — Approved for implementation.
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+| ----- | ------ | ---- | ----- |
+| Phase 1 — Pure Logic Unit Tests | Done | 2026-02-26 | 95 tests passing across 3 files |
+| Phase 2 — Component Interaction Unit Tests | Not Started | — | — |
+| Phase 3 — Integration Tests | Not Started | — | TC-CAT-013 and TC-CAT-014 already exist from prior work |
+| Phase 4 — Fixture Helpers | Not Started | — | — |
+
+### Phase 1 — Detailed Progress
+
+- [x] Step 1.1: `productForm.test.ts` — expanded with ~53 new test cases
+- [x] Step 1.2: `variantForm.test.ts` — created with ~23 test cases
+- [x] Step 1.3: `categoryTree.test.ts` — created with 5 test cases
+
 ## Changelog
 
 ### 2026-02-20
@@ -546,7 +561,7 @@ None.
 
 ### 2026-02-20 (v2)
 
-- Restored canonical numbering from SPEC-034 to SPEC-030 and aligned repository references.
+- Restored canonical numbering from SPEC-034 to SPEC-050 and aligned repository references.
 - Added Phase 3: Integration Tests (10 new Playwright test files, TC-CAT-013 through TC-CAT-022)
 - Added Phase 4: Fixture Helpers (extend catalogFixtures.ts)
 - Updated title from "Unit & UI Unit Tests" to "Test Coverage"

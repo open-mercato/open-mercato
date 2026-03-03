@@ -63,6 +63,36 @@ RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 EXPOSE 3000
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
+
+# Preview stage: used by Dokploy preview deployments
+FROM node:24-alpine AS preview
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++ ca-certificates openssl docker-cli
+RUN corepack enable
+
+COPY package.json yarn.lock .yarnrc.yml turbo.json ./
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages/ ./packages/
+COPY apps/ ./apps/
+COPY scripts/ ./scripts/
+RUN yarn install
+
+COPY newrelic.js ./
+COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
+COPY eslint.config.mjs ./
+
+RUN yarn build:packages
+
+COPY docker/scripts/preview-entrypoint.sh /app/docker/scripts/preview-entrypoint.sh
+RUN chmod +x /app/docker/scripts/preview-entrypoint.sh
+
+CMD ["/bin/sh", "/app/docker/scripts/preview-entrypoint.sh"]
+
 # Production stage
 FROM node:24-alpine AS runner
 

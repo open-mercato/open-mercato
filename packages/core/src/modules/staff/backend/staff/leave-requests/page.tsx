@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -209,7 +209,7 @@ function mapLeaveRequest(item: Record<string, unknown>): LeaveRequestRow {
     : typeof item.updated_at === 'string'
       ? item.updated_at
       : null
-  return {
+  return withDataTableNamespaces({
     id,
     memberName,
     startDate,
@@ -217,7 +217,7 @@ function mapLeaveRequest(item: Record<string, unknown>): LeaveRequestRow {
     status,
     reason,
     updatedAt,
-  }
+  }, item)
 }
 
 function formatDateRange(start?: string | null, end?: string | null): string {

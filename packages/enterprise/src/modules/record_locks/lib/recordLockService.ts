@@ -463,7 +463,7 @@ export class RecordLockService {
     if (!this.moduleConfigService) return settings
 
     await this.moduleConfigService.setValue(RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME, settings)
-    return settings
+    return settings // NOSONAR — both paths return settings by design; the branch controls persistence
   }
 
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {

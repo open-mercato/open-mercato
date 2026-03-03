@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft |
+| **Status** | In Progress (Phases A-H Implemented) |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-02-24 |
 | **Issue** | [#675](https://github.com/open-mercato/open-mercato/issues/675) |
@@ -33,6 +33,20 @@ Each phase is a separate PR, independently mergeable, with example module demons
 | **K** | [SPEC-041k — DevTools](./SPEC-041k-devtools.md) | `feat/umes-devtools` | UMES DevTools panel, build-time conflict detection | All |
 | **L** | [SPEC-041l — Integration Extensions](./SPEC-041l-integration-extensions.md) | `feat/umes-integration-extensions` | Wizard widgets, status badges, external ID mapping display | A, C, D, G |
 | **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, sync event subscribers (lifecycle events), client-side event filtering, command interceptors | E |
+| **N** | [SPEC-041n — Query Engine Extensibility](./SPEC-041n-query-engine-extensibility.md) | `feat/umes-query-engine-extensibility` | Query-level enricher opt-in, unified enricher registry for Basic/Hybrid query engines, sync query events (`*.querying`/`*.queried`) with filter/query/result transforms | D, M |
+
+### Implementation Progress Snapshot (2026-02-27)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| A — Foundation | Done | `InjectionPosition`, headless injection loader path, and `useInjectionDataWidgets` are implemented with docs and tests. |
+| B — Menu Injection | Done | `useInjectedMenuItems` + `mergeMenuItems` are implemented for sidebar/topbar/profile surfaces with integration coverage. |
+| C — Events & DOM Bridge | Done | Extended widget event handlers and SSE DOM bridge (`useAppEvent`, `useOperationProgress`) are implemented. |
+| D — Response Enrichers | Done | Enricher contract/registry/runner and CRUD factory integration are implemented with generator/bootstrap wiring. |
+| E — API Interceptors | Done | Core contracts/registry/runner, CRUD integration, generation/bootstrap, unit tests, and Playwright coverage are implemented. |
+| F — DataTable Extensions | Done | Column/row-action/filter deep extension surfaces and bulk-actions runtime execution are wired with unit/integration coverage. |
+| G — CrudForm Fields | Done | Injected field pipeline, full example triad flow, and Playwright coverage are implemented. |
+| H — Component Replacement | Done | Registry/hook/provider/generator wiring, handles, replace-mode props schema validation, and integration coverage are implemented. |
 
 ### Dependency Graph
 
@@ -67,7 +81,8 @@ A (Foundation) ──────┬──────────────�
 - **Wave 1** (after A): B, C, D, H, J — all independent
 - **Wave 2** (after D): E, F, G — all depend only on D
 - **Wave 3** (after E+G+C): I, L, M — I depends on G; L depends on A, C, D, G; M depends on E
-- **Wave 4** (after all): K — integrates everything
+- **Wave 4** (after D+M): N — extends both query engines with opt-in query enrichers + sync query events
+- **Wave 5** (after all): K — integrates everything
 
 ### Minimum Viable UMES
 
@@ -286,8 +301,8 @@ src/modules/<module>/
 | B — Menus | TC-UMES-M01–M04 | 4 |
 | C — Events + DOM Bridge | TC-UMES-E01–E06 | 6 |
 | D — Response Enrichers | TC-UMES-R01–R06 | 6 |
-| E — API Interceptors | TC-UMES-I01–I07 | 7 |
-| F — DataTable Extensions | TC-UMES-D01–D05 | 5 |
+| E — API Interceptors | TC-UMES-I01–I09 | 9 |
+| F — DataTable Extensions | TC-UMES-D01–D06 | 6 |
 | G — CrudForm Fields | TC-UMES-CF01–CF05 | 5 |
 | H — Component Replacement | TC-UMES-CR01–CR06 | 6 |
 | I — Detail Bindings | TC-UMES-DP01–DP04 | 4 |
@@ -296,7 +311,7 @@ src/modules/<module>/
 | L — Integration Extensions | TC-UMES-L01–L06 | 6 |
 | M — Mutation Lifecycle | TC-UMES-ML01–ML10 | 10 |
 | M — Command Interceptors | TC-UMES-CI01–CI10 | 10 |
-| **Total** | | **75** |
+| **Total** | | **78** |
 
 See each phase sub-spec for detailed test scenarios, example module additions, and testing notes.
 
@@ -641,3 +656,5 @@ Key implementation details from deep-diving into the actual codebase:
 | 2026-02-25 | Add Phase M (Mutation Lifecycle) — mutation guard registry (evolve singleton to multi-guard), sync event subscribers via existing `subscribers/*.ts` with `sync: true` metadata (lifecycle events: `*.creating`/`*.updating`/`*.deleting`), client-side widget event filtering, guard on POST/create, normalize DELETE pipeline ordering. Update complete event flow pipeline, dependency graph, auto-discovery paths, scaffolding guides. |
 | 2026-02-25 | Refactor Phase M — replace `data/crud-handlers.ts` file convention with sync event subscribers reusing existing subscriber auto-discovery. Remove `crud-handlers.generated.ts`, `CrudEventHandler` interface. Lifecycle before-events auto-derived from `events.ts` config. |
 | 2026-02-26 | Fix save flow ordering in Phase G and parent to match CrudForm.tsx reality (widget onSave fires BEFORE core API call). Remove rollout/kill-switch section. Phase E: add error handling (fail-closed), timeout, query re-validation, dual-path coverage, container in context, priority collision handling. Phase F: add tableId convention, sorting constraint, Tier 3 pagination UX, bulk action error contract, ID deduplication, client-side filter strategy. Phase G: fix stray code fence, add custom field type to InjectedField, add group fallback, dirty tracking, optionsLoader empty-state, visibleWhen dot-path clarification, fix carrier example to upsert. Phase H: require propsSchema for replace mode, remove displayName targeting, add wrapper composition order, error boundary, HMR cleanup, SSR note, cross-module example, propsTransform and error boundary tests. |
+| 2026-02-26 | Add Phase N (SPEC-041n) — query-engine extensibility with opt-in query enrichers, unified enricher registry shared by API and query engines, and synchronous query lifecycle events (`*.querying`/`*.queried`) for safe filter/query/result transformation across Basic and Hybrid engines. |
+| 2026-02-27 | Refresh implementation progress snapshot: phases A-H marked done in parent spec and status moved to "In Progress (Phases A-H Implemented)". |

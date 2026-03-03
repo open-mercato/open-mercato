@@ -17,6 +17,7 @@ import type {
 import type { VectorDriver } from './vector/types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from './queue/fulltext-indexing'
 import type { VectorIndexJobPayload } from './queue/vector-indexing'
@@ -89,7 +90,7 @@ export interface SearchContainer {
  */
 export type SearchModuleOptions = {
   /** Override default strategies to use */
-  defaultStrategies?: string[]
+  defaultStrategies?: SearchStrategyId[]
   /** Override merge configuration */
   mergeConfig?: ResultMergeConfig
   /** Skip token strategy registration */
@@ -265,9 +266,9 @@ export function registerSearchModule(
  * Determine default strategy order based on available strategies.
  * Prefers fulltext > vector > tokens.
  */
-function determineDefaultStrategies(strategies: SearchStrategy[]): string[] {
+function determineDefaultStrategies(strategies: SearchStrategy[]): SearchStrategyId[] {
   const available = new Set(strategies.map((s) => s.id))
-  const defaults: string[] = []
+  const defaults: SearchStrategyId[] = []
 
   if (available.has('fulltext')) defaults.push('fulltext')
   if (available.has('vector')) defaults.push('vector')

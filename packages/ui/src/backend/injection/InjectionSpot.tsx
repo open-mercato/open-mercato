@@ -230,6 +230,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       requestHeaders?: Record<string, string>
       details?: unknown
       data?: TData
+      applyToForm?: boolean
       fieldChange?: {
         value?: unknown
         sideEffects?: Record<string, unknown>
@@ -290,21 +291,36 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       // Output of widget N becomes input of widget N+1
       if (TRANSFORMER_EVENTS.has(event)) {
         let pipelineData = data
+        let applyToForm = false
         for (const widget of widgets) {
           const handler = widget.module.eventHandlers?.[event]
           if (!handler) continue
           try {
             const widgetContext = injectSharedStateIntoContext(context, widget.moduleId)
+            let handlerResult: unknown
             if (event === 'transformValidation') {
-              pipelineData = await (handler as any)(pipelineData, meta?.originalData ?? data, widgetContext)
+              handlerResult = await (handler as any)(pipelineData, meta?.originalData ?? data, widgetContext)
             } else {
-              pipelineData = await (handler as any)(pipelineData, widgetContext)
+              handlerResult = await (handler as any)(pipelineData, widgetContext)
+            }
+            if (
+              event === 'transformFormData' &&
+              handlerResult !== null &&
+              typeof handlerResult === 'object' &&
+              'applyToForm' in handlerResult &&
+              (handlerResult as { applyToForm: unknown }).applyToForm === true &&
+              'data' in handlerResult
+            ) {
+              pipelineData = (handlerResult as { data: TData }).data
+              applyToForm = true
+            } else {
+              pipelineData = handlerResult as TData
             }
           } catch (err) {
             console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
           }
         }
-        return { ok: true, data: pipelineData }
+        return { ok: true, data: pipelineData, applyToForm }
       }
 
       // --- Action events: sequential dispatch ---

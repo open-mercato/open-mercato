@@ -39,6 +39,10 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
+  withDataTableNamespaces: (mappedRow: Record<string, unknown>, sourceItem: Record<string, unknown>) => ({
+    ...mappedRow,
+    ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
+  }),
   DataTable: ({ title, actions, children, data = [] }: any) => (
     <div data-testid="data-table">
       <h2>{title}</h2>
