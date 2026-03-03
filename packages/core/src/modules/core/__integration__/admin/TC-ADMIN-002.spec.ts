@@ -24,7 +24,7 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       keyId = created.id;
 
       await login(page, 'admin');
-      await page.goto('/backend/api-keys');
+      await page.goto('/backend/api-keys', { waitUntil: 'domcontentloaded' });
       await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
       // Search for the key
@@ -37,11 +37,11 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
 
       // Click the actions button on the row
       const actionsButton = keyRow.getByRole('button', { name: 'Open actions' });
-      await actionsButton.click();
+      await actionsButton.focus();
+      await actionsButton.press('Enter');
 
       // Click the Delete option in the dropdown menu
-      const deleteMenuItem = page.getByRole('menuitem', { name: 'Delete' });
-      await expect(deleteMenuItem).toBeVisible();
+      const deleteMenuItem = page.getByRole('menuitem').filter({ hasText: /^Delete$/ }).first();
       await deleteMenuItem.click();
 
       // Confirm deletion in the dialog
