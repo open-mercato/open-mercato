@@ -18,18 +18,18 @@ test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
   })
 
   test('TC-UMES-RW02: nested widget onBeforeSave participates in save lifecycle', async ({ page }) => {
-    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
-    await expect(titleInput).toBeVisible()
-    await titleInput.fill(`phase-j-${Date.now()}`)
+    await page.getByTestId('phase-c-load-transform-save-example').click()
+    await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue('[confirm][transform] transform demo')
 
-    const noteInput = page.locator('[data-crud-field-id="note"] textarea').first()
-    await noteInput.fill('nested-widget-lifecycle')
+    page.once('dialog', (dialog) => {
+      void dialog.accept()
+    })
 
-    const form = titleInput.locator('xpath=ancestor::form[1]')
+    const form = page.locator('form').first()
     await form.locator('button[type="submit"]').first().click()
 
-    await expect(page.getByTestId('phase-c-submit-result')).toContainText('phase-j-', { timeout: 10_000 })
-    await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":true', { timeout: 10_000 })
+    await expect(page.getByTestId('phase-c-submit-result')).toContainText('transform demo', { timeout: 10_000 })
+    await expect(page.getByTestId('widget-save-guard')).toContainText('dialog:accepted', { timeout: 10_000 })
     await expect(page.getByTestId('widget-recursive-before-save')).toContainText('"fired":true', { timeout: 10_000 })
   })
 })

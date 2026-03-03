@@ -51,6 +51,7 @@ function shouldRunForOperation(
 }
 
 async function runRecursiveBeforeSave(data: unknown, context: unknown): Promise<WidgetBeforeSaveResult> {
+  const sharedState = readSharedState(context)
   const nestedWidgets = await loadInjectionWidgetsForSpot(RECURSIVE_ADDON_SPOT)
   let mergedHeaders: Record<string, string> | undefined
   let mergedFieldErrors: Record<string, string> | undefined
@@ -76,6 +77,14 @@ async function runRecursiveBeforeSave(data: unknown, context: unknown): Promise<
     if (typeof normalized.details !== 'undefined') {
       details = normalized.details
     }
+  }
+
+  if (nestedWidgets.length > 0) {
+    sharedState?.set('lastRecursiveAddonBeforeSave', {
+      fired: true,
+      firedAt: Date.now(),
+      widgets: nestedWidgets.map((widget) => widget.metadata.id),
+    })
   }
 
   if (!mergedHeaders && !mergedFieldErrors && !message && typeof details === 'undefined') {
