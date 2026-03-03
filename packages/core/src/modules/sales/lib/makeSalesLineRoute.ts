@@ -26,7 +26,7 @@ interface SalesLineRouteConfig {
   fieldConstants: Record<string, string>
   parentFkColumn: string
   parentFkParam: string
-  createSchema: z.ZodTypeAny
+  createSchema: z.ZodObject<z.ZodRawShape>
   features: { view: string; manage: string }
   commandPrefix: string
   openApi: {

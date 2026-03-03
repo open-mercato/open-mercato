@@ -170,14 +170,14 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
       }
 
       const organizationIdScope = Array.isArray(organizationIds) && organizationIds.length === 1 ? organizationIds[0] : null
-      const [entities, total] = await findAndCountWithDecryption<TEntity>(
+      const [entities, total] = await findAndCountWithDecryption(
         em,
-        config.entity,
-        where as FilterQuery<TEntity>,
+        config.entity as Parameters<typeof findAndCountWithDecryption>[1],
+        where as Parameters<typeof findAndCountWithDecryption>[2],
         {
           limit,
-          orderBy: { createdAt: 'desc' } as Record<string, 'asc' | 'desc'>,
-        },
+          orderBy: { createdAt: 'desc' as const },
+        } as Parameters<typeof findAndCountWithDecryption>[3],
         { tenantId, organizationId: organizationIdScope },
       )
 
