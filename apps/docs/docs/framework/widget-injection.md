@@ -423,6 +423,121 @@ Component replacement uses stable handle IDs:
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 - **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
 
+## UMES Phase L — Integration Extension Widgets
+
+Phase L adds three specialized widget types for building integration modules: a multi-step wizard, pollable status badges, and an external ID mapping display.
+
+### InjectionWizard
+
+A multi-step wizard component for integration onboarding flows (OAuth setup, API credential entry, sync configuration).
+
+#### Step definition
+
+Each step is an `InjectionWizardStep` with:
+
+- `id` — unique step identifier
+- `label` — displayed in the step indicator (supports i18n keys)
+- `description` — optional subtitle text
+- `fields` — optional array of `InjectedField` definitions (text, select, etc.)
+- `validate` — optional async function returning `{ ok, message?, fieldErrors? }`
+- `customComponent` — optional React component for fully custom step content
+
+#### Usage
+
+```ts
+import { InjectionWizard } from '@open-mercato/ui/backend/injection/InjectionWizard'
+import type { InjectionWizardWidget, InjectionContext } from '@open-mercato/shared/modules/widgets/injection'
+
+const widget: InjectionWizardWidget = {
+  metadata: { id: 'my_module.integration.setup-wizard', title: 'Integration Setup' },
+  kind: 'wizard',
+  steps: [
+    {
+      id: 'credentials',
+      label: 'Credentials',
+      fields: [
+        { id: 'apiKey', label: 'API Key', type: 'text' },
+        { id: 'apiSecret', label: 'API Secret', type: 'text' },
+      ],
+      validate: async (data) => {
+        if (!data.apiKey || !data.apiSecret) {
+          return { ok: false, message: 'Both fields are required.' }
+        }
+        return { ok: true }
+      },
+    },
+    { id: 'scope', label: 'Scope', fields: [/* ... */] },
+  ],
+  onComplete: async (allData, context) => {
+    // Save integration config
+  },
+}
+
+<InjectionWizard widget={widget} context={context} />
+```
+
+The wizard renders a numbered step indicator with connecting lines, validates each step before allowing progression, and calls `onComplete` with accumulated data from all steps. `Escape` cancels the wizard.
+
+### StatusBadgeRenderer
+
+A pollable status badge for displaying integration or service health.
+
+#### Badge definition
+
+An `InjectionStatusBadgeWidget` contains a `badge` object with:
+
+- `label` — display text (supports i18n)
+- `statusLoader` — async function returning `{ status, tooltip?, count? }`
+- `pollInterval` — refresh interval in seconds (default: 60)
+- `href` — optional link target
+
+Status values and their colors:
+
+| Status | Color |
+|--------|-------|
+| `healthy` | Green |
+| `warning` | Yellow |
+| `error` | Red |
+| `unknown` | Gray |
+
+#### Usage
+
+```ts
+import { StatusBadgeRenderer } from '@open-mercato/ui/backend/injection/StatusBadgeRenderer'
+import type { InjectionStatusBadgeWidget, StatusBadgeContext } from '@open-mercato/shared/modules/widgets/injection'
+
+const widget: InjectionStatusBadgeWidget = {
+  metadata: { id: 'my_module.integration.sync-status' },
+  kind: 'status-badge',
+  badge: {
+    label: 'Sync Engine',
+    pollInterval: 30,
+    statusLoader: async (ctx) => {
+      const res = await fetch('/api/integrations/health')
+      const data = await res.json()
+      return { status: data.healthy ? 'healthy' : 'error', tooltip: data.message }
+    },
+  },
+}
+
+<StatusBadgeRenderer widget={widget} context={context} />
+```
+
+### ExternalIdsWidget
+
+Displays external system ID mappings from the `_integrations` namespace added by the external ID mapping enricher (see [Data extensibility](/framework/database/data-extensibility)).
+
+Each row shows:
+
+- **Provider name** — resolved via `getIntegrationTitle()` from the integration registry
+- **External ID** — monospace code badge
+- **Sync status** — color-coded dot (`synced`/`pending`/`error`/`not_synced`)
+- **External link** — icon linking to the record in the external system (when `buildExternalUrl` is registered)
+
+The widget reads `data._integrations` (keyed by integration ID) and renders automatically when enriched data is available. It is registered as an injection widget at `integrations.injection.external-ids`.
+
+Widget source: `packages/core/src/modules/integrations/widgets/injection/external-ids/widget.client.tsx`
+
 ## Creating an Injection Widget
 
 ### 1. Define the Widget

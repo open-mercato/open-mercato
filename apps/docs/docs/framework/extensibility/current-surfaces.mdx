@@ -19,10 +19,12 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Surface | How to start | Primary contract/docs |
 |---|---|---|
 | CRUD extension points | Use `makeCrudRoute` with validators/hooks | [CRUD factory](/framework/api/crud-factory) |
+| Multi-ID list filtering (`ids`) | Call any CRUD list endpoint with `?ids=<uuid1,uuid2,...>`; combine with interceptors for cross-module narrowing | [CRUD factory](/framework/api/crud-factory), [API extension guide](/framework/api/extending-api) |
 | API interceptors (UMES E) | Add `api/interceptors.ts`, export `interceptors` | [API extension guide](/framework/api/extending-api) |
 | Response enrichers (UMES D) | Add `data/enrichers.ts`, export `enrichers` | [Data extensibility](/framework/database/data-extensibility) |
-| Mutation guards | Register guards through mutation guard service/registry | [API extension guide](/framework/api/extending-api) |
+| Mutation guards (UMES M) | Add `data/guards.ts`, export `guards: MutationGuard[]` with priority ordering, payload modification, `afterSuccess` callbacks | [API extension guide](/framework/api/extending-api) |
 | Command handlers | Register commands with `registerCommand` | [Commands overview](/framework/commands/overview) |
+| Command interceptors (UMES M) | Add `commands/interceptors.ts`, export `interceptors` with `beforeExecute`/`afterExecute` hooks | [Commands overview](/framework/commands/overview) |
 
 ## UI extension
 
@@ -33,6 +35,9 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | CrudForm field injections (UMES G) | Inject fields/widgets into form groups via injection spots | [Crud form](/framework/admin-ui/crud-form), [Widget injection](/framework/widget-injection) |
 | Menu injection (UMES B) | Inject menu entries into sidebar/topbar/profile surfaces | [Widget injection](/framework/widget-injection) |
 | Component replacement (UMES H) | Add `widgets/components.ts`, export `componentOverrides` | [Widget injection](/framework/widget-injection) |
+| Integration wizard widget (UMES L) | Use `InjectionWizard` for multi-step integration onboarding | [Widget injection](/framework/widget-injection), [Integration enhancements](/framework/extensibility/integration-enhancements) |
+| Status badge injection (UMES L) | Use `StatusBadgeRenderer` for service health display | [Widget injection](/framework/widget-injection), [Integration enhancements](/framework/extensibility/integration-enhancements) |
+| Client-side event filtering (UMES M) | Set `filter.operations` on widget `eventHandlers` to scope handlers by operation type | [Widget injection](/framework/widget-injection) |
 
 ## Events, subscribers, workers
 
@@ -41,6 +46,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Typed module events | Add `events.ts` with `createModuleEvents` | [Events overview](/framework/events/overview) |
 | DOM Event Bridge + realtime UI (UMES C) | Mark events `clientBroadcast: true`, consume with `useAppEvent` / `useOperationProgress` | [Widget injection](/framework/widget-injection), [Events & queue](/framework/events/queue-workers) |
 | Async subscribers | Add `subscribers/*.ts` + `metadata` | [Events overview](/framework/events/overview) |
+| Sync lifecycle subscribers (UMES M) | Add `subscribers/*.ts` with `metadata { sync: true, priority }` for in-pipeline CRUD lifecycle events | [Events overview](/framework/events/overview) |
 | Queue workers | Add `workers/*.ts` + worker metadata | [Queue workers](/framework/events/queue-workers), [Runtime workers](/framework/runtime/workers) |
 
 ## Data model and entity extension
@@ -51,6 +57,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Cross-module entity extensions | Add `data/extensions.ts` for module links | [Data extensibility](/framework/database/data-extensibility) |
 | Translation fields | Add `translations.ts` for translatable entity fields | [Modules configs](/framework/modules/configs) |
 | Query/index coverage | Use CRUD indexer integration and query-index tooling | [Query index](/framework/database/query-index) |
+| External ID mapping enricher (UMES L) | Add `data/enrichers.ts` with `SyncExternalIdMapping` entity | [Data extensibility](/framework/database/data-extensibility), [Integration enhancements](/framework/extensibility/integration-enhancements) |
 
 ## Search, vector, cache, AI
 
@@ -69,11 +76,13 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 |---|---|---|
 | Notification type registry | Add `notifications.ts` and export `notificationTypes` | [Notifications](/framework/modules/notifications) |
 | Notification renderers | Add `notifications.client.ts` for client rendering | [Notifications](/framework/modules/notifications) |
+| Reactive notification handlers | Add `notifications.handlers.ts` and export `notificationHandlers`; react via `useNotificationEffect` | [Notifications](/framework/modules/notifications), [Widget injection](/framework/widget-injection) |
 | Message types | Add `message-types.ts` in your module | [Messages system](/framework/modules/messages) |
 | Message object types | Add `message-objects.ts` for attachable domain objects | [Messages system](/framework/modules/messages) |
 | Payment/shipping providers | Register `registerPaymentProvider` / `registerShippingProvider` | [Shipping & payment providers](/framework/modules/sales-providers), [Sales calculations](/framework/modules/sales-calculations) |
 | Currency providers | Add custom rate provider implementations | [Currencies module](/framework/modules/currencies) |
 | Workflow integrations | Add custom workflow activities/signals/subscribers | [Workflows extending](/framework/workflows/extending) |
+| Integration registry (UMES L) | Use `registerIntegration()` for typed integration definitions | [Integration enhancements](/framework/extensibility/integration-enhancements), [Data extensibility](/framework/database/data-extensibility) |
 
 ## What else is extendable right now
 

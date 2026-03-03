@@ -160,7 +160,7 @@ const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
 const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
-const ANSI_ESCAPE_REGEX = /\u001b\[[0-?]*[ -/]*[@-~]/g
+const ANSI_ESCAPE_REGEX = /\x1b\[[0-?]*[ -/]*[@-~]/g // NOSONAR — ANSI escape sequence pattern
 const NEXT_STATIC_ASSET_PATTERN = /\/_next\/static\/[^"'`\s)]+?\.(?:js|css)/g
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
@@ -755,7 +755,7 @@ async function buildSourceFingerprint(options: BuildCacheOptions = {}): Promise<
   }
 
   const fingerprintParts: string[] = []
-  for (const filePath of absoluteFiles.sort()) {
+  for (const filePath of absoluteFiles.sort((a, b) => a.localeCompare(b))) {
     const fileStat = await stat(filePath)
     if (!fileStat.isFile()) {
       continue

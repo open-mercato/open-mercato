@@ -657,6 +657,7 @@ export function DataTable<T>({
   const t = useT()
   const router = useRouter()
   const resolvedRowClickActionIds = rowClickActionIds ?? DEFAULT_ROW_CLICK_ACTION_IDS
+  const containerRef = React.useRef<HTMLDivElement>(null)
   const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
   const hasInitializedScopeRef = React.useRef(false)
   React.useEffect(() => {
@@ -1441,6 +1442,13 @@ export function DataTable<T>({
     initialPerspectiveAppliedRef.current = true
   }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId])
 
+  const scrollTableIntoView = React.useCallback(() => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect || rect.top >= 0) return
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+    containerRef.current?.scrollIntoView({ behavior, block: 'start' })
+  }, [])
+
   const renderPagination = () => {
     if (!pagination) return null
 
@@ -1481,7 +1489,7 @@ export function DataTable<T>({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onPageChange(page - 1)}
+            onClick={() => { onPageChange(page - 1); scrollTableIntoView() }}
             disabled={page <= 1}
           >
             {t('ui.dataTable.pagination.previous', 'Previous')}
@@ -1492,7 +1500,7 @@ export function DataTable<T>({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onPageChange(page + 1)}
+            onClick={() => { onPageChange(page + 1); scrollTableIntoView() }}
             disabled={page >= totalPages}
           >
             {t('ui.dataTable.pagination.next', 'Next')}
@@ -1803,7 +1811,7 @@ export function DataTable<T>({
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className={containerClassName} data-component-handle={resolvedReplacementHandle}>
+    <div ref={containerRef} className={containerClassName} data-component-handle={resolvedReplacementHandle}>
       {shouldRenderHeader && (
         <div className={headerWrapperClassName}>
           {(hasTitle || shouldRenderActionsWrapper || renderToolbarInline) && (

@@ -85,7 +85,7 @@ const normalizePriceKind = (input: PriceKindApiPayload | null | undefined): Pric
   }
   const toBooleanValue = (value: unknown): boolean | null => (typeof value === 'boolean' ? value : null)
   const resolveDisplayMode = (value: string | null): PriceKind['displayMode'] =>
-    value === 'including-tax' ? 'including-tax' : value === 'excluding-tax' ? 'excluding-tax' : 'excluding-tax'
+    value === 'including-tax' ? 'including-tax' : 'excluding-tax'
 
   const displayMode = resolveDisplayMode(
     toStringValue(raw.displayMode) ?? toStringValue(raw.display_mode),

@@ -11,7 +11,7 @@ export function slugifyTagLabel(label: string): string {
       .toLowerCase()
       .trim()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
+      .replace(/(?:^-+|-+$)/g, "")
       .slice(0, 80) || `tag-${Math.random().toString(36).slice(2, 10)}`
   )
 }

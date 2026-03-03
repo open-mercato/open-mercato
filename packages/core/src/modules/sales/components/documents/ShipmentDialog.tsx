@@ -171,7 +171,7 @@ const snapshotKey = (snapshot?: NormalizedAddressSnapshot | null): string | null
   if (!snapshot || typeof snapshot !== 'object') return null
   const normalized: Record<string, unknown> = {}
   Object.keys(snapshot)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .forEach((key) => {
       normalized[key] = snapshot[key]
   })

@@ -45,7 +45,9 @@ Key principles:
 | `api/<method>/<path>.ts` | REST handlers, usually via the [CRUD factory](../framework/api/crud-factory). |
 | `data/entities.ts` & `data/extensions.ts` | MikroORM entities and links to extend other modules. |
 | `data/validators.ts` | Zod schemas reused by APIs, CLIs, and forms. |
-| `subscribers/*.ts` | Event subscribers with metadata (`event`, `persistent`). |
+| `subscribers/*.ts` | Event subscribers with metadata (`event`, `persistent`, optional `sync` for in-pipeline lifecycle). |
+| `data/guards.ts` | Mutation guards with priority ordering, payload modification, and `afterSuccess` callbacks (UMES M). |
+| `commands/interceptors.ts` | Command interceptors with `beforeExecute`/`afterExecute` hooks for execute and undo flows (UMES M). |
 | `widgets/dashboard/*` | Dashboard widgets auto-discovered by the admin UI. |
 | `ce.ts` | Custom entities & fields definitions for the Entities module. |
 | `i18n/<locale>.json` | Translation bundles for module-specific copy. |
@@ -128,7 +130,7 @@ Every request (page load, API call, server action) runs through the same pipelin
 2. **DI scope** – `createRequestContainer` builds a request-scoped Awilix container, registers core services, then applies module `di.ts` registrars.
 3. **Auth & RBAC** – `requireAuth`, `requireRoles`, and `requireFeatures` metadata are enforced before handler logic executes.
 4. **Business logic** – Handlers typically call module services, the query engine, or the data engine.
-5. **Events & subscribers** – Writes emit events that persistent subscribers process (for example, index rebuilds, notifications).
+5. **Events & subscribers** – Writes first run sync subscribers and mutation guards inline in the request pipeline, then emit events that persistent subscribers process asynchronously (for example, index rebuilds, notifications).
 
 See the dedicated [request lifecycle reference](../framework/runtime/request-lifecycle) for a deeper breakdown.
 
