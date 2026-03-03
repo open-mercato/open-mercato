@@ -226,7 +226,7 @@ export async function applyQueryLevelEnrichers<T extends Record<string, unknown>
   }
 
   if (mode === 'detail' && items.length === 1) {
-    const singleResult = await applyResponseEnricherToRecord(items[0], entity, context)
+    const singleResult = await applyResponseEnricherToRecord(items[0], entity, context, filteredEntries)
     return {
       items: [singleResult.record as T],
       enrichedBy: singleResult._meta.enrichedBy,
@@ -234,7 +234,7 @@ export async function applyQueryLevelEnrichers<T extends Record<string, unknown>
     }
   }
 
-  const result = await applyResponseEnrichers(items, entity, context)
+  const result = await applyResponseEnrichers(items, entity, context, filteredEntries)
   return {
     items: result.items as T[],
     enrichedBy: result._meta.enrichedBy,

@@ -429,6 +429,48 @@ describe('applyQueryLevelEnrichers', () => {
     expect(result.enrichedBy).toEqual([])
   })
 
+  it('excludes API-only enrichers from query-engine pipeline', async () => {
+    const apiOnlyEnrichMany = jest.fn(async (records: Record<string, unknown>[]) =>
+      records.map((r) => ({ ...r, _apiOnly: true })),
+    )
+    registerResponseEnrichers([
+      {
+        moduleId: 'example',
+        enrichers: [
+          makeEnricher({
+            id: 'example.api-only',
+            targetEntity: 'customers.person',
+            priority: 10,
+            enrichMany: apiOnlyEnrichMany,
+          }),
+          makeEnricher({
+            id: 'example.query-enabled',
+            targetEntity: 'customers.person',
+            priority: 5,
+            queryEngine: { enabled: true },
+            async enrichMany(records) {
+              return records.map((r) => ({ ...r, _queryEngine: true }))
+            },
+          }),
+        ],
+      },
+    ])
+
+    const items = [{ id: '1', name: 'Alice' }]
+    const enricherCtx = {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+      em: {},
+      container: {},
+    }
+    const result = await applyQueryLevelEnrichers(items, 'customers.person', 'basic', enricherCtx)
+    expect(result.enrichedBy).toEqual(['example.query-enabled'])
+    expect(apiOnlyEnrichMany).not.toHaveBeenCalled()
+    expect(result.items[0]).toHaveProperty('_queryEngine', true)
+    expect(result.items[0]).not.toHaveProperty('_apiOnly')
+  })
+
   it('respects applyOn filter', async () => {
     registerResponseEnrichers([
       {
