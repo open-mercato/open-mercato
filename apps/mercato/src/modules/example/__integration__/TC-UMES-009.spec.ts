@@ -18,6 +18,11 @@ test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
   })
 
   test('TC-UMES-RW02: nested widget onBeforeSave participates in save lifecycle', async ({ page }) => {
+    await expect(page.getByTestId('widget-save-guard')).toBeVisible()
+    await expect(page.getByTestId('widget-recursive-addon-host')).toContainText(
+      "Addon injected into validation widget's nested spot",
+    )
+
     await page.getByTestId('phase-c-load-transform-save-example').click()
     await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue('[confirm][transform] transform demo')
 
