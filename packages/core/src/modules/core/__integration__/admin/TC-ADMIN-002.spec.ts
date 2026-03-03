@@ -1,13 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { createApiKeyFixture } from '@open-mercato/core/modules/core/__integration__/helpers/apiKeysFixtures';
 
 /**
  * TC-ADMIN-002: Revoke API Key
  * Source: .ai/qa/scenarios/TC-ADMIN-002-api-key-revocation.md
  *
  * Verifies that an existing API key can be revoked.
- * Creates a key via API, then revokes it through the UI.
+ * Creates a key via API fixture, then revokes it through the UI.
  *
  * Navigation: Settings → Auth → API Keys
  */
@@ -15,23 +16,14 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
   test('should revoke an existing API key', async ({ page, request }) => {
     const keyName = `QA TC-ADMIN-002 ${Date.now()}`;
     let token: string | null = null;
+    let keyId: string | null = null;
 
     try {
       token = await getAuthToken(request);
+      const created = await createApiKeyFixture(request, token, keyName);
+      keyId = created.id;
 
-      // Create an API key via the UI first
       await login(page, 'admin');
-      await page.goto('/backend/api-keys/create');
-
-      const nameField = page.locator('form').getByRole('textbox').first();
-      await nameField.fill(keyName);
-      await page.getByRole('button', { name: 'Create' }).last().click();
-
-      // Wait for the key dialog
-      await expect(page.getByText('Keep this key safe')).toBeVisible({ timeout: 10_000 });
-      await page.getByRole('button', { name: 'Close' }).click();
-
-      // Navigate to API keys list
       await page.goto('/backend/api-keys');
       await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
@@ -62,17 +54,8 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       await expect(page.locator('table').getByText(keyName)).not.toBeVisible({ timeout: 5_000 });
     } finally {
       // Cleanup via API
-      if (token) {
-        const listResponse = await apiRequest(request, 'GET', '/api/api_keys/keys', { token }).catch(() => null);
-        const listData = listResponse ? await listResponse.json().catch(() => null) : null;
-        if (listData && typeof listData === 'object' && Array.isArray((listData as { items?: unknown }).items)) {
-          const keyToDelete = ((listData as { items: Record<string, unknown>[] }).items).find((item: Record<string, unknown>) =>
-            item.name === keyName,
-          );
-          if (keyToDelete && typeof keyToDelete.id === 'string') {
-            await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${keyToDelete.id}`, { token }).catch(() => {});
-          }
-        }
+      if (token && keyId) {
+        await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${encodeURIComponent(keyId)}`, { token }).catch(() => {});
       }
     }
   });
