@@ -4,7 +4,7 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
   test.beforeEach(async ({ page }) => {
     await login(page, 'admin')
-    await page.goto('/backend/umes-extensions')
+    await page.goto('/backend/umes-handlers')
     await page.waitForLoadState('domcontentloaded')
   })
 
@@ -28,7 +28,7 @@ test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
     const form = titleInput.locator('xpath=ancestor::form[1]')
     await form.locator('button[type="submit"]').first().click()
 
-    await expect(page.getByTestId('phase-g-result')).toContainText('phase-j-', { timeout: 10_000 })
+    await expect(page.getByTestId('phase-c-submit-result')).toContainText('phase-j-', { timeout: 10_000 })
     await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":true', { timeout: 10_000 })
     await expect(page.getByTestId('widget-recursive-before-save')).toContainText('"fired":true', { timeout: 10_000 })
   })
