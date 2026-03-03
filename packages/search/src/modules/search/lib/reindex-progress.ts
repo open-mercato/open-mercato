@@ -77,7 +77,7 @@ export async function ensureReindexProgressJob(params: {
     {
       jobType: config.jobType,
       name: config.name,
-      description: params.description ?? null,
+      description: params.description ?? undefined,
       totalCount: params.totalCount ?? undefined,
       cancellable: true,
       meta: {

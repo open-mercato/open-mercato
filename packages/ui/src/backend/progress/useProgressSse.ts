@@ -49,13 +49,14 @@ export function useProgressSse(): UseProgressPollResult {
     'progress.job.updated',
     (event: AppEventPayload) => {
       const payload = event.payload as Partial<ProgressJobDto> & { jobId?: string }
-      if (!payload?.jobId) {
+      const jobId = payload?.jobId
+      if (!jobId) {
         void fetchJobs()
         return
       }
       setActiveJobs((prev) =>
         upsertJob(prev, {
-          id: payload.jobId,
+          id: jobId,
           jobType: payload.jobType ?? 'progress',
           name: payload.name ?? payload.jobType ?? 'Progress job',
           description: payload.description ?? null,
