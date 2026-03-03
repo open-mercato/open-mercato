@@ -18,7 +18,11 @@ async function openTranslationsDrawer(page: Page): Promise<Locator> {
 }
 
 async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: string): Promise<Locator> {
-  const firstEditableField = dialog.locator('table').locator('input, textarea').first()
+  const fieldLocator = dialog.locator('table').locator('input, textarea')
+  await expect.poll(async () => fieldLocator.count(), {
+    message: 'Expected at least one translation input to be available',
+  }).toBeGreaterThan(0)
+  const firstEditableField = fieldLocator.first()
   await expect(firstEditableField).toBeVisible()
 
   const normalizedPlaceholder = preferredPlaceholder?.trim()
