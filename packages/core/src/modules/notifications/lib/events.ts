@@ -7,6 +7,10 @@ export const NOTIFICATION_EVENTS = {
   EXPIRED: 'notifications.expired',
 } as const
 
+export const NOTIFICATION_SSE_EVENTS = {
+  CREATED: 'notifications.notification.created',
+} as const
+
 export type NotificationCreatedPayload = {
   notificationId: string
   recipientUserId: string

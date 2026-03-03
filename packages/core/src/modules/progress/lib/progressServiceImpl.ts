@@ -49,6 +49,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         jobId: job.id,
         jobType: job.jobType,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -91,6 +92,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         totalCount: job.totalCount,
         etaSeconds: job.etaSeconds,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -116,6 +118,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         progressPercent: job.progressPercent,
         processedCount: job.processedCount,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -140,6 +143,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         jobType: job.jobType,
         resultSummary: job.resultSummary,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -161,6 +165,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         jobType: job.jobType,
         errorMessage: job.errorMessage,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -188,6 +193,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         jobId: job.id,
         jobType: job.jobType,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -251,6 +257,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
           errorMessage: job.errorMessage,
           tenantId: job.tenantId,
           stale: true,
+          organizationId: job.organizationId ?? null,
         })
       }
 
