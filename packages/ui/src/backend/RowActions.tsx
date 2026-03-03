@@ -14,6 +14,7 @@ export type RowActionItem = {
 }
 
 export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
+  if (items.length === 0) return null
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const btnRef = React.useRef<HTMLButtonElement>(null)
@@ -70,8 +71,6 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
       }
     }
   }, [])
-
-  if (items.length === 0) return null
 
   const handlePointerEnter = (event: React.PointerEvent) => {
     if (event.pointerType === 'touch') return

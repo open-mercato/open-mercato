@@ -1022,7 +1022,7 @@ function ProductBuilder({
     return map;
   }, [errors, steps]);
   const errorSignature = React.useMemo(
-    () => Object.keys(errors).sort((a, b) => a.localeCompare(b)).join("|"),
+    () => Object.keys(errors).sort().join("|"),
     [errors],
   );
   const lastErrorSignatureRef = React.useRef<string | null>(null);

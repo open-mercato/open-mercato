@@ -29,7 +29,7 @@ export type BuildAdminNavOptions = {
  * @deprecated The internal fetch-based feature check will be removed.
  *             Provide `options.checkFeatures` so buildAdminNav can reuse your RBAC context.
  */
-async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string>> { // NOSONAR — mutable accumulator pattern; Set is populated between early return and final return
+async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string>> {
   const granted = new Set<string>()
   if (!requestFeatures.length) return granted
   let url = '/api/auth/feature-check'

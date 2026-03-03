@@ -741,7 +741,7 @@ async function loadUserRoleNames(em: EntityManager, userId: string): Promise<str
   const names = links
     .map((link) => link.role?.name ?? '')
     .filter((name): name is string => !!name)
-  return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b))
+  return Array.from(new Set(names)).sort()
 }
 
 function serializeUser(user: User, roles: string[], custom?: Record<string, unknown> | null): SerializedUser {

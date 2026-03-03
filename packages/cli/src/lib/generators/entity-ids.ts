@@ -129,7 +129,7 @@ function writePerEntityFieldFiles(outRoot: string, fieldsByEntity: EntityFieldMa
 }
 
 function writeEntityFieldsRegistry(generatedRoot: string, fieldsByEntity: EntityFieldMap): void {
-  const entities = Object.keys(fieldsByEntity).sort((a, b) => a.localeCompare(b))
+  const entities = Object.keys(fieldsByEntity).sort()
 
   // Always write the file, even if empty, to prevent TypeScript import errors
   const imports = entities.length > 0

@@ -16,8 +16,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { useConfirmDialog } from '../confirm-dialog'
-import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -694,7 +692,7 @@ export type ActivitiesSectionProps<C = unknown> = {
   manageHref?: string
 }
 
-function ActivitiesSectionImpl<C = unknown>({
+export function ActivitiesSection<C = unknown>({
   entityId,
   dealId,
   addActionLabel,
@@ -1246,20 +1244,6 @@ function ActivitiesSectionImpl<C = unknown>({
         appearanceLabels={appearanceLabels}
       />
       {ConfirmDialogElement}
-    </div>
-  )
-}
-
-export function ActivitiesSection<C = unknown>(props: ActivitiesSectionProps<C>) {
-  const handle = ComponentReplacementHandles.section('ui.detail', 'ActivitiesSection')
-  const Resolved = useRegisteredComponent<ActivitiesSectionProps<C>>(
-    handle,
-    ActivitiesSectionImpl as React.ComponentType<ActivitiesSectionProps<C>>,
-  )
-
-  return (
-    <div data-component-handle={handle}>
-      <Resolved {...props} />
     </div>
   )
 }
