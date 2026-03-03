@@ -35,18 +35,15 @@ export function buildPlan(
   mapping: ImportMapping,
   allRecordIds: Record<string, string[]>, // tableId → [airtableRecordId]
 ): ImportPlan {
-  // Build relation graph for topological sort
-  const relations: Record<string, string[]> = {};
-  for (const tableMapping of mapping.tables) {
-    if (tableMapping.skip) continue;
-    relations[tableMapping.airtableTableId] = [];
-  }
-
+  // NOTE: schema-analyzer currently skips multipleRecordLinks fields, so the
+  // relations graph is always empty and topologicalSort is a no-op here.
+  // When schema-analyzer starts tracking inter-table relations, build the
+  // relations map here and pass it instead of {}.
   const activeTableIds = mapping.tables
     .filter((t) => !t.skip)
     .map((t) => t.airtableTableId);
 
-  const importOrder = topologicalSort(activeTableIds, relations);
+  const importOrder = topologicalSort(activeTableIds, {});
 
   const tables: Record<string, PlanTable> = {};
   let totalRecords = 0;
