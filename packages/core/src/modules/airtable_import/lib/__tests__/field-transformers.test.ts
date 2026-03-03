@@ -60,61 +60,29 @@ describe("transformFieldValue", () => {
 
 describe("transformFieldValue — edge cases", () => {
   describe("numeric types — string parsing and zero handling", () => {
-    it('parses string "42.5" to float for number type', () => {
-      expect(transformFieldValue("number", "42.5")).toBe(42.5);
-    });
-
-    it("returns null for non-numeric string in number type", () => {
-      expect(transformFieldValue("number", "nie_liczba")).toBeNull();
-    });
-
-    it("returns 0 for number type with value 0 (not coerced to null)", () => {
-      // typeof 0 === 'number' so the direct branch is taken, never reaching || null
-      expect(transformFieldValue("number", 0)).toBe(0);
-    });
-
-    it("converts percent value 75.5 as number", () => {
-      expect(transformFieldValue("percent", 75.5)).toBe(75.5);
-    });
-
-    it("converts rating integer 3 as number", () => {
-      expect(transformFieldValue("rating", 3)).toBe(3);
-    });
-
-    it('parses currency string "1234.56" via parseFloat', () => {
-      expect(transformFieldValue("currency", "1234.56")).toBe(1234.56);
-    });
-
-    it("converts duration number 90 as number", () => {
-      expect(transformFieldValue("duration", 90)).toBe(90);
-    });
-
-    it("returns null for non-numeric string in currency type", () => {
-      expect(transformFieldValue("currency", "not-a-price")).toBeNull();
+    it.each<[string, unknown, number | null]>([
+      ["number",   "42.5",        42.5],
+      ["number",   "nie_liczba",  null],
+      ["number",   0,             0],
+      ["percent",  75.5,          75.5],
+      ["rating",   3,             3],
+      ["currency", "1234.56",     1234.56],
+      ["duration", 90,            90],
+      ["currency", "not-a-price", null],
+    ])("transformFieldValue(%s, %j) → %j", (type, input, expected) => {
+      expect(transformFieldValue(type, input)).toBe(expected);
     });
   });
 
   describe("string coercion — email, url, phoneNumber, autoNumber, barcode", () => {
-    it("coerces number 123 to string for email type", () => {
-      expect(transformFieldValue("email", 123)).toBe("123");
-    });
-
-    it("coerces boolean true to string for url type", () => {
-      expect(transformFieldValue("url", true)).toBe("true");
-    });
-
-    it("passes through phone number string as-is", () => {
-      expect(transformFieldValue("phoneNumber", "+48 123 456 789")).toBe(
-        "+48 123 456 789",
-      );
-    });
-
-    it("coerces number 42 to string for autoNumber type", () => {
-      expect(transformFieldValue("autoNumber", 42)).toBe("42");
-    });
-
-    it("passes through barcode string as-is", () => {
-      expect(transformFieldValue("barcode", "ABC-123")).toBe("ABC-123");
+    it.each<[string, unknown, string]>([
+      ["email",       123,               "123"],
+      ["url",         true,              "true"],
+      ["phoneNumber", "+48 123 456 789", "+48 123 456 789"],
+      ["autoNumber",  42,                "42"],
+      ["barcode",     "ABC-123",         "ABC-123"],
+    ])("transformFieldValue(%s, %j) → %j", (type, input, expected) => {
+      expect(transformFieldValue(type, input as string)).toBe(expected);
     });
   });
 
@@ -131,20 +99,13 @@ describe("transformFieldValue — edge cases", () => {
   });
 
   describe("checkbox — truthy/falsy coercion", () => {
-    it("converts number 1 to true", () => {
-      expect(transformFieldValue("checkbox", 1)).toBe(true);
-    });
-
-    it("converts number 0 to false", () => {
-      expect(transformFieldValue("checkbox", 0)).toBe(false);
-    });
-
-    it('converts truthy string "true" to true', () => {
-      expect(transformFieldValue("checkbox", "true")).toBe(true);
-    });
-
-    it("converts empty string to false", () => {
-      expect(transformFieldValue("checkbox", "")).toBe(false);
+    it.each<[unknown, boolean]>([
+      [1,      true],
+      [0,      false],
+      ["true", true],
+      ["",     false],
+    ])("transformFieldValue(checkbox, %j) → %j", (input, expected) => {
+      expect(transformFieldValue("checkbox", input)).toBe(expected);
     });
   });
 
@@ -169,22 +130,13 @@ describe("transformFieldValue — edge cases", () => {
   });
 
   describe("formula, rollup, lookup, count — value coercion", () => {
-    it("converts object to string for formula type", () => {
-      expect(transformFieldValue("formula", { value: 42 })).toBe(
-        "[object Object]",
-      );
-    });
-
-    it("converts number 100 to string for rollup type", () => {
-      expect(transformFieldValue("rollup", 100)).toBe("100");
-    });
-
-    it("converts array to string for lookup type", () => {
-      expect(transformFieldValue("lookup", [1, 2])).toBe("1,2");
-    });
-
-    it("converts number to string for count type", () => {
-      expect(transformFieldValue("count", 5)).toBe("5");
+    it.each<[string, unknown, string]>([
+      ["formula", { value: 42 }, "[object Object]"],
+      ["rollup",  100,           "100"],
+      ["lookup",  [1, 2],        "1,2"],
+      ["count",   5,             "5"],
+    ])("transformFieldValue(%s, %j) → %j", (type, input, expected) => {
+      expect(transformFieldValue(type, input)).toBe(expected);
     });
   });
 
@@ -247,16 +199,11 @@ describe("transformFieldValue — edge cases", () => {
   });
 
   describe("undefined value — early null guard", () => {
-    it("returns null when value is undefined for singleLineText", () => {
-      expect(transformFieldValue("singleLineText", undefined)).toBeNull();
-    });
-
-    it("returns null when value is undefined for number type", () => {
-      expect(transformFieldValue("number", undefined)).toBeNull();
-    });
-
-    it("returns null when value is undefined for checkbox type", () => {
-      expect(transformFieldValue("checkbox", undefined)).toBeNull();
-    });
+    it.each(["singleLineText", "number", "checkbox"])(
+      "returns null for undefined in %s type",
+      (type) => {
+        expect(transformFieldValue(type, undefined)).toBeNull();
+      },
+    );
   });
 });
