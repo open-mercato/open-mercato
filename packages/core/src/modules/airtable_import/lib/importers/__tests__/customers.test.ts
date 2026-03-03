@@ -53,40 +53,25 @@ function parsedBody(): Record<string, unknown> {
 // ─── importPerson — pole name jako full name ───────────────────────────────
 
 describe("importPerson — full name field", () => {
-  it('splits "Jan Kowalski" into firstName + lastName', async () => {
-    await importPerson(makePersonInput({ name: "Jan Kowalski" }));
-    const body = parsedBody();
-    expect(body.firstName).toBe("Jan");
-    expect(body.lastName).toBe("Kowalski");
-  });
-
-  it('splits "Jan Maria Kowalski" keeping middle name in firstName', async () => {
-    await importPerson(makePersonInput({ name: "Jan Maria Kowalski" }));
-    const body = parsedBody();
-    expect(body.firstName).toBe("Jan Maria");
-    expect(body.lastName).toBe("Kowalski");
-  });
-
-  it("handles single-word name with no lastName", async () => {
-    await importPerson(makePersonInput({ name: "Kowalski" }));
-    const body = parsedBody();
-    expect(body.firstName).toBe("Kowalski");
-    expect(body.lastName).toBeUndefined();
-  });
-
-  it('maps Polish key "imie_i_nazwisko" as full name', async () => {
-    await importPerson(makePersonInput({ imie_i_nazwisko: "Anna Nowak" }));
-    const body = parsedBody();
-    expect(body.firstName).toBe("Anna");
-    expect(body.lastName).toBe("Nowak");
-  });
-
-  it("trims surrounding whitespace before splitting", async () => {
-    await importPerson(makePersonInput({ name: "  Jan  Kowalski  " }));
-    const body = parsedBody();
-    expect(body.firstName).toBe("Jan");
-    expect(body.lastName).toBe("Kowalski");
-  });
+  it.each<[Record<string, unknown>, string, string | undefined]>([
+    [{ name: "Jan Kowalski" }, "Jan", "Kowalski"],
+    [{ name: "Jan Maria Kowalski" }, "Jan Maria", "Kowalski"],
+    [{ name: "Kowalski" }, "Kowalski", undefined],
+    [{ imie_i_nazwisko: "Anna Nowak" }, "Anna", "Nowak"],
+    [{ name: "  Jan  Kowalski  " }, "Jan", "Kowalski"],
+  ])(
+    "splits full name %j → firstName=%s lastName=%s",
+    async (fields, firstName, lastName) => {
+      await importPerson(makePersonInput(fields));
+      const body = parsedBody();
+      expect(body.firstName).toBe(firstName);
+      if (lastName !== undefined) {
+        expect(body.lastName).toBe(lastName);
+      } else {
+        expect(body.lastName).toBeUndefined();
+      }
+    },
+  );
 });
 
 // ─── importPerson — osobne pola firstName/lastName ────────────────────────
@@ -165,80 +150,71 @@ describe("importPerson — field mapping", () => {
 // ─── importPerson — HTTP response handling ────────────────────────────────
 
 describe("importPerson — HTTP response handling", () => {
-  it("returns ok: true on HTTP 200", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({}),
-    });
-    const result = await importPerson(
-      makePersonInput({ name: "Jan Kowalski" }),
-    );
-    expect(result.ok).toBe(true);
-    expect(result.omId).toBe("uuid-1");
-  });
-
-  it("returns ok: true on HTTP 409 (idempotent conflict)", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 409,
-      text: async () => "Conflict",
-    });
-    const result = await importPerson(
-      makePersonInput({ name: "Jan Kowalski" }),
-    );
-    expect(result.ok).toBe(true);
-    expect(result.omId).toBe("uuid-1");
-  });
-
-  it("returns ok: false with needsAttention on HTTP 400", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      text: async () => "lastName is required",
-    });
-    const result = await importPerson(
-      makePersonInput({ name: "Jan Kowalski" }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.needsAttention).toBe(true);
-    expect(result.attentionReason).toContain("Błąd walidacji");
-  });
-
-  it("returns ok: false with error on HTTP 500", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      text: async () => "Internal Server Error",
-    });
-    const result = await importPerson(
-      makePersonInput({ name: "Jan Kowalski" }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("HTTP 500");
-  });
+  it.each<
+    [
+      number,
+      boolean,
+      string | undefined,
+      boolean | undefined,
+      string | undefined,
+      string | undefined,
+    ]
+  >([
+    [200, true, "uuid-1", undefined, undefined, undefined],
+    [409, true, "uuid-1", undefined, undefined, undefined],
+    [400, false, undefined, true, "Błąd walidacji", undefined],
+    [500, false, undefined, undefined, undefined, "HTTP 500"],
+  ])(
+    "HTTP %d → ok=%s",
+    async (
+      status,
+      expectedOk,
+      expectedOmId,
+      expectedNeedsAttention,
+      expectedAttentionReason,
+      expectedError,
+    ) => {
+      mockFetch.mockResolvedValueOnce({
+        ok: status < 400,
+        status,
+        json: async () => ({}),
+        text: async () => `HTTP ${status}: error`,
+      });
+      const result = await importPerson(
+        makePersonInput({ name: "Jan Kowalski" }),
+      );
+      expect(result.ok).toBe(expectedOk);
+      if (expectedOmId !== undefined) {
+        expect(result.omId).toBe(expectedOmId);
+      }
+      if (expectedNeedsAttention !== undefined) {
+        expect(result.needsAttention).toBe(expectedNeedsAttention);
+      }
+      if (expectedAttentionReason !== undefined) {
+        expect(result.attentionReason).toContain(expectedAttentionReason);
+      }
+      if (expectedError !== undefined) {
+        expect(result.error).toContain(expectedError);
+      }
+    },
+  );
 });
 
 // ─── importCompany ────────────────────────────────────────────────────────
 
 describe("importCompany", () => {
-  it('maps "name" field to displayName', async () => {
-    await importCompany(makeCompanyInput({ name: "Acme Corp" }));
-    const body = parsedBody();
-    expect(body.displayName).toBe("Acme Corp");
-  });
-
-  it('maps Polish "nazwa" field to displayName', async () => {
-    await importCompany(makeCompanyInput({ nazwa: "Firma SA" }));
-    const body = parsedBody();
-    expect(body.displayName).toBe("Firma SA");
-  });
-
-  it("falls back to airtableId when no name field provided", async () => {
-    await importCompany(makeCompanyInput({}));
-    const body = parsedBody();
-    expect(body.displayName).toBe("rec123");
-  });
+  it.each<[Record<string, unknown>, string]>([
+    [{ name: "Acme Corp" }, "Acme Corp"],
+    [{ nazwa: "Firma SA" }, "Firma SA"],
+    [{}, "rec123"],
+  ])(
+    "maps company name field %j → displayName=%s",
+    async (fields, expectedDisplayName) => {
+      await importCompany(makeCompanyInput(fields));
+      const body = parsedBody();
+      expect(body.displayName).toBe(expectedDisplayName);
+    },
+  );
 
   it('maps "email" to primaryEmail, "website" to websiteUrl, "industry" to industry', async () => {
     await importCompany(
@@ -265,34 +241,27 @@ describe("importCompany", () => {
 // ─── importDeal ───────────────────────────────────────────────────────────
 
 describe("importDeal", () => {
-  it('maps "title" to title', async () => {
-    await importDeal(makeDealInput({ title: "Deal 1" }));
-    const body = parsedBody();
-    expect(body.title).toBe("Deal 1");
+  describe("importDeal — title mapping", () => {
+    it.each<[Record<string, unknown>, string]>([
+      [{ title: "Deal 1" }, "Deal 1"],
+      [{ tytul: "Oferta" }, "Oferta"],
+      [{}, "rec123"],
+    ])("maps %j → title=%s", async (fields, expectedTitle) => {
+      await importDeal(makeDealInput(fields));
+      const body = parsedBody();
+      expect(body.title).toBe(expectedTitle);
+    });
   });
 
-  it('maps Polish "tytul" to title', async () => {
-    await importDeal(makeDealInput({ tytul: "Oferta" }));
-    const body = parsedBody();
-    expect(body.title).toBe("Oferta");
-  });
-
-  it("falls back to airtableId when no title provided", async () => {
-    await importDeal(makeDealInput({}));
-    const body = parsedBody();
-    expect(body.title).toBe("rec123");
-  });
-
-  it('maps "amount" to valueAmount', async () => {
-    await importDeal(makeDealInput({ amount: 5000 }));
-    const body = parsedBody();
-    expect(body.valueAmount).toBe(5000);
-  });
-
-  it('maps Polish "wartosc" to valueAmount', async () => {
-    await importDeal(makeDealInput({ wartosc: 3000 }));
-    const body = parsedBody();
-    expect(body.valueAmount).toBe(3000);
+  describe("importDeal — amount mapping", () => {
+    it.each<[Record<string, unknown>, number]>([
+      [{ amount: 5000 }, 5000],
+      [{ wartosc: 3000 }, 3000],
+    ])("maps %j → valueAmount=%d", async (fields, expectedAmount) => {
+      await importDeal(makeDealInput(fields));
+      const body = parsedBody();
+      expect(body.valueAmount).toBe(expectedAmount);
+    });
   });
 });
 
