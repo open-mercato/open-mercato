@@ -4,6 +4,7 @@ import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import { ImportSession } from "../../../../data/entities";
+import { extractApiKeyFromRequest } from "../../../../lib/extract-api-token";
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ["airtable_import.manage"] },
@@ -27,14 +28,7 @@ export async function POST(
   const omUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
   // Use the session JWT token so the worker can call OM APIs without a manual API key
-  const authHeader = req.headers.get("authorization") ?? "";
-  const cookieHeader = req.headers.get("cookie") ?? "";
-  const cookieMatch = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/);
-  const omApiKey = authHeader.toLowerCase().startsWith("bearer ")
-    ? authHeader.slice(7).trim()
-    : cookieMatch
-      ? decodeURIComponent(cookieMatch[1])
-      : null;
+  const omApiKey = extractApiKeyFromRequest(req);
 
   if (!omApiKey)
     return NextResponse.json({ error: "Brak tokenu sesji" }, { status: 401 });
