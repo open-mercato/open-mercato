@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource } from './types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
@@ -13,6 +13,7 @@ import {
 } from './join-utils'
 import { resolveSearchConfig } from '../search/config'
 import { tokenizeText } from '../search/tokenize'
+import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 
 const entityTableCache = new Map<string, string>()
 
@@ -105,6 +106,34 @@ export class BasicQueryEngine implements QueryEngine {
   }
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
+    // --- UMES query extension: before-query pipeline ---
+    const ext = opts.extensions
+    let effectiveOpts = opts
+    let extensionCtx: QueryExtensionContext | null = null
+    const noop = { resolve: <R = unknown>(_name: string): R => { throw new Error('No DI context') } }
+
+    if (ext) {
+      extensionCtx = {
+        entity: String(entity),
+        engine: 'basic',
+        tenantId: opts.tenantId ?? '',
+        organizationId: opts.organizationId,
+        userId: ext.userId,
+        em: this.em,
+        container: ext.container,
+        userFeatures: ext.userFeatures,
+      }
+      const diCtx = ext.resolve ? { resolve: ext.resolve } : noop
+      const beforeResult = await runBeforeQueryPipeline(opts, extensionCtx, diCtx)
+      if (beforeResult.blocked) {
+        throw new Error(beforeResult.errorMessage ?? 'Query blocked by extension subscriber')
+      }
+      effectiveOpts = beforeResult.query
+    }
+    // Strip extensions from effectiveOpts so they don't propagate to sub-queries
+    const { extensions: _ext, ...coreOpts } = effectiveOpts
+    opts = coreOpts
+
     // Heuristic: map '<module>:user' -> table 'users'
     const table = resolveEntityTableName(this.em, entity)
     const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
@@ -605,7 +634,20 @@ export class BasicQueryEngine implements QueryEngine {
       )
     }
 
-    return { items: decryptedItems, page, pageSize, total }
+    let queryResult: QueryResult<T> = { items: decryptedItems, page, pageSize, total }
+
+    // --- UMES query extension: after-query pipeline ---
+    if (ext && extensionCtx) {
+      const diCtx = ext.resolve ? { resolve: ext.resolve } : noop
+      queryResult = await runAfterQueryPipeline(
+        queryResult as QueryResult<Record<string, unknown>>,
+        opts,
+        extensionCtx,
+        diCtx,
+      ) as QueryResult<T>
+    }
+
+    return queryResult
   }
 
   private async resolveBaseColumn(table: string, field: string): Promise<string | null> {
