@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { GlobalSearchSection } from './sections/GlobalSearchSection'
@@ -228,41 +229,44 @@ export function SearchSettingsPageClient() {
     }
   }, [])
 
-  // Polling logic
-  const wasPollingRef = React.useRef(false)
-  const pollCountAfterClearRef = React.useRef(0)
+  const isSseAvailable = React.useMemo(
+    () => typeof window !== 'undefined' && typeof window.EventSource !== 'undefined',
+    [],
+  )
+
+  useAppEvent('search.reindex.fulltext.progress', () => {
+    void refreshStatsOnly()
+  }, [refreshStatsOnly])
+
+  useAppEvent('search.reindex.vector.progress', () => {
+    void refreshStatsOnly()
+    void refreshEmbeddingStatsOnly()
+  }, [refreshStatsOnly, refreshEmbeddingStatsOnly])
+
+  useAppEvent('om:bridge:reconnected', () => {
+    void refreshStatsOnly()
+    void refreshEmbeddingStatsOnly()
+  }, [refreshStatsOnly, refreshEmbeddingStatsOnly])
 
   React.useEffect(() => {
+    if (isSseAvailable) return
     const hasFulltextLock = settings?.fulltextReindexLock !== null
     const hasVectorLock = settings?.vectorReindexLock !== null
-
-    const shouldPoll = hasFulltextLock || hasVectorLock ||
-      (wasPollingRef.current && pollCountAfterClearRef.current < 3)
-
-    if (!shouldPoll) {
-      wasPollingRef.current = false
-      pollCountAfterClearRef.current = 0
-      return
-    }
-
-    if (hasFulltextLock || hasVectorLock) {
-      wasPollingRef.current = true
-      pollCountAfterClearRef.current = 0
-    }
-
-    const pollInterval = setInterval(() => {
-      if (!hasFulltextLock && !hasVectorLock) {
-        pollCountAfterClearRef.current += 1
-      }
-
-      refreshStatsOnly()
+    if (!hasFulltextLock && !hasVectorLock) return
+    const pollInterval = window.setInterval(() => {
+      void refreshStatsOnly()
       if (hasVectorLock) {
-        refreshEmbeddingStatsOnly()
+        void refreshEmbeddingStatsOnly()
       }
     }, 3000)
-
-    return () => clearInterval(pollInterval)
-  }, [settings?.fulltextReindexLock, settings?.vectorReindexLock, refreshStatsOnly, refreshEmbeddingStatsOnly])
+    return () => window.clearInterval(pollInterval)
+  }, [
+    isSseAvailable,
+    settings?.fulltextReindexLock,
+    settings?.vectorReindexLock,
+    refreshStatsOnly,
+    refreshEmbeddingStatsOnly,
+  ])
 
   // Fetch embedding settings
   const fetchEmbeddingSettings = React.useCallback(async () => {

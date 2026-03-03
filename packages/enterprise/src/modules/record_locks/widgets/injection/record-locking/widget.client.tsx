@@ -4,10 +4,12 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
 import { useSearchParams } from 'next/navigation'
@@ -95,6 +97,10 @@ type RecordLockContendedEventDetail = {
 type RecordDeletedEventDetail = {
   resourceId?: string | null
   resourceKind?: string | null
+}
+
+type NotificationListResponse = {
+  items?: NotificationDto[]
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -516,6 +522,68 @@ export default function RecordLockingWidget({
     token: string
   } | null>(null)
   const keepMineRetryVersionRef = React.useRef(0)
+  const reconcileInFlightRef = React.useRef(false)
+  const lastReconcileAtRef = React.useRef(0)
+  const reconcileRecordLockNotifications = React.useCallback(async () => {
+    if (!isPrimaryInstance) return
+    if (!state?.resourceKind || !state?.resourceId) return
+    if (reconcileInFlightRef.current) return
+    const now = Date.now()
+    if (now - lastReconcileAtRef.current < 1000) return
+    reconcileInFlightRef.current = true
+
+    try {
+      const deletedNotifications = await apiCall<NotificationListResponse>(
+        '/api/notifications?status=unread&type=record_locks.record.deleted&pageSize=20',
+      )
+
+      if (deletedNotifications.ok && deletedNotifications.result?.items) {
+        for (const notification of deletedNotifications.result.items) {
+          if (notification.sourceEntityId !== state.resourceId) continue
+          const eventKind = readStringOrNull(notification.bodyVariables?.resourceKind)
+          if (eventKind && eventKind !== state.resourceKind) continue
+          window.dispatchEvent(
+            new CustomEvent(RECORD_LOCKS_RECORD_DELETED_EVENT, {
+              detail: {
+                notificationId: notification.id,
+                resourceId: notification.sourceEntityId ?? null,
+                resourceKind: eventKind,
+              },
+            }),
+          )
+          break
+        }
+      }
+
+      if (state.lock?.id) {
+        const contentionNotifications = await apiCall<NotificationListResponse>(
+          '/api/notifications?status=unread&type=record_locks.lock.contended&pageSize=20',
+        )
+        if (contentionNotifications.ok && contentionNotifications.result?.items) {
+          for (const notification of contentionNotifications.result.items) {
+            if (notification.sourceEntityId !== state.lock.id) continue
+            window.dispatchEvent(
+              new CustomEvent(RECORD_LOCKS_LOCK_CONTENDED_EVENT, {
+                detail: {
+                  notificationId: notification.id,
+                  sourceEntityId: notification.sourceEntityId ?? null,
+                  resourceKind: readStringOrNull(notification.bodyVariables?.resourceKind),
+                },
+              }),
+            )
+            break
+          }
+        }
+      }
+    } finally {
+      lastReconcileAtRef.current = now
+      reconcileInFlightRef.current = false
+    }
+  }, [isPrimaryInstance, state?.lock?.id, state?.resourceId, state?.resourceKind])
+
+  useAppEvent('om:bridge:reconnected', () => {
+    void reconcileRecordLockNotifications()
+  }, [reconcileRecordLockNotifications])
 
   React.useEffect(() => {
     if (!ownerKey) {

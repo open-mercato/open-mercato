@@ -29,6 +29,15 @@ export type ReindexLockStatus = {
   totalCount?: number | null
 }
 
+export type ReindexProgressSnapshot = {
+  type: ReindexLockType
+  action: string
+  startedAt: number
+  processedCount: number
+  totalCount: number
+  completed: boolean
+}
+
 function buildScope(
   type: ReindexLockType,
   tenantId: string,
@@ -162,6 +171,29 @@ export async function clearReindexLock(
   }
 }
 
+export async function setReindexLockTotalCount(
+  knex: Knex,
+  tenantId: string,
+  type: ReindexLockType,
+  totalCount: number,
+  organizationId?: string | null,
+): Promise<void> {
+  try {
+    const entityType = LOCK_ENTITY_TYPES[type]
+    await knex('entity_index_jobs')
+      .where('entity_type', entityType)
+      .whereRaw('tenant_id is not distinct from ?', [tenantId])
+      .whereRaw('organization_id is not distinct from ?', [organizationId ?? null])
+      .whereNull('finished_at')
+      .update({
+        total_count: Math.max(0, Math.round(totalCount)),
+        heartbeat_at: knex.fn.now(),
+      })
+  } catch {
+    // Ignore errors when setting lock totals
+  }
+}
+
 /**
  * Update the reindex progress and refresh the heartbeat.
  * Call this periodically during batch processing to prevent stale lock detection.
@@ -175,7 +207,7 @@ export async function updateReindexProgress(
   type: ReindexLockType,
   processedDelta: number,
   organizationId?: string | null,
-): Promise<void> {
+): Promise<ReindexProgressSnapshot | null> {
   try {
     const scope = buildScope(type, tenantId, organizationId)
     const entityType = LOCK_ENTITY_TYPES[type]
@@ -194,8 +226,52 @@ export async function updateReindexProgress(
     // If no active lock exists, recreate it
     if (updated === 0) {
       await prepareJob(knex, scope, 'reindexing')
+      return null
+    }
+
+    const job = await knex('entity_index_jobs')
+      .where('entity_type', entityType)
+      .whereRaw('tenant_id is not distinct from ?', [tenantId])
+      .whereRaw('organization_id is not distinct from ?', [organizationId ?? null])
+      .whereNull('finished_at')
+      .first([
+        'status',
+        'started_at',
+        'processed_count',
+        'total_count',
+      ])
+
+    if (!job) {
+      return null
+    }
+
+    const processedCount = typeof job.processed_count === 'number'
+      ? Math.max(0, job.processed_count)
+      : 0
+    const totalCount = typeof job.total_count === 'number'
+      ? Math.max(0, job.total_count)
+      : 0
+    const startedAt = job.started_at
+      ? new Date(job.started_at as string | Date).getTime()
+      : Date.now()
+    const completed = totalCount > 0 && processedCount >= totalCount
+
+    if (completed) {
+      await finalizeJob(knex, scope)
+    }
+
+    return {
+      type,
+      action: typeof job.status === 'string' && job.status.trim().length > 0
+        ? job.status
+        : 'reindexing',
+      startedAt,
+      processedCount,
+      totalCount,
+      completed,
     }
   } catch {
     // Ignore errors when updating progress
+    return null
   }
 }

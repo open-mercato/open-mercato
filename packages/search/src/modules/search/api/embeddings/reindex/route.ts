@@ -10,7 +10,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebug, searchDebugWarn, searchError } from '../../../../../lib/debug'
-import { acquireReindexLock, clearReindexLock, getReindexLockStatus } from '../../../lib/reindex-lock'
+import { acquireReindexLock, getReindexLockStatus, setReindexLockTotalCount } from '../../../lib/reindex-lock'
+import { emitSearchReindexProgressEvent } from '../../../lib/reindex-progress-events'
 import { embeddingsReindexOpenApi } from '../../openapi'
 
 export const metadata = {
@@ -37,6 +38,15 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+  let eventBus: {
+    emit: (event: string, payload: unknown) => Promise<void>
+    emitEvent?: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void>
+  } | null = null
+  try {
+    eventBus = container.resolve('eventBus')
+  } catch {
+    eventBus = null
+  }
 
   // Check if another vector reindex operation is already in progress
   const existingLock = await getReindexLockStatus(knex, auth.tenantId, { type: 'vector' })
@@ -71,6 +81,18 @@ export async function POST(req: Request) {
       { error: t('search.api.errors.lockFailed', 'Failed to acquire reindex lock') },
       { status: 409 }
     )
+  }
+  if (eventBus) {
+    await emitSearchReindexProgressEvent(eventBus, {
+      type: 'vector',
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? null,
+      status: 'running',
+      action: entityId ? `reindex:${entityId}` : 'reindex:all',
+      processedCount: 0,
+      totalCount: 0,
+      startedAt: Date.now(),
+    })
   }
 
   try {
@@ -144,6 +166,13 @@ export async function POST(req: Request) {
         useQueue: true,
       })
     }
+    await setReindexLockTotalCount(
+      knex,
+      auth.tenantId,
+      'vector',
+      result.recordsIndexed,
+      auth.orgId ?? null,
+    )
 
     await recordIndexerLog(
       { em: em ?? undefined },

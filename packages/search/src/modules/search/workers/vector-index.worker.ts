@@ -11,6 +11,7 @@ import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
 import { searchDebugWarn } from '../../../lib/debug'
 import { updateReindexProgress } from '../lib/reindex-lock'
+import { emitSearchReindexProgressEvent } from '../lib/reindex-progress-events'
 
 // Worker metadata for auto-discovery
 const DEFAULT_CONCURRENCY = 2
@@ -67,6 +68,12 @@ export async function handleVectorIndexJob(
     } catch {
       knex = null
     }
+    let eventBus: { emit: (event: string, payload: unknown) => Promise<void>; emitEvent?: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void> } | null = null
+    try {
+      eventBus = ctx.resolve('eventBus')
+    } catch {
+      eventBus = null
+    }
 
     // Load saved embedding config to use the correct provider/model
     try {
@@ -106,8 +113,20 @@ export async function handleVectorIndexJob(
     }
 
     // Update heartbeat to signal worker is still processing
-    if (knex && successCount > 0) {
-      await updateReindexProgress(knex, tenantId, 'vector', successCount, organizationId ?? null)
+    if (knex && records.length > 0) {
+      const progressSnapshot = await updateReindexProgress(knex, tenantId, 'vector', records.length, organizationId ?? null)
+      if (eventBus && progressSnapshot) {
+        await emitSearchReindexProgressEvent(eventBus, {
+          type: 'vector',
+          tenantId,
+          organizationId: organizationId ?? null,
+          status: progressSnapshot.completed ? 'completed' : 'running',
+          action: progressSnapshot.action,
+          processedCount: progressSnapshot.processedCount,
+          totalCount: progressSnapshot.totalCount,
+          startedAt: progressSnapshot.startedAt,
+        })
+      }
     }
 
     searchDebugWarn('vector-index.worker', 'Batch-index job completed', {

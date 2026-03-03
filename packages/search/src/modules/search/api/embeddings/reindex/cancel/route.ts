@@ -7,6 +7,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearReindexLock } from '../../../../lib/reindex-lock'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+import { emitSearchReindexProgressEvent } from '../../../../lib/reindex-progress-events'
 import { embeddingsReindexCancelOpenApi } from '../../../openapi'
 
 export const metadata = {
@@ -23,6 +24,15 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+  let eventBus: {
+    emit: (event: string, payload: unknown) => Promise<void>
+    emitEvent?: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void>
+  } | null = null
+  try {
+    eventBus = container.resolve('eventBus')
+  } catch {
+    eventBus = null
+  }
 
   let queue: Queue | undefined
   try {
@@ -43,6 +53,18 @@ export async function POST(req: Request) {
   }
 
   await clearReindexLock(knex, auth.tenantId, 'vector', auth.orgId ?? null)
+  if (eventBus) {
+    await emitSearchReindexProgressEvent(eventBus, {
+      type: 'vector',
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? null,
+      status: 'cancelled',
+      action: 'cancel',
+      processedCount: 0,
+      totalCount: 0,
+      startedAt: Date.now(),
+    })
+  }
 
   // Log the cancellation
   try {

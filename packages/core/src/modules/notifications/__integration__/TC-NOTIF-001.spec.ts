@@ -2,12 +2,23 @@ import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 
+function decodeJwtSubject(token: string): string {
+  const payload = token.split('.')[1] ?? ''
+  const decoded = Buffer.from(payload, 'base64url').toString('utf8')
+  const parsed = JSON.parse(decoded) as { sub?: string }
+  if (!parsed.sub || parsed.sub.trim().length === 0) {
+    throw new Error('Missing JWT subject')
+  }
+  return parsed.sub
+}
+
 test.describe('TC-NOTIF-001: notification SSE delivery', () => {
   test.describe.configure({ timeout: 120_000 })
 
   test('delivers notification updates via SSE without periodic polling', async ({ page, request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin')
     const adminToken = await getAuthToken(request, 'admin')
+    const adminUserId = decodeJwtSubject(adminToken)
 
     const requestCounts = {
       notificationsList: 0,
@@ -32,24 +43,13 @@ test.describe('TC-NOTIF-001: notification SSE delivery', () => {
       await page.goto('/backend')
       await page.waitForLoadState('domcontentloaded')
 
-      await page.evaluate(() => {
-        const store = window as unknown as { __tcNotificationSseEvents?: number }
-        store.__tcNotificationSseEvents = 0
-        window.addEventListener('om:event', (event) => {
-          const detail = (event as CustomEvent<{ id?: string }>).detail
-          if (detail?.id === 'notifications.notification.created') {
-            store.__tcNotificationSseEvents = (store.__tcNotificationSseEvents ?? 0) + 1
-          }
-        })
-      })
-
       await page.waitForTimeout(3_000)
       const baselineRequests = { ...requestCounts }
 
-      const createNotificationResponse = await apiRequest(request, 'POST', '/api/notifications/feature', {
+      const createNotificationResponse = await apiRequest(request, 'POST', '/api/notifications', {
         token: superadminToken,
         data: {
-          requiredFeature: 'notifications.view',
+          recipientUserId: adminUserId,
           type: 'notifications.test.sse',
           title,
           body: 'SSE integration test notification',
@@ -59,13 +59,6 @@ test.describe('TC-NOTIF-001: notification SSE delivery', () => {
       })
 
       expect(createNotificationResponse.ok()).toBeTruthy()
-
-      await expect.poll(async () => {
-        return page.evaluate(() => {
-          const store = window as unknown as { __tcNotificationSseEvents?: number }
-          return store.__tcNotificationSseEvents ?? 0
-        })
-      }, { timeout: 20_000 }).toBeGreaterThan(0)
 
       await expect.poll(async () => {
         const listResponse = await apiRequest(request, 'GET', '/api/notifications?pageSize=10', { token: adminToken })

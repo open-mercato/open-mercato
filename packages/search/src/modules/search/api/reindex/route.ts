@@ -14,7 +14,9 @@ import {
   acquireReindexLock,
   clearReindexLock,
   getReindexLockStatus,
+  setReindexLockTotalCount,
 } from '../../lib/reindex-lock'
+import { emitSearchReindexProgressEvent } from '../../lib/reindex-progress-events'
 import { reindexOpenApi } from '../openapi'
 
 /** Strategy with optional stats support */
@@ -85,6 +87,15 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+  let eventBus: {
+    emit: (event: string, payload: unknown) => Promise<void>
+    emitEvent?: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void>
+  } | null = null
+  try {
+    eventBus = container.resolve('eventBus')
+  } catch {
+    eventBus = null
+  }
 
   // Check if another fulltext reindex operation is already in progress
   const existingLock = await getReindexLockStatus(knex, tenantId, { type: 'fulltext' })
@@ -119,6 +130,18 @@ export async function POST(req: Request) {
       { error: t('search.api.errors.lockFailed', 'Failed to acquire reindex lock') },
       { status: 409 }
     )
+  }
+  if (eventBus) {
+    await emitSearchReindexProgressEvent(eventBus, {
+      type: 'fulltext',
+      tenantId,
+      organizationId: auth.orgId ?? null,
+      status: 'running',
+      action,
+      processedCount: 0,
+      totalCount: 0,
+      startedAt: Date.now(),
+    })
   }
 
   try {
@@ -199,6 +222,15 @@ export async function POST(req: Request) {
             // Note: Heartbeat is updated by workers during job processing, not during enqueueing
           },
         })
+        if (useQueue) {
+          await setReindexLockTotalCount(
+            knex,
+            tenantId,
+            'fulltext',
+            result.recordsIndexed,
+            auth.orgId ?? null,
+          )
+        }
         searchDebug('search.reindex', 'Reindexed entity to Meilisearch', {
           entityId,
           tenantId: tenantId,
@@ -255,6 +287,15 @@ export async function POST(req: Request) {
             // Note: Heartbeat is updated by workers during job processing, not during enqueueing
           },
         })
+        if (useQueue) {
+          await setReindexLockTotalCount(
+            knex,
+            tenantId,
+            'fulltext',
+            result.recordsIndexed,
+            auth.orgId ?? null,
+          )
+        }
         searchDebug('search.reindex', 'Reindexed all entities to Meilisearch', {
           tenantId: tenantId,
           entitiesProcessed: result.entitiesProcessed,
@@ -303,6 +344,19 @@ export async function POST(req: Request) {
 
       // Get updated stats from all strategies
       const stats = await collectStrategyStats(searchStrategies, tenantId)
+
+      if (eventBus && !useQueue) {
+        await emitSearchReindexProgressEvent(eventBus, {
+          type: 'fulltext',
+          tenantId,
+          organizationId: auth.orgId ?? null,
+          status: 'completed',
+          action,
+          processedCount: result.recordsIndexed,
+          totalCount: result.recordsIndexed,
+          startedAt: Date.now(),
+        })
+      }
 
       return toJson({
         ok: result.success,
@@ -371,6 +425,19 @@ export async function POST(req: Request) {
 
     // Get updated stats from all strategies
     const stats = await collectStrategyStats(searchStrategies, tenantId)
+
+    if (eventBus) {
+      await emitSearchReindexProgressEvent(eventBus, {
+        type: 'fulltext',
+        tenantId,
+        organizationId: auth.orgId ?? null,
+        status: 'completed',
+        action,
+        processedCount: 1,
+        totalCount: 1,
+        startedAt: Date.now(),
+      })
+    }
 
     return toJson({
       ok: true,

@@ -239,6 +239,20 @@ curl -X GET "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `/api/search/index` | GET | List indexed entries |
 | `/api/search/index` | DELETE | Purge vector index |
 
+### Reindex Progress Delivery
+
+Search reindex status in backend UI is event-driven by default:
+
+- `search.reindex.fulltext.progress`
+- `search.reindex.vector.progress`
+
+Both events are emitted with `clientBroadcast: true` and delivered through `/api/events/stream` (DOM Event Bridge).  
+The UI refreshes lock/progress state on these events and performs one reconciliation refresh on `om:bridge:reconnected`.
+
+Fallback behavior:
+
+- If `EventSource` is unavailable in the client environment, the search settings page falls back to short-interval polling while a reindex lock is active.
+
 ## Types
 
 ### SearchOptions

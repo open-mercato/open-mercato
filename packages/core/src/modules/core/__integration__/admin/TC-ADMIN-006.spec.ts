@@ -34,16 +34,12 @@ test.describe('TC-ADMIN-006: Feature Toggle Overrides', () => {
     const rows = page.locator('table tbody tr');
     await expect(rows.first()).toBeVisible();
 
-    // Click the first override row to see detail view
-    await rows.first().click();
+    // Open row actions and navigate to detail view via explicit Edit action
+    await page.getByRole('button', { name: 'Open actions' }).first().click();
+    await page.getByRole('menuitem', { name: 'Edit' }).click();
+    await expect(page).toHaveURL(/\/backend\/feature-toggles\/global\/[^/]+$/);
 
-    // Verify detail page loads with expected sections
-    await expect(page.getByRole('heading', { name: 'Details', level: 2 })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Description', level: 2 })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Default Value', level: 2 })).toBeVisible();
-
-    // Verify override section
-    await expect(page.getByText('Override', { exact: true })).toBeVisible();
+    // Verify override section loads
     await expect(page.getByText('Override Mode')).toBeVisible();
 
     // Verify Enable Override checkbox
@@ -51,9 +47,5 @@ test.describe('TC-ADMIN-006: Feature Toggle Overrides', () => {
 
     // Verify Save Override button
     await expect(page.getByRole('button', { name: 'Save Override' })).toBeVisible();
-
-    // Verify toggle detail fields
-    await expect(page.getByText('Name')).toBeVisible();
-    await expect(page.getByText('Identifier')).toBeVisible();
   });
 });

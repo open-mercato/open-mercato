@@ -9,6 +9,7 @@ import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 import { updateReindexProgress } from '../lib/reindex-lock'
+import { emitSearchReindexProgressEvent } from '../lib/reindex-progress-events'
 
 // Worker metadata for auto-discovery
 const DEFAULT_CONCURRENCY = 2
@@ -59,6 +60,12 @@ export async function handleFulltextIndexJob(
   } catch {
     em = null
     knex = null
+  }
+  let eventBus: { emit: (event: string, payload: unknown) => Promise<void>; emitEvent?: (event: string, payload: unknown, options?: { persistent?: boolean }) => Promise<void> } | null = null
+  try {
+    eventBus = ctx.resolve('eventBus')
+  } catch {
+    eventBus = null
   }
 
   // Resolve searchIndexer for loading fresh data
@@ -184,8 +191,20 @@ export async function handleFulltextIndexJob(
       }
 
       // Update heartbeat to signal worker is still processing
-      if (knex && successCount > 0) {
-        await updateReindexProgress(knex, tenantId, 'fulltext', successCount, organizationId ?? null)
+      if (knex && records.length > 0) {
+        const progressSnapshot = await updateReindexProgress(knex, tenantId, 'fulltext', records.length, organizationId ?? null)
+        if (eventBus && progressSnapshot) {
+          await emitSearchReindexProgressEvent(eventBus, {
+            type: 'fulltext',
+            tenantId,
+            organizationId: organizationId ?? null,
+            status: progressSnapshot.completed ? 'completed' : 'running',
+            action: progressSnapshot.action,
+            processedCount: progressSnapshot.processedCount,
+            totalCount: progressSnapshot.totalCount,
+            startedAt: progressSnapshot.startedAt,
+          })
+        }
       }
 
       searchDebug('fulltext-index.worker', 'Batch indexed to fulltext', {
