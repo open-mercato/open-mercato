@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
-import type { EntityManager } from "@mikro-orm/postgresql";
-import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
-import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
-import { ImportSession } from "../../../../data/entities";
+import { resolveSessionContext, isErrorResponse } from "../../../../lib/api-helpers";
 import { extractApiKeyFromRequest } from "../../../../lib/extract-api-token";
 
 export const metadata = {
@@ -21,10 +18,6 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await getAuthFromRequest(req);
-  if (!auth?.tenantId)
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const omUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
   // Use the session JWT token so the worker can call OM APIs without a manual API key
@@ -33,15 +26,9 @@ export async function POST(
   if (!omApiKey)
     return NextResponse.json({ error: "Brak tokenu sesji" }, { status: 401 });
 
-  const { id } = await params;
-  const container = await createRequestContainer();
-  const em = container.resolve<EntityManager>("em");
-  const session = await em.findOne(ImportSession, {
-    id,
-    tenantId: auth.tenantId,
-  });
-  if (!session)
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const ctx = await resolveSessionContext(req, params);
+  if (isErrorResponse(ctx)) return ctx;
+  const { auth, session, em } = ctx;
   if (!session.planJson)
     return NextResponse.json(
       { error: "Wygeneruj plan przed uruchomieniem importu" },
