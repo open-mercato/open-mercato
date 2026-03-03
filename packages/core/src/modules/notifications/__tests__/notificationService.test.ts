@@ -130,7 +130,7 @@ describe('notification service', () => {
 
     expect(notifications).toHaveLength(2)
     expect(em.flush).toHaveBeenCalled()
-    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(eventBus.emit).toHaveBeenCalledTimes(4)
   })
 
   it('returns empty list when no recipients match feature', async () => {

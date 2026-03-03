@@ -106,10 +106,10 @@ export async function incrementReindexProgress(params: {
   tenantId: string
   organizationId?: string | null
   delta: number
-}): Promise<void> {
-  if (!Number.isFinite(params.delta) || params.delta <= 0) return
+}): Promise<boolean> {
+  if (!Number.isFinite(params.delta) || params.delta <= 0) return false
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
-  if (!current) return
+  if (!current) return false
   const updated = await params.progressService.incrementProgress(
     current.id,
     params.delta,
@@ -134,7 +134,9 @@ export async function incrementReindexProgress(params: {
         userId: null,
       },
     )
+    return true
   }
+  return false
 }
 
 export async function completeReindexProgress(params: {
