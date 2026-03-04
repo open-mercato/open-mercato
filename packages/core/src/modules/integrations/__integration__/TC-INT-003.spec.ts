@@ -7,22 +7,34 @@ async function readJson(response: APIResponse): Promise<JsonRecord> {
   return (await response.json().catch(() => ({}))) as JsonRecord
 }
 
-const INTEGRATION_ID = 'sync_medusa_products'
-
 /**
  * TC-INT-003: Integration health check and logs APIs
  *
  * Tests the health check and operation logs endpoints added by SPEC-045a.
  * Health check requires the POST /api/integrations/:id/health route.
  * Logs require the GET /api/integrations/logs route.
+ * Dynamically detects available integrations — works with or without provider modules.
  */
 test.describe('TC-INT-003: Integration health check and logs APIs', () => {
   test('health check endpoint returns status for a registered integration', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 
-    const healthResponse = await apiRequest(request, 'POST', `/api/integrations/${INTEGRATION_ID}/health`, { token })
+    // Dynamically detect an available integration
+    const listResponse = await apiRequest(request, 'GET', '/api/integrations', { token })
+    expect(listResponse.status()).toBe(200)
+    const listBody = await readJson(listResponse)
+    const items = Array.isArray(listBody.items) ? (listBody.items as JsonRecord[]) : []
 
-    // Route may not exist if ephemeral env was built before SPEC-045a health route
+    if (items.length === 0) {
+      test.skip(true, 'No integration provider modules registered — skipping health check test')
+      return
+    }
+
+    const integrationId = String(items[0].id)
+
+    const healthResponse = await apiRequest(request, 'POST', `/api/integrations/${integrationId}/health`, { token })
+
+    // Route may not exist if ephemeral env was built before health route
     if (healthResponse.status() === 404) {
       const body = await readJson(healthResponse)
       if (!body.status) {
@@ -42,8 +54,13 @@ test.describe('TC-INT-003: Integration health check and logs APIs', () => {
   test('health check returns 404 for non-existent integration', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 
-    // Probe whether health route exists at all
-    const probeResponse = await apiRequest(request, 'POST', `/api/integrations/${INTEGRATION_ID}/health`, { token })
+    // Probe whether health route exists at all using a known integration or a non-existent one
+    const listResponse = await apiRequest(request, 'GET', '/api/integrations', { token })
+    const listBody = await readJson(listResponse)
+    const items = Array.isArray(listBody.items) ? (listBody.items as JsonRecord[]) : []
+
+    const probeId = items.length > 0 ? String(items[0].id) : 'non_existent_integration_xyz'
+    const probeResponse = await apiRequest(request, 'POST', `/api/integrations/${probeId}/health`, { token })
     if (probeResponse.status() === 404) {
       const body = await readJson(probeResponse)
       if (!body.error || String(body.error) !== 'Integration not found') {
@@ -67,7 +84,7 @@ test.describe('TC-INT-003: Integration health check and logs APIs', () => {
     const logsResponse = await apiRequest(
       request,
       'GET',
-      `/api/integrations/logs?integrationId=${INTEGRATION_ID}&page=1&pageSize=10`,
+      '/api/integrations/logs?page=1&pageSize=10',
       { token },
     )
     expect(logsResponse.status()).toBe(200)
@@ -90,7 +107,7 @@ test.describe('TC-INT-003: Integration health check and logs APIs', () => {
     const logsResponse = await apiRequest(
       request,
       'GET',
-      `/api/integrations/logs?integrationId=${INTEGRATION_ID}&level=error&page=1&pageSize=5`,
+      '/api/integrations/logs?level=error&page=1&pageSize=5',
       { token },
     )
     expect(logsResponse.status()).toBe(200)
@@ -108,7 +125,7 @@ test.describe('TC-INT-003: Integration health check and logs APIs', () => {
     const logsResponse = await apiRequest(
       request,
       'GET',
-      `/api/integrations/logs?page=1&pageSize=5`,
+      '/api/integrations/logs?page=1&pageSize=5',
       { token },
     )
     expect(logsResponse.status()).toBe(200)

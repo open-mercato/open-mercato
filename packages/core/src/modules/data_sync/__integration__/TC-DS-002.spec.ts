@@ -7,7 +7,7 @@ async function readJson(response: APIResponse): Promise<JsonRecord> {
   return (await response.json().catch(() => ({}))) as JsonRecord
 }
 
-const INTEGRATION_ID = 'sync_medusa_products'
+const TEST_INTEGRATION_ID = 'test_mapping_integration'
 const ENTITY_TYPE = 'catalog.product'
 
 /**
@@ -15,6 +15,7 @@ const ENTITY_TYPE = 'catalog.product'
  *
  * Tests the mapping management endpoints added by SPEC-045b.
  * Requires POST/GET /api/data_sync/mappings and GET/PUT/DELETE /api/data_sync/mappings/:id routes.
+ * Uses a generic integration ID — works without any specific provider module.
  */
 
 async function isMappingRouteAvailable(
@@ -41,7 +42,7 @@ test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
       const createResponse = await apiRequest(request, 'POST', '/api/data_sync/mappings', {
         token,
         data: {
-          integrationId: INTEGRATION_ID,
+          integrationId: TEST_INTEGRATION_ID,
           entityType: ENTITY_TYPE,
           mapping: {
             title: 'name',
@@ -53,7 +54,7 @@ test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
       expect([200, 201]).toContain(createResponse.status())
       const createBody = await readJson(createResponse)
       expect(createBody).toHaveProperty('id')
-      expect(createBody.integrationId).toBe(INTEGRATION_ID)
+      expect(createBody.integrationId).toBe(TEST_INTEGRATION_ID)
       expect(createBody.entityType).toBe(ENTITY_TYPE)
       expect(createBody.mapping).toBeDefined()
       const mappingData = createBody.mapping as JsonRecord
@@ -65,7 +66,7 @@ test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
       const listResponse = await apiRequest(
         request,
         'GET',
-        `/api/data_sync/mappings?integrationId=${INTEGRATION_ID}&entityType=${ENTITY_TYPE}`,
+        `/api/data_sync/mappings?integrationId=${TEST_INTEGRATION_ID}&entityType=${ENTITY_TYPE}`,
         { token },
       )
       expect(listResponse.status()).toBe(200)
@@ -83,7 +84,7 @@ test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
       expect(getResponse.status()).toBe(200)
       const getBody = await readJson(getResponse)
       expect(getBody.id).toBe(mappingId)
-      expect(getBody.integrationId).toBe(INTEGRATION_ID)
+      expect(getBody.integrationId).toBe(TEST_INTEGRATION_ID)
       expect(getBody.entityType).toBe(ENTITY_TYPE)
       expect(getBody).toHaveProperty('createdAt')
       expect(getBody).toHaveProperty('updatedAt')
@@ -142,7 +143,7 @@ test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
       const createResponse = await apiRequest(request, 'POST', '/api/data_sync/mappings', {
         token,
         data: {
-          integrationId: INTEGRATION_ID,
+          integrationId: TEST_INTEGRATION_ID,
           entityType: 'catalog.category',
           mapping: { name: 'title' },
         },
@@ -155,7 +156,7 @@ test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
       const upsertResponse = await apiRequest(request, 'POST', '/api/data_sync/mappings', {
         token,
         data: {
-          integrationId: INTEGRATION_ID,
+          integrationId: TEST_INTEGRATION_ID,
           entityType: 'catalog.category',
           mapping: { name: 'title', slug: 'handle' },
         },
