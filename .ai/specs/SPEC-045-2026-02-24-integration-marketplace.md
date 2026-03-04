@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-02-24 |
-| **Related** | SPEC-041 (UMES), SPEC-044 (Payment Gateways), Issue #676, PR #674 (WhatsApp/External Channels) |
+| **Related** | SPEC-041 (UMES), SPEC-044 (Payment Gateways), SPEC-057 (Webhooks Module), Issue #676, PR #674 (WhatsApp/External Channels) |
 
 ## TLDR
 
@@ -79,7 +79,7 @@ See [SPEC-045a §1.2](./SPEC-045a-foundation.md#12-integration-bundles) for the 
 | `notification` | `notification_providers` | `NotificationTransportAdapter` | 4 | SendGrid, Mailgun |
 | `storage` | `storage_providers` | `StorageAdapter` | 5 | S3, MinIO, local |
 | `data_sync` | `data_sync` | `DataSyncAdapter` | 2 | MedusaJS, CSV, Shopify |
-| `webhook` | `webhook_endpoints` | `WebhookEndpointAdapter` | 5 | Custom, Zapier |
+| `webhook` | `webhook_endpoints` | `WebhookEndpointAdapter` | 5 | Custom, Zapier | See [SPEC-057](./SPEC-057-2026-03-04-webhooks-module.md) |
 
 ### Future Categories (Not in Scope)
 
