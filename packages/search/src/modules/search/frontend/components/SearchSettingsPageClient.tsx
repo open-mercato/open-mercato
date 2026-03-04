@@ -229,7 +229,12 @@ export function SearchSettingsPageClient() {
     }
   }, [])
 
-  useAppEvent('progress.job.*', () => {
+  useAppEvent('progress.job.updated', () => {
+    void refreshStatsOnly()
+    void refreshEmbeddingStatsOnly()
+  }, [refreshStatsOnly, refreshEmbeddingStatsOnly])
+
+  useAppEvent('progress.job.completed', () => {
     void refreshStatsOnly()
     void refreshEmbeddingStatsOnly()
   }, [refreshStatsOnly, refreshEmbeddingStatsOnly])

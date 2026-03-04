@@ -145,7 +145,11 @@ export function FulltextSearchSection({
     fetchActivityLogs()
   }, [fetchActivityLogs])
 
-  useAppEvent('progress.job.*', () => {
+  useAppEvent('progress.job.updated', () => {
+    void fetchActivityLogs()
+  }, [fetchActivityLogs])
+
+  useAppEvent('progress.job.completed', () => {
     void fetchActivityLogs()
   }, [fetchActivityLogs])
 

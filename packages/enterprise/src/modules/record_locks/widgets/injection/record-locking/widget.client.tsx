@@ -873,11 +873,20 @@ export default function RecordLockingWidget({
     const onFocus = () => {
       void refreshPresence()
     }
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        void refreshPresence()
+      }
+    }
 
     window.addEventListener(RECORD_LOCKS_INCOMING_CHANGES_EVENT, onIncomingChanges)
     window.addEventListener(RECORD_LOCKS_FORCE_RELEASED_EVENT, onForceReleased)
     window.addEventListener('om:event', onBridgeReconnected)
     window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const heartbeatInterval = window.setInterval(() => {
+      void refreshPresence()
+    }, 30_000)
     void refreshPresence()
 
     return () => {
@@ -885,6 +894,8 @@ export default function RecordLockingWidget({
       window.removeEventListener(RECORD_LOCKS_FORCE_RELEASED_EVENT, onForceReleased)
       window.removeEventListener('om:event', onBridgeReconnected)
       window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(heartbeatInterval)
     }
   }, [
     formId,

@@ -118,7 +118,7 @@ export async function handleVectorIndexJob(
 
     // Update heartbeat to signal worker is still processing
     if (knex && records.length > 0) {
-      await updateReindexProgress(knex, tenantId, 'vector', records.length, organizationId ?? null)
+      await updateReindexProgress(knex, tenantId, 'vector', successCount, organizationId ?? null)
     }
     if (progressService && em && records.length > 0) {
       const completed = await incrementReindexProgress({
@@ -127,7 +127,7 @@ export async function handleVectorIndexJob(
         type: 'vector',
         tenantId,
         organizationId: organizationId ?? null,
-        delta: records.length,
+        delta: successCount,
       })
       if (completed && knex) {
         await clearReindexLock(knex, tenantId, 'vector', organizationId ?? null)

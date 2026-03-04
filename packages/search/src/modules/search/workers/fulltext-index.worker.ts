@@ -194,7 +194,7 @@ export async function handleFulltextIndexJob(
 
       // Update heartbeat to signal worker is still processing
       if (knex && records.length > 0) {
-        await updateReindexProgress(knex, tenantId, 'fulltext', records.length, organizationId ?? null)
+        await updateReindexProgress(knex, tenantId, 'fulltext', successCount, organizationId ?? null)
       }
       if (progressService && em && records.length > 0) {
         const completed = await incrementReindexProgress({
@@ -203,7 +203,7 @@ export async function handleFulltextIndexJob(
           type: 'fulltext',
           tenantId,
           organizationId: organizationId ?? null,
-          delta: records.length,
+          delta: successCount,
         })
         if (completed && knex) {
           await clearReindexLock(knex, tenantId, 'fulltext', organizationId ?? null)
