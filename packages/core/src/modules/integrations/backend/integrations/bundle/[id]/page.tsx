@@ -137,8 +137,8 @@ export default function BundleConfigPage() {
     }
   }, [detail, handleToggle])
 
-  if (isLoading) return <Page><PageBody><LoadingMessage /></PageBody></Page>
-  if (error || !detail?.bundle) return <Page><PageBody><ErrorMessage title={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
+  if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.bundle.title')} /></PageBody></Page>
+  if (error || !detail?.bundle) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
 
   const credFields = detail.bundle.credentials?.fields ?? []
 

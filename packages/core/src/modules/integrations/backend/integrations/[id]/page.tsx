@@ -209,8 +209,8 @@ export default function IntegrationDetailPage() {
     setIsCheckingHealth(false)
   }, [integrationId, t])
 
-  if (isLoading) return <Page><PageBody><LoadingMessage /></PageBody></Page>
-  if (error || !detail) return <Page><PageBody><ErrorMessage title={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
+  if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
+  if (error || !detail) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
 
   const { integration, state } = detail
   const credFields = integration.credentials?.fields ?? detail.bundle?.credentials?.fields ?? []

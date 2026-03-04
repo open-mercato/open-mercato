@@ -131,8 +131,8 @@ export default function SyncRunDetailPage() {
     }
   }, [runId, t])
 
-  if (isLoading) return <Page><PageBody><LoadingMessage /></PageBody></Page>
-  if (error || !run) return <Page><PageBody><ErrorMessage title={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
+  if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
+  if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
 
   const totalProcessed = run.createdCount + run.updatedCount + run.skippedCount + run.failedCount
   const progressPercent = totalProcessed > 0 ? Math.min(100, Math.round((totalProcessed / Math.max(totalProcessed, 1)) * 100)) : (run.status === 'completed' ? 100 : 0)
