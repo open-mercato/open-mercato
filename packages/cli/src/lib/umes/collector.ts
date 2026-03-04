@@ -47,7 +47,9 @@ export function collectUmesData(resolver: PackageResolver): UmesModuleData[] {
             else if (feat?.id) declaredFeatures.push(feat.id)
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn(`[UMES] Failed to load acl.ts for module "${modId}":`, err)
+      }
     }
 
     // Collect enrichers
@@ -76,7 +78,9 @@ export function collectUmesData(resolver: PackageResolver): UmesModuleData[] {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn(`[UMES] Failed to load data/enrichers.ts for module "${modId}":`, err)
+      }
     }
 
     // Collect interceptors
@@ -105,7 +109,9 @@ export function collectUmesData(resolver: PackageResolver): UmesModuleData[] {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn(`[UMES] Failed to load api/interceptors.ts for module "${modId}":`, err)
+      }
     }
 
     // Collect component overrides
@@ -131,7 +137,9 @@ export function collectUmesData(resolver: PackageResolver): UmesModuleData[] {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn(`[UMES] Failed to load widgets/components.ts for module "${modId}":`, err)
+      }
     }
 
     // Collect injection table entries
@@ -156,7 +164,9 @@ export function collectUmesData(resolver: PackageResolver): UmesModuleData[] {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn(`[UMES] Failed to load widgets/injection-table.ts for module "${modId}":`, err)
+      }
     }
 
     results.push({ moduleId: modId, extensions, declaredFeatures })

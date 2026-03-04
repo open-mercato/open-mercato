@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useUmesDevTools } from './useUmesDevTools'
 import { ExtensionPointList } from './components/ExtensionPointList'
 import { ConflictWarnings } from './components/ConflictWarnings'
@@ -23,7 +25,7 @@ const TABS: { id: TabId; label: string }[] = [
 export function UmesDevToolsPanel() {
   const [isOpen, setIsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('extensions')
-  const data = useUmesDevTools()
+  const data = useUmesDevTools(isOpen)
 
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
     if (event.ctrlKey && event.shiftKey && event.key === 'U') {
@@ -44,133 +46,66 @@ export function UmesDevToolsPanel() {
   const hasErrors = data.conflicts.some((c) => c.severity === 'error')
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: '440px',
-        zIndex: 9999,
-        backgroundColor: '#ffffff',
-        borderLeft: '1px solid #e5e7eb',
-        boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.08)',
-        display: 'flex',
-        flexDirection: 'column',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: '13px',
-        color: '#1f2937',
-      }}
+    <div className="fixed inset-y-0 right-0 z-[9999] flex w-[440px] flex-col border-l bg-background text-foreground shadow-lg"
+      style={{ fontSize: '13px' }}
     >
       {/* Header */}
-      <div
-        style={{
-          padding: '10px 16px',
-          borderBottom: '1px solid #e5e7eb',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: '#f9fafb',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <strong style={{ fontSize: '14px' }}>UMES DevTools</strong>
-          <span
-            style={{
-              backgroundColor: '#dbeafe',
-              color: '#1d4ed8',
-              padding: '1px 6px',
-              borderRadius: '3px',
-              fontSize: '10px',
-              fontWeight: 600,
-            }}
-          >
+      <div className="flex shrink-0 items-center justify-between border-b bg-muted/50 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <strong className="text-sm">UMES DevTools</strong>
+          <span className="rounded bg-blue-100 px-1.5 py-px text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
             {data.extensions.length} ext
           </span>
           {conflictCount > 0 && (
-            <span
-              style={{
-                backgroundColor: hasErrors ? '#fee2e2' : '#fef3c7',
-                color: hasErrors ? '#dc2626' : '#d97706',
-                padding: '1px 6px',
-                borderRadius: '3px',
-                fontSize: '10px',
-                fontWeight: 600,
-              }}
-            >
+            <span className={`rounded px-1.5 py-px text-[10px] font-semibold ${hasErrors ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'}`}>
               {conflictCount} conflict{conflictCount !== 1 ? 's' : ''}
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <button
+        <div className="flex items-center gap-1.5">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
+            className="h-auto px-2 py-0.5 text-[11px]"
             onClick={() => data.refresh()}
-            style={{
-              background: 'none',
-              border: '1px solid #d1d5db',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '11px',
-              padding: '2px 8px',
-              color: '#6b7280',
-            }}
           >
             Refresh
-          </button>
-          <button
+          </Button>
+          <IconButton
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => setIsOpen(false)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '18px',
-              padding: '2px 4px',
-              color: '#9ca3af',
-              lineHeight: 1,
-            }}
+            aria-label="Close DevTools"
           >
-            &times;
-          </button>
+            <span className="text-lg leading-none">&times;</span>
+          </IconButton>
         </div>
       </div>
 
       {/* Tabs */}
-      <div
-        style={{
-          display: 'flex',
-          borderBottom: '1px solid #e5e7eb',
-          backgroundColor: '#f9fafb',
-          flexShrink: 0,
-        }}
-      >
+      <div className="flex shrink-0 border-b bg-muted/50">
         {TABS.map((tab) => (
-          <button
+          <Button
             key={tab.id}
             type="button"
+            variant="ghost"
+            size="sm"
+            className={`h-auto flex-1 rounded-none border-b-2 px-1 py-2 text-[11px] hover:bg-transparent ${
+              activeTab === tab.id
+                ? 'border-primary font-semibold text-primary'
+                : 'border-transparent text-muted-foreground'
+            }`}
             onClick={() => setActiveTab(tab.id)}
-            style={{
-              flex: 1,
-              padding: '8px 4px',
-              border: 'none',
-              borderBottom: activeTab === tab.id ? '2px solid #3b82f6' : '2px solid transparent',
-              backgroundColor: 'transparent',
-              cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: activeTab === tab.id ? 600 : 400,
-              color: activeTab === tab.id ? '#1d4ed8' : '#6b7280',
-              textAlign: 'center',
-            }}
           >
             {tab.label}
-          </button>
+          </Button>
         ))}
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px' }}>
+      <div className="flex-1 overflow-auto p-3 px-4">
         {activeTab === 'extensions' && <ExtensionPointList extensions={data.extensions} />}
         {activeTab === 'conflicts' && <ConflictWarnings conflicts={data.conflicts} />}
         {activeTab === 'timing' && <EnricherTiming entries={data.enricherTimings} />}
@@ -179,17 +114,7 @@ export function UmesDevToolsPanel() {
       </div>
 
       {/* Footer */}
-      <div
-        style={{
-          padding: '6px 16px',
-          borderTop: '1px solid #e5e7eb',
-          backgroundColor: '#f9fafb',
-          fontSize: '10px',
-          color: '#9ca3af',
-          textAlign: 'center',
-          flexShrink: 0,
-        }}
-      >
+      <div className="shrink-0 border-t bg-muted/50 px-4 py-1.5 text-center text-[10px] text-muted-foreground">
         Ctrl+Shift+U to toggle | Dev mode only
       </div>
     </div>

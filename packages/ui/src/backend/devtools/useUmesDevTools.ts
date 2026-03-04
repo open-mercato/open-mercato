@@ -20,7 +20,7 @@ const EMPTY_DATA: UmesDevToolsData = {
 
 const isDev = process.env.NODE_ENV === 'development'
 
-export function useUmesDevTools(): UmesDevToolsData & { refresh: () => void } {
+export function useUmesDevTools(isActive = true): UmesDevToolsData & { refresh: () => void } {
   const [data, setData] = useState<UmesDevToolsData>(EMPTY_DATA)
 
   const refresh = useCallback(() => {
@@ -29,12 +29,12 @@ export function useUmesDevTools(): UmesDevToolsData & { refresh: () => void } {
   }, [])
 
   useEffect(() => {
-    if (!isDev) return
+    if (!isDev || !isActive) return
     refresh()
 
     const interval = setInterval(refresh, 3000)
     return () => clearInterval(interval)
-  }, [refresh])
+  }, [refresh, isActive])
 
   return { ...(isDev ? data : EMPTY_DATA), refresh }
 }
@@ -45,8 +45,7 @@ function collectDevToolsData(): UmesDevToolsData {
 
   // Collect enricher data from global registry
   try {
-    const { getResponseEnrichers } = require('@open-mercato/shared/lib/crud/enricher-registry')
-    const enricherEntries = getResponseEnrichers() as Array<{
+    const enricherEntries = ((globalThis as Record<string, unknown>).__openMercatoResponseEnrichers__ ?? []) as Array<{
       moduleId: string
       enricher: {
         id: string
@@ -80,8 +79,7 @@ function collectDevToolsData(): UmesDevToolsData {
 
   // Collect interceptor data from global registry
   try {
-    const { getAllApiInterceptors } = require('@open-mercato/shared/lib/crud/interceptor-registry')
-    const interceptorEntries = getAllApiInterceptors() as Array<{
+    const interceptorEntries = ((globalThis as Record<string, unknown>).__openMercatoApiInterceptors__ ?? []) as Array<{
       moduleId: string
       interceptor: {
         id: string
@@ -151,8 +149,7 @@ function collectDevToolsData(): UmesDevToolsData {
 
   // Collect injection widgets from global registry
   try {
-    const { getCoreInjectionTables } = require('@open-mercato/shared/modules/widgets/injection-loader')
-    const tables = getCoreInjectionTables() as Array<{
+    const tables = ((globalThis as Record<string, unknown>).__openMercatoCoreInjectionTables__ ?? []) as Array<{
       moduleId: string
       table: Record<string, unknown>
     }>

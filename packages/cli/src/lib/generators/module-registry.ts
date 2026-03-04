@@ -960,7 +960,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       // Collect declared features from acl.ts
       if (source.aclPath) {
         try {
-          const aclMod = require(source.aclPath)
+          const aclMod = await import(source.aclPath)
           const features = aclMod.features ?? aclMod.default ?? []
           if (Array.isArray(features)) {
             for (const feat of features) {
@@ -974,7 +974,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       // Collect component overrides
       if (source.componentOverridesPath) {
         try {
-          const overridesMod = require(source.componentOverridesPath)
+          const overridesMod = await import(source.componentOverridesPath)
           const overrides = overridesMod.componentOverrides ?? overridesMod.default ?? []
           if (Array.isArray(overrides)) {
             for (const override of overrides) {
@@ -999,7 +999,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       // Collect interceptors
       if (source.interceptorsPath) {
         try {
-          const interceptorsMod = require(source.interceptorsPath)
+          const interceptorsMod = await import(source.interceptorsPath)
           const interceptors = interceptorsMod.interceptors ?? interceptorsMod.default ?? []
           if (Array.isArray(interceptors)) {
             for (const interceptor of interceptors) {

@@ -1,25 +1,32 @@
 import type { EnricherTimingEntry } from './devtools-types'
 
-const TIMING_WARN_THRESHOLD_MS = 100
-const TIMING_ERROR_THRESHOLD_MS = 500
 const MAX_TIMING_ENTRIES = 200
+const GLOBAL_KEY = '__openMercatoEnricherTimingEntries__'
 
 const isDev = process.env.NODE_ENV === 'development'
 
-let timingEntries: EnricherTimingEntry[] = []
+function getStore(): EnricherTimingEntry[] {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_KEY]
+  if (Array.isArray(existing)) return existing as EnricherTimingEntry[]
+  const store: EnricherTimingEntry[] = []
+  ;(globalThis as Record<string, unknown>)[GLOBAL_KEY] = store
+  return store
+}
 
 export function getEnricherTimingEntries(): EnricherTimingEntry[] {
-  return timingEntries
+  return getStore()
 }
 
 export function clearEnricherTimingEntries(): void {
-  timingEntries = []
+  ;(globalThis as Record<string, unknown>)[GLOBAL_KEY] = []
 }
 
 function addTimingEntry(entry: EnricherTimingEntry): void {
-  timingEntries.push(entry)
-  if (timingEntries.length > MAX_TIMING_ENTRIES) {
-    timingEntries = timingEntries.slice(-MAX_TIMING_ENTRIES)
+  const store = getStore()
+  store.push(entry)
+  if (store.length > MAX_TIMING_ENTRIES) {
+    const trimmed = store.slice(-MAX_TIMING_ENTRIES)
+    ;(globalThis as Record<string, unknown>)[GLOBAL_KEY] = trimmed
   }
 }
 
@@ -31,25 +38,13 @@ export function logEnricherTiming(
 ): void {
   if (!isDev) return
 
-  const entry: EnricherTimingEntry = {
+  addTimingEntry({
     enricherId,
     moduleId,
     targetEntity,
     durationMs,
     timestamp: Date.now(),
-  }
-
-  addTimingEntry(entry)
-
-  if (durationMs >= TIMING_ERROR_THRESHOLD_MS) {
-    console.error(
-      `[UMES] Enricher "${enricherId}" took ${durationMs}ms (>500ms). Consider adding cache config.`,
-    )
-  } else if (durationMs >= TIMING_WARN_THRESHOLD_MS) {
-    console.warn(
-      `[UMES] Enricher "${enricherId}" took ${durationMs}ms (warning: >100ms)`,
-    )
-  }
+  })
 }
 
 export async function withEnricherTiming<T>(

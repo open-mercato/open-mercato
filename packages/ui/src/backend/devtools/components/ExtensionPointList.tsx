@@ -3,16 +3,16 @@
 import type { UmesExtensionInfo } from '@open-mercato/shared/lib/umes/devtools-types'
 
 const TYPE_COLORS: Record<string, string> = {
-  enricher: '#3b82f6',
-  interceptor: '#f59e0b',
-  'component-override': '#8b5cf6',
-  'injection-widget': '#10b981',
-  'injection-data-widget': '#06b6d4',
+  enricher: 'bg-blue-500',
+  interceptor: 'bg-amber-500',
+  'component-override': 'bg-violet-500',
+  'injection-widget': 'bg-emerald-500',
+  'injection-data-widget': 'bg-cyan-500',
 }
 
 export function ExtensionPointList({ extensions }: { extensions: UmesExtensionInfo[] }) {
   if (extensions.length === 0) {
-    return <p style={{ color: '#9ca3af', fontStyle: 'italic' }}>No extensions registered</p>
+    return <p className="text-xs italic text-muted-foreground">No extensions registered</p>
   }
 
   const grouped = new Map<string, UmesExtensionInfo[]>()
@@ -26,63 +26,25 @@ export function ExtensionPointList({ extensions }: { extensions: UmesExtensionIn
   return (
     <div>
       {Array.from(grouped.entries()).map(([type, items]) => (
-        <div key={type} style={{ marginBottom: '12px' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              marginBottom: '4px',
-              fontWeight: 600,
-              fontSize: '12px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-            }}
-          >
-            <span
-              style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                backgroundColor: TYPE_COLORS[type] ?? '#6b7280',
-                display: 'inline-block',
-              }}
-            />
+        <div key={type} className="mb-3">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+            <span className={`inline-block size-2 rounded-full ${TYPE_COLORS[type] ?? 'bg-muted-foreground'}`} />
             {type} ({items.length})
           </div>
-          <div style={{ paddingLeft: '14px' }}>
+          <div className="pl-3.5">
             {items.map((ext, idx) => (
               <div
                 key={`${ext.id}-${idx}`}
-                style={{
-                  padding: '4px 0',
-                  borderBottom: '1px solid #f3f4f6',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  fontSize: '12px',
-                }}
+                className="flex items-center justify-between border-b border-border/50 py-1 text-xs"
               >
                 <div>
-                  <span style={{ fontWeight: 500 }}>{ext.id}</span>
-                  <span style={{ color: '#9ca3af', marginLeft: '6px' }}>
-                    [{ext.moduleId}]
-                  </span>
+                  <span className="font-medium">{ext.id}</span>
+                  <span className="ml-1.5 text-muted-foreground">[{ext.moduleId}]</span>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <span style={{ color: '#6b7280', fontSize: '11px' }}>
-                    {ext.target}
-                  </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground">{ext.target}</span>
                   {ext.priority !== 0 && (
-                    <span
-                      style={{
-                        backgroundColor: '#f3f4f6',
-                        padding: '1px 5px',
-                        borderRadius: '3px',
-                        fontSize: '10px',
-                        fontWeight: 600,
-                      }}
-                    >
+                    <span className="rounded bg-muted px-1.5 py-px text-[10px] font-semibold">
                       P{ext.priority}
                     </span>
                   )}

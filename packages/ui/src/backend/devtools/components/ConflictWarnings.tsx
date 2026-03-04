@@ -5,7 +5,7 @@ import type { UmesConflict } from '@open-mercato/shared/lib/umes/devtools-types'
 export function ConflictWarnings({ conflicts }: { conflicts: UmesConflict[] }) {
   if (conflicts.length === 0) {
     return (
-      <p style={{ color: '#10b981', fontStyle: 'italic', fontSize: '12px' }}>
+      <p className="text-xs italic text-emerald-600 dark:text-emerald-400">
         No conflicts detected
       </p>
     )
@@ -16,20 +16,17 @@ export function ConflictWarnings({ conflicts }: { conflicts: UmesConflict[] }) {
       {conflicts.map((conflict, idx) => (
         <div
           key={idx}
-          style={{
-            padding: '8px 10px',
-            marginBottom: '6px',
-            borderRadius: '4px',
-            backgroundColor: conflict.severity === 'error' ? '#fef2f2' : '#fffbeb',
-            borderLeft: `3px solid ${conflict.severity === 'error' ? '#ef4444' : '#f59e0b'}`,
-            fontSize: '12px',
-          }}
+          className={`mb-1.5 rounded border-l-[3px] p-2 text-xs ${
+            conflict.severity === 'error'
+              ? 'border-l-red-500 bg-red-50 dark:bg-red-950/30'
+              : 'border-l-amber-500 bg-amber-50 dark:bg-amber-950/30'
+          }`}
         >
-          <div style={{ fontWeight: 600, marginBottom: '2px' }}>
+          <div className="mb-0.5 font-semibold">
             {conflict.severity === 'error' ? 'Error' : 'Warning'}: {conflict.type}
           </div>
-          <div style={{ color: '#4b5563' }}>{conflict.message}</div>
-          <div style={{ color: '#9ca3af', fontSize: '11px', marginTop: '2px' }}>
+          <div className="text-foreground/80">{conflict.message}</div>
+          <div className="mt-0.5 text-[11px] text-muted-foreground">
             Modules: {conflict.moduleIds.join(', ')} | Target: {conflict.target}
           </div>
         </div>

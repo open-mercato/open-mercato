@@ -42,7 +42,7 @@ export function detectComponentOverrideConflicts(
   const byComponentAndPriority = new Map<string, ComponentOverrideInput[]>()
 
   for (const override of overrides) {
-    const key = `${override.componentId}:${override.priority}`
+    const key = `${override.componentId}\0${override.priority}`
     const existing = byComponentAndPriority.get(key)
     if (existing) {
       existing.push(override)
@@ -51,18 +51,17 @@ export function detectComponentOverrideConflicts(
     }
   }
 
-  for (const [key, entries] of byComponentAndPriority) {
+  for (const [, entries] of byComponentAndPriority) {
     if (entries.length > 1) {
-      const [componentId, priority] = key.split(':')
       const moduleIds = [...new Set(entries.map((e) => e.moduleId))]
       if (moduleIds.length > 1) {
         conflicts.push({
           severity: 'error',
           type: 'duplicate-component-override',
-          message: `Conflict: modules ${moduleIds.join(' and ')} both replace component "${componentId}" at priority ${priority}`,
+          message: `Conflict: modules ${moduleIds.join(' and ')} both replace component "${entries[0].componentId}" at priority ${entries[0].priority}`,
           moduleIds,
-          target: componentId,
-          details: { priority: Number(priority) },
+          target: entries[0].componentId,
+          details: { priority: entries[0].priority },
         })
       }
     }
@@ -79,7 +78,7 @@ export function detectInterceptorConflicts(
 
   for (const interceptor of interceptors) {
     for (const method of interceptor.methods) {
-      const key = `${interceptor.targetRoute}:${method}:${interceptor.priority}`
+      const key = `${interceptor.targetRoute}\0${method}\0${interceptor.priority}`
       const existing = byRouteMethodPriority.get(key)
       if (existing) {
         existing.push(interceptor)
@@ -91,16 +90,16 @@ export function detectInterceptorConflicts(
 
   for (const [key, entries] of byRouteMethodPriority) {
     if (entries.length > 1) {
-      const [route, method, priority] = key.split(':')
+      const [route, method] = key.split('\0')
       const moduleIds = [...new Set(entries.map((e) => e.moduleId))]
       if (moduleIds.length > 1) {
         conflicts.push({
           severity: 'warning',
           type: 'duplicate-interceptor-priority',
-          message: `Multiple interceptors on ${method.toUpperCase()} ${route} at priority ${priority}: ${moduleIds.join(', ')}`,
+          message: `Multiple interceptors on ${method.toUpperCase()} ${route} at priority ${entries[0].priority}: ${moduleIds.join(', ')}`,
           moduleIds,
           target: `${method.toUpperCase()} ${route}`,
-          details: { priority: Number(priority), method, route },
+          details: { priority: entries[0].priority, method, route },
         })
       }
     }

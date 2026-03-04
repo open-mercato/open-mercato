@@ -2,10 +2,10 @@
 
 import type { EnricherTimingEntry } from '@open-mercato/shared/lib/umes/devtools-types'
 
-function getTimingColor(ms: number): string {
-  if (ms >= 500) return '#ef4444'
-  if (ms >= 100) return '#f59e0b'
-  return '#10b981'
+function getTimingClasses(ms: number): { text: string; bar: string } {
+  if (ms >= 500) return { text: 'text-red-500', bar: 'bg-red-500' }
+  if (ms >= 100) return { text: 'text-amber-500', bar: 'bg-amber-500' }
+  return { text: 'text-emerald-500', bar: 'bg-emerald-500' }
 }
 
 function getTimingBarWidth(ms: number, maxMs: number): string {
@@ -15,7 +15,7 @@ function getTimingBarWidth(ms: number, maxMs: number): string {
 
 export function EnricherTiming({ entries }: { entries: EnricherTimingEntry[] }) {
   if (entries.length === 0) {
-    return <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '12px' }}>No timing data</p>
+    return <p className="text-xs italic text-muted-foreground">No timing data</p>
   }
 
   const recent = entries.slice(-20).reverse()
@@ -23,50 +23,28 @@ export function EnricherTiming({ entries }: { entries: EnricherTimingEntry[] }) 
 
   return (
     <div>
-      {recent.map((entry, idx) => (
-        <div
-          key={idx}
-          style={{
-            padding: '4px 0',
-            borderBottom: '1px solid #f3f4f6',
-            fontSize: '12px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-            <span style={{ fontWeight: 500 }}>{entry.enricherId}</span>
-            <span
-              style={{
-                color: getTimingColor(entry.durationMs),
-                fontWeight: 600,
-                fontFamily: 'monospace',
-              }}
-            >
-              {entry.durationMs}ms
-            </span>
+      {recent.map((entry, idx) => {
+        const classes = getTimingClasses(entry.durationMs)
+        return (
+          <div key={idx} className="border-b border-border/50 py-1 text-xs">
+            <div className="mb-0.5 flex justify-between">
+              <span className="font-medium">{entry.enricherId}</span>
+              <span className={`font-mono font-semibold ${classes.text}`}>
+                {entry.durationMs}ms
+              </span>
+            </div>
+            <div className="h-1 overflow-hidden rounded bg-muted">
+              <div
+                className={`h-full rounded transition-[width] duration-300 ${classes.bar}`}
+                style={{ width: getTimingBarWidth(entry.durationMs, maxMs) }}
+              />
+            </div>
+            <div className="mt-px text-[11px] text-muted-foreground">
+              {entry.targetEntity} | {entry.moduleId}
+            </div>
           </div>
-          <div
-            style={{
-              height: '4px',
-              backgroundColor: '#f3f4f6',
-              borderRadius: '2px',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                height: '100%',
-                width: getTimingBarWidth(entry.durationMs, maxMs),
-                backgroundColor: getTimingColor(entry.durationMs),
-                borderRadius: '2px',
-                transition: 'width 0.3s ease',
-              }}
-            />
-          </div>
-          <div style={{ color: '#9ca3af', fontSize: '11px', marginTop: '1px' }}>
-            {entry.targetEntity} | {entry.moduleId}
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

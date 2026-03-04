@@ -1,23 +1,33 @@
 import type { InterceptorActivityEntry } from './devtools-types'
 
 const MAX_ACTIVITY_ENTRIES = 200
+const GLOBAL_KEY = '__openMercatoInterceptorActivityEntries__'
+
 const isDev = process.env.NODE_ENV === 'development'
 
-let activityEntries: InterceptorActivityEntry[] = []
+function getStore(): InterceptorActivityEntry[] {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_KEY]
+  if (Array.isArray(existing)) return existing as InterceptorActivityEntry[]
+  const store: InterceptorActivityEntry[] = []
+  ;(globalThis as Record<string, unknown>)[GLOBAL_KEY] = store
+  return store
+}
 
 export function getInterceptorActivityEntries(): InterceptorActivityEntry[] {
-  return activityEntries
+  return getStore()
 }
 
 export function clearInterceptorActivityEntries(): void {
-  activityEntries = []
+  ;(globalThis as Record<string, unknown>)[GLOBAL_KEY] = []
 }
 
 export function logInterceptorActivity(entry: InterceptorActivityEntry): void {
   if (!isDev) return
 
-  activityEntries.push(entry)
-  if (activityEntries.length > MAX_ACTIVITY_ENTRIES) {
-    activityEntries = activityEntries.slice(-MAX_ACTIVITY_ENTRIES)
+  const store = getStore()
+  store.push(entry)
+  if (store.length > MAX_ACTIVITY_ENTRIES) {
+    const trimmed = store.slice(-MAX_ACTIVITY_ENTRIES)
+    ;(globalThis as Record<string, unknown>)[GLOBAL_KEY] = trimmed
   }
 }

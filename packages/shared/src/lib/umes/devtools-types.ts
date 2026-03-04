@@ -103,14 +103,6 @@ export interface UmesDevToolsData {
   componentReplacements: UmesComponentOverrideInfo[]
 }
 
-export interface InterceptorAuditEntry {
-  interceptorId: string
-  route: string
-  method: string
-  message?: string
-  statusCode?: number
-}
-
 export interface EnricherResponseMeta {
   enrichedBy: string[]
 }

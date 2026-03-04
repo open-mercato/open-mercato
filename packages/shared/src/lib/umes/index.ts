@@ -13,7 +13,6 @@ export type {
   InterceptorActivityEntry,
   EventFlowEntry,
   UmesDevToolsData,
-  InterceptorAuditEntry,
   EnricherResponseMeta,
 } from './devtools-types'
 

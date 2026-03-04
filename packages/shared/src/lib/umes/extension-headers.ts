@@ -8,6 +8,11 @@ export interface ParsedExtensionHeaders {
   [moduleId: string]: Record<string, string>
 }
 
+/**
+ * Parse extension headers from a request. Module IDs use snake_case per convention,
+ * so the first dash after the prefix reliably separates moduleId from key.
+ * E.g. `x-om-ext-record_locks-token` → moduleId=`record_locks`, key=`token`.
+ */
 export function parseExtensionHeaders(
   headers: Record<string, string | string[] | undefined>,
 ): ParsedExtensionHeaders {

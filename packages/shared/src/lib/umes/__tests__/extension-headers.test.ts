@@ -16,17 +16,17 @@ describe('buildExtensionHeader', () => {
 })
 
 describe('parseExtensionHeaders', () => {
-  it('parses extension headers from mixed headers', () => {
+  it('parses extension headers from mixed headers (snake_case module IDs)', () => {
     const result = parseExtensionHeaders({
       'content-type': 'application/json',
-      'x-om-ext-record-locks-token': 'abc123',
-      'x-om-ext-business-rules-override': 'skip-credit-check',
+      'x-om-ext-record_locks-token': 'abc123',
+      'x-om-ext-business_rules-override': 'skip-credit-check',
       'authorization': 'Bearer xyz',
     })
 
     expect(result).toEqual({
-      'record': { 'locks-token': 'abc123' },
-      'business': { 'rules-override': 'skip-credit-check' },
+      'record_locks': { 'token': 'abc123' },
+      'business_rules': { 'override': 'skip-credit-check' },
     })
   })
 
