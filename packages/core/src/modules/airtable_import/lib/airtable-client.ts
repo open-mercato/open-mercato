@@ -33,12 +33,12 @@ export class AirtableClient {
     if (!res.ok) {
       const text = await res.text();
       if (res.status === 401)
-        throw new Error("Token Airtable jest nieprawidłowy lub wygasł");
+        throw new Error("Airtable token is invalid or expired");
       if (res.status === 403)
-        throw new Error("Brak dostępu do tej bazy Airtable");
+        throw new Error("Access denied to this Airtable base");
       if (res.status === 404)
-        throw new Error("Baza Airtable nie została znaleziona");
-      throw new Error(`Błąd Airtable API (${res.status}): ${text}`);
+        throw new Error("Airtable base not found");
+      throw new Error(`Airtable API error (${res.status}): ${text}`);
     }
 
     return res.json() as T;

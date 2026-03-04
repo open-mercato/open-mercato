@@ -7,6 +7,7 @@ import { Button } from "@open-mercato/ui/primitives/button";
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { LoadingMessage, ErrorMessage } from "@open-mercato/ui/backend/detail";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
 import type {
   ImportSession,
   ImportMapping,
@@ -18,40 +19,45 @@ import type {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MODULE_OPTIONS = [
-  { value: "customers.people", label: "Kontakty i osoby" },
-  { value: "customers.companies", label: "Firmy i organizacje" },
-  { value: "customers.deals", label: "Szanse sprzedażowe" },
-  { value: "catalog.products", label: "Produkty" },
-  { value: "catalog.categories", label: "Kategorie produktów" },
-  { value: "sales.orders", label: "Zamówienia" },
-  { value: "sales.invoices", label: "Faktury" },
-  { value: "sales.quotes", label: "Oferty / wyceny" },
-  { value: "staff.members", label: "Pracownicy (dane kadrowe)" },
-  { value: "planner.tasks", label: "Zadania" },
-  { value: "__custom__", label: "+ Utwórz nową encję Custom" },
-];
+function getModuleOptions(t: ReturnType<typeof useT>) {
+  return [
+    { value: "customers.people", label: t("airtable_import.modules.people") },
+    { value: "customers.companies", label: t("airtable_import.modules.companies") },
+    { value: "customers.deals", label: t("airtable_import.modules.deals") },
+    { value: "catalog.products", label: t("airtable_import.modules.products") },
+    { value: "catalog.categories", label: t("airtable_import.modules.categories") },
+    { value: "sales.orders", label: t("airtable_import.modules.orders") },
+    { value: "sales.invoices", label: t("airtable_import.modules.invoices") },
+    { value: "sales.quotes", label: t("airtable_import.modules.quotes") },
+    { value: "staff.members", label: t("airtable_import.modules.staff") },
+    { value: "tasks.tasks", label: t("airtable_import.modules.tasks") },
+    { value: null, label: t("airtable_import.modules.custom") },
+  ];
+}
 
-const STEP_LABELS = [
-  "Połączenie",
-  "Analiza",
-  "Mapowanie tabel",
-  "Mapowanie pól",
-  "Opcje",
-  "Plan",
-  "Import",
-  "Raport",
-];
+function getStepLabels(t: ReturnType<typeof useT>) {
+  return [
+    t("airtable_import.wizard.step1"),
+    t("airtable_import.wizard.step2"),
+    t("airtable_import.wizard.step3"),
+    t("airtable_import.wizard.step4"),
+    t("airtable_import.wizard.step5"),
+    t("airtable_import.wizard.step6"),
+    t("airtable_import.wizard.step7"),
+    t("airtable_import.wizard.step8"),
+  ];
+}
 
 // ─── Step 1: Connect ──────────────────────────────────────────────────────────
 
 function StepConnect({ session, onNext, onRestart: _ }: StepProps) {
+  const t = useT();
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 1: Połączenie z Airtable</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step1.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sprawdź dane połączenia z bazą Airtable i przejdź do kolejnego kroku.
+          {t("airtable_import.step1.description")}
         </p>
       </div>
       <div className="rounded-lg border p-4">
@@ -80,6 +86,7 @@ function StepAnalyze({
   onBack,
   reload,
 }: StepProps) {
+  const t = useT();
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
 
   const handleAnalyze = async () => {
@@ -90,11 +97,11 @@ function StepAnalyze({
     );
     setIsAnalyzing(false);
     if (res.ok) {
-      flash("Analiza zakończona pomyślnie", "success");
+      flash(t("airtable_import.step2.successMessage"), "success");
       reload();
     } else {
-      const err = await res.response.text().catch(() => "Błąd");
-      flash(`Błąd analizy: ${err}`, "error");
+      const err = await res.response.text().catch(() => t("airtable_import.status.failed"));
+      flash(t("airtable_import.step2.errorMessage").replace("{err}", String(err)), "error");
     }
   };
 
@@ -103,10 +110,9 @@ function StepAnalyze({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 2: Analiza bazy</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step2.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          System pobierze schemat tabel i automatycznie dopasuje je do modułów
-          Open Mercato.
+          {t("airtable_import.step2.description")}
         </p>
       </div>
       {isAnalyzed && session.mappingJson && (
@@ -152,7 +158,7 @@ function StepAnalyze({
               onClick={handleAnalyze}
               disabled={isAnalyzing}
             >
-              {isAnalyzing ? "Analizowanie…" : "Analizuj bazę"}
+              {isAnalyzing ? t("airtable_import.step2.analyzingButton") : t("airtable_import.step2.analyzeButton")}
             </Button>
           )}
           {isAnalyzed && (
@@ -175,6 +181,8 @@ function StepModuleMapping({
   onBack,
   reload,
 }: StepProps) {
+  const t = useT();
+  const moduleOptions = getModuleOptions(t);
   const [mapping, setMapping] = React.useState<ImportMapping>(
     session.mappingJson ?? { tables: [] },
   );
@@ -223,7 +231,7 @@ function StepModuleMapping({
       onNext();
     } else {
       const errData = res.result as { error?: string } | null;
-      flash(errData?.error ?? "Błąd zapisu mapowania", "error");
+      flash(errData?.error ?? t("airtable_import.step3.saveMappingError"), "error");
     }
   };
 
@@ -251,10 +259,9 @@ function StepModuleMapping({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 3: Mapowanie tabel</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step3.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Przypisz każdą tabelę Airtable do odpowiedniego modułu Open Mercato
-          lub utwórz nową encję.
+          {t("airtable_import.step3.description")}
         </p>
       </div>
       <div className="flex flex-col gap-3">
@@ -271,7 +278,7 @@ function StepModuleMapping({
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{table.airtableTableName}</p>
                   <p className="text-xs text-muted-foreground">
-                    {table.fieldMappings.length} pól
+                    {t("airtable_import.step3.fieldCount").replace("{n}", String(table.fieldMappings.length))}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -284,8 +291,8 @@ function StepModuleMapping({
                     }
                     disabled={table.skip}
                   >
-                    {MODULE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
+                    {moduleOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value ?? "__custom__"}>
                         {opt.label}
                       </option>
                     ))}
@@ -301,7 +308,7 @@ function StepModuleMapping({
                         )
                       }
                     />
-                    Pomiń
+                    {t("airtable_import.buttons.skip")}
                   </label>
                 </div>
               </div>
@@ -330,6 +337,7 @@ function StepFieldMapping({
   onBack,
   reload,
 }: StepProps) {
+  const t = useT();
   const [mapping, setMapping] = React.useState<ImportMapping>(
     session.mappingJson ?? { tables: [] },
   );
@@ -391,7 +399,7 @@ function StepFieldMapping({
       await reload();
       onNext();
     } else {
-      flash("Błąd zapisu mapowania pól", "error");
+      flash(t("airtable_import.step4.saveMappingError"), "error");
     }
   };
 
@@ -400,10 +408,9 @@ function StepFieldMapping({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 4: Mapowanie pól</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step4.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Przeglądaj pola każdej tabeli i dostosuj mapowanie do docelowych pól
-          Open Mercato.
+          {t("airtable_import.step4.description")}
         </p>
       </div>
       <div className="flex flex-col gap-3">
@@ -423,7 +430,7 @@ function StepFieldMapping({
                   {table.airtableTableName}
                   <span className="ml-2 text-xs font-normal text-muted-foreground">
                     ({table.fieldMappings.filter((f) => !f.skip).length}{" "}
-                    aktywnych pól)
+                    {t("airtable_import.step4.activeFields")})
                   </span>
                 </span>
                 <span>{isExpanded ? "▲" : "▼"}</span>
@@ -440,13 +447,13 @@ function StepFieldMapping({
                           Typ
                         </th>
                         <th className="w-[20%] px-4 py-2 text-left font-medium">
-                          Przykłady
+                          {t("airtable_import.step4.examplesColumn")}
                         </th>
                         <th className="w-[38%] px-4 py-2 text-left font-medium">
                           Klucz OM
                         </th>
                         <th className="w-[8%] px-4 py-2 text-center font-medium">
-                          Pomiń
+                          {t("airtable_import.step4.skipColumn")}
                         </th>
                       </tr>
                     </thead>
@@ -527,6 +534,7 @@ function StepOptions({
   onBack,
   reload,
 }: StepProps) {
+  const t = useT();
   const defaults: ImportConfig = {
     importUsers: false,
     importAttachments: false,
@@ -561,7 +569,7 @@ function StepOptions({
       await reload();
       onNext();
     } else {
-      flash("Błąd zapisu opcji", "error");
+      flash(t("airtable_import.step5.saveError"), "error");
     }
   };
 
@@ -573,32 +581,29 @@ function StepOptions({
     {
       key: "preserveDates",
       label: "Zachowaj daty utworzenia",
-      description: "Ustawi created_at rekordów na oryginalne daty z Airtable",
+      description: t("airtable_import.step5.preserveDatesDescription"),
     },
     {
       key: "addAirtableIdField",
       label: "Dodaj pole airtable_id",
-      description:
-        "Doda pole z oryginalnym ID rekordu Airtable do każdego importowanego rekordu",
+      description: t("airtable_import.step5.airtableIdDescription"),
     },
     {
       key: "importAttachments",
-      label: "Importuj załączniki",
-      description:
-        "Pobierze i dołączy pliki załączników (może wydłużyć czas importu)",
+      label: t("airtable_import.step5.attachments"),
+      description: t("airtable_import.step5.attachmentsDescription"),
     },
     {
       key: "overwriteExisting",
-      label: "Nadpisz już zaimportowane rekordy",
-      description:
-        "Przy ponownym imporcie zaktualizuje rekordy które zostały wcześniej zaimportowane. Domyślnie: pomija już zaimportowane.",
+      label: t("airtable_import.step5.overwrite"),
+      description: t("airtable_import.step5.overwriteDescription"),
     },
   ];
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 5: Opcje importu</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step5.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Skonfiguruj dodatkowe opcje importu.
         </p>
@@ -637,6 +642,7 @@ function StepOptions({
 // ─── Step 6: Plan ─────────────────────────────────────────────────────────────
 
 function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
+  const t = useT();
   const [isPlanning, setIsPlanning] = React.useState(false);
 
   const handlePlan = async () => {
@@ -647,10 +653,10 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
     );
     setIsPlanning(false);
     if (res.ok) {
-      flash("Plan importu wygenerowany", "success");
+      flash(t("airtable_import.step6.successMessage"), "success");
       reload();
     } else {
-      flash("Błąd generowania planu", "error");
+      flash(t("airtable_import.step6.errorMessage"), "error");
     }
   };
 
@@ -663,11 +669,9 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 6: Plan importu</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step6.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          System wygeneruje unikalny plan z wstępnie przypisanymi
-          identyfikatorami dla każdego rekordu. Import będzie idempotentny —
-          możesz go wznowić po przerwaniu.
+          {t("airtable_import.step6.description")}
         </p>
       </div>
       <div className="rounded-lg border p-4">
@@ -675,8 +679,8 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
           <thead>
             <tr className="border-b">
               <th className="pb-2 text-left font-medium">Tabela</th>
-              <th className="pb-2 text-left font-medium">Docelowy moduł</th>
-              <th className="pb-2 text-right font-medium">Rekordy</th>
+              <th className="pb-2 text-left font-medium">{t("airtable_import.step6.targetModuleColumn")}</th>
+              <th className="pb-2 text-right font-medium">{t("airtable_import.step6.recordsColumn")}</th>
             </tr>
           </thead>
           <tbody>
@@ -716,10 +720,10 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
             disabled={isPlanning}
           >
             {isPlanning
-              ? "Generowanie planu…"
+              ? t("airtable_import.step6.generating")
               : hasPlan
                 ? "Regeneruj plan"
-                : "Generuj plan i zatwierdź"}
+                : t("airtable_import.step6.generatePlan")}
           </Button>
           {hasPlan && allTablesHaveCounts && (
             <Button type="button" onClick={onNext}>
@@ -741,6 +745,7 @@ function StepExecute({
   onRestart,
   reload,
 }: Omit<StepProps, "onBack">) {
+  const t = useT();
   const [isStarting, setIsStarting] = React.useState(false);
   const [isCancelling, setIsCancelling] = React.useState(false);
   const [logs, setLogs] = React.useState<ImportLogEntry[]>([]);
@@ -818,7 +823,7 @@ function StepExecute({
     );
     setIsStarting(false);
     if (!res.ok) {
-      flash("Błąd uruchomienia importu", "error");
+      flash(t("airtable_import.step7.runError"), "error");
       return;
     }
     wasImportingRef.current = true;
@@ -833,10 +838,10 @@ function StepExecute({
     );
     setIsCancelling(false);
     if (!res.ok) {
-      flash("Nie udało się anulować importu", "error");
+      flash(t("airtable_import.step7.cancelError"), "error");
       return;
     }
-    flash("Import anulowany", "info");
+    flash(t("airtable_import.step7.cancelledMessage"), "info");
     reload();
   };
 
@@ -861,18 +866,17 @@ function StepExecute({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 7: Import</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step7.heading")}</h2>
         {!isImporting &&
           session.status !== "importing" &&
           session.status !== "cancelled" && (
             <p className="mt-1 text-sm text-muted-foreground">
-              Kliknij &quot;Uruchom import&quot; aby rozpocząć. Możesz zamknąć
-              tę stronę — import działa w tle.
+              {t("airtable_import.step7.instructions")}
             </p>
           )}
         {session.status === "cancelled" && (
           <p className="mt-1 text-sm text-yellow-600">
-            Import został anulowany.
+            {t("airtable_import.step7.cancelledMessage")}
           </p>
         )}
       </div>
@@ -886,7 +890,7 @@ function StepExecute({
                   Przetwarzam: <strong>{progress.currentTable}</strong>
                 </span>
               ) : (
-                "Postęp"
+                t("airtable_import.step7.progressColumn")
               )}
             </span>
             <span className="font-medium tabular-nums">
@@ -939,7 +943,7 @@ function StepExecute({
           <>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              Import w toku…
+              {t("airtable_import.step7.inProgressMessage")}
             </div>
             <Button
               type="button"
@@ -947,20 +951,20 @@ function StepExecute({
               onClick={handleCancel}
               disabled={isCancelling}
             >
-              {isCancelling ? "Anulowanie…" : "Anuluj import"}
+              {isCancelling ? t("airtable_import.step7.cancelling") : t("airtable_import.step7.cancelImport")}
             </Button>
           </>
         ) : (
           <div className="ml-auto flex gap-2">
             <Button type="button" variant="ghost" onClick={onRestart}>
-              ← Uruchom od początku
+              {t("airtable_import.step7.restartFromBeginning")}
             </Button>
             <Button type="button" onClick={handleStart} disabled={isStarting}>
               {isStarting
                 ? "Uruchamianie…"
                 : session.status === "done"
-                  ? "Uruchom ponownie"
-                  : "Uruchom import"}
+                  ? t("airtable_import.step7.runAgain")
+                  : t("airtable_import.step7.runImport")}
             </Button>
           </div>
         )}
@@ -977,6 +981,7 @@ function StepReport({
   reload,
   onRestart,
 }: Pick<StepProps, "session" | "sessionId" | "reload" | "onRestart">) {
+  const t = useT();
   const [isRetrying, setIsRetrying] = React.useState(false);
   const report = session.reportJson;
 
@@ -991,15 +996,15 @@ function StepReport({
       flash("Ponowiono nieudane rekordy", "success");
       reload();
     } else {
-      flash("Błąd ponowienia importu", "error");
+      flash(t("airtable_import.step7.retryError"), "error");
     }
   };
 
   if (!report) {
     return (
       <div className="flex flex-col gap-4">
-        <h2 className="text-lg font-semibold">Krok 8: Raport</h2>
-        <p className="text-sm text-muted-foreground">Raport niedostępny.</p>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step8.heading")}</h2>
+        <p className="text-sm text-muted-foreground">{t("airtable_import.step8.notAvailable")}</p>
       </div>
     );
   }
@@ -1013,9 +1018,9 @@ function StepReport({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-lg font-semibold">Krok 8: Raport importu</h2>
+        <h2 className="text-lg font-semibold">{t("airtable_import.step8.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Import zakończony{" "}
+          {t("airtable_import.step8.done")}{" "}
           {new Date(report.completedAt).toLocaleString("pl-PL")}. Czas trwania:{" "}
           {Math.round(report.durationMs / 1000)}s.
         </p>
@@ -1032,7 +1037,7 @@ function StepReport({
         </div>
         <div className="rounded-lg border p-3 text-center">
           <p className="text-2xl font-bold text-red-600">{totalErrors}</p>
-          <p className="text-xs text-muted-foreground">Błędy</p>
+          <p className="text-xs text-muted-foreground">{t("airtable_import.step7.errorsLabel")}</p>
         </div>
       </div>
 
@@ -1106,11 +1111,11 @@ function StepReport({
             onClick={handleRetry}
             disabled={isRetrying}
           >
-            {isRetrying ? "Ponawiam…" : "Ponów nieudane"}
+            {isRetrying ? t("airtable_import.step7.retrying") : t("airtable_import.step7.retryFailed")}
           </Button>
         )}
         <Button type="button" variant="outline" onClick={onRestart}>
-          Uruchom ponownie
+          {t("airtable_import.step8.rerun")}
         </Button>
       </div>
     </div>
@@ -1126,14 +1131,15 @@ function RerunDialog({
   onConfirm: (preserveDone: boolean) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [preserveDone, setPreserveDone] = React.useState(true);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
-        <h3 className="font-semibold">Uruchom ponownie</h3>
+        <h3 className="font-semibold">{t("airtable_import.dialog.rerun.title")}</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Jak postąpić z już zaimportowanymi rekordami?
+          {t("airtable_import.dialog.rerun.description")}
         </p>
         <div className="mt-4 flex flex-col gap-2">
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/30">
@@ -1144,9 +1150,9 @@ function RerunDialog({
               onChange={() => setPreserveDone(true)}
             />
             <div>
-              <p className="text-sm font-medium">Pomiń już zaimportowane</p>
+              <p className="text-sm font-medium">{t("airtable_import.dialog.rerun.skipOption")}</p>
               <p className="text-xs text-muted-foreground">
-                Tylko nowe rekordy i błędy — szybciej
+                {t("airtable_import.dialog.rerun.skipHint")}
               </p>
             </div>
           </label>
@@ -1158,19 +1164,19 @@ function RerunDialog({
               onChange={() => setPreserveDone(false)}
             />
             <div>
-              <p className="text-sm font-medium">Nadpisz wszystkie</p>
+              <p className="text-sm font-medium">{t("airtable_import.dialog.rerun.overwriteOption")}</p>
               <p className="text-xs text-muted-foreground">
-                Pełny re-import, aktualizuje istniejące rekordy
+                {t("airtable_import.dialog.rerun.overwriteHint")}
               </p>
             </div>
           </label>
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
-            Anuluj
+            {t("airtable_import.buttons.cancel")}
           </Button>
           <Button type="button" onClick={() => onConfirm(preserveDone)}>
-            Uruchom
+            {t("airtable_import.dialog.rerun.run")}
           </Button>
         </div>
       </div>
@@ -1215,6 +1221,8 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 // ─── Main Wizard Page ─────────────────────────────────────────────────────────
 
 export default function WizardPage({ params }: { params?: { id?: string } }) {
+  const t = useT();
+  const stepLabels = getStepLabels(t);
   const sessionId = params?.id;
   const router = useRouter();
 
@@ -1231,7 +1239,7 @@ export default function WizardPage({ params }: { params?: { id?: string } }) {
       setSession(data);
       setIsLoading(false);
     } else {
-      setError("Nie udało się załadować sesji");
+      setError(t("airtable_import.session.loadError"));
       setIsLoading(false);
     }
   }, [sessionId]);
@@ -1286,7 +1294,7 @@ export default function WizardPage({ params }: { params?: { id?: string } }) {
     onRestart: handleRestart,
   };
 
-  if (isLoading) return <LoadingMessage label="Ładowanie sesji…" />;
+  if (isLoading) return <LoadingMessage label={t("airtable_import.session.loading")} />;
   if (error || !session)
     return <ErrorMessage label={error ?? "Sesja nie istnieje"} />;
 
@@ -1301,7 +1309,7 @@ export default function WizardPage({ params }: { params?: { id?: string } }) {
               className="h-auto p-0 text-sm text-muted-foreground hover:text-foreground hover:bg-transparent"
               onClick={() => router.push("/backend/airtable-import")}
             >
-              ← Lista importów
+              {t("airtable_import.nav.backToList")}
             </Button>
             <span className="text-muted-foreground">/</span>
             <span className="text-sm font-medium">
@@ -1312,7 +1320,7 @@ export default function WizardPage({ params }: { params?: { id?: string } }) {
           <StepIndicator current={currentStep} total={8} />
 
           <p className="mb-6 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            {STEP_LABELS[currentStep - 1]}
+            {stepLabels[currentStep - 1]}
           </p>
 
           {currentStep === 1 && <StepConnect {...stepProps} />}

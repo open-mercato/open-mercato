@@ -21,7 +21,7 @@ export async function POST(
   const omApiKey = extractApiKeyFromRequest(req);
 
   if (!omApiKey)
-    return NextResponse.json({ error: "Brak tokenu sesji" }, { status: 401 });
+    return NextResponse.json({ error: "Missing session token" }, { status: 401 });
 
   const ctx = await resolveSessionContext(req, params);
   if (isErrorResponse(ctx)) return ctx;
@@ -36,7 +36,7 @@ export async function POST(
 
   if (session.status === "importing") {
     return NextResponse.json(
-      { error: "Import jest już w toku — poczekaj na zakończenie" },
+      { error: "Import already in progress — wait for it to finish" },
       { status: 422 },
     );
   }
@@ -57,7 +57,7 @@ export async function POST(
   if (Object.keys(retryAirtableIds).length === 0) {
     return NextResponse.json({
       ok: true,
-      message: "Brak rekordów do ponowienia",
+      message: "No records to retry",
     });
   }
 

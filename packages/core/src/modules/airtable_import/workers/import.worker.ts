@@ -227,7 +227,7 @@ export default async function handler(job: QueuedJob<WorkerPayload>) {
         progress.tables[tableId].records[planRecord.airtableId] = {
           status: "failed",
           omId: null,
-          error: result.error ?? "Nieznany błąd",
+          error: result.error ?? "Unknown error",
         };
         progress.tables[tableId].failed++;
         reportRecords.push({
@@ -235,7 +235,7 @@ export default async function handler(job: QueuedJob<WorkerPayload>) {
           omId: null,
           airtableUrl: `https://airtable.com/${session.airtableBaseId}/${tableId}/${planRecord.airtableId}`,
           omUrl: null,
-          issue: result.error ?? "Nieznany błąd",
+          issue: result.error ?? "Unknown error",
           issueType: "hard_error",
         });
       }

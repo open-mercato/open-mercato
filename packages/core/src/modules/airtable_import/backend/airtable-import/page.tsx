@@ -18,6 +18,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@open-mercato/ui/primitives/dialog";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
 
 function RerunDialog({
   onConfirm,
@@ -26,13 +27,14 @@ function RerunDialog({
   onConfirm: (preserveDone: boolean) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [preserveDone, setPreserveDone] = React.useState(true);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
-        <h3 className="font-semibold">Uruchom ponownie</h3>
+        <h3 className="font-semibold">{t('airtable_import.dialog.rerun.title')}</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Jak postąpić z już zaimportowanymi rekordami?
+          {t('airtable_import.dialog.rerun.description')}
         </p>
         <div className="mt-4 flex flex-col gap-2">
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/30">
@@ -43,9 +45,9 @@ function RerunDialog({
               onChange={() => setPreserveDone(true)}
             />
             <div>
-              <p className="text-sm font-medium">Pomiń już zaimportowane</p>
+              <p className="text-sm font-medium">{t('airtable_import.dialog.rerun.skipOption')}</p>
               <p className="text-xs text-muted-foreground">
-                Tylko nowe rekordy i błędy — szybciej
+                {t('airtable_import.dialog.rerun.skipHint')}
               </p>
             </div>
           </label>
@@ -57,19 +59,19 @@ function RerunDialog({
               onChange={() => setPreserveDone(false)}
             />
             <div>
-              <p className="text-sm font-medium">Nadpisz wszystkie</p>
+              <p className="text-sm font-medium">{t('airtable_import.dialog.rerun.overwriteOption')}</p>
               <p className="text-xs text-muted-foreground">
-                Pełny re-import, aktualizuje istniejące rekordy
+                {t('airtable_import.dialog.rerun.overwriteHint')}
               </p>
             </div>
           </label>
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
-            Anuluj
+            {t('airtable_import.buttons.cancel')}
           </Button>
           <Button type="button" onClick={() => onConfirm(preserveDone)}>
-            Uruchom
+            {t('airtable_import.dialog.rerun.run')}
           </Button>
         </div>
       </div>
@@ -109,18 +111,20 @@ type SessionsResponse = {
   totalPages: number;
 };
 
-const STATUS_LABELS: Record<ImportSessionStatus, string> = {
-  draft: "Szkic",
-  analyzing: "Analizowanie…",
-  analyzed: "Przeanalizowano",
-  ready: "Gotowy",
-  planning: "Planowanie…",
-  planned: "Zaplanowany",
-  importing: "Importowanie…",
-  done: "Zakończony",
-  failed: "Błąd",
-  cancelled: "Anulowany",
-};
+function getStatusLabels(t: ReturnType<typeof useT>) {
+  return {
+    draft: t('airtable_import.status.draft'),
+    analyzing: t('airtable_import.status.analyzing'),
+    analyzed: t('airtable_import.status.analyzed'),
+    ready: t('airtable_import.status.ready'),
+    planning: t('airtable_import.status.planning'),
+    planned: t('airtable_import.status.planned'),
+    importing: t('airtable_import.status.importing'),
+    done: t('airtable_import.status.done'),
+    failed: t('airtable_import.status.failed'),
+    cancelled: t('airtable_import.status.cancelled'),
+  } as const
+}
 
 const STATUS_COLORS: Record<ImportSessionStatus, string> = {
   draft: "bg-gray-100 text-gray-700",
@@ -136,11 +140,13 @@ const STATUS_COLORS: Record<ImportSessionStatus, string> = {
 };
 
 function StatusBadge({ status }: { status: ImportSessionStatus }) {
+  const t = useT();
+  const statusLabels = getStatusLabels(t);
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[status]}`}
     >
-      {STATUS_LABELS[status] ?? status}
+      {statusLabels[status] ?? status}
     </span>
   );
 }
@@ -168,6 +174,7 @@ function RecordsCell({ row }: { row: ImportSessionRow }) {
 }
 
 export default function AirtableImportListPage() {
+  const t = useT();
   const router = useRouter();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
 
@@ -198,7 +205,7 @@ export default function AirtableImportListPage() {
       const res = await apiCall(`/api/airtable_import/sessions?${params}`);
       if (cancelled) return;
       if (!res.ok) {
-        setError("Nie udało się załadować sesji importu");
+        setError(t('airtable_import.list.errorLoading'));
         setIsLoading(false);
         return;
       }
@@ -222,7 +229,7 @@ export default function AirtableImportListPage() {
 
   const handleCreate = React.useCallback(async () => {
     if (!newToken.trim() || !newBaseId.trim()) {
-      flash("Wypełnij wszystkie pola", "error");
+      flash(t('airtable_import.dialog.new.validationError'), "error");
       return;
     }
     setIsCreating(true);
@@ -236,8 +243,8 @@ export default function AirtableImportListPage() {
     });
     setIsCreating(false);
     if (!res.ok) {
-      const err = await res.response.text().catch(() => "Nieznany błąd");
-      flash(`Błąd tworzenia sesji: ${err}`, "error");
+      const err = await res.response.text().catch(() => "Unknown error");
+      flash(t('airtable_import.dialog.new.createError').replace('{err}', String(err)), "error");
       return;
     }
     const session = res.result as unknown as { id: string };
@@ -245,15 +252,15 @@ export default function AirtableImportListPage() {
     setNewToken("");
     setNewBaseId("");
     router.push(`/backend/airtable-import/${session.id}`);
-  }, [newToken, newBaseId, router]);
+  }, [newToken, newBaseId, router, t]);
 
   const handleDelete = React.useCallback(
     async (sessionId: string) => {
       const confirmed = await confirm({
-        title: "Usuń sesję importu",
-        text: "Tej operacji nie można cofnąć. Wszystkie dane sesji zostaną usunięte.",
-        confirmText: "Usuń",
-        cancelText: "Anuluj",
+        title: t('airtable_import.dialog.delete.title'),
+        text: t('airtable_import.dialog.delete.message'),
+        confirmText: t('airtable_import.dialog.delete.confirm'),
+        cancelText: t('airtable_import.buttons.cancel'),
         variant: "destructive",
       });
       if (!confirmed) return;
@@ -261,36 +268,36 @@ export default function AirtableImportListPage() {
         method: "DELETE",
       });
       if (res.ok) {
-        flash("Sesja usunięta", "success");
-        setReloadToken((t) => t + 1);
+        flash(t('airtable_import.messages.deleted'), "success");
+        setReloadToken((tok) => tok + 1);
       } else {
-        flash("Nie udało się usunąć sesji", "error");
+        flash(t('airtable_import.messages.deleteError'), "error");
       }
     },
-    [confirm],
+    [confirm, t],
   );
 
   const columns: ColumnDef<ImportSessionRow>[] = React.useMemo(
     () => [
       {
         accessorKey: "airtableBaseName",
-        header: "Baza Airtable",
+        header: t('airtable_import.columns.base'),
         cell: ({ row }) =>
           row.original.airtableBaseName || row.original.airtableBaseId,
       },
       {
         accessorKey: "status",
-        header: "Status",
+        header: t('airtable_import.columns.status'),
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
       {
         id: "records",
-        header: "Rekordy",
+        header: t('airtable_import.columns.records'),
         cell: ({ row }) => <RecordsCell row={row.original} />,
       },
       {
         accessorKey: "createdAt",
-        header: "Utworzono",
+        header: t('airtable_import.columns.createdAt'),
         cell: ({ row }) => formatDate(row.original.createdAt),
       },
       {
@@ -301,7 +308,7 @@ export default function AirtableImportListPage() {
             items={[
               {
                 id: "open",
-                label: "Otwórz",
+                label: t('airtable_import.actions.open'),
                 onSelect: () =>
                   router.push(`/backend/airtable-import/${row.original.id}`),
               },
@@ -311,7 +318,7 @@ export default function AirtableImportListPage() {
                 ? [
                     {
                       id: "rerun",
-                      label: "Uruchom ponownie",
+                      label: t('airtable_import.actions.rerun'),
                       onSelect: () =>
                         router.push(
                           `/backend/airtable-import/${row.original.id}`,
@@ -321,7 +328,7 @@ export default function AirtableImportListPage() {
                 : []),
               {
                 id: "delete",
-                label: "Usuń",
+                label: t('airtable_import.actions.delete'),
                 onSelect: () => handleDelete(row.original.id),
                 destructive: true,
               },
@@ -330,20 +337,20 @@ export default function AirtableImportListPage() {
         ),
       },
     ],
-    [router, handleDelete],
+    [router, handleDelete, t],
   );
 
   return (
     <Page>
       <PageBody>
         <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Import z Airtable</h1>
+          <h1 className="text-xl font-semibold">{t('airtable_import.list.heading')}</h1>
           <Button type="button" onClick={() => setNewDialogOpen(true)}>
-            Nowy import
+            {t('airtable_import.list.newButton')}
           </Button>
         </div>
 
-        {isLoading && <LoadingMessage label="Ładowanie sesji importu…" />}
+        {isLoading && <LoadingMessage label={t('airtable_import.list.loading')} />}
         {!isLoading && error && <ErrorMessage label={error} />}
         {!isLoading && !error && (
           <DataTable
@@ -365,16 +372,15 @@ export default function AirtableImportListPage() {
         <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Nowy import z Airtable</DialogTitle>
+              <DialogTitle>{t('airtable_import.dialog.new.title')}</DialogTitle>
               <DialogDescription>
-                Wprowadź dane dostępowe do bazy Airtable, którą chcesz
-                zaimportować.
+                {t('airtable_import.dialog.new.description')}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-2">
               <label className="flex flex-col gap-1">
                 <span className="text-sm font-medium">
-                  Token Airtable (Personal Access Token)
+                  {t('airtable_import.dialog.new.tokenLabel')}
                 </span>
                 <input
                   type="password"
@@ -385,7 +391,7 @@ export default function AirtableImportListPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-sm font-medium">ID bazy Airtable</span>
+                <span className="text-sm font-medium">{t('airtable_import.dialog.new.baseIdLabel')}</span>
                 <input
                   type="text"
                   className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -401,14 +407,14 @@ export default function AirtableImportListPage() {
                 variant="outline"
                 onClick={() => setNewDialogOpen(false)}
               >
-                Anuluj
+                {t('airtable_import.buttons.cancel')}
               </Button>
               <Button
                 type="button"
                 onClick={handleCreate}
                 disabled={isCreating || !newToken.trim() || !newBaseId.trim()}
               >
-                {isCreating ? "Tworzenie…" : "Utwórz sesję"}
+                {isCreating ? t('airtable_import.dialog.new.creating') : t('airtable_import.dialog.new.create')}
               </Button>
             </div>
           </DialogContent>

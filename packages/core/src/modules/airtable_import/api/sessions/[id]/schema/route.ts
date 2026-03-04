@@ -37,7 +37,7 @@ export async function POST(
 
   if (session.status === "importing") {
     return NextResponse.json(
-      { error: "Import jest w toku — nie można ponownie analizować schematu" },
+      { error: "Import in progress — cannot re-analyze schema" },
       { status: 422 },
     );
   }
@@ -143,7 +143,7 @@ export async function POST(
   } catch (err) {
     session.status = "failed";
     await em.flush();
-    const message = err instanceof Error ? err.message : "Nieznany błąd";
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 422 });
   }
 }

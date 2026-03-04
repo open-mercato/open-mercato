@@ -45,7 +45,7 @@ export async function importCustomEntityRecord(
       ok: false,
       omId,
       needsAttention: true,
-      attentionReason: `Błąd walidacji: ${errorText}`,
+      attentionReason: `Validation error: ${errorText}`,
     };
   }
 

@@ -24,7 +24,7 @@ export async function POST(
   const omApiKey = extractApiKeyFromRequest(req);
 
   if (!omApiKey)
-    return NextResponse.json({ error: "Brak tokenu sesji" }, { status: 401 });
+    return NextResponse.json({ error: "Missing session token" }, { status: 401 });
 
   const ctx = await resolveSessionContext(req, params);
   if (isErrorResponse(ctx)) return ctx;
@@ -37,7 +37,7 @@ export async function POST(
 
   if (!session.mappingJson)
     return NextResponse.json(
-      { error: "Uzupełnij mapowanie przed uruchomieniem importu" },
+      { error: "Fill in the mapping before running the import" },
       { status: 422 },
     );
 

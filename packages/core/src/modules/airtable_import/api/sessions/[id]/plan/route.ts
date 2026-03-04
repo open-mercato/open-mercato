@@ -25,7 +25,7 @@ export async function POST(
   const { session, em } = ctx;
   if (!session.mappingJson || !session.schemaJson) {
     return NextResponse.json(
-      { error: "Uzupełnij mapowanie przed generowaniem planu" },
+      { error: "Fill in the mapping before generating the plan" },
       { status: 422 },
     );
   }

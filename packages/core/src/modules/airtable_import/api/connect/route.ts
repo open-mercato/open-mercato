@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { ok: false, error: "Nieprawidłowe dane wejściowe" },
+      { ok: false, error: "Invalid input data" },
       { status: 400 },
     );
   }
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       collaboratorCount: collaborators.length,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Nieznany błąd";
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ ok: false, error: message }, { status: 422 });
   }
 }

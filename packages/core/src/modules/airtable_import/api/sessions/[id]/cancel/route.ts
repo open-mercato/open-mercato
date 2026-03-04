@@ -22,7 +22,7 @@ export async function POST(
   const { session, em } = ctx;
   if (session.status !== "importing") {
     return NextResponse.json(
-      { error: "Import nie jest w toku" },
+      { error: "Import is not in progress" },
       { status: 422 },
     );
   }

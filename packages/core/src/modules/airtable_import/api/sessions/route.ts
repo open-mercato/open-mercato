@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   const parsed = createSessionSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Nieprawidłowe dane", details: parsed.error.flatten() },
+      { error: "Invalid data", details: parsed.error.flatten() },
       { status: 400 },
     );
   }

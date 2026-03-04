@@ -46,7 +46,7 @@ export async function postToOmApi(
       ok: false,
       omId,
       needsAttention: true,
-      attentionReason: `Błąd walidacji: ${text}`,
+      attentionReason: `Validation error: ${text}`,
     };
   }
   return {
