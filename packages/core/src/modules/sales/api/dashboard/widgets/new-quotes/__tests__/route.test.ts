@@ -4,7 +4,7 @@ const mockResolveWidgetScope = jest.fn()
 const mockFindAndCountWithDecryption = jest.fn()
 const mockResolveDateRange = jest.fn()
 
-jest.mock('../../../../../../customers/api/dashboard/widgets/utils', () => ({
+jest.mock('@open-mercato/core/modules/dashboards/lib/widgetScope', () => ({
   resolveWidgetScope: (...args: unknown[]) => mockResolveWidgetScope(...args),
 }))
 

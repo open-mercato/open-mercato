@@ -143,3 +143,15 @@ export type LogBuilderArgs<TInput, TResult> = {
 }
 
 export type LogBuilder<TInput, TResult> = (args: LogBuilderArgs<TInput, TResult>) => CommandLogMetadata | null | Promise<CommandLogMetadata | null>
+
+const AUTHOR_UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+
+export function normalizeAuthorUserId(
+  explicitAuthorUserId: string | undefined | null,
+  auth: { isApiKey?: boolean; sub?: string | null } | undefined | null
+): string | null {
+  if (explicitAuthorUserId) return explicitAuthorUserId
+  const authSub = auth?.isApiKey ? null : auth?.sub ?? null
+  if (!authSub) return null
+  return AUTHOR_UUID_REGEX.test(authSub) ? authSub : null
+}
