@@ -247,6 +247,29 @@ Becomes `communication_channels` hub. WhatsApp becomes first spoke. See [SPEC-04
 
 ---
 
+## Migration & Backward Compatibility
+
+This spec family introduces new infrastructure while preserving existing contracts. The implementation MUST follow bridge-first rollout:
+
+1. **`IntegrationDefinition` evolution is additive-only**  
+   Existing `IntegrationDefinition` fields (`id`, `title`, optional `icon`, optional `buildExternalUrl`) remain valid. New marketplace metadata is optional in the base type and validated only where required (admin marketplace UI and integration APIs).
+
+2. **Payment credential migration uses dual-read/dual-write**  
+   During bridge period, payment providers read credentials from `IntegrationCredentials` first, then fallback to `SalesPaymentMethod.providerSettings`.  
+   Writes from config UI update both stores.  
+   Removal of fallback is allowed only after one minor version + migration notice in `RELEASE_NOTES.md`.
+
+3. **External ID mapping table remains canonical**  
+   `sync_external_id_mappings` is owned by the `integrations` module. `data_sync` consumes it via shared services/DI. No duplicate entity/table definitions are introduced.
+
+4. **Generated contracts are additive-only**  
+   Generator support for `integration.ts` and bundles may add new generated files/exports, but MUST NOT break existing generated file exports consumed by bootstrap.
+
+5. **Event/route stability rules**  
+   Existing event IDs and API routes remain untouched. New IDs/routes are additive. Any future retirements require dual-emit/deprecation bridge.
+
+---
+
 ## Final Compliance Report — 2026-02-24
 
 ### AGENTS.md Files Reviewed
@@ -304,3 +327,4 @@ Becomes `communication_channels` hub. WhatsApp becomes first spoke. See [SPEC-04
 | 2026-02-24 | Added SPEC-045h — Stripe Payment Gateway: reference provider implementation with versioned adapters, webhook processing, config widget injection, health check, and full integration test coverage |
 | 2026-02-24 | Updated SPEC-045b to use progress module (SPEC-004 / PR #645): `SyncRun` delegates progress tracking to `ProgressJob` via `progressJobId`, sync engine uses `ProgressService` for percent/ETA/heartbeat/stale detection, progress visible in `ProgressTopBar` automatically |
 | 2026-02-24 | Updated SPEC-045b scheduler integration: replaced custom `sync-scheduler.ts` polling worker with proper `packages/scheduler` integration via `schedulerService.register()`. Added detailed execution flow, overlap prevention, two-strategy architecture (local/async), DI registration, and 16 scheduler integration tests |
+| 2026-03-04 | Added explicit "Migration & Backward Compatibility" section with bridge rules for type evolution, payment credential migration, canonical external ID mapping ownership, and generated contract stability |
