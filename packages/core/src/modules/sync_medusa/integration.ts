@@ -40,3 +40,6 @@ export const integrations: IntegrationDefinition[] = [
     tags: ['orders'],
   },
 ]
+
+export const integration = integrations[0]
+export const bundles: IntegrationBundle[] = [bundle]

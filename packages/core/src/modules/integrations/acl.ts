@@ -3,3 +3,5 @@ export const features = [
   { id: 'integrations.manage', title: 'Manage integration configurations', module: 'integrations' },
   { id: 'integrations.credentials.manage', title: 'Manage integration credentials', module: 'integrations' },
 ]
+
+export default features
