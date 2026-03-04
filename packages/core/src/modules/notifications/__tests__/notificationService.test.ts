@@ -1,5 +1,5 @@
 import { createNotificationService } from '../lib/notificationService'
-import { NOTIFICATION_EVENTS } from '../lib/events'
+import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
 
@@ -130,7 +130,16 @@ describe('notification service', () => {
 
     expect(notifications).toHaveLength(2)
     expect(em.flush).toHaveBeenCalled()
-    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(eventBus.emit).toHaveBeenCalledTimes(5)
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      NOTIFICATION_SSE_EVENTS.BATCH_CREATED,
+      expect.objectContaining({
+        tenantId: baseCtx.tenantId,
+        organizationId: baseCtx.organizationId,
+        recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
+        count: 2,
+      }),
+    )
   })
 
   it('returns empty list when no recipients match feature', async () => {

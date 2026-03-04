@@ -1,4 +1,4 @@
-# SPEC-037: Promotions Module
+# SPEC-055: Promotions Module
 
 **Date**: 2026-02-23
 **Status**: Approved

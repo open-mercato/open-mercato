@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, Loader2, CheckCircle, XCircle, X } from 'lucide
 import { Button } from '../../primitives/button'
 import { Progress } from '../../primitives/progress'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useProgressPoll } from './useProgressPoll'
+import { useProgress } from './useProgress'
 import type { ProgressJobDto } from './useProgressPoll'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '../utils/apiCall'
@@ -15,7 +15,7 @@ export type ProgressTopBarProps = {
 }
 
 export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
-  const { activeJobs, recentlyCompleted, refresh } = useProgressPoll()
+  const { activeJobs, recentlyCompleted, refresh } = useProgress()
   const [expanded, setExpanded] = React.useState(false)
 
   React.useEffect(() => {
@@ -33,11 +33,12 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
   if (!hasActiveJobs && !hasRecentJobs) return null
 
   return (
-    <div className={cn('border-b bg-muted/30', className)}>
-      <button
+    <div className={cn('border-b bg-background', className)}>
+      <Button
         type="button"
+        variant="ghost"
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-4 py-2 hover:bg-muted/50 transition-colors"
+        className="h-auto w-full justify-between rounded-none bg-background px-4 py-2 hover:bg-muted"
       >
         <div className="flex items-center gap-2 text-sm">
           {hasActiveJobs ? (
@@ -66,10 +67,10 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
         ) : (
           <ChevronDown className="h-4 w-4" />
         )}
-      </button>
+      </Button>
 
       {expanded && (
-        <div className="px-4 pb-3 space-y-2">
+        <div className="space-y-2 bg-background px-4 pb-3">
           {activeJobs.map((job) => (
             <ProgressJobCard key={job.id} job={job} t={t} onCancel={refresh} />
           ))}
@@ -102,7 +103,7 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
 
   return (
     <div className={cn(
-      'rounded-md border p-3',
+      'rounded-md border bg-card p-3',
       isFailed && 'border-destructive/50 bg-destructive/5',
       isCompleted && 'border-green-500/50 bg-green-50/50 dark:bg-green-950/20',
     )}>
