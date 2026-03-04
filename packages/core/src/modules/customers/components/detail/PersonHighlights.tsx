@@ -55,6 +55,7 @@ export type PersonHighlightsProps = {
   onDelete: () => void
   isDeleting: boolean
   onCompanySave: (companyId: string | null) => Promise<void>
+  utilityActions?: React.ReactNode
 }
 
 type CompanyInfo = { id: string; name: string }
@@ -71,6 +72,7 @@ export function PersonHighlights({
   onDelete,
   isDeleting,
   onCompanySave,
+  utilityActions,
 }: PersonHighlightsProps) {
   const router = useRouter()
   const t = useT()
@@ -339,15 +341,18 @@ export function PersonHighlights({
         backHref="/backend/customers/people"
         backLabel={t('customers.people.detail.actions.backToList')}
         utilityActions={(
-          <VersionHistoryAction
-            config={{
-              resourceKind: 'customers.person',
-              resourceId: person.id,
-              resourceIdFallback: historyFallbackId,
-              organizationId: person.organizationId ?? undefined,
-            }}
-            t={t}
-          />
+          <>
+            {utilityActions}
+            <VersionHistoryAction
+              config={{
+                resourceKind: 'customers.person',
+                resourceId: person.id,
+                resourceIdFallback: historyFallbackId,
+                organizationId: person.organizationId ?? undefined,
+              }}
+              t={t}
+            />
+          </>
         )}
         title={
           <InlineTextEditor

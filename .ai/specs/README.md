@@ -79,7 +79,8 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-026a](SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI (standalone + widget injection), search indexer `l10n:*` fields, per-entity translatable field definitions |
 | [SPEC-028](SPEC-028-2026-02-16-multiple-sales-pipelines.md) | 2026-02-16 | Multiple Sales Pipelines | Multiple CRM pipelines with configurable stages + deal assignment |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter: org-scoped stores, per-store configurable branding (CSS variables), localized catalog APIs, server-side faceted filters with cross-facet exclusion, multi-variant selection algorithm, WCAG 2.2 AA compliance, RWD-first component spec, and workflow-driven checkout (Phase 3) |
-| [SPEC-030](SPEC-030-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
+| [SPEC-030](SPEC-030-2026-02-20-catalog-unit-tests.md) | 2026-02-20 | Catalog Module Test Coverage | Catalog module unit + integration test coverage expansion plan and verification matrix |
+| [SPEC-030a](SPEC-030a-2026-02-09-rate-limiting.md) | 2026-02-09 | Rate Limiting Utility | Strategy-based rate limiting for auth endpoints using rate-limiter-flexible |
 | [SPEC-031](SPEC-031-2026-02-18-decrypt-database-cli.md) | 2026-02-18 | Decrypt Database CLI Command | CLI operation to decrypt encrypted tenant data back to plaintext with strict safety gates and operational guardrails |
 | [SPEC-032](SPEC-032-2026-02-19-notification-templates-db-only.md) | 2026-02-19 | Notification Templates (DB-Only) | DB-only architecture for versioned email/slack notification templates with publish flow, mapping resolver, and tenant-safe runtime fallback policy |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, API exposure, and admin configuration |
@@ -122,8 +123,13 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-045g](SPEC-045g-google-workspace.md) | 2026-02-24 | Integration Marketplace â€” Google Workspace | Google Workspace integration: spreadsheet-based product import as a reference data-sync connector |
 | [SPEC-045h](SPEC-045h-stripe-payment-gateway.md) | 2026-02-24 | Integration Marketplace â€” Stripe Gateway | Stripe payment gateway reference implementation as a marketplace connector |
 | [SPEC-046](SPEC-046-2026-02-25-customer-detail-pages-v2.md) | 2026-02-25 | Customer Detail Pages v2 | CrudForm-based rewrite of company and person detail pages with two-zone layout and UMES injection slots |
+| [SPEC-046b](SPEC-046b-2026-02-27-customers-interactions-unification.md) | 2026-02-27 | Customers Interactions Unification | Canonical customer interactions model and compatibility adapters for activities/todos, scoped as child workstream of SPEC-046 |
+| [SPEC-046c](SPEC-046c-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks | Decouples example task sync and moves `/backend/customer-tasks` ownership to customers, scoped as child workstream of SPEC-046 |
 | [SPEC-047](SPEC-047-2026-02-25-sales-document-detail-pages-v2.md) | 2026-02-25 | Sales Document Detail Pages v2 | CrudForm-based rewrite of quote and order detail pages with two-zone layout and UMES injection slots |
-| [SPEC-048](SPEC-048-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
+| [SPEC-048](SPEC-048-2026-02-25-notifications-sse-migration.md) | 2026-02-25 | Migrate Notifications from Polling to SSE | Replaces 5-second notifications polling with SSE event delivery using the DOM Event Bridge |
+| [SPEC-049](SPEC-049-2026-02-26-message-objects-universal-view-attachments.md) | 2026-02-26 | Universal Message Object Attachments | Generic message object attachment previews/details and compose-flow wiring across modules |
+| [SPEC-050](SPEC-050-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks (Moved) | Pointer retained for backward links; canonical workstream spec is SPEC-046c |
+| [SPEC-052](SPEC-052-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
 
 ## Specification Structure
 

@@ -14,6 +14,9 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 
@@ -21,6 +24,7 @@ type MethodMetadata = {
   requireAuth?: boolean
   requireRoles?: string[]
   requireFeatures?: string[]
+  rateLimit?: RateLimitConfig
 }
 
 type HandlerContext = {
@@ -78,6 +82,17 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
   if (Array.isArray(source.requireFeatures)) {
     normalized.requireFeatures = source.requireFeatures.filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
   }
+  if (source.rateLimit && typeof source.rateLimit === 'object') {
+    const rl = source.rateLimit as Record<string, unknown>
+    if (typeof rl.points === 'number' && typeof rl.duration === 'number') {
+      normalized.rateLimit = {
+        points: rl.points,
+        duration: rl.duration,
+        blockDuration: typeof rl.blockDuration === 'number' ? rl.blockDuration : undefined,
+        keyPrefix: typeof rl.keyPrefix === 'string' ? rl.keyPrefix : undefined,
+      }
+    }
+  }
   return normalized
 }
 
@@ -107,7 +122,7 @@ async function checkAuthorization(
     return container
   }
 
-  if (auth) {
+  if (auth && methodMetadata?.requireAuth !== false) {
     const rawTenantCandidate = await extractTenantCandidate(req)
     if (rawTenantCandidate !== undefined) {
       const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
@@ -271,6 +286,32 @@ async function handleRequest(
       durationMs: Date.now() - startedAt,
     })
     return authError
+  }
+
+  if (methodMetadata?.rateLimit) {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (rateLimiterService) {
+      const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+      if (clientIp) {
+        const rateLimitError = await checkRateLimit(
+          rateLimiterService,
+          methodMetadata.rateLimit,
+          clientIp,
+          t(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+        )
+        if (rateLimitError) {
+          await emitLifecycleEvent(applicationLifecycleEvents.requestRateLimited, {
+            ...receivedPayload,
+            status: rateLimitError.status,
+            clientIp,
+            userId: auth?.sub ?? null,
+            tenantId: auth?.tenantId ?? null,
+            durationMs: Date.now() - startedAt,
+          })
+          return rateLimitError
+        }
+      }
+    }
   }
 
   try {

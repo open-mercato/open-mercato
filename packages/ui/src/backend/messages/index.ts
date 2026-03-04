@@ -17,3 +17,6 @@ export type { MessagesIconProps } from './MessagesIcon'
 
 export { useMessagesPoll } from './useMessagesPoll'
 export type { MessagePollItem, UseMessagesPollResult } from './useMessagesPoll'
+
+export { MessageObjectPreview } from './MessageObjectPreview'
+export { MessageObjectDetail } from './MessageObjectDetail'

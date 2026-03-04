@@ -463,3 +463,17 @@ None.
 
 ### 2026-02-24
 - Initial specification
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Core factory + OpenAPI + tests | Done | 2026-03-02 | Added `ids` parsing/merge utility, wired into query-engine + ORM fallback, extended CRUD OpenAPI query schema, unit + integration coverage |
+| Phase 2 — Optional cleanup | Not Started | — | Existing route-level `id` filters kept for backward compatibility |
+
+### Phase 1 — Detailed Progress
+- [x] Add `packages/shared/src/lib/crud/ids.ts` with `parseIdsParam`, `mergeIdFilter`, `MAX_IDS_PER_REQUEST`
+- [x] Merge `ids` filter in `makeCrudRoute` GET for query-engine and ORM fallback branches
+- [x] Include `ids` parameter in CRUD OpenAPI GET query schema generation
+- [x] Add unit tests for ids parsing/merge and CRUD factory ids behavior
+- [x] Add integration coverage for multi-id filtering and interceptor-driven narrowing

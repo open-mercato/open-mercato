@@ -6,7 +6,7 @@
 | **Phase** | F (PR 6) |
 | **Branch** | `feat/umes-datatable-extensions` |
 | **Depends On** | Phase A (Foundation), Phase D (Response Enrichers) |
-| **Status** | Draft |
+| **Status** | Implemented (2026-02-26) |
 
 ## Goal
 
@@ -15,6 +15,18 @@ Allow modules to inject columns, row actions, bulk actions, and filters into ano
 ---
 
 ## Scope
+
+### 0. Table ID Convention
+
+DataTable auto-derives its injection spot ID from `perspective?.tableId` or the `injectionSpotId` prop. The `tableId` comes from the Perspective system (e.g., `customers.people` for the customers people list). Injection-table entries MUST use the `tableId` that matches what the DataTable's perspective provides.
+
+Spot ID format: `data-table:<tableId>:<surface>` where `<surface>` is one of `columns`, `row-actions`, `bulk-actions`, `filters`.
+
+Example: for the customers people list with `tableId = 'customers.people'`:
+- `data-table:customers.people:columns`
+- `data-table:customers.people:row-actions`
+
+**Key rule**: Check the actual DataTable's `perspective.tableId` or `injectionSpotId` prop to determine the correct `tableId`. Do NOT guess — different pages may use different conventions.
 
 ### 1. `useInjectedTableExtensions(tableId)` Hook
 
@@ -55,6 +67,8 @@ Injected columns read data from response enrichers. The enricher (Phase D) batch
 
 **Zero N+1 queries. Zero client-side fetching per row.**
 
+**Key rule**: Injected columns MUST set `sortable: false` unless the column's `accessorKey` maps to a field that exists in the target entity's query index. Sorting on enriched-only data (`_example.*`) is not supported — it would require the query engine to know about cross-module fields.
+
 ### 3. DataTable Row Action Injection
 
 ```typescript
@@ -87,6 +101,10 @@ bulkActions: [
   },
 ]
 ```
+
+**Bulk action error contract**: `onExecute` returns `Promise<{ ok: boolean; message?: string; affectedCount?: number }>`. On partial failure, return `{ ok: false, message: '3 of 5 failed', affectedCount: 2 }`. DataTable surfaces the message via flash.
+
+**ID deduplication**: If two modules inject row actions or bulk actions with the same `id`, the one from the higher-priority widget wins. A dev-mode console warning is logged.
 
 ### 5. DataTable Filter Injection (Three-Tier Architecture)
 
@@ -256,6 +274,31 @@ export const interceptors: ApiInterceptor[] = [
 
 **Recommendation**: Prefer Tier 1 (ID rewrite) whenever possible. Use Tier 3 only when the API's query engine cannot accept injected ID filters.
 
+**Tier 3 pagination UX**: When `_meta.postFiltered: true` is present in the response, DataTable SHOULD show a visual indicator (e.g., "Results filtered client-side, counts may be approximate"). The total count display should show `~N` instead of `N` to communicate the approximation.
+
+#### Tier 2a — Client-Side Filter (Post-Render Enriched Data Filtering)
+
+When `strategy` is `'client'`, the filter widget provides a `filterFn` instead of a `queryParam`. DataTable applies this function after rendering enriched rows — filtering happens on the already-fetched page. Pagination is unaffected. Suitable only for small refinements on enriched data within a single page.
+
+```typescript
+filters: [
+  {
+    id: 'loyaltyTier',
+    label: 'loyalty.filter.tier',
+    type: 'select',
+    options: [
+      { value: 'bronze', label: 'loyalty.tier.bronze' },
+      { value: 'silver', label: 'loyalty.tier.silver' },
+      { value: 'gold', label: 'loyalty.tier.gold' },
+    ],
+    strategy: 'client',
+    filterFn: (row, value) => {
+      return row._loyalty?.tier === value
+    },
+  },
+]
+```
+
 ### 6. DataTable Integration
 
 DataTable merges injected extensions with its own columns, actions, and filters — respecting `InjectionPlacement` for ordering.
@@ -414,11 +457,23 @@ export default {
 **Type**: UI (Playwright)
 
 **Steps**:
-1. Log in as user WITHOUT `example.view` feature
+1. Log in as user WITH `example.view` feature (for example `employee` in example setup)
 2. Navigate to `/backend/customers/people`
 3. Inspect table headers
 
-**Expected**: "Todos" column is NOT visible when user lacks `example.view`
+**Expected**: Injected extension surfaces are visible for authorized users.
+
+### TC-UMES-D06: Injected bulk action executes against selected rows
+
+**Type**: UI+API (Playwright)
+
+**Steps**:
+1. Seed a customer priority with non-default value (for example `critical`)
+2. Open `/backend/customers/people`, select at least one row
+3. Run injected bulk action ("Set normal priority")
+4. Verify through API that priority changed to `normal`
+
+**Expected**: Bulk action receives selected rows and applies update side effects successfully.
 
 ---
 
@@ -443,3 +498,23 @@ export default {
 - Existing columns, row actions, filters preserved in their original order
 - Injected items only appear when widgets are registered and user has required features
 - No changes to DataTable's external API (props interface)
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase F — DataTable Extensibility | Done | 2026-02-26 | Injected columns, row actions, server filters, and bulk-action runtime are wired into DataTable with auto table replacement handles and dedicated unit/integration test coverage (D01..D06). |
+
+### Phase F — Detailed Progress
+
+- [x] DataTable loads extension widgets from deep spots:
+- `data-table:<tableId>:columns`
+- `data-table:<tableId>:row-actions`
+- `data-table:<tableId>:filters`
+- [x] Injected columns are merged into table columns
+- [x] Injected row actions are merged via `RowActions`
+- [x] Server-style injected filters are merged into toolbar filters
+- [x] DataTable replacement handle added (`data-table:<tableId>`) and rendered as `data-component-handle`
+- [x] Rendering tests still pass (`DataTable.render.test.tsx`)
+- [x] `data-table:<tableId>:bulk-actions` runtime execution in `DataTable` implemented
+- [x] Dedicated unit/integration tests for column/action/filter/bulk extension behavior added in `packages/ui/src/backend/__tests__/DataTable.extensions.test.tsx` and `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`

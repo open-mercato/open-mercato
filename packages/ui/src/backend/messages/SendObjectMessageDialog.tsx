@@ -17,10 +17,8 @@ export type SendObjectMessageDialogProps = {
   lockedType?: string | null
   requiredActionConfig?: MessageComposerRequiredActionConfig | null
   disabled?: boolean
-  contextPreview?: React.ReactNode
-  children?: React.ReactNode
+  viewHref?: string | null
   onSuccess?: MessageComposerProps['onSuccess']
-  renderTrigger?: (params: { openComposer: () => void; disabled: boolean }) => React.ReactNode
 }
 
 export function SendObjectMessageDialog({
@@ -29,10 +27,8 @@ export function SendObjectMessageDialog({
   lockedType = 'messages.defaultWithObjects',
   requiredActionConfig = null,
   disabled = false,
-  contextPreview = null,
-  children = null,
+  viewHref: _viewHref = null,
   onSuccess,
-  renderTrigger,
 }: SendObjectMessageDialogProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -47,15 +43,15 @@ export function SendObjectMessageDialog({
     entityId: object.entityId,
     sourceEntityType: object.sourceEntityType ?? null,
     sourceEntityId: object.sourceEntityId ?? null,
-  }), [object.entityId, object.entityModule, object.entityType, object.sourceEntityId, object.sourceEntityType])
+    previewData: object.previewData ?? null,
+  }), [object.entityId, object.entityModule, object.entityType, object.sourceEntityId, object.sourceEntityType, object.previewData])
 
-  const trigger = renderTrigger
-    ? renderTrigger({ openComposer, disabled })
-    : (
+  return (
+    <>
       <Button
         type="button"
         size="icon"
-        variant="outline"
+        variant="ghost"
         disabled={disabled}
         onClick={openComposer}
         aria-label={t('messages.compose', 'Compose message')}
@@ -63,11 +59,6 @@ export function SendObjectMessageDialog({
       >
         <Send className="h-4 w-4" />
       </Button>
-    )
-    
-  return (
-    <>
-      {trigger}
       <MessageComposer
         variant="compose"
         open={open}
@@ -75,7 +66,6 @@ export function SendObjectMessageDialog({
         lockedType={lockedType}
         contextObject={contextObject}
         requiredActionConfig={requiredActionConfig}
-        contextPreview={contextPreview ?? children}
         defaultValues={defaultValues}
         onSuccess={onSuccess}
       />

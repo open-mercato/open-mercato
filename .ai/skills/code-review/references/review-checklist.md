@@ -39,6 +39,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 ## 3. Data Integrity & ORM
 
 - [ ] No hand-written migrations — entities updated, `yarn db:generate` used
+- [ ] When entities changed, corresponding generated migration file is included in the diff
 - [ ] UUID primary keys with `defaultRaw: 'gen_random_uuid()'`
 - [ ] Standard columns present: `id`, `created_at`, `updated_at`, `organization_id`, `tenant_id`
 - [ ] Soft delete via `deleted_at` (not hard delete for historical records)
@@ -225,6 +226,8 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] `npm run modules:prepare` run after adding/modifying module files
 - [ ] No imports from generated files in packages (only app bootstrap imports)
 - [ ] Project still builds after changes (`yarn build`)
+- [ ] Template parity check passes: `yarn template:sync` (for `apps/mercato/src/{app,modules}` vs `packages/create-app/template/src/{app,modules}`)
+- [ ] If template drift exists (especially app layout/routes), reviewer asked whether to sync and, if approved, applied `yarn template:sync:fix`
 
 ## 20. Testing Coverage
 
@@ -258,6 +261,14 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 - [ ] No existing event ID removed
 - [ ] No existing event payload fields removed (may add optional fields)
 - [ ] Deprecated events still emitted during bridge period alongside replacement
+
+## 22. Specs Numbering Hygiene
+
+- [ ] No duplicate exact spec IDs in `.ai/specs` (for example `SPEC-041` vs `SPEC-041`)
+- [ ] No duplicate exact enterprise spec IDs in `.ai/specs/enterprise` (for example `SPEC-ENT-002` vs `SPEC-ENT-002`)
+- [ ] Staged spec variants are preserved (`SPEC-041a`, `SPEC-041b`, ... are valid and MUST NOT be treated as conflicts with each other or with `SPEC-041`)
+- [ ] If conflicts exist, only the newest conflicting spec is moved to the end of the list
+- [ ] Filename references/links and in-file spec ID references updated after renumbering
 
 ### Widget Injection Spot IDs
 - [ ] No existing spot ID renamed or removed

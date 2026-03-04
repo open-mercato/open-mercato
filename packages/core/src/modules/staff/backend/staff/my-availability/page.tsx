@@ -9,6 +9,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/staff/lib/memberSchedule'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
 type SelfMemberResponse = {
   member?: {
@@ -112,6 +113,19 @@ export default function StaffMyAvailabilityPage() {
     <Page>
       <PageBody>
         <div className="space-y-4">
+          {member.availabilityRuleSetId ? (
+            <div className="flex justify-end">
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'staff',
+                  entityType: 'my_availability',
+                  entityId: member.availabilityRuleSetId,
+                  previewData: { title: member.displayName ?? t('staff.myAvailability.title', 'My Availability') },
+                }}
+                viewHref="/backend/staff/my-availability"
+              />
+            </div>
+          ) : null}
           {!canManageAvailability ? (
             <div className="space-y-2 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">

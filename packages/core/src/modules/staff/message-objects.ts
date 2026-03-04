@@ -1,8 +1,7 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
+import { MessageObjectDetail, MessageObjectPreview } from '@open-mercato/ui/backend/messages'
 import { LeaveRequestDetail } from './components/LeaveRequestDetail'
 import { LeaveRequestPreview } from './components/LeaveRequestPreview'
-import { StaffMessageObjectDetail } from './widgets/messages/StaffMessageObjectDetail'
-import { StaffMessageObjectPreview } from './widgets/messages/StaffMessageObjectPreview'
 
 export const messageObjectTypes: MessageObjectTypeDefinition[] = [
   {
@@ -60,9 +59,18 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     optionSubtitleField: 'description',
     labelKey: 'staff.teams.page.title',
     icon: 'users',
-    PreviewComponent: StaffMessageObjectPreview,
-    DetailComponent: StaffMessageObjectDetail,
-    actions: [],
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/staff/teams/{entityId}/edit',
+        icon: 'external-link',
+        isTerminal: false,
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return {
@@ -83,9 +91,18 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     optionSubtitleField: 'email',
     labelKey: 'staff.teamMembers.page.title',
     icon: 'user-round',
-    PreviewComponent: StaffMessageObjectPreview,
-    DetailComponent: StaffMessageObjectDetail,
-    actions: [],
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/staff/team-members/{entityId}',
+        icon: 'external-link',
+        isTerminal: false,
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return {
@@ -95,6 +112,60 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
       }
       const { loadTeamMemberPreview } = await import('./lib/messageObjectPreviews')
       return loadTeamMemberPreview(entityId, ctx)
+    },
+  },
+  {
+    module: 'staff',
+    entityType: 'team_role',
+    messageTypes: ['default', 'messages.defaultWithObjects'],
+    entityId: 'staff:staff_team_role',
+    optionLabelField: 'name',
+    optionSubtitleField: 'description',
+    labelKey: 'staff.messageObjects.teamRole.title',
+    icon: 'shield',
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/staff/team-roles/{entityId}/edit',
+      },
+    ],
+    loadPreview: async (entityId, ctx) => {
+      if (typeof window !== 'undefined') {
+        return { title: 'Team role', subtitle: entityId }
+      }
+      const { loadStaffTeamRolePreview } = await import('./lib/messageObjectPreviews')
+      return loadStaffTeamRolePreview(entityId, ctx)
+    },
+  },
+  {
+    module: 'staff',
+    entityType: 'my_availability',
+    messageTypes: ['default', 'messages.defaultWithObjects'],
+    entityId: 'planner:planner_availability_rule_set',
+    optionLabelField: 'name',
+    optionSubtitleField: 'description',
+    labelKey: 'staff.messageObjects.myAvailability.title',
+    icon: 'calendar-clock',
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/staff/my-availability',
+      },
+    ],
+    loadPreview: async (entityId, ctx) => {
+      if (typeof window !== 'undefined') {
+        return { title: 'My availability', subtitle: entityId }
+      }
+      const { loadStaffAvailabilityPreview } = await import('./lib/messageObjectPreviews')
+      return loadStaffAvailabilityPreview(entityId, ctx)
     },
   },
 ]

@@ -49,3 +49,28 @@ export async function resolveTranslationsRouteContext(req: Request): Promise<Tra
     commandCtx,
   }
 }
+
+export async function requireTranslationFeatures(
+  context: TranslationsRouteContext,
+  requiredFeatures: string[],
+): Promise<void> {
+  if (!requiredFeatures.length) return
+  const subject = context.auth.sub
+  if (!subject) {
+    throw new CrudHttpError(401, { error: 'Unauthorized' })
+  }
+  const rbacService = context.container.resolve('rbacService') as {
+    userHasAllFeatures(
+      userId: string,
+      required: string[],
+      scope: { tenantId: string | null; organizationId: string | null },
+    ): Promise<boolean>
+  }
+  const hasFeatures = await rbacService.userHasAllFeatures(subject, requiredFeatures, {
+    tenantId: context.tenantId,
+    organizationId: context.organizationId,
+  })
+  if (!hasFeatures) {
+    throw new CrudHttpError(403, { error: 'Forbidden' })
+  }
+}

@@ -1,4 +1,5 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
+import { MessageObjectDetail, MessageObjectPreview } from '@open-mercato/ui/backend/messages'
 import { SalesDocumentMessageDetail } from './widgets/messages/SalesDocumentMessageDetail'
 import { SalesDocumentMessagePreview } from './widgets/messages/SalesDocumentMessagePreview'
 
@@ -16,7 +17,14 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'receipt-text',
     PreviewComponent: SalesDocumentMessagePreview,
     DetailComponent: SalesDocumentMessageDetail,
-    actions: [],
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/sales/orders/{entityId}',
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return {
@@ -39,7 +47,14 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
     icon: 'file-text',
     PreviewComponent: SalesDocumentMessagePreview,
     DetailComponent: SalesDocumentMessageDetail,
-    actions: [],
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/sales/quotes/{entityId}',
+      },
+    ],
     loadPreview: async (entityId, ctx) => {
       if (typeof window !== 'undefined') {
         return {
@@ -49,6 +64,33 @@ export const messageObjectTypes: MessageObjectTypeDefinition[] = [
       }
       const { loadSalesQuotePreview } = await import('./lib/messageObjectPreviews')
       return loadSalesQuotePreview(entityId, ctx)
+    },
+  },
+  {
+    module: 'sales',
+    entityType: 'channel',
+    messageTypes: objectMessageTypes,
+    entityId: 'sales:sales_channel',
+    optionLabelField: 'name',
+    optionSubtitleField: 'status',
+    labelKey: 'sales.messageObjects.channel.title',
+    icon: 'store',
+    PreviewComponent: MessageObjectPreview,
+    DetailComponent: MessageObjectDetail,
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/sales/channels/{entityId}/edit',
+      },
+    ],
+    loadPreview: async (entityId, ctx) => {
+      if (typeof window !== 'undefined') {
+        return { title: 'Sales channel', subtitle: entityId }
+      }
+      const { loadSalesChannelPreview } = await import('./lib/messageObjectPreviews')
+      return loadSalesChannelPreview(entityId, ctx)
     },
   },
 ]

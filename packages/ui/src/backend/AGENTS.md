@@ -37,6 +37,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'
 import { mergeMenuItems } from '@open-mercato/ui/backend/injection/mergeMenuItems'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 ```
 
 ## Widget Event Hooks
@@ -85,6 +86,12 @@ Widgets can declare additional event handlers beyond the original CRUD lifecycle
 Action events fire independently; transformer events form a pipeline where each widget's output feeds the next.
 
 CrudForm emits these extended handlers by default. Disable automatic emission with `NEXT_PUBLIC_OM_CRUDFORM_EXTENDED_EVENTS_ENABLED=false`.
+
+## UMES Host Surfaces (Phases F/G/H)
+
+- DataTable hosts should use stable `extensionTableId` values so injection spots (`columns`, `row-actions`, `bulk-actions`, `filters`) remain backward-compatible.
+- CrudForm hosts should use stable `entityId` and field/group IDs so `crud-form:<entityId>:fields` injections can target predictable surfaces.
+- For replacement-aware surfaces, resolve components by handle using `useRegisteredComponent(handle, Fallback)` and keep handle IDs stable.
 
 ## When Building Backend Pages
 

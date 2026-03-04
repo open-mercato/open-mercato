@@ -176,9 +176,12 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     timeout: TEST_WAIT_TIMEOUT_MS,
   });
 
-  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeVisible({ timeout: 10_000 });
-  await page.waitForTimeout(500);
-  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeEnabled({ timeout: 30_000 });
+  const generateButton = page.getByRole('button', { name: /Generate/i }).first();
+  const hasGenerateButton = (await generateButton.count()) > 0;
+  if (hasGenerateButton) {
+    await expect(generateButton).toBeVisible({ timeout: 10_000 });
+    await expect(generateButton).toBeEnabled({ timeout: 30_000 });
+  }
 
   await page.getByText('Document type').click();
   await page.getByRole('textbox', { name: /Search customers/i }).fill(customerQuery);

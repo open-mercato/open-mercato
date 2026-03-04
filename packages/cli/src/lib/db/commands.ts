@@ -253,15 +253,17 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
 
-    // For @app modules, entities may be empty since TypeScript files can't be imported at runtime
-    // Use discovery.warnWhenNoEntities: false to allow running migrations without entities
+    // dbMigrate only runs existing migration files — entities are intentionally
+    // omitted so MikroORM does not compare them against the snapshot and
+    // auto-generate a phantom diff migration (that would duplicate tables
+    // already created by committed migrations).
     const sslConfig = getSslConfig()
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
       loggerFactory: () => createMinimalLogger(),
       dynamicImportProvider,
-      entities: entities.length ? entities : [],
+      entities: [],
       discovery: { warnWhenNoEntities: false },
       migrations: {
         path: migrationsPath,

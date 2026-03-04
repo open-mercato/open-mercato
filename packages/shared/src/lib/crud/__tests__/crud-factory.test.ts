@@ -1,4 +1,5 @@
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { z } from 'zod'
 
 // ---- Mocks ----
@@ -16,6 +17,16 @@ const em = {
   findOne: async (_entity: any, where: any) => (em.getRepository(_entity).findOne(where) as any),
   getRepository: (_cls: any) => ({
     find: async (where: any) => Object.values(db).filter((r) => {
+      const idClause = where.id
+      const matchesId = !idClause
+        ? true
+        : (typeof idClause === 'string'
+          ? r.id === idClause
+          : (typeof idClause === 'object' && Array.isArray(idClause.$in))
+            ? idClause.$in.includes(r.id)
+            : (typeof idClause === 'object' && typeof idClause.$eq === 'string')
+              ? r.id === idClause.$eq
+              : true)
       const orgClause = where.organizationId
       const matchesOrg = !orgClause
         ? true
@@ -24,7 +35,7 @@ const em = {
           : r.organizationId === orgClause
       const matchesTenant = !where.tenantId || r.tenantId === where.tenantId
       const matchesDeleted = where.deletedAt === null ? !r.deletedAt : true
-      return matchesOrg && matchesTenant && matchesDeleted
+      return matchesId && matchesOrg && matchesTenant && matchesDeleted
     }),
     findOne: async (where: any) => Object.values(db).find((r) => {
       if (r.id !== where.id) return false
@@ -127,6 +138,7 @@ describe('CRUD Factory', () => {
       execute: jest.fn(async () => ({ result: {}, logEntry: { id: 'log-1' } })),
     }
     crudMutationGuardService = null
+    registerApiInterceptors([])
   })
 
   const querySchema = z.object({
@@ -189,6 +201,69 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  it('GET applies ids query filter in query engine path', async () => {
+    const idA = '550e8400-e29b-41d4-a716-446655440001'
+    const idB = '550e8400-e29b-41d4-a716-446655440002'
+    await route.GET(new Request(`http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc&ids=${idA},${idB}`))
+
+    expect(queryEngine.query).toHaveBeenCalled()
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.filters).toEqual({
+      id: { $in: [idA, idB] },
+    })
+  })
+
+  it('GET intersects ids with existing buildFilters id constraint', async () => {
+    const routeWithIdFilter = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema.extend({ id: z.string().optional() }),
+        entityId: 'example.todo',
+        fields: ['id', 'title'],
+        buildFilters: (query) => query.id ? ({ id: { $eq: query.id } } as any) : ({} as any),
+      },
+    })
+    const selected = '550e8400-e29b-41d4-a716-446655440001'
+    const other = '550e8400-e29b-41d4-a716-446655440002'
+
+    await routeWithIdFilter.GET(new Request(`http://x/api/example/todos?id=${selected}&ids=${selected},${other}`))
+    const matchingArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(matchingArgs?.filters).toEqual({
+      id: { $in: [selected] },
+    })
+
+    await routeWithIdFilter.GET(new Request(`http://x/api/example/todos?id=${selected}&ids=${other}`))
+    const missingArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(missingArgs?.filters).toEqual({
+      id: { $in: [] },
+    })
+  })
+
+  it('GET applies ids query filter in ORM fallback path', async () => {
+    const fallbackRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema,
+        buildFilters: () => ({} as any),
+      },
+    })
+
+    const first = em.create(Todo, { title: 'One', organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000' }) as Rec
+    first.id = '550e8400-e29b-41d4-a716-446655440010'
+    await em.persistAndFlush(first)
+    const second = em.create(Todo, { title: 'Two', organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000' }) as Rec
+    second.id = '550e8400-e29b-41d4-a716-446655440011'
+    await em.persistAndFlush(second)
+
+    const res = await fallbackRoute.GET(new Request(`http://x/api/example/todos?ids=${first.id}`))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]?.id).toBe(first.id)
   })
 
   it('GET returns CSV when format=csv', async () => {
@@ -367,5 +442,69 @@ describe('CRUD Factory', () => {
     // CommandBus via flushCrudSideEffects(). The factory itself must NOT emit events
     // to avoid duplicates (see commit 3f999f35).
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('POST is blocked by interceptor before hook', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.block-title',
+            targetRoute: 'example/todos',
+            methods: ['POST'],
+            async before(request) {
+              const title = request.body?.title
+              if (typeof title === 'string' && title.includes('BLOCKED')) {
+                return { ok: false, statusCode: 422, message: 'Blocked by interceptor' }
+              }
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'BLOCKED item', is_done: false }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(422)
+    const payload = await res.json()
+    expect(payload).toMatchObject({
+      error: 'Blocked by interceptor',
+      interceptorId: 'example.block-title',
+    })
+  })
+
+  it('GET response is augmented by interceptor after hook', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.add-response-flag',
+            targetRoute: 'example/todos',
+            methods: ['GET'],
+            async after(_request, response) {
+              return {
+                merge: {
+                  _interceptor: {
+                    ok: true,
+                    count: Array.isArray(response.body.items) ? response.body.items.length : 0,
+                  },
+                },
+              }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body._interceptor).toEqual({ ok: true, count: 1 })
   })
 })

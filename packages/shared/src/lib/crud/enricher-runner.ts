@@ -44,17 +44,24 @@ function hasRequiredFeatures(
   return enricher.features.every((feature) => hasFeature(feature))
 }
 
-function getActiveEnrichers(
-  targetEntity: string,
+function filterByACLAndTenant(
+  entries: EnricherRegistryEntry[],
   context: EnricherContext,
 ): EnricherRegistryEntry[] {
-  const entries = getEnrichersForEntity(targetEntity)
   return entries.filter((entry) => {
     const enricher = entry.enricher
     if (!hasRequiredFeatures(enricher, context.userFeatures)) return false
     if (enricher.disabledTenantIds?.includes(context.tenantId)) return false
     return true
   })
+}
+
+function getActiveEnrichers(
+  targetEntity: string,
+  context: EnricherContext,
+): EnricherRegistryEntry[] {
+  const entries = getEnrichersForEntity(targetEntity)
+  return filterByACLAndTenant(entries, context)
 }
 
 type CacheLike = {
@@ -90,7 +97,7 @@ function buildCacheKey(
   mode: 'one' | 'many',
   recordIds: string[],
 ): string {
-  const sortedIds = [...recordIds].sort()
+  const sortedIds = [...recordIds].sort((a, b) => a.localeCompare(b))
   return `umes:enricher:${enricher.id}:tenant:${context.tenantId}:org:${context.organizationId}:mode:${mode}:ids:${JSON.stringify(sortedIds)}`
 }
 
@@ -160,8 +167,11 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
   items: T[],
   targetEntity: string,
   context: EnricherContext,
+  preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<EnrichmentResult<T>> {
-  const activeEntries = getActiveEnrichers(targetEntity, context)
+  const activeEntries = preFilteredEntries
+    ? filterByACLAndTenant(preFilteredEntries, context)
+    : getActiveEnrichers(targetEntity, context)
 
   if (activeEntries.length === 0) {
     return { items, _meta: { enrichedBy: [] } }
@@ -260,8 +270,11 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
   record: T,
   targetEntity: string,
   context: EnricherContext,
+  preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<SingleEnrichmentResult<T>> {
-  const activeEntries = getActiveEnrichers(targetEntity, context)
+  const activeEntries = preFilteredEntries
+    ? filterByACLAndTenant(preFilteredEntries, context)
+    : getActiveEnrichers(targetEntity, context)
 
   if (activeEntries.length === 0) {
     return { record, _meta: { enrichedBy: [] } }

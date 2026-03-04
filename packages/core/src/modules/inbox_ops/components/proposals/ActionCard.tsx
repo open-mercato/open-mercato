@@ -19,6 +19,61 @@ import {
   ShoppingBag,
 } from 'lucide-react'
 import type { ActionDetail, DiscrepancyDetail } from './types'
+import { hasContactNameIssue } from '../../lib/contactValidation'
+
+export { hasContactNameIssue }
+
+/**
+ * Resolves discrepancy description i18n keys stored in the database.
+ * Falls back to the raw description string for legacy data or LLM-generated descriptions.
+ */
+export function useDiscrepancyDescriptions(): (description: string, foundValue?: string | null) => string {
+  const t = useT()
+  const translations: Record<string, string> = {
+    'inbox_ops.discrepancy.desc.no_channel': t('inbox_ops.discrepancy.desc.no_channel', 'No sales channel available. Create a channel in Sales settings before accepting this order.'),
+    'inbox_ops.discrepancy.desc.no_currency': t('inbox_ops.discrepancy.desc.no_currency', 'No currency could be resolved for this order. Set a currency code or configure a sales channel with a default currency.'),
+    'inbox_ops.discrepancy.desc.product_not_matched': t('inbox_ops.discrepancy.desc.product_not_matched', 'Product could not be matched to any catalog product'),
+    'inbox_ops.discrepancy.desc.no_matching_contact': t('inbox_ops.discrepancy.desc.no_matching_contact', 'No matching contact found'),
+    'inbox_ops.discrepancy.desc.draft_reply_no_contact': t('inbox_ops.discrepancy.desc.draft_reply_no_contact', 'Draft reply target has no matching contact. Create the contact first.'),
+    'inbox_ops.discrepancy.desc.duplicate_order_reference': t('inbox_ops.discrepancy.desc.duplicate_order_reference', 'An order with this customer reference already exists'),
+  }
+  return (description: string, foundValue?: string | null) => {
+    const translated = translations[description]
+    if (!translated) return description
+    if (foundValue && (description === 'inbox_ops.discrepancy.desc.product_not_matched' || description === 'inbox_ops.discrepancy.desc.no_matching_contact')) {
+      return `${translated}: ${foundValue}`
+    }
+    return translated
+  }
+}
+
+/**
+ * Resolves action description i18n keys stored in the database.
+ * Auto-generated actions store keys like `inbox_ops.action.desc.create_contact`;
+ * LLM-generated actions store plain text which is returned as-is.
+ */
+export function useActionDescriptionResolver(): (description: string, payload: Record<string, unknown>) => string {
+  const t = useT()
+  return (description: string, payload: Record<string, unknown>) => {
+    if (!description.startsWith('inbox_ops.action.desc.')) return description
+    const name = (payload.name as string) || (payload.contactName as string) || ''
+    const email = (payload.email as string) || (payload.emailAddress as string) || ''
+    const title = (payload.title as string) || ''
+    const toName = (payload.toName as string) || (payload.to as string) || ''
+    const subject = (payload.subject as string) || ''
+    const translations: Record<string, string> = {
+      'inbox_ops.action.desc.create_contact': t('inbox_ops.action.desc.create_contact', 'Create contact for {name} ({email})')
+        .replace('{name}', name).replace('{email}', email),
+      'inbox_ops.action.desc.link_contact': t('inbox_ops.action.desc.link_contact', 'Link {name} ({email}) to existing contact')
+        .replace('{name}', name).replace('{email}', email),
+      'inbox_ops.action.desc.create_product': t('inbox_ops.action.desc.create_product', 'Create catalog product "{title}"')
+        .replace('{title}', title),
+      'inbox_ops.action.desc.draft_reply': t('inbox_ops.action.desc.draft_reply', 'Draft reply to {toName}: {subject}')
+        .replace('{toName}', toName).replace('{subject}', subject),
+    }
+    return translations[description] || description
+  }
+}
 
 const ACTION_TYPE_ICONS: Record<string, React.ElementType> = {
   create_order: Package,
@@ -169,6 +224,7 @@ export function ActionCard({
   onRetry,
   onEdit,
   translatedDescription,
+  resolveDiscrepancyDescription,
 }: {
   action: ActionDetail
   discrepancies: DiscrepancyDetail[]
@@ -178,14 +234,16 @@ export function ActionCard({
   onRetry: (id: string) => void
   onEdit: (action: ActionDetail) => void
   translatedDescription?: string
+  resolveDiscrepancyDescription?: (description: string, foundValue?: string | null) => string
 }) {
   const t = useT()
   const Icon = ACTION_TYPE_ICONS[action.actionType] || Package
   const label = actionTypeLabels[action.actionType] || action.actionType
+  const resolveActionDescription = useActionDescriptionResolver()
 
   const actionDiscrepancies = discrepancies.filter((d) => d.actionId === action.id && !d.resolved)
   const hasBlockingDiscrepancies = actionDiscrepancies.some((d) => d.severity === 'error')
-  const displayDescription = translatedDescription || action.description
+  const displayDescription = translatedDescription || resolveActionDescription(action.description, action.payload)
 
   if (action.status === 'executed') {
     return (
@@ -198,7 +256,7 @@ export function ActionCard({
         {action.createdEntityId && (
           <div className="mt-2">
             <span className="text-xs text-green-600">
-              Created {action.createdEntityType} · {action.executedAt && new Date(action.executedAt).toLocaleString()}
+              {t('inbox_ops.action.created_entity', 'Created {type}').replace('{type}', action.createdEntityType || '')} · {action.executedAt && new Date(action.executedAt).toLocaleString()}
             </span>
           </div>
         )}
@@ -233,6 +291,7 @@ export function ActionCard({
         )}
         <div className="mt-3 flex items-center gap-2">
           <Button
+            type="button"
             size="sm"
             className="h-11 md:h-9"
             onClick={() => onRetry(action.id)}
@@ -241,6 +300,7 @@ export function ActionCard({
             {t('inbox_ops.action.retry', 'Retry')}
           </Button>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-11 md:h-9"
@@ -250,6 +310,7 @@ export function ActionCard({
             {t('inbox_ops.action.edit', 'Edit')}
           </Button>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-11 md:h-9"
@@ -262,6 +323,8 @@ export function ActionCard({
       </div>
     )
   }
+
+  const hasNameIssue = hasContactNameIssue(action)
 
   return (
     <div className="border rounded-lg p-3 md:p-4">
@@ -288,12 +351,12 @@ export function ActionCard({
             }`}>
               <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
               <div>
-                <span>{d.description}</span>
+                <span>{resolveDiscrepancyDescription ? resolveDiscrepancyDescription(d.description, d.foundValue) : d.description}</span>
                 {(d.expectedValue || d.foundValue) && (
                   <div className="mt-0.5 text-[11px] opacity-80">
-                    {d.expectedValue && <span>Expected: {d.expectedValue}</span>}
+                    {d.expectedValue && <span>{t('inbox_ops.discrepancy.expected', 'Expected')}: {d.expectedValue}</span>}
                     {d.expectedValue && d.foundValue && <span> · </span>}
-                    {d.foundValue && <span>Found: {d.foundValue}</span>}
+                    {d.foundValue && <span>{t('inbox_ops.discrepancy.found', 'Found')}: {d.foundValue}</span>}
                   </div>
                 )}
               </div>
@@ -302,19 +365,39 @@ export function ActionCard({
         </div>
       )}
 
+      {hasNameIssue && (
+        <div className="mb-3 flex items-start gap-2 text-xs rounded px-2 py-1.5 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+          <span>{action.actionType === 'link_contact'
+            ? t('inbox_ops.contact.link_name_missing_warning', 'Contact name is missing. Please edit and provide a name before accepting.')
+            : t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')
+          }</span>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
-        <div title={hasBlockingDiscrepancies ? t('inbox_ops.action.accept_blocked', 'Resolve errors before accepting') : undefined}>
+        <div title={
+          hasNameIssue
+            ? action.actionType === 'link_contact'
+              ? t('inbox_ops.contact.link_name_missing_warning', 'Contact name is missing. Please edit and provide a name before accepting.')
+              : t('inbox_ops.contact.name_missing_warning', 'First and last name could not be extracted. Please edit before accepting.')
+            : hasBlockingDiscrepancies
+              ? t('inbox_ops.action.accept_blocked', 'Resolve errors before accepting')
+              : undefined
+        }>
           <Button
+            type="button"
             size="sm"
             className="h-11 md:h-9"
             onClick={() => onAccept(action.id)}
-            disabled={hasBlockingDiscrepancies}
+            disabled={hasBlockingDiscrepancies || hasNameIssue}
           >
             <CheckCircle className="h-4 w-4 mr-1" />
             {t('inbox_ops.action.accept', 'Accept')}
           </Button>
         </div>
         <Button
+          type="button"
           variant="outline"
           size="sm"
           className="h-11 md:h-9"
@@ -324,6 +407,7 @@ export function ActionCard({
           {t('inbox_ops.action.edit', 'Edit')}
         </Button>
         <Button
+          type="button"
           variant="outline"
           size="sm"
           className="h-11 md:h-9"

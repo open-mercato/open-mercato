@@ -130,6 +130,7 @@ export type ObjectPreviewProps = {
   actionRequired?: boolean
   actionType?: string
   actionLabel?: string
+  icon?: string
 }
 
 export type ObjectDetailProps = ObjectPreviewProps & {

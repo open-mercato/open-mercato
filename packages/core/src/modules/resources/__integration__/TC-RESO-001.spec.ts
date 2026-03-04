@@ -40,8 +40,8 @@ test.describe('TC-RESO-001: Resources list page', () => {
       ).toBeVisible();
 
       await expect(
-        page.getByRole('link', { name: /new resource/i }).or(
-          page.getByRole('button', { name: /new resource/i }),
+        page.getByRole('link', { name: /create resource/i }).or(
+          page.getByRole('button', { name: /create resource/i }),
         ),
       ).toBeVisible();
 

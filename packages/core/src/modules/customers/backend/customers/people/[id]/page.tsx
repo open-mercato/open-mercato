@@ -48,6 +48,7 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
 type PersonOverview = {
   person: {
@@ -656,6 +657,24 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               phone: validators.phone,
               displayName: validators.displayName,
             }}
+            utilityActions={(
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'customers',
+                  entityType: 'person',
+                  entityId: personId,
+                  previewData: {
+                    title: person.displayName,
+                    subtitle: person.primaryEmail ?? undefined,
+                    metadata: {
+                      [t('customers.people.detail.highlights.primaryPhone')]: person.primaryPhone ?? '-',
+                      [t('customers.people.detail.fields.jobTitle')]: profile?.jobTitle ?? '-',
+                    },
+                  },
+                }}
+                viewHref={`/backend/customers/people/${personId}`}
+              />
+            )}
             onDisplayNameSave={updateDisplayName}
             onPrimaryEmailSave={async (next) => {
               const send = typeof next === 'string' ? next : ''

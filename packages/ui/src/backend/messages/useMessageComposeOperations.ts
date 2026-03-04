@@ -69,7 +69,29 @@ type ForwardOperationParams = {
 type DraftOperationParams = Omit<ComposeOperationParams, 'createableMessageTypes'>
 
 function isValidEmailAddress(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+  const email = value.trim()
+  if (!email || email.length > 254) return false
+
+  const atIndex = email.indexOf('@')
+  if (atIndex <= 0 || atIndex !== email.lastIndexOf('@') || atIndex === email.length - 1) return false
+
+  for (const char of email) {
+    if (char === ' ' || char === '\t' || char === '\n' || char === '\r') return false
+  }
+
+  const localPart = email.slice(0, atIndex)
+  const domainPart = email.slice(atIndex + 1)
+  if (!localPart || !domainPart || localPart.length > 64) return false
+  if (domainPart.length > 253 || !domainPart.includes('.')) return false
+  if (domainPart.startsWith('.') || domainPart.endsWith('.') || domainPart.includes('..')) return false
+
+  const domainLabels = domainPart.split('.')
+  for (const label of domainLabels) {
+    if (!label) return false
+    if (label.startsWith('-') || label.endsWith('-')) return false
+  }
+
+  return true
 }
 
 function mapRecipients(recipientIds: string[]): MessageRecipient[] {

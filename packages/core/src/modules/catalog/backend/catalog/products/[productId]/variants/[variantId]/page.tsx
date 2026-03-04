@@ -11,6 +11,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import {
   type VariantFormValues,
   type VariantPriceDraft,
@@ -59,6 +60,21 @@ type PriceListResponse = {
 
 type AttachmentListResponse = {
   items?: ProductMediaItem[]
+}
+
+function resolveVariantPriceLabel(prices: Record<string, VariantPriceDraft> | undefined): string | null {
+  if (!prices || typeof prices !== 'object') return null
+  const entries = Object.values(prices)
+  for (const entry of entries) {
+    const amount = typeof entry?.amount === 'string' ? entry.amount.trim() : ''
+    if (!amount) continue
+    const currencyCode =
+      typeof entry.currencyCode === 'string' && entry.currencyCode.trim().length
+        ? entry.currencyCode.trim().toUpperCase()
+        : null
+    return currencyCode ? `${currencyCode} ${amount}` : amount
+  }
+  return null
 }
 
 export default function EditVariantPage({ params }: { params?: { productId?: string; variantId?: string } }) {
@@ -407,6 +423,30 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           title={formTitle}
           backHref={productVariantsHref}
           versionHistory={{ resourceKind: 'catalog.variant', resourceId: variantId ? String(variantId) : '' }}
+          extraActions={(
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'catalog',
+                entityType: 'variant',
+                entityId: variantId,
+                previewData: {
+                  title:
+                    (typeof initialValues?.name === 'string' && initialValues.name.trim().length
+                      ? initialValues.name
+                      : variantId),
+                  metadata: {
+                    [t('catalog.variants.form.skuLabel')]:
+                      (typeof initialValues?.sku === 'string' && initialValues.sku.trim().length
+                        ? initialValues.sku
+                        : '-'),
+                    [t('catalog.variants.form.pricesLabel')]:
+                      resolveVariantPriceLabel(initialValues?.prices) ?? '-',
+                  },
+                },
+              }}
+              viewHref={`/backend/catalog/products/${currentProductId}/variants/${variantId}`}
+            />
+          )}
           fields={[]}
           groups={groups}
           entityId={E.catalog.catalog_product_variant}

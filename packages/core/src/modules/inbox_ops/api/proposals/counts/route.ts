@@ -18,6 +18,8 @@ export async function GET(req: Request) {
       isActive: true,
     }
 
+    // em.count() is safe here — filter fields (status, organizationId, tenantId,
+    // deletedAt, isActive) are not encrypted, so decryption helpers are not needed.
     const [pending, partial, accepted, rejected] = await Promise.all([
       ctx.em.count(InboxProposal, { ...scope, status: 'pending' }),
       ctx.em.count(InboxProposal, { ...scope, status: 'partial' }),

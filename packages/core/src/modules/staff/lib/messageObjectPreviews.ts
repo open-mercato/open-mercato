@@ -1,9 +1,11 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ObjectPreviewData } from '@open-mercato/shared/modules/messages/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { StaffLeaveRequest, StaffTeam, StaffTeamMember } from '../data/entities'
+import { StaffLeaveRequest, StaffTeam, StaffTeamMember, StaffTeamRole } from '../data/entities'
+import { PlannerAvailabilityRuleSet } from '../../planner/data/entities'
+import { User } from '../../auth/data/entities'
 
 type PreviewContext = {
   tenantId: string
@@ -170,6 +172,56 @@ export async function loadTeamMemberPreview(
 
   const tags = Array.isArray(member.tags) ? member.tags : []
   const metadata: Record<string, string> = {}
+  const teamLabel = t('staff.teamMembers.detail.fields.team')
+  const userLabel = t('staff.teamMembers.detail.fields.user')
+  const rolesLabel = t('staff.teamMembers.detail.fields.roles')
+
+  if (member.teamId) {
+    const team = await findOneWithDecryption(
+      em,
+      StaffTeam,
+      {
+        id: member.teamId,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    if (team?.name) metadata[teamLabel] = team.name
+  }
+
+  if (member.userId) {
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { id: member.userId },
+      undefined,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    if (user?.email) metadata[userLabel] = user.email
+  }
+
+  if (Array.isArray(member.roleIds) && member.roleIds.length > 0) {
+    const roles = await findWithDecryption(
+      em,
+      StaffTeamRole,
+      {
+        id: { $in: member.roleIds },
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        deletedAt: null,
+      },
+      { orderBy: { name: 'ASC' } },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+    const roleNames = roles
+      .map((role) => role.name?.trim())
+      .filter((name): name is string => Boolean(name && name.length > 0))
+    if (roleNames.length > 0) metadata[rolesLabel] = roleNames.join(', ')
+  }
+
   if (tags.length > 0) metadata.Tags = tags.slice(0, 5).join(', ')
 
   return {
@@ -178,5 +230,84 @@ export async function loadTeamMemberPreview(
     status: member.isActive ? 'Active' : 'Inactive',
     statusColor: member.isActive ? 'green' : 'gray',
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+  }
+}
+
+export async function loadStaffTeamRolePreview(
+  entityId: string,
+  ctx: PreviewContext,
+): Promise<ObjectPreviewData> {
+  const { t } = await resolveTranslations()
+  const defaultTitle = t('staff.messageObjects.teamRole.title')
+
+  if (!ctx.organizationId) {
+    return { title: defaultTitle, subtitle: entityId }
+  }
+
+  const { resolve } = await createRequestContainer()
+  const em = resolve('em') as EntityManager
+
+  const role = await findOneWithDecryption(
+    em,
+    StaffTeamRole,
+    {
+      id: entityId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+
+  if (!role) {
+    return {
+      title: defaultTitle,
+      subtitle: entityId,
+      status: t('staff.messageObjects.notFound'),
+      statusColor: 'gray',
+    }
+  }
+
+  return {
+    title: role.name,
+    subtitle: role.description ?? undefined,
+  }
+}
+
+export async function loadStaffAvailabilityPreview(
+  entityId: string,
+  ctx: PreviewContext,
+): Promise<ObjectPreviewData> {
+  const { t } = await resolveTranslations()
+  const defaultTitle = t('staff.messageObjects.myAvailability.title')
+
+  if (!ctx.organizationId) {
+    return { title: defaultTitle, subtitle: entityId }
+  }
+
+  const { resolve } = await createRequestContainer()
+  const em = resolve('em') as EntityManager
+
+  const ruleSet = await findOneWithDecryption(
+    em,
+    PlannerAvailabilityRuleSet,
+    {
+      id: entityId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+
+  if (!ruleSet) {
+    return { title: defaultTitle, subtitle: entityId }
+  }
+
+  return {
+    title: ruleSet.name,
+    subtitle: ruleSet.description ?? undefined,
   }
 }

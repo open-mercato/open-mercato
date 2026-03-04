@@ -375,6 +375,7 @@ export default function MessageTokenPage({ params }: { params: { token: string }
                   actionTaken={data.actionTaken ?? null}
                   actionTakenAt={data.actionTakenAt ? new Date(data.actionTakenAt) : null}
                   actionTakenByUserId={data.actionTakenByUserId ?? null}
+                  icon={objectType?.icon}
                   onAction={async () => {
                     return
                   }}

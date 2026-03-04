@@ -24,6 +24,20 @@ export interface EnricherContext {
 }
 
 /**
+ * Query-engine opt-in configuration for response enrichers.
+ * When set, the enricher can also run inside query-engine pipelines
+ * (BasicQueryEngine / HybridQueryEngine), not only during API response shaping.
+ */
+export interface EnricherQueryEngineConfig {
+  /** When true, this enricher participates in query-engine pipelines. */
+  enabled: boolean
+  /** Which engines this enricher applies to. Default: both. */
+  engines?: Array<'basic' | 'hybrid'>
+  /** Which query shapes to enrich. Default: ['list', 'detail']. */
+  applyOn?: Array<'list' | 'detail'>
+}
+
+/**
  * Response enricher definition.
  *
  * @template TRecord - The shape of the record being enriched
@@ -67,6 +81,13 @@ export interface ResponseEnricher<TRecord = any, TEnriched = any> {
     tags?: string[]
     invalidateOn?: string[]
   }
+
+  /**
+   * Query-engine opt-in. When provided and `enabled: true`, this enricher
+   * also runs inside query-engine pipelines (BasicQueryEngine / HybridQueryEngine).
+   * Omit to keep API-only behavior (backward compatible default).
+   */
+  queryEngine?: EnricherQueryEngineConfig
 
   /** Enrich a single record. Used for detail endpoints. */
   enrichOne(record: TRecord, context: EnricherContext): Promise<TRecord & TEnriched>

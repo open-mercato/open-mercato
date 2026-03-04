@@ -3,7 +3,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ObjectPreviewData } from '@open-mercato/shared/modules/messages/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerDeal, CustomerEntity } from '../data/entities'
+import { CustomerCompanyProfile, CustomerDeal, CustomerEntity, CustomerPersonProfile } from '../data/entities'
 
 type PreviewContext = {
   tenantId: string
@@ -63,13 +63,32 @@ export async function loadCustomerPersonPreview(entityId: string, ctx: PreviewCo
     return { title: defaultTitle, subtitle: entityId, status: t('customers.messageObjects.notFound'), statusColor: 'gray' }
   }
 
+  const profile = await findOneWithDecryption(
+    em,
+    CustomerPersonProfile,
+    {
+      entity,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+
   const subtitleParts = [entity.primaryEmail, entity.primaryPhone]
     .filter((part): part is string => Boolean(part && part.trim().length > 0))
+  const metadata: Record<string, string> = {}
+  const phoneLabel = t('customers.people.detail.highlights.primaryPhone')
+  const jobTitleLabel = t('customers.people.detail.fields.jobTitle')
+  if (entity.primaryPhone && entity.primaryPhone.trim().length > 0) metadata[phoneLabel] = entity.primaryPhone
+  if (profile?.jobTitle && profile.jobTitle.trim().length > 0) metadata[jobTitleLabel] = profile.jobTitle
+
   return {
     title: entity.displayName,
     subtitle: subtitleParts.join(' • ') || entityId,
     status: entity.status ?? undefined,
     statusColor: statusColor(entity.status),
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   }
 }
 
@@ -100,13 +119,32 @@ export async function loadCustomerCompanyPreview(entityId: string, ctx: PreviewC
     return { title: defaultTitle, subtitle: entityId, status: t('customers.messageObjects.notFound'), statusColor: 'gray' }
   }
 
+  const profile = await findOneWithDecryption(
+    em,
+    CustomerCompanyProfile,
+    {
+      entity,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+
   const subtitleParts = [entity.primaryEmail, entity.primaryPhone]
     .filter((part): part is string => Boolean(part && part.trim().length > 0))
+  const metadata: Record<string, string> = {}
+  const phoneLabel = t('customers.companies.detail.highlights.primaryPhone')
+  const industryLabel = t('customers.companies.detail.fields.industry')
+  if (entity.primaryPhone && entity.primaryPhone.trim().length > 0) metadata[phoneLabel] = entity.primaryPhone
+  if (profile?.industry && profile.industry.trim().length > 0) metadata[industryLabel] = profile.industry
+
   return {
     title: entity.displayName,
     subtitle: subtitleParts.join(' • ') || entityId,
     status: entity.status ?? undefined,
     statusColor: statusColor(entity.status),
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   }
 }
 
@@ -140,8 +178,10 @@ export async function loadCustomerDealPreview(entityId: string, ctx: PreviewCont
   const probability = typeof deal.probability === 'number' ? `${deal.probability}%` : null
   const subtitle = [amount, probability].filter((part): part is string => Boolean(part && part.length > 0)).join(' • ')
   const metadata: Record<string, string> = {}
-  if (amount) metadata.Value = amount
-  if (probability) metadata.Probability = probability
+  const valueLabel = t('customers.deals.detail.fields.value')
+  const probabilityLabel = t('customers.deals.detail.fields.probability')
+  if (amount) metadata[valueLabel] = amount
+  if (probability) metadata[probabilityLabel] = probability
 
   return {
     title: deal.title,

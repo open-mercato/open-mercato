@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Loader2 } from 'lucide-react'
@@ -75,18 +76,62 @@ function ContactPayloadEditor({
   updateField: (key: string, value: unknown) => void
 }) {
   const t = useT()
+  const type = (payload.type as string) || 'person'
+  const isPerson = type === 'person'
+
+  const existingName = (payload.name as string) || ''
+  const nameParts = existingName.trim().split(/\s+/).filter((p) => p.length > 0)
+  const [firstName, setFirstName] = React.useState(() => isPerson ? (nameParts[0] || '') : '')
+  const [lastName, setLastName] = React.useState(() => isPerson ? (nameParts.slice(1).join(' ') || '') : '')
+
+  const updatePersonName = React.useCallback((first: string, last: string) => {
+    const combined = `${first} ${last}`.trim()
+    updateField('name', combined)
+  }, [updateField])
+
+  const lastNameMissing = isPerson && !lastName.trim()
+
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>{t('inbox_ops.edit_dialog.name', 'Name')}</Label>
-          <Input value={(payload.name as string) || ''} onChange={(event) => updateField('name', event.target.value)} />
-        </div>
+        {isPerson ? (
+          <>
+            <div>
+              <Label>{t('inbox_ops.contact.first_name', 'First Name')}</Label>
+              <Input
+                value={firstName}
+                onChange={(event) => {
+                  setFirstName(event.target.value)
+                  updatePersonName(event.target.value, lastName)
+                }}
+              />
+            </div>
+            <div>
+              <Label>{t('inbox_ops.contact.last_name', 'Last Name')}</Label>
+              <Input
+                value={lastName}
+                onChange={(event) => {
+                  setLastName(event.target.value)
+                  updatePersonName(firstName, event.target.value)
+                }}
+                className={lastNameMissing ? 'border-red-500' : ''}
+              />
+              {lastNameMissing && (
+                <p className="text-xs text-red-600 mt-1">{t('inbox_ops.contact.last_name_required', 'Last name is required')}</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <div>
+            <Label>{t('inbox_ops.edit_dialog.name', 'Name')}</Label>
+            <Input value={existingName} onChange={(event) => updateField('name', event.target.value)} />
+          </div>
+        )}
         <div>
           <Label>{t('inbox_ops.edit_dialog.type', 'Type')}</Label>
           <select
             className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-            value={(payload.type as string) || 'person'}
+            value={type}
             onChange={(event) => updateField('type', event.target.value)}
           >
             <option value="person">{t('inbox_ops.contact_type.person', 'Person')}</option>
@@ -367,6 +412,9 @@ export function EditActionDialog({
   onSaved: () => void
 }) {
   const t = useT()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'inbox-ops-edit-action',
+  })
   const [payload, setPayload] = React.useState<Record<string, unknown>>(
     () => structuredClone(action.payload),
   )
@@ -388,10 +436,13 @@ export function EditActionDialog({
     }
 
     setIsSaving(true)
-    const result = await apiCall<{ ok: boolean; error?: string }>(
-      `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
-      { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
-    )
+    const result = await runMutation({
+      operation: () => apiCall<{ ok: boolean; error?: string }>(
+        `/api/inbox_ops/proposals/${action.proposalId}/actions/${action.id}`,
+        { method: 'PATCH', body: JSON.stringify({ payload: finalPayload }) },
+      ),
+      context: {},
+    })
     if (result?.ok && result.result?.ok) {
       flash(t('inbox_ops.edit_dialog.saved', 'Action updated successfully'), 'success')
       onSaved()
@@ -400,7 +451,7 @@ export function EditActionDialog({
       flash(result?.result?.error || t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
     }
     setIsSaving(false)
-  }, [action, payload, jsonMode, jsonText, t, onSaved, onClose])
+  }, [action, payload, jsonMode, jsonText, t, onSaved, onClose, runMutation])
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -471,6 +522,7 @@ export function EditActionDialog({
 
           {hasTypedEditor && (
             <Button
+              type="button"
               variant="ghost"
               size="sm"
               onClick={() => {
@@ -494,10 +546,10 @@ export function EditActionDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isSaving}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
             {t('inbox_ops.edit_dialog.cancel', 'Cancel')}
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button type="button" onClick={handleSave} disabled={isSaving}>
             {isSaving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
             {t('inbox_ops.edit_dialog.save', 'Save Changes')}
           </Button>

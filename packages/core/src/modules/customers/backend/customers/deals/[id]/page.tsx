@@ -380,6 +380,13 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const statusDictEntry = data.deal.status ? statusDictionaryMap?.[data.deal.status] ?? null : null
   const pipelineLabel = resolveDictionaryLabel(data.deal.pipelineStage, pipelineDictionaryMap)
   const pipelineDictEntry = data.deal.pipelineStage ? pipelineDictionaryMap?.[data.deal.pipelineStage] ?? null : null
+  const previewValueAmount = formatCurrency(data.deal.valueAmount, data.deal.valueCurrency)
+  const previewProbability = data.deal.probability !== null && data.deal.probability !== undefined
+    ? `${data.deal.probability}%`
+    : null
+  const dealPreviewMetadata: Record<string, string> = {}
+  if (previewValueAmount) dealPreviewMetadata[t('customers.deals.detail.fields.value')] = previewValueAmount
+  if (previewProbability) dealPreviewMetadata[t('customers.deals.detail.fields.probability')] = previewProbability
 
   const peopleSummaryLabel =
     data.people.length === 1
@@ -409,7 +416,13 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     entityId: data.deal.id,
                     sourceEntityType: 'customers.deal',
                     sourceEntityId: data.deal.id,
+                    previewData: {
+                      title: data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal'),
+                      status: data.deal.status ? statusLabel : undefined,
+                      metadata: Object.keys(dealPreviewMetadata).length > 0 ? dealPreviewMetadata : undefined,
+                    },
                   }}
+                  viewHref={`/backend/customers/deals/${data.deal.id}`}
                   defaultValues={{
                     sourceEntityType: 'customers.deal',
                     sourceEntityId: data.deal.id,

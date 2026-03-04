@@ -115,6 +115,8 @@
   "auth.roles.list.title": "Role",
   "auth.roles.superadmin": "Superadministrator",
   "auth.sendResetLink": "Wyślij link resetujący",
+  "auth.session.refresh.errors.invalidPayload": "Brak tokenu odświeżania lub token jest nieprawidłowy",
+  "auth.session.refresh.errors.invalidToken": "Token odświeżania jest nieprawidłowy lub wygasł",
   "auth.signIn": "Zaloguj się",
   "auth.users.errors.emailExists": "Adres e-mail jest już używany",
   "auth.users.flash.created": "Użytkownik utworzony",

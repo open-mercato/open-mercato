@@ -63,6 +63,16 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@op
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
+function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
+  if (!currency) return amount.toLocaleString()
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+  } catch {
+    return `${amount.toLocaleString()} ${currency}`
+  }
+}
+
 function CurrencyInlineEditor({
   label,
   value,
@@ -1844,9 +1854,11 @@ function StatusInlineEditor({
 export default function SalesDocumentDetailPage({
   params,
   initialKind,
+  includeAmountInMessageMetadata,
 }: {
   params: { id: string }
   initialKind?: 'order' | 'quote'
+  includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
   const router = useRouter()
@@ -2729,6 +2741,11 @@ export default function SalesDocumentDetailPage({
       : null
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
+  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null)
+  const messagePreviewMetadata: Record<string, string> = {}
+  if (includeAmountInMessageMetadata && previewAmount) {
+    messagePreviewMetadata[t('sales.documents.detail.totals.grandTotalGross')] = previewAmount
+  }
   const contactRecordId = customerSnapshot?.contact?.id ?? customerSnapshot?.customer?.id ?? record?.customerEntityId ?? null
   const resolveAdjustmentLabel = React.useCallback(
     (row: AdjustmentRowData) => {
@@ -4434,7 +4451,13 @@ export default function SalesDocumentDetailPage({
                   entityId: record.id,
                   sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
                   sourceEntityId: record.id,
+                  previewData: {
+                    title: number,
+                    status: statusDisplay?.label ?? record?.status ?? undefined,
+                    metadata: Object.keys(messagePreviewMetadata).length > 0 ? messagePreviewMetadata : undefined,
+                  },
                 }}
+                viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
                 defaultValues={{
                   sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
                   sourceEntityId: record.id,

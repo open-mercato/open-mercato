@@ -7,7 +7,7 @@ import type { PluggableList } from 'unified'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -317,7 +317,6 @@ function mapApiTeam(item: Record<string, unknown>): TeamRow {
     : typeof item.member_count === 'number'
       ? item.member_count
       : 0
-  return { id, name, description, isActive, updatedAt, memberCount }
+  return withDataTableNamespaces({ id, name, description, isActive, updatedAt, memberCount }, item)
 }
-
 

@@ -31,8 +31,10 @@ The command relies on `DATABASE_URL` for database connectivity.
 ## When to Run
 
 - After pulling new migrations from version control.
+- After upgrading to a newer Open Mercato version.
 - Immediately after `yarn db:generate` to apply fresh diffs.
 - During CI to guarantee the schema is aligned before running tests or seeding fixtures.
+- If you already have data and users, prefer `yarn db:migrate` over `yarn initialize` (which seeds data and may abort when users exist).
 
 ## Output
 

@@ -66,7 +66,22 @@ describe('integration cache and options', () => {
 
   it('reuses an existing reachable ephemeral environment state', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
-    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ status: 200 } as unknown as Response)
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app-healthcheck.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
+        return { status: 200, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/api/auth/login')) {
+        return { status: 401, text: async () => '' } as unknown as Response
+      }
+      return { status: 200, text: async () => '' } as unknown as Response
+    })
 
     try {
       await writeEphemeralEnvironmentState({

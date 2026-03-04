@@ -11,6 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { CategorySelect } from '../../../../../components/categories/CategorySelect'
 import { CategorySlugFieldSync } from '../../../../../components/categories/CategorySlugFieldSync'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
 type CategoryRow = {
   id: string
@@ -214,11 +215,24 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           submitLabel={t('catalog.categories.form.action.save', 'Save')}
           cancelHref="/backend/catalog/categories"
           successRedirect={`/backend/catalog/categories?flash=${encodeURIComponent(t('catalog.categories.flash.updated', 'Category updated'))}&type=success`}
-          extraActions={pathLabel ? (
-            <span className="text-xs text-muted-foreground">
-              {t('catalog.categories.form.pathLabel', { path: pathLabel })}
-            </span>
-          ) : null}
+          extraActions={(
+            <>
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'catalog',
+                  entityType: 'category',
+                  entityId: categoryId,
+                  previewData: { title: initialValues?.name ?? categoryId },
+                }}
+                viewHref={`/backend/catalog/categories/${categoryId}/edit`}
+              />
+              {pathLabel ? (
+                <span className="text-xs text-muted-foreground">
+                  {t('catalog.categories.form.pathLabel', { path: pathLabel })}
+                </span>
+              ) : null}
+            </>
+          )}
           onSubmit={async (values) => {
             await submitCategoryUpdate(categoryId, values, t)
           }}

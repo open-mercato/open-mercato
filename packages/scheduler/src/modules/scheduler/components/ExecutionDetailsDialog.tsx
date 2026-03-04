@@ -117,10 +117,18 @@ export function ExecutionDetailsDialog({
             {run.queueJobId && (
               <div className="min-w-0 overflow-hidden">
                 <Label className="text-sm font-medium text-muted-foreground">{t('scheduler.execution.queue_job_id', 'Queue Job ID')}</Label>
-                <p 
-                  className="mt-1 text-xs font-mono truncate cursor-pointer hover:text-primary transition-colors" 
+                <p
+                  className="mt-1 text-xs font-mono truncate cursor-pointer hover:text-primary transition-colors"
                   title={run.queueJobId}
                   onClick={() => navigator.clipboard.writeText(run.queueJobId!)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      navigator.clipboard.writeText(run.queueJobId!)
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                 >
                   {run.queueJobId}
                 </p>

@@ -19,7 +19,7 @@ export function SalesDocumentMessagePreview({
     ? t('sales.documents.detail.quote', 'Sales quote')
     : t('sales.documents.detail.order', 'Sales order')
   const title = previewData?.title || fallbackTitle
-  const subtitle = previewData?.subtitle || entityId
+  const subtitle = previewData?.subtitle || ""
 
   return (
     <div className="flex items-start gap-3 rounded-md border bg-muted/20 p-3">

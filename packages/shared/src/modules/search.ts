@@ -7,7 +7,7 @@ import type { EntityId } from './entities'
 /**
  * Built-in strategy identifiers plus extensible string for third-party strategies.
  */
-export type SearchStrategyId = 'tokens' | 'vector' | 'fulltext' | (string & {})
+export type SearchStrategyId = 'tokens' | 'vector' | 'fulltext' | (string & Record<string, never>)
 
 // =============================================================================
 // Result Types

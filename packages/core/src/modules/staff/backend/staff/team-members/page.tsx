@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingFn, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -505,7 +505,7 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberApiRow {
       : null
   const team = item.team && typeof item.team === 'object' ? item.team as { name?: unknown } : null
   const teamName = typeof team?.name === 'string' ? team.name : null
-  return {
+  return withDataTableNamespaces({
     id,
     displayName,
     description,
@@ -517,7 +517,7 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberApiRow {
     updatedAt,
     teamId,
     teamName,
-  }
+  }, item)
 }
 
 function compareGroupedRows(

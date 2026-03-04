@@ -16,6 +16,8 @@ import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
 import { useConfirmDialog } from '../confirm-dialog'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
 export type SectionAction = {
@@ -262,7 +264,7 @@ export function mapCommentSummary(input: unknown): CommentSummary {
   }
 }
 
-export function NotesSection<C = unknown>({
+function NotesSectionImpl<C = unknown>({
   entityId,
   dealId,
   emptyLabel,
@@ -1243,6 +1245,20 @@ export function NotesSection<C = unknown>({
         cancelLabel={label('appearance.cancel')}
       />
       {ConfirmDialogElement}
+    </div>
+  )
+}
+
+export function NotesSection<C = unknown>(props: NotesSectionProps<C>) {
+  const handle = ComponentReplacementHandles.section('ui.detail', 'NotesSection')
+  const Resolved = useRegisteredComponent<NotesSectionProps<C>>(
+    handle,
+    NotesSectionImpl as React.ComponentType<NotesSectionProps<C>>,
+  )
+
+  return (
+    <div data-component-handle={handle}>
+      <Resolved {...props} />
     </div>
   )
 }
