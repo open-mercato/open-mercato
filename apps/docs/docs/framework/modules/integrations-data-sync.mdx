@@ -11,7 +11,7 @@ Open Mercato now includes a shared foundation for integration metadata (`integra
 
 - `integrations` stores integration definitions, state, credentials, and logs.
 - `data_sync` manages run lifecycle (start, list, detail, cancel, retry, validate) and delegates actual IO work to provider adapters.
-- Provider modules (for example `sync_medusa`) declare integration manifests and register adapters.
+- Provider modules declare integration manifests and register adapters.
 
 ## Register an integration manifest
 
@@ -21,25 +21,25 @@ Provider modules declare their integration metadata in `integration.ts`:
 import type { IntegrationBundle, IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
 
 export const bundle: IntegrationBundle = {
-  id: 'sync_medusa',
-  title: 'Medusa',
-  description: 'Bidirectional sync with Medusa.',
+  id: 'my_provider',
+  title: 'My Provider',
+  description: 'Bidirectional sync with My Provider.',
   credentials: {
     fields: [
-      { key: 'medusaApiUrl', label: 'Medusa API URL', type: 'url', required: true },
-      { key: 'medusaApiKey', label: 'API Key', type: 'secret', required: true },
+      { key: 'apiUrl', label: 'API URL', type: 'url', required: true },
+      { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
     ],
   },
 }
 
 export const integrations: IntegrationDefinition[] = [
   {
-    id: 'sync_medusa_products',
-    title: 'Medusa Products',
+    id: 'my_provider_products',
+    title: 'My Provider Products',
     category: 'data_sync',
     hub: 'data_sync',
-    providerKey: 'medusa_products',
-    bundleId: 'sync_medusa',
+    providerKey: 'my_provider_products',
+    bundleId: 'my_provider',
     credentials: { fields: [] },
   },
 ]
@@ -56,12 +56,12 @@ Adapters are registered from provider `setup.ts`:
 ```ts
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { registerDataSyncAdapter } from '../data_sync/lib/adapter-registry'
-import { medusaProductsAdapter, medusaOrdersAdapter } from './lib/adapters'
+import { productsAdapter, ordersAdapter } from './lib/adapters'
 
 export const setup: ModuleSetupConfig = {
   async onTenantCreated() {
-    registerDataSyncAdapter(medusaProductsAdapter)
-    registerDataSyncAdapter(medusaOrdersAdapter)
+    registerDataSyncAdapter(productsAdapter)
+    registerDataSyncAdapter(ordersAdapter)
   },
 }
 
@@ -109,5 +109,3 @@ For phase A/B coverage, keep:
 - Integration tests for `integrations` APIs (list/detail/state/version/credentials/logs).
 - Integration tests for `data_sync` APIs (validate/run/detail/list/cancel/retry).
 - Unit tests for state/credentials services and adapter-driven run lifecycle helpers.
-
-Do not include late-phase providers (`sync_excel`, advanced reconciliation flows) in this stage.
