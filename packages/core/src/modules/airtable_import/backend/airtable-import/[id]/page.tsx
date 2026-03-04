@@ -70,7 +70,7 @@ function StepConnect({ session, onNext, onRestart: _ }: StepProps) {
       </div>
       <div className="flex justify-end">
         <Button type="button" onClick={onNext}>
-          Dalej →
+          {t('airtable_import.buttons.next')}
         </Button>
       </div>
     </div>
@@ -149,7 +149,7 @@ function StepAnalyze({
       )}
       <div className="flex justify-between">
         <Button type="button" variant="outline" onClick={onBack}>
-          ← Wstecz
+          {t('airtable_import.buttons.back')}
         </Button>
         <div className="flex gap-2">
           {!isAnalyzed && (
@@ -163,7 +163,7 @@ function StepAnalyze({
           )}
           {isAnalyzed && (
             <Button type="button" onClick={onNext}>
-              Dalej →
+              {t('airtable_import.buttons.next')}
             </Button>
           )}
         </div>
@@ -318,10 +318,10 @@ function StepModuleMapping({
       </div>
       <div className="flex justify-between">
         <Button type="button" variant="outline" onClick={onBack}>
-          ← Wstecz
+          {t('airtable_import.buttons.back')}
         </Button>
         <Button type="button" onClick={handleSave} disabled={isSaving}>
-          {isSaving ? "Zapisywanie…" : "Dalej →"}
+          {isSaving ? t('airtable_import.buttons.saving') : "{t('airtable_import.buttons.next')}"}
         </Button>
       </div>
     </div>
@@ -515,10 +515,10 @@ function StepFieldMapping({
       </div>
       <div className="flex justify-between">
         <Button type="button" variant="outline" onClick={onBack}>
-          ← Wstecz
+          {t('airtable_import.buttons.back')}
         </Button>
         <Button type="button" onClick={handleSave} disabled={isSaving}>
-          {isSaving ? "Zapisywanie…" : "Dalej →"}
+          {isSaving ? t('airtable_import.buttons.saving') : "{t('airtable_import.buttons.next')}"}
         </Button>
       </div>
     </div>
@@ -580,12 +580,12 @@ function StepOptions({
   }> = [
     {
       key: "preserveDates",
-      label: "Zachowaj daty utworzenia",
+      label: t('airtable_import.step5.preserveDatesLabel'),
       description: t("airtable_import.step5.preserveDatesDescription"),
     },
     {
       key: "addAirtableIdField",
-      label: "Dodaj pole airtable_id",
+      label: t('airtable_import.step5.airtableIdLabel'),
       description: t("airtable_import.step5.airtableIdDescription"),
     },
     {
@@ -605,7 +605,7 @@ function StepOptions({
       <div>
         <h2 className="text-lg font-semibold">{t("airtable_import.step5.heading")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Skonfiguruj dodatkowe opcje importu.
+          {t('airtable_import.step5.extraDescription')}
         </p>
       </div>
       <div className="flex flex-col gap-3">
@@ -629,10 +629,10 @@ function StepOptions({
       </div>
       <div className="flex justify-between">
         <Button type="button" variant="outline" onClick={onBack}>
-          ← Wstecz
+          {t('airtable_import.buttons.back')}
         </Button>
         <Button type="button" onClick={handleSave} disabled={isSaving}>
-          {isSaving ? "Zapisywanie…" : "Dalej →"}
+          {isSaving ? t('airtable_import.buttons.saving') : "{t('airtable_import.buttons.next')}"}
         </Button>
       </div>
     </div>
@@ -678,7 +678,7 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b">
-              <th className="pb-2 text-left font-medium">Tabela</th>
+              <th className="pb-2 text-left font-medium">{t("airtable_import.step6.tableColumn")}</th>
               <th className="pb-2 text-left font-medium">{t("airtable_import.step6.targetModuleColumn")}</th>
               <th className="pb-2 text-right font-medium">{t("airtable_import.step6.recordsColumn")}</th>
             </tr>
@@ -710,7 +710,7 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
       </div>
       <div className="flex justify-between">
         <Button type="button" variant="outline" onClick={onBack}>
-          ← Wstecz
+          {t('airtable_import.buttons.back')}
         </Button>
         <div className="flex gap-2">
           <Button
@@ -727,7 +727,7 @@ function StepPlan({ session, sessionId, onNext, onBack, reload }: StepProps) {
           </Button>
           {hasPlan && allTablesHaveCounts && (
             <Button type="button" onClick={onNext}>
-              Dalej →
+              {t('airtable_import.buttons.next')}
             </Button>
           )}
         </div>

@@ -119,5 +119,12 @@
   "airtable_import.step7.retryFailed": "Ponów nieudane",
   "airtable_import.step7.retrying": "Ponawiam…",
   "airtable_import.session.loadError": "Nie udało się załadować sesji",
-  "airtable_import.nav.backToList": "← Lista importów"
+  "airtable_import.nav.backToList": "← Lista importów",
+  "airtable_import.buttons.next": "Dalej →",
+  "airtable_import.buttons.back": "← Wstecz",
+  "airtable_import.buttons.saving": "Zapisywanie…",
+  "airtable_import.step5.preserveDatesLabel": "Zachowaj daty utworzenia",
+  "airtable_import.step5.airtableIdLabel": "Dodaj pole airtable_id",
+  "airtable_import.step5.extraDescription": "Skonfiguruj dodatkowe opcje importu.",
+  "airtable_import.step6.tableColumn": "Tabela"
 }

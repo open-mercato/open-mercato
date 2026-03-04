@@ -119,5 +119,12 @@
   "airtable_import.step7.retryFailed": "Retry failed",
   "airtable_import.step7.retrying": "Retrying…",
   "airtable_import.session.loadError": "Failed to load session",
-  "airtable_import.nav.backToList": "← Import list"
+  "airtable_import.nav.backToList": "← Import list",
+  "airtable_import.buttons.next": "Next →",
+  "airtable_import.buttons.back": "← Back",
+  "airtable_import.buttons.saving": "Saving…",
+  "airtable_import.step5.preserveDatesLabel": "Preserve creation dates",
+  "airtable_import.step5.airtableIdLabel": "Add airtable_id field",
+  "airtable_import.step5.extraDescription": "Configure additional import options.",
+  "airtable_import.step6.tableColumn": "Table"
 }
