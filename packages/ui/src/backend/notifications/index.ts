@@ -1,3 +1,6 @@
+export { NotificationCountBadge } from './NotificationCountBadge'
+export type { NotificationCountBadgeProps } from './NotificationCountBadge'
+
 export { NotificationBell } from './NotificationBell'
 export type { NotificationBellProps } from './NotificationBell'
 
