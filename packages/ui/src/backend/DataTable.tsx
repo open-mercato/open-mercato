@@ -1923,7 +1923,7 @@ export function DataTable<T>({
             ) : error ? (
               <TableRow>
                 <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-destructive">
-                  {typeof error === 'string' ? error : error}
+                  {error}
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (
