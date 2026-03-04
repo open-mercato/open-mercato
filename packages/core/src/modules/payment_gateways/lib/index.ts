@@ -1,3 +1,5 @@
 export * from './adapter'
 export * from './adapter-registry'
+export * from './gateway-transaction-service'
 export * from './payment-gateway-service'
+export * from './webhook-registry'

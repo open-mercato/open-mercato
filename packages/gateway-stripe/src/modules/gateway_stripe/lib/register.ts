@@ -2,8 +2,9 @@ import { z } from 'zod'
 import { registerIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { registerPaymentProvider } from '@open-mercato/core/modules/sales/lib/providers/registry'
 import { registerGatewayAdapter } from '@open-mercato/core/modules/payment_gateways/lib/adapter-registry'
+import { registerGatewayWebhookQueue } from '@open-mercato/core/modules/payment_gateways/lib/webhook-registry'
 import { integration } from '../integration'
-import { stripeAdapterV20241218 } from './adapter'
+import { stripeAdapterV20241218, stripeAdapterV20231016 } from './adapter'
 import { stripeGatewaySettingsSchema } from '../data/validators'
 
 let initialized = false
@@ -52,6 +53,8 @@ export function registerStripeGatewayModule(): void {
   })
 
   registerGatewayAdapter(stripeAdapterV20241218, { version: '2024-12-18', isDefault: true })
+  registerGatewayAdapter(stripeAdapterV20231016, { version: '2023-10-16' })
+  registerGatewayWebhookQueue('stripe', 'stripe-webhook')
 }
 
 registerStripeGatewayModule()

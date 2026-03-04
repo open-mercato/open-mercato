@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createGatewaySession } from '@open-mercato/core/modules/payment_gateways/lib/payment-gateway-service'
 import { stripeGatewaySettingsSchema } from '../../../../../data/validators'
 
@@ -44,6 +45,9 @@ export async function POST(req: Request) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (!auth.tenantId) {
+    return NextResponse.json({ error: 'Tenant context is required' }, { status: 400 })
+  }
   if (!auth.orgId) {
     return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
   }
@@ -76,7 +80,7 @@ export async function POST(req: Request) {
       webhookUrl: process.env.STRIPE_WEBHOOK_URL,
       paymentMethodTypes: input.paymentMethodTypes,
       organizationId: auth.orgId,
-      tenantId: auth.tenantId ?? '',
+      tenantId: auth.tenantId,
       locale: input.locale,
       metadata: input.metadata,
     }, '2024-12-18')
@@ -84,6 +88,39 @@ export async function POST(req: Request) {
     if (!session.redirectUrl) {
       return NextResponse.json({ error: 'Stripe did not return a checkout URL.' }, { status: 502 })
     }
+
+    const container = await createRequestContainer()
+    const gatewayTransactionService = container.resolve('gatewayTransactionService') as {
+      createOrUpdateFromSession: (input: {
+        providerKey: string
+        providerVersion?: string | null
+        paymentId?: string | null
+        orderId?: string | null
+        providerSessionId: string
+        amount: number
+        currencyCode: string
+        providerStatus?: string | null
+        unifiedStatus?: string | null
+        providerData?: Record<string, unknown> | null
+        tenantId: string
+        organizationId: string
+      }) => Promise<unknown>
+    }
+
+    await gatewayTransactionService.createOrUpdateFromSession({
+      providerKey: 'stripe',
+      providerVersion: '2024-12-18',
+      paymentId: typeof input.metadata?.paymentId === 'string' ? input.metadata.paymentId : null,
+      orderId: input.orderId ?? null,
+      providerSessionId: session.sessionId,
+      amount: input.amount,
+      currencyCode: input.currencyCode.toUpperCase(),
+      providerStatus: session.gatewayStatus ?? null,
+      unifiedStatus: session.unifiedStatus ?? null,
+      providerData: session.providerData ?? null,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
 
     return NextResponse.json(
       responseSchema.parse({ sessionId: session.sessionId, redirectUrl: session.redirectUrl }),
