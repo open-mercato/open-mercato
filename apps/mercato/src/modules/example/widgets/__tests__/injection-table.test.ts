@@ -32,6 +32,7 @@ describe('example injection-table flag behavior', () => {
     const table = await loadInjectionTableWithFlag(undefined)
 
     expect(table['crud-form:example.todo']).toBe('example.injection.crud-validation')
+    expect(table['widget:example.injection.crud-validation:addon']).toBeDefined()
     expect(table['example:phase-c-handlers']).toBe('example.injection.crud-validation')
     expect(table['menu:sidebar:main']).toBeDefined()
     expect(table['menu:topbar:profile-dropdown']).toBeDefined()
@@ -46,6 +47,7 @@ describe('example injection-table flag behavior', () => {
     const table = await loadInjectionTableWithFlag('true')
 
     expect(table['crud-form:example.todo']).toBe('example.injection.crud-validation')
+    expect(table['widget:example.injection.crud-validation:addon']).toBeDefined()
     expect(table['menu:sidebar:main']).toBeDefined()
     expect(table['menu:topbar:profile-dropdown']).toBeDefined()
 
