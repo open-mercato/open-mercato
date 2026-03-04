@@ -463,6 +463,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const commandInterceptorConfigs: string[] = []
   const commandInterceptorImports: string[] = []
 
+  // UMES conflict detection: collect file paths during module processing
+  const umesConflictSources: Array<{
+    moduleId: string
+    componentOverridesPath?: string
+    interceptorsPath?: string
+    aclPath?: string
+  }> = []
+
   for (const entry of enabled) {
     const modId = entry.id
     const roots = resolver.getModulePaths(entry)
@@ -701,6 +709,19 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       configExpr: (n, id) => `{ moduleId: '${id}', componentOverrides: ((${n} as any).componentOverrides ?? (${n} as any).default ?? []) }`,
     })
 
+    // Track file paths for UMES conflict detection
+    {
+      const compOverridesFile = resolveModuleFile(roots, imps, 'widgets/components.ts')
+      const interceptorsFile = resolveModuleFile(roots, imps, 'api/interceptors.ts')
+      const aclFile = resolveModuleFile(roots, imps, 'acl.ts')
+      umesConflictSources.push({
+        moduleId: modId,
+        componentOverridesPath: compOverridesFile?.absolutePath,
+        interceptorsPath: interceptorsFile?.absolutePath,
+        aclPath: aclFile?.absolutePath,
+      })
+    }
+
     // Translatable fields: translations.ts (also referenced in module declarations)
     let transFieldsImportName: string | null = null
     transFieldsImportName = processStandaloneConfig({
@@ -925,6 +946,104 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
     }`)
+  }
+
+  // === UMES Conflict Detection ===
+  {
+    const { detectConflicts } = await import('@open-mercato/shared/lib/umes/conflict-detection')
+    const componentOverrideInputs: Array<{ moduleId: string; componentId: string; priority: number }> = []
+    const interceptorInputs: Array<{ moduleId: string; id: string; targetRoute: string; methods: string[]; priority: number }> = []
+    const declaredFeatures = new Set<string>()
+    const gatedExtensions: Array<{ moduleId: string; extensionId: string; features: string[] }> = []
+
+    for (const source of umesConflictSources) {
+      // Collect declared features from acl.ts
+      if (source.aclPath) {
+        try {
+          const aclMod = require(source.aclPath)
+          const features = aclMod.features ?? aclMod.default ?? []
+          if (Array.isArray(features)) {
+            for (const feat of features) {
+              if (typeof feat === 'string') declaredFeatures.add(feat)
+              else if (feat?.id) declaredFeatures.add(feat.id)
+            }
+          }
+        } catch {}
+      }
+
+      // Collect component overrides
+      if (source.componentOverridesPath) {
+        try {
+          const overridesMod = require(source.componentOverridesPath)
+          const overrides = overridesMod.componentOverrides ?? overridesMod.default ?? []
+          if (Array.isArray(overrides)) {
+            for (const override of overrides) {
+              const componentId = override?.target?.componentId
+              const priority = override?.priority ?? 0
+              if (componentId) {
+                componentOverrideInputs.push({ moduleId: source.moduleId, componentId, priority })
+              }
+              const features = override?.features
+              if (Array.isArray(features) && features.length > 0) {
+                gatedExtensions.push({
+                  moduleId: source.moduleId,
+                  extensionId: `component-override:${componentId}`,
+                  features,
+                })
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Collect interceptors
+      if (source.interceptorsPath) {
+        try {
+          const interceptorsMod = require(source.interceptorsPath)
+          const interceptors = interceptorsMod.interceptors ?? interceptorsMod.default ?? []
+          if (Array.isArray(interceptors)) {
+            for (const interceptor of interceptors) {
+              if (interceptor?.id && interceptor?.targetRoute) {
+                interceptorInputs.push({
+                  moduleId: source.moduleId,
+                  id: interceptor.id,
+                  targetRoute: interceptor.targetRoute,
+                  methods: interceptor.methods ?? [],
+                  priority: interceptor.priority ?? 0,
+                })
+              }
+              const features = interceptor?.features
+              if (Array.isArray(features) && features.length > 0) {
+                gatedExtensions.push({
+                  moduleId: source.moduleId,
+                  extensionId: `interceptor:${interceptor.id}`,
+                  features,
+                })
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    const conflictResult = detectConflicts({
+      componentOverrides: componentOverrideInputs,
+      interceptors: interceptorInputs,
+      gatedExtensions,
+      declaredFeatures,
+    })
+
+    for (const warning of conflictResult.warnings) {
+      console.warn(`\x1b[33m[UMES Warning]\x1b[0m ${warning.message}`)
+    }
+    for (const error of conflictResult.errors) {
+      console.error(`\x1b[31m[UMES Error]\x1b[0m ${error.message}`)
+    }
+    if (conflictResult.errors.length > 0) {
+      throw new Error(
+        `UMES conflict detection found ${conflictResult.errors.length} error(s). Fix conflicts before proceeding.`
+      )
+    }
   }
 
   const output = `// AUTO-GENERATED by mercato generate registry

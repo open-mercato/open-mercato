@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { ParsedExtensionHeaders } from '../umes/extension-headers'
 
 export type ApiInterceptorMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
@@ -25,6 +26,7 @@ export type InterceptorContext = {
   container: AwilixContainer
   userFeatures?: string[]
   metadata?: Record<string, unknown>
+  extensionHeaders?: ParsedExtensionHeaders
 }
 
 export type InterceptorBeforeResult = {
