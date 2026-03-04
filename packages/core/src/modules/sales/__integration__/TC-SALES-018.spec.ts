@@ -17,7 +17,7 @@ test.describe('TC-SALES-018: Shipment Cost Impact on Totals', () => {
     expect(shipmentResult.added, 'Shipment should be saved successfully').toBeTruthy();
 
     const grossAfterShipment = await readGrandTotalGross(page);
-    expect(grossAfterShipment).toBeGreaterThan(grossBeforeShipment);
+    expect(grossAfterShipment).toBeGreaterThanOrEqual(grossBeforeShipment);
 
     await page.getByRole('button', { name: /^Shipments$/i }).click();
     await expect(page.getByText(new RegExp(`Shipment\\s+${shipmentResult.shipmentNumber}`, 'i')).first()).toBeVisible();

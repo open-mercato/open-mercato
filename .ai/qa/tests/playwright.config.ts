@@ -5,9 +5,10 @@ import { discoverIntegrationSpecFiles } from '../../../packages/cli/src/lib/test
 const captureScreenshots = process.env.PW_CAPTURE_SCREENSHOTS === '1';
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
+const normalizePath = (value: string) => value.split(path.sep).join('/');
 const STATIC_TEST_IGNORES = [
-  '.claude/**',
-  '.codex/**',
+  `${normalizePath(path.join(projectRoot, '.claude'))}/**`,
+  `${normalizePath(path.join(projectRoot, '.codex'))}/**`,
 ];
 const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, path.join(projectRoot, '.ai', 'qa', 'tests'));
 const discoveredSpecPaths = discoveredSpecs.map((entry) => entry.path);
