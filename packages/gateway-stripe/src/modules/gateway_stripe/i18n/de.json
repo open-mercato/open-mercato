@@ -1,0 +1,8 @@
+{
+  "gatewayStripe": {
+    "menu": {
+      "demo": "Stripe-Demo"
+    },
+    "orderTabLabel": "Stripe Checkout"
+  }
+}
