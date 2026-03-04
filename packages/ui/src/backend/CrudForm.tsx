@@ -995,7 +995,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const fieldById = React.useMemo(() => {
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
-  
+
+  const allFieldsRef = React.useRef(allFields)
+  allFieldsRef.current = allFields
+
+  const dynamicOptionLoaderKey = React.useMemo(() => {
+    return allFields
+      .filter(f => f.type !== 'custom' && typeof (f as CrudBuiltinField).loadOptions === 'function')
+      .map(f => f.id)
+      .join('\0')
+  }, [allFields])
+
   const injectionGroupCards = React.useMemo<CrudFormGroup[]>(() => {
     if (!injectionWidgets || injectionWidgets.length === 0) return []
     const pairs = injectionWidgets
@@ -1569,11 +1579,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }
 
-  // Load dynamic options for fields that require it
+  // Stable key prevents infinite re-render loop (see #814) — do not depend on allFields directly.
   React.useEffect(() => {
     let cancelled = false
     const loadAll = async () => {
-      const loaders = allFields
+      const loaders = allFieldsRef.current
         .filter(
           (f): f is CrudBuiltinField & { loadOptions: NonNullable<CrudBuiltinField['loadOptions']> } =>
             f.type !== 'custom' && typeof f.loadOptions === 'function'
@@ -1592,7 +1602,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return () => {
       cancelled = true
     }
-  }, [allFields])
+  }, [dynamicOptionLoaderKey])
 
   const loadFieldOptions = React.useCallback(async (field: CrudField, query?: string): Promise<CrudFieldOption[]> => {
     if (!('type' in field) || field.type === 'custom') return EMPTY_OPTIONS
