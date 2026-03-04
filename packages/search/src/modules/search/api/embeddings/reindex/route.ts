@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { SearchIndexer } from '../../../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../../../vector'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import type { Knex } from 'knex'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
@@ -11,6 +12,10 @@ import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebug, searchDebugWarn, searchError } from '../../../../../lib/debug'
 import { acquireReindexLock, clearReindexLock, getReindexLockStatus } from '../../../lib/reindex-lock'
+import {
+  ensureReindexProgressJob,
+  failReindexProgress,
+} from '../../../lib/reindex-progress'
 import { embeddingsReindexOpenApi } from '../../openapi'
 
 export const metadata = {
@@ -36,6 +41,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const progressService = container.resolve('progressService') as ProgressService
   const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 
   // Check if another vector reindex operation is already in progress
@@ -145,6 +151,19 @@ export async function POST(req: Request) {
       })
     }
 
+    await ensureReindexProgressJob({
+      em,
+      progressService,
+      type: 'vector',
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? null,
+      userId: auth.sub ?? null,
+      totalCount: result.recordsIndexed,
+      description: entityId
+        ? `Vector reindex ${entityId} (queued)`
+        : 'Vector reindex all entities (queued)',
+    })
+
     await recordIndexerLog(
       { em: em ?? undefined },
       {
@@ -181,6 +200,14 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       status,
+    })
+    await failReindexProgress({
+      em,
+      progressService,
+      type: 'vector',
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId ?? null,
+      errorMessage: error instanceof Error ? error.message : 'Vector reindex failed',
     })
     return NextResponse.json(
       { error: t('search.api.errors.reindexFailed', 'Vector reindex failed. Please try again or contact support.') },

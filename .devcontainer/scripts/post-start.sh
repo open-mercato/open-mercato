@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 echo "==> Syncing dependencies ..."
 yarn install

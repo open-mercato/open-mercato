@@ -111,6 +111,25 @@ If you don’t provide the generic, `filters` falls back to a permissive shape.
   - Join `custom_field_values` to surface `cf:*` fields and filter/sort them efficiently; aggregate when multiple values exist.
   - Provide per-entity adapters if conventions differ from table naming.
 
+## Query extensions (UMES Phase N)
+
+Both engines support an optional `extensions` context that activates sync lifecycle events and query-level enrichers around the core SQL query. When provided, the pipeline runs before-query subscribers, re-applies scope guards, executes enrichers, and runs after-query subscribers.
+
+```ts
+const result = await queryEngine.query('customers:person', {
+  tenantId: auth.tenantId,
+  organizationId: auth.orgId,
+  extensions: {
+    userId: auth.userId,
+    container: diContainer,
+    userFeatures: auth.features,
+    resolve: (name) => diContainer.resolve(name),
+  },
+})
+```
+
+See the full guide: [Query engine extensibility](/framework/extensibility/query-engine-extensibility).
+
 ## Encryption-aware finds
 
 When you fetch data via MikroORM outside of the query engine, use the decryption helpers so encrypted columns are decoded with the right tenant/org scope:

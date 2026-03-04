@@ -76,6 +76,18 @@ export type QueryJoinEdge = {
   type?: 'left' | 'inner'
 }
 
+/**
+ * Optional context for query-level UMES extensions.
+ * When provided, the query engine will execute sync lifecycle events
+ * (querying/queried) and apply query-enabled enrichers.
+ */
+export type QueryExtensionsConfig = {
+  userId?: string
+  container?: unknown
+  userFeatures?: string[]
+  resolve?: <T = unknown>(name: string) => T
+}
+
 export type QueryOptions = {
   fields?: FieldSelector[] // base fields and/or 'cf:<key>' for custom fields
   includeExtensions?: boolean | string[] // include all registered extensions or only specific ones by entity id
@@ -98,6 +110,9 @@ export type QueryOptions = {
   // Used by the search indexing pipeline to prevent feedback loops where indexing triggers
   // re-indexing indefinitely.
   skipAutoReindex?: boolean
+  // Optional UMES query extensions context. When provided, the engine will
+  // emit sync lifecycle events and apply query-level enrichers.
+  extensions?: QueryExtensionsConfig
 }
 
 export type PartialIndexWarning = {

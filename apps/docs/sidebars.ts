@@ -258,6 +258,7 @@ const sidebars: SidebarsConfig = {
             "framework/extensibility/current-surfaces",
             "framework/extensibility/umes-phases",
             "framework/extensibility/integration-enhancements",
+            "framework/extensibility/query-engine-extensibility",
             "framework/extensibility/umes-2-09-roadmap",
           ],
         },

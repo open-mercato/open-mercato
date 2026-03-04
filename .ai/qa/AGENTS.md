@@ -27,6 +27,10 @@ Preferred local workflow for short iterations:
 2. Reuse the running environment from `.ai/qa/ephemeral-env.json`
 3. Use `/integration-tests` against that URL
 
+Discovery troubleshooting:
+- If Playwright reports `No tests found`, run `npx playwright test --config .ai/qa/tests/playwright.config.ts --list` first.
+- Keep `testIgnore` entries in `.ai/qa/tests/playwright.config.ts` scoped to absolute paths under `projectRoot`; avoid loose relative globs such as `.codex/**` that can match parent workspace paths.
+
 ---
 
 ## Directory Structure

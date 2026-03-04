@@ -13,6 +13,8 @@ import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
 import {
+  RECORD_LOCKS_FORCE_RELEASED_EVENT,
+  RECORD_LOCKS_INCOMING_CHANGES_EVENT,
   RECORD_LOCKS_LOCK_CONTENDED_EVENT,
   RECORD_LOCKS_RECORD_DELETED_EVENT,
 } from '@open-mercato/enterprise/modules/record_locks/notifications.handlers'
@@ -93,6 +95,16 @@ type RecordLockContendedEventDetail = {
 }
 
 type RecordDeletedEventDetail = {
+  resourceId?: string | null
+  resourceKind?: string | null
+}
+
+type RecordLockIncomingChangesEventDetail = {
+  resourceId?: string | null
+  resourceKind?: string | null
+}
+
+type RecordLockForceReleasedEventDetail = {
   resourceId?: string | null
   resourceKind?: string | null
 }
@@ -787,7 +799,6 @@ export default function RecordLockingWidget({
       )
     if (hasUnresolvedConflict) return
     if (!state?.resourceKind || !state?.resourceId) return
-    let cancelled = false
     const refreshPresence = async () => {
       const call = await apiCall<AcquireResponse>('/api/record_locks/acquire', {
         method: 'POST',
@@ -798,7 +809,6 @@ export default function RecordLockingWidget({
         }),
       })
       const payload = call.result ?? {}
-      if (cancelled) return
       if (!call.ok) {
         const currentState = getRecordLockFormState(formId)
         setRecordLockFormState(formId, {
@@ -832,14 +842,60 @@ export default function RecordLockingWidget({
         allowForceUnlock: payload.allowForceUnlock ?? false,
       })
     }
-
-    const interval = window.setInterval(() => {
+    const onIncomingChanges = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordLockIncomingChangesEventDetail)
+        : null
+      if (!detail) return
+      if (detail.resourceId !== state.resourceId) return
+      const kind = readStringOrNull(detail.resourceKind)
+      if (kind && kind !== state.resourceKind) return
+      setShowIncomingChangesRequested(true)
       void refreshPresence()
-    }, 4000)
+    }
+    const onForceReleased = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordLockForceReleasedEventDetail)
+        : null
+      if (!detail) return
+      if (detail.resourceId !== state.resourceId) return
+      const kind = readStringOrNull(detail.resourceKind)
+      if (kind && kind !== state.resourceKind) return
+      void refreshPresence()
+    }
+    const onBridgeReconnected = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? (event as CustomEvent<Record<string, unknown>>).detail
+        : null
+      if (detail?.id !== 'om:bridge:reconnected') return
+      void refreshPresence()
+    }
+    const onFocus = () => {
+      void refreshPresence()
+    }
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        void refreshPresence()
+      }
+    }
+
+    window.addEventListener(RECORD_LOCKS_INCOMING_CHANGES_EVENT, onIncomingChanges)
+    window.addEventListener(RECORD_LOCKS_FORCE_RELEASED_EVENT, onForceReleased)
+    window.addEventListener('om:event', onBridgeReconnected)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const heartbeatInterval = window.setInterval(() => {
+      void refreshPresence()
+    }, 30_000)
+    void refreshPresence()
 
     return () => {
-      cancelled = true
-      window.clearInterval(interval)
+      window.removeEventListener(RECORD_LOCKS_INCOMING_CHANGES_EVENT, onIncomingChanges)
+      window.removeEventListener(RECORD_LOCKS_FORCE_RELEASED_EVENT, onForceReleased)
+      window.removeEventListener('om:event', onBridgeReconnected)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(heartbeatInterval)
     }
   }, [
     formId,

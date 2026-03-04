@@ -41,6 +41,7 @@ export const notificationHandlers: NotificationHandler[] = [
       context.emitEvent(RECORD_LOCKS_INCOMING_CHANGES_EVENT, {
         notificationId: notification.id,
         sourceEntityId: notification.sourceEntityId ?? null,
+        resourceId: notification.bodyVariables?.resourceId ?? null,
         resourceKind: notification.bodyVariables?.resourceKind ?? null,
       })
     },
@@ -59,6 +60,8 @@ export const notificationHandlers: NotificationHandler[] = [
       context.emitEvent(RECORD_LOCKS_FORCE_RELEASED_EVENT, {
         notificationId: notification.id,
         sourceEntityId: notification.sourceEntityId ?? null,
+        resourceId: notification.bodyVariables?.resourceId ?? null,
+        resourceKind: notification.bodyVariables?.resourceKind ?? null,
       })
     },
   },
