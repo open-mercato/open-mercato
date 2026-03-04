@@ -22,9 +22,9 @@ function toAmountMinor(value: number): number {
   return Math.round(Math.max(0, value) * 100)
 }
 
-function getStripeClient(secretKey: string, apiVersion: Stripe.LatestApiVersion): Stripe {
+function getStripeClient(secretKey: string, apiVersion: string): Stripe {
   return new Stripe(secretKey, {
-    apiVersion,
+    apiVersion: apiVersion as Stripe.LatestApiVersion,
     maxNetworkRetries: 2,
     timeout: 10_000,
   })
@@ -62,7 +62,7 @@ function resolveLineItems(input: CreateSessionInput): Stripe.Checkout.SessionCre
   }]
 }
 
-function createStripeAdapter(apiVersion: Stripe.LatestApiVersion): GatewayAdapter {
+function createStripeAdapter(apiVersion: string): GatewayAdapter {
   return {
     providerKey: 'stripe',
 

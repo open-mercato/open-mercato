@@ -56,7 +56,11 @@ export async function POST(req: Request, context: { params: Promise<{ provider: 
     event = await verifyGatewayWebhook(provider, {
       rawBody,
       headers,
-      settings: credentials ?? {},
+      settings: {
+        ...(credentials ?? {}),
+        tenantId: parsedQuery.data.tenantId,
+        organizationId: parsedQuery.data.organizationId,
+      },
     }, '2024-12-18')
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Webhook verification failed'
