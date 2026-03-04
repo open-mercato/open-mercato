@@ -56,6 +56,7 @@
   "integrations.marketplace.categories.storage": "Speicher",
   "integrations.marketplace.categories.webhook": "Webhook",
   "integrations.marketplace.configure": "Konfigurieren",
+  "integrations.marketplace.description": "Externe Dienste verbinden, Zugangsdaten verwalten und Integrationsstatus \u00fcberwachen.",
   "integrations.marketplace.disableAll": "Alle deaktivieren",
   "integrations.marketplace.disabled": "Deaktiviert",
   "integrations.marketplace.enableAll": "Alle aktivieren",

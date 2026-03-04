@@ -12,6 +12,16 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  LayoutGrid,
+  CreditCard,
+  Truck,
+  RefreshCw,
+  MessageSquare,
+  Bell,
+  HardDrive,
+  Webhook,
+} from 'lucide-react'
 
 type IntegrationItem = {
   id: string
@@ -36,6 +46,17 @@ type BundleItem = {
 type ListResponse = {
   items: IntegrationItem[]
   bundles: BundleItem[]
+}
+
+const CATEGORY_ICONS: Record<string, React.ElementType> = {
+  all: LayoutGrid,
+  payment: CreditCard,
+  shipping: Truck,
+  data_sync: RefreshCw,
+  communication: MessageSquare,
+  notification: Bell,
+  storage: HardDrive,
+  webhook: Webhook,
 }
 
 const CATEGORIES = ['all', 'payment', 'shipping', 'data_sync', 'communication', 'notification', 'storage', 'webhook'] as const
@@ -139,125 +160,136 @@ export default function IntegrationsMarketplacePage() {
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">{t('integrations.marketplace.title')}</h1>
-        </div>
+        <section className="space-y-6 rounded-lg border bg-background p-6">
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">{t('integrations.marketplace.title')}</h2>
+              <p className="text-sm text-muted-foreground">
+                {t('integrations.marketplace.description')}
+              </p>
+            </div>
+          </header>
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <Input
-            placeholder={t('integrations.marketplace.search')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-sm"
-          />
-          <div className="flex flex-wrap gap-1.5">
-            {CATEGORIES.map((cat) => (
-              <Button
-                key={cat}
-                type="button"
-                variant={category === cat ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setCategory(cat)}
-              >
-                {t(`integrations.marketplace.categories.${cat}`)}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {filteredItems.bundles.map((bundle) => (
-          <Card key={bundle.id}>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>{bundle.title}</CardTitle>
-                  {bundle.description && (
-                    <p className="text-muted-foreground text-sm mt-1">{bundle.description}</p>
-                  )}
-                  <p className="text-muted-foreground text-xs mt-1">
-                    {t('integrations.marketplace.integrations', { count: bundle.integrations.length })}
-                  </p>
-                </div>
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/backend/integrations/bundle/${encodeURIComponent(bundle.id)}`}>
-                    {t('integrations.marketplace.configure')}
-                  </Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {bundle.integrations.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <Input
+              placeholder={t('integrations.marketplace.search')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="max-w-sm"
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {CATEGORIES.map((cat) => {
+                const Icon = CATEGORY_ICONS[cat]
+                return (
+                  <Button
+                    key={cat}
+                    type="button"
+                    variant={category === cat ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setCategory(cat)}
                   >
-                    <div className="min-w-0">
-                      <Link
-                        href={`/backend/integrations/${encodeURIComponent(item.id)}`}
-                        className="text-sm font-medium hover:underline"
-                      >
-                        {item.title}
-                      </Link>
-                      {item.category && (
-                        <Badge variant={categoryBadgeVariant(item.category)} className="ml-2 text-xs">
-                          {item.category}
-                        </Badge>
-                      )}
-                    </div>
-                    <Switch
-                      checked={item.isEnabled}
-                      disabled={togglingIds.has(item.id)}
-                      onCheckedChange={(checked) => void handleToggle(item.id, checked)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                    {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
+                    {t(`integrations.marketplace.categories.${cat}`)}
+                  </Button>
+                )
+              })}
+            </div>
+          </div>
 
-        {filteredItems.standalone.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredItems.standalone.map((item) => (
-              <Card key={item.id} className="flex flex-col">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{item.title}</CardTitle>
-                    <Switch
-                      checked={item.isEnabled}
-                      disabled={togglingIds.has(item.id)}
-                      onCheckedChange={(checked) => void handleToggle(item.id, checked)}
-                    />
+          {filteredItems.bundles.map((bundle) => (
+            <Card key={bundle.id}>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>{bundle.title}</CardTitle>
+                    {bundle.description && (
+                      <p className="text-muted-foreground text-sm mt-1">{bundle.description}</p>
+                    )}
+                    <p className="text-muted-foreground text-xs mt-1">
+                      {t('integrations.marketplace.integrations', { count: bundle.integrations.length })}
+                    </p>
                   </div>
-                  {item.category && (
-                    <Badge variant={categoryBadgeVariant(item.category)} className="w-fit text-xs">
-                      {item.category}
-                    </Badge>
-                  )}
-                </CardHeader>
-                <CardContent className="flex-1">
-                  {item.description && (
-                    <p className="text-muted-foreground text-sm">{item.description}</p>
-                  )}
-                </CardContent>
-                <div className="px-6 pb-4">
-                  <Button asChild variant="outline" size="sm" className="w-full">
-                    <Link href={`/backend/integrations/${encodeURIComponent(item.id)}`}>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/backend/integrations/bundle/${encodeURIComponent(bundle.id)}`}>
                       {t('integrations.marketplace.configure')}
                     </Link>
                   </Button>
                 </div>
-              </Card>
-            ))}
-          </div>
-        )}
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {bundle.integrations.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          href={`/backend/integrations/${encodeURIComponent(item.id)}`}
+                          className="text-sm font-medium hover:underline"
+                        >
+                          {item.title}
+                        </Link>
+                        {item.category && (
+                          <Badge variant={categoryBadgeVariant(item.category)} className="ml-2 text-xs">
+                            {item.category}
+                          </Badge>
+                        )}
+                      </div>
+                      <Switch
+                        checked={item.isEnabled}
+                        disabled={togglingIds.has(item.id)}
+                        onCheckedChange={(checked) => void handleToggle(item.id, checked)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
 
-        {filteredItems.bundles.length === 0 && filteredItems.standalone.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            {t('integrations.marketplace.noResults')}
-          </div>
-        )}
+          {filteredItems.standalone.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredItems.standalone.map((item) => (
+                <Card key={item.id} className="flex flex-col">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">{item.title}</CardTitle>
+                      <Switch
+                        checked={item.isEnabled}
+                        disabled={togglingIds.has(item.id)}
+                        onCheckedChange={(checked) => void handleToggle(item.id, checked)}
+                      />
+                    </div>
+                    {item.category && (
+                      <Badge variant={categoryBadgeVariant(item.category)} className="w-fit text-xs">
+                        {item.category}
+                      </Badge>
+                    )}
+                  </CardHeader>
+                  <CardContent className="flex-1">
+                    {item.description && (
+                      <p className="text-muted-foreground text-sm">{item.description}</p>
+                    )}
+                  </CardContent>
+                  <div className="px-6 pb-4">
+                    <Button asChild variant="outline" size="sm" className="w-full">
+                      <Link href={`/backend/integrations/${encodeURIComponent(item.id)}`}>
+                        {t('integrations.marketplace.configure')}
+                      </Link>
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {filteredItems.bundles.length === 0 && filteredItems.standalone.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              {t('integrations.marketplace.noResults')}
+            </div>
+          )}
+        </section>
       </PageBody>
     </Page>
   )

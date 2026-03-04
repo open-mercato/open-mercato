@@ -56,6 +56,7 @@
   "integrations.marketplace.categories.storage": "Almacenamiento",
   "integrations.marketplace.categories.webhook": "Webhook",
   "integrations.marketplace.configure": "Configurar",
+  "integrations.marketplace.description": "Conecta servicios externos, gestiona credenciales y monitorea el estado de las integraciones.",
   "integrations.marketplace.disableAll": "Desactivar todas",
   "integrations.marketplace.disabled": "Desactivada",
   "integrations.marketplace.enableAll": "Activar todas",

@@ -1,9 +1,9 @@
 "use client"
 import * as React from 'react'
-import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -45,7 +45,7 @@ export default function SyncRunsDashboardPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
-  const [statusFilter, setStatusFilter] = React.useState<string>('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
@@ -58,7 +58,8 @@ export default function SyncRunsDashboardPage() {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('pageSize', '20')
-      if (statusFilter) params.set('status', statusFilter)
+      if (filterValues.status) params.set('status', filterValues.status as string)
+      if (filterValues.direction) params.set('direction', filterValues.direction as string)
       const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
       const call = await apiCall<ResponsePayload>(
         `/api/data_sync/runs?${params.toString()}`,
@@ -80,7 +81,7 @@ export default function SyncRunsDashboardPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, statusFilter, reloadToken, scopeVersion, t])
+  }, [page, filterValues, reloadToken, scopeVersion, t])
 
   const handleCancel = React.useCallback(async (row: SyncRunRow) => {
     const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/cancel`, {
@@ -107,6 +108,46 @@ export default function SyncRunsDashboardPage() {
       flash(t('data_sync.runs.detail.retryError'), 'error')
     }
   }, [t])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    const next: FilterValues = {}
+    Object.entries(values).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') next[key] = value
+    })
+    setFilterValues(next)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [])
+
+  const filters: FilterDef[] = [
+    {
+      id: 'status',
+      type: 'select',
+      label: t('data_sync.dashboard.filters.status'),
+      options: [
+        { label: t('data_sync.dashboard.filters.allStatuses'), value: '' },
+        { label: t('data_sync.dashboard.status.pending'), value: 'pending' },
+        { label: t('data_sync.dashboard.status.running'), value: 'running' },
+        { label: t('data_sync.dashboard.status.completed'), value: 'completed' },
+        { label: t('data_sync.dashboard.status.failed'), value: 'failed' },
+        { label: t('data_sync.dashboard.status.cancelled'), value: 'cancelled' },
+      ],
+    },
+    {
+      id: 'direction',
+      type: 'select',
+      label: t('data_sync.dashboard.columns.direction'),
+      options: [
+        { label: t('data_sync.dashboard.filters.allStatuses'), value: '' },
+        { label: t('data_sync.dashboard.direction.import'), value: 'import' },
+        { label: t('data_sync.dashboard.direction.export'), value: 'export' },
+      ],
+    },
+  ]
 
   const columns = React.useMemo<ColumnDef<SyncRunRow>[]>(() => [
     {
@@ -160,20 +201,12 @@ export default function SyncRunsDashboardPage() {
       <PageBody>
         <DataTable
           title={t('data_sync.dashboard.title')}
-          actions={(
-            <select
-              className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-            >
-              <option value="">{t('data_sync.dashboard.filters.allStatuses')}</option>
-              {['pending', 'running', 'completed', 'failed', 'cancelled'].map((s) => (
-                <option key={s} value={s}>{t(`data_sync.dashboard.status.${s}`)}</option>
-              ))}
-            </select>
-          )}
           columns={columns}
           data={rows}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           perspective={{ tableId: 'data_sync.runs' }}
