@@ -1,0 +1,221 @@
+---
+title: Query Engine Extensibility
+description: Extend query pipelines with enrichers, sync lifecycle events, and scope-safe query modification (UMES Phase N).
+---
+
+This page covers the query engine extension hooks introduced in UMES Phase N. These hooks allow modules to participate in query pipelines without modifying core engine code.
+
+## Overview
+
+When `QueryOptions.extensions` is provided, both `BasicQueryEngine` and `HybridQueryEngine` execute a shared extension pipeline around the core SQL query:
+
+1. **Before-query** — sync `*.querying` subscribers can block or modify query options
+2. **Scope guard re-application** — tenant and organization constraints are always restored after subscriber modifications
+3. **Core SQL execution** — the standard query runs with the (possibly modified) options
+4. **Query-level enrichers** — enrichers opted-in to query-engine pipelines run on the result
+5. **After-query** — sync `*.queried` subscribers can modify the final result
+
+## Enabling extensions on a query
+
+Pass an `extensions` context object to any query call:
+
+```ts
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+
+const result = await queryEngine.query('customers:person', {
+  tenantId: auth.tenantId,
+  organizationId: auth.orgId,
+  extensions: {
+    userId: auth.userId,
+    container: diContainer,
+    userFeatures: auth.features,
+    resolve: (name) => diContainer.resolve(name),
+  },
+})
+```
+
+When `extensions` is omitted, the query runs without any extension hooks (backward compatible).
+
+## Query-level enricher opt-in
+
+Response enrichers can opt in to run inside query-engine pipelines by adding a `queryEngine` configuration:
+
+```ts
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const enricher: ResponseEnricher = {
+  id: 'mymodule.customer-tier',
+  targetEntity: 'customers.person',
+  queryEngine: {
+    enabled: true,
+    engines: ['basic', 'hybrid'], // optional, defaults to both
+    applyOn: ['list', 'detail'],  // optional, defaults to both
+  },
+  enrichOne: async (record, ctx) => ({
+    ...record,
+    _mymodule: { tier: 'gold' },
+  }),
+  enrichMany: async (records, ctx) =>
+    records.map((r) => ({ ...r, _mymodule: { tier: 'gold' } })),
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `boolean` | — | Must be `true` for query-engine participation |
+| `engines` | `Array<'basic' \| 'hybrid'>` | both | Which engines this enricher applies to |
+| `applyOn` | `Array<'list' \| 'detail'>` | both | Whether to run on list queries, single-record queries, or both |
+
+Enrichers without `queryEngine` (or with `enabled: false`) run only during API response shaping, not in query-engine pipelines.
+
+## Surface-aware enricher registry
+
+The enricher registry supports a selector parameter to filter by execution surface:
+
+```ts
+import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
+
+// All enrichers for the entity (backward compatible)
+const all = getEnrichersForEntity('customers.person')
+
+// Only enrichers opted in to query-engine pipelines
+const queryEngine = getEnrichersForEntity('customers.person', {
+  surface: 'query-engine',
+  engine: 'basic',
+})
+
+// API-response surface (same as no selector)
+const apiOnly = getEnrichersForEntity('customers.person', {
+  surface: 'api-response',
+})
+```
+
+## Sync query lifecycle events
+
+Modules can subscribe to query lifecycle events using the same sync subscriber infrastructure from UMES Phase M.
+
+### Before-query (`*.querying`)
+
+Fired before the SQL query executes. Subscribers can block the query or modify query options.
+
+```ts
+// subscribers/my-query-filter.ts
+import type { SyncQueryEventPayload, SyncQueryEventResult } from '@open-mercato/shared/lib/query/sync-query-event-types'
+
+export const metadata = {
+  event: 'customers.person.querying',
+  sync: true,
+  priority: 10,
+  id: 'mymodule.filter-by-assigned-user',
+}
+
+export default async function handler(
+  payload: SyncQueryEventPayload,
+  ctx: { resolve: <T = unknown>(name: string) => T },
+): Promise<SyncQueryEventResult> {
+  // Add a filter to scope results to the current user
+  return {
+    ok: true,
+    modifiedQuery: {
+      filters: {
+        ...(payload.query.filters as Record<string, unknown>),
+        assigned_user_id: payload.userId,
+      },
+    },
+  }
+}
+```
+
+To block a query:
+
+```ts
+return { ok: false, message: 'Access denied', status: 403 }
+```
+
+### After-query (`*.queried`)
+
+Fired after the SQL query and enrichers have run. Subscribers can modify the result.
+
+```ts
+export const metadata = {
+  event: 'customers.person.queried',
+  sync: true,
+  priority: 10,
+  id: 'mymodule.transform-results',
+}
+
+export default async function handler(
+  payload: SyncQueryEventPayload,
+): Promise<SyncQueryEventResult> {
+  if (!payload.result) return {}
+  return {
+    modifiedResult: {
+      ...payload.result,
+      items: payload.result.items.map((item) => ({
+        ...item,
+        _mymodule: { computed: true },
+      })),
+    },
+  }
+}
+```
+
+The `modifiedResult` is validated — it must have `items` (array), `page` (number), `pageSize` (number), and `total` (number). Invalid shapes are logged and ignored.
+
+### Event ID format
+
+Query events follow the pattern `<module>.<entity>.<action>`:
+
+| Event | When |
+|-------|------|
+| `customers.person.querying` | Before query execution |
+| `customers.person.queried` | After query execution |
+
+Wildcard patterns work: `customers.*.querying` matches all customer entity queries.
+
+## Scope guard re-application
+
+After before-query subscribers modify query options, the pipeline always re-applies the original `tenantId` and `organizationId` from the caller context. This prevents subscribers from bypassing multi-tenant isolation:
+
+```
+Subscriber sets tenantId: 'evil-tenant'
+  → Scope guard restores tenantId: 'original-tenant'
+  → SQL runs with the original tenant scope
+```
+
+Non-scope fields (filters, sort, page, withDeleted) are preserved as modified by subscribers.
+
+## Error handling
+
+| Phase | Behavior |
+|-------|----------|
+| Before-query subscriber throws | Query is blocked with HTTP 500 (fail-closed) |
+| Before-query subscriber returns `ok: false` | Query is blocked with the subscriber's status code |
+| After-query subscriber throws | Error is logged, subscriber is skipped (fail-open) |
+| After-query subscriber returns invalid result | Warning is logged, modification is ignored |
+
+## Double-execution prevention
+
+When `HybridQueryEngine` falls back to `BasicQueryEngine`, the `extensions` config is stripped from query options before delegation. This prevents the extension pipeline from running twice.
+
+## Key types
+
+| Type | Import |
+|------|--------|
+| `QueryExtensionsConfig` | `@open-mercato/shared/lib/query/types` |
+| `EnricherQueryEngineConfig` | `@open-mercato/shared/lib/crud/response-enricher` |
+| `EnricherSurfaceSelector` | `@open-mercato/shared/lib/crud/enricher-registry` |
+| `SyncQueryEventPayload` | `@open-mercato/shared/lib/query/sync-query-event-types` |
+| `SyncQueryEventResult` | `@open-mercato/shared/lib/query/sync-query-event-types` |
+
+## Showcase page
+
+The example module includes an interactive validation page at `/backend/umes-query-extensions` that demonstrates enricher registry filtering, subscriber collection, scope guard behavior, and entity ID conversion.
+
+## Related
+
+- [Query engine](/framework/database/query-engine)
+- [Data extensibility](/framework/database/data-extensibility)
+- [Events overview](/framework/events/overview)
+- [UMES phases](./umes-phases)
+- [Current extension surfaces](./current-surfaces)
