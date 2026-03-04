@@ -4,6 +4,23 @@ import type { ProgressService } from './progressService'
 import { calculateEta, calculateProgressPercent, STALE_JOB_TIMEOUT_SECONDS } from './progressService'
 import { PROGRESS_EVENTS } from './events'
 
+function buildJobPayload(job: ProgressJob): Record<string, unknown> {
+  return {
+    jobId: job.id,
+    jobType: job.jobType,
+    name: job.name,
+    description: job.description ?? null,
+    status: job.status,
+    progressPercent: job.progressPercent,
+    processedCount: job.processedCount,
+    totalCount: job.totalCount ?? null,
+    etaSeconds: job.etaSeconds ?? null,
+    cancellable: job.cancellable,
+    startedAt: job.startedAt?.toISOString() ?? null,
+    finishedAt: job.finishedAt?.toISOString() ?? null,
+  }
+}
+
 export function createProgressService(em: EntityManager, eventBus: { emit: (event: string, payload: Record<string, unknown>) => Promise<void> }): ProgressService {
   return {
     async createJob(input, ctx) {
@@ -26,9 +43,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       await em.persistAndFlush(job)
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_CREATED, {
-        jobId: job.id,
-        jobType: job.jobType,
-        name: job.name,
+        ...buildJobPayload(job),
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
       })
@@ -46,9 +61,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       await em.flush()
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_STARTED, {
-        jobId: job.id,
-        jobType: job.jobType,
+        ...buildJobPayload(job),
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -84,13 +99,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       await em.flush()
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
-        jobId: job.id,
-        jobType: job.jobType,
-        progressPercent: job.progressPercent,
-        processedCount: job.processedCount,
-        totalCount: job.totalCount,
-        etaSeconds: job.etaSeconds,
+        ...buildJobPayload(job),
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -112,10 +123,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       await em.flush()
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
-        jobId: job.id,
-        progressPercent: job.progressPercent,
-        processedCount: job.processedCount,
+        ...buildJobPayload(job),
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -136,10 +146,10 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       await em.flush()
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_COMPLETED, {
-        jobId: job.id,
-        jobType: job.jobType,
+        ...buildJobPayload(job),
         resultSummary: job.resultSummary,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -157,10 +167,10 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       await em.flush()
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_FAILED, {
-        jobId: job.id,
-        jobType: job.jobType,
+        ...buildJobPayload(job),
         errorMessage: job.errorMessage,
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -185,9 +195,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       await em.flush()
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_CANCELLED, {
-        jobId: job.id,
-        jobType: job.jobType,
+        ...buildJobPayload(job),
         tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
       })
 
       return job
@@ -246,11 +256,11 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         job.errorMessage = `Job stale: no heartbeat for ${timeoutSeconds} seconds`
 
         await eventBus.emit(PROGRESS_EVENTS.JOB_FAILED, {
-          jobId: job.id,
-          jobType: job.jobType,
+          ...buildJobPayload(job),
           errorMessage: job.errorMessage,
           tenantId: job.tenantId,
           stale: true,
+          organizationId: job.organizationId ?? null,
         })
       }
 

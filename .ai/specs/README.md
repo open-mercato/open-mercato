@@ -89,7 +89,6 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-035](SPEC-035-2026-02-22-mutation-guard-mechanism.md) | 2026-02-22 | Mutation Guard Mechanism | Generic DI-based mutation pre/post guard contract for CRUD and custom mutation routes |
 | [SPEC-036](SPEC-036-2026-02-21-application-request-lifecycle-events.md) | 2026-02-21 | Application & Request Lifecycle Events | Runtime lifecycle event contract for bootstrap and API request handling with best-effort event emission semantics |
 | [SPEC-037](SPEC-037-2026-02-15-inbox-ops-agent.md) | 2026-02-15 | InboxOps Agent | Email-to-ERP action proposal system with human-in-the-loop execution flow |
-| [SPEC-037](SPEC-037-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp external communication + AI chat integration | WhatsApp conversation history, AI summaries, and tiered AI replies (easy auto-reply vs complex proposal-only). Extends Messages module (#414). Aligns with SPEC-045/045d. |
 | [SPEC-038](SPEC-038-2026-02-23-invite-user-email.md) | 2026-02-23 | User Invite via Email | Email invitation flow for new users with secure password setup links |
 | [SPEC-039](SPEC-039-2026-02-22-date-pickers.md) | 2026-02-22 | DatePicker, DateTimePicker & TimePicker UI Components | Reusable date/time picker components and CrudForm integration contracts |
 | [SPEC-040](SPEC-040-2026-02-22-document-parser-module.md) | 2026-02-22 | Document Parser Module | Schema-driven AI document extraction with consensus, preview, and review workflows |
@@ -131,6 +130,9 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-049](SPEC-049-2026-02-26-message-objects-universal-view-attachments.md) | 2026-02-26 | Universal Message Object Attachments | Generic message object attachment previews/details and compose-flow wiring across modules |
 | [SPEC-050](SPEC-050-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks (Moved) | Pointer retained for backward links; canonical workstream spec is SPEC-046c |
 | [SPEC-052](SPEC-052-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
+| [SPEC-054](SPEC-054-2026-03-04-docker-windows-parity.md) | 2026-03-04 | Docker Windows Parity | Align Docker-based development workflow and migration commands for Windows parity |
+| [SPEC-055](SPEC-055-2026-02-23-promotions-module.md) | 2026-02-23 | Promotions Module | Standalone promotions module with recursive rule tree, extensible evaluation engine, and resolved cart effects |
+| [SPEC-056](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp external communication + AI chat integration | WhatsApp conversation history, AI summaries, and tiered AI replies (easy auto-reply vs complex proposal-only). Extends Messages module (#414). Aligns with SPEC-045/045d. |
 
 ## Specification Structure
 

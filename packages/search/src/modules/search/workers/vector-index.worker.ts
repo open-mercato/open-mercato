@@ -4,13 +4,15 @@ import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { logVectorOperation } from '../../../vector/lib/vector-logs'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
 import { searchDebugWarn } from '../../../lib/debug'
-import { updateReindexProgress } from '../lib/reindex-lock'
+import { clearReindexLock, updateReindexProgress } from '../lib/reindex-lock'
+import { incrementReindexProgress } from '../lib/reindex-progress'
 
 // Worker metadata for auto-discovery
 const DEFAULT_CONCURRENCY = 2
@@ -61,11 +63,20 @@ export async function handleVectorIndexJob(
 
     // Get knex for heartbeat updates
     let knex: Knex | null = null
+    let em: EntityManager | null = null
     try {
-      const em = ctx.resolve('em') as EntityManager
+      em = ctx.resolve('em') as EntityManager
       knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
     } catch {
       knex = null
+      em = null
+    }
+
+    let progressService: ProgressService | null = null
+    try {
+      progressService = ctx.resolve<ProgressService>('progressService')
+    } catch {
+      progressService = null
     }
 
     // Load saved embedding config to use the correct provider/model
@@ -106,8 +117,21 @@ export async function handleVectorIndexJob(
     }
 
     // Update heartbeat to signal worker is still processing
-    if (knex && successCount > 0) {
+    if (knex && records.length > 0) {
       await updateReindexProgress(knex, tenantId, 'vector', successCount, organizationId ?? null)
+    }
+    if (progressService && em && records.length > 0) {
+      const completed = await incrementReindexProgress({
+        em,
+        progressService,
+        type: 'vector',
+        tenantId,
+        organizationId: organizationId ?? null,
+        delta: successCount,
+      })
+      if (completed && knex) {
+        await clearReindexLock(knex, tenantId, 'vector', organizationId ?? null)
+      }
     }
 
     searchDebugWarn('vector-index.worker', 'Batch-index job completed', {

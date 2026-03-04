@@ -88,6 +88,7 @@ describe('record_locks notification handlers', () => {
     expect(context.emitEvent).toHaveBeenCalledWith(RECORD_LOCKS_INCOMING_CHANGES_EVENT, {
       notificationId: 'notif-1',
       sourceEntityId: 'log-1',
+      resourceId: null,
       resourceKind: 'customers.company',
     })
   })
@@ -112,6 +113,8 @@ describe('record_locks notification handlers', () => {
     expect(context.emitEvent).toHaveBeenCalledWith(RECORD_LOCKS_FORCE_RELEASED_EVENT, {
       notificationId: 'notif-1',
       sourceEntityId: 'lock-1',
+      resourceId: null,
+      resourceKind: null,
     })
   })
 })
