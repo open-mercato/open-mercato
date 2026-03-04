@@ -1,0 +1,241 @@
+---
+title: Integrations & Data Sync
+description: REST endpoints for integration metadata, credentials, logs, and sync run lifecycle.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+All examples assume:
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+export INTEGRATION_ID="sync_medusa_products"
+```
+
+## Shared conventions
+
+- Send `X-Api-Key: $API_KEY` on every request.
+- Access is feature-gated via module ACL.
+- Requests are tenant/organization scoped from authenticated context.
+
+## Integrations API
+
+### List integrations - `GET /integrations`
+
+**Feature:** `integrations.view`
+
+Returns paged rows with:
+
+- `id`, `title`, `category`, `hub`, `providerKey`, `bundleId`
+- `hasCredentials`
+- `isEnabled`
+- `apiVersion`
+
+```bash
+curl -X GET "$BASE_URL/integrations" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+### Get integration detail - `GET /integrations/{id}`
+
+**Feature:** `integrations.view`
+
+Includes:
+
+- `integration` definition
+- optional `bundle`
+- `bundleIntegrations`
+- `state` (`isEnabled`, `apiVersion`, `reauthRequired`, health fields)
+- `hasCredentials`, `credentialsKeys`
+
+```bash
+curl -X GET "$BASE_URL/integrations/$INTEGRATION_ID" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+### Update state - `PUT /integrations/{id}/state`
+
+**Feature:** `integrations.manage`
+
+```bash
+curl -X PUT "$BASE_URL/integrations/$INTEGRATION_ID/state" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "isEnabled": true, "reauthRequired": false }'
+```
+
+### Change API version - `PUT /integrations/{id}/version`
+
+**Feature:** `integrations.manage`
+
+```bash
+curl -X PUT "$BASE_URL/integrations/$INTEGRATION_ID/version" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "apiVersion": "v1" }'
+```
+
+If integration has no declared `apiVersions`, the endpoint returns `422`.
+
+### Get credentials - `GET /integrations/{id}/credentials`
+
+**Feature:** `integrations.view`
+
+Returns:
+
+- `integrationId`
+- resolved `schema`
+- `credentials` object (empty object if none)
+
+```bash
+curl -X GET "$BASE_URL/integrations/$INTEGRATION_ID/credentials" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+### Save credentials - `PUT /integrations/{id}/credentials`
+
+**Feature:** `integrations.credentials.manage`
+
+```bash
+curl -X PUT "$BASE_URL/integrations/$INTEGRATION_ID/credentials" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "credentials": {
+      "medusaApiUrl": "https://api.example.com",
+      "medusaApiKey": "secret"
+    }
+  }'
+```
+
+### List integration logs - `GET /integrations/logs`
+
+**Feature:** `integrations.view`
+
+Supported filters:
+
+- `integrationId`
+- `level` (`info`, `warn`, `error`)
+- `runId`
+- `entityType`, `entityId`
+- `page`, `pageSize`
+
+```bash
+curl -X GET "$BASE_URL/integrations/logs?integrationId=$INTEGRATION_ID&page=1&pageSize=20" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+## Data Sync API
+
+### Validate connection - `POST /data_sync/validate`
+
+**Feature:** `data_sync.configure`
+
+Checks that:
+
+- integration exists and has `providerKey`
+- adapter is registered
+- credentials exist
+- adapter validation passes (if adapter implements it)
+
+```bash
+curl -X POST "$BASE_URL/data_sync/validate" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "integrationId": "sync_medusa_products",
+    "entityType": "catalog.product",
+    "direction": "import"
+  }'
+```
+
+### Start run - `POST /data_sync/run`
+
+**Feature:** `data_sync.run`
+
+Body:
+
+- `integrationId`
+- `entityType`
+- `direction` (`import` | `export`)
+- optional `fullSync` (default `false`)
+- optional `batchSize` (1..1000, default `100`)
+- optional `triggeredBy`
+
+Returns `201` with `{ id, progressJobId }`.
+
+```bash
+curl -X POST "$BASE_URL/data_sync/run" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "integrationId": "sync_medusa_products",
+    "entityType": "catalog.product",
+    "direction": "import",
+    "batchSize": 100
+  }'
+```
+
+### List runs - `GET /data_sync/runs`
+
+**Feature:** `data_sync.view`
+
+Filters:
+
+- `integrationId`
+- `entityType`
+- `status` (`pending`, `running`, `completed`, `failed`, `cancelled`, `paused`)
+- pagination (`page`, `pageSize`, max `100`)
+
+```bash
+curl -X GET "$BASE_URL/data_sync/runs?integrationId=$INTEGRATION_ID&status=running" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+### Run detail - `GET /data_sync/runs/{id}`
+
+**Feature:** `data_sync.view`
+
+Returns run counters and optional `progressJob` summary:
+
+- `progressPercent`
+- `processedCount`
+- `totalCount`
+- `etaSeconds`
+
+### Cancel run - `POST /data_sync/runs/{id}/cancel`
+
+**Feature:** `data_sync.run`
+
+Requests cancellation and marks run status accordingly.
+
+```bash
+curl -X POST "$BASE_URL/data_sync/runs/$RUN_ID/cancel" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+### Retry run - `POST /data_sync/runs/{id}/retry`
+
+**Feature:** `data_sync.run`
+
+Body:
+
+- optional `fromBeginning` (default `false`)
+
+Returns `201` with a new run `{ id, progressJobId }`.
+
+```bash
+curl -X POST "$BASE_URL/data_sync/runs/$RUN_ID/retry" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "fromBeginning": true }'
+```
+
+## Progress and event delivery
+
+- Sync runs update `progress` jobs and can be queried through sync detail and `/progress/active`.
+- Current top bar updates via polling; do not assume SSE live updates for sync runs yet.
+- SSE bridge only emits events marked `clientBroadcast: true`.

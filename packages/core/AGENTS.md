@@ -246,6 +246,9 @@ Use this section when working on:
 - `src/modules/integrations/` (foundation contracts + APIs)
 - `src/modules/data_sync/` (sync run orchestration)
 - provider modules like `src/modules/sync_medusa/`
+- docs reference:
+  - `apps/docs/docs/framework/modules/integrations-data-sync.mdx`
+  - `apps/docs/docs/api/integrations-data-sync.mdx`
 
 ### Foundation Module (`integrations`)
 
