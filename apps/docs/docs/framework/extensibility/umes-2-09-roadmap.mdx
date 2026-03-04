@@ -13,12 +13,16 @@ This is the short list of extension capabilities not fully available yet, based 
 | Recursive widget extension points | Widgets cannot define their own child extension zones in a standardized way | Phase J |
 | UMES DevTools and conflict diagnostics | Hard to inspect extension precedence, collisions, and active registrations at runtime | Phase K |
 | Integration-first UI blocks (wizard widgets, status badges, external ID presentation) | Integration UX remains mostly custom and repetitive | Phase L |
-| Query-engine extension hooks (query/result transform + query lifecycle events) | Cannot plug into query pipelines as first-class extensibility points | Phase N |
+| ~~Query-engine extension hooks~~ | ~~Cannot plug into query pipelines~~ | ~~Phase N~~ — **Implemented**, see [Query engine extensibility](./query-engine-extensibility) |
 | Generic external data connector registry ("data integrators") | No built-in connector abstraction for pull/push sync providers yet | Phase L + marketplace specs |
 | Integration marketplace hub | Discovery/install governance for integration packages is not productized yet | SPEC-045 series |
 
 :::info Phase M implemented
 Phase M items (mutation guards, sync subscribers, command interceptors, client-side event filtering) are now implemented — see [UMES phases](./umes-phases).
+:::
+
+:::info Phase N implemented
+Phase N items (query-level enrichers, sync query lifecycle events, scope guard re-application) are now implemented — see [Query engine extensibility](./query-engine-extensibility).
 :::
 
 ## Related specs for this roadmap
