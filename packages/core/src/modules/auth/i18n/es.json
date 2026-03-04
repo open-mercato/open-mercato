@@ -26,6 +26,8 @@
   "auth.login.errors.tenantRequired": "Usa el enlace de inicio de sesión proporcionado con la activación de tu inquilino para continuar.",
   "auth.login.featureDenied": "No tienes acceso a esta funcionalidad ({feature}). Ponte en contacto con tu administrador.",
   "auth.login.forgotPassword": "¿Olvidaste tu contraseña?",
+  "auth.login.gettingStarted.description": "¿Buscas credenciales de demo? Revisa la salida de la terminal al ejecutar yarn initialize.",
+  "auth.login.gettingStarted.title": "Primeros pasos",
   "auth.login.loading": "Cargando...",
   "auth.login.logoAlt": "Logotipo de Open Mercato",
   "auth.login.rememberMe": "Recordarme",

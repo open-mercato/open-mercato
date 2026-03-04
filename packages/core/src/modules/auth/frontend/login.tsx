@@ -91,6 +91,7 @@ export default function LoginPage() {
   const [tenantLoading, setTenantLoading] = useState(false)
   const [tenantInvalid, setTenantInvalid] = useState<string | null>(null)
   const showTenantInvalid = tenantId != null && tenantInvalid === tenantId
+  const showGettingStartedPanel = process.env.NODE_ENV === 'development'
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -314,6 +315,15 @@ export default function LoginPage() {
                 {translate('auth.login.forgotPassword', 'Forgot password?')}
               </Link>
             </div>
+            {showGettingStartedPanel ? (
+              <Notice compact className="text-xs leading-relaxed">
+                <span className="font-medium">{translate('auth.login.gettingStarted.title', 'Getting started')}</span>{' '}
+                {translate(
+                  'auth.login.gettingStarted.description',
+                  'Looking for demo credentials? Check the terminal output from yarn initialize.',
+                )}
+              </Notice>
+            ) : null}
           </form>
         </CardContent>
       </Card>

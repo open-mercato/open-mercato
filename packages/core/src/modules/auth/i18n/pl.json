@@ -26,6 +26,8 @@
   "auth.login.errors.tenantRequired": "Użyj linku logowania z aktywacji najemcy, aby kontynuować.",
   "auth.login.featureDenied": "Nie masz dostępu do tej funkcji ({feature}). Skontaktuj się z administratorem.",
   "auth.login.forgotPassword": "Nie pamiętasz hasła?",
+  "auth.login.gettingStarted.description": "Szukasz danych demo? Sprawdź logi terminala z uruchomienia yarn initialize.",
+  "auth.login.gettingStarted.title": "Pierwsze kroki",
   "auth.login.loading": "Ładowanie...",
   "auth.login.logoAlt": "Logo Open Mercato",
   "auth.login.rememberMe": "Zapamiętaj mnie",
