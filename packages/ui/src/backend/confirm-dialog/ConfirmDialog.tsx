@@ -170,7 +170,7 @@ export function ConfirmDialog({
   return (
     <>
       {trigger && (
-        <div onClick={handleTriggerClick} className="inline-block" role="presentation">
+        <div onClick={handleTriggerClick} className="inline-block">
           {trigger}
         </div>
       )}

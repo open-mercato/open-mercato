@@ -13,8 +13,8 @@ import { notificationHandlerEntries } from '@/.mercato/generated/notification-ha
 import { registerNotificationHandlers } from '@open-mercato/shared/lib/notifications/handler-registry'
 // Side-effect: registers translatable fields for client-side TranslationManager
 import '@/.mercato/generated/translations-fields.generated'
-// Side-effect: configures message UI component and object type registries on the client.
-import '@/.mercato/generated/messages.client.generated'
+import { getMessageUiComponentRegistry } from '@/.mercato/generated/messages.client.generated'
+import { configureMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 
 let _clientBootstrapped = false
 

@@ -97,7 +97,7 @@ function buildCacheKey(
   mode: 'one' | 'many',
   recordIds: string[],
 ): string {
-  const sortedIds = [...recordIds].sort((a, b) => a.localeCompare(b))
+  const sortedIds = [...recordIds].sort()
   return `umes:enricher:${enricher.id}:tenant:${context.tenantId}:org:${context.organizationId}:mode:${mode}:ids:${JSON.stringify(sortedIds)}`
 }
 

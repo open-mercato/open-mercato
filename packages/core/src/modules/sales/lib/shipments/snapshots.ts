@@ -26,7 +26,7 @@ const extractOrderLineId = (entry: SalesShipmentItem): string | null => {
   return typeof raw === 'string' ? raw : null
 }
 
-const ensureLineMap = async ( // NOSONAR — returns same Map ref but populated from DB between early return and final return
+const ensureLineMap = async (
   em: EntityManager,
   items: SalesShipmentItem[],
   lineMap?: Map<string, SalesOrderLine>

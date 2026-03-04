@@ -16,7 +16,7 @@ type ExplorerOperation = {
 
 function collectOperations(doc: any): ExplorerOperation[] {
   const operations: ExplorerOperation[] = []
-  const paths = Object.keys(doc.paths ?? {}).sort((a, b) => a.localeCompare(b))
+  const paths = Object.keys(doc.paths ?? {}).sort()
   for (const path of paths) {
     const methodEntries = Object.entries(doc.paths[path] ?? {})
     for (const [method, operation] of methodEntries) {

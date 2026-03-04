@@ -409,10 +409,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
   const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
   const enrichersChecksumFile = path.join(outputDir, 'enrichers.generated.checksum')
-  const interceptorsOutFile = path.join(outputDir, 'interceptors.generated.ts')
-  const interceptorsChecksumFile = path.join(outputDir, 'interceptors.generated.checksum')
-  const componentOverridesOutFile = path.join(outputDir, 'component-overrides.generated.ts')
-  const componentOverridesChecksumFile = path.join(outputDir, 'component-overrides.generated.checksum')
   const inboxActionsOutFile = path.join(outputDir, 'inbox-actions.generated.ts')
   const inboxActionsChecksumFile = path.join(outputDir, 'inbox-actions.generated.checksum')
   const guardsOutFile = path.join(outputDir, 'guards.generated.ts')
@@ -452,10 +448,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const transFieldsImports: string[] = []
   const enricherConfigs: string[] = []
   const enricherImports: string[] = []
-  const interceptorConfigs: string[] = []
-  const interceptorImports: string[] = []
-  const componentOverrideConfigs: string[] = []
-  const componentOverrideImports: string[] = []
   const inboxActionsConfigs: string[] = []
   const inboxActionsImports: string[] = []
   const guardConfigs: string[] = []
@@ -679,26 +671,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       standaloneImports: enricherImports,
       standaloneConfigs: enricherConfigs,
       configExpr: (n, id) => `{ moduleId: '${id}', enrichers: ((${n} as any).enrichers ?? (${n} as any).default ?? []) }`,
-    })
-
-    // 10c. API interceptors: api/interceptors.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'api/interceptors.ts',
-      prefix: 'INTERCEPTORS',
-      standaloneImports: interceptorImports,
-      standaloneConfigs: interceptorConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', interceptors: ((${n} as any).interceptors ?? (${n} as any).default ?? []) }`,
-    })
-
-    // 10d. Component overrides: widgets/components.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'widgets/components.ts',
-      prefix: 'COMPONENT_OVERRIDES',
-      standaloneImports: componentOverrideImports,
-      standaloneConfigs: componentOverrideConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', componentOverrides: ((${n} as any).componentOverrides ?? (${n} as any).default ?? []) }`,
     })
 
     // Translatable fields: translations.ts (also referenced in module declarations)

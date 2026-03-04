@@ -51,6 +51,7 @@ type RouteContext = { params: Promise<RouteParams> }
 
 async function resolveAttachmentId(ctx: RouteContext): Promise<string | null> {
   const params = ctx?.params
+  if (!params) return null
   try {
     const { id } = await params
     if (typeof id === 'string' && id.trim().length) {

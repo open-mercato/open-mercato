@@ -32,12 +32,12 @@ export async function GET(req: NextRequest) {
   }
 
   const queues = Array.from(queueSet)
-    .sort((a, b) => a.localeCompare(b))
+    .sort()
     .map((queue) => ({ value: queue, label: queue }))
 
   const commands = commandRegistry
     .list()
-    .sort((a, b) => a.localeCompare(b))
+    .sort()
     .map((id) => ({ value: id, label: id }))
 
   return NextResponse.json({ queues, commands })

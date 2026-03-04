@@ -246,9 +246,6 @@ const widget: InjectionWidgetModule<any, any> = {
           }
         }
         sharedState?.set('lastTransformFormData', trimmed)
-        if (shouldTransform) {
-          return { data: trimmed as typeof data, applyToForm: true }
-        }
         return trimmed as typeof data
       }
       return data

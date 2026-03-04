@@ -599,7 +599,7 @@ export function VectorSearchSection({
 
                         {/* Model Selection */}
                         {isSelected && isConfigured && (
-                          <div className="mt-3 pt-3 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} role="presentation">
+                          <div className="mt-3 pt-3 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
                             <div className="space-y-1">
                               <Label htmlFor={`model-${providerId}`} className="text-xs font-medium">
                                 {t('search.settings.model.label', 'Model')}

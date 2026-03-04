@@ -64,7 +64,7 @@ type NewQuotesWidgetResponse = {
 function normalizeOrganizationIds(organizationIds: string[] | null): string[] | null {
   if (organizationIds === null) return null
   const set = new Set(organizationIds)
-  return Array.from(set).sort((a, b) => a.localeCompare(b))
+  return Array.from(set).sort()
 }
 
 function buildCacheKey(params: {

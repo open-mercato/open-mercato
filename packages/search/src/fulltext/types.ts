@@ -15,7 +15,7 @@ export type FullTextSearchDriverId =
   | 'algolia'
   | 'elasticsearch'
   | 'typesense'
-  | (string & Record<string, never>)
+  | (string & {})
 
 // =============================================================================
 // Document Types (for indexing)

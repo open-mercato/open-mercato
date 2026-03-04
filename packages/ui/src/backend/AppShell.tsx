@@ -24,7 +24,6 @@ import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { SseEventIndicator } from './injection/SseEventIndicator'
-import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -1355,7 +1354,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         {!customizing && (
           <>
           {shouldRenderSidebarInjectionSpots ? (
-            <StatusBadgeInjectionSpot
+            <InjectionSpot
               spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
               context={injectionContext}
             />
@@ -1500,7 +1499,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
-            <StatusBadgeInjectionSpot
+            <InjectionSpot
               spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
               context={injectionContext}
             />
@@ -1553,7 +1552,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
             <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
               <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
