@@ -48,13 +48,14 @@ The business goal is to turn repeated delivery patterns into reusable assets own
 ## Proposed Solution
 Implement a Use-Case Starters framework that relies heavily on a decentralized ecosystem:
 1. **The Core Engine**: `open-mercato/core` and `create-mercato-app` remain agnostic and clean.
-2. **The Starter Distribution**: Starters are standalone git templates or published NPM packages (e.g., `@agency/om-prm-starter`).
+2. **The Starter Distribution**: Starters are primarily distributed as **Standalone Git Template Repositories**. While NPM packages are optional for small extensions, complex use-case starters (like PRM) must be provided as source code templates to ensure developer flexibility.
 3. **The Application**: Developers use `create-mercato-app` and then layered configuration (via UMES) to apply the starter's logic within their own `src/modules`.
 
 ### Design Decisions
 | Decision | Rationale |
 |----------|-----------|
 | Starters live outside the core repository | Keeps core clean, reduces bloat, delegates domain ownership to partners/agencies. |
+| Starters favor Template Repositories over NPM packages | Full source access in `src/modules` ensures developers can easily customize complex business logic (e.g. RFP/KPI rules) which "black-box" NPM packages tend to restrict. |
 | Starters utilize `create-mercato-app` | Standardizes the baseline bootstrapping process before injecting business logic. |
 | No new runtime extension model | Reuse UMES, events, setup.ts, entity extensions within the deployed application. |
 | App-level ownership for business-specific behavior | Matches monorepo rule: user-specific features live in the generated app's `src/modules`. |
