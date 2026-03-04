@@ -1,6 +1,6 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 import { registerIntegration } from '@open-mercato/shared/modules/integrations/types'
-import { registerPaymentProvider } from '../sales/lib/providers/registry'
+import { registerPaymentProvider } from '@open-mercato/core/modules/sales/lib/providers/registry'
 import integration from './integration'
 
 registerIntegration(integration)

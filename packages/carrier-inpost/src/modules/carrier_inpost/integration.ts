@@ -7,7 +7,7 @@ export const integration: IntegrationDefinition = {
   category: 'shipping',
   hub: 'shipping_carriers',
   providerKey: 'inpost',
-  package: '@open-mercato/core',
+  package: '@open-mercato/carrier-inpost',
   version: '1.0.0',
   tags: ['locker', 'courier', 'poland'],
   credentials: {

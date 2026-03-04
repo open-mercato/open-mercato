@@ -5486,6 +5486,19 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/carrier-inpost@workspace:packages/carrier-inpost":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/carrier-inpost@workspace:packages/carrier-inpost"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+    zod: "npm:^4.1.13"
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/cli@workspace:*, @open-mercato/cli@workspace:packages/cli":
   version: 0.0.0-use.local
   resolution: "@open-mercato/cli@workspace:packages/cli"
@@ -5557,6 +5570,30 @@ __metadata:
   resolution: "@open-mercato/events@workspace:packages/events"
   dependencies:
     "@open-mercato/queue": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/gateway-payu@workspace:packages/gateway-payu":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/gateway-payu@workspace:packages/gateway-payu"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/gateway-przelewy24@workspace:packages/gateway-przelewy24":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/gateway-przelewy24@workspace:packages/gateway-przelewy24"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"

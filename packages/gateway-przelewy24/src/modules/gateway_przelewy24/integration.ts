@@ -7,7 +7,7 @@ const integration: IntegrationDefinition = {
   category: 'payment',
   hub: 'payment_gateways',
   providerKey: 'przelewy24',
-  package: '@open-mercato/core',
+  package: '@open-mercato/gateway-przelewy24',
   version: '1.0.0',
   tags: ['cards', 'bank-transfer', 'poland'],
   credentials: {

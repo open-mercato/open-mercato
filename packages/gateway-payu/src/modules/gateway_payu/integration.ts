@@ -7,7 +7,7 @@ const integration: IntegrationDefinition = {
   category: 'payment',
   hub: 'payment_gateways',
   providerKey: 'payu',
-  package: '@open-mercato/core',
+  package: '@open-mercato/gateway-payu',
   version: '1.0.0',
   tags: ['cards', 'bank-transfer', 'blik'],
   credentials: {

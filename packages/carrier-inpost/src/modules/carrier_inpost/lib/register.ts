@@ -1,12 +1,12 @@
 import { z } from 'zod'
 import { registerIntegration } from '@open-mercato/shared/modules/integrations/types'
-import { registerShippingProvider } from '../../sales/lib/providers/registry'
+import { registerShippingProvider } from '@open-mercato/core/modules/sales/lib/providers/registry'
 import type {
   ShippingAdapter,
   ShippingRate,
   UnifiedShipmentStatus,
-} from '../../shipping_carriers/lib/adapter'
-import { registerShippingAdapter } from '../../shipping_carriers/lib/adapter-registry'
+} from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
+import { registerShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
 import { integration } from '../integration'
 
 const inpostSettingsSchema = z.object({
@@ -49,7 +49,7 @@ const inpostAdapter: ShippingAdapter = {
     return rates
   },
 
-  async createShipment(input) {
+  async createShipment() {
     const timestamp = Date.now()
     return {
       shipmentId: `inpost-shp-${timestamp}`,
@@ -83,7 +83,10 @@ const inpostAdapter: ShippingAdapter = {
   },
 
   async verifyWebhook(input) {
-    const data = JSON.parse(typeof input.rawBody === 'string' ? input.rawBody : input.rawBody.toString('utf8')) as Record<string, unknown>
+    const data = JSON.parse(
+      typeof input.rawBody === 'string' ? input.rawBody : input.rawBody.toString('utf8'),
+    ) as Record<string, unknown>
+
     return {
       eventType: typeof data.eventType === 'string' ? data.eventType : 'shipment.updated',
       eventId: typeof data.eventId === 'string' ? data.eventId : `evt-${Date.now()}`,
