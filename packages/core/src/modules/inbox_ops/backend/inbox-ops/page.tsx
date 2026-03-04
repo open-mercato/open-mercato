@@ -16,13 +16,26 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { Settings, Inbox, Copy } from 'lucide-react'
+import {
+  Settings,
+  Inbox,
+  Copy,
+  FileQuestion,
+  ShoppingCart,
+  RefreshCw,
+  AlertTriangle,
+  Truck,
+  HelpCircle,
+  CreditCard,
+  Tag,
+} from 'lucide-react'
 
 type ProposalRow = {
   id: string
   summary: string
   confidence: string
   status: string
+  category?: string | null
   inboxEmailId: string
   createdAt: string
   participants?: { name: string; email: string }[]
@@ -46,6 +59,7 @@ type StatusCounts = {
   partial: number
   accepted: number
   rejected: number
+  byCategory?: Record<string, number>
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -76,6 +90,48 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color}`}>{statusLabels[status] || status}</span>
 }
 
+const CATEGORY_CONFIG: Record<string, { color: string; Icon: React.ComponentType<{ className?: string }> }> = {
+  rfq: { color: 'bg-blue-100 text-blue-800', Icon: FileQuestion },
+  order: { color: 'bg-green-100 text-green-800', Icon: ShoppingCart },
+  order_update: { color: 'bg-amber-100 text-amber-800', Icon: RefreshCw },
+  complaint: { color: 'bg-red-100 text-red-800', Icon: AlertTriangle },
+  shipping_update: { color: 'bg-purple-100 text-purple-800', Icon: Truck },
+  inquiry: { color: 'bg-slate-100 text-slate-800', Icon: HelpCircle },
+  payment: { color: 'bg-emerald-100 text-emerald-800', Icon: CreditCard },
+  other: { color: 'bg-gray-100 text-gray-800', Icon: Tag },
+}
+
+function useCategoryLabels() {
+  const t = useT()
+  return React.useMemo<Record<string, string>>(() => ({
+    rfq: t('inbox_ops.category.rfq', 'RFQ'),
+    order: t('inbox_ops.category.order', 'Order'),
+    order_update: t('inbox_ops.category.order_update', 'Order Update'),
+    complaint: t('inbox_ops.category.complaint', 'Complaint'),
+    shipping_update: t('inbox_ops.category.shipping_update', 'Shipping Update'),
+    inquiry: t('inbox_ops.category.inquiry', 'Inquiry'),
+    payment: t('inbox_ops.category.payment', 'Payment'),
+    other: t('inbox_ops.category.other', 'Other'),
+  }), [t])
+}
+
+function CategoryBadge({ category }: { category: string | null | undefined }) {
+  const labels = useCategoryLabels()
+  const t = useT()
+  if (!category) {
+    return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-500">{t('inbox_ops.category.uncategorized', 'Uncategorized')}</span>
+  }
+  const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.other
+  const { color, Icon } = config
+  const label = labels[category] || category
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${color}`}>
+      <Icon className="h-3 w-3" />
+      {label}
+    </span>
+  )
+}
+
 export default function InboxOpsProposalsPage() {
   const t = useT()
   const router = useRouter()
@@ -99,6 +155,7 @@ export default function InboxOpsProposalsPage() {
   const [copied, setCopied] = React.useState(false)
 
   const statusFilter = typeof filterValues.status === 'string' ? filterValues.status : undefined
+  const categoryFilter = typeof filterValues.category === 'string' ? filterValues.category : undefined
 
   const loadProposals = React.useCallback(async () => {
     setIsLoading(true)
@@ -107,6 +164,7 @@ export default function InboxOpsProposalsPage() {
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
     if (statusFilter) params.set('status', statusFilter)
+    if (categoryFilter) params.set('category', categoryFilter)
     if (search.trim()) params.set('search', search.trim())
 
     try {
@@ -121,7 +179,7 @@ export default function InboxOpsProposalsPage() {
       setError(t('inbox_ops.flash.load_failed', 'Failed to load proposals'))
     }
     setIsLoading(false)
-  }, [page, pageSize, statusFilter, search, scopeVersion, t])
+  }, [page, pageSize, statusFilter, categoryFilter, search, scopeVersion, t])
 
   const loadCounts = React.useCallback(async () => {
     const result = await apiCall<StatusCounts>('/api/inbox_ops/proposals/counts')
@@ -141,7 +199,7 @@ export default function InboxOpsProposalsPage() {
 
   React.useEffect(() => {
     if (initialLoadComplete) loadProposals()
-  }, [page, statusFilter, search, scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, statusFilter, categoryFilter, search, scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopyAddress = React.useCallback(() => {
     if (settings?.inboxAddress) {
@@ -189,6 +247,9 @@ export default function InboxOpsProposalsPage() {
     }
   }, [confirm, t, loadProposals, loadCounts, runMutation])
 
+  const categoryLabels = useCategoryLabels()
+  const byCategory = counts.byCategory || {}
+
   const filters = React.useMemo<FilterDef[]>(() => [
     {
       id: 'status',
@@ -201,7 +262,22 @@ export default function InboxOpsProposalsPage() {
         { value: 'rejected', label: `${t('inbox_ops.status.rejected', 'Rejected')} (${counts.rejected})` },
       ],
     },
-  ], [t, counts])
+    {
+      id: 'category',
+      label: t('inbox_ops.category', 'Category'),
+      type: 'select',
+      options: [
+        { value: 'rfq', label: `${categoryLabels.rfq} (${byCategory.rfq || 0})` },
+        { value: 'order', label: `${categoryLabels.order} (${byCategory.order || 0})` },
+        { value: 'order_update', label: `${categoryLabels.order_update} (${byCategory.order_update || 0})` },
+        { value: 'complaint', label: `${categoryLabels.complaint} (${byCategory.complaint || 0})` },
+        { value: 'shipping_update', label: `${categoryLabels.shipping_update} (${byCategory.shipping_update || 0})` },
+        { value: 'inquiry', label: `${categoryLabels.inquiry} (${byCategory.inquiry || 0})` },
+        { value: 'payment', label: `${categoryLabels.payment} (${byCategory.payment || 0})` },
+        { value: 'other', label: `${categoryLabels.other} (${byCategory.other || 0})` },
+      ],
+    },
+  ], [t, counts, categoryLabels, byCategory])
 
   const columns: ColumnDef<ProposalRow>[] = React.useMemo(() => [
     {
@@ -225,6 +301,11 @@ export default function InboxOpsProposalsPage() {
       accessorKey: 'status',
       header: t('inbox_ops.list.status', 'Status'),
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      accessorKey: 'category',
+      header: t('inbox_ops.category', 'Category'),
+      cell: ({ row }) => <CategoryBadge category={row.original.category} />,
     },
     {
       id: 'actions_count',

@@ -15,7 +15,12 @@ import { extractParticipantsFromThread } from '../lib/emailParser'
 import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
 import { safeParsePayloadJson } from '../lib/validation'
 import { htmlToPlainText } from '../lib/htmlToPlainText'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { emitInboxOpsEvent } from '../events'
+import { createMessageRecordForEmail } from '../lib/messagesIntegration'
+import { resolveCache, invalidateCountsCache } from '../lib/cache'
+
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 
 export const metadata = {
   event: 'inbox_ops.email.received',
@@ -348,6 +353,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       id: proposalId,
       inboxEmailId: email.id,
       summary: extractionResult.summary,
+      category: extractionResult.category || null,
       participants: enrichedParticipants,
       confidence: String(extractionResult.confidence.toFixed(2)),
       detectedLanguage: extractionResult.detectedLanguage || email.detectedLanguage,
@@ -517,6 +523,39 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
     email.detectedLanguage = extractionResult.detectedLanguage || email.detectedLanguage
 
     await em.flush()
+
+    // Step 8b: Invalidate counts cache (new proposal affects counts)
+    try {
+      const cache = resolveCache(ctx)
+      await runWithCacheTenant(email.tenantId, () => invalidateCountsCache(cache, email.tenantId))
+    } catch (cacheErr) {
+      console.warn('[inbox_ops:extraction-worker] Cache invalidation failed (non-fatal):', cacheErr)
+    }
+
+    // Step 8c: Register email as a message record (graceful degradation)
+    try {
+      await createMessageRecordForEmail(
+        {
+          id: email.id,
+          subject: email.subject,
+          cleanedText: email.cleanedText,
+          rawText: email.rawText,
+          forwardedByAddress: email.forwardedByAddress,
+          forwardedByName: email.forwardedByName,
+          status: email.status,
+        },
+        {
+          container: ctx,
+          scope: {
+            tenantId: email.tenantId,
+            organizationId: email.organizationId,
+            userId: SYSTEM_USER_ID,
+          },
+        },
+      )
+    } catch (msgErr) {
+      console.error('[inbox_ops:extraction-worker] Messages integration failed (non-fatal):', msgErr)
+    }
 
     // Step 9: Emit events
     try {

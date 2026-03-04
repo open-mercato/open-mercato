@@ -5,6 +5,7 @@ export type ProposalDetail = {
   summary: string
   confidence: string
   status: string
+  category?: string | null
   participants: ExtractedParticipant[]
   possiblyIncomplete: boolean
   llmModel?: string

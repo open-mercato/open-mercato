@@ -136,6 +136,25 @@ export const draftReplyPayloadSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Category
+// ---------------------------------------------------------------------------
+
+export const inboxProposalCategoryEnum = z.enum([
+  'rfq',
+  'order',
+  'order_update',
+  'complaint',
+  'shipping_update',
+  'inquiry',
+  'payment',
+  'other',
+])
+
+export const categorizeProposalSchema = z.object({
+  category: inboxProposalCategoryEnum,
+})
+
+// ---------------------------------------------------------------------------
 // LLM Extraction Output Schema
 // ---------------------------------------------------------------------------
 
@@ -183,6 +202,7 @@ export const extractedDiscrepancySchema = z.object({
 
 export const extractionOutputSchema = z.object({
   summary: z.string(),
+  category: inboxProposalCategoryEnum.optional(),
   participants: z.array(extractedParticipantSchema),
   proposedActions: z.array(extractedActionSchema),
   discrepancies: z.array(extractedDiscrepancySchema),
@@ -227,6 +247,7 @@ export const updateSettingsSchema = z.object({
 
 export const proposalListQuerySchema = z.object({
   status: z.enum(['pending', 'partial', 'accepted', 'rejected']).optional(),
+  category: z.string().trim().max(200).optional(),
   search: z.string().trim().max(200).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

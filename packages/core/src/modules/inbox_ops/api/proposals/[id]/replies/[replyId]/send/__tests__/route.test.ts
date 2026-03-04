@@ -131,6 +131,7 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
   })
 
   it('returns 503 when RESEND_API_KEY is not set', async () => {
+    setupHappyPath()
     delete process.env.RESEND_API_KEY
 
     const response = await POST(makeRequest())
@@ -141,6 +142,7 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
   })
 
   it('returns 503 when email delivery is disabled', async () => {
+    setupHappyPath()
     process.env.OM_DISABLE_EMAIL_DELIVERY = 'true'
 
     const response = await POST(makeRequest())
