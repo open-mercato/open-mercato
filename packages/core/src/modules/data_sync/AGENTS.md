@@ -114,6 +114,38 @@ registerDataSyncAdapter(myAdapter)
 - `data_sync.run` — trigger, cancel, retry syncs
 - `data_sync.configure` — manage field mappings and schedules
 
+## UMES Extensibility
+
+Data sync providers can leverage the **Unified Module Extension System (UMES)** to extend platform UI and behavior.
+
+### Available Extension Points for Sync Providers
+
+| Extension Mechanism | Use Case | Files |
+|---|---|---|
+| **Widget Injection** | Inject sync status badges, mapping previews, or progress indicators into entity pages | `widgets/injection/`, `widgets/injection-table.ts` |
+| **Event Subscribers** | React to sync lifecycle events (`data_sync.run.completed`, etc.) for side-effects | `subscribers/*.ts` |
+| **Entity Extensions** | Link sync metadata to core entities | `data/extensions.ts` |
+| **Response Enrichers** | Attach sync status or external ID data to other modules' API responses | `data/enrichers.ts` |
+| **Notifications** | Emit in-app notifications on sync completion/failure | `notifications.ts`, `subscribers/` |
+| **DOM Event Bridge** | Push real-time sync progress to browser (SSE) | Set `clientBroadcast: true` in event definitions |
+| **Menu Injection** | Add sidebar items for provider-specific sync dashboards | via `useInjectedMenuItems` |
+
+### Progress Delivery Contract
+
+- `ProgressTopBar` polls `/api/progress/active` every 5s (`useProgressPoll`).
+- Create `ProgressJob` in `run`/`retry` endpoints; start/update/complete/fail in `sync-engine`.
+- Include `progressJob` details in run detail response.
+- SSE DOM bridge forwards only events with `clientBroadcast: true`.
+- `data_sync.run.*` events are not yet marked `clientBroadcast: true` — polling is the active mechanism.
+- Do not claim SSE-driven progress for sync runs until event definitions and client wiring are explicitly enabled.
+
+### Integration Test Expectations
+
+- Module-local integration tests go under `__integration__/`
+- Use helpers from `@open-mercato/core/modules/core/__integration__/helpers/*`
+- Tests must create prerequisites via API and clean up in `finally`
+- Avoid hard dependency on late-phase modules; keep tests scoped to implemented contracts
+
 ## MUST Rules
 
 - **Always scope by organizationId + tenantId** — every entity query

@@ -101,6 +101,52 @@ For platform connectors with multiple integrations (e.g., MedusaJS):
 - `integrations.manage` — enable/disable, change version, run health checks
 - `integrations.credentials.manage` — read/save credentials
 
+## UMES Extensibility
+
+Integration provider modules can leverage the full **Unified Module Extension System (UMES)** — see `.ai/specs/SPEC-041-2026-02-24-universal-module-extension-system.md` for details.
+
+### Available Extension Points for Providers
+
+| Extension Mechanism | Use Case | Files |
+|---|---|---|
+| **Widget Injection** | Inject UI tabs, cards, or status badges into other modules' pages | `widgets/injection/`, `widgets/injection-table.ts` |
+| **Event Subscribers** | React to integration events (`integrations.state.updated`, etc.) for side-effects | `subscribers/*.ts` |
+| **Entity Extensions** | Link provider data to core entities (e.g., external IDs on orders) | `data/extensions.ts` |
+| **Response Enrichers** | Attach provider-specific data to other modules' API responses | `data/enrichers.ts` |
+| **API Interceptors** | Intercept other modules' API routes (before/after hooks) | `api/interceptors.ts` |
+| **Component Replacement** | Override or wrap UI components from other modules | `widgets/components.ts` |
+| **Menu Injection** | Add sidebar/settings menu items | via `useInjectedMenuItems` |
+| **Notifications** | Emit in-app notifications on integration events | `notifications.ts`, `subscribers/` |
+| **DOM Event Bridge** | Push real-time events to browser (SSE) | Set `clientBroadcast: true` in event definitions |
+
+### Key UMES Imports for Providers
+
+```typescript
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
+import { useInjectedMenuItems } from '@open-mercato/ui/backend/injection/useInjectedMenuItems'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+```
+
+### Example: External ID Widget
+
+The integrations module itself uses UMES to inject external ID displays on any entity detail page via `widgets/injection/external-ids/widget.client.tsx`, mapped through `widgets/injection-table.ts`. Follow this pattern for provider-specific widgets.
+
+## Progress Delivery Contract
+
+- `ProgressTopBar` polls `/api/progress/active` every 5s (`useProgressPoll`).
+- SSE DOM bridge forwards only events with `clientBroadcast: true`.
+- `progress.job.*` events are not yet marked `clientBroadcast: true` — polling is the active mechanism.
+
+## Integration Test Expectations
+
+- Module-local integration tests go under `__integration__/`
+- Use helpers from `@open-mercato/core/modules/core/__integration__/helpers/*`
+- Tests must create prerequisites via API and clean up in `finally`
+
 ## MUST Rules
 
 - **Never import from provider modules** — integrations module is generic; providers import from integrations, not vice versa
@@ -110,3 +156,5 @@ For platform connectors with multiple integrations (e.g., MedusaJS):
 - **Health check services** must be registered in DI by the provider module, not by integrations
 - **API routes must export `openApi`** for documentation generation
 - **All user-facing strings** via i18n keys in `i18n/en.json`
+- **Keep ACL default export shape** consistent: `export const features = [...]; export default features`
+- **Registry/type contracts** live in `@open-mercato/shared/modules/integrations/types`

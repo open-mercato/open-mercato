@@ -242,73 +242,13 @@ src/modules/<module>/
 
 ## Integrations & Data Sync
 
-Use this section when working on:
-- `src/modules/integrations/` (foundation contracts + APIs)
-- `src/modules/data_sync/` (sync run orchestration)
-- provider modules like `src/modules/sync_medusa/`
-- docs reference:
-  - `apps/docs/docs/framework/modules/integrations-data-sync.mdx`
-  - `apps/docs/docs/api/integrations-data-sync.mdx`
-
-### Foundation Module (`integrations`)
-
-- Integration manifests are declared in provider modules via `integration.ts`:
-  - single: `export const integration`
-  - bundle: `export const bundle` + `export const integrations`
-  - for generator compatibility, keep alias exports when needed:
-    - `export const integration = integrations[0]`
-    - `export const bundles = [bundle]`
-- Registry/type contracts live in `@open-mercato/shared/modules/integrations/types`.
-- Core APIs live under `src/modules/integrations/api/`:
-  - `GET /api/integrations`
-  - `GET /api/integrations/:id`
-  - `PUT /api/integrations/:id/state`
-  - `PUT /api/integrations/:id/version`
-  - `GET/PUT /api/integrations/:id/credentials`
-  - `GET /api/integrations/logs`
-- Keep ACL default export shape consistent for generated module wiring:
-  - `export const features = [...]`
-  - `export default features`
-- Credentials fallback rules:
-  - resolve direct credentials first (`integrationId`)
-  - if missing and integration has `bundleId`, resolve bundle credentials
-- Scope all reads/writes by `{ organizationId, tenantId }`.
-
-### Data Sync Hub (`data_sync`)
-
-- Adapter contract and registry:
-  - define adapters in provider modules (`direction`, `providerKey`, `streamImport`/`streamExport`, `getMapping`, optional `validateConnection`)
-  - register adapters in provider `setup.ts` via `registerDataSyncAdapter(...)`
-- Run lifecycle APIs:
-  - `POST /api/data_sync/run`
-  - `GET /api/data_sync/runs`
-  - `GET /api/data_sync/runs/:id`
-  - `POST /api/data_sync/runs/:id/cancel`
-  - `POST /api/data_sync/runs/:id/retry`
-  - `POST /api/data_sync/validate`
-- Workers:
-  - queue names: `data-sync-import`, `data-sync-export`, `data-sync-scheduled`
-  - worker files must export `metadata` with queue + optional concurrency
-- Progress linkage:
-  - create `ProgressJob` in `run`/`retry` endpoints
-  - start/update/complete/fail in `sync-engine`
-  - include `progressJob` details in run detail response
-
-### Progress Delivery Contract (Current State)
-
-- Active progress UI (`ProgressTopBar`) currently refreshes via polling `/api/progress/active` (`useProgressPoll`, 5s interval).
-- SSE DOM bridge forwards only events with `clientBroadcast: true`.
-- `progress.job.*` and `data_sync.run.*` events are not yet marked `clientBroadcast: true`, so real-time SSE progress is not active yet.
-- Do not claim SSE-driven progress for sync runs until event definitions and client wiring are explicitly enabled.
-
-### Integration Test Expectations
-
-- Add module-local integration tests under:
-  - `src/modules/integrations/__integration__/`
-  - `src/modules/data_sync/__integration__/`
-- Use helpers from `@open-mercato/core/modules/core/__integration__/helpers/*`.
-- Tests must create prerequisites via API and clean up in `finally`.
-- Avoid hard dependency on late-phase modules (`sync_excel`, advanced provider lifecycle); keep phase A/B tests scoped to implemented contracts.
+> **Moved**: Detailed guides now live in dedicated module AGENTS.md files:
+> - `src/modules/integrations/AGENTS.md` — foundation layer (registry, credentials, state, health, logs, admin UI)
+> - `src/modules/data_sync/AGENTS.md` — sync hub (adapters, run lifecycle, workers, mappings, admin UI)
+>
+> Docs reference:
+> - `apps/docs/docs/framework/modules/integrations-data-sync.mdx`
+> - `apps/docs/docs/api/integrations-data-sync.mdx`
 
 ## Widget Injection
 
