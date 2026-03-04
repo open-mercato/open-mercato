@@ -328,6 +328,17 @@ MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
 OPENAI_API_KEY=sk-...  # Optional, for AI features
 ```
 
+### QA Preview
+
+Run the same image used on QA slots locally for testing a specific branch without a full dev setup:
+
+```bash
+docker compose -f docker-compose.preview.yaml --env-file .env.preview up --build
+```
+
+Navigate to `http://localhost:5000`. The environment resets its database on every start.
+
+
 ### VPS Deployment
 
 [![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)

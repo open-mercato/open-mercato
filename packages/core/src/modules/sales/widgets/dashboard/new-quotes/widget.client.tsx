@@ -9,6 +9,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateSalesNewQuotesSettings, type DatePeriodOption, type SalesNewQuotesSettings } from './config'
+import { readString, toDateInputValue, openNativeDatePicker, formatAmount } from '../shared'
 
 type NewQuoteItem = {
   id: string
@@ -28,10 +29,6 @@ type NewQuoteItem = {
 type NewQuotesApiPayload = {
   items?: unknown[]
   error?: string
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null
 }
 
 function parseNewQuoteItems(payload: NewQuotesApiPayload | null): NewQuoteItem[] {
@@ -85,45 +82,6 @@ async function loadNewQuotes(settings: SalesNewQuotesSettings): Promise<NewQuote
 
 function resolveDetailHref(item: NewQuoteItem): string | null {
   return item.id ? `/backend/sales/quotes/${encodeURIComponent(item.id)}` : null
-}
-
-function toDateInputValue(value: string | null | undefined): string {
-  if (!value) return ''
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-  const year = String(parsed.getFullYear())
-  const month = String(parsed.getMonth() + 1).padStart(2, '0')
-  const day = String(parsed.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function openNativeDatePicker(event: React.SyntheticEvent<HTMLInputElement>) {
-  const input = event.currentTarget
-  if (typeof input.showPicker === 'function') {
-    input.showPicker()
-  }
-}
-
-function formatAmount(value: string, currency: string | null, locale?: string): string {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return '--'
-  try {
-    if (currency && currency.trim().length > 0) {
-      return new Intl.NumberFormat(locale ?? undefined, {
-        style: 'currency',
-        currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(numeric)
-    }
-    return new Intl.NumberFormat(locale ?? undefined, {
-      style: 'decimal',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(numeric)
-  } catch {
-    return String(numeric)
-  }
 }
 
 

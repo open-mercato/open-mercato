@@ -1,0 +1,146 @@
+name: Stop QA slot on merge
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  stop-qa:
+    if: ${{ github.event.action == 'closed' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Detect QA slot label
+        id: slot
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request.number;
+
+            const { data: labels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr,
+              per_page: 100,
+            });
+
+            const names = labels.map(l => l.name);
+            core.info(`Current PR labels: ${names.join(', ') || '(none)'}`);
+
+            let slot = "";
+            if (names.includes("qa:qa1")) slot = "qa1";
+            if (names.includes("qa:qa2")) slot = "qa2";
+
+            core.setOutput("slot", slot);
+
+      - name: Skip if no QA label
+        if: ${{ steps.slot.outputs.slot == '' }}
+        run: echo "No qa:qa1/qa:qa2 label -> nothing to stop."
+
+      - name: Resolve Dokploy applicationId
+        if: ${{ steps.slot.outputs.slot != '' }}
+        id: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.slot.outputs.slot }}" == "qa1" ]]; then
+            APP_ID="${{ vars.DOKPLOY_APP_ID_QA1 }}"
+          else
+            APP_ID="${{ vars.DOKPLOY_APP_ID_QA2 }}"
+          fi
+
+          if [[ -z "$APP_ID" ]]; then
+            echo "Missing Dokploy app id for slot=${{ steps.slot.outputs.slot }}" >&2
+            exit 1
+          fi
+
+          echo "app_id=$APP_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Get expected image from PR comments
+        if: ${{ steps.slot.outputs.slot != '' }}
+        id: expected
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request.number;
+            const slot = "${{ steps.slot.outputs.slot }}";
+            const markerPrefix = `<!-- dokploy-qa slot=${slot} image=`;
+            const markerSuffix = ` -->`;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr,
+              per_page: 100,
+            });
+
+            for (let i = comments.length - 1; i >= 0; i--) {
+              const body = comments[i].body || "";
+              const start = body.indexOf(markerPrefix);
+              if (start === -1) continue;
+
+              const after = body.substring(start + markerPrefix.length);
+              const end = after.indexOf(markerSuffix);
+              if (end === -1) continue;
+
+              const image = after.substring(0, end).trim();
+              if (image) {
+                core.info(`Found expected image marker: ${image}`);
+                core.setOutput("image", image);
+                return;
+              }
+            }
+
+            core.setFailed(`No dokploy-qa marker found for slot=${slot} in PR comments. Refusing to stop.`);
+
+      - name: Get current Dokploy application config and compare dockerImage
+        if: ${{ steps.slot.outputs.slot != '' }}
+        id: current
+        shell: bash
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          APP_ID: ${{ steps.app.outputs.app_id }}
+          EXPECTED_IMAGE: ${{ steps.expected.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          RESP="$(curl -fsS -X GET "${DOKPLOY_URL}/api/application.one?applicationId=${APP_ID}" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}")"
+
+          CURRENT_IMAGE="$(echo "$RESP" | jq -r '.dockerImage // empty')"
+
+          echo "expected=${EXPECTED_IMAGE}"
+          echo "current=${CURRENT_IMAGE}"
+
+          if [[ -z "$CURRENT_IMAGE" ]]; then
+            echo "Could not read dockerImage from Dokploy response. Refusing to stop." >&2
+            exit 1
+          fi
+
+          if [[ "$CURRENT_IMAGE" != "$EXPECTED_IMAGE" ]]; then
+            echo "Slot image changed since this PR deploy. Skipping stop."
+            echo "should_stop=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_stop=true" >> "$GITHUB_OUTPUT"
+
+      - name: Stop Dokploy application
+        if: ${{ steps.current.outputs.should_stop == 'true' }}
+        shell: bash
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          APP_ID: ${{ steps.app.outputs.app_id }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST "${DOKPLOY_URL}/api/application.stop" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"applicationId\":\"${APP_ID}\"}"

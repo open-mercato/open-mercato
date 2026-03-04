@@ -311,6 +311,7 @@ const sidebars: SidebarsConfig = {
             "framework/events/queue-workers",
           ],
         },
+        "framework/webhooks/overview",
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
         "framework/feature-toggles/overview",
