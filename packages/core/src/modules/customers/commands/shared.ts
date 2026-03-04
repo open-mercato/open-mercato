@@ -32,7 +32,13 @@ export async function requireCustomerEntity(
   message = 'Customer entity not found'
 ): Promise<CustomerEntity> {
   const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
-  if (!entity) throw new CrudHttpError(404, { error: message })
+  if (!entity) {
+    const isDeal = await em.findOne(CustomerDeal, { id, deletedAt: null })
+    if (isDeal) {
+      throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
+    }
+    throw new CrudHttpError(404, { error: message })
+  }
   if (kind && entity.kind !== kind) {
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
   }

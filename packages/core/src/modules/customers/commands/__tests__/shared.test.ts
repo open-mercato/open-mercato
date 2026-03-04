@@ -1,7 +1,9 @@
 import * as shared from '../shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
+  CustomerDeal,
   CustomerDictionaryEntry,
+  CustomerEntity,
   CustomerTag,
   CustomerTagAssignment,
 } from '../../data/entities'
@@ -12,6 +14,7 @@ const {
   ensureSameScope,
   extractUndoPayload,
   assertFound,
+  requireCustomerEntity,
   ensureDictionaryEntry,
   loadEntityTagIds,
   syncEntityTags,
@@ -61,6 +64,40 @@ describe('customers commands shared utilities', () => {
       const record = { id: '123' }
       expect(assertFound(record, 'Missing')).toBe(record)
       expect(() => assertFound(null, 'Missing')).toThrow(CrudHttpError)
+    })
+  })
+
+  describe('requireCustomerEntity', () => {
+    const personEntity = Object.assign(new CustomerEntity(), { id: 'person-1', kind: 'person' })
+
+    it('returns the entity when a valid person or company ID is provided', async () => {
+      const em = { findOne: jest.fn().mockResolvedValue(personEntity) }
+      const result = await requireCustomerEntity(em as any, 'person-1')
+      expect(result).toBe(personEntity)
+    })
+
+    it('throws 404 when entity is not found and the ID is not a deal', async () => {
+      const em = { findOne: jest.fn().mockResolvedValue(null) }
+      await expect(requireCustomerEntity(em as any, 'unknown-id')).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('throws 422 with a descriptive message when entityId references a deal', async () => {
+      const dealRecord = Object.assign(new CustomerDeal(), { id: 'deal-1', deletedAt: null })
+      const em = {
+        findOne: jest.fn(async (model: unknown) => {
+          if (model === CustomerDeal) return dealRecord
+          return null
+        }),
+      }
+      const error = await requireCustomerEntity(em as any, 'deal-1').catch((e) => e)
+      expect(error).toBeInstanceOf(CrudHttpError)
+      expect(error.status).toBe(422)
+      expect(error.body.error).toMatch(/person or company/)
+    })
+
+    it('throws 400 when entity kind does not match the required kind', async () => {
+      const em = { findOne: jest.fn().mockResolvedValue(personEntity) }
+      await expect(requireCustomerEntity(em as any, 'person-1', 'company')).rejects.toMatchObject({ status: 400 })
     })
   })
 
