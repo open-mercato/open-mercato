@@ -12,7 +12,7 @@ All examples assume:
 ```bash
 export BASE_URL="http://localhost:3000/api"
 export API_KEY="<paste your API key secret here>"
-export INTEGRATION_ID="sync_medusa_products"
+export INTEGRATION_ID="<your-integration-id>"
 ```
 
 ## Shared conventions
@@ -105,8 +105,8 @@ curl -X PUT "$BASE_URL/integrations/$INTEGRATION_ID/credentials" \
   -H "Content-Type: application/json" \
   -d '{
     "credentials": {
-      "medusaApiUrl": "https://api.example.com",
-      "medusaApiKey": "secret"
+      "apiUrl": "https://api.example.com",
+      "apiKey": "secret"
     }
   }'
 ```
@@ -146,7 +146,7 @@ curl -X POST "$BASE_URL/data_sync/validate" \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "integrationId": "sync_medusa_products",
+    "integrationId": "my_integration_products",
     "entityType": "catalog.product",
     "direction": "import"
   }'
@@ -172,7 +172,7 @@ curl -X POST "$BASE_URL/data_sync/run" \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "integrationId": "sync_medusa_products",
+    "integrationId": "my_integration_products",
     "entityType": "catalog.product",
     "direction": "import",
     "batchSize": 100
