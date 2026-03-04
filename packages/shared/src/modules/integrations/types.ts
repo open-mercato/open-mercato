@@ -17,11 +17,72 @@ export interface IntegrationDefinition {
   /** Human-readable name */
   title: string
 
+  /** Optional short description shown in integration UIs */
+  description?: string
+
+  /** Optional category, e.g. payment, shipping, communication */
+  category?: string
+
+  /** Optional hub module id, e.g. payment_gateways */
+  hub?: string
+
+  /** Optional provider key used by category hubs */
+  providerKey?: string
+
   /** Optional icon identifier for rendering */
   icon?: string
 
+  /** Optional documentation URL for setup/integration guides */
+  docsUrl?: string
+
+  /** Optional npm package name owning this integration */
+  package?: string
+
+  /** Optional integration version */
+  version?: string
+
+  /** Optional integration author */
+  author?: string
+
+  /** Optional integration license */
+  license?: string
+
+  /** Optional searchable tag list */
+  tags?: string[]
+
+  /** Optional API versions exposed by this integration */
+  apiVersions?: IntegrationApiVersion[]
+
+  /** Optional credential schema for dynamic forms */
+  credentials?: IntegrationCredentialsSchema
+
   /** Build a URL to the record in the external system. Used in detail page badges. */
   buildExternalUrl?: (externalId: string) => string
+}
+
+export interface IntegrationApiVersion {
+  id: string
+  label: string
+  status?: 'stable' | 'deprecated' | 'beta' | 'alpha'
+  default?: boolean
+  deprecatedAt?: string
+  sunsetAt?: string
+  migrationGuide?: string
+  changelog?: string
+}
+
+export interface IntegrationCredentialsSchema {
+  fields: IntegrationCredentialField[]
+}
+
+export interface IntegrationCredentialField {
+  key: string
+  label: string
+  type: 'text' | 'secret' | 'number' | 'boolean' | 'select' | 'textarea' | 'url'
+  required?: boolean
+  placeholder?: string
+  description?: string
+  options?: Array<{ value: string; label: string }>
 }
 
 /**

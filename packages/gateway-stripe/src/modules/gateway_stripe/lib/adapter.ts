@@ -18,7 +18,7 @@ import { stripeGatewaySettingsSchema } from '../data/validators'
 import { resolveStripeCredentials } from './credentials'
 import { mapStripeStatus } from './status-map'
 
-const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2024-12-18.acacia'
+const STRIPE_API_VERSION: Stripe.LatestApiVersion = '2026-02-25.clover'
 
 function toAmountMinor(value: number): number {
   return Math.round(Math.max(0, value) * 100)
@@ -82,7 +82,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
       customer_email: input.customerEmail,
-      payment_method_types: resolveMethodTypes(input, settings),
+      payment_method_types: resolveMethodTypes(input, settings) as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
       allow_promotion_codes: settings.allowPromotionCodes,
       line_items: resolveLineItems(input),
       locale: input.locale as Stripe.Checkout.SessionCreateParams.Locale | undefined,
@@ -229,7 +229,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
 
     const payload = typeof input.rawBody === 'string' ? input.rawBody : input.rawBody.toString('utf8')
     const event = stripe.webhooks.constructEvent(payload, signature, credentials.webhookSecret)
-    const object = (event.data.object ?? {}) as Record<string, unknown>
+    const object = ((event.data.object ?? {}) as unknown) as Record<string, unknown>
 
     const sessionId =
       typeof object.id === 'string'

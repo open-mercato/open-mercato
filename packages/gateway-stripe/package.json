@@ -62,7 +62,7 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "stripe": "^18.6.0",
+    "stripe": "^20.4.0",
     "zod": "^4.1.13"
   },
   "devDependencies": {

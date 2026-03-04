@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createGatewaySession } from '@open-mercato/core/modules/payment_gateways/lib/payment-gateway-service'
-import { stripeGatewaySettingsSchema } from '../../../../data/validators'
+import { stripeGatewaySettingsSchema } from '../../../../../data/validators'
 
 const requestSchema = z.object({
   amount: z.coerce.number().positive().max(999999),
@@ -43,6 +43,9 @@ export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (!auth.orgId) {
+    return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
   }
 
   const body = await req.json().catch(() => ({}))
@@ -99,7 +102,10 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Create hosted Stripe checkout session',
       description: 'Creates a Stripe Checkout session and returns a redirect URL for payment.',
-      bodySchema: requestSchema,
+      requestBody: {
+        schema: requestSchema,
+        description: 'Stripe checkout session request body.',
+      },
       responses: [
         { status: 201, description: 'Checkout session created', schema: responseSchema },
       ],

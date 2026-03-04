@@ -5563,6 +5563,21 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/gateway-stripe@workspace:packages/gateway-stripe":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/gateway-stripe@workspace:packages/gateway-stripe"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    stripe: "npm:^20.4.0"
+    ts-jest: "npm:^29.4.6"
+    zod: "npm:^4.1.13"
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/onboarding@workspace:*, @open-mercato/onboarding@workspace:packages/onboarding":
   version: 0.0.0-use.local
   resolution: "@open-mercato/onboarding@workspace:packages/onboarding"
@@ -24343,6 +24358,18 @@ __metadata:
   version: 2.0.1
   resolution: "strip-json-comments@npm:2.0.1"
   checksum: 10/1074ccb63270d32ca28edfb0a281c96b94dc679077828135141f27d52a5a398ef5e78bcf22809d23cadc2b81dfbe345eb5fd8699b385c8b1128907dec4a7d1e1
+  languageName: node
+  linkType: hard
+
+"stripe@npm:^20.4.0":
+  version: 20.4.0
+  resolution: "stripe@npm:20.4.0"
+  peerDependencies:
+    "@types/node": ">=16"
+  peerDependenciesMeta:
+    "@types/node":
+      optional: true
+  checksum: 10/c007b90c117abe8a21ea16efd0f0defc3a1f9d9b2e481b3e36f91739177d877a7723c8961aa5a2acc8ee0b29513a10cb80205133f1636c5ecaab50f5f07765b6
   languageName: node
   linkType: hard
 
