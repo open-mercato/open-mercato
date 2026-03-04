@@ -163,14 +163,35 @@ interface IntegrationBundle {
   healthCheck?: IntegrationHealthCheckConfig
 }
 
+/**
+ * Backward-compatible base definition used by existing modules.
+ * Existing fields stay unchanged; marketplace metadata is additive and optional.
+ */
 interface IntegrationDefinition {
-  // ... existing fields ...
+  id: string
+  title: string
+  icon?: string
+  buildExternalUrl?: (externalId: string) => string
 
   /** If this integration belongs to a bundle, the bundle ID */
   bundleId?: string
 
   /** External API versions this integration supports (omit for unversioned integrations) */
   apiVersions?: ApiVersionDefinition[]
+
+  /** Marketplace metadata (all optional for BC) */
+  description?: string
+  category?: string
+  hub?: string
+  providerKey?: string
+  docsUrl?: string
+  package?: string
+  version?: string
+  author?: string
+  license?: string
+  tags?: string[]
+  credentials?: IntegrationCredentialsSchema
+  healthCheck?: IntegrationHealthCheckConfig
 }
 
 /** Declares one supported external API version for an integration */
@@ -193,6 +214,8 @@ interface ApiVersionDefinition {
   migrationGuide?: string
 }
 ```
+
+**Backward-compatibility rule:** the base `IntegrationDefinition` contract remains permissive. Marketplace APIs validate required operational fields (`category`, `hub`, `providerKey`, `credentials`) at registration/runtime, not by narrowing the shared type in a breaking way.
 
 #### Bundle UX in Admin Panel
 
@@ -1816,3 +1839,69 @@ integrations.detail:tabs              # Integration-level tabs
 19. Add deprecation sunset check to health check worker
 20. Run `yarn db:generate` for migrations
 21. Integration tests: credentials CRUD, bundle fallthrough, state toggle, OAuth flow, SSH key generation, version selection, logs query, log pruning, API security, cross-tenant isolation
+
+---
+
+## 13. Migration & Backward Compatibility
+
+### 13.1 Type Contract Bridge
+
+- Keep `IntegrationDefinition` backward-compatible for existing callers of `registerIntegration(...)`.
+- New metadata fields are optional in shared types.
+- Marketplace registration validates operational completeness and returns actionable 422 errors when mandatory runtime fields are missing.
+
+### 13.2 Registry Bootstrapping Bridge
+
+- Existing manual `registerIntegration(...)` usage remains supported.
+- New generator-based discovery (`integration.ts`) is additive; both mechanisms can coexist during migration.
+
+### 13.3 Payment Credential Bridge (cross-phase with SPEC-045c)
+
+- `integrationCredentials.resolve(...)` first, legacy `providerSettings` fallback second.
+- Config writes update both stores during bridge window.
+- Legacy fallback removal only after one minor version and documented release notes.
+
+### 13.4 Generated Contract Stability
+
+- New generated outputs for integration discovery are additive-only.
+- Existing generated exports used by bootstrap must remain unchanged.
+
+---
+
+## 14. Final Compliance Report — 2026-03-04
+
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `packages/core/AGENTS.md`
+- `packages/shared/AGENTS.md`
+- `packages/ui/AGENTS.md`
+- `packages/cli/AGENTS.md`
+- `packages/events/AGENTS.md`
+- `packages/queue/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|-------------|------|--------|-------|
+| backward | Type/interface changes must be additive | Compliant | `IntegrationDefinition` kept backward-compatible |
+| backward | API routes stable/additive | Compliant | New routes under `/api/integrations/*` are additive |
+| core | setup.ts defaultRoleFeatures for acl.ts features | Compliant | `integrations.view/manage/credentials` included |
+| core | API routes export `openApi` | Compliant | Required for all new routes |
+| shared | No breaking changes in shared contract exports | Compliant | New fields optional, no required field removals |
+
+### Verdict
+
+**Compliant with bridge-first rollout requirements.**
+
+---
+
+## 15. Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-02-24 | Initial foundation draft |
+| 2026-02-24 | Added OAuth credential type + token refresh workflow |
+| 2026-02-24 | Added SSH keypair credential type |
+| 2026-02-24 | Added widget injection on integration detail pages |
+| 2026-03-04 | Added explicit migration/BC bridges, backward-compatible `IntegrationDefinition` contract guidance, and phase-level compliance report |
