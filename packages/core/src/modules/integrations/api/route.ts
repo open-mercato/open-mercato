@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CredentialsService } from '../lib/credentials-service'
 import type { IntegrationStateService } from '../lib/state-service'
-import { getAllIntegrations } from '@open-mercato/shared/modules/integrations/types'
+import { getAllBundles, getAllIntegrations } from '@open-mercato/shared/modules/integrations/types'
 import { buildIntegrationsCrudOpenApi, createPagedListResponseSchema, integrationInfoSchema } from './openapi'
 
 export const metadata = {
@@ -20,7 +20,7 @@ export const openApi = buildIntegrationsCrudOpenApi({
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 100, totalPages: 1 }, { status: 401 })
+    return NextResponse.json({ items: [], bundles: [], total: 0, page: 1, pageSize: 100, totalPages: 1 }, { status: 401 })
   }
 
   const container = await createRequestContainer()
@@ -48,8 +48,23 @@ export async function GET(req: Request) {
     }),
   )
 
+  const bundles = getAllBundles().map((bundle) => {
+    const bundleIntegrations = rows.filter((row) => row.bundleId === bundle.id)
+    const enabledCount = bundleIntegrations.reduce((count, integration) => count + (integration.isEnabled ? 1 : 0), 0)
+
+    return {
+      id: bundle.id,
+      title: bundle.title,
+      description: bundle.description,
+      icon: bundle.icon ?? null,
+      integrationCount: bundleIntegrations.length,
+      enabledCount,
+    }
+  })
+
   return NextResponse.json({
     items: rows,
+    bundles,
     total: rows.length,
     page: 1,
     pageSize: 100,
