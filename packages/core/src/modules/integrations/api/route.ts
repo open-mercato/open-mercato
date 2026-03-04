@@ -30,8 +30,8 @@ export async function GET(req: Request) {
   const rows = await Promise.all(
     getAllIntegrations().map(async (integration) => {
       const [resolvedCredentials, state] = await Promise.all([
-        credentialsService.resolve(integration.id, { organizationId: auth.orgId as string, tenantId: auth.tenantId }),
-        stateService.get(integration.id, { organizationId: auth.orgId as string, tenantId: auth.tenantId }),
+        credentialsService.resolve(integration.id, { organizationId: auth.orgId as string, tenantId: auth.tenantId as string }),
+        stateService.get(integration.id, { organizationId: auth.orgId as string, tenantId: auth.tenantId as string }),
       ])
 
       return {

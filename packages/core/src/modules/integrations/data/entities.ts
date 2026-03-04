@@ -1,9 +1,10 @@
-import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Index, OptionalProps } from '@mikro-orm/core'
 
 @Entity({ tableName: 'sync_external_id_mappings' })
 @Index({ properties: ['internalEntityType', 'internalEntityId', 'organizationId'] })
 @Index({ properties: ['integrationId', 'externalId', 'organizationId'] })
 export class SyncExternalIdMapping {
+  [OptionalProps]?: 'syncStatus' | 'lastSyncedAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -44,6 +45,7 @@ export class SyncExternalIdMapping {
 @Entity({ tableName: 'integration_credentials' })
 @Index({ properties: ['integrationId', 'organizationId', 'tenantId'] })
 export class IntegrationCredentials {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -72,6 +74,7 @@ export class IntegrationCredentials {
 @Entity({ tableName: 'integration_states' })
 @Index({ properties: ['integrationId', 'organizationId', 'tenantId'] })
 export class IntegrationState {
+  [OptionalProps]?: 'isEnabled' | 'apiVersion' | 'reauthRequired' | 'lastHealthStatus' | 'lastHealthCheckedAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -113,6 +116,7 @@ export class IntegrationState {
 @Index({ properties: ['integrationId', 'organizationId', 'tenantId', 'createdAt'] })
 @Index({ properties: ['level', 'organizationId', 'tenantId', 'createdAt'] })
 export class IntegrationLog {
+  [OptionalProps]?: 'runId' | 'scopeEntityType' | 'scopeEntityId' | 'code' | 'payload' | 'createdAt'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
