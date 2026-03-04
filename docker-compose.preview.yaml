@@ -9,5 +9,9 @@ services:
       - "5000:5001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
