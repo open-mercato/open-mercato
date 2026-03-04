@@ -44,6 +44,9 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Users/roles/RBAC implementation, authentication flow, session management, feature-based access control | `packages/core/src/modules/auth/AGENTS.md` |
 | Multi-currency support, exchange rates, dual currency recording, realized gains/losses | `packages/core/src/modules/currencies/AGENTS.md` |
 | Workflow automation, defining step-based workflows, executing instances, user tasks, async activities, event triggers, signals, compensation (saga pattern), visual editor | `packages/core/src/modules/workflows/AGENTS.md` |
+| Integration Marketplace foundation (registry/bundles, credentials, state, logs, integration manifests) | `packages/core/AGENTS.md` → Integrations & Data Sync |
+| Data Sync hub (run lifecycle, adapters, workers, retry/cancel/validate APIs, progress linkage) | `packages/core/AGENTS.md` → Integrations & Data Sync + `packages/queue/AGENTS.md` |
+| Wiring progress UX for long-running sync operations (top bar polling, job lifecycle, future SSE bridge) | `packages/core/AGENTS.md` → Integrations & Data Sync + `packages/events/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
 | Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` |
