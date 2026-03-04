@@ -3,7 +3,7 @@ import type { Knex } from 'knex'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
-import { NOTIFICATION_EVENTS } from './events'
+import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from './events'
 import {
   buildNotificationEntity,
   emitNotificationCreated,
@@ -73,6 +73,29 @@ function applyNotificationContent(
   notification.actionTaken = null
   notification.actionResult = null
   notification.createdAt = new Date()
+}
+
+async function emitNotificationSseEvents(
+  eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
+  notifications: Notification[],
+  ctx: NotificationServiceContext,
+  recipientUserIds: string[],
+): Promise<void> {
+  await eventBus.emit(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, {
+    tenantId: ctx.tenantId,
+    organizationId: normalizeOrgScope(ctx.organizationId),
+    recipientUserIds,
+    count: notifications.length,
+  })
+
+  for (const notification of notifications) {
+    await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
+      tenantId: notification.tenantId,
+      organizationId: notification.organizationId ?? null,
+      recipientUserId: notification.recipientUserId,
+      notification: toNotificationDto(notification),
+    })
+  }
 }
 
 async function createOrRefreshNotification(
@@ -171,6 +194,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       })
 
       await emitNotificationCreated(eventBus, notification, ctx)
+      await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
+        tenantId: notification.tenantId,
+        organizationId: notification.organizationId ?? null,
+        recipientUserId: notification.recipientUserId,
+        notification: toNotificationDto(notification),
+      })
 
       return notification
     },
@@ -190,6 +219,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
+      await emitNotificationSseEvents(eventBus, notifications, ctx, recipientUserIds)
 
       return notifications
     },
@@ -217,6 +247,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
+      await emitNotificationSseEvents(eventBus, notifications, ctx, uniqueRecipientUserIds)
 
       return notifications
     },
@@ -247,6 +278,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       })
 
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
+      await emitNotificationSseEvents(eventBus, notifications, ctx, uniqueRecipientUserIds)
 
       return notifications
     },

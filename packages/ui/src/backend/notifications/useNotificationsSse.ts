@@ -5,14 +5,26 @@ import {
   subscribeNotificationNew,
   emitNotificationCountChanged,
 } from '@open-mercato/shared/lib/frontend/notificationEvents'
+import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { useAppEvent } from '../injection/useAppEvent'
 import {
   dispatchNotificationHandlers,
   getRequiredNotificationHandlerFeatures,
 } from './NotificationDispatcher'
 import { useNotificationActions } from './useNotificationActions'
 
-export type UseNotificationsPollResult = {
+type NotificationCreatedPayload = {
+  recipientUserId?: string
+  notification?: NotificationDto
+}
+
+type NotificationBatchCreatedPayload = {
+  recipientUserIds?: string[]
+  count?: number
+}
+
+export type UseNotificationsSseResult = {
   notifications: NotificationDto[]
   unreadCount: number
   hasNew: boolean
@@ -27,9 +39,7 @@ export type UseNotificationsPollResult = {
   markAllRead: () => Promise<void>
 }
 
-const POLL_INTERVAL = 5000
-
-export function useNotificationsPoll(): UseNotificationsPollResult {
+export function useNotificationsSse(): UseNotificationsSseResult {
   const [notifications, setNotifications] = React.useState<NotificationDto[]>([])
   const [unreadCount, setUnreadCount] = React.useState(0)
   const [hasNew, setHasNew] = React.useState(false)
@@ -57,35 +67,21 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
       ])
 
       if (notifResult.ok && notifResult.result) {
-        const newNotifications = notifResult.result.items
-
-        if (lastIdRef.current && newNotifications.length > 0) {
-          const firstId = newNotifications[0].id
-          if (firstId !== lastIdRef.current) {
-            setHasNew(true)
-            setTimeout(() => setHasNew(false), 3000)
-          }
-        }
-
-        if (newNotifications.length > 0) {
-          lastIdRef.current = newNotifications[0].id
-        }
-
-        setNotifications(newNotifications)
-
-        if (newNotifications.length > 0) {
-          dispatchNotificationHandlers(newNotifications, {
+        const fetched = notifResult.result.items
+        setNotifications(fetched)
+        if (fetched.length > 0) {
+          lastIdRef.current = fetched[0].id
+          dispatchNotificationHandlers(fetched, {
             features: grantedFeaturesRef.current,
             currentPath:
               typeof window === 'undefined'
                 ? '/'
                 : `${window.location.pathname}${window.location.search}`,
             refreshNotifications: () => {
-              void fetchNotifications()
+              // No-op: data was just fetched — avoid redundant refetch loop.
             },
             navigate: (href) => {
-              if (typeof window === 'undefined') return
-              if (!href.startsWith('/')) return
+              if (typeof window === 'undefined' || !href.startsWith('/')) return
               window.location.assign(href)
             },
             markAsRead: async (notificationId) => markAsReadRef.current(notificationId),
@@ -95,12 +91,7 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
       }
 
       if (countResult.ok && countResult.result) {
-        const newCount = countResult.result.unreadCount
-        if (newCount !== prevUnreadRef.current) {
-          setUnreadCount(newCount)
-          prevUnreadRef.current = newCount
-          emitNotificationCountChanged(newCount)
-        }
+        setUnreadCount(countResult.result.unreadCount)
       }
 
       setError(null)
@@ -112,7 +103,7 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
   }, [])
 
   const refresh = React.useCallback(() => {
-    fetchNotifications()
+    void fetchNotifications()
   }, [fetchNotifications])
 
   React.useEffect(() => {
@@ -129,9 +120,7 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
         body: JSON.stringify({ features: requiredFeatures }),
       })
       if (!mounted) return
-      grantedFeaturesRef.current = response.ok
-        ? (response.result?.granted ?? [])
-        : []
+      grantedFeaturesRef.current = response.ok ? (response.result?.granted ?? []) : []
     }
     void run()
     return () => {
@@ -140,15 +129,79 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
   }, [])
 
   React.useEffect(() => {
-    fetchNotifications()
-    const interval = setInterval(fetchNotifications, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    void fetchNotifications()
   }, [fetchNotifications])
 
   React.useEffect(() => {
     const unsub = subscribeNotificationNew(() => refresh())
     return unsub
   }, [refresh])
+
+  React.useEffect(() => {
+    if (unreadCount === prevUnreadRef.current) return
+    prevUnreadRef.current = unreadCount
+    emitNotificationCountChanged(unreadCount)
+  }, [unreadCount])
+
+  useAppEvent(
+    'notifications.notification.created',
+    (event: AppEventPayload) => {
+      const payload = event.payload as NotificationCreatedPayload
+      const notification = payload?.notification
+      if (!notification || !notification.id) {
+        void fetchNotifications()
+        return
+      }
+      if (notification.id === lastIdRef.current) return
+      lastIdRef.current = notification.id
+      setNotifications((prev) => [notification, ...prev.filter((item) => item.id !== notification.id)].slice(0, 50))
+      if (notification.status === 'unread') {
+        setUnreadCount((prev) => prev + 1)
+      }
+      setHasNew(true)
+      window.setTimeout(() => setHasNew(false), 3000)
+      dispatchNotificationHandlers([notification], {
+        features: grantedFeaturesRef.current,
+        currentPath:
+          typeof window === 'undefined'
+            ? '/'
+            : `${window.location.pathname}${window.location.search}`,
+        refreshNotifications: () => {
+          // No-op: notification was already applied optimistically from the SSE payload.
+          // Full refetch is only needed for batch_created, reconnect, or missing payload.
+        },
+        navigate: (href) => {
+          if (typeof window === 'undefined' || !href.startsWith('/')) return
+          window.location.assign(href)
+        },
+        markAsRead: async (notificationId) => markAsReadRef.current(notificationId),
+        dismiss: async (notificationId) => dismissRef.current(notificationId),
+      })
+    },
+    [fetchNotifications],
+  )
+
+  useAppEvent(
+    'notifications.notification.batch_created',
+    (event: AppEventPayload) => {
+      const payload = event.payload as NotificationBatchCreatedPayload
+      if (!payload || typeof payload !== 'object') return
+      void fetchNotifications()
+    },
+    [fetchNotifications],
+  )
+
+  useAppEvent('om:bridge:reconnected', () => {
+    void fetchNotifications()
+  }, [fetchNotifications])
+
+  React.useEffect(() => {
+    const onFocus = () => {
+      void fetchNotifications()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [fetchNotifications])
 
   return {
     notifications,

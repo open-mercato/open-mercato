@@ -3,7 +3,7 @@ import * as React from 'react'
 import { Bell } from 'lucide-react'
 import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useNotificationsPoll } from './useNotificationsPoll'
+import { useNotifications } from './useNotifications'
 import { NotificationPanel } from './NotificationPanel'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRenderers } from './NotificationPanel'
@@ -26,7 +26,7 @@ export function NotificationBell({ className, t, customRenderers }: Notification
     dismissUndo,
     undoDismiss,
     markAllRead,
-  } = useNotificationsPoll()
+  } = useNotifications()
   const prevCountRef = React.useRef(unreadCount)
   const [pulse, setPulse] = React.useState(false)
 

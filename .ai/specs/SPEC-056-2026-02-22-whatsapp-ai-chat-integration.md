@@ -1,4 +1,4 @@
-# SPEC-037: WhatsApp external communication + AI chat integration
+# SPEC-056: WhatsApp external communication + AI chat integration
 
 **Date**: 2026-02-22  
 **Status**: Ready for implementation  
@@ -518,7 +518,7 @@ All request/response bodies validated with Zod (schemas in `data/validators.ts`)
 | packages/core/AGENTS.md | API routes export openApi | Compliant | Spec requires openApi for all routes. |
 | packages/core/AGENTS.md | Module structure (index, acl, setup, events, data/entities) | Compliant | Hub communication_channels with entities, events, workers; spoke channel_whatsapp with adapter, integration.ts (SPEC-045d). |
 | packages/events/AGENTS.md | Event bus, subscribers, workers | Compliant | Events emitted from webhook/worker; worker subscribes or uses queue. |
-| .ai/specs/AGENTS.md | Spec naming, changelog, required sections | Compliant | SPEC-037, changelog maintained, all sections present. |
+| .ai/specs/AGENTS.md | Spec naming, changelog, required sections | Compliant | SPEC-056, changelog maintained, all sections present. |
 
 ### Internal Consistency Check
 

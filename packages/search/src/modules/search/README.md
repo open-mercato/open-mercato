@@ -7,9 +7,22 @@ The search module provides unified search capabilities across all entities in Op
 - **Multi-strategy search**: Combines full-text search (Meilisearch), vector-based semantic search, and token matching
 - **Automatic indexing**: Subscribes to entity events for real-time index updates
 - **Queue-based processing**: Supports async batch processing via Redis/BullMQ for high-volume indexing
+- **Topbar progress integration**: Fulltext and vector reindex operations create `progress_jobs` entries and stream updates to the global progress bar
 - **Configurable embeddings**: Supports OpenAI, Ollama, and other embedding providers
 - **Tenant-scoped**: All indexes are scoped by tenant and optionally by organization
 - **Admin-configurable**: Global search (Cmd+K) strategies can be configured per-tenant
+
+## Reindex Progress and SSE
+
+Search reindex endpoints now integrate with the Progress module:
+
+- `POST /api/search/reindex` (fulltext) creates/updates a progress job with `jobType = search.reindex.fulltext`
+- `POST /api/search/embeddings/reindex` (vector) creates/updates a progress job with `jobType = search.reindex.vector`
+- Queue workers increment progress as batches are processed and complete jobs when totals are reached
+- The backend topbar (`ProgressTopBar`) receives real-time updates via SSE (`progress.job.*` events), so no periodic polling is required for progress updates
+- Search settings sections (`FulltextSearchSection`, `VectorSearchSection`) now refresh logs/settings on `progress.job.*` and `om:bridge:reconnected` events instead of 5s polling loops
+
+Cancellation endpoints (`/api/search/reindex/cancel`, `/api/search/embeddings/reindex/cancel`) now also cancel the corresponding progress job.
 
 ## Global Search Settings
 
