@@ -24,7 +24,8 @@ import {
   listPaymentProviders,
   type PaymentProvider,
 } from '../lib/providers'
-import { isRecord, renderProviderFieldInput } from './ProviderFieldInput'
+import { isRecord } from '@open-mercato/shared/lib/utils'
+import { renderProviderFieldInput } from './ProviderFieldInput'
 
 type PaymentMethodRow = {
   id: string

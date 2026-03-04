@@ -2,11 +2,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { isRecord } from '@open-mercato/shared/lib/utils'
 import type { ProviderSettingField } from '../lib/providers'
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
 
 export function renderProviderFieldInput(opts: {
   field: ProviderSettingField

@@ -18,7 +18,7 @@ export async function resolveWidgetScope(
 ): Promise<WidgetScopeContext> {
   const auth = await getAuthFromRequest(req)
   if (!auth) {
-    throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
+    throw new CrudHttpError(401, { error: translate('dashboards.errors.unauthorized', 'Unauthorized') })
   }
 
   const container = await createRequestContainer()
@@ -26,7 +26,7 @@ export async function resolveWidgetScope(
 
   const tenantId = overrides?.tenantId ?? auth.tenantId ?? null
   if (!tenantId) {
-    throw new CrudHttpError(400, { error: translate('customers.errors.tenant_required', 'Tenant context is required') })
+    throw new CrudHttpError(400, { error: translate('dashboards.errors.tenant_required', 'Tenant context is required') })
   }
 
   const organizationIds = (() => {
@@ -39,7 +39,7 @@ export async function resolveWidgetScope(
   })()
 
   if (organizationIds !== null && organizationIds.length === 0) {
-    throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    throw new CrudHttpError(400, { error: translate('dashboards.errors.organization_required', 'Organization context is required') })
   }
 
   const em = (container.resolve('em') as EntityManager)

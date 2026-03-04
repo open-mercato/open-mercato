@@ -1,7 +1,8 @@
 /**
  * @jest-environment node
  */
-import { readString, toDateInputValue, formatAmount } from '../shared'
+import type React from 'react'
+import { readString, toDateInputValue, formatAmount, openNativeDatePicker } from '../shared'
 
 describe('sales dashboard shared helpers', () => {
   describe('readString', () => {
@@ -76,6 +77,20 @@ describe('sales dashboard shared helpers', () => {
     it('returns plain number string on Intl error', () => {
       const result = formatAmount('100', 'INVALID_CURRENCY_CODE_THAT_DOES_NOT_EXIST', 'en-US')
       expect(result).toBe('100')
+    })
+  })
+
+  describe('openNativeDatePicker', () => {
+    it('calls showPicker when available', () => {
+      const showPicker = jest.fn()
+      const event = { currentTarget: { showPicker } } as unknown as React.SyntheticEvent<HTMLInputElement>
+      openNativeDatePicker(event)
+      expect(showPicker).toHaveBeenCalledTimes(1)
+    })
+
+    it('does nothing when showPicker is not available', () => {
+      const event = { currentTarget: {} } as unknown as React.SyntheticEvent<HTMLInputElement>
+      expect(() => openNativeDatePicker(event)).not.toThrow()
     })
   })
 })

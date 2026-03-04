@@ -42,7 +42,7 @@ const { GET, metadata, openApi } = makeDashboardWidgetRoute({
     netAmount: (order.grandTotalNetAmount as string) ?? '0',
     grossAmount: (order.grandTotalGrossAmount as string) ?? '0',
     currency: (order.currencyCode as string) ?? null,
-    createdAt: (order.createdAt as Date).toISOString(),
+    createdAt: order.createdAt ? (order.createdAt as Date).toISOString() : new Date().toISOString(),
   }),
 })
 

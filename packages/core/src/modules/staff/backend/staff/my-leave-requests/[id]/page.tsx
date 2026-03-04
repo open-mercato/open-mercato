@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Send } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,7 +12,7 @@ import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LeaveRequestForm, buildLeaveRequestPayload, type LeaveRequestFormValues } from '@open-mercato/core/modules/staff/components/LeaveRequestForm'
-import { type LeaveRequestRecord, type LeaveRequestsResponse, resolveStatusVariant, formatDateLabel, formatDateRange } from '../../../../lib/leaveRequestHelpers'
+import { type LeaveRequestsResponse, type NormalizedLeaveRequest, normalizeLeaveRequest, resolveStatusVariant, formatDateLabel, formatDateRange } from '../../../../lib/leaveRequestHelpers'
 
 export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -21,7 +20,7 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
   const router = useRouter()
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [record, setRecord] = React.useState<LeaveRequestRecord | null>(null)
+  const [record, setRecord] = React.useState<NormalizedLeaveRequest | null>(null)
 
   React.useEffect(() => {
     if (!id) {
@@ -44,7 +43,7 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
         const entry = Array.isArray(payload.items) ? payload.items[0] : null
         if (!entry) throw new Error(t('staff.leaveRequests.errors.notFound', 'Leave request not found.'))
         if (!cancelled) {
-          setRecord(entry)
+          setRecord(normalizeLeaveRequest(entry))
         }
       } catch (err) {
         if (!cancelled) {
@@ -64,19 +63,16 @@ export default function StaffMyLeaveRequestDetailPage({ params }: { params?: { i
   const memberLabel = record?.member?.displayName ?? null
   const initialValues = React.useMemo<LeaveRequestFormValues>(() => ({
     id: record?.id,
-    memberId: record?.memberId ?? record?.member_id ?? null,
+    memberId: record?.memberId ?? null,
     memberLabel,
-    startDate: record?.startDate ?? record?.start_date ?? null,
-    endDate: record?.endDate ?? record?.end_date ?? null,
+    startDate: record?.startDate ?? null,
+    endDate: record?.endDate ?? null,
     timezone: record?.timezone ?? null,
-    unavailabilityReasonEntryId: record?.unavailabilityReasonEntryId ?? record?.unavailability_reason_entry_id ?? null,
-    unavailabilityReasonValue: record?.unavailabilityReasonValue ?? record?.unavailability_reason_value ?? null,
+    unavailabilityReasonEntryId: record?.unavailabilityReasonEntryId ?? null,
+    unavailabilityReasonValue: record?.unavailabilityReasonValue ?? null,
     note: record?.note ?? null,
   }), [record, memberLabel])
-  const dateSummary = formatDateRange(
-    record?.startDate ?? record?.start_date ?? null,
-    record?.endDate ?? record?.end_date ?? null,
-  )
+  const dateSummary = formatDateRange(record?.startDate, record?.endDate)
 const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) => {
     if (!record?.id) return
     const payload = buildLeaveRequestPayload(values, { id: record.id })
@@ -115,16 +111,16 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
             <Badge variant={resolveStatusVariant(status)}>
               {t(`staff.leaveRequests.status.${status}`, status)}
             </Badge>
-            {record.decided_at || record.decidedAt ? (
+            {record.decidedAt ? (
               <span className="text-xs text-muted-foreground">
-                {t('staff.leaveRequests.decision.at', 'Decision at')} {formatDateLabel(record.decidedAt ?? record.decided_at ?? null)}
+                {t('staff.leaveRequests.decision.at', 'Decision at')} {formatDateLabel(record.decidedAt)}
               </span>
             ) : null}
           </div>
-          {record.decisionComment || record.decision_comment ? (
+          {record.decisionComment ? (
             <div className="text-sm text-muted-foreground">
               <div className="font-medium text-foreground">{t('staff.leaveRequests.decision.comment', 'Decision comment')}</div>
-              <p>{record.decisionComment ?? record.decision_comment}</p>
+              <p>{record.decisionComment}</p>
             </div>
           ) : null}
         </div>
@@ -174,9 +170,9 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
           <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
             <div className="font-medium text-foreground">{t('staff.leaveRequests.detail.summary', 'Request details')}</div>
             <p>{memberLabel ? t('staff.leaveRequests.detail.member', 'Team member') + `: ${memberLabel}` : null}</p>
-            <p>{t('staff.leaveRequests.detail.dates', 'Dates')}: {formatDateRange(record.startDate ?? record.start_date ?? null, record.endDate ?? record.end_date ?? null)}</p>
-            {record.unavailabilityReasonValue || record.unavailability_reason_value ? (
-              <p>{t('staff.leaveRequests.detail.reason', 'Reason')}: {record.unavailabilityReasonValue ?? record.unavailability_reason_value}</p>
+            <p>{t('staff.leaveRequests.detail.dates', 'Dates')}: {formatDateRange(record.startDate, record.endDate)}</p>
+            {record.unavailabilityReasonValue ? (
+              <p>{t('staff.leaveRequests.detail.reason', 'Reason')}: {record.unavailabilityReasonValue}</p>
             ) : null}
             {record.note ? <p>{t('staff.leaveRequests.detail.note', 'Note')}: {record.note}</p> : null}
           </div>

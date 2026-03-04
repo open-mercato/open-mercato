@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -82,9 +83,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
     return (
       <Page>
         <PageBody>
-          <div className="flex items-center justify-center p-8">
-            <div className="text-muted-foreground">{t('exchangeRates.form.loading')}</div>
-          </div>
+          <LoadingMessage label={t('exchangeRates.form.loading')} />
         </PageBody>
       </Page>
     )
@@ -94,7 +93,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
     return (
       <Page>
         <PageBody>
-          <div className="text-destructive">{error || t('exchangeRates.form.errors.notFound')}</div>
+          <ErrorMessage label={error || t('exchangeRates.form.errors.notFound')} />
         </PageBody>
       </Page>
     )

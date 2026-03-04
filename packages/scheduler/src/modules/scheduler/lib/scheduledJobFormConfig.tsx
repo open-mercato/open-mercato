@@ -71,7 +71,7 @@ export function ScheduledJobEnabledSwitch({
 // ---------------------------------------------------------------------------
 
 export function createTargetOptionsLoader(
-  apiCallFn: <T>(url: string) => Promise<{ result: T | null }>
+  apiCallFn: <T>(url: string, init?: RequestInit, options?: Record<string, unknown>) => Promise<{ result: T | null }>
 ) {
   const targetOptionsRef = { current: null as TargetOptions | null }
 

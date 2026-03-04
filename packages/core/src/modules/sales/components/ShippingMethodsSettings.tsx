@@ -26,7 +26,8 @@ import {
   listShippingProviders,
   type ShippingProvider,
 } from '../lib/providers'
-import { isRecord, renderProviderFieldInput } from './ProviderFieldInput'
+import { isRecord } from '@open-mercato/shared/lib/utils'
+import { renderProviderFieldInput } from './ProviderFieldInput'
 
 type ShippingMethodRow = {
   id: string

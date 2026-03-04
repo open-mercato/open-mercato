@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { FilterQuery } from '@mikro-orm/core'
+import type { EntityName, FilterQuery, FindOptions } from '@mikro-orm/core'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -154,7 +154,8 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
           if (cached && typeof cached === 'object' && 'items' in (cached as object)) {
             return NextResponse.json(cached)
           }
-        } catch {
+        } catch (err) {
+          console.debug('[widget-cache] read failed', err)
         }
       }
 
@@ -170,14 +171,13 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
       }
 
       const organizationIdScope = Array.isArray(organizationIds) && organizationIds.length === 1 ? organizationIds[0] : null
+      // Generic boundary: config.entity is a class constructor from the factory caller,
+      // so we cast to EntityName/FilterQuery at the call site (matching findAndCountWithDecryption's own internal casts)
       const [entities, total] = await findAndCountWithDecryption(
         em,
-        config.entity as Parameters<typeof findAndCountWithDecryption>[1],
-        where as Parameters<typeof findAndCountWithDecryption>[2],
-        {
-          limit,
-          orderBy: { createdAt: 'desc' as const },
-        } as Parameters<typeof findAndCountWithDecryption>[3],
+        config.entity as EntityName<TEntity>,
+        where as FilterQuery<TEntity>,
+        { limit, orderBy: { createdAt: 'desc' as const } } as FindOptions<TEntity>,
         { tenantId, organizationId: organizationIdScope },
       )
 
@@ -197,7 +197,8 @@ export function makeDashboardWidgetRoute<TEntity extends object, TItem extends R
             { updatedAt: response.dateRange.to },
             { ttl: WIDGET_CACHE_SEGMENT_TTL, tags: ['widget-data'] },
           ))
-        } catch {
+        } catch (err) {
+          console.debug('[widget-cache] write failed', err)
         }
       }
 
