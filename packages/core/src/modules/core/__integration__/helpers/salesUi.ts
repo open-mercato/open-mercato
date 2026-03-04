@@ -201,8 +201,24 @@ async function waitForLookupIdle(root: Locator): Promise<void> {
   await root
     .getByText(/Searching…|Searching\.\.\.|Loading…|Loading\.\.\./i)
     .first()
-    .waitFor({ state: 'hidden', timeout: 1_500 })
+    .waitFor({ state: 'hidden', timeout: 700 })
     .catch(() => {});
+}
+
+async function selectAnyLookupOption(root: Locator): Promise<boolean> {
+  const selectButton = root.getByRole('button', { name: /^Select$/i }).first();
+  if ((await selectButton.count()) > 0 && (await selectButton.isVisible().catch(() => false))) {
+    await selectButton.click().catch(() => {});
+    return true;
+  }
+
+  const row = root.locator('[role="button"]').first();
+  if ((await row.count()) > 0 && (await row.isVisible().catch(() => false))) {
+    await row.click().catch(() => {});
+    return true;
+  }
+
+  return false;
 }
 
 async function selectLookupValue(
@@ -236,24 +252,25 @@ async function selectLookupValue(
 
   if (await selectByPreferredRow()) return true;
 
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  const deadline = Date.now() + 4_000;
+  while (Date.now() < deadline) {
     await waitForLookupIdle(root);
-    const selectButton = root.getByRole('button', { name: /^Select$/i }).first();
-    if ((await selectButton.count()) > 0 && (await selectButton.isVisible().catch(() => false))) {
-      await selectButton.click().catch(() => {});
-      return true;
-    }
+    if (await selectAnyLookupOption(root)) return true;
     if (await selectByPreferredRow()) return true;
-    await input.press('ArrowDown').catch(() => {});
-    await input.press('Enter').catch(() => {});
     const selectedButton = root.getByRole('button', { name: /^Selected$/i }).first();
     if ((await selectedButton.count()) > 0 && (await selectedButton.isVisible().catch(() => false))) {
       return true;
     }
-    await input.page().waitForTimeout(200);
+    await input.page().waitForTimeout(250);
   }
 
-  return false;
+  await input.press('ArrowDown').catch(() => {});
+  await input.press('Enter').catch(() => {});
+  const selectedButton = root.getByRole('button', { name: /^Selected$/i }).first();
+  if ((await selectedButton.count()) > 0 && (await selectedButton.isVisible().catch(() => false))) {
+    return true;
+  }
+  return await selectAnyLookupOption(root);
 }
 
 export async function createSalesDocument(page: Page, options: CreateDocumentOptions): Promise<string> {
@@ -280,18 +297,14 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     customerQuery,
     new RegExp(escapeRegExp(customerQuery), 'i'),
   );
-  if (!customerSelected) {
-    throw new Error(`Could not select customer "${customerQuery}" while creating sales ${options.kind}.`);
-  }
+  if (!customerSelected) throw new Error(`Could not select customer "${customerQuery}" while creating sales ${options.kind}.`);
 
   const channelSelected = await selectLookupValue(
     page.getByRole('textbox', { name: /Select a channel/i }).first(),
     channelQuery,
     new RegExp(escapeRegExp(channelQuery), 'i'),
   );
-  if (!channelSelected) {
-    throw new Error(`Could not select channel "${channelQuery}" while creating sales ${options.kind}.`);
-  }
+  if (!channelSelected) throw new Error(`Could not select channel "${channelQuery}" while creating sales ${options.kind}.`);
 
   await selectFirstAddressIfAvailable(page);
 

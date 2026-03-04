@@ -130,6 +130,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-049](SPEC-049-2026-02-26-message-objects-universal-view-attachments.md) | 2026-02-26 | Universal Message Object Attachments | Generic message object attachment previews/details and compose-flow wiring across modules |
 | [SPEC-050](SPEC-050-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks (Moved) | Pointer retained for backward links; canonical workstream spec is SPEC-046c |
 | [SPEC-052](SPEC-052-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
+| [SPEC-054](SPEC-054-2026-03-04-docker-windows-parity.md) | 2026-03-04 | Docker Windows Parity | Align Docker-based development workflow and migration commands for Windows parity |
 
 ## Specification Structure
 
