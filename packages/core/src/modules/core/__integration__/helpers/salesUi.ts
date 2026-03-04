@@ -426,53 +426,44 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
     const amountInput = dialog.getByRole('spinbutton').first();
     await amountInput.click();
     await amountInput.press('ControlOrMeta+a');
-    await amountInput.type(amountInputValue, { delay: 20 });
+    await amountInput.fill(amountInputValue);
     await amountInput.press('Tab');
+  };
+  const selectFirstOption = async (optionNamePattern: RegExp): Promise<void> => {
+    const option = dialog.getByRole('button', { name: optionNamePattern }).first();
+    if ((await option.count()) === 0) return;
+    const selectButton = option.getByRole('button', { name: /^Select$/i }).first();
+    if ((await selectButton.count()) > 0) {
+      await selectButton.click();
+      return;
+    }
+    await option.click();
   };
   await setAmount();
 
-  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
-  const paymentMethodOption = dialog.getByRole('button', { name: /bank transfer|credit card|cash on delivery/i }).first();
-  if ((await paymentMethodOption.count()) > 0) {
-    const methodSelectButton = paymentMethodOption.getByRole('button', { name: /^Select$/i }).first();
-    if ((await methodSelectButton.count()) > 0) {
-      await methodSelectButton.click();
-    } else {
-      await paymentMethodOption.click();
-    }
-  }
-  const paymentStatusOption = dialog.getByRole('button', { name: /pending.*select|captured.*select/i }).first();
-  if ((await paymentStatusOption.count()) > 0) {
-    const statusSelectButton = paymentStatusOption.getByRole('button', { name: /^Select$/i }).first();
-    if ((await statusSelectButton.count()) > 0) {
-      await statusSelectButton.click();
-    } else {
-      await paymentStatusOption.click();
-    }
-  }
+  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+  await selectFirstOption(/bank transfer|credit card|cash on delivery/i);
+  await selectFirstOption(/pending.*select|captured.*select/i);
   const saveButton = dialog.getByRole('button', { name: /Save/i }).first();
   const operationMessage = page.getByText(/Last operation:\s*Create payment/i).first();
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     await setAmount();
+    await selectFirstOption(/bank transfer|credit card|cash on delivery/i);
+    await selectFirstOption(/pending.*select|captured.*select/i);
     await saveButton.click();
-    const closed = await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).then(() => true).catch(() => false);
-    if (closed) {
-      break;
-    }
-    const operationVisible = await operationMessage.isVisible().catch(() => false);
-    if (operationVisible) {
-      break;
-    }
-    const hasRequiredFieldError = await dialog.getByText(/This field is required/i).isVisible().catch(() => false);
-    if (!hasRequiredFieldError) {
-      await page.waitForTimeout(200);
-    }
+    await Promise.race([
+      dialog.waitFor({ state: 'hidden', timeout: 2_500 }).catch(() => {}),
+      operationMessage.waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {}),
+      dialog.getByText(/This field is required/i).first().waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {}),
+    ]);
+    if (!(await dialog.isVisible().catch(() => false))) break;
+    if (await operationMessage.isVisible().catch(() => false)) break;
   }
   if (await dialog.isVisible().catch(() => false)) {
     await dialog.press('Escape').catch(() => {});
-    await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
+    await dialog.waitFor({ state: 'hidden', timeout: 1_500 }).catch(() => {});
   }
-  await operationMessage.waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
+  await operationMessage.waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {});
   const added = await operationMessage.isVisible().catch(() => false);
   return { amountLabel, added };
 }
