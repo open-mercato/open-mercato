@@ -3,7 +3,7 @@
 **Date**: 2026-03-05
 **Status**: Draft
 **Related PR**: [#809](https://github.com/open-mercato/open-mercato/pull/809) (bundling `.ai/` into scaffolded apps)
-**Related Issue**: [#805](https://github.com/open-mercato/open-mercato/issues/805)
+**Related Issues**: [#805](https://github.com/open-mercato/open-mercato/issues/805), [#853](https://github.com/open-mercato/open-mercato/issues/853)
 
 ## TLDR
 
