@@ -20,7 +20,7 @@ const createMappingSchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['data_sync.view'] },
+  GET: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
   POST: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
 }
 
