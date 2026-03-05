@@ -7,8 +7,8 @@ import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__inte
  */
 test.describe('TC-UMES-020: Payment Gateway demo page', () => {
   test('should render the payment demo page and complete mock payment lifecycle', async ({ page, request }) => {
-    const token = await getAuthToken(request)
-    await login(page, 'admin')
+    await getAuthToken(request, 'superadmin')
+    await login(page, 'superadmin')
 
     // Navigate to payment demo page
     await page.goto('/backend/payments')
@@ -36,7 +36,7 @@ test.describe('TC-UMES-020: Payment Gateway demo page', () => {
   })
 
   test('should create a mock payment session via API', async ({ request }) => {
-    const token = await getAuthToken(request)
+    const token = await getAuthToken(request, 'superadmin')
 
     const response = await apiRequest(request, 'POST', '/api/payment-gateways/sessions', {
       token,
@@ -49,8 +49,11 @@ test.describe('TC-UMES-020: Payment Gateway demo page', () => {
       },
     })
 
-    expect(response.ok()).toBe(true)
     const data = await response.json()
+    expect(
+      response.ok(),
+      `Expected session creation to succeed, got ${response.status()} with body: ${JSON.stringify(data)}`,
+    ).toBe(true)
     expect(data.transactionId).toBeTruthy()
     expect(data.status).toBe('authorized')
   })
