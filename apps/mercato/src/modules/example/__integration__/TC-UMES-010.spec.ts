@@ -74,8 +74,9 @@ test.describe('TC-UMES-010: DevTools panel', () => {
     await page.keyboard.press('Control+Shift+U')
     await expect(page.getByText('UMES DevTools')).toBeVisible()
 
-    // Click the Refresh button
-    const refreshBtn = page.getByRole('button', { name: 'Refresh' })
+    // Click the Refresh button inside the DevTools panel (scoped to avoid collision with page-level Refresh)
+    const devToolsPanel = page.locator('.fixed.inset-y-0.right-0')
+    const refreshBtn = devToolsPanel.getByRole('button', { name: 'Refresh' })
     await expect(refreshBtn).toBeVisible()
     await refreshBtn.click()
 
@@ -109,19 +110,22 @@ test.describe('TC-UMES-010: DevTools panel', () => {
   test('timing tab shows enricher timing data after API call', async ({ page }) => {
     // Navigate to customer list which triggers enrichers
     await page.goto('/backend/customers/people')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     await page.keyboard.press('Control+Shift+U')
-    await page.getByRole('button', { name: 'Timing' }).click()
+    await expect(page.getByText('UMES DevTools')).toBeVisible()
+
+    const devToolsPanel = page.locator('.fixed.inset-y-0.right-0')
+    await devToolsPanel.getByRole('button', { name: 'Timing' }).click()
 
     // After the customer list loads, enrichers should have run and logged timing
     // The timing data may need a refresh to show up
-    await page.getByRole('button', { name: 'Refresh' }).click()
+    await devToolsPanel.getByRole('button', { name: 'Refresh' }).click()
 
     // Check if timing data appeared (enricher timing entries from the customer list enricher)
     // If no timing data is available yet, the "No timing data" message is acceptable
-    const timingContent = page.locator('[class*="devtools"]').or(page.locator('text=/ms$/'))
-    const noTimingMsg = page.getByText('No timing data')
+    const timingContent = devToolsPanel.locator('text=/ms$/')
+    const noTimingMsg = devToolsPanel.getByText('No timing data')
     // Either timing data or "no timing data" should be visible
     await expect(timingContent.or(noTimingMsg)).toBeVisible({ timeout: 5000 })
   })
