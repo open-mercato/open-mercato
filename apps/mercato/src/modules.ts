@@ -47,6 +47,7 @@ export const enabledModules: ModuleEntry[] = [
 
 if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {
   enabledModules.push(
+    { id: 'sso', from: '@open-mercato/enterprise' },
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
   )

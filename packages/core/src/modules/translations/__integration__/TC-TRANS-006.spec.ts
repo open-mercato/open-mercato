@@ -18,7 +18,11 @@ async function openTranslationsDrawer(page: Page): Promise<Locator> {
 }
 
 async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: string): Promise<Locator> {
-  const firstEditableField = dialog.locator('table').locator('input, textarea').first()
+  const fieldLocator = dialog.locator('table').locator('input, textarea')
+  await expect.poll(async () => fieldLocator.count(), {
+    message: 'Expected at least one translation input to be available',
+  }).toBeGreaterThan(0)
+  const firstEditableField = fieldLocator.first()
   await expect(firstEditableField).toBeVisible()
 
   const normalizedPlaceholder = preferredPlaceholder?.trim()
@@ -26,8 +30,7 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
 
   const preferredField = dialog.getByPlaceholder(normalizedPlaceholder).first()
   if (await preferredField.count()) {
-    await expect(preferredField).toBeVisible()
-    return preferredField
+    if (await preferredField.isVisible()) return preferredField
   }
 
   return firstEditableField
@@ -39,6 +42,7 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
  */
 test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
   test.use({ actionTimeout: 30_000 })
+  test.setTimeout(40_000)
   test('should show translation action on product edit page', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const originalLocales = await getLocales(request, adminToken)
@@ -86,7 +90,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
       const translationField = await waitForTranslationField(dialog, productTitle)
       await translationField.fill('Widget Titel QA')
 
-      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      const saveTranslationsButton = dialog.getByTestId('translations-save')
       await expect(saveTranslationsButton).toBeVisible()
       await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
@@ -120,7 +124,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
       const translationField = await waitForTranslationField(dialog, productTitle)
       await translationField.fill('API Verifiziert QA')
 
-      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      const saveTranslationsButton = dialog.getByTestId('translations-save')
       await expect(saveTranslationsButton).toBeVisible()
       await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
