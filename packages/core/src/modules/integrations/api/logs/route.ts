@@ -5,7 +5,7 @@ import { listIntegrationLogsQuerySchema } from '../../data/validators'
 import type { IntegrationLogService } from '../../lib/log-service'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['integrations.view'] },
+  GET: { requireAuth: true, requireFeatures: ['integrations.manage'] },
 }
 
 export const openApi = {

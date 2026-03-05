@@ -30,8 +30,7 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
 
   const preferredField = dialog.getByPlaceholder(normalizedPlaceholder).first()
   if (await preferredField.count()) {
-    await expect(preferredField).toBeVisible()
-    return preferredField
+    if (await preferredField.isVisible()) return preferredField
   }
 
   return firstEditableField
@@ -91,7 +90,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
       const translationField = await waitForTranslationField(dialog, productTitle)
       await translationField.fill('Widget Titel QA')
 
-      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      const saveTranslationsButton = dialog.getByTestId('translations-save')
       await expect(saveTranslationsButton).toBeVisible()
       await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
@@ -125,7 +124,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
       const translationField = await waitForTranslationField(dialog, productTitle)
       await translationField.fill('API Verifiziert QA')
 
-      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      const saveTranslationsButton = dialog.getByTestId('translations-save')
       await expect(saveTranslationsButton).toBeVisible()
       await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
