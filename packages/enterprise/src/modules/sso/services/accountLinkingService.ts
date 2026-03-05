@@ -1,4 +1,4 @@
-import { EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
+import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
@@ -117,7 +117,7 @@ export class AccountLinkingService {
       provisioningMethod: 'manual',
       firstLoginAt: now,
       lastLoginAt: now,
-    })
+    } as RequiredEntityData<SsoIdentity>)
     await this.em.persistAndFlush(identity)
 
     void emitSsoEvent('sso.identity.linked', {
@@ -161,7 +161,7 @@ export class AccountLinkingService {
         provisioningMethod: 'jit',
         firstLoginAt: now,
         lastLoginAt: now,
-      })
+      } as RequiredEntityData<SsoIdentity>)
       await txEm.persistAndFlush(identity)
 
       void emitSsoEvent('sso.identity.created', {
@@ -246,7 +246,7 @@ export class AccountLinkingService {
         userId: user.id,
         roleId,
         ssoConfigId: config.id,
-      })
+      } as RequiredEntityData<SsoRoleGrant>)
       em.persist(grant)
     }
 

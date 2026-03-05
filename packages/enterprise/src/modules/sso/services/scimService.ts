@@ -1,4 +1,4 @@
-import { EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
+import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -88,7 +88,7 @@ export class ScimService {
         idpGroups: [],
         externalId: parsed.externalId ?? null,
         provisioningMethod: 'scim',
-      })
+      } as RequiredEntityData<SsoIdentity>)
       await this.em.persistAndFlush(identity)
 
       const deactivation = parsed.active === false
@@ -126,7 +126,7 @@ export class ScimService {
         idpGroups: [],
         externalId: parsed.externalId ?? null,
         provisioningMethod: 'scim',
-      })
+      } as RequiredEntityData<SsoIdentity>)
       await txEm.persistAndFlush(identity)
 
       const deactivation = parsed.active === false
@@ -349,7 +349,7 @@ export class ScimService {
         userId,
         ssoConfigId: scope.ssoConfigId,
         deactivatedAt: new Date(),
-      })
+      } as RequiredEntityData<SsoUserDeactivation>)
       this.em.persist(deactivation)
     }
     await this.em.flush()
@@ -376,7 +376,7 @@ export class ScimService {
       userId,
       ssoConfigId: scope.ssoConfigId,
       deactivatedAt: new Date(),
-    })
+    } as RequiredEntityData<SsoUserDeactivation>)
     await this.em.persistAndFlush(deactivation)
     return deactivation
   }
@@ -388,7 +388,7 @@ export class ScimService {
       userId,
       ssoConfigId: scope.ssoConfigId,
       deactivatedAt: new Date(),
-    })
+    } as RequiredEntityData<SsoUserDeactivation>)
     await txEm.persistAndFlush(deactivation)
     return deactivation
   }
@@ -411,7 +411,7 @@ export class ScimService {
       scimExternalId: externalId ?? null,
       responseStatus,
       errorMessage: errorMessage ?? null,
-    })
+    } as RequiredEntityData<ScimProvisioningLog>)
     await this.em.persistAndFlush(entry)
   }
 
@@ -432,7 +432,7 @@ export class ScimService {
       resourceId: resourceId ?? null,
       scimExternalId: externalId ?? null,
       responseStatus,
-    })
+    } as RequiredEntityData<ScimProvisioningLog>)
     await txEm.persistAndFlush(entry)
   }
 }
