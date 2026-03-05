@@ -1,0 +1,16 @@
+export default {
+  'payment_gateways.feature.view': 'View payment gateway transactions',
+  'payment_gateways.feature.manage': 'Manage payment sessions',
+  'payment_gateways.feature.capture': 'Capture authorized payments',
+  'payment_gateways.feature.refund': 'Refund captured payments',
+  'payment_gateways.status.pending': 'Pending',
+  'payment_gateways.status.authorized': 'Authorized',
+  'payment_gateways.status.captured': 'Captured',
+  'payment_gateways.status.partially_captured': 'Partially Captured',
+  'payment_gateways.status.refunded': 'Refunded',
+  'payment_gateways.status.partially_refunded': 'Partially Refunded',
+  'payment_gateways.status.cancelled': 'Cancelled',
+  'payment_gateways.status.failed': 'Failed',
+  'payment_gateways.status.expired': 'Expired',
+  'payment_gateways.status.unknown': 'Unknown',
+}

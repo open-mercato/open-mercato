@@ -1,0 +1,13 @@
+export default {
+  'gateway_stripe.title': 'Stripe',
+  'gateway_stripe.description': 'Accept card payments, Apple Pay, Google Pay, and bank transfers via Stripe.',
+  'gateway_stripe.feature.view': 'View Stripe configuration',
+  'gateway_stripe.feature.configure': 'Configure Stripe settings',
+  'gateway_stripe.config.captureMethod': 'Capture Method',
+  'gateway_stripe.config.captureMethod.automatic': 'Automatic — charge immediately',
+  'gateway_stripe.config.captureMethod.manual': 'Manual — authorize first, capture later',
+  'gateway_stripe.config.paymentTypes': 'Payment Types',
+  'gateway_stripe.config.statementDescriptor': 'Statement Descriptor',
+  'gateway_stripe.config.statementDescriptor.help': 'What appears on the customer\'s bank statement (max 22 characters)',
+  'gateway_stripe.config.allowPromotionCodes': 'Allow promotion codes on checkout',
+}

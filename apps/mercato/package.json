@@ -31,6 +31,7 @@
     "@open-mercato/content": "workspace:*",
     "@open-mercato/core": "workspace:*",
     "@open-mercato/events": "workspace:*",
+    "@open-mercato/gateway-stripe": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/scheduler": "workspace:*",

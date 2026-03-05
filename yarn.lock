@@ -5403,6 +5403,7 @@ __metadata:
     "@open-mercato/content": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/events": "workspace:*"
+    "@open-mercato/gateway-stripe": "workspace:*"
     "@open-mercato/onboarding": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/scheduler": "workspace:*"
@@ -5559,6 +5560,18 @@ __metadata:
     "@open-mercato/queue": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/gateway-stripe@workspace:*, @open-mercato/gateway-stripe@workspace:packages/gateway-stripe":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/gateway-stripe@workspace:packages/gateway-stripe"
+  dependencies:
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    jest: "npm:^30.2.0"
+    stripe: "npm:^17.0.0"
     ts-jest: "npm:^29.4.6"
   languageName: unknown
   linkType: soft
@@ -8431,6 +8444,15 @@ __metadata:
   dependencies:
     undici-types: "npm:~7.16.0"
   checksum: 10/2c16f137ed3a952903b7641df5ce16663ad00911dc6a9010156602251420da127bf7dbd32d22aac9eda0cc430381164d55a36240039b7d06ab693b9aad5c3f23
+  languageName: node
+  linkType: hard
+
+"@types/node@npm:>=8.1.0":
+  version: 25.3.3
+  resolution: "@types/node@npm:25.3.3"
+  dependencies:
+    undici-types: "npm:~7.18.0"
+  checksum: 10/883e8942b0ddf89f9aae56c4205af8d9a368acd6cab83aa052447a6c5e69ce2bc8ab3f54e549233ada160ba9216dad7f30c62c35867c584fe844ae99f7dea2e0
   languageName: node
   linkType: hard
 
@@ -24346,6 +24368,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"stripe@npm:^17.0.0":
+  version: 17.7.0
+  resolution: "stripe@npm:17.7.0"
+  dependencies:
+    "@types/node": "npm:>=8.1.0"
+    qs: "npm:^6.11.0"
+  checksum: 10/376f945f9c194c8ea2d47d1fda50d141ed985cbb6f94041e11880084f830e502962d434967f1c90a3cb27a9b6e26c606f2830d9448bde636ebd6c067d5cbfecc
+  languageName: node
+  linkType: hard
+
 "stubborn-fs@npm:^2.0.0":
   version: 2.0.0
   resolution: "stubborn-fs@npm:2.0.0"
@@ -25349,6 +25381,13 @@ __metadata:
   version: 7.16.0
   resolution: "undici-types@npm:7.16.0"
   checksum: 10/db43439f69c2d94cc29f75cbfe9de86df87061d6b0c577ebe9bb3255f49b22c50162a7d7eb413b0458b6510b8ca299ac7cff38c3a29fbd31af9f504bcf7fbc0d
+  languageName: node
+  linkType: hard
+
+"undici-types@npm:~7.18.0":
+  version: 7.18.2
+  resolution: "undici-types@npm:7.18.2"
+  checksum: 10/e61a5918f624d68420c3ca9d301e9f15b61cba6e97be39fe2ce266dd6151e4afe424d679372638826cb506be33952774e0424141200111a9857e464216c009af
   languageName: node
   linkType: hard
 
