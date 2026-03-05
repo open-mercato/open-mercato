@@ -3,6 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 type JsonRecord = Record<string, unknown>
+const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
@@ -17,6 +18,17 @@ async function readJson(response: APIResponse): Promise<JsonRecord> {
  * Dynamically detects available integrations — works with or without provider modules.
  */
 test.describe('TC-INT-003: Integration health check and logs APIs', () => {
+  test('health and logs endpoints enforce authorization', async ({ request }) => {
+    const noTokenLogsResponse = await request.get(`${BASE_URL}/api/integrations/logs?page=1&pageSize=5`)
+    expect(noTokenLogsResponse.status()).toBe(401)
+
+    const employeeToken = await getAuthToken(request, 'employee')
+    const forbiddenLogsResponse = await apiRequest(request, 'GET', '/api/integrations/logs?page=1&pageSize=5', {
+      token: employeeToken,
+    })
+    expect(forbiddenLogsResponse.status()).toBe(403)
+  })
+
   test('health check endpoint returns status for a registered integration', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 

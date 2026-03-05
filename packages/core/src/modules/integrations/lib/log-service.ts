@@ -1,8 +1,8 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import type { ListIntegrationLogsQuery } from '../data/validators'
 import { IntegrationLog } from '../data/entities'
-import type { IntegrationScope } from './types'
 
 type LogInput = {
   integrationId: string

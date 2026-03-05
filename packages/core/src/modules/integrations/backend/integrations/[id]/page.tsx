@@ -13,11 +13,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primi
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
+import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type CredentialField = IntegrationCredentialField
+
+const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
+
+function isEditableCredentialField(field: CredentialField): boolean {
+  return !UNSUPPORTED_CREDENTIAL_FIELD_TYPES.has(field.type)
+}
 
 type ApiVersion = {
   id: string
@@ -261,7 +267,7 @@ export default function IntegrationDetailPage() {
             ) : (
               <Card>
                 <CardContent className="pt-6 space-y-4">
-                  {credFields.filter((f) => f.type !== 'oauth' && f.type !== 'ssh_keypair').map((field) => (
+                  {credFields.filter(isEditableCredentialField).map((field) => (
                     <div key={field.key} className="space-y-1.5">
                       <label className="text-sm font-medium">
                         {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
