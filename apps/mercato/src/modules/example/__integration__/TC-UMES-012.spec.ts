@@ -27,7 +27,7 @@ import {
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
 interface ListResponseBody {
-  data?: unknown[]
+  items?: unknown[]
   _meta?: { enrichedBy?: string[] }
 }
 
@@ -40,7 +40,7 @@ interface ErrorResponseBody {
 }
 
 interface TodoResponseBody {
-  data?: { id?: string }
+  id?: string
 }
 
 test.describe('TC-UMES-012: Response metadata (_meta.enrichedBy)', () => {
@@ -56,8 +56,8 @@ test.describe('TC-UMES-012: Response metadata (_meta.enrichedBy)', () => {
     expect(response.ok()).toBeTruthy()
 
     const body = await readJsonSafe<ListResponseBody>(response)
-    expect(body).toHaveProperty('data')
-    expect(Array.isArray(body?.data)).toBeTruthy()
+    expect(body).toHaveProperty('items')
+    expect(Array.isArray(body?.items)).toBeTruthy()
 
     // The response should have _meta with enrichedBy array
     if (body?._meta) {
@@ -182,8 +182,8 @@ test.describe('TC-UMES-012: Interceptor activity logging', () => {
 
     const body = await readJsonSafe<TodoResponseBody>(response)
     // Clean up the created todo
-    if (body?.data?.id) {
-      await request.delete(`${BASE_URL}/api/example/todos/${body.data.id}`, {
+    if (body?.id) {
+      await request.delete(`${BASE_URL}/api/example/todos/${body.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
     }
