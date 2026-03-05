@@ -12,16 +12,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { FilterBar, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { Bell, CreditCard, HardDrive, LayoutGrid, MessageSquare, RefreshCw, Truck, Webhook } from 'lucide-react'
 import {
-  LayoutGrid,
-  CreditCard,
-  Truck,
-  RefreshCw,
-  MessageSquare,
-  Bell,
-  HardDrive,
-  Webhook,
-} from 'lucide-react'
+  buildIntegrationMarketplaceFilterDefs,
+  getIntegrationMarketplaceCategory,
+  INTEGRATION_MARKETPLACE_CATEGORIES,
+  normalizeIntegrationMarketplaceFilterValues,
+} from './filters'
 
 type IntegrationItem = {
   id: string
@@ -59,8 +57,6 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   webhook: Webhook,
 }
 
-const CATEGORIES = ['all', 'payment', 'shipping', 'data_sync', 'communication', 'notification', 'storage', 'webhook'] as const
-
 function categoryBadgeVariant(category: string | undefined): 'default' | 'secondary' | 'outline' {
   if (!category) return 'outline'
   return 'secondary'
@@ -70,10 +66,13 @@ export default function IntegrationsMarketplacePage() {
   const [data, setData] = React.useState<ListResponse | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [search, setSearch] = React.useState('')
-  const [category, setCategory] = React.useState<string>('all')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+
+  const categoryFilters = React.useMemo(() => buildIntegrationMarketplaceFilterDefs(t), [t])
+  const selectedCategory = React.useMemo(() => getIntegrationMarketplaceCategory(filterValues), [filterValues])
 
   const load = React.useCallback(async () => {
     setIsLoading(true)
@@ -122,8 +121,8 @@ export default function IntegrationsMarketplacePage() {
       const q = search.toLowerCase()
       items = items.filter((item) => item.title.toLowerCase().includes(q) || item.description?.toLowerCase().includes(q))
     }
-    if (category !== 'all') {
-      items = items.filter((item) => item.category === category)
+    if (selectedCategory !== 'all') {
+      items = items.filter((item) => item.category === selectedCategory)
     }
 
     const bundled = new Map<string, IntegrationItem[]>()
@@ -143,7 +142,7 @@ export default function IntegrationsMarketplacePage() {
       .map((b) => ({ ...b, integrations: bundled.get(b.id) ?? [] }))
 
     return { bundles, standalone }
-  }, [data, search, category])
+  }, [data, search, selectedCategory])
 
   if (isLoading) {
     return (
@@ -170,29 +169,44 @@ export default function IntegrationsMarketplacePage() {
             </div>
           </header>
 
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <Input
-              placeholder={t('integrations.marketplace.search')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="max-w-sm"
+          <div className="lg:hidden">
+            <FilterBar
+              searchValue={search}
+              onSearchChange={setSearch}
+              searchPlaceholder={t('integrations.marketplace.search')}
+              searchAlign="left"
+              filters={categoryFilters}
+              values={filterValues}
+              onApply={(values) => setFilterValues(normalizeIntegrationMarketplaceFilterValues(values))}
+              onClear={() => setFilterValues({})}
             />
-            <div className="flex flex-wrap gap-1.5">
-              {CATEGORIES.map((cat) => {
-                const Icon = CATEGORY_ICONS[cat]
-                return (
-                  <Button
-                    key={cat}
-                    type="button"
-                    variant={category === cat ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setCategory(cat)}
-                  >
-                    {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
-                    {t(`integrations.marketplace.categories.${cat}`)}
-                  </Button>
-                )
-              })}
+          </div>
+
+          <div className="hidden lg:flex lg:flex-col gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <Input
+                placeholder={t('integrations.marketplace.search')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="max-w-sm"
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {INTEGRATION_MARKETPLACE_CATEGORIES.map((category) => {
+                  const Icon = CATEGORY_ICONS[category]
+                  return (
+                    <Button
+                      key={category}
+                      type="button"
+                      variant={selectedCategory === category ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setFilterValues(normalizeIntegrationMarketplaceFilterValues({ category }))}
+                    >
+                      {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
+                      {t(`integrations.marketplace.categories.${category}`)}
+                    </Button>
+                  )
+                })}
+              </div>
             </div>
           </div>
 

@@ -222,7 +222,7 @@ export function DictionaryEntrySelect({
       <div className="flex items-center gap-2">
         <select
           className={[
-            'h-9 w-full rounded border px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-70',
+            'h-9 w-full rounded border pl-3 pr-8 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-70',
             selectClassName,
           ]
             .filter(Boolean)

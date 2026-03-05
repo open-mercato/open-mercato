@@ -75,8 +75,18 @@ async function dismissGlobalNoticesIfPresent(page: Page): Promise<void> {
   }
 }
 
+async function recoverClientSideErrorPageIfPresent(page: Page): Promise<void> {
+  const clientErrorHeading = page
+    .getByRole('heading', { name: /Application error: a client-side exception has occurred/i })
+    .first();
+  if (!(await clientErrorHeading.isVisible().catch(() => false))) return;
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await dismissGlobalNoticesIfPresent(page);
+}
+
 export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   const creds = DEFAULT_CREDENTIALS[role];
+  const loginReadySelector = 'form[data-auth-ready="1"]';
   const hasBackendUrl = (): boolean => /\/backend(?:\/.*)?$/.test(page.url());
   const waitForBackend = async (timeout: number): Promise<boolean> => {
     try {
@@ -88,22 +98,34 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   };
 
   await acknowledgeGlobalNotices(page);
-  await page.goto('/login');
-  await dismissGlobalNoticesIfPresent(page);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await dismissGlobalNoticesIfPresent(page);
+    await recoverClientSideErrorPageIfPresent(page);
+    await page.waitForSelector(loginReadySelector, { state: 'visible', timeout: 15_000 }).catch(() => null);
+    if (await page.getByLabel('Email').isVisible().catch(() => false)) break;
+    if (attempt === 1) {
+      throw new Error(`Login form is unavailable for role: ${role}; current URL: ${page.url()}`);
+    }
+  }
   await page.getByLabel('Email').fill(creds.email);
-  const passwordInput = page.getByLabel('Password');
-  await passwordInput.fill(creds.password);
-  await passwordInput.press('Enter');
+  await page.waitForSelector(loginReadySelector, { state: 'visible', timeout: 15_000 });
+
+  const passwordInput = page.getByLabel('Password').first();
+  if (await passwordInput.isVisible().catch(() => false)) {
+    await passwordInput.fill(creds.password);
+    await passwordInput.press('Enter');
+  } else {
+    const submitButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
+    await submitButton.click();
+  }
 
   if (await waitForBackend(7_000)) return;
 
-  const loginButton = page.getByRole('button', { name: /login|sign in/i }).first();
+  const loginButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
   if (await loginButton.isVisible().catch(() => false)) {
     await loginButton.click({ force: true });
   }
-  if (await waitForBackend(8_000)) return;
-
-  await page.goto('/backend');
   if (await waitForBackend(8_000)) return;
 
   throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
