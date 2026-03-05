@@ -1,10 +1,13 @@
-# Zitadel Setup Guide for Open Mercato SSO
+---
+title: Zitadel Setup
+description: Step-by-step guide for configuring Zitadel as the OIDC and SCIM identity provider for Open Mercato SSO.
+---
 
 This guide walks through setting up Zitadel as the identity provider for OIDC login and SCIM user provisioning in Open Mercato.
 
-**Free tier**: Zitadel Cloud offers a free tier with up to 25,000 monthly active users.
-
----
+:::tip Free tier
+Zitadel Cloud offers a free tier with up to 25,000 monthly active users.
+:::
 
 ## 1. Create a Zitadel Instance
 
@@ -14,7 +17,7 @@ This guide walks through setting up Zitadel as the identity provider for OIDC lo
 
 ## 2. Create Test Users
 
-1. In the Zitadel Console, go to **Users** → **+ New**
+1. In the Zitadel Console, go to **Users** -> **+ New**
 2. Fill in:
    - **Username**: e.g., `testuser@yourdomain.com`
    - **First name** / **Last name**
@@ -25,7 +28,7 @@ This guide walks through setting up Zitadel as the identity provider for OIDC lo
 
 ## 3. Register the OIDC Application
 
-1. In the Zitadel Console, go to **Projects** → **+ New**
+1. In the Zitadel Console, go to **Projects** -> **+ New**
 2. Name the project `Open Mercato` and click **Continue**
 3. Click **+ New Application**
 4. Configure:
@@ -48,8 +51,8 @@ This guide walks through setting up Zitadel as the identity provider for OIDC lo
 | Credential | Where to find it | Value |
 |------------|-----------------|-------|
 | **Issuer URL** | Instance domain | `https://<instance>.zitadel.cloud` |
-| **Client ID** | Application → General | Copy from console |
-| **Client Secret** | Application → General → Generate | Copy immediately |
+| **Client ID** | Application -> General | Copy from console |
+| **Client Secret** | Application -> General -> Generate | Copy immediately |
 | **Redirect URI** | You configured this | `http://localhost:3000/api/sso/callback/oidc` |
 
 ### Configure Token Claims
@@ -60,16 +63,14 @@ Zitadel includes `email`, `given_name`, `family_name`, and `email_verified` in I
 
 By default, all users in the organization can access the application. To restrict access:
 
-1. Go to your Project → **Authorizations** → **+ New**
+1. Go to your Project -> **Authorizations** -> **+ New**
 2. Select specific users or grant roles
 3. Enable "Require authorization" on the project settings if you want to restrict access
-
----
 
 ## 4. Create the SSO Config in Open Mercato
 
 1. Log into Open Mercato as admin
-2. Go to **Settings** → **Single Sign-On** → **Create New**
+2. Go to **Settings** -> **Single Sign-On** -> **Create New**
 3. Select **OIDC** as the protocol
 4. Enter:
    - **Name**: `Zitadel`
@@ -89,17 +90,17 @@ By default, all users in the organization can access the application. To restric
 5. Authenticate at Zitadel
 6. You should be redirected back to Open Mercato and logged in
 
----
-
 ## 5. Configure SCIM Provisioning
 
-**Prerequisite**: Generate a SCIM bearer token from Open Mercato via the admin UI (SSO config → Provisioning tab → Generate Token).
+:::tip Prerequisite
+Generate a SCIM bearer token from Open Mercato via the admin UI (SSO config -> Provisioning tab -> Generate Token).
+:::
 
 ### Zitadel SCIM Support
 
-Zitadel supports outbound SCIM provisioning through its **Actions** feature (custom workflows). As of 2026, Zitadel also offers a native SCIM provisioning option:
+Zitadel supports outbound SCIM provisioning through its **Actions** feature (custom workflows). Zitadel also offers a native SCIM provisioning option:
 
-1. Go to your Project → **Open Mercato** application
+1. Go to your Project -> **Open Mercato** application
 2. Navigate to **Provisioning** or **Actions**
 3. Configure SCIM outbound provisioning:
 
@@ -118,15 +119,13 @@ If Zitadel's native SCIM outbound is not available in your version, use the Zita
 2. Use the Zitadel Management API to list users
 3. Push user changes to Open Mercato's SCIM endpoint
 
----
-
 ## 6. Test the Full Flow
 
 ### Test OIDC Login
 
 1. Navigate to Open Mercato login
 2. Enter a test user's email
-3. **Expected**: Redirect to Zitadel → authenticate → redirect back to Open Mercato
+3. **Expected**: Redirect to Zitadel -> authenticate -> redirect back to Open Mercato
 4. Verify the user appears in the Open Mercato admin panel
 
 ### Test JIT Provisioning
@@ -142,10 +141,8 @@ If SCIM is not configured and JIT is enabled:
 1. Create a new user in Zitadel
 2. Wait for provisioning cycle (or trigger manually)
 3. **Expected**: User appears in Open Mercato with `provisioningMethod: scim`
-4. Update the user in Zitadel → verify changes propagate
-5. Deactivate the user in Zitadel → verify deactivation in Open Mercato
-
----
+4. Update the user in Zitadel -> verify changes propagate
+5. Deactivate the user in Zitadel -> verify deactivation in Open Mercato
 
 ## Zitadel SCIM Quirks
 
@@ -156,8 +153,6 @@ If SCIM is not configured and JIT is enabled:
 | **Group claims** | Available via project roles | Configure role mappings if needed |
 | **PKCE support** | Natively supports S256 PKCE | Automatically used by Open Mercato |
 
----
-
 ## Troubleshooting
 
 ### OIDC login redirects but fails
@@ -165,7 +160,7 @@ If SCIM is not configured and JIT is enabled:
 - Verify the Redirect URI matches exactly: `http://localhost:3000/api/sso/callback/oidc`
 - Check that the Issuer URL matches your instance: `https://<instance>.zitadel.cloud`
 - Verify Client ID and Client Secret
-- Check the Zitadel Console → **Events** for error details
+- Check the Zitadel Console -> **Events** for error details
 
 ### "redirect_uri_mismatch" error
 
@@ -184,8 +179,6 @@ If SCIM is not configured and JIT is enabled:
 - For local dev, Zitadel needs to reach your server over the internet
 - Use ngrok: `ngrok http 3000`
 - Update the SCIM Base URL to the ngrok URL
-
----
 
 ## Reference
 

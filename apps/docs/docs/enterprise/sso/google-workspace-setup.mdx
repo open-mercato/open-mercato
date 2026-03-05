@@ -1,10 +1,13 @@
-# Google Workspace Setup Guide for Open Mercato SSO
+---
+title: Google Workspace Setup
+description: Step-by-step guide for configuring Google Workspace as the OIDC identity provider for Open Mercato SSO with JIT provisioning.
+---
 
 This guide walks through setting up Google Workspace as the identity provider for OIDC login in Open Mercato. Google Workspace supports JIT (Just-In-Time) provisioning only — SCIM push provisioning is not available.
 
-**Free tier**: Google Cloud OAuth 2.0 is free for internal Workspace applications. No paid APIs required.
-
----
+:::tip Free tier
+Google Cloud OAuth 2.0 is free for internal Workspace applications. No paid APIs required.
+:::
 
 ## 1. Prerequisites
 
@@ -15,14 +18,14 @@ This guide walks through setting up Google Workspace as the identity provider fo
 ## 2. Create a Google Cloud Project
 
 1. Go to https://console.cloud.google.com
-2. Click the project selector in the top bar → **New Project**
+2. Click the project selector in the top bar -> **New Project**
 3. Name: `Open Mercato SSO` (or your preference)
 4. Click **Create**
 5. Switch to the new project in the project selector
 
 ## 3. Configure the OAuth Consent Screen
 
-1. In the left sidebar, go to **APIs & Services** → **OAuth consent screen**
+1. In the left sidebar, go to **APIs & Services** -> **OAuth consent screen**
 2. Select **Internal** (restricts login to your Workspace organization only)
 3. Click **Create**
 4. Fill in:
@@ -39,13 +42,13 @@ This guide walks through setting up Google Workspace as the identity provider fo
    - `openid`
    - `email`
    - `profile`
-7. Click **Update** → **Save and Continue**
+7. Click **Update** -> **Save and Continue**
 8. Review and click **Back to Dashboard**
 
 ## 4. Create OAuth 2.0 Credentials
 
-1. Go to **APIs & Services** → **Credentials**
-2. Click **+ Create Credentials** → **OAuth client ID**
+1. Go to **APIs & Services** -> **Credentials**
+2. Click **+ Create Credentials** -> **OAuth client ID**
 3. Configure:
 
 | Field | Value |
@@ -66,12 +69,14 @@ This guide walks through setting up Google Workspace as the identity provider fo
 | **Client Secret** | Copy from Credentials page |
 | **Redirect URI** | `http://localhost:3000/api/sso/callback/oidc` |
 
-**Note**: Google's OIDC discovery document is at `https://accounts.google.com/.well-known/openid-configuration`.
+:::note
+Google's OIDC discovery document is at `https://accounts.google.com/.well-known/openid-configuration`.
+:::
 
 ## 5. Create the SSO Config in Open Mercato
 
 1. Log into Open Mercato as admin
-2. Go to **Settings** → **Single Sign-On** → **Create New**
+2. Go to **Settings** -> **Single Sign-On** -> **Create New**
 3. Select **OIDC** as the protocol
 4. Enter:
    - **Name**: `Google Workspace`
@@ -93,8 +98,6 @@ This guide walks through setting up Google Workspace as the identity provider fo
 5. Click it — you'll be redirected to Google's login page
 6. Authenticate with your Google Workspace account
 7. You should be redirected back to Open Mercato and logged in
-
----
 
 ## Google Workspace Specifics
 
@@ -119,8 +122,6 @@ Google OIDC returns a `hd` (hosted domain) claim for Workspace accounts. This id
 ### `email_verified`
 
 Google Workspace accounts always return `email_verified: true`. Personal Gmail accounts may have unverified emails — configuring the consent screen as **Internal** prevents personal accounts from accessing the application.
-
----
 
 ## Troubleshooting
 
@@ -151,21 +152,17 @@ This happens when **Role Mappings** are configured but Google doesn't send group
 
 If you set the consent screen to **External**, any Google account can authenticate. To restrict to your organization only, set the consent screen to **Internal**.
 
----
-
 ## Key Differences from Entra ID
 
 | Aspect | Google Workspace | Entra ID |
 |--------|-----------------|----------|
 | **Issuer URL** | `https://accounts.google.com` (same for all orgs) | `https://login.microsoftonline.com/{tenant-id}/v2.0` |
-| **SCIM provisioning** | Not supported | Enterprise App → Provisioning |
+| **SCIM provisioning** | Not supported | Enterprise App -> Provisioning |
 | **Group claims** | Not in standard OIDC tokens | Via optional claims configuration |
 | **User provisioning** | JIT only (on first login) | JIT or SCIM (automatic sync) |
 | **Org restriction** | OAuth consent screen: Internal | App registration: Single tenant |
 | **Free tier** | Free with any Workspace plan | Free with any Azure account |
 | **Redirect URIs** | Supports `http://localhost` for dev | Supports `http://localhost` for dev |
-
----
 
 ## Reference
 

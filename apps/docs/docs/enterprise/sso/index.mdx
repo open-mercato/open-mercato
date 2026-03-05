@@ -1,25 +1,24 @@
-# SSO Module Overview
-
-Open Mercato's SSO module provides enterprise-grade Single Sign-On with OIDC and SCIM 2.0 support. This document covers architecture, configuration, and operational guidance.
-
 ---
+title: Single Sign-On (SSO)
+description: Enterprise-grade Single Sign-On with OIDC and SCIM 2.0 support for centralized identity management.
+---
+
+Open Mercato's SSO module provides enterprise-grade Single Sign-On with OIDC and SCIM 2.0 support. This page covers architecture, configuration, and operational guidance.
 
 ## Supported Identity Providers
 
 | IdP | OIDC Login | SCIM Provisioning | JIT Provisioning | Notes |
 |-----|------------|-------------------|------------------|-------|
-| **Microsoft Entra ID** | Yes | Yes | Yes | Full OIDC + SCIM support. See [Entra ID Setup Guide](./entra-id-setup.md) |
-| **Zitadel** | Yes | Yes | Yes | OIDC + SCIM via Actions/native. See [Zitadel Setup Guide](./zitadel-setup.md) |
-| **Google Workspace** | Yes | No | Yes (recommended) | OIDC only, no SCIM push. See [Google Workspace Setup Guide](./google-workspace-setup.md) |
-
----
+| **Microsoft Entra ID** | Yes | Yes | Yes | Full OIDC + SCIM support. See [Entra ID Setup Guide](./entra-id-setup) |
+| **Zitadel** | Yes | Yes | Yes | OIDC + SCIM via Actions/native. See [Zitadel Setup Guide](./zitadel-setup) |
+| **Google Workspace** | Yes | No | Yes (recommended) | OIDC only, no SCIM push. See [Google Workspace Setup Guide](./google-workspace-setup) |
 
 ## Architecture
 
 ### Authentication Flow (OIDC)
 
 ```
-User → Login Page → HRD Check → IdP Redirect → IdP Login → Callback → Session
+User -> Login Page -> HRD Check -> IdP Redirect -> IdP Login -> Callback -> Session
 ```
 
 1. **Home Realm Discovery (HRD)**: User enters email, the system checks if the email domain matches an active SSO config
@@ -50,13 +49,11 @@ JIT and SCIM cannot be enabled simultaneously on the same SSO config:
 - Creating SCIM tokens blocks enabling JIT
 - Switching requires disabling one before enabling the other
 
----
-
 ## Configuration
 
 ### Admin Setup Steps
 
-1. **Create SSO Config**: Settings → Single Sign-On → Create New
+1. **Create SSO Config**: Settings -> Single Sign-On -> Create New
 2. **Enter IdP Credentials**: Issuer URL, Client ID, Client Secret
 3. **Add Allowed Domains**: Email domains that should use this SSO config
 4. **Choose Provisioning**: Enable JIT or configure SCIM tokens
@@ -87,8 +84,6 @@ JIT and SCIM cannot be enabled simultaneously on the same SSO config:
 | `/api/sso/scim/v2/Users/:id` | GET | SCIM: Get user |
 | `/api/sso/scim/v2/Users/:id` | PATCH | SCIM: Update user |
 | `/api/sso/scim/v2/Users/:id` | DELETE | SCIM: Delete user |
-
----
 
 ## Security
 
@@ -121,8 +116,6 @@ JIT and SCIM cannot be enabled simultaneously on the same SSO config:
 - No PII in server logs
 - All admin endpoints require authentication + feature-based RBAC
 
----
-
 ## Provisioning Methods
 
 ### JIT Provisioning
@@ -135,10 +128,11 @@ When JIT is enabled on an SSO config:
 4. User is assigned to the organization associated with the SSO config
 5. On subsequent logins, profile data is updated from the latest ID token
 
-**Limitations**:
+:::warning Limitations
 - User lifecycle not managed (no automatic deactivation)
 - No pre-provisioning (user must log in first)
 - Role assignment requires manual configuration or IdP group claims
+:::
 
 ### SCIM 2.0 Provisioning
 
@@ -157,8 +151,6 @@ When SCIM is configured:
 - `PATCH /Users/:id` — Update user (replace operations on `displayName`, `active`, `name.*`, `emails`)
 - `DELETE /Users/:id` — Delete user (soft-delete + deactivation)
 
----
-
 ## Role Mapping
 
 SSO configs support IdP group-to-application role mapping:
@@ -167,9 +159,9 @@ SSO configs support IdP group-to-application role mapping:
 2. When the IdP sends group claims in the ID token, roles are automatically assigned
 3. If no mappings are configured, role sync is skipped (user retains existing roles)
 
-**Google Workspace note**: Google does not send group claims by default. Role mapping is not available for Google OIDC without additional configuration.
-
----
+:::info Google Workspace
+Google does not send group claims by default. Role mapping is not available for Google OIDC without additional configuration.
+:::
 
 ## Environment Variables
 
@@ -179,40 +171,34 @@ SSO configs support IdP group-to-application role mapping:
 | `APP_URL` / `NEXT_PUBLIC_APP_URL` | Recommended | Base URL for redirect URI construction |
 | `SSO_DEV_SEED` | No | Set to `true` to seed demo SSO config in development |
 
----
-
 ## Troubleshooting
 
-### Common Issues
-
-**"State mismatch — possible CSRF attack"**
+### "State mismatch — possible CSRF attack"
 - State cookie expired (5-minute TTL). User took too long at the IdP.
 - Browser blocking third-party cookies. Ensure SameSite=Lax cookies are allowed.
 
-**"No roles could be resolved from IdP groups"**
+### "No roles could be resolved from IdP groups"
 - Role mappings are configured but the IdP isn't sending matching group claims.
 - Remove role mappings if not needed, or configure the IdP to send group claims.
 
-**User created with wrong provisioning method**
+### User created with wrong provisioning method
 - Check if both JIT and SCIM have been toggled. The system enforces mutual exclusivity.
 - Verify the `provisioningMethod` field on the user's SSO link record.
 
-**SCIM requests return 401**
+### SCIM requests return 401
 - Token may be revoked. Check token status in the admin UI.
 - Token format: must include `Authorization: Bearer omscim_...` header.
 - Check that the SSO config is active.
 
-**SCIM requests return 403**
+### SCIM requests return 403
 - The SSO config associated with the token is inactive. Activate it first.
 
-**HRD not detecting SSO for an email domain**
+### HRD not detecting SSO for an email domain
 - Verify the domain is added to the SSO config's allowed domains.
 - Verify the SSO config is activated (inactive configs are not returned by HRD).
 
----
-
 ## IdP-Specific Setup Guides
 
-- [Microsoft Entra ID Setup Guide](./entra-id-setup.md) — Full OIDC + SCIM setup
-- [Zitadel Setup Guide](./zitadel-setup.md) — OIDC + SCIM setup
-- [Google Workspace Setup Guide](./google-workspace-setup.md) — OIDC-only setup (JIT recommended)
+- [Microsoft Entra ID Setup Guide](./entra-id-setup) — Full OIDC + SCIM setup
+- [Zitadel Setup Guide](./zitadel-setup) — OIDC + SCIM setup
+- [Google Workspace Setup Guide](./google-workspace-setup) — OIDC-only setup (JIT recommended)

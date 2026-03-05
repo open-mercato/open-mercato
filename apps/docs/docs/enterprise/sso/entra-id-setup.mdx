@@ -1,21 +1,24 @@
-# Microsoft Entra ID Setup Guide for Open Mercato SSO + SCIM
+---
+title: Microsoft Entra ID Setup
+description: Step-by-step guide for configuring Microsoft Entra ID (formerly Azure AD) as the OIDC and SCIM identity provider for Open Mercato SSO.
+---
 
 This guide walks through setting up Microsoft Entra ID (formerly Azure AD) as the identity provider for both OIDC login and SCIM user provisioning in Open Mercato.
 
-**Free tier**: Entra ID Free is included with any Azure subscription — no paid license required for basic OIDC + SCIM.
-
----
+:::tip Free tier
+Entra ID Free is included with any Azure subscription — no paid license required for basic OIDC + SCIM.
+:::
 
 ## 1. Create an Azure Account + Entra ID Tenant
 
 1. Go to https://azure.microsoft.com/free and create a free account (or use an existing one)
 2. Navigate to https://entra.microsoft.com (the Entra admin center)
-3. You'll have a default tenant — note your **Tenant ID** from **Overview** → **Tenant ID**
+3. You'll have a default tenant — note your **Tenant ID** from **Overview** -> **Tenant ID**
 
 ## 2. Create Test Users
 
-1. In the Entra admin center, go to **Identity** → **Users** → **All users**
-2. Click **+ New user** → **Create new user**
+1. In the Entra admin center, go to **Identity** -> **Users** -> **All users**
+2. Click **+ New user** -> **Create new user**
 3. Fill in:
    - **User principal name**: e.g., `testuser@yourtenant.onmicrosoft.com`
    - **Display name**: e.g., `Test User`
@@ -26,7 +29,7 @@ This guide walks through setting up Microsoft Entra ID (formerly Azure AD) as th
 
 ## 3. Register the OIDC Application (SSO Login)
 
-1. In the Entra admin center, go to **Identity** → **Applications** → **App registrations**
+1. In the Entra admin center, go to **Identity** -> **Applications** -> **App registrations**
 2. Click **+ New registration**
 3. Configure:
 
@@ -43,7 +46,7 @@ This guide walks through setting up Microsoft Entra ID (formerly Azure AD) as th
 
 ### Create a Client Secret
 
-1. Go to **Certificates & secrets** → **Client secrets** tab
+1. Go to **Certificates & secrets** -> **Client secrets** tab
 2. Click **+ New client secret**
 3. Description: `Open Mercato Dev`, Expiry: `6 months` (or your preference)
 4. Click **Add**
@@ -54,15 +57,15 @@ This guide walks through setting up Microsoft Entra ID (formerly Azure AD) as th
 | Credential | Where to find it | Value |
 |------------|-----------------|-------|
 | **Issuer URL** | Computed from Tenant ID | `https://login.microsoftonline.com/{tenant-id}/v2.0` |
-| **Client ID** | App registration → Overview | Copy from portal |
-| **Client Secret** | App registration → Certificates & secrets | Copy the **Value** (not Secret ID) |
+| **Client ID** | App registration -> Overview | Copy from portal |
+| **Client Secret** | App registration -> Certificates & secrets | Copy the **Value** (not Secret ID) |
 | **Redirect URI** | You configured this | `http://localhost:3000/api/sso/callback/oidc` |
 
 ### Configure Token Claims
 
 By default, Entra ID v2.0 tokens may not include `email` in the ID token. Fix this:
 
-1. Go to your App registration → **Token configuration**
+1. Go to your App registration -> **Token configuration**
 2. Click **+ Add optional claim**
 3. Token type: **ID**
 4. Check: `email`, `given_name`, `family_name`
@@ -73,28 +76,28 @@ By default, Entra ID v2.0 tokens may not include `email` in the ID token. Fix th
 
 1. Go to **API permissions**
 2. Verify these are present (they should be by default):
-   - `Microsoft Graph` → `openid` (Delegated)
-   - `Microsoft Graph` → `profile` (Delegated)
-   - `Microsoft Graph` → `email` (Delegated)
-3. If any are missing, click **+ Add a permission** → **Microsoft Graph** → **Delegated permissions** → search and add them
+   - `Microsoft Graph` -> `openid` (Delegated)
+   - `Microsoft Graph` -> `profile` (Delegated)
+   - `Microsoft Graph` -> `email` (Delegated)
+3. If any are missing, click **+ Add a permission** -> **Microsoft Graph** -> **Delegated permissions** -> search and add them
 4. Click **Grant admin consent for [your tenant]** (green checkmark button)
 
 ### Assign Users to the Application
 
-1. Go to **Identity** → **Applications** → **Enterprise applications**
+1. Go to **Identity** -> **Applications** -> **Enterprise applications**
 2. Find and click **Open Mercato**
-3. Go to **Users and groups** → **+ Add user/group**
+3. Go to **Users and groups** -> **+ Add user/group**
 4. Select your test users (or a group containing them)
 5. Click **Assign**
 
-**Important**: If "Assignment required?" is set to **Yes** (under Properties), only assigned users can log in. Set to **No** for dev if you want all tenant users to access it.
-
----
+:::info Assignment required
+If "Assignment required?" is set to **Yes** (under Properties), only assigned users can log in. Set to **No** for dev if you want all tenant users to access it.
+:::
 
 ## 4. Create the SSO Config in Open Mercato
 
 1. Log into Open Mercato as admin
-2. Go to **Settings** → **Single Sign-On** → **Create New**
+2. Go to **Settings** -> **Single Sign-On** -> **Create New**
 3. Select **OIDC** as the protocol
 4. Enter:
    - **Name**: `Entra ID`
@@ -114,19 +117,17 @@ By default, Entra ID v2.0 tokens may not include `email` in the ID token. Fix th
 5. Authenticate at Microsoft
 6. You should be redirected back to Open Mercato and logged in
 
----
-
 ## 5. Configure SCIM Provisioning
 
-**Prerequisite**: You need a SCIM bearer token from Open Mercato. Generate one via:
-- The admin UI: SSO config → Provisioning tab → Generate Token
-- Or the API: `POST /api/sso/scim/tokens` with the SSO config ID
+:::tip Prerequisite
+You need a SCIM bearer token from Open Mercato. Generate one via the admin UI (SSO config -> Provisioning tab -> Generate Token) or the API (`POST /api/sso/scim/tokens` with the SSO config ID).
+:::
 
 ### Set Up Provisioning in Entra ID
 
-1. Go to **Identity** → **Applications** → **Enterprise applications**
+1. Go to **Identity** -> **Applications** -> **Enterprise applications**
 2. Find and click **Open Mercato**
-3. Go to **Provisioning** → click **Get started**
+3. Go to **Provisioning** -> click **Get started**
 4. Set **Provisioning Mode** to **Automatic**
 5. In **Admin Credentials**:
 
@@ -169,43 +170,39 @@ By default, Entra ID v2.0 tokens may not include `email` in the ID token. Fix th
 - **Incremental cycles**: Every 40 minutes, processes changes since last cycle.
 - **On-demand provisioning**: Click **Provision on demand** to immediately provision a specific user (useful for testing).
 
----
-
 ## 6. Test the Full Flow
 
 ### Test SCIM Provisioning
 
-1. In Entra, go to **Enterprise applications** → **Open Mercato** → **Provisioning**
+1. In Entra, go to **Enterprise applications** -> **Open Mercato** -> **Provisioning**
 2. Click **Provision on demand**
 3. Search for a test user and click **Provision**
-4. **Expected**: Entra sends `POST /Users` to your SCIM endpoint → user appears in Open Mercato
+4. **Expected**: Entra sends `POST /Users` to your SCIM endpoint -> user appears in Open Mercato
 5. Check the provisioning log in Open Mercato admin UI
 
 ### Test User Update
 
-1. In Entra, go to **Users** → edit a test user's display name
+1. In Entra, go to **Users** -> edit a test user's display name
 2. Wait for the next provisioning cycle (or use Provision on demand)
-3. **Expected**: Entra sends `PATCH /Users/{id}` → user's name updated in Open Mercato
+3. **Expected**: Entra sends `PATCH /Users/{id}` -> user's name updated in Open Mercato
 
 ### Test User Deactivation
 
 1. In Entra, either:
    - **Delete** the user (soft-delete moves to Deleted users)
-   - **Block sign-in** for the user (Users → select user → Edit properties → Block sign in: Yes)
+   - **Block sign-in** for the user (Users -> select user -> Edit properties -> Block sign in: Yes)
    - **Remove** the user from the application assignment
-2. **Expected**: Entra sends `PATCH /Users/{id}` with `active: false` → user deactivated in Open Mercato, all sessions revoked
+2. **Expected**: Entra sends `PATCH /Users/{id}` with `active: false` -> user deactivated in Open Mercato, all sessions revoked
 
 ### Test OIDC + SCIM Together
 
 1. **Create a new user in Entra** and assign them to the Open Mercato Enterprise app
 2. **Provision on demand** (or wait for cycle)
 3. **Verify** the user exists in Open Mercato (pre-provisioned, no login needed)
-4. **Log in as that user** via OIDC (Open Mercato login → redirect to Microsoft → authenticate → redirect back)
+4. **Log in as that user** via OIDC (Open Mercato login -> redirect to Microsoft -> authenticate -> redirect back)
 5. **Expected**: The SCIM-provisioned account is used (no JIT provisioning, `provisioningMethod` stays `scim`)
 6. **Block sign-in for the user in Entra**
-7. **Expected**: SCIM deactivates the user → existing sessions revoked → OIDC login no longer works
-
----
+7. **Expected**: SCIM deactivates the user -> existing sessions revoked -> OIDC login no longer works
 
 ## Entra ID SCIM Quirks
 
@@ -217,10 +214,8 @@ When building the SCIM endpoint, account for these Entra-specific behaviors:
 | **String booleans** | `active` may be sent as `"True"` / `"False"` strings | Parse with `parseBooleanToken` |
 | **Non-standard PATCH paths** | Sometimes sends `emails[type eq "work"].value` in PATCH path | Support bracket-notation in PATCH path parser |
 | **Mixed-case filter operators** | Sends `Eq` instead of `eq` in filters | Case-insensitive filter parsing |
-| **`externalId` mapping** | Maps `objectId` → `externalId` by default | Always store `externalId` from SCIM requests |
-| **Soft delete** | Uses `IsSoftDeleted` Switch expression → `active: false` | Handle as user deactivation |
-
----
+| **`externalId` mapping** | Maps `objectId` -> `externalId` by default | Always store `externalId` from SCIM requests |
+| **Soft delete** | Uses `IsSoftDeleted` Switch expression -> `active: false` | Handle as user deactivation |
 
 ## Troubleshooting
 
@@ -251,14 +246,15 @@ The redirect URI in the authorization request doesn't match what's registered. C
 - For local dev, Entra's provisioning service needs to reach your endpoint over the internet
 - Use ngrok: `ngrok http 3000`
 - Set Tenant URL to: `https://<id>.ngrok-free.app/api/sso/scim/v2`
-- **Note**: OIDC redirect URIs can use `localhost`, but SCIM provisioning requires a publicly reachable URL
+
+:::note
+OIDC redirect URIs can use `localhost`, but SCIM provisioning requires a publicly reachable URL.
+:::
 
 ### email claim missing from ID token
 
-1. Go to App registration → **Token configuration** → **+ Add optional claim** → ID token → check `email`
-2. Go to **API permissions** → verify `email` permission → click **Grant admin consent**
-
----
+1. Go to App registration -> **Token configuration** -> **+ Add optional claim** -> ID token -> check `email`
+2. Go to **API permissions** -> verify `email` permission -> click **Grant admin consent**
 
 ## Key Differences from JumpCloud
 
@@ -266,12 +262,10 @@ The redirect URI in the authorization request doesn't match what's registered. C
 |--------|----------|-----------|
 | **Issuer URL** | `https://login.microsoftonline.com/{tenant-id}/v2.0` | `https://oauth.id.jumpcloud.com/` |
 | **Redirect URI** | Supports `http://localhost` for dev | Requires HTTPS |
-| **SCIM provisioning** | Enterprise App → Provisioning (automatic) | SSO App → Identity Management (SCIM API) |
+| **SCIM provisioning** | Enterprise App -> Provisioning (automatic) | SSO App -> Identity Management (SCIM API) |
 | **Provisioning cycles** | Every 40 minutes (or on-demand) | Near real-time |
 | **SCIM quirks** | PascalCase ops, string booleans, mixed-case filters | Mostly spec-compliant |
 | **Free tier** | Free with any Azure account | 10 users forever |
-
----
 
 ## Reference
 
