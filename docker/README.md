@@ -80,6 +80,106 @@ Copy `.env.example` to `.env` and adjust as needed:
 cp .env.example .env
 ```
 
+## Windows + Docker Developer Command Cookbook
+
+Windows users who develop through Docker can run any monorepo command using the `docker:*` wrapper scripts. These scripts detect the active container automatically and execute the command inside it — no WSL required.
+
+### Prerequisites
+
+1. Start the dev stack (detached):
+   ```
+   yarn docker:dev:up
+   ```
+2. Keep it running. All `docker:*` exec commands route into the running container.
+3. When done: `yarn docker:dev:down`
+
+> **Note:** There is no `docker:dev:greenfield` command. The native `yarn dev:greenfield` runs build → generate → initialize → dev as a startup sequence. In Docker, `yarn docker:dev:up` already does all of this automatically via the container entrypoint (`docker/scripts/dev-entrypoint.sh`). There is nothing extra to run.
+
+### Command Reference
+
+#### Compose lifecycle (start / stop stacks)
+
+| Goal | Command | Notes |
+|------|---------|-------|
+| Start dev stack (detached) | `yarn docker:dev:up` | `docker-compose.fullapp.dev.yml`; mounted source + hot reload |
+| Stop dev stack | `yarn docker:dev:down` | Stops and removes dev containers |
+| Start production-like stack (detached) | `yarn docker:up` | `docker-compose.fullapp.yml`; built image, no source mount |
+| Stop production-like stack | `yarn docker:down` | Stops and removes production containers |
+| Start ephemeral environment | `yarn docker:ephemeral` | Fresh DB on every restart; port 5000 |
+| Stop ephemeral environment | `yarn docker:ephemeral:down` | Tears down preview stack (all data lost) |
+
+#### Exec commands (1:1 mirrors of native scripts, require stack running)
+
+| Native command | Docker equivalent | Notes |
+|---------------|------------------|-------|
+| `yarn dev` | `yarn docker:dev` | Starts Next.js dev server inside container |
+| `yarn build:packages` | `yarn docker:build:packages` | Builds all packages inside container |
+| `yarn generate` | `yarn docker:generate` | Writes generated files from inside the container |
+| `yarn initialize` | `yarn docker:initialize` | Initializes / re-initializes the app |
+| `yarn reinstall` | `yarn docker:reinstall` | Reinstalls CLI inside the container |
+| `yarn db:migrate` | `yarn docker:db:migrate` | Applies database migrations |
+| `yarn db:generate` | `yarn docker:db:generate` | Generates migration files; writes back via mounted volume |
+| `yarn lint` | `yarn docker:lint` | Lints all packages |
+| `yarn typecheck` | `yarn docker:typecheck` | Type-checks all packages |
+| `yarn test` | `yarn docker:test` | Runs unit tests |
+| `yarn install-skills` | `yarn docker:install-skills` | Runs `install-skills.sh` inside the Linux container |
+| `yarn mercato <cmd>` | `yarn docker:mercato <cmd>` | Full CLI passthrough — all subcommands forwarded into container |
+
+**CLI passthrough examples:**
+```
+yarn docker:mercato init
+yarn docker:mercato eject currencies
+yarn docker:mercato test:integration
+```
+
+> **Tip:** You can override which compose file is targeted by setting `DOCKER_COMPOSE_FILE`:
+> ```
+> DOCKER_COMPOSE_FILE=docker-compose.fullapp.yml yarn docker:generate
+> ```
+
+### Script Compatibility Matrix
+
+| Root script | Native host | Docker dev (`fullapp.dev`) | Docker fullapp | Notes |
+|-------------|-------------|---------------------------|----------------|-------|
+| `dev` | works | `yarn docker:dev` | — | |
+| `dev:greenfield` | works | unsupported-by-design | unsupported-by-design | Not available as a Docker exec command — use `yarn docker:dev:up` instead (entrypoint handles the full init sequence automatically) |
+| `dev:ephemeral` | works | `yarn docker:ephemeral` | unsupported-by-design | Uses `docker-compose.preview.yaml`; fresh DB, port 5000 |
+| `build:packages` | works | `yarn docker:build:packages` | unsupported-by-design | |
+| `generate` | works | `yarn docker:generate` | unsupported-by-design | Monorepo-only; not in runtime image |
+| `initialize` | works | `yarn docker:initialize` | unsupported-by-design | Monorepo-only |
+| `reinstall` | works | `yarn docker:reinstall` | unsupported-by-design | Monorepo-only |
+| `db:migrate` | works | `yarn docker:db:migrate` | works | Available in both Docker profiles |
+| `db:generate` | works | `yarn docker:db:generate` | unsupported-by-design | Monorepo-only |
+| `lint` | works | `yarn docker:lint` | unsupported-by-design | Dev deps not in production image |
+| `typecheck` | works | `yarn docker:typecheck` | unsupported-by-design | Dev deps not in production image |
+| `test` | works | `yarn docker:test` | unsupported-by-design | Dev deps not in production image |
+| `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; use container |
+| `clean:generated` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
+| `clean:packages` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
+| `mcp:serve` | works | works-with-wrapper | unsupported-by-design | Use `docker compose exec app yarn mcp:serve` |
+| `registry:*` / `release:*` | works (Unix) | unsupported-by-design | unsupported-by-design | CI/release pipeline scripts |
+
+### Troubleshooting
+
+**"No running Open Mercato app container found"**
+
+The helper checks for a running `app` service. Ensure the stack is up:
+```
+docker compose -f docker-compose.fullapp.dev.yml ps
+```
+
+**Command times out or hangs**
+
+Some commands (e.g. `db:generate`) write files back to the repo via mounted volumes. This is expected — wait for completion.
+
+**Force a specific compose file**
+
+```
+DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
+```
+
+---
+
 ## Troubleshooting
 
 **Check if vector extension is installed:**
