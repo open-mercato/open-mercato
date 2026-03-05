@@ -494,6 +494,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const injectionWidgets: string[] = []
     let injectionTableImportName: string | null = null
     let setupImportName: string | null = null
+    let integrationImportName: string | null = null
 
     // === Processing order MUST match original import ID sequence ===
 
@@ -752,6 +753,16 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       if (setup) setupImportName = setup.importName
     }
 
+    // 11b. Integration manifest: integration.ts
+    {
+      const resolved = resolveModuleFile(roots, imps, 'integration.ts')
+      if (resolved) {
+        const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
+        imports.push(`import * as ${importName} from '${resolved.importPath}'`)
+        integrationImportName = importName
+      }
+    }
+
     // 12. Custom fields: data/fields.ts
     {
       const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports)
@@ -924,6 +935,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
+      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
   }
 
@@ -1436,6 +1449,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     let vectorImportName: string | null = null
     const dashboardWidgets: string[] = []
     let setupImportName: string | null = null
+    let integrationImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
 
     // Module metadata: index.ts (overrideable)
@@ -1459,6 +1473,16 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
+    }
+
+    // Integration manifest: integration.ts
+    {
+      const resolved = resolveModuleFile(roots, imps, 'integration.ts')
+      if (resolved) {
+        const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
+        imports.push(`import * as ${importName} from '${resolved.importPath}'`)
+        integrationImportName = importName
+      }
     }
 
     // Entity extensions: data/extensions.ts
@@ -1582,6 +1606,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${vectorImportName ? `vector: (${vectorImportName}.default ?? ${vectorImportName}.vectorConfig ?? ${vectorImportName}.config ?? undefined),` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
+      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
   }
 
