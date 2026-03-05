@@ -1,4 +1,4 @@
-import type { IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+import type { IntegrationBundle, IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
 
 export const integration: IntegrationDefinition = {
   id: 'gateway_przelewy24',
@@ -20,3 +20,7 @@ export const integration: IntegrationDefinition = {
     ],
   },
 }
+
+export const integrations: IntegrationDefinition[] = [integration]
+export const bundles: IntegrationBundle[] = []
+export const bundle: IntegrationBundle | undefined = undefined

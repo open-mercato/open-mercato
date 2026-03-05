@@ -4,7 +4,7 @@ import type { CredentialsService } from '../../../../../integrations/lib/credent
 import { getShippingAdapter } from '../../../../lib/adapter-registry'
 import type { ShippingCarrierService } from '../../../../lib/shipping-service'
 import { getShippingCarrierQueue } from '../../../../lib/queue'
-import { shippingCarriersTag } from '../../../../openapi'
+import { shippingCarriersTag } from '../../../openapi'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -95,3 +95,5 @@ export const openApi = {
     },
   },
 }
+
+export default POST

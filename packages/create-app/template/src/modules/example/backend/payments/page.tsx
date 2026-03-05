@@ -37,11 +37,15 @@ export default function PaymentGatewayDemoPage() {
         }),
       })
       if (!response.ok) {
-        const body = await response.json().catch(() => ({ error: 'Request failed' }))
-        setError(body.error ?? `HTTP ${response.status}`)
+        const body = response.result as { error?: string } | null
+        setError(body?.error ?? `HTTP ${response.status}`)
         return
       }
-      const data = await response.json()
+      const data = response.result as TransactionState | null
+      if (!data) {
+        setError('Invalid response payload')
+        return
+      }
       setTransaction(data)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -60,12 +64,12 @@ export default function PaymentGatewayDemoPage() {
         method: 'POST',
         body: JSON.stringify({ transactionId: transaction.transactionId }),
       })
-      const data = await response.json()
+      const data = response.result as { status?: string; error?: string } | null
       if (!response.ok) {
-        setError(data.error ?? `${action} failed`)
+        setError(data?.error ?? `${action} failed`)
         return
       }
-      setActionResult(`${action} successful: status = ${data.status}`)
+      setActionResult(`${action} successful: status = ${data?.status ?? 'unknown'}`)
       await refreshStatus()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -79,8 +83,8 @@ export default function PaymentGatewayDemoPage() {
     try {
       const response = await apiCall(`/api/payment-gateways/status?transactionId=${transaction.transactionId}`)
       if (response.ok) {
-        const data = await response.json()
-        setTransaction((prev) => prev ? { ...prev, status: data.status } : prev)
+        const data = response.result as { status?: string } | null
+        setTransaction((prev) => prev ? { ...prev, status: data?.status ?? prev.status } : prev)
       }
     } catch {
       // Ignore refresh errors

@@ -3,7 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ShippingCarrierService } from '../../../lib/shipping-service'
 import { createShipmentSchema } from '../../../data/validators'
-import { shippingCarriersTag } from '../../../openapi'
+import { shippingCarriersTag } from '../../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['shipping_carriers.manage'] },
@@ -55,3 +55,5 @@ export const openApi = {
     },
   },
 }
+
+export default POST

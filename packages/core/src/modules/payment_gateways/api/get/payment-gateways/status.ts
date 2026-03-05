@@ -72,3 +72,5 @@ export const openApi = {
     },
   },
 }
+
+export default GET
