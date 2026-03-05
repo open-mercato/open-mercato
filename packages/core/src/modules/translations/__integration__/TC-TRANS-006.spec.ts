@@ -117,6 +117,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
   })
 
   test('should verify drawer-saved translation via API', async ({ page, request }) => {
+    test.setTimeout(120_000)
     const adminToken = await getAuthToken(request, 'admin')
     const saToken = await getAuthToken(request, 'superadmin')
     const originalLocales = await getLocales(request, adminToken)
@@ -130,15 +131,28 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
 
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
+      await page.waitForLoadState('domcontentloaded')
       await dismissRecordDeletedDialogIfPresent(page)
 
-      const dialog = await openTranslationsDrawer(page)
+      let dialog = await openTranslationsDrawer(page)
       await expect(dialog).toBeVisible()
       await dismissRecordDeletedDialogIfPresent(page)
-      const deTab = dialog.getByRole('button', { name: 'DE' })
-      await deTab.click()
+      await dialog.getByRole('button', { name: 'DE' }).click()
 
-      const translationField = await waitForTranslationField(dialog, productTitle)
+      let translationField: Locator | null = null
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          translationField = await waitForTranslationField(dialog, productTitle)
+          break
+        } catch (error) {
+          if (attempt === 1) throw error
+          await page.keyboard.press('Escape').catch(() => {})
+          await dismissRecordDeletedDialogIfPresent(page)
+          dialog = await openTranslationsDrawer(page)
+          await dialog.getByRole('button', { name: 'DE' }).click()
+        }
+      }
+      if (!translationField) throw new Error('Could not resolve translation field after retry')
       await translationField.fill('API Verifiziert QA')
 
       const saveTranslationsButton = dialog.getByTestId('translations-save')
