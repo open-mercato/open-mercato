@@ -9,7 +9,7 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import type { Metadata } from 'next'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 
 type Awaitable<T> = T | Promise<T>
 
@@ -23,12 +23,10 @@ export async function generateMetadata(props: BackendParams): Promise<Metadata> 
     return {}
   }
 
-  const { t } = await resolveTranslations()
-  const fallbackTitle = match.route.title || 'Open Mercato'
-
-  return {
-    title: match.route.titleKey ? t(match.route.titleKey, fallbackTitle) : fallbackTitle,
-  }
+  return resolveLocalizedTitleMetadata({
+    title: match.route.title,
+    titleKey: match.route.titleKey,
+  })
 }
 
 export default async function BackendCatchAll(props: BackendParams) {
