@@ -31,7 +31,6 @@
   "integrations.detail.logs.level.info": "Info",
   "integrations.detail.logs.level.warn": "Ostrze\u017cenie",
   "integrations.detail.logs.title": "Logi operacji",
-  "integrations.detail.paymentMethodsLink": "Przejd\u017a do konfiguracji metod p\u0142atno\u015bci",
   "integrations.detail.stateError": "Nie uda\u0142o si\u0119 zaktualizowa\u0107 stanu",
   "integrations.detail.stateUpdated": "Stan integracji zaktualizowany",
   "integrations.detail.tabs.credentials": "Dane uwierzytelniaj\u0105ce",

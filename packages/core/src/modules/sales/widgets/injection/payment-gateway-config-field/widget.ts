@@ -2,7 +2,7 @@ import type { InjectionFieldWidget } from '@open-mercato/shared/modules/widgets/
 
 const widget: InjectionFieldWidget = {
   metadata: {
-    id: 'payment_gateways.injection.payment-method-config-field',
+    id: 'sales.injection.payment-gateway-config-field',
     priority: 40,
   },
   fields: [

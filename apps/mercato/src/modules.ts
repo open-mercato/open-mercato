@@ -43,10 +43,10 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
-  { id: 'gateway_payu', from: '@open-mercato/core' },
-  { id: 'gateway_przelewy24', from: '@open-mercato/core' },
+  { id: 'gateway_payu', from: '@open-mercato/gateway-payu' },
+  { id: 'gateway_przelewy24', from: '@open-mercato/gateway-przelewy24' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
-  { id: 'carrier_inpost', from: '@open-mercato/core' },
+  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },
   { id: 'example', from: '@app' },
 
 ]

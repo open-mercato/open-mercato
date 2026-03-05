@@ -40,7 +40,6 @@ type IntegrationDetail = {
     description?: string
     category?: string
     hub?: string
-    providerKey?: string
     bundleId?: string
     docsUrl?: string
     apiVersions?: ApiVersion[]
@@ -236,13 +235,6 @@ export default function IntegrationDetailPage() {
               {integration.category && <Badge variant="secondary">{integration.category}</Badge>}
               {integration.hub && <Badge variant="outline">{integration.hub}</Badge>}
             </div>
-            {integration.hub === 'payment_gateways' && integration.providerKey && (
-              <div className="mt-3">
-                <Link href={`/backend/sales/configuration?tab=payment-methods&provider=${encodeURIComponent(integration.providerKey)}`} className="text-sm text-primary hover:underline">
-                  {t('integrations.detail.paymentMethodsLink', 'Go to payment methods configuration')}
-                </Link>
-              </div>
-            )}
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-muted-foreground">

@@ -11,6 +11,5 @@ export default {
   'gateway_stripe.config.statementDescriptor.help': 'What appears on the customer\'s bank statement (max 22 characters)',
   'gateway_stripe.config.allowPromotionCodes': 'Allow promotion codes on checkout',
   'gateway_stripe.tabs.settings': 'Stripe settings',
-  'gateway_stripe.config.help': 'Configure credentials in Integration details and assign Stripe payment methods in Sales configuration.',
-  'gateway_stripe.config.openPaymentMethods': 'Open payment methods',
+  'gateway_stripe.config.help': 'Configure credentials in Integration details. Consumer modules decide how to bind Stripe to their payment UIs.',
 }

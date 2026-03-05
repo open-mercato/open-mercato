@@ -8,7 +8,7 @@ export const integration: IntegrationDefinition = {
   hub: 'shipping_carriers',
   providerKey: 'inpost',
   docsUrl: 'https://inpost.pl',
-  package: '@open-mercato/core',
+  package: '@open-mercato/carrier-inpost',
   version: '1.0.0',
   author: 'Open Mercato Team',
   license: 'MIT',

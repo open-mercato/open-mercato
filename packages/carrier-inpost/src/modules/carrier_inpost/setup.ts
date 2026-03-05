@@ -1,6 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { registerIntegration } from '@open-mercato/shared/modules/integrations/types'
-import { registerShippingProvider } from '@open-mercato/core/modules/sales/lib/providers'
+import { registerShippingProvider } from '@open-mercato/core/modules/sales/lib/providers/index'
 import { registerShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
 import { integration } from './integration'
 import { inpostAdapter } from './lib/adapter'

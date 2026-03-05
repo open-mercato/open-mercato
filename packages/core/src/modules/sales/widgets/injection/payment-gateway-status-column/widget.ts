@@ -2,7 +2,7 @@ import type { InjectionColumnWidget } from '@open-mercato/shared/modules/widgets
 
 const widget: InjectionColumnWidget = {
   metadata: {
-    id: 'payment_gateways.injection.payment-status-column',
+    id: 'sales.injection.payment-gateway-status-column',
     priority: 50,
   },
   columns: [
@@ -13,9 +13,7 @@ const widget: InjectionColumnWidget = {
       sortable: false,
       cell: ({ getValue }) => {
         const value = getValue()
-        return typeof value === 'string' && value.trim().length > 0
-          ? value
-          : 'pending'
+        return typeof value === 'string' && value.trim().length > 0 ? value : 'pending'
       },
     },
   ],
