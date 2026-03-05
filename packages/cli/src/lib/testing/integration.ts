@@ -1265,7 +1265,9 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
   return buildEnvironment({
     BASE_URL: baseUrl,
-    NODE_ENV: process.env.NODE_ENV ?? 'test',
+    NODE_ENV: process.env.NODE_ENV ?? 'production',
+    OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
+    OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
@@ -2495,7 +2497,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
       JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
-      NODE_ENV: process.env.NODE_ENV ?? 'test',
+      NODE_ENV: process.env.NODE_ENV ?? 'production',
+      OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
+      OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
@@ -2556,14 +2560,16 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           silent: !options.verbose,
         }))
 
-      if (options.forceRebuild) {
-        console.log(`[${options.logPrefix}] --force-rebuild enabled. Running full build pipeline.`)
-      } else if (!needsBuild) {
+      if (!needsBuild) {
         console.log(
           `[${options.logPrefix}] Build cache valid (within ${BUILD_CACHE_TTL_ENV_VAR}=${buildCacheTtlSeconds}s). Skipping build pipeline.`,
         )
       } else {
-        console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
+        if (options.forceRebuild) {
+          console.log(`[${options.logPrefix}] --force-rebuild enabled. Running full build pipeline.`)
+        } else {
+          console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
+        }
         console.log(`[${options.logPrefix}] Building packages...`)
         await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
           runYarnCommand(['build:packages'], commandEnvironment, {
@@ -2571,6 +2577,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           }))
 
         console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
+        await rm(path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.checksum'), {
+          force: true,
+        })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
           runYarnCommand(['generate'], commandEnvironment, {
             silent: !options.verbose,

@@ -1880,7 +1880,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 {fieldsetSelectorLabel}
               </label>
               <select
-                className="h-9 rounded border px-2 text-sm"
+                className="h-9 rounded border pl-3 pr-8 text-sm"
                 value={entityLayout.activeFieldset ?? ''}
                 onChange={(event) =>
                   handleFieldsetSelectionChange(
@@ -2986,7 +2986,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <select
-          className="w-full h-9 rounded border px-2 text-sm"
+          className="w-full h-9 rounded border pl-3 pr-8 text-sm"
           value={
             Array.isArray(value)
               ? String(value[0] ?? '')

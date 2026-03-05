@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { createContext, useContext } from 'react'
 
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -10,7 +11,7 @@ type ThemeContextValue = {
   setTheme: (theme: Theme) => void
 }
 
-const ThemeContext = React.createContext<ThemeContextValue | undefined>(undefined)
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 const THEME_STORAGE_KEY = 'om-theme'
 
@@ -106,7 +107,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useTheme(): ThemeContextValue {
-  const context = React.useContext(ThemeContext)
+  const context = useContext(ThemeContext)
   if (context === undefined) {
     // Return safe defaults when not in provider (e.g., server render)
     return {
@@ -117,4 +118,3 @@ export function useTheme(): ThemeContextValue {
   }
   return context
 }
-

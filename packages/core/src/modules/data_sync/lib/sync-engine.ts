@@ -171,7 +171,10 @@ export function createSyncEngine(deps: EngineDeps) {
   return {
     async runImport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
       const run = await syncRunService.getRun(runId, scope)
-      if (!run) throw new Error(`Sync run ${runId} not found`)
+      if (!run) {
+        console.warn(`[data-sync] Skipping stale import job for missing run ${runId}`)
+        return
+      }
 
       const providerKey = resolveProviderKey(run.integrationId)
       const adapter = getDataSyncAdapter(providerKey)
@@ -271,7 +274,10 @@ export function createSyncEngine(deps: EngineDeps) {
 
     async runExport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
       const run = await syncRunService.getRun(runId, scope)
-      if (!run) throw new Error(`Sync run ${runId} not found`)
+      if (!run) {
+        console.warn(`[data-sync] Skipping stale export job for missing run ${runId}`)
+        return
+      }
 
       const providerKey = resolveProviderKey(run.integrationId)
       const adapter = getDataSyncAdapter(providerKey)

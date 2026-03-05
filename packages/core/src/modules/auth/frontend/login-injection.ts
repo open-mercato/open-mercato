@@ -40,6 +40,8 @@ export type LoginFormWidgetContext = {
   searchParams: URLSearchParams
   /** Set or clear an alternative auth provider for the current email */
   setAuthOverride: (override: AuthOverride | null) => void
+  /** Mark whether auth override detection is still resolving */
+  setAuthOverridePending?: (pending: boolean) => void
   /** Display an error message in the login form's error area */
   setError: (error: string | null) => void
 }
