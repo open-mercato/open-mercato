@@ -1266,6 +1266,8 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
   return buildEnvironment({
     BASE_URL: baseUrl,
     NODE_ENV: process.env.NODE_ENV ?? 'production',
+    OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
+    OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
@@ -2496,6 +2498,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       BASE_URL: applicationBaseUrl,
       JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
       NODE_ENV: process.env.NODE_ENV ?? 'production',
+      OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
+      OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
