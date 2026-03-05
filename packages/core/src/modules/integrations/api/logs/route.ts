@@ -16,7 +16,7 @@ export const openApi = {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 20, totalPages: 1 }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const url = new URL(req.url)

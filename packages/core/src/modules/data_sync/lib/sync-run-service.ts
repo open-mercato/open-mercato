@@ -1,5 +1,5 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findAndCountWithDecryption, findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncCursor, SyncRun } from '../data/entities'
 
 type SyncScope = {
@@ -51,7 +51,14 @@ export function createSyncRunService(em: EntityManager) {
       )
     },
 
-    async listRuns(query: { integrationId?: string; entityType?: string; status?: string; page: number; pageSize: number }, scope: SyncScope): Promise<{ items: SyncRun[]; total: number }> {
+    async listRuns(query: {
+      integrationId?: string
+      entityType?: string
+      direction?: 'import' | 'export'
+      status?: string
+      page: number
+      pageSize: number
+    }, scope: SyncScope): Promise<{ items: SyncRun[]; total: number }> {
       const where: FilterQuery<SyncRun> = {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
@@ -60,13 +67,20 @@ export function createSyncRunService(em: EntityManager) {
 
       if (query.integrationId) where.integrationId = query.integrationId
       if (query.entityType) where.entityType = query.entityType
+      if (query.direction) where.direction = query.direction
       if (query.status) where.status = query.status as SyncRun['status']
 
-      const [items, total] = await em.findAndCount(SyncRun, where, {
-        orderBy: { createdAt: 'DESC' },
-        limit: query.pageSize,
-        offset: (query.page - 1) * query.pageSize,
-      })
+      const [items, total] = await findAndCountWithDecryption(
+        em,
+        SyncRun,
+        where,
+        {
+          orderBy: { createdAt: 'DESC' },
+          limit: query.pageSize,
+          offset: (query.page - 1) * query.pageSize,
+        },
+        scope,
+      )
 
       return { items, total }
     },
@@ -102,13 +116,19 @@ export function createSyncRunService(em: EntityManager) {
       if (!run) return
       run.cursor = cursor
 
-      const cursorRow = await em.findOne(SyncCursor, {
+      const cursorRow = await findOneWithDecryption(
+        em,
+        SyncCursor,
+        {
         integrationId: run.integrationId,
         entityType: run.entityType,
         direction: run.direction,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
-      })
+        },
+        undefined,
+        scope,
+      )
 
       if (cursorRow) {
         cursorRow.cursor = cursor
@@ -127,26 +147,39 @@ export function createSyncRunService(em: EntityManager) {
     },
 
     async resolveCursor(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<string | null> {
-      const row = await em.findOne(SyncCursor, {
+      const row = await findOneWithDecryption(
+        em,
+        SyncCursor,
+        {
         integrationId,
         entityType,
         direction,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
-      })
+        },
+        undefined,
+        scope,
+      )
       return row?.cursor ?? null
     },
 
     async findRunningOverlap(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<SyncRun | null> {
-      return em.findOne(SyncRun, {
-        integrationId,
-        entityType,
-        direction,
-        status: 'running',
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      })
+      const [run] = await findWithDecryption(
+        em,
+        SyncRun,
+        {
+          integrationId,
+          entityType,
+          direction,
+          status: 'running',
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        },
+        { limit: 1 },
+        scope,
+      )
+      return run ?? null
     },
   }
 }

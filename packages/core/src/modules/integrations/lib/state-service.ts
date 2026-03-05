@@ -1,11 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { IntegrationState } from '../data/entities'
-
-type IntegrationScope = {
-  organizationId: string
-  tenantId: string
-}
+import type { IntegrationScope } from './types'
 
 export function createIntegrationStateService(em: EntityManager) {
   return {

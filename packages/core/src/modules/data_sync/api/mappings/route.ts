@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncMapping } from '../../data/entities'
 
 const listMappingsQuerySchema = z.object({
@@ -57,11 +58,17 @@ export async function GET(req: Request) {
   if (parsed.data.integrationId) where.integrationId = parsed.data.integrationId
   if (parsed.data.entityType) where.entityType = parsed.data.entityType
 
-  const [items, total] = await em.findAndCount(SyncMapping, where, {
-    orderBy: { createdAt: 'DESC' },
-    limit: parsed.data.pageSize,
-    offset: (parsed.data.page - 1) * parsed.data.pageSize,
-  })
+  const [items, total] = await findAndCountWithDecryption(
+    em,
+    SyncMapping,
+    where,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: parsed.data.pageSize,
+      offset: (parsed.data.page - 1) * parsed.data.pageSize,
+    },
+    scope,
+  )
 
   return NextResponse.json({
     items: items.map((item) => ({
@@ -85,7 +92,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const parsed = createMappingSchema.safeParse(await req.json())
+  const payload = await req.json().catch(() => null)
+  const parsed = createMappingSchema.safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })
   }
@@ -94,12 +102,18 @@ export async function POST(req: Request) {
   const em = container.resolve('em') as EntityManager
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  const existing = await em.findOne(SyncMapping, {
-    integrationId: parsed.data.integrationId,
-    entityType: parsed.data.entityType,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-  })
+  const existing = await findOneWithDecryption(
+    em,
+    SyncMapping,
+    {
+      integrationId: parsed.data.integrationId,
+      entityType: parsed.data.entityType,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    },
+    undefined,
+    scope,
+  )
 
   if (existing) {
     existing.mapping = parsed.data.mapping

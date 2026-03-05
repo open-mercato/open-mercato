@@ -12,17 +12,11 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
-type CredentialField = {
-  key: string
-  label: string
-  type: 'text' | 'secret' | 'url' | 'boolean' | 'select'
-  required?: boolean
-  placeholder?: string
-  options?: { value: string; label: string }[]
-}
+type CredentialField = IntegrationCredentialField
 
 type BundleIntegration = {
   id: string
@@ -130,11 +124,8 @@ export default function BundleConfigPage() {
 
   const handleBulkToggle = React.useCallback(async (enabled: boolean) => {
     if (!detail) return
-    for (const item of detail.bundleIntegrations) {
-      if (item.isEnabled !== enabled) {
-        await handleToggle(item.id, enabled)
-      }
-    }
+    const targets = detail.bundleIntegrations.filter((item) => item.isEnabled !== enabled)
+    await Promise.all(targets.map((item) => handleToggle(item.id, enabled)))
   }, [detail, handleToggle])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.bundle.title')} /></PageBody></Page>

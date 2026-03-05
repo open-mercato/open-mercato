@@ -285,6 +285,14 @@ export function createSyncEngine(deps: EngineDeps) {
       }
 
       await syncRunService.markStatus(run.id, 'running', scope)
+      await emitDataSyncEvent('data_sync.run.started', {
+        runId: run.id,
+        integrationId: run.integrationId,
+        entityType: run.entityType,
+        direction: run.direction,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
 
       if (run.progressJobId) {
         await progressService.startJob(run.progressJobId, {
@@ -328,6 +336,21 @@ export function createSyncEngine(deps: EngineDeps) {
 
           await syncRunService.updateCursor(run.id, batch.cursor, scope)
           await updateProgress(run.progressJobId, processedCount, null, scope)
+
+          await integrationLogService.write(
+            {
+              integrationId: run.integrationId,
+              runId: run.id,
+              level: 'info',
+              message: `Processed export batch ${batch.batchIndex}`,
+              payload: {
+                processedCount,
+                batchSize: batch.results.length,
+                cursor: batch.cursor,
+              },
+            },
+            scope,
+          )
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Sync export failed'

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncMapping } from '../../../data/entities'
 
 const idParamsSchema = z.object({ id: z.string().uuid() })
@@ -42,12 +43,19 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  const mapping = await em.findOne(SyncMapping, {
-    id: parsedParams.data.id,
-    organizationId: auth.orgId as string,
-    tenantId: auth.tenantId,
-  })
+  const mapping = await findOneWithDecryption(
+    em,
+    SyncMapping,
+    {
+      id: parsedParams.data.id,
+      organizationId: auth.orgId as string,
+      tenantId: auth.tenantId,
+    },
+    undefined,
+    scope,
+  )
 
   if (!mapping) {
     return NextResponse.json({ error: 'Mapping not found' }, { status: 404 })
@@ -74,19 +82,27 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid mapping id' }, { status: 400 })
   }
 
-  const parsedBody = updateMappingSchema.safeParse(await req.json())
+  const payload = await req.json().catch(() => null)
+  const parsedBody = updateMappingSchema.safeParse(payload)
   if (!parsedBody.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsedBody.error.flatten() }, { status: 422 })
   }
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  const mapping = await em.findOne(SyncMapping, {
-    id: parsedParams.data.id,
-    organizationId: auth.orgId as string,
-    tenantId: auth.tenantId,
-  })
+  const mapping = await findOneWithDecryption(
+    em,
+    SyncMapping,
+    {
+      id: parsedParams.data.id,
+      organizationId: auth.orgId as string,
+      tenantId: auth.tenantId,
+    },
+    undefined,
+    scope,
+  )
 
   if (!mapping) {
     return NextResponse.json({ error: 'Mapping not found' }, { status: 404 })
@@ -117,12 +133,19 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  const mapping = await em.findOne(SyncMapping, {
-    id: parsedParams.data.id,
-    organizationId: auth.orgId as string,
-    tenantId: auth.tenantId,
-  })
+  const mapping = await findOneWithDecryption(
+    em,
+    SyncMapping,
+    {
+      id: parsedParams.data.id,
+      organizationId: auth.orgId as string,
+      tenantId: auth.tenantId,
+    },
+    undefined,
+    scope,
+  )
 
   if (!mapping) {
     return NextResponse.json({ error: 'Mapping not found' }, { status: 404 })

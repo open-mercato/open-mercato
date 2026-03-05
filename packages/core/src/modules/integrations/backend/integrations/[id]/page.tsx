@@ -13,17 +13,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primi
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
-type CredentialField = {
-  key: string
-  label: string
-  type: 'text' | 'secret' | 'url' | 'boolean' | 'select' | 'oauth' | 'ssh_keypair'
-  required?: boolean
-  placeholder?: string
-  options?: { value: string; label: string }[]
-}
+type CredentialField = IntegrationCredentialField
 
 type ApiVersion = {
   id: string
@@ -336,7 +330,7 @@ export default function IntegrationDetailPage() {
                             </span>
                           )}
                         </div>
-                        {isSelected && <Badge variant="outline">Current</Badge>}
+                        {isSelected && <Badge variant="outline">{t('integrations.detail.version.current')}</Badge>}
                       </div>
                     )
                   })}

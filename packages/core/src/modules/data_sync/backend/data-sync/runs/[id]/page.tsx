@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -27,6 +27,14 @@ type SyncRunDetail = {
   batchesCompleted: number
   lastError: string | null
   progressJobId: string | null
+  progressJob: {
+    id: string
+    status: string
+    progressPercent: number
+    processedCount: number
+    totalCount: number | null
+    etaSeconds: number | null
+  } | null
   triggeredBy: string | null
   createdAt: string
   updatedAt: string
@@ -56,6 +64,7 @@ const LOG_LEVEL_STYLES: Record<string, string> = {
 
 export default function SyncRunDetailPage() {
   const params = useParams<{ id: string }>()
+  const router = useRouter()
   const runId = params.id
   const t = useT()
 
@@ -125,17 +134,17 @@ export default function SyncRunDetailPage() {
     }, { fallback: null })
     if (call.ok && call.result) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
-      window.location.href = `/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`
+      router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
       flash(t('data_sync.runs.detail.retryError'), 'error')
     }
-  }, [runId, t])
+  }, [router, runId, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
 
   const totalProcessed = run.createdCount + run.updatedCount + run.skippedCount + run.failedCount
-  const progressPercent = totalProcessed > 0 ? Math.min(100, Math.round((totalProcessed / Math.max(totalProcessed, 1)) * 100)) : (run.status === 'completed' ? 100 : 0)
+  const progressPercent = run.progressJob?.progressPercent ?? (run.status === 'completed' ? 100 : 0)
 
   return (
     <Page>
@@ -179,8 +188,8 @@ export default function SyncRunDetailPage() {
             <CardContent className="space-y-3">
               <Progress value={progressPercent} className="h-3" />
               <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>{totalProcessed} items processed</span>
-                <span>{run.batchesCompleted} batches</span>
+                <span>{t('data_sync.runs.detail.progress.itemsProcessed', { count: totalProcessed })}</span>
+                <span>{t('data_sync.runs.detail.progress.batches', { count: run.batchesCompleted })}</span>
               </div>
             </CardContent>
           </Card>
@@ -238,9 +247,9 @@ export default function SyncRunDetailPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      <th className="px-4 py-2 text-left font-medium">Time</th>
-                      <th className="px-4 py-2 text-left font-medium">Level</th>
-                      <th className="px-4 py-2 text-left font-medium">Message</th>
+                      <th className="px-4 py-2 text-left font-medium">{t('data_sync.runs.detail.logs.time')}</th>
+                      <th className="px-4 py-2 text-left font-medium">{t('data_sync.runs.detail.logs.level')}</th>
+                      <th className="px-4 py-2 text-left font-medium">{t('data_sync.runs.detail.logs.message')}</th>
                     </tr>
                   </thead>
                   <tbody>

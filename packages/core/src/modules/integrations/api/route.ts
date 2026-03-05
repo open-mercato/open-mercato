@@ -20,7 +20,7 @@ export const openApi = buildIntegrationsCrudOpenApi({
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
-    return NextResponse.json({ items: [], bundles: [], total: 0, page: 1, pageSize: 100, totalPages: 1 }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const container = await createRequestContainer()

@@ -2,11 +2,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ListIntegrationLogsQuery } from '../data/validators'
 import { IntegrationLog } from '../data/entities'
-
-type IntegrationScope = {
-  organizationId: string
-  tenantId: string
-}
+import type { IntegrationScope } from './types'
 
 type LogInput = {
   integrationId: string
@@ -58,7 +54,8 @@ export function createIntegrationLogService(em: EntityManager) {
       if (query.entityType) where.scopeEntityType = query.entityType
       if (query.entityId) where.scopeEntityId = query.entityId
 
-      const [items, total] = await em.findAndCount(
+      const items = await findWithDecryption(
+        em,
         IntegrationLog,
         where,
         {
@@ -66,27 +63,20 @@ export function createIntegrationLogService(em: EntityManager) {
           limit: query.pageSize,
           offset: (query.page - 1) * query.pageSize,
         },
+        scope,
       )
-
-      const decrypted = await findWithDecryption(em, IntegrationLog, { id: { $in: items.map((item) => item.id) } }, {}, scope)
-      const byId = new Map(decrypted.map((item) => [item.id, item]))
-      return { items: items.map((item) => byId.get(item.id) ?? item), total }
+      const total = await em.count(IntegrationLog, where)
+      return { items, total }
     },
 
     async pruneOlderThan(days: number, scope: IntegrationScope): Promise<number> {
       const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-      const old = await em.find(IntegrationLog, {
+      const deletedCount = await em.nativeDelete(IntegrationLog, {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         createdAt: { $lt: threshold },
       })
-      if (!old.length) return 0
-
-      for (const row of old) {
-        em.remove(row)
-      }
-      await em.flush()
-      return old.length
+      return deletedCount
     },
   }
 }

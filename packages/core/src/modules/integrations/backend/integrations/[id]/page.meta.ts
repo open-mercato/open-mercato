@@ -1,6 +1,7 @@
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['integrations.view'],
+  pageContext: 'settings' as const,
   pageTitle: 'Integration Detail',
   pageTitleKey: 'integrations.detail.title',
   navHidden: true,

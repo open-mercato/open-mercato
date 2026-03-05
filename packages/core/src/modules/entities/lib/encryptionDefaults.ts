@@ -145,6 +145,10 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'integrations:integration_credentials',
+    fields: [{ field: 'credentials' }],
+  },
+  {
     entityId: 'staff:staff_leave_request',
     fields: [
       { field: 'note' },

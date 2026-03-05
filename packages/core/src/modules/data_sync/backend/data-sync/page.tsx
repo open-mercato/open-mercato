@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -40,6 +41,7 @@ const STATUS_STYLES: Record<string, string> = {
 }
 
 export default function SyncRunsDashboardPage() {
+  const router = useRouter()
   const [rows, setRows] = React.useState<SyncRunRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -142,7 +144,7 @@ export default function SyncRunsDashboardPage() {
       type: 'select',
       label: t('data_sync.dashboard.columns.direction'),
       options: [
-        { label: t('data_sync.dashboard.filters.allStatuses'), value: '' },
+        { label: t('data_sync.dashboard.filters.allDirections'), value: '' },
         { label: t('data_sync.dashboard.direction.import'), value: 'import' },
         { label: t('data_sync.dashboard.direction.export'), value: 'export' },
       ],
@@ -211,14 +213,14 @@ export default function SyncRunsDashboardPage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           perspective={{ tableId: 'data_sync.runs' }}
           onRowClick={(row) => {
-            window.location.href = `/backend/data-sync/runs/${encodeURIComponent(row.id)}`
+            router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`)
           }}
           rowActions={(row) => (
             <RowActions items={[
               {
                 id: 'view',
-                label: 'View',
-                onSelect: () => { window.location.href = `/backend/data-sync/runs/${encodeURIComponent(row.id)}` },
+                label: t('data_sync.dashboard.actions.view'),
+                onSelect: () => { router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`) },
               },
               ...(row.status === 'running' ? [{
                 id: 'cancel',

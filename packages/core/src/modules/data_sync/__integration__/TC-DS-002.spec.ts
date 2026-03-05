@@ -1,10 +1,11 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 type JsonRecord = Record<string, unknown>
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
-  return (await response.json().catch(() => ({}))) as JsonRecord
+  return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
 }
 
 const TEST_INTEGRATION_ID = 'test_mapping_integration'

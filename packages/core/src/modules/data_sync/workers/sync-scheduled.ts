@@ -1,7 +1,9 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { SyncSchedule } from '../data/entities'
+import { getSyncQueue } from '../lib/queue'
 
 type ScheduledSyncPayload = {
   scheduleId: string
@@ -25,12 +27,18 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
   const em = ctx.resolve<EntityManager>('em')
   const syncRunService = ctx.resolve<SyncRunService>('dataSyncRunService')
 
-  const schedule = await em.findOne(SyncSchedule, {
-    id: job.payload.scheduleId,
-    organizationId: job.payload.scope.organizationId,
-    tenantId: job.payload.scope.tenantId,
-    deletedAt: null,
-  })
+  const schedule = await findOneWithDecryption(
+    em,
+    SyncSchedule,
+    {
+      id: job.payload.scheduleId,
+      organizationId: job.payload.scope.organizationId,
+      tenantId: job.payload.scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    job.payload.scope,
+  )
 
   if (!schedule || !schedule.isEnabled) {
     return
@@ -67,8 +75,8 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
   await em.flush()
 
   const queueName = schedule.direction === 'import' ? 'data-sync-import' : 'data-sync-export'
-  const queue = ctx.resolve<{ add: (name: string, payload: unknown) => Promise<void> }>(queueName)
-  await queue.add(`sync-${run.id}`, {
+  const queue = getSyncQueue(queueName)
+  await queue.enqueue({
     runId: run.id,
     batchSize: 100,
     scope: job.payload.scope,

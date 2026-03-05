@@ -21,7 +21,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const parsed = runSyncSchema.safeParse(await req.json())
+  const payload = await req.json().catch(() => null)
+  const parsed = runSyncSchema.safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })
   }
@@ -33,6 +34,16 @@ export async function POST(req: Request) {
   const scope = {
     organizationId: auth.orgId as string,
     tenantId: auth.tenantId,
+  }
+
+  const overlap = await syncRunService.findRunningOverlap(
+    parsed.data.integrationId,
+    parsed.data.entityType,
+    parsed.data.direction,
+    scope,
+  )
+  if (overlap) {
+    return NextResponse.json({ error: 'A sync run is already in progress for this integration and entity direction' }, { status: 409 })
   }
 
   const cursor = parsed.data.fullSync

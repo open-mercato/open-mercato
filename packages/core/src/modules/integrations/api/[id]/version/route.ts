@@ -7,6 +7,11 @@ import { emitIntegrationsEvent } from '../../../events'
 import { updateVersionSchema } from '../../../data/validators'
 import type { IntegrationStateService } from '../../../lib/state-service'
 import { resolveDefaultApiVersion } from '../../../lib/registry-service'
+import {
+  resolveUserFeatures,
+  runIntegrationMutationGuardAfterSuccess,
+  runIntegrationMutationGuards,
+} from '../../guards'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -39,7 +44,8 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }
 
-  const parsedBody = updateVersionSchema.safeParse(await req.json())
+  const payload = await req.json().catch(() => null)
+  const parsedBody = updateVersionSchema.safeParse(payload)
   if (!parsedBody.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsedBody.error.flatten() }, { status: 422 })
   }
@@ -61,23 +67,66 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const container = await createRequestContainer()
+  const guardResult = await runIntegrationMutationGuards(
+    container,
+    {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: 'integrations.integration',
+      resourceId: integration.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: parsedBody.data as Record<string, unknown>,
+    },
+    resolveUserFeatures(auth),
+  )
+  if (!guardResult.ok) {
+    return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+  }
+
+  let payloadData = parsedBody.data
+  if (guardResult.modifiedPayload) {
+    const mergedPayload = { ...parsedBody.data, ...guardResult.modifiedPayload }
+    const reparsed = updateVersionSchema.safeParse(mergedPayload)
+    if (!reparsed.success) {
+      return NextResponse.json({ error: 'Invalid payload after guard transform', details: reparsed.error.flatten() }, { status: 422 })
+    }
+    payloadData = reparsed.data
+  }
+  if (!availableVersions.some((version) => version.id === payloadData.apiVersion)) {
+    return NextResponse.json({ error: 'Unknown integration version' }, { status: 422 })
+  }
+
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
   const before = await stateService.resolveApiVersion(integration.id, scope)
-  await stateService.upsert(integration.id, { apiVersion: requestedVersion }, scope)
+  await stateService.upsert(integration.id, { apiVersion: payloadData.apiVersion }, scope)
 
   await emitIntegrationsEvent('integrations.version.changed', {
     integrationId: integration.id,
     previousVersion: before ?? defaultVersion,
-    apiVersion: requestedVersion,
+    apiVersion: payloadData.apiVersion,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
     userId: auth.sub,
   })
 
+  await runIntegrationMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId: auth.sub ?? '',
+    resourceKind: 'integrations.integration',
+    resourceId: integration.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+  })
+
   return NextResponse.json({
-    apiVersion: requestedVersion,
+    apiVersion: payloadData.apiVersion,
     previousVersion: before ?? defaultVersion,
   })
 }

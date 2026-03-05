@@ -1,10 +1,11 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 type JsonRecord = Record<string, unknown>
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
-  return (await response.json().catch(() => ({}))) as JsonRecord
+  return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
 }
 
 /**
@@ -14,6 +15,33 @@ async function readJson(response: APIResponse): Promise<JsonRecord> {
  * Dynamically detects available integrations — works with or without provider modules.
  */
 test.describe('TC-INT-002: Integrations foundation APIs', () => {
+  test('credentials endpoint enforces authorization', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const listResponse = await apiRequest(request, 'GET', '/api/integrations', { token: adminToken })
+    expect(listResponse.status()).toBe(200)
+    const listBody = await readJson(listResponse)
+    const items = Array.isArray(listBody.items) ? (listBody.items as JsonRecord[]) : []
+    if (items.length === 0) {
+      test.skip(true, 'No integration provider modules registered — skipping authorization checks')
+      return
+    }
+    const integrationId = String(items[0].id)
+
+    const noTokenResponse = await request.get(
+      `${process.env.BASE_URL?.trim() || 'http://localhost:3000'}/api/integrations/${integrationId}/credentials`,
+    )
+    expect(noTokenResponse.status()).toBe(401)
+
+    const employeeToken = await getAuthToken(request, 'employee')
+    const forbiddenResponse = await apiRequest(
+      request,
+      'GET',
+      `/api/integrations/${integrationId}/credentials`,
+      { token: employeeToken },
+    )
+    expect(forbiddenResponse.status()).toBe(403)
+  })
+
   test('list endpoint returns valid response structure', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 

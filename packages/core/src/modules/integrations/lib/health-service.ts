@@ -2,11 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { IntegrationStateService } from './state-service'
 import type { IntegrationLogService } from './log-service'
 import { getIntegration, getBundle } from '@open-mercato/shared/modules/integrations/types'
-
-type IntegrationScope = {
-  organizationId: string
-  tenantId: string
-}
+import type { IntegrationScope } from './types'
 
 type HealthCheckResult = {
   status: 'healthy' | 'degraded' | 'unhealthy'

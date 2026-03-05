@@ -45,20 +45,20 @@ export interface IntegrationCredentialFieldBase {
 }
 
 export interface IntegrationCredentialFieldText extends IntegrationCredentialFieldBase {
-  type: 'text' | 'secret' | 'url'
+  type: Extract<CredentialFieldType, 'text' | 'secret' | 'url'>
 }
 
 export interface IntegrationCredentialFieldBoolean extends IntegrationCredentialFieldBase {
-  type: 'boolean'
+  type: Extract<CredentialFieldType, 'boolean'>
 }
 
 export interface IntegrationCredentialFieldSelect extends IntegrationCredentialFieldBase {
-  type: 'select'
+  type: Extract<CredentialFieldType, 'select'>
   options: CredentialFieldOption[]
 }
 
 export interface IntegrationCredentialFieldOauth extends IntegrationCredentialFieldBase {
-  type: 'oauth'
+  type: Extract<CredentialFieldType, 'oauth'>
   authUrl?: string
   tokenUrl?: string
   scopes?: string[]
@@ -67,7 +67,7 @@ export interface IntegrationCredentialFieldOauth extends IntegrationCredentialFi
 }
 
 export interface IntegrationCredentialFieldSshKeypair extends IntegrationCredentialFieldBase {
-  type: 'ssh_keypair'
+  type: Extract<CredentialFieldType, 'ssh_keypair'>
   algorithm?: 'ed25519' | 'rsa'
   rsaBits?: 2048 | 3072 | 4096
 }

@@ -6,11 +6,16 @@ import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
 import type { CredentialsService } from '../../../lib/credentials-service'
+import {
+  resolveUserFeatures,
+  runIntegrationMutationGuardAfterSuccess,
+  runIntegrationMutationGuards,
+} from '../../guards'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['integrations.view'] },
+  GET: { requireAuth: true, requireFeatures: ['integrations.credentials.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['integrations.credentials.manage'] },
 }
 
@@ -74,16 +79,46 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }
 
-  const parsedBody = saveCredentialsSchema.safeParse(await req.json())
+  const payload = await req.json().catch(() => null)
+  const parsedBody = saveCredentialsSchema.safeParse(payload)
   if (!parsedBody.success) {
     return NextResponse.json({ error: 'Invalid credentials payload', details: parsedBody.error.flatten() }, { status: 422 })
   }
 
   const container = await createRequestContainer()
+  const guardResult = await runIntegrationMutationGuards(
+    container,
+    {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId: auth.sub ?? '',
+    resourceKind: 'integrations.integration',
+    resourceId: integration.id,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: parsedBody.data as Record<string, unknown>,
+    },
+    resolveUserFeatures(auth),
+  )
+  if (!guardResult.ok) {
+    return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+  }
+
+  let payloadData = parsedBody.data
+  if (guardResult.modifiedPayload) {
+    const mergedPayload = { ...parsedBody.data, ...guardResult.modifiedPayload }
+    const reparsed = saveCredentialsSchema.safeParse(mergedPayload)
+    if (!reparsed.success) {
+      return NextResponse.json({ error: 'Invalid credentials payload after guard transform', details: reparsed.error.flatten() }, { status: 422 })
+    }
+    payloadData = reparsed.data
+  }
+
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  await credentialsService.save(integration.id, parsedBody.data.credentials, scope)
+  await credentialsService.save(integration.id, payloadData.credentials, scope)
 
   await emitIntegrationsEvent('integrations.credentials.updated', {
     integrationId: integration.id,
@@ -91,6 +126,17 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     organizationId: auth.orgId,
     userId: auth.sub,
   })
+
+  await runIntegrationMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub ?? '',
+      resourceKind: 'integrations.integration',
+      resourceId: integration.id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
 
   return NextResponse.json({ ok: true })
 }

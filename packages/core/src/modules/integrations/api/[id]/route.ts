@@ -48,11 +48,22 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   ])
 
   const bundle = integration.bundleId ? getBundle(integration.bundleId) : undefined
+  const bundleIntegrations = integration.bundleId
+    ? await Promise.all(
+      getBundleIntegrations(integration.bundleId).map(async (item) => {
+        const itemState = await stateService.get(item.id, scope)
+        return {
+          ...item,
+          isEnabled: itemState?.isEnabled ?? true,
+        }
+      }),
+    )
+    : []
 
   return NextResponse.json({
     integration,
     bundle,
-    bundleIntegrations: integration.bundleId ? getBundleIntegrations(integration.bundleId) : [],
+    bundleIntegrations,
     state: {
       isEnabled: state?.isEnabled ?? true,
       apiVersion: state?.apiVersion ?? null,
@@ -61,6 +72,5 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       lastHealthCheckedAt: state?.lastHealthCheckedAt?.toISOString() ?? null,
     },
     hasCredentials: Boolean(credentials),
-    credentialsKeys: credentials ? Object.keys(credentials) : [],
   })
 }

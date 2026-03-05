@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncExternalIdMapping } from '../../integrations/data/entities'
 
 type MappingScope = {
@@ -9,26 +10,38 @@ type MappingScope = {
 export function createExternalIdMappingService(em: EntityManager) {
   return {
     async lookupLocalId(integrationId: string, entityType: string, externalId: string, scope: MappingScope): Promise<string | null> {
-      const row = await em.findOne(SyncExternalIdMapping, {
+      const row = await findOneWithDecryption(
+        em,
+        SyncExternalIdMapping,
+        {
         integrationId,
         internalEntityType: entityType,
         externalId,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         deletedAt: null,
-      })
+        },
+        undefined,
+        scope,
+      )
       return row?.internalEntityId ?? null
     },
 
     async lookupExternalId(integrationId: string, entityType: string, localId: string, scope: MappingScope): Promise<string | null> {
-      const row = await em.findOne(SyncExternalIdMapping, {
+      const row = await findOneWithDecryption(
+        em,
+        SyncExternalIdMapping,
+        {
         integrationId,
         internalEntityType: entityType,
         internalEntityId: localId,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         deletedAt: null,
-      })
+        },
+        undefined,
+        scope,
+      )
       return row?.externalId ?? null
     },
 
@@ -39,14 +52,20 @@ export function createExternalIdMappingService(em: EntityManager) {
       externalId: string,
       scope: MappingScope,
     ): Promise<SyncExternalIdMapping> {
-      const existing = await em.findOne(SyncExternalIdMapping, {
+      const existing = await findOneWithDecryption(
+        em,
+        SyncExternalIdMapping,
+        {
         integrationId,
         internalEntityType: entityType,
         internalEntityId: localId,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         deletedAt: null,
-      })
+        },
+        undefined,
+        scope,
+      )
 
       if (existing) {
         existing.externalId = externalId

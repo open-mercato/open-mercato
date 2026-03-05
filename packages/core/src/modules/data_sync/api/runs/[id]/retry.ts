@@ -33,7 +33,8 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     return NextResponse.json({ error: 'Invalid run id' }, { status: 400 })
   }
 
-  const parsedBody = retrySyncSchema.safeParse(await req.json().catch(() => ({})))
+  const payload = await req.json().catch(() => null)
+  const parsedBody = retrySyncSchema.safeParse(payload ?? {})
   if (!parsedBody.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsedBody.error.flatten() }, { status: 422 })
   }
@@ -46,6 +47,19 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   const previous = await syncRunService.getRun(parsedParams.data.id, scope)
   if (!previous) {
     return NextResponse.json({ error: 'Run not found' }, { status: 404 })
+  }
+  if (previous.status !== 'failed' && previous.status !== 'cancelled') {
+    return NextResponse.json({ error: 'Only failed or cancelled runs can be retried' }, { status: 409 })
+  }
+
+  const overlap = await syncRunService.findRunningOverlap(
+    previous.integrationId,
+    previous.entityType,
+    previous.direction,
+    scope,
+  )
+  if (overlap) {
+    return NextResponse.json({ error: 'A sync run is already in progress for this integration and entity direction' }, { status: 409 })
   }
 
   const cursor = parsedBody.data.fromBeginning

@@ -40,6 +40,9 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   if (!run) {
     return NextResponse.json({ error: 'Run not found' }, { status: 404 })
   }
+  if (run.status !== 'running' && run.status !== 'pending') {
+    return NextResponse.json({ error: 'Only pending or running runs can be cancelled' }, { status: 409 })
+  }
 
   if (run.progressJobId) {
     await progressService.cancelJob(run.progressJobId, {

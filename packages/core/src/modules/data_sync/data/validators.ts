@@ -26,6 +26,7 @@ export const validateConnectionSchema = z.object({
 export const listSyncRunsQuerySchema = z.object({
   integrationId: z.string().optional(),
   entityType: z.string().optional(),
+  direction: z.enum(['import', 'export']).optional(),
   status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled', 'paused']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),

@@ -18,8 +18,8 @@ type Cradle = {
 
 export function register(container: AppContainer) {
   container.register({
-    externalIdMappingService: asFunction(({ em }: Cradle) => createExternalIdMappingService(em)).singleton().proxy(),
-    dataSyncRunService: asFunction(({ em }: Cradle) => createSyncRunService(em)).singleton().proxy(),
+    externalIdMappingService: asFunction(({ em }: Cradle) => createExternalIdMappingService(em)).scoped().proxy(),
+    dataSyncRunService: asFunction(({ em }: Cradle) => createSyncRunService(em)).scoped().proxy(),
     dataSyncEngine: asFunction(({ em, dataSyncRunService, integrationCredentialsService, integrationLogService, progressService }: Cradle & {
       dataSyncRunService: ReturnType<typeof createSyncRunService>
     }) => createSyncEngine({
@@ -28,7 +28,7 @@ export function register(container: AppContainer) {
       integrationCredentialsService,
       integrationLogService,
       progressService,
-    })).singleton().proxy(),
+    })).scoped().proxy(),
 
     SyncRun: asValue(SyncRun),
     SyncCursor: asValue(SyncCursor),

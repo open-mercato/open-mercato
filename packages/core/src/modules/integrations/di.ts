@@ -17,12 +17,12 @@ type Cradle = {
 
 export function register(container: AppContainer) {
   container.register({
-    integrationCredentialsService: asFunction(({ em }: Cradle) => createCredentialsService(em)).singleton().proxy(),
-    integrationStateService: asFunction(({ em }: Cradle) => createIntegrationStateService(em)).singleton().proxy(),
-    integrationLogService: asFunction(({ em }: Cradle) => createIntegrationLogService(em)).singleton().proxy(),
+    integrationCredentialsService: asFunction(({ em }: Cradle) => createCredentialsService(em)).scoped().proxy(),
+    integrationStateService: asFunction(({ em }: Cradle) => createIntegrationStateService(em)).scoped().proxy(),
+    integrationLogService: asFunction(({ em }: Cradle) => createIntegrationLogService(em)).scoped().proxy(),
     integrationHealthService: asFunction(({ integrationStateService, integrationLogService }: Cradle) =>
       createHealthService(container, integrationStateService, integrationLogService),
-    ).singleton().proxy(),
+    ).scoped().proxy(),
     SyncExternalIdMapping: asValue(SyncExternalIdMapping),
     IntegrationCredentials: asValue(IntegrationCredentials),
     IntegrationState: asValue(IntegrationState),
