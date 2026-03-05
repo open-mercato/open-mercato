@@ -28,6 +28,19 @@ async function isMappingRouteAvailable(
 }
 
 test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
+  test('authorization is enforced for mapping writes', async ({ request }) => {
+    const employeeToken = await getAuthToken(request, 'employee')
+    const forbiddenResponse = await apiRequest(request, 'POST', '/api/data_sync/mappings', {
+      token: employeeToken,
+      data: {
+        integrationId: TEST_INTEGRATION_ID,
+        entityType: ENTITY_TYPE,
+        mapping: { title: 'name' },
+      },
+    })
+    expect(forbiddenResponse.status()).toBe(403)
+  })
+
   test('create, read, update, and delete a field mapping', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 

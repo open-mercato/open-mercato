@@ -10,11 +10,6 @@ import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@ope
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-  type CrudMutationGuardValidationResult,
-} from './mutation-guard'
-import {
   runMutationGuards,
   bridgeLegacyGuard,
   type MutationGuard,
@@ -446,11 +441,6 @@ function attachOperationHeader(res: Response, logEntry: any) {
     // no-op if headers already sent
   }
   return res
-}
-
-function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): Response | null {
-  if (validation.ok) return null
-  return json(validation.body, { status: validation.status })
 }
 
 function handleError(err: unknown): Response {
@@ -2063,9 +2053,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
-        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
-        if (ctx.auth.tenantId && candidateId) {
-          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+        const cmdUpdateUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: cmdUpdateGuards } = collectAndRunGuards(ctx.container)
+        let cmdUpdateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        if (ctx.auth.tenantId && candidateId && cmdUpdateGuards.length) {
+          const guardResult = await runMutationGuards(cmdUpdateGuards, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -2077,11 +2069,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             mutationPayload: input && typeof input === 'object'
               ? (input as Record<string, unknown>)
               : null,
-          })
-          if (mutationGuardValidation) {
-            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
-            if (response) return response
+          }, { userFeatures: cmdUpdateUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
           }
+          if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+            input = { ...input as Record<string, unknown>, ...guardResult.modifiedPayload }
+          }
+          cmdUpdateGuardAfterCallbacks = guardResult.afterSuccessCallbacks
         }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
@@ -2112,13 +2107,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        if (
-          mutationGuardValidation?.ok
-          && mutationGuardValidation.shouldRunAfterSuccess
-          && ctx.auth.tenantId
-          && candidateId
-        ) {
-          await runCrudMutationGuardAfterSuccess(ctx.container, {
+        if (ctx.auth.tenantId && candidateId && cmdUpdateGuardAfterCallbacks.length) {
+          await runGuardAfterSuccessCallbacks(cmdUpdateGuardAfterCallbacks, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -2127,7 +2117,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             operation: 'update',
             requestMethod: request.method,
             requestHeaders: request.headers,
-            metadata: mutationGuardValidation.metadata ?? null,
           })
         }
 
@@ -2392,9 +2381,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
-        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
-        if (ctx.auth.tenantId && candidateId) {
-          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+        const cmdDeleteUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: cmdDeleteGuards } = collectAndRunGuards(ctx.container)
+        let cmdDeleteGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        if (ctx.auth.tenantId && candidateId && cmdDeleteGuards.length) {
+          const guardResult = await runMutationGuards(cmdDeleteGuards, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -2403,11 +2394,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             operation: 'delete',
             requestMethod: request.method,
             requestHeaders: request.headers,
-          })
-          if (mutationGuardValidation) {
-            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
-            if (response) return response
+          }, { userFeatures: cmdDeleteUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
           }
+          cmdDeleteGuardAfterCallbacks = guardResult.afterSuccessCallbacks
         }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
@@ -2438,13 +2429,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        if (
-          mutationGuardValidation?.ok
-          && mutationGuardValidation.shouldRunAfterSuccess
-          && ctx.auth.tenantId
-          && candidateId
-        ) {
-          await runCrudMutationGuardAfterSuccess(ctx.container, {
+        if (ctx.auth.tenantId && candidateId && cmdDeleteGuardAfterCallbacks.length) {
+          await runGuardAfterSuccessCallbacks(cmdDeleteGuardAfterCallbacks, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -2453,7 +2439,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             operation: 'delete',
             requestMethod: request.method,
             requestHeaders: request.headers,
-            metadata: mutationGuardValidation.metadata ?? null,
           })
         }
 

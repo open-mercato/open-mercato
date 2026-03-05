@@ -17,6 +17,19 @@ async function readJson(response: APIResponse): Promise<JsonRecord> {
  * Dynamically detects available integrations — works with or without provider modules.
  */
 test.describe('TC-INT-003: Integration health check and logs APIs', () => {
+  test('logs endpoint enforces authorization', async ({ request }) => {
+    const employeeToken = await getAuthToken(request, 'employee')
+    const forbiddenResponse = await apiRequest(request, 'GET', '/api/integrations/logs?page=1&pageSize=1', {
+      token: employeeToken,
+    })
+    expect(forbiddenResponse.status()).toBe(200)
+
+    const unauthenticatedResponse = await request.get(
+      `${process.env.BASE_URL?.trim() || 'http://localhost:3000'}/api/integrations/logs?page=1&pageSize=1`,
+    )
+    expect(unauthenticatedResponse.status()).toBe(401)
+  })
+
   test('health check endpoint returns status for a registered integration', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 

@@ -8,10 +8,10 @@ import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-  type CrudMutationGuardValidationResult,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+  bridgeLegacyGuard,
+  runMutationGuards,
+  type MutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import { withScopedPayload } from '../../utils'
@@ -29,9 +29,32 @@ type RequestContext = {
   ctx: CommandRuntimeContext
 }
 
-function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): NextResponse | null {
-  if (validation.ok) return null
-  return NextResponse.json(validation.body, { status: validation.status })
+function resolveUserFeatures(auth: CommandRuntimeContext['auth'] | null | undefined): string[] {
+  const features = auth?.features
+  if (!Array.isArray(features)) return []
+  return features.filter((value): value is string => typeof value === 'string')
+}
+
+async function runGuardAfterSuccessCallbacks(
+  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
+  base: {
+    tenantId: string
+    organizationId: string | null
+    userId: string
+    resourceKind: string
+    resourceId: string
+    operation: 'create' | 'update' | 'delete'
+    requestMethod: string
+    requestHeaders: Headers
+  },
+): Promise<void> {
+  for (const callback of callbacks) {
+    if (!callback.guard.afterSuccess) continue
+    await callback.guard.afterSuccess({
+      ...base,
+      metadata: callback.metadata ?? null,
+    })
+  }
 }
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -85,19 +108,23 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = quoteSendSchema.parse(scoped)
-    const mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-      userId: ctx.auth?.sub ?? '',
-      resourceKind: 'sales.quote',
-      resourceId: input.quoteId,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-    })
-    if (mutationGuardValidation) {
-      const lockErrorResponse = buildMutationGuardErrorResponse(mutationGuardValidation)
-      if (lockErrorResponse) return lockErrorResponse
+    const legacyGuard = bridgeLegacyGuard(ctx.container)
+    let guardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+    if (legacyGuard) {
+      const guardResult = await runMutationGuards([legacyGuard], {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      }, { userFeatures: resolveUserFeatures(ctx.auth) })
+      if (!guardResult.ok) {
+        return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+      }
+      guardAfterCallbacks = guardResult.afterSuccessCallbacks
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -163,8 +190,8 @@ export async function POST(req: Request) {
       react: QuoteSentEmail({ url, copy }),
     })
 
-    if (mutationGuardValidation?.ok && mutationGuardValidation.shouldRunAfterSuccess) {
-      await runCrudMutationGuardAfterSuccess(ctx.container, {
+    if (guardAfterCallbacks.length) {
+      await runGuardAfterSuccessCallbacks(guardAfterCallbacks, {
         tenantId: ctx.auth?.tenantId ?? '',
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
         userId: ctx.auth?.sub ?? '',
@@ -173,7 +200,6 @@ export async function POST(req: Request) {
         operation: 'update',
         requestMethod: req.method,
         requestHeaders: req.headers,
-        metadata: mutationGuardValidation.metadata ?? null,
       })
     }
 
