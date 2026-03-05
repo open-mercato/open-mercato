@@ -26,6 +26,23 @@ import {
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
+interface ListResponseBody {
+  data?: unknown[]
+  _meta?: { enrichedBy?: string[] }
+}
+
+interface SingleResponseBody {
+  _meta?: { enrichedBy?: string[] }
+}
+
+interface ErrorResponseBody {
+  message?: string
+}
+
+interface TodoResponseBody {
+  data?: { id?: string }
+}
+
 test.describe('TC-UMES-012: Response metadata (_meta.enrichedBy)', () => {
   let token: string
 
@@ -38,12 +55,12 @@ test.describe('TC-UMES-012: Response metadata (_meta.enrichedBy)', () => {
     const response = await apiRequest(request, 'GET', '/api/customers/people?limit=5', { token })
     expect(response.ok()).toBeTruthy()
 
-    const body = await readJsonSafe(response)
+    const body = await readJsonSafe<ListResponseBody>(response)
     expect(body).toHaveProperty('data')
-    expect(Array.isArray(body.data)).toBeTruthy()
+    expect(Array.isArray(body?.data)).toBeTruthy()
 
     // The response should have _meta with enrichedBy array
-    if (body._meta) {
+    if (body?._meta) {
       expect(body._meta).toHaveProperty('enrichedBy')
       expect(Array.isArray(body._meta.enrichedBy)).toBeTruthy()
       // The example module enricher should be listed
@@ -63,10 +80,10 @@ test.describe('TC-UMES-012: Response metadata (_meta.enrichedBy)', () => {
       const response = await apiRequest(request, 'GET', `/api/customers/people/${personId}`, { token })
       expect(response.ok()).toBeTruthy()
 
-      const body = await readJsonSafe(response)
+      const body = await readJsonSafe<SingleResponseBody>(response)
 
       // Single record response should also have _meta
-      if (body._meta) {
+      if (body?._meta) {
         expect(body._meta).toHaveProperty('enrichedBy')
         expect(Array.isArray(body._meta.enrichedBy)).toBeTruthy()
       }
@@ -146,9 +163,9 @@ test.describe('TC-UMES-012: Interceptor activity logging', () => {
     // The interceptor should block this request
     expect(response.status()).toBeGreaterThanOrEqual(400)
 
-    const body = await readJsonSafe(response)
+    const body = await readJsonSafe<ErrorResponseBody>(response)
     // The blocking interceptor should return an error message
-    if (body.message) {
+    if (body?.message) {
       expect(body.message.toLowerCase()).toMatch(/block/i)
     }
   })
@@ -163,9 +180,9 @@ test.describe('TC-UMES-012: Interceptor activity logging', () => {
     // Should succeed (2xx)
     expect(response.ok()).toBeTruthy()
 
-    const body = await readJsonSafe(response)
+    const body = await readJsonSafe<TodoResponseBody>(response)
     // Clean up the created todo
-    if (body.data?.id) {
+    if (body?.data?.id) {
       await request.delete(`${BASE_URL}/api/example/todos/${body.data.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
