@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type WizardStep = 'protocol' | 'credentials' | 'domains' | 'options' | 'review'
 
@@ -44,6 +45,20 @@ export default function SsoConfigCreateWizard() {
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [testResult, setTestResult] = React.useState<{ ok: boolean; error?: string } | null>(null)
   const [isTesting, setIsTesting] = React.useState(false)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'sso-config-create',
+  })
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { retryLastMutation },
+      })
+    },
+    [retryLastMutation, runMutation],
+  )
 
   React.useEffect(() => {
     const checkExisting = async () => {
@@ -104,23 +119,27 @@ export default function SsoConfigCreateWizard() {
   const handleSubmit = async () => {
     setIsSubmitting(true)
     try {
-      const call = await apiCallOrThrow<{ id: string }>(
-        '/api/sso/config',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            name: state.name,
-            protocol: state.protocol,
-            issuer: state.issuer,
-            clientId: state.clientId,
-            clientSecret: state.clientSecret,
-            allowedDomains: state.domains,
-            jitEnabled: state.jitEnabled,
-            autoLinkByEmail: state.autoLinkByEmail,
-          }),
-        },
-        { errorMessage: t('sso.admin.error.createFailed', 'Failed to create SSO configuration') },
+      const payload = {
+        name: state.name,
+        protocol: state.protocol,
+        issuer: state.issuer,
+        clientId: state.clientId,
+        clientSecret: state.clientSecret,
+        allowedDomains: state.domains,
+        jitEnabled: state.jitEnabled,
+        autoLinkByEmail: state.autoLinkByEmail,
+      }
+      const call = await runMutationWithContext(
+        () => apiCallOrThrow<{ id: string }>(
+          '/api/sso/config',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('sso.admin.error.createFailed', 'Failed to create SSO configuration') },
+        ),
+        payload,
       )
       flash(t('sso.admin.created', 'SSO configuration created'), 'success')
       router.push(`/backend/sso/config/${call.result?.id}?created=1`)
@@ -135,7 +154,8 @@ export default function SsoConfigCreateWizard() {
     setIsTesting(true)
     setTestResult(null)
     try {
-      // For testing before creation, we do a lightweight discovery check
+      // Raw fetch is intentional: this is a pre-save OIDC discovery probe against an
+      // external IdP URL, not an internal API call, so apiCall is not applicable here.
       const response = await fetch(state.issuer + '/.well-known/openid-configuration')
       if (response.ok) {
         setTestResult({ ok: true })

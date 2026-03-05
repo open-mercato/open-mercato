@@ -1,8 +1,10 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveScimContext } from '../../context'
-import { ScimService, ScimServiceError } from '../../../../services/scimService'
-import { scimJson, buildScimError } from '../../../../lib/scim-response'
+import { ScimService } from '../../../../services/scimService'
+import { handleScimApiError } from '../../../error-handler'
+import { scimUserPayloadSchema } from '../../../../data/validators'
+import { buildScimError, scimJson as scimJsonResponse } from '../../../../lib/scim-response'
 
 export const metadata = {}
 
@@ -12,20 +14,28 @@ export async function POST(req: Request) {
     if (!ctx.ok) return ctx.response
 
     const body = await req.json()
+    const parsed = scimUserPayloadSchema.safeParse(body)
+    if (!parsed.success) {
+      return scimJsonResponse(
+        buildScimError(400, parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; '), 'invalidValue'),
+        400,
+      )
+    }
+
     const baseUrl = new URL(req.url).origin
 
     const container = await createRequestContainer()
     const service = container.resolve<ScimService>('scimService')
-    const { resource, status } = await service.createUser(body, ctx.scope, baseUrl)
+    const { resource, status } = await service.createUser(parsed.data, ctx.scope, baseUrl)
 
     const headers: Record<string, string> = {}
     if (status === 201) {
       headers.Location = resource.meta.location
     }
 
-    return scimJson(resource, status)
+    return scimJsonResponse(resource, status)
   } catch (err) {
-    return handleScimError(err)
+    return handleScimApiError(err, 'SCIM Users API')
   }
 }
 
@@ -44,20 +54,12 @@ export async function GET(req: Request) {
     const service = container.resolve<ScimService>('scimService')
     const result = await service.listUsers(filter, startIndex, count, ctx.scope, baseUrl)
 
-    return scimJson(result)
+    return scimJsonResponse(result)
   } catch (err) {
-    return handleScimError(err)
+    return handleScimApiError(err, 'SCIM Users API')
   }
 }
 
-function handleScimError(err: unknown): Response {
-  const e = err as any
-  if (err instanceof ScimServiceError || e?.name === 'ScimServiceError') {
-    return scimJson(buildScimError(e.statusCode, e.message), e.statusCode)
-  }
-  console.error('[SCIM Users API] Error:', err)
-  return scimJson(buildScimError(500, 'Internal server error'), 500)
-}
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'SCIM',

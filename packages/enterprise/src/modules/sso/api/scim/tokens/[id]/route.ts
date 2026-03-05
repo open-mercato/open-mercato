@@ -1,37 +1,29 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { ScimTokenService, ScimTokenError } from '../../../../services/scimTokenService'
-import { resolveSsoAdminContext, SsoAdminAuthError } from '../../../admin-context'
+import { ScimTokenService } from '../../../../services/scimTokenService'
+import { resolveSsoAdminContext } from '../../../admin-context'
+import { handleSsoAdminApiError } from '../../../error-handler'
 
 export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['sso.scim.manage'] },
 }
 
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+type RouteContext = { params: Promise<{ id: string }> }
+
+export async function DELETE(req: Request, ctx: RouteContext) {
   try {
+    const { id } = await ctx.params
     const { scope } = await resolveSsoAdminContext(req)
 
     const container = await createRequestContainer()
     const service = container.resolve<ScimTokenService>('scimTokenService')
-    await service.revokeToken(params.id, scope)
+    await service.revokeToken(id, scope)
 
     return NextResponse.json({ ok: true })
   } catch (err) {
-    return handleError(err)
+    return handleSsoAdminApiError(err, 'SCIM Tokens API')
   }
-}
-
-function handleError(err: unknown): NextResponse {
-  const e = err as any
-  if (err instanceof SsoAdminAuthError || e?.name === 'SsoAdminAuthError') {
-    return NextResponse.json({ error: e.message }, { status: e.statusCode })
-  }
-  if (err instanceof ScimTokenError || e?.name === 'ScimTokenError') {
-    return NextResponse.json({ error: e.message }, { status: e.statusCode })
-  }
-  console.error('[SCIM Tokens API] Error:', err)
-  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 }
 
 export const openApi: OpenApiRouteDoc = {

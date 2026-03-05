@@ -1,3 +1,4 @@
+import type { RequiredEntityData } from '@mikro-orm/core'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { SsoConfig } from './data/entities'
@@ -47,7 +48,7 @@ export const setup: ModuleSetupConfig = {
       autoLinkByEmail: true,
       isActive: true,
       ssoRequired: false,
-    } as any)
+    } as RequiredEntityData<SsoConfig>)
     await em.persistAndFlush(config)
   },
 }
