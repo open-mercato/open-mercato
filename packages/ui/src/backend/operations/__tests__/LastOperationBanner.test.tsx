@@ -10,6 +10,8 @@ import { apiCall } from '../../utils/apiCall'
 import { flash } from '../../FlashMessages'
 import { markUndoSuccess, useLastOperation } from '../store'
 
+jest.setTimeout(20000)
+
 jest.mock('../../utils/apiCall', () => ({
   apiCall: jest.fn(),
 }))

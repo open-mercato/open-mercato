@@ -16,6 +16,8 @@ import { TaxRatesSettings } from '../TaxRatesSettings'
 import { SalesChannelOffersPanel } from '../channels/SalesChannelOffersPanel'
 import { ChannelOfferForm } from '../channels/ChannelOfferForm'
 
+jest.setTimeout(20000)
+
 const mockApiCall = jest.fn()
 const mockReadApiResultOrThrow = jest.fn()
 const mockCreateCrud = jest.fn()

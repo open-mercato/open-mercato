@@ -106,7 +106,9 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       await openReplyFromHeader(page);
       const inlineReplyInput = page.getByPlaceholder('Write your reply...');
       await expect(inlineReplyInput).toBeVisible();
+      await expect(inlineReplyInput).toBeEnabled();
       await inlineReplyInput.fill(inlineReplyBody);
+      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
 
       const inlineReplyResponsePromise = page.waitForResponse((response) => {
         if (response.request().method() !== 'POST') return false;

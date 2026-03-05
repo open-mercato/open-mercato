@@ -89,12 +89,18 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [authOverride, setAuthOverride] = useState<AuthOverride | null>(null)
+  const [authOverridePending, setAuthOverridePending] = useState(false)
+  const [clientReady, setClientReady] = useState(false)
   const [email, setEmail] = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
   const [tenantLoading, setTenantLoading] = useState(false)
   const [tenantInvalid, setTenantInvalid] = useState<string | null>(null)
   const showTenantInvalid = tenantId != null && tenantInvalid === tenantId
+
+  useEffect(() => {
+    setClientReady(true)
+  }, [])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -167,6 +173,9 @@ export default function LoginPage() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!clientReady || authOverridePending) {
+      return
+    }
     setError(null)
     if (authOverride) {
       authOverride.onSubmit()
@@ -248,8 +257,11 @@ export default function LoginPage() {
     tenantId,
     searchParams,
     setAuthOverride,
+    setAuthOverridePending,
     setError,
   }), [email, tenantId, searchParams])
+
+  const formReady = clientReady && !authOverridePending
 
   return (
     <div className="min-h-svh flex items-center justify-center p-4">
@@ -260,7 +272,7 @@ export default function LoginPage() {
           <CardDescription>{translate('auth.login.subtitle', 'Access your workspace')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3" onSubmit={onSubmit} noValidate>
+          <form className="grid gap-3" onSubmit={onSubmit} noValidate data-auth-ready={formReady ? '1' : '0'}>
             {tenantId ? (
               <input type="hidden" name="tenantId" value={tenantId} />
             ) : null}
@@ -318,6 +330,7 @@ export default function LoginPage() {
                 type="email"
                 required
                 aria-invalid={!!error}
+                onChange={(e) => setEmail(e.target.value)}
                 onBlur={(e) => setEmail(e.target.value)}
               />
             </div>
@@ -337,7 +350,7 @@ export default function LoginPage() {
                 <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
               </label>
             )}
-            <Button type="submit" disabled={submitting} className="h-10 mt-2">
+            <Button type="submit" disabled={submitting || !formReady} className="h-10 mt-2">
               {submitting
                 ? translate('auth.login.loading', 'Loading...')
                 : authOverride

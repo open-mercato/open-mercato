@@ -28,7 +28,7 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
       // Click Create
       await page.getByRole('link', { name: 'Create' }).click();
       await expect(page).toHaveURL(/\/backend\/api-keys\/create$/);
-      await expect(page.getByText('Create API Key')).toBeVisible();
+      await expect(page.locator('main').getByText('Create API Key', { exact: true })).toBeVisible();
 
       // Fill in the name
       const nameField = page.locator('form').getByRole('textbox').first();

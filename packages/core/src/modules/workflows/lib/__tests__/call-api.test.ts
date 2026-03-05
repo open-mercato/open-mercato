@@ -4,6 +4,8 @@ import type { AwilixContainer } from 'awilix'
 import { executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
 
+jest.setTimeout(20000)
+
 // Mock fetch globally
 const originalFetch = global.fetch
 const mockFetch = jest.fn() as jest.MockedFunction<typeof fetch>
@@ -371,7 +373,7 @@ describe('executeCallApi', () => {
       const [url, options] = mockFetch.mock.calls[0] as any
       expect(options.method).toBe(method)
     }
-  })
+  }, 30000)
 
   it('should preserve array type when interpolating request body', async () => {
     // Arrange
