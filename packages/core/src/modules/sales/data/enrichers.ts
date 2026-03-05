@@ -1,4 +1,5 @@
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { GatewayTransaction } from '../../payment_gateways/data/entities'
 
 type SalesPaymentRecord = Record<string, unknown> & {
@@ -20,9 +21,10 @@ const paymentGatewayBindingEnricher: ResponseEnricher<SalesPaymentRecord> = {
 
   async enrichOne(record, context) {
     try {
+      const em = context.em as EntityManager
       const paymentId = readPaymentId(record)
       if (!paymentId) return record
-      const transaction = await context.em.findOne(GatewayTransaction, {
+      const transaction = await em.findOne(GatewayTransaction, {
         paymentId,
         organizationId: context.organizationId,
         tenantId: context.tenantId,
@@ -48,10 +50,11 @@ const paymentGatewayBindingEnricher: ResponseEnricher<SalesPaymentRecord> = {
 
   async enrichMany(records, context) {
     try {
+      const em = context.em as EntityManager
       const paymentIds = records.map(readPaymentId).filter((value): value is string => Boolean(value))
       if (paymentIds.length === 0) return records
 
-      const transactions = await context.em.find(GatewayTransaction, {
+      const transactions = await em.find(GatewayTransaction, {
         paymentId: { $in: paymentIds },
         organizationId: context.organizationId,
         tenantId: context.tenantId,

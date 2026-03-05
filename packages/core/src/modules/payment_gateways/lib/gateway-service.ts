@@ -42,7 +42,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   const { em, integrationCredentialsService, integrationLogService } = deps
 
   async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown>) {
-    const eventMap: Partial<Record<UnifiedPaymentStatus, string>> = {
+    type PaymentGatewayEventId = Parameters<typeof emitPaymentGatewayEvent>[0]
+    const eventMap: Partial<Record<UnifiedPaymentStatus, PaymentGatewayEventId>> = {
       authorized: 'payment_gateways.payment.authorized',
       captured: 'payment_gateways.payment.captured',
       failed: 'payment_gateways.payment.failed',

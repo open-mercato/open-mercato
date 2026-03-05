@@ -1,4 +1,5 @@
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { CarrierShipment } from './entities'
 
 type SalesShipmentRecord = Record<string, unknown> & { id?: string; shipmentId?: string; orderId?: string }
@@ -9,9 +10,10 @@ const salesShipmentCarrierEnricher: ResponseEnricher<SalesShipmentRecord, Record
   priority: 40,
   timeout: 2000,
   async enrichOne(record, context) {
+    const em = context.em as EntityManager
     const orderId = typeof record.orderId === 'string' ? record.orderId : null
     if (!orderId) return record
-    const shipment = await context.em.findOne(CarrierShipment, {
+    const shipment = await em.findOne(CarrierShipment, {
       orderId,
       organizationId: context.organizationId,
       tenantId: context.tenantId,

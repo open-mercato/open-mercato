@@ -21,7 +21,6 @@ const widget: InjectionFieldWidget = {
       label: 'payment_gateways.field.paymentTypes',
       type: 'text',
       group: 'details',
-      placeholder: 'card,apple_pay,google_pay',
     },
   ],
 }
