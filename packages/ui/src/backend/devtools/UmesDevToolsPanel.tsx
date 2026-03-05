@@ -10,6 +10,8 @@ import { EnricherTiming } from './components/EnricherTiming'
 import { InterceptorActivity } from './components/InterceptorActivity'
 import { EventFlow } from './components/EventFlow'
 
+const isDevToolsEnabled = process.env.NEXT_PUBLIC_UMES_DEVTOOLS === 'true'
+
 type TabId = 'extensions' | 'conflicts' | 'timing' | 'interceptors' | 'events'
 
 const TABS: { id: TabId; label: string }[] = [
@@ -33,11 +35,12 @@ export function UmesDevToolsPanel() {
   }, [])
 
   useEffect(() => {
+    if (!isDevToolsEnabled) return
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  if (!isOpen) return null
+  if (!isDevToolsEnabled || !isOpen) return null
 
   const conflictCount = data.conflicts.length
   const hasErrors = data.conflicts.some((c) => c.severity === 'error')
