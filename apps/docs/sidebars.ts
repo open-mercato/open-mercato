@@ -119,6 +119,16 @@ const sidebars: SidebarsConfig = {
       items: [
         "enterprise/overview",
         "enterprise/record-locks",
+        {
+          type: "category",
+          label: "Single Sign-On (SSO)",
+          items: [
+            "enterprise/sso/index",
+            "enterprise/sso/entra-id-setup",
+            "enterprise/sso/google-workspace-setup",
+            "enterprise/sso/zitadel-setup",
+          ],
+        },
       ],
     },
     {
