@@ -62,6 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
+      OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
