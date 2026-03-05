@@ -1,4 +1,5 @@
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 export const INTEGRATION_MARKETPLACE_CATEGORIES = [
   'all',
@@ -10,8 +11,6 @@ export const INTEGRATION_MARKETPLACE_CATEGORIES = [
   'storage',
   'webhook',
 ] as const
-
-type TranslateFn = (key: string, fallback?: string, params?: Record<string, unknown>) => string
 
 export function buildIntegrationMarketplaceFilterDefs(t: TranslateFn): FilterDef[] {
   return [
