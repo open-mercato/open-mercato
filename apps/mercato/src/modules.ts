@@ -40,7 +40,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
-  { id: 'sso', from: '@open-mercato/enterprise' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'example', from: '@app' },
   
@@ -48,6 +47,7 @@ export const enabledModules: ModuleEntry[] = [
 
 if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {
   enabledModules.push(
+    { id: 'sso', from: '@open-mercato/enterprise' },
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
   )
