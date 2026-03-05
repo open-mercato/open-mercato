@@ -1,3 +1,4 @@
+"use client"
 import * as React from 'react'
 import { Spinner } from './spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
