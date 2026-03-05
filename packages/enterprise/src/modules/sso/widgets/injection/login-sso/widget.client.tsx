@@ -53,13 +53,17 @@ export default function SsoLoginWidget({ context }: InjectionWidgetComponentProp
 
   const checkHrd = useCallback(async (email: string) => {
     if (!email || !email.includes('@')) {
+      context.setAuthOverridePending?.(false)
       context.setAuthOverride(null)
       setSsoActive(false)
       lastCheckedEmail.current = ''
       return
     }
 
-    if (email === lastCheckedEmail.current) return
+    if (email === lastCheckedEmail.current) {
+      context.setAuthOverridePending?.(false)
+      return
+    }
     lastCheckedEmail.current = email
 
     try {
@@ -94,6 +98,8 @@ export default function SsoLoginWidget({ context }: InjectionWidgetComponentProp
     } catch {
       setSsoActive(false)
       context.setAuthOverride(null)
+    } finally {
+      context.setAuthOverridePending?.(false)
     }
   }, [context, translate])
 
@@ -103,14 +109,16 @@ export default function SsoLoginWidget({ context }: InjectionWidgetComponentProp
     }
 
     if (!context.email) {
+      context.setAuthOverridePending?.(false)
       setSsoActive(false)
       context.setAuthOverride(null)
       lastCheckedEmail.current = ''
       return
     }
 
+    context.setAuthOverridePending?.(true)
     debounceTimer.current = setTimeout(() => {
-      checkHrd(context.email)
+      void checkHrd(context.email)
     }, HRD_DEBOUNCE_MS)
 
     return () => {
@@ -119,6 +127,10 @@ export default function SsoLoginWidget({ context }: InjectionWidgetComponentProp
       }
     }
   }, [context.email, checkHrd])
+
+  useEffect(() => () => {
+    context.setAuthOverridePending?.(false)
+  }, [context])
 
   if (!ssoActive) return null
 

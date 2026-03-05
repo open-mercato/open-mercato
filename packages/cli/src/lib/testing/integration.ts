@@ -2556,14 +2556,16 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           silent: !options.verbose,
         }))
 
-      if (options.forceRebuild) {
-        console.log(`[${options.logPrefix}] --force-rebuild enabled. Running full build pipeline.`)
-      } else if (!needsBuild) {
+      if (!needsBuild) {
         console.log(
           `[${options.logPrefix}] Build cache valid (within ${BUILD_CACHE_TTL_ENV_VAR}=${buildCacheTtlSeconds}s). Skipping build pipeline.`,
         )
       } else {
-        console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
+        if (options.forceRebuild) {
+          console.log(`[${options.logPrefix}] --force-rebuild enabled. Running full build pipeline.`)
+        } else {
+          console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
+        }
         console.log(`[${options.logPrefix}] Building packages...`)
         await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
           runYarnCommand(['build:packages'], commandEnvironment, {

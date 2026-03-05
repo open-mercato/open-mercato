@@ -4,8 +4,28 @@ import { modules } from '@/.mercato/generated/modules.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { Metadata } from 'next'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
-export default async function SiteCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
+type FrontendParams = { params: Promise<{ slug: string[] }> }
+
+export async function generateMetadata({ params }: FrontendParams): Promise<Metadata> {
+  const p = await params
+  const pathname = '/' + (p.slug?.join('/') ?? '')
+  const match = findFrontendMatch(modules, pathname)
+  if (!match) {
+    return {}
+  }
+
+  const { t } = await resolveTranslations()
+  const fallbackTitle = match.route.title || 'Open Mercato'
+
+  return {
+    title: match.route.titleKey ? t(match.route.titleKey, fallbackTitle) : fallbackTitle,
+  }
+}
+
+export default async function SiteCatchAll({ params }: FrontendParams) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const match = findFrontendMatch(modules, pathname)
