@@ -22,6 +22,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | Multi-ID list filtering (`ids`) | Call any CRUD list endpoint with `?ids=<uuid1,uuid2,...>`; combine with interceptors for cross-module narrowing | [CRUD factory](/framework/api/crud-factory), [API extension guide](/framework/api/extending-api) |
 | API interceptors (UMES E) | Add `api/interceptors.ts`, export `interceptors` | [API extension guide](/framework/api/extending-api) |
 | Response enrichers (UMES D) | Add `data/enrichers.ts`, export `enrichers` | [Data extensibility](/framework/database/data-extensibility) |
+| Query-level enrichers (UMES N) | Add `queryEngine: { enabled: true }` to enricher config | [Query engine extensibility](/framework/extensibility/query-engine-extensibility) |
 | Mutation guards (UMES M) | Add `data/guards.ts`, export `guards: MutationGuard[]` with priority ordering, payload modification, `afterSuccess` callbacks | [API extension guide](/framework/api/extending-api) |
 | Command handlers | Register commands with `registerCommand` | [Commands overview](/framework/commands/overview) |
 | Command interceptors (UMES M) | Add `commands/interceptors.ts`, export `interceptors` with `beforeExecute`/`afterExecute` hooks | [Commands overview](/framework/commands/overview) |
@@ -47,6 +48,7 @@ Below is the current-state inventory of extension surfaces in Open Mercato.
 | DOM Event Bridge + realtime UI (UMES C) | Mark events `clientBroadcast: true`, consume with `useAppEvent` / `useOperationProgress` | [Widget injection](/framework/widget-injection), [Events & queue](/framework/events/queue-workers) |
 | Async subscribers | Add `subscribers/*.ts` + `metadata` | [Events overview](/framework/events/overview) |
 | Sync lifecycle subscribers (UMES M) | Add `subscribers/*.ts` with `metadata { sync: true, priority }` for in-pipeline CRUD lifecycle events | [Events overview](/framework/events/overview) |
+| Sync query lifecycle events (UMES N) | Subscribe to `*.querying` / `*.queried` events to modify queries or results | [Query engine extensibility](/framework/extensibility/query-engine-extensibility) |
 | Queue workers | Add `workers/*.ts` + worker metadata | [Queue workers](/framework/events/queue-workers), [Runtime workers](/framework/runtime/workers) |
 
 ## Data model and entity extension

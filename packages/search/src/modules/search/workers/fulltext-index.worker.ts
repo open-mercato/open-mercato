@@ -7,8 +7,10 @@ import type { Knex } from 'knex'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
-import { updateReindexProgress } from '../lib/reindex-lock'
+import { clearReindexLock, updateReindexProgress } from '../lib/reindex-lock'
+import { incrementReindexProgress } from '../lib/reindex-progress'
 
 // Worker metadata for auto-discovery
 const DEFAULT_CONCURRENCY = 2
@@ -93,6 +95,13 @@ export async function handleFulltextIndexJob(
   }
 
   try {
+    let progressService: ProgressService | null = null
+    try {
+      progressService = ctx.resolve<ProgressService>('progressService')
+    } catch {
+      progressService = null
+    }
+
     // ========== SINGLE INDEX: Use searchIndexer.indexRecordById() for fresh data ==========
     if (jobType === 'index') {
       const { entityType, recordId, organizationId } = job.payload as {
@@ -184,8 +193,21 @@ export async function handleFulltextIndexJob(
       }
 
       // Update heartbeat to signal worker is still processing
-      if (knex && successCount > 0) {
+      if (knex && records.length > 0) {
         await updateReindexProgress(knex, tenantId, 'fulltext', successCount, organizationId ?? null)
+      }
+      if (progressService && em && records.length > 0) {
+        const completed = await incrementReindexProgress({
+          em,
+          progressService,
+          type: 'fulltext',
+          tenantId,
+          organizationId: organizationId ?? null,
+          delta: successCount,
+        })
+        if (completed && knex) {
+          await clearReindexLock(knex, tenantId, 'fulltext', organizationId ?? null)
+        }
       }
 
       searchDebug('fulltext-index.worker', 'Batch indexed to fulltext', {

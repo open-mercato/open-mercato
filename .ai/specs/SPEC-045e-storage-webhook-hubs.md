@@ -86,6 +86,8 @@ credentials: {
 
 ## 2. Webhook Endpoints Hub — `webhook_endpoints`
 
+> **Full implementation**: [SPEC-057 — Webhooks Module](./SPEC-057-2026-03-04-webhooks-module.md) provides the complete specification for the webhooks module, including Standard Webhooks compliance, outbound/inbound flows, delivery strategies, retry logic, and backend UI. The `WebhookEndpointAdapter` contract defined below is implemented by the `webhooks` core module (`packages/core/src/modules/webhooks/`).
+
 ### 2.1 WebhookEndpointAdapter Contract
 
 For custom inbound/outbound webhook integrations (e.g., Zapier triggers, n8n, custom automation):
@@ -152,9 +154,10 @@ credentials: {
 5. Integration tests for upload, download, signed URL, list
 
 ### Webhook Endpoints Hub
-1. Create `webhook_endpoints` hub module
-2. Implement outbound webhook subscriber + delivery worker
-3. Create `webhook_custom` generic provider
-4. Admin UI for configuring webhook targets and subscribed events
-5. Delivery logging + retry with exponential backoff (max 5 attempts)
-6. Integration tests for outbound delivery, inbound verification, retry logic
+
+See [SPEC-057 — Webhooks Module](./SPEC-057-2026-03-04-webhooks-module.md) for detailed implementation phases:
+- Phase 1: Core outbound (entities, CRUD, dispatcher subscriber, delivery worker, basic UI)
+- Phase 2: Advanced delivery (key rotation, test delivery, SQS/SNS, auto-disable)
+- Phase 3: Inbound webhooks (adapter registry, generic receiver, rate limiting)
+- Phase 4: Integration marketplace alignment
+- Phase 5: Advanced UI and analytics

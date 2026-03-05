@@ -129,3 +129,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Namespace preservation must be centralized in `DataTable` helpers. Page mappers must remain module-agnostic and finalize mapped rows with `withDataTableNamespaces(mappedRow, sourceItem)` instead of manually handling injection keys.
 
 **Applies to**: Any backend page/component that maps API records before passing rows to `DataTable` (especially pages using `perspective.tableId` and injection-based extensions).
+
+## Scope Playwright `testIgnore` entries to project root absolute paths
+
+**Context**: Running integration tests from a worktree under a parent path containing `.codex` caused Playwright to report `No tests found`.
+
+**Problem**: A relative ignore glob like `.codex/**` can match parent path segments in some environments, unintentionally excluding all discovered tests.
+
+**Rule**: In `.ai/qa/tests/playwright.config.ts`, build `testIgnore` patterns from `projectRoot` absolute paths (normalized), for example `${normalizePath(path.join(projectRoot, '.codex'))}/**`, instead of loose relative globs.
+
+**Applies to**: Integration Playwright config and any future test discovery/ignore configuration.

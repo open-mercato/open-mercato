@@ -1,13 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { createApiKeyFixture } from '@open-mercato/core/modules/core/__integration__/helpers/apiKeysFixtures';
 
 /**
  * TC-ADMIN-002: Revoke API Key
  * Source: .ai/qa/scenarios/TC-ADMIN-002-api-key-revocation.md
  *
  * Verifies that an existing API key can be revoked.
- * Creates a key via API, then revokes it through the UI.
+ * Creates a key via API fixture, then revokes it through the UI.
  *
  * Navigation: Settings → Auth → API Keys
  */
@@ -19,21 +20,11 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
 
     try {
       token = await getAuthToken(request);
+      const created = await createApiKeyFixture(request, token, keyName);
+      keyId = created.id;
 
-      // Create an API key via the UI first
       await login(page, 'admin');
-      await page.goto('/backend/api-keys/create');
-
-      const nameField = page.locator('form').getByRole('textbox').first();
-      await nameField.fill(keyName);
-      await page.getByRole('button', { name: 'Create' }).last().click();
-
-      // Wait for the key dialog
-      await expect(page.getByText('Keep this key safe')).toBeVisible({ timeout: 10_000 });
-      await page.getByRole('button', { name: 'Close' }).click();
-
-      // Navigate to API keys list
-      await page.goto('/backend/api-keys');
+      await page.goto('/backend/api-keys', { waitUntil: 'domcontentloaded' });
       await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
       // Search for the key
@@ -46,11 +37,11 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
 
       // Click the actions button on the row
       const actionsButton = keyRow.getByRole('button', { name: 'Open actions' });
-      await actionsButton.click();
+      await actionsButton.focus();
+      await actionsButton.press('Enter');
 
       // Click the Delete option in the dropdown menu
-      const deleteMenuItem = page.getByRole('menuitem', { name: 'Delete' });
-      await expect(deleteMenuItem).toBeVisible();
+      const deleteMenuItem = page.getByRole('menuitem').filter({ hasText: /^Delete$/ }).first();
       await deleteMenuItem.click();
 
       // Confirm deletion in the dialog
@@ -63,17 +54,8 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       await expect(page.locator('table').getByText(keyName)).not.toBeVisible({ timeout: 5_000 });
     } finally {
       // Cleanup via API
-      if (token) {
-        const listResponse = await apiRequest(request, 'GET', '/api/auth/api-keys', { token });
-        const listData = await listResponse.json().catch(() => null);
-        if (listData && Array.isArray(listData.items)) {
-          const keyToDelete = listData.items.find((item: Record<string, unknown>) =>
-            item.name === keyName,
-          );
-          if (keyToDelete && typeof keyToDelete.id === 'string') {
-            await apiRequest(request, 'DELETE', `/api/auth/api-keys?id=${keyToDelete.id}`, { token }).catch(() => {});
-          }
-        }
+      if (token && keyId) {
+        await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${encodeURIComponent(keyId)}`, { token }).catch(() => {});
       }
     }
   });

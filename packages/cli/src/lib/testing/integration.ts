@@ -1265,7 +1265,7 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
   return buildEnvironment({
     BASE_URL: baseUrl,
-    NODE_ENV: 'test',
+    NODE_ENV: process.env.NODE_ENV ?? 'test',
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
@@ -2494,7 +2494,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
       JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
-      NODE_ENV: 'test',
+      NODE_ENV: process.env.NODE_ENV ?? 'test',
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',

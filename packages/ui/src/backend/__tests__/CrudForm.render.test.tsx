@@ -1,3 +1,4 @@
+/** @jest-environment jsdom */
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
   usePathname: () => '/',
@@ -56,6 +57,26 @@ describe('CrudForm initialValues', () => {
     })
 
     expect(getInput(container).value).toBe('Bob')
+  })
+
+  it('does not re-invoke loadOptions on parent re-render (#814)', async () => {
+    const loader = jest.fn().mockResolvedValue([{ label: 'A', value: 'a' }])
+    const baseFields: CrudField[] = [
+      { id: 'pick', label: 'Pick', type: 'combobox', loadOptions: loader },
+    ]
+    const { rerender } = renderWithProviders(
+      <CrudForm title="Form" fields={baseFields} onSubmit={() => {}} />
+    )
+    await act(() => Promise.resolve())
+    const callsAfterMount = loader.mock.calls.length
+
+    await act(async () => {
+      rerender(
+        <CrudForm title="Form" fields={[...baseFields]} onSubmit={() => {}} />
+      )
+    })
+    await act(() => Promise.resolve())
+    expect(loader).toHaveBeenCalledTimes(callsAfterMount)
   })
 
   it('does not reset fields on initialValues reference churn', async () => {

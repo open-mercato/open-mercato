@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useNotificationEffect } from '@open-mercato/ui/backend/notifications'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 
 type CustomerRecord = {
   id?: string
@@ -42,11 +43,51 @@ export default function UmesNextPhasesPage() {
   const [probeStatus, setProbeStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [probeError, setProbeError] = React.useState<string | null>(null)
   const [probePayload, setProbePayload] = React.useState<CustomersResponse | null>(null)
+  const [progressStatus, setProgressStatus] = React.useState<'idle' | 'running' | 'ok' | 'error'>('idle')
+  const [progressError, setProgressError] = React.useState<string | null>(null)
+  const [progressJobId, setProgressJobId] = React.useState<string | null>(null)
+  const [progressPercent, setProgressPercent] = React.useState(0)
+  const [progressSseEvents, setProgressSseEvents] = React.useState(0)
+  const progressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  const progressTickInFlightRef = React.useRef(false)
+  const progressStepRef = React.useRef(0)
+  const progressJobIdRef = React.useRef<string | null>(null)
+
+  const stopProgressTimer = React.useCallback(() => {
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+  }, [])
+
+  const clearProgressDemo = React.useCallback(async () => {
+    stopProgressTimer()
+    progressTickInFlightRef.current = false
+    progressStepRef.current = 0
+    const existingJobId = progressJobIdRef.current
+    progressJobIdRef.current = null
+    if (existingJobId) {
+      await readApiResultOrThrow(`/api/progress/jobs/${existingJobId}`, { method: 'DELETE' }).catch(() => undefined)
+    }
+  }, [stopProgressTimer])
 
   useNotificationEffect(
     'example.umes.actionable',
     (notification) => {
       setHandledNotificationIds((prev) => [notification.id, ...prev.filter((id) => id !== notification.id)].slice(0, 5))
+    },
+    [],
+  )
+
+  useAppEvent(
+    'progress.job.updated',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown; progressPercent?: unknown }
+      if (payload.jobId !== progressJobIdRef.current) return
+      setProgressSseEvents((prev) => prev + 1)
+      if (typeof payload.progressPercent === 'number') {
+        setProgressPercent(payload.progressPercent)
+      }
     },
     [],
   )
@@ -110,6 +151,89 @@ export default function UmesNextPhasesPage() {
       setProbeStatus('error')
     }
   }, [idsInput, t])
+
+  const startProgressDemo = React.useCallback(async () => {
+    if (progressStatus === 'running') return
+
+    const totalSteps = 10
+    await clearProgressDemo()
+    setProgressStatus('running')
+    setProgressError(null)
+    setProgressJobId(null)
+    setProgressPercent(0)
+    setProgressSseEvents(0)
+
+    try {
+      const created = await readApiResultOrThrow<{ id: string }>('/api/progress/jobs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobType: 'example.umes.next.progress-demo',
+          name: t('example.umes.next.progress.demoJobName'),
+          description: t('example.umes.next.progress.demoJobDescription'),
+          totalCount: totalSteps,
+          cancellable: true,
+        }),
+      })
+
+      progressJobIdRef.current = created.id
+      setProgressJobId(created.id)
+
+      progressTimerRef.current = setInterval(() => {
+        if (progressTickInFlightRef.current) return
+        const currentJobId = progressJobIdRef.current
+        if (!currentJobId) return
+
+        progressTickInFlightRef.current = true
+        void (async () => {
+          try {
+            const nextStep = Math.min(progressStepRef.current + 1, totalSteps)
+            progressStepRef.current = nextStep
+            const nextPercent = Math.round((nextStep / totalSteps) * 100)
+            setProgressPercent(nextPercent)
+
+            await readApiResultOrThrow(`/api/progress/jobs/${currentJobId}`, {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                processedCount: nextStep,
+                totalCount: totalSteps,
+                progressPercent: nextPercent,
+                etaSeconds: Math.max(0, totalSteps - nextStep),
+              }),
+            })
+
+            if (nextStep >= totalSteps) {
+              stopProgressTimer()
+              await readApiResultOrThrow(`/api/progress/jobs/${currentJobId}`, {
+                method: 'DELETE',
+              }).catch(() => undefined)
+              progressJobIdRef.current = null
+              setProgressStatus('ok')
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : t('example.umes.next.progress.simulateError')
+            setProgressError(message)
+            setProgressStatus('error')
+            await clearProgressDemo()
+          } finally {
+            progressTickInFlightRef.current = false
+          }
+        })()
+      }, 650)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('example.umes.next.progress.simulateError')
+      setProgressError(message)
+      setProgressStatus('error')
+      await clearProgressDemo()
+    }
+  }, [clearProgressDemo, progressStatus, stopProgressTimer, t])
+
+  React.useEffect(() => {
+    return () => {
+      void clearProgressDemo()
+    }
+  }, [clearProgressDemo])
 
   const probeSummary = React.useMemo(() => {
     const items = probePayload?.items ?? []
@@ -183,6 +307,29 @@ export default function UmesNextPhasesPage() {
           <div data-testid="phase-next-probe-payload" className="text-xs text-muted-foreground">
             payload={JSON.stringify(probePayload)}
           </div>
+        </div>
+
+        <div className="space-y-3 rounded border border-border p-4">
+          <h2 className="text-lg font-semibold">{t('example.umes.next.progress.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('example.umes.next.progress.description')}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button data-testid="phase-next-progress-simulate" type="button" onClick={() => void startProgressDemo()}>
+              {t('example.umes.next.progress.simulate')}
+            </Button>
+          </div>
+          <div data-testid="phase-next-progress-status" className="text-xs text-muted-foreground">
+            {t('example.umes.next.progress.statusLine', {
+              status: progressStatus,
+              jobId: progressJobId ?? t('common.none'),
+              percent: progressPercent,
+              events: progressSseEvents,
+            })}
+          </div>
+          {progressError ? (
+            <div data-testid="phase-next-progress-error" className="text-xs text-destructive">
+              {progressError}
+            </div>
+          ) : null}
         </div>
       </PageBody>
     </Page>

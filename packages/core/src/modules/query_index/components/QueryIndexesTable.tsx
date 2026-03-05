@@ -288,16 +288,14 @@ export default function QueryIndexesTable() {
         : t('query_index.table.actions.vectorReindex')
       const errorMessage = t('query_index.table.errors.actionFailed', { action: actionLabel })
       try {
-        if (action === 'reindex') {
-          await apiCallOrThrow('/api/vector/reindex', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ entityId }),
-          }, { errorMessage })
-        } else {
-          const url = `/api/vector/index?entityId=${encodeURIComponent(entityId)}`
-          await apiCallOrThrow(url, { method: 'DELETE' }, { errorMessage })
-        }
+        await apiCallOrThrow('/api/search/embeddings/reindex', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            entityId,
+            purgeFirst: action === 'purge',
+          }),
+        }, { errorMessage })
       } catch (err) {
         console.error('query_index.table.vectorAction', err)
         if (typeof window !== 'undefined') {

@@ -6,6 +6,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { GlobalSearchSection } from './sections/GlobalSearchSection'
 import { FulltextSearchSection } from './sections/FulltextSearchSection'
 import { VectorSearchSection } from './sections/VectorSearchSection'
@@ -228,41 +229,20 @@ export function SearchSettingsPageClient() {
     }
   }, [])
 
-  // Polling logic
-  const wasPollingRef = React.useRef(false)
-  const pollCountAfterClearRef = React.useRef(0)
+  useAppEvent('progress.job.updated', () => {
+    void refreshStatsOnly()
+    void refreshEmbeddingStatsOnly()
+  }, [refreshStatsOnly, refreshEmbeddingStatsOnly])
 
-  React.useEffect(() => {
-    const hasFulltextLock = settings?.fulltextReindexLock !== null
-    const hasVectorLock = settings?.vectorReindexLock !== null
+  useAppEvent('progress.job.completed', () => {
+    void refreshStatsOnly()
+    void refreshEmbeddingStatsOnly()
+  }, [refreshStatsOnly, refreshEmbeddingStatsOnly])
 
-    const shouldPoll = hasFulltextLock || hasVectorLock ||
-      (wasPollingRef.current && pollCountAfterClearRef.current < 3)
-
-    if (!shouldPoll) {
-      wasPollingRef.current = false
-      pollCountAfterClearRef.current = 0
-      return
-    }
-
-    if (hasFulltextLock || hasVectorLock) {
-      wasPollingRef.current = true
-      pollCountAfterClearRef.current = 0
-    }
-
-    const pollInterval = setInterval(() => {
-      if (!hasFulltextLock && !hasVectorLock) {
-        pollCountAfterClearRef.current += 1
-      }
-
-      refreshStatsOnly()
-      if (hasVectorLock) {
-        refreshEmbeddingStatsOnly()
-      }
-    }, 3000)
-
-    return () => clearInterval(pollInterval)
-  }, [settings?.fulltextReindexLock, settings?.vectorReindexLock, refreshStatsOnly, refreshEmbeddingStatsOnly])
+  useAppEvent('om:bridge:reconnected', () => {
+    void refreshStatsOnly()
+    void refreshEmbeddingStatsOnly()
+  }, [refreshStatsOnly, refreshEmbeddingStatsOnly])
 
   // Fetch embedding settings
   const fetchEmbeddingSettings = React.useCallback(async () => {
