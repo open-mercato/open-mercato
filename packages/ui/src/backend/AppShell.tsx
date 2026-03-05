@@ -25,6 +25,7 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { SseEventIndicator } from './injection/SseEventIndicator'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
+import { UmesDevToolsPanel } from './devtools'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -1585,6 +1586,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         </div>
       )}
     </div>
+    <UmesDevToolsPanel />
     </HeaderContext.Provider>
   )
 }

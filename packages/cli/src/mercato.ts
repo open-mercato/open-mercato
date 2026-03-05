@@ -557,6 +557,30 @@ export async function run(argv = process.argv) {
     }
   }
 
+  // Handle UMES commands (bootstrap-free)
+  if (first === 'umes:list') {
+    const { runUmesList } = await import('./lib/umes/list')
+    await runUmesList()
+    return 0
+  }
+
+  if (first === 'umes:inspect') {
+    const moduleArg = second === '--module' ? remaining[0] : second
+    if (!moduleArg) {
+      console.error('Usage: yarn mercato umes:inspect --module <moduleId>')
+      return 1
+    }
+    const { runUmesInspect } = await import('./lib/umes/inspect')
+    await runUmesInspect(moduleArg)
+    return 0
+  }
+
+  if (first === 'umes:check') {
+    const { runUmesCheck } = await import('./lib/umes/check')
+    await runUmesCheck()
+    return 0
+  }
+
   let modName = first
   let cmdName = second
   let rest = remaining
