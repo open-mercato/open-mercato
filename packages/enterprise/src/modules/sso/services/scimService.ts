@@ -77,6 +77,7 @@ export class ScimService {
       }
 
       // Auto-link: create SsoIdentity for existing user
+      const now = new Date()
       const identity = this.em.create(SsoIdentity, {
         tenantId: scope.tenantId ?? null,
         organizationId: scope.organizationId,
@@ -88,6 +89,8 @@ export class ScimService {
         idpGroups: [],
         externalId: parsed.externalId ?? null,
         provisioningMethod: 'scim',
+        createdAt: now,
+        updatedAt: now,
       } as RequiredEntityData<SsoIdentity>)
       await this.em.persistAndFlush(identity)
 
@@ -112,9 +115,11 @@ export class ScimService {
         name: buildDisplayName(parsed) ?? undefined,
         passwordHash: null,
         isConfirmed: true,
+        createdAt: new Date(),
       })
       await txEm.persistAndFlush(user)
 
+      const now = new Date()
       const identity = txEm.create(SsoIdentity, {
         tenantId: scope.tenantId ?? null,
         organizationId: scope.organizationId,
@@ -126,6 +131,8 @@ export class ScimService {
         idpGroups: [],
         externalId: parsed.externalId ?? null,
         provisioningMethod: 'scim',
+        createdAt: now,
+        updatedAt: now,
       } as RequiredEntityData<SsoIdentity>)
       await txEm.persistAndFlush(identity)
 

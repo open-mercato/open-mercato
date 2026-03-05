@@ -117,6 +117,8 @@ export class AccountLinkingService {
       provisioningMethod: 'manual',
       firstLoginAt: now,
       lastLoginAt: now,
+      createdAt: now,
+      updatedAt: now,
     } as RequiredEntityData<SsoIdentity>)
     await this.em.persistAndFlush(identity)
 
@@ -162,6 +164,8 @@ export class AccountLinkingService {
         provisioningMethod: 'jit',
         firstLoginAt: now,
         lastLoginAt: now,
+        createdAt: now,
+        updatedAt: now,
       } as RequiredEntityData<SsoIdentity>)
       await txEm.persistAndFlush(identity)
 
