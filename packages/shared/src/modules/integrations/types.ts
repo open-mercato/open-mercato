@@ -1,3 +1,8 @@
+export type IntegrationScope = {
+  organizationId: string
+  tenantId: string
+}
+
 export type IntegrationCategory =
   | 'payment'
   | 'shipping'

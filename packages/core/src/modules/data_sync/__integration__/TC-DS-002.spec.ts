@@ -3,6 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 type JsonRecord = Record<string, unknown>
+const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
@@ -28,6 +29,17 @@ async function isMappingRouteAvailable(
 }
 
 test.describe('TC-DS-002: Data sync field mapping CRUD APIs', () => {
+  test('authorization is enforced for mappings endpoints', async ({ request }) => {
+    const noTokenResponse = await request.get(`${BASE_URL}/api/data_sync/mappings?page=1&pageSize=1`)
+    expect(noTokenResponse.status()).toBe(401)
+
+    const employeeToken = await getAuthToken(request, 'employee')
+    const forbiddenResponse = await apiRequest(request, 'GET', '/api/data_sync/mappings?page=1&pageSize=1', {
+      token: employeeToken,
+    })
+    expect(forbiddenResponse.status()).toBe(403)
+  })
+
   test('create, read, update, and delete a field mapping', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
 

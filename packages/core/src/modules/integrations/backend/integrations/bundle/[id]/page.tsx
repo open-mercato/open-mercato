@@ -12,11 +12,17 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
+import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type CredentialField = IntegrationCredentialField
+
+const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
+
+function isEditableCredentialField(field: CredentialField): boolean {
+  return !UNSUPPORTED_CREDENTIAL_FIELD_TYPES.has(field.type)
+}
 
 type BundleIntegration = {
   id: string
@@ -131,7 +137,7 @@ export default function BundleConfigPage() {
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.bundle.title')} /></PageBody></Page>
   if (error || !detail?.bundle) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
 
-  const credFields = detail.bundle.credentials?.fields ?? []
+  const credFields = (detail.bundle.credentials?.fields ?? []).filter(isEditableCredentialField)
 
   return (
     <Page>
