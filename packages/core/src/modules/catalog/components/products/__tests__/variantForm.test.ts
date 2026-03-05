@@ -3,6 +3,7 @@ import {
   createVariantInitialValues,
   normalizeOptionSchema,
   buildVariantMetadata,
+  mapPriceItemToDraft,
 } from '../variantForm'
 import type { VariantFormValues } from '../variantForm'
 
@@ -218,5 +219,121 @@ describe('buildVariantMetadata', () => {
     expect(result).toEqual({ alpha: 'a', beta: 2, gamma: true })
     result['alpha'] = 'modified'
     expect(metadata.alpha).toBe('a')
+  })
+})
+
+describe('mapPriceItemToDraft', () => {
+  it('picks unitGross for amount when price kind is including-tax', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>([['kind-1', 'including-tax']])
+    const item = {
+      id: 'price-1',
+      price_kind_id: 'kind-1',
+      unit_price_net: '975.61',
+      unit_price_gross: '1200.00',
+      currency_code: 'USD',
+    }
+    const draft = mapPriceItemToDraft(item, modes)
+    expect(draft).not.toBeNull()
+    expect(draft!.amount).toBe('1200.00')
+    expect(draft!.displayMode).toBe('including-tax')
+  })
+
+  it('picks unitNet for amount when price kind is excluding-tax', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>([['kind-2', 'excluding-tax']])
+    const item = {
+      id: 'price-2',
+      price_kind_id: 'kind-2',
+      unit_price_net: '975.61',
+      unit_price_gross: '1200.00',
+      currency_code: 'EUR',
+    }
+    const draft = mapPriceItemToDraft(item, modes)
+    expect(draft).not.toBeNull()
+    expect(draft!.amount).toBe('975.61')
+    expect(draft!.displayMode).toBe('excluding-tax')
+  })
+
+  it('falls back to heuristic when price kind is unknown', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>()
+    const itemWithGross = {
+      price_kind_id: 'unknown-kind',
+      unit_price_net: '100.00',
+      unit_price_gross: '123.00',
+    }
+    const draft = mapPriceItemToDraft(itemWithGross, modes)
+    expect(draft).not.toBeNull()
+    expect(draft!.displayMode).toBe('including-tax')
+    expect(draft!.amount).toBe('123.00')
+  })
+
+  it('falls back to excluding-tax when price kind is unknown and no gross value', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>()
+    const itemNetOnly = {
+      price_kind_id: 'unknown-kind',
+      unit_price_net: '100.00',
+    }
+    const draft = mapPriceItemToDraft(itemNetOnly, modes)
+    expect(draft).not.toBeNull()
+    expect(draft!.displayMode).toBe('excluding-tax')
+    expect(draft!.amount).toBe('100.00')
+  })
+
+  it('returns null when no price kind ID is present', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>()
+    const item = { unit_price_net: '100.00' }
+    expect(mapPriceItemToDraft(item, modes)).toBeNull()
+  })
+
+  it('round-trip stability: including-tax load produces same value that save would send', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>([['kind-1', 'including-tax']])
+    const item = {
+      id: 'price-1',
+      price_kind_id: 'kind-1',
+      unit_price_net: '975.61',
+      unit_price_gross: '1200.00',
+    }
+    const draft = mapPriceItemToDraft(item, modes)
+    expect(draft!.amount).toBe('1200.00')
+    expect(draft!.displayMode).toBe('including-tax')
+  })
+
+  it('round-trip stability: excluding-tax load produces same value that save would send', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>([['kind-1', 'excluding-tax']])
+    const item = {
+      id: 'price-1',
+      price_kind_id: 'kind-1',
+      unit_price_net: '975.61',
+      unit_price_gross: '1200.00',
+    }
+    const draft = mapPriceItemToDraft(item, modes)
+    expect(draft!.amount).toBe('975.61')
+    expect(draft!.displayMode).toBe('excluding-tax')
+  })
+
+  it('handles camelCase field names from API', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>([['kind-1', 'including-tax']])
+    const item = {
+      id: 'price-1',
+      priceKindId: 'kind-1',
+      unitPriceNet: '80.00',
+      unitPriceGross: '100.00',
+      currencyCode: 'PLN',
+    }
+    const draft = mapPriceItemToDraft(item, modes)
+    expect(draft).not.toBeNull()
+    expect(draft!.amount).toBe('100.00')
+    expect(draft!.currencyCode).toBe('PLN')
+    expect(draft!.priceKindId).toBe('kind-1')
+  })
+
+  it('falls back to net when gross is missing for including-tax kind', () => {
+    const modes = new Map<string, 'including-tax' | 'excluding-tax'>([['kind-1', 'including-tax']])
+    const item = {
+      price_kind_id: 'kind-1',
+      unit_price_net: '100.00',
+    }
+    const draft = mapPriceItemToDraft(item, modes)
+    expect(draft!.amount).toBe('100.00')
+    expect(draft!.displayMode).toBe('including-tax')
   })
 })
