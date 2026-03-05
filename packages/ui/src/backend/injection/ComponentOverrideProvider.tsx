@@ -1,16 +1,17 @@
 'use client'
 
 import * as React from 'react'
+import { createContext, useContext } from 'react'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
 import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { apiCall } from '../utils/apiCall'
 
 type FeatureCheckResponse = { granted: string[] }
 
-const OverrideUserFeaturesContext = React.createContext<readonly string[]>([])
+const OverrideUserFeaturesContext = createContext<readonly string[]>([])
 
 export function useOverrideUserFeatures(): readonly string[] {
-  return React.useContext(OverrideUserFeaturesContext)
+  return useContext(OverrideUserFeaturesContext)
 }
 
 export function ComponentOverrideProvider({

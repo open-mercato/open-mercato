@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChevronUp, ChevronDown } from 'lucide-react'
@@ -288,13 +289,13 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   return item.href
 }
 
-const HeaderContext = React.createContext<{
+const HeaderContext = createContext<{
   setBreadcrumb: (b?: Breadcrumb) => void
   setTitle: (t?: string) => void
 } | null>(null)
 
 export function ApplyBreadcrumb({ breadcrumb, title, titleKey }: { breadcrumb?: Array<{ label: string; href?: string; labelKey?: string }>; title?: string; titleKey?: string }) {
-  const ctx = React.useContext(HeaderContext)
+  const ctx = useContext(HeaderContext)
   const t = useT()
   const resolvedBreadcrumb = React.useMemo<Breadcrumb | undefined>(() => {
     if (!breadcrumb) return undefined
