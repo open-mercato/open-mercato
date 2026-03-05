@@ -1,0 +1,375 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
+import type { CredentialsService } from '../../integrations/lib/credentials-service'
+import type { IntegrationLogService } from '../../integrations/lib/log-service'
+import type { ProgressService } from '../../progress/lib/progressService'
+import { emitDataSyncEvent } from '../events'
+import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
+import { getDataSyncAdapter } from './adapter-registry'
+import type { SyncRunService } from './sync-run-service'
+
+type SyncScope = {
+  organizationId: string
+  tenantId: string
+  userId?: string | null
+}
+
+type EngineDeps = {
+  em: EntityManager
+  syncRunService: SyncRunService
+  integrationCredentialsService: CredentialsService
+  integrationLogService: IntegrationLogService
+  progressService: ProgressService
+}
+
+function resolveProviderKey(integrationId: string): string {
+  return getIntegration(integrationId)?.providerKey ?? integrationId
+}
+
+function applyImportCounters(batch: ImportBatch): Pick<Required<SyncCounterDelta>, 'createdCount' | 'updatedCount' | 'skippedCount' | 'failedCount'> {
+  let createdCount = 0
+  let updatedCount = 0
+  let skippedCount = 0
+  let failedCount = 0
+
+  for (const item of batch.items) {
+    if (item.action === 'create') createdCount += 1
+    else if (item.action === 'update') updatedCount += 1
+    else skippedCount += 1
+  }
+
+  return { createdCount, updatedCount, skippedCount, failedCount }
+}
+
+type SyncCounterDelta = {
+  createdCount?: number
+  updatedCount?: number
+  skippedCount?: number
+  failedCount?: number
+  processedCount: number
+}
+
+function applyExportCounters(batch: ExportBatch): SyncCounterDelta {
+  let failedCount = 0
+  let skippedCount = 0
+  let updatedCount = 0
+
+  for (const result of batch.results) {
+    if (result.status === 'error') failedCount += 1
+    else if (result.status === 'skipped') skippedCount += 1
+    else updatedCount += 1
+  }
+
+  return {
+    failedCount,
+    skippedCount,
+    updatedCount,
+    processedCount: batch.results.length,
+  }
+}
+
+export function createSyncEngine(deps: EngineDeps) {
+  const { syncRunService, integrationCredentialsService, integrationLogService, progressService } = deps
+
+  async function resolveMapping(adapter: DataSyncAdapter, entityType: string, scope: SyncScope): Promise<DataMapping> {
+    return adapter.getMapping({
+      entityType,
+      scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+    })
+  }
+
+  async function updateProgress(progressJobId: string | null | undefined, processedCount: number, totalCount: number | null, scope: SyncScope): Promise<void> {
+    if (!progressJobId) return
+
+    await progressService.updateProgress(
+      progressJobId,
+      {
+        processedCount,
+        totalCount: totalCount ?? undefined,
+      },
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      },
+    )
+  }
+
+  async function finalizeRun(runId: string, status: 'completed' | 'failed' | 'cancelled', scope: SyncScope, error?: string): Promise<void> {
+    const run = await syncRunService.markStatus(runId, status, scope, error)
+    if (!run) return
+
+    if (run.progressJobId) {
+      if (status === 'completed') {
+        await progressService.completeJob(
+          run.progressJobId,
+          {
+            resultSummary: {
+              createdCount: run.createdCount,
+              updatedCount: run.updatedCount,
+              skippedCount: run.skippedCount,
+              failedCount: run.failedCount,
+              batchesCompleted: run.batchesCompleted,
+            },
+          },
+          {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          },
+        )
+      } else if (status === 'failed') {
+        await progressService.failJob(
+          run.progressJobId,
+          {
+            errorMessage: error ?? 'Sync run failed',
+          },
+          {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          },
+        )
+      }
+    }
+
+    if (status === 'completed') {
+      await emitDataSyncEvent('data_sync.run.completed', {
+        runId,
+        integrationId: run.integrationId,
+        entityType: run.entityType,
+        direction: run.direction,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+      return
+    }
+
+    if (status === 'cancelled') {
+      await emitDataSyncEvent('data_sync.run.cancelled', {
+        runId,
+        integrationId: run.integrationId,
+        entityType: run.entityType,
+        direction: run.direction,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+      return
+    }
+
+    await emitDataSyncEvent('data_sync.run.failed', {
+      runId,
+      integrationId: run.integrationId,
+      entityType: run.entityType,
+      direction: run.direction,
+      error: error ?? null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+  }
+
+  return {
+    async runImport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
+      const run = await syncRunService.getRun(runId, scope)
+      if (!run) throw new Error(`Sync run ${runId} not found`)
+
+      const providerKey = resolveProviderKey(run.integrationId)
+      const adapter = getDataSyncAdapter(providerKey)
+      if (!adapter?.streamImport) {
+        throw new Error(`No import adapter registered for provider ${providerKey}`)
+      }
+
+      const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
+      if (!credentials) {
+        throw new Error(`Integration ${run.integrationId} is missing credentials`)
+      }
+
+      await syncRunService.markStatus(run.id, 'running', scope)
+      await emitDataSyncEvent('data_sync.run.started', {
+        runId: run.id,
+        integrationId: run.integrationId,
+        entityType: run.entityType,
+        direction: run.direction,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+
+      if (run.progressJobId) {
+        await progressService.startJob(run.progressJobId, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId: scope.userId,
+        })
+      }
+
+      const mapping = await resolveMapping(adapter, run.entityType, scope)
+      let processedCount = 0
+      let totalCount: number | null = null
+
+      try {
+        for await (const batch of adapter.streamImport({
+          entityType: run.entityType,
+          cursor: run.cursor ?? undefined,
+          batchSize,
+          credentials,
+          mapping,
+          scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+        })) {
+          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId)) {
+            await finalizeRun(run.id, 'cancelled', scope)
+            return
+          }
+
+          const delta = applyImportCounters(batch)
+          processedCount += batch.items.length
+          totalCount = batch.totalEstimate ?? totalCount
+
+          await syncRunService.updateCounts(
+            run.id,
+            {
+              ...delta,
+              batchesCompleted: 1,
+            },
+            scope,
+          )
+          await syncRunService.updateCursor(run.id, batch.cursor, scope)
+
+          await updateProgress(run.progressJobId, processedCount, totalCount, scope)
+
+          await integrationLogService.write(
+            {
+              integrationId: run.integrationId,
+              runId: run.id,
+              level: 'info',
+              message: `Processed import batch ${batch.batchIndex}`,
+              payload: {
+                processedCount,
+                batchSize: batch.items.length,
+                cursor: batch.cursor,
+              },
+            },
+            scope,
+          )
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Sync import failed'
+        await integrationLogService.write(
+          {
+            integrationId: run.integrationId,
+            runId: run.id,
+            level: 'error',
+            message,
+          },
+          scope,
+        )
+        await finalizeRun(run.id, 'failed', scope, message)
+        return
+      }
+
+      await finalizeRun(run.id, 'completed', scope)
+    },
+
+    async runExport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
+      const run = await syncRunService.getRun(runId, scope)
+      if (!run) throw new Error(`Sync run ${runId} not found`)
+
+      const providerKey = resolveProviderKey(run.integrationId)
+      const adapter = getDataSyncAdapter(providerKey)
+      if (!adapter?.streamExport) {
+        throw new Error(`No export adapter registered for provider ${providerKey}`)
+      }
+
+      const credentials = await integrationCredentialsService.resolve(run.integrationId, scope)
+      if (!credentials) {
+        throw new Error(`Integration ${run.integrationId} is missing credentials`)
+      }
+
+      await syncRunService.markStatus(run.id, 'running', scope)
+      await emitDataSyncEvent('data_sync.run.started', {
+        runId: run.id,
+        integrationId: run.integrationId,
+        entityType: run.entityType,
+        direction: run.direction,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+
+      if (run.progressJobId) {
+        await progressService.startJob(run.progressJobId, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId: scope.userId,
+        })
+      }
+
+      const mapping = await resolveMapping(adapter, run.entityType, scope)
+      let processedCount = 0
+
+      try {
+        for await (const batch of adapter.streamExport({
+          entityType: run.entityType,
+          cursor: run.cursor ?? undefined,
+          batchSize,
+          credentials,
+          mapping,
+          scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+        })) {
+          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId)) {
+            await finalizeRun(run.id, 'cancelled', scope)
+            return
+          }
+
+          const delta = applyExportCounters(batch)
+          processedCount += delta.processedCount
+
+          await syncRunService.updateCounts(
+            run.id,
+            {
+              createdCount: 0,
+              updatedCount: delta.updatedCount,
+              skippedCount: delta.skippedCount,
+              failedCount: delta.failedCount,
+              batchesCompleted: 1,
+            },
+            scope,
+          )
+
+          await syncRunService.updateCursor(run.id, batch.cursor, scope)
+          await updateProgress(run.progressJobId, processedCount, null, scope)
+
+          await integrationLogService.write(
+            {
+              integrationId: run.integrationId,
+              runId: run.id,
+              level: 'info',
+              message: `Processed export batch ${batch.batchIndex}`,
+              payload: {
+                processedCount,
+                batchSize: batch.results.length,
+                cursor: batch.cursor,
+              },
+            },
+            scope,
+          )
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Sync export failed'
+        await integrationLogService.write(
+          {
+            integrationId: run.integrationId,
+            runId: run.id,
+            level: 'error',
+            message,
+          },
+          scope,
+        )
+        await finalizeRun(run.id, 'failed', scope, message)
+        return
+      }
+
+      await finalizeRun(run.id, 'completed', scope)
+    },
+  }
+}
+
+export type SyncEngine = ReturnType<typeof createSyncEngine>

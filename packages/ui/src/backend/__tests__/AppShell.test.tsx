@@ -104,6 +104,18 @@ describe('AppShell', () => {
       },
       configurable: true,
     })
+    if (typeof globalThis.Response === 'undefined') {
+      globalThis.Response = class MockResponse {
+        _body: string; status: number; headers: Headers
+        constructor(body?: string | null, init?: ResponseInit) {
+          this._body = body ?? ''; this.status = init?.status ?? 200
+          this.headers = new Headers(init?.headers)
+        }
+        get ok() { return this.status >= 200 && this.status < 300 }
+        async json() { return JSON.parse(this._body) }
+        async text() { return this._body }
+      } as unknown as typeof Response
+    }
   })
 
   it('renders navigation and breadcrumbs with translations applied via ApplyBreadcrumb', async () => {
@@ -192,6 +204,49 @@ describe('AppShell', () => {
         'href',
         '/backend/entities/user/example%3Acalendar_entity/records',
       )
+    })
+  })
+
+  it('resets breadcrumb to server-provided values when pathname changes', async () => {
+    mockPathname = '/backend/users'
+
+    const { rerender } = renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Users List"
+        breadcrumb={[{ label: 'Users List' }]}
+      >
+        <div>Page content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const getBreadcrumbText = () => {
+      const allNavs = screen.getAllByRole('navigation')
+      const breadcrumbNav = allNavs.find((nav) => nav.classList.contains('text-sm'))
+      return breadcrumbNav?.textContent ?? ''
+    }
+
+    await waitFor(() => {
+      expect(getBreadcrumbText()).toContain('Users List')
+    })
+
+    mockPathname = '/backend'
+
+    rerender(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle=""
+      >
+        <div>Dashboard content</div>
+      </AppShell>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Dashboard content')).toBeInTheDocument()
+      expect(getBreadcrumbText()).not.toContain('Users List')
     })
   })
 

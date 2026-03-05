@@ -12,6 +12,7 @@ import { registerComponentOverrides } from '../../modules/widgets/component-regi
 import { registerMutationGuards } from '../crud/mutation-guard-store'
 import { registerCommandInterceptors } from '../commands/command-interceptor-store'
 import { registerNotificationHandlers } from '../notifications/handler-registry'
+import { clearRegisteredIntegrations, registerBundles, registerIntegrations } from '../../modules/integrations/types'
 
 let _bootstrapped = false
 
@@ -41,6 +42,15 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     // === 2. Modules registry (required by i18n, query engine, dashboards, CLI) ===
     registerModules(data.modules)
+    clearRegisteredIntegrations()
+    for (const module of data.modules) {
+      if (module.integrations?.length) {
+        registerIntegrations(module.integrations)
+      }
+      if (module.bundles?.length) {
+        registerBundles(module.bundles)
+      }
+    }
 
     // === 3. Entity IDs (required by encryption, indexing, entity links) ===
     registerEntityIds(data.entityIds)
