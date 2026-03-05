@@ -60,7 +60,7 @@ function filterTenantsByStatus(list: TenantRecord[], status: 'all' | 'active' | 
 async function fetchDirectoryTenants(status: 'all' | 'active' | 'inactive', errorMessage: string): Promise<TenantRecord[]> {
   const search = new URLSearchParams()
   search.set('page', '1')
-  search.set('pageSize', '200')
+  search.set('pageSize', '100')
   search.set('sortField', 'name')
   search.set('sortDir', 'asc')
   if (status === 'active') search.set('isActive', 'true')
@@ -145,10 +145,16 @@ export const TenantSelect = React.forwardRef<HTMLSelectElement, TenantSelectProp
     let cancelled = false
     const loadTenants = async () => {
       setFetchStatus('loading')
+      const autoSelect = (tenants: TenantRecord[]) => {
+        if (!value && !includeEmptyOption && tenants.length > 0) {
+          onChange?.(tenants[0].id)
+        }
+      }
       try {
         const tenants = await fetchDirectoryTenants(status, fetchErrorMessage)
         if (cancelled) return
         setRemoteTenants(tenants)
+        autoSelect(tenants)
         setFetchStatus('success')
         return
       } catch {
@@ -156,6 +162,7 @@ export const TenantSelect = React.forwardRef<HTMLSelectElement, TenantSelectProp
           const fallbackTenants = await fetchTenantsFromOrganizationSwitcher(status, fetchErrorMessage)
           if (cancelled) return
           setRemoteTenants(fallbackTenants)
+          autoSelect(fallbackTenants)
           setFetchStatus('success')
           return
         } catch {
@@ -166,6 +173,7 @@ export const TenantSelect = React.forwardRef<HTMLSelectElement, TenantSelectProp
     }
     void loadTenants()
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- value/onChange/includeEmptyOption are read once at fetch time for auto-select
   }, [fetchOnMount, status, t])
 
   const mergedTenants = React.useMemo(
