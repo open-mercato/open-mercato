@@ -2577,6 +2577,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           }))
 
         console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
+        await rm(path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.checksum'), {
+          force: true,
+        })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
           runYarnCommand(['generate'], commandEnvironment, {
             silent: !options.verbose,

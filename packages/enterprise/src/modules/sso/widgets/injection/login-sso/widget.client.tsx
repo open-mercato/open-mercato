@@ -116,8 +116,8 @@ export default function SsoLoginWidget({ context }: InjectionWidgetComponentProp
       return
     }
 
-    context.setAuthOverridePending?.(true)
     debounceTimer.current = setTimeout(() => {
+      context.setAuthOverridePending?.(true)
       void checkHrd(context.email)
     }, HRD_DEBOUNCE_MS)
 
