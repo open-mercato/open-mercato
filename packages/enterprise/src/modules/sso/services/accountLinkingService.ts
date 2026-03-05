@@ -143,6 +143,7 @@ export class AccountLinkingService {
         name: idpPayload.name ?? null,
         passwordHash: null,
         isConfirmed: true,
+        createdAt: new Date(),
       })
       await txEm.persistAndFlush(user)
 
@@ -284,7 +285,7 @@ export class AccountLinkingService {
     } as FilterQuery<UserRole>)
     if (existingLink) return
 
-    const userRole = em.create(UserRole, { user, role })
+    const userRole = em.create(UserRole, { user, role, createdAt: new Date() })
     await em.persistAndFlush(userRole)
   }
 }
