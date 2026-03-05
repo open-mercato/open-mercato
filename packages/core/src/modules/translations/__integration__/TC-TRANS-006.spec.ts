@@ -6,6 +6,19 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 const ENTITY_TYPE = 'catalog:catalog_product'
 
+async function dismissRecordDeletedDialogIfPresent(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: /Record was deleted/i })
+  const visible = await dialog.isVisible().catch(() => false)
+  if (!visible) return
+  const closeButton = dialog.getByRole('button', { name: /Close/i }).first()
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.click()
+  } else {
+    await page.keyboard.press('Escape')
+  }
+  await expect(dialog).toHaveCount(0)
+}
+
 async function openTranslationsDrawer(page: Page): Promise<Locator> {
   const openButton = page.getByRole('button', { name: /Translation manager/ }).first()
   const dialog = page.getByRole('dialog', { name: /Translations/i })
@@ -56,6 +69,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
 
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
+      await dismissRecordDeletedDialogIfPresent(page)
 
       const dialog = await openTranslationsDrawer(page)
       await expect(dialog).toBeVisible()
@@ -80,6 +94,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
 
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
+      await dismissRecordDeletedDialogIfPresent(page)
 
       const dialog = await openTranslationsDrawer(page)
       await expect(dialog).toBeVisible()
@@ -115,9 +130,11 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
 
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
+      await dismissRecordDeletedDialogIfPresent(page)
 
       const dialog = await openTranslationsDrawer(page)
       await expect(dialog).toBeVisible()
+      await dismissRecordDeletedDialogIfPresent(page)
       const deTab = dialog.getByRole('button', { name: 'DE' })
       await deTab.click()
 
