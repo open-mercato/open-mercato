@@ -207,7 +207,7 @@ export function FeatureTogglesTable() {
         page: featureTogglesData?.page ?? 1,
         pageSize: featureTogglesData?.pageSize ?? 25,
         total: featureTogglesData?.total ?? 0,
-        totalPages: featureTogglesData?.totalPages ?? 1,
+        totalPages: featureTogglesData?.totalPages ?? 0,
         onPageChange: handlePageChange,
       }}
       rowActions={(row) => (
