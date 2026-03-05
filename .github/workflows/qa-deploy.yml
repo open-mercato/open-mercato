@@ -1,0 +1,202 @@
+name: Deploy to Dokploy QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "QA slot to deploy to"
+        required: true
+        type: choice
+        options:
+          - qa1
+          - qa2
+
+      branch:
+        description: "Branch to build and deploy"
+        required: true
+        type: string
+
+      pr_number:
+        description: "Optional PR number to label/comment (e.g. 123)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: dokploy-${{ github.event.inputs.slot }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  DOCKERFILE: ./docker/preview/Dockerfile
+  BUILD_CONTEXT: .
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Validate PR number (optional)
+        if: ${{ github.event.inputs.pr_number != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "${{ github.event.inputs.pr_number }}" =~ ^[0-9]+$ ]]; then
+            echo "pr_number must be numeric"
+            exit 1
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SLOT="${{ github.event.inputs.slot }}"
+          SHA="${GITHUB_SHA}"
+          SHORT_SHA="${SHA:0:7}"
+
+          TAG="${SLOT}-${SHORT_SHA}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "image_full=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.BUILD_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.meta.outputs.image_full }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Resolve Dokploy applicationId
+        id: app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SLOT="${{ steps.meta.outputs.slot }}"
+
+          if [[ "$SLOT" == "qa1" ]]; then
+            APP_ID="${{ vars.DOKPLOY_APP_ID_QA1 }}"
+          elif [[ "$SLOT" == "qa2" ]]; then
+            APP_ID="${{ vars.DOKPLOY_APP_ID_QA2 }}"
+          else
+            echo "Unknown slot: $SLOT"
+            exit 1
+          fi
+
+          if [[ -z "$APP_ID" ]]; then
+            echo "Missing Dokploy app id for $SLOT"
+            exit 1
+          fi
+
+          echo "application_id=$APP_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Update image in Dokploy
+        shell: bash
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          APP_ID: ${{ steps.app.outputs.application_id }}
+          DOCKER_IMAGE: ${{ steps.meta.outputs.image_full }}
+        run: |
+          set -euo pipefail
+
+          curl -fsS -X POST "${DOKPLOY_URL}/api/application.saveDockerProvider" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg applicationId "$APP_ID" \
+              --arg dockerImage "$DOCKER_IMAGE" \
+              '{applicationId: $applicationId, dockerImage: $dockerImage}')"
+
+      - name: Trigger Dokploy deploy
+        shell: bash
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          APP_ID: ${{ steps.app.outputs.application_id }}
+        run: |
+          set -euo pipefail
+
+          curl -fsS -X POST "${DOKPLOY_URL}/api/application.deploy" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg applicationId "$APP_ID" '{applicationId: $applicationId}')"
+
+      - name: Add QA label to PR
+        if: ${{ github.event.inputs.pr_number != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = Number("${{ github.event.inputs.pr_number }}");
+            const slot = "${{ steps.meta.outputs.slot }}";
+            const label = `qa:${slot}`;
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr,
+              labels: [label],
+            });
+
+      - name: Comment on PR with QA marker
+        if: ${{ github.event.inputs.pr_number != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = Number("${{ github.event.inputs.pr_number }}");
+            const slot = "${{ steps.meta.outputs.slot }}";
+            const image = "${{ steps.meta.outputs.image_full }}";
+            const branch = "${{ github.event.inputs.branch }}";
+
+            // Marker format: DO NOT change lightly (cleanup workflow parses it)
+            const marker = `<!-- dokploy-qa slot=${slot} image=${image} -->`;
+
+            const body = [
+              marker,
+              `🚀 Deployed to **${slot}**`,
+              ``,
+              `- Image: \`${image}\``,
+              `- Branch: \`${branch}\``,
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr,
+              body,
+            });

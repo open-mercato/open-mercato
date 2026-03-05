@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import type { SyncCrudEventResult } from '../lib/crud/sync-event-types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { InjectionAnyWidgetModule, ModuleInjectionTable } from './widgets/injection'
+import type { IntegrationBundle, IntegrationDefinition } from './integrations/types'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -178,6 +179,9 @@ export type Module = {
   vector?: import('./vector').VectorModuleConfig
   // Optional: module-specific tenant setup configuration (from setup.ts)
   setup?: import('./setup').ModuleSetupConfig
+  // Optional: integration marketplace declarations discovered from integration.ts
+  integrations?: IntegrationDefinition[]
+  bundles?: IntegrationBundle[]
 }
 
 function normPath(s: string) {

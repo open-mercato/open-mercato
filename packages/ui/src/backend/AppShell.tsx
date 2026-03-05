@@ -722,6 +722,16 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setHeaderTitle(currentTitle)
     setHeaderBreadcrumb(breadcrumb)
   }, [currentTitle, breadcrumb])
+  // Clear breadcrumb on client-side navigation so stale state doesn't persist;
+  // the new page's ApplyBreadcrumb (if any) will set the correct values
+  const prevPathname = React.useRef(pathname)
+  React.useEffect(() => {
+    if (pathname !== prevPathname.current) {
+      prevPathname.current = pathname
+      setHeaderTitle(undefined)
+      setHeaderBreadcrumb(undefined)
+    }
+  }, [pathname])
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
