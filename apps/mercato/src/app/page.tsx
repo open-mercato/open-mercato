@@ -1,6 +1,7 @@
 import { modules } from '@/.mercato/generated/modules.generated'
 import { StartPageContent } from '@/components/StartPageContent'
 import type { Metadata } from 'next'
+import { resolveLocalizedAppMetadata } from '@/lib/metadata'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -17,11 +18,7 @@ function FeatureBadge({ label }: { label: string }) {
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { t } = await resolveTranslations()
-  return {
-    title: t('app.metadata.title', 'Open Mercato'),
-    description: t('app.metadata.description', 'AI-supportive, modular ERP foundation for product & service companies'),
-  }
+  return resolveLocalizedAppMetadata()
 }
 
 export default async function Home() {

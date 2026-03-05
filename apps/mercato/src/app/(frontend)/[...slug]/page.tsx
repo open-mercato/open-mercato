@@ -5,7 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { Metadata } from 'next'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 
 type FrontendParams = { params: Promise<{ slug: string[] }> }
 
@@ -17,12 +17,10 @@ export async function generateMetadata({ params }: FrontendParams): Promise<Meta
     return {}
   }
 
-  const { t } = await resolveTranslations()
-  const fallbackTitle = match.route.title || 'Open Mercato'
-
-  return {
-    title: match.route.titleKey ? t(match.route.titleKey, fallbackTitle) : fallbackTitle,
-  }
+  return resolveLocalizedTitleMetadata({
+    title: match.route.title,
+    titleKey: match.route.titleKey,
+  })
 }
 
 export default async function SiteCatchAll({ params }: FrontendParams) {
