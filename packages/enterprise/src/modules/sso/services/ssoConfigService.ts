@@ -1,3 +1,4 @@
+import type { FilterQuery, RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -45,9 +46,12 @@ export class SsoConfigService {
     total: number
     totalPages: number
   }> {
-    const where: Record<string, any> = { deletedAt: null }
+    const where: FilterQuery<SsoConfig> = { deletedAt: null }
 
     if (!scope.isSuperAdmin) {
+      if (!scope.organizationId) {
+        throw new SsoConfigError('Organization context is required', 403)
+      }
       where.organizationId = scope.organizationId
     } else {
       if (query.organizationId) where.organizationId = query.organizationId
@@ -77,8 +81,11 @@ export class SsoConfigService {
   }
 
   async getById(scope: SsoAdminScope, id: string): Promise<SsoConfigPublic | null> {
-    const where: Record<string, any> = { id, deletedAt: null }
-    if (!scope.isSuperAdmin) where.organizationId = scope.organizationId
+    const where: FilterQuery<SsoConfig> = { id, deletedAt: null }
+    if (!scope.isSuperAdmin) {
+      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
+      where.organizationId = scope.organizationId
+    }
 
     const config = await this.em.findOne(SsoConfig, where)
     return config ? this.toPublic(config) : null
@@ -123,7 +130,7 @@ export class SsoConfigService {
       isActive: false,
       ssoRequired: false,
       appRoleMappings: input.appRoleMappings ?? {},
-    } as any)
+    } as RequiredEntityData<SsoConfig>)
 
     await this.em.persistAndFlush(config)
 
@@ -131,7 +138,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
 
     return this.toPublic(config)
   }
@@ -171,7 +178,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
 
     return this.toPublic(config)
   }
@@ -190,7 +197,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
   }
 
   async activate(scope: SsoAdminScope, id: string, active: boolean): Promise<SsoConfigPublic> {
@@ -216,13 +223,13 @@ export class SsoConfigService {
         id: config.id,
         tenantId: config.tenantId,
         organizationId: config.organizationId,
-      }).catch(() => undefined)
+      }).catch((e) => console.error('[SSO Event]', e))
     } else if (!active && wasActive) {
       void emitSsoEvent('sso.config.deactivated', {
         id: config.id,
         tenantId: config.tenantId,
         organizationId: config.organizationId,
-      }).catch(() => undefined)
+      }).catch((e) => console.error('[SSO Event]', e))
     }
 
     return this.toPublic(config)
@@ -255,7 +262,7 @@ export class SsoConfigService {
       tenantId: config.tenantId,
       organizationId: config.organizationId,
       domain: normalized,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
 
     return this.toPublic(config)
   }
@@ -272,7 +279,7 @@ export class SsoConfigService {
       tenantId: config.tenantId,
       organizationId: config.organizationId,
       domain: normalized,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
 
     return this.toPublic(config)
   }
@@ -299,8 +306,11 @@ export class SsoConfigService {
   }
 
   private async resolveConfig(scope: SsoAdminScope, id: string): Promise<SsoConfig> {
-    const where: Record<string, any> = { id, deletedAt: null }
-    if (!scope.isSuperAdmin) where.organizationId = scope.organizationId
+    const where: FilterQuery<SsoConfig> = { id, deletedAt: null }
+    if (!scope.isSuperAdmin) {
+      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
+      where.organizationId = scope.organizationId
+    }
 
     const config = await this.em.findOne(SsoConfig, where)
     if (!config) throw new SsoConfigError('SSO configuration not found', 404)

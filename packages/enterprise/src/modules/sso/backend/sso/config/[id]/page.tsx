@@ -10,6 +10,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type Tab = 'general' | 'domains' | 'roles' | 'scim' | 'activity'
 
@@ -61,6 +62,20 @@ export default function SsoConfigDetailPage() {
   const [activationError, setActivationError] = React.useState<string | null>(null)
   const [isActivating, setIsActivating] = React.useState(false)
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: `sso-config:${configId ?? 'pending'}`,
+  })
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { configId, retryLastMutation },
+      })
+    },
+    [configId, retryLastMutation, runMutation],
+  )
+
   // General tab form state
   const [name, setName] = React.useState('')
   const [issuer, setIssuer] = React.useState('')
@@ -101,14 +116,17 @@ export default function SsoConfigDetailPage() {
       const payload: Record<string, unknown> = { name, issuer, clientId, jitEnabled, autoLinkByEmail }
       if (newClientSecret) payload.clientSecret = newClientSecret
 
-      await apiCallOrThrow<SsoConfigDetail>(
-        `/api/sso/config/${configId}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-        { errorMessage: t('sso.admin.error.saveFailed', 'Failed to save SSO configuration') },
+      await runMutationWithContext(
+        () => apiCallOrThrow<SsoConfigDetail>(
+          `/api/sso/config/${configId}`,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('sso.admin.error.saveFailed', 'Failed to save SSO configuration') },
+        ),
+        payload,
       )
       flash(t('sso.admin.saved', 'SSO configuration saved'), 'success')
       setNewClientSecret('')
@@ -126,14 +144,17 @@ export default function SsoConfigDetailPage() {
     setActivationError(null)
     setIsActivating(true)
     try {
-      await apiCallOrThrow(
-        `/api/sso/config/${configId}/activate`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ active: !config.isActive }),
-        },
-        { errorMessage: t('sso.admin.error.activationFailed', 'Failed to update activation status') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          `/api/sso/config/${configId}/activate`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ active: !config.isActive }),
+          },
+          { errorMessage: t('sso.admin.error.activationFailed', 'Failed to update activation status') },
+        ),
+        { active: !config.isActive },
       )
       flash(
         config.isActive
@@ -159,10 +180,12 @@ export default function SsoConfigDetailPage() {
 
   const handleTestConnection = async () => {
     try {
-      const call = await apiCallOrThrow<{ ok: boolean; error?: string }>(
-        `/api/sso/config/${configId}/test`,
-        { method: 'POST' },
-        { errorMessage: t('sso.admin.error.testFailed', 'Connection test failed') },
+      const call = await runMutationWithContext(
+        () => apiCallOrThrow<{ ok: boolean; error?: string }>(
+          `/api/sso/config/${configId}/test`,
+          { method: 'POST' },
+          { errorMessage: t('sso.admin.error.testFailed', 'Connection test failed') },
+        ),
       )
       if (call.result?.ok) {
         flash(t('sso.admin.test.success', 'Discovery successful — issuer is reachable'), 'success')
@@ -188,9 +211,12 @@ export default function SsoConfigDetailPage() {
     })
     if (!confirmed) return
 
-    await apiCallOrThrow(`/api/sso/config/${configId}`, { method: 'DELETE' }, {
-      errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
-    })
+    await runMutationWithContext(
+      () => apiCallOrThrow(`/api/sso/config/${configId}`, { method: 'DELETE' }, {
+        errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
+      }),
+      { id: configId },
+    )
     flash(t('sso.admin.delete.success', 'SSO configuration deleted'), 'success')
     router.push('/backend/sso')
   }
@@ -206,14 +232,17 @@ export default function SsoConfigDetailPage() {
     }
 
     try {
-      await apiCallOrThrow(
-        `/api/sso/config/${configId}/domains`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ domain: normalized }),
-        },
-        { errorMessage: t('sso.admin.error.domainAddFailed', 'Failed to add domain') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          `/api/sso/config/${configId}/domains`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ domain: normalized }),
+          },
+          { errorMessage: t('sso.admin.error.domainAddFailed', 'Failed to add domain') },
+        ),
+        { domain: normalized },
       )
       setDomainInput('')
       setDomainError('')
@@ -225,10 +254,13 @@ export default function SsoConfigDetailPage() {
 
   const handleRemoveDomain = async (domain: string) => {
     try {
-      await apiCallOrThrow(
-        `/api/sso/config/${configId}/domains?domain=${encodeURIComponent(domain)}`,
-        { method: 'DELETE' },
-        { errorMessage: t('sso.admin.error.domainRemoveFailed', 'Failed to remove domain') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          `/api/sso/config/${configId}/domains?domain=${encodeURIComponent(domain)}`,
+          { method: 'DELETE' },
+          { errorMessage: t('sso.admin.error.domainRemoveFailed', 'Failed to remove domain') },
+        ),
+        { domain },
       )
       fetchConfig()
     } catch {
@@ -475,13 +507,14 @@ export default function SsoConfigDetailPage() {
                 configId={configId}
                 appRoleMappings={config.appRoleMappings ?? {}}
                 onSaved={fetchConfig}
+                runMutationWithContext={runMutationWithContext}
               />
             </div>
           )}
 
           {activeTab === 'scim' && (
             <div className="rounded-lg border bg-card p-4">
-              <ScimProvisioningTab configId={configId} jitEnabled={config.jitEnabled} issuer={config.issuer ?? undefined} onProvisioningChange={fetchConfig} />
+              <ScimProvisioningTab configId={configId} jitEnabled={config.jitEnabled} issuer={config.issuer ?? undefined} onProvisioningChange={fetchConfig} runMutationWithContext={runMutationWithContext} />
             </div>
           )}
 
@@ -501,10 +534,12 @@ function RoleMappingsTab({
   configId,
   appRoleMappings,
   onSaved,
+  runMutationWithContext,
 }: {
   configId: string
   appRoleMappings: Record<string, string>
   onSaved: () => void
+  runMutationWithContext: <T>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>) => Promise<T>
 }) {
   const t = useT()
   const [mappings, setMappings] = React.useState<Record<string, string>>(appRoleMappings)
@@ -570,14 +605,17 @@ function RoleMappingsTab({
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      await apiCallOrThrow(
-        `/api/sso/config/${configId}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ appRoleMappings: mappings }),
-        },
-        { errorMessage: t('sso.admin.roles.error.saveFailed', 'Failed to save role mappings') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          `/api/sso/config/${configId}`,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ appRoleMappings: mappings }),
+          },
+          { errorMessage: t('sso.admin.roles.error.saveFailed', 'Failed to save role mappings') },
+        ),
+        { appRoleMappings: mappings },
       )
       flash(t('sso.admin.roles.saved', 'Role mappings saved'), 'success')
       onSaved()
@@ -673,7 +711,7 @@ interface ScimLogRow {
   createdAt: string
 }
 
-function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChange }: { configId: string; jitEnabled: boolean; issuer?: string; onProvisioningChange: () => void }) {
+function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChange, runMutationWithContext }: { configId: string; jitEnabled: boolean; issuer?: string; onProvisioningChange: () => void; runMutationWithContext: <T>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>) => Promise<T> }) {
   const isGoogleProvider = issuer?.includes('accounts.google.com') === true
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -703,14 +741,17 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
     if (!tokenName.trim()) return
     setIsCreating(true)
     try {
-      const result = await apiCallOrThrow<{ id: string; token: string; prefix: string; name: string }>(
-        '/api/sso/scim/tokens',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ssoConfigId: configId, name: tokenName.trim() }),
-        },
-        { errorMessage: t('sso.admin.scim.error.createFailed', 'Failed to create SCIM token') },
+      const result = await runMutationWithContext(
+        () => apiCallOrThrow<{ id: string; token: string; prefix: string; name: string }>(
+          '/api/sso/scim/tokens',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ssoConfigId: configId, name: tokenName.trim() }),
+          },
+          { errorMessage: t('sso.admin.scim.error.createFailed', 'Failed to create SCIM token') },
+        ),
+        { ssoConfigId: configId, name: tokenName.trim() },
       )
       if (result.result) {
         setNewlyCreatedToken(result.result.token)
@@ -736,9 +777,12 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
     if (!confirmed) return
 
     try {
-      await apiCallOrThrow(`/api/sso/scim/tokens/${tokenId}`, { method: 'DELETE' }, {
-        errorMessage: t('sso.admin.scim.error.revokeFailed', 'Failed to revoke token'),
-      })
+      await runMutationWithContext(
+        () => apiCallOrThrow(`/api/sso/scim/tokens/${tokenId}`, { method: 'DELETE' }, {
+          errorMessage: t('sso.admin.scim.error.revokeFailed', 'Failed to revoke token'),
+        }),
+        { tokenId },
+      )
       flash(t('sso.admin.scim.revoked', 'Token revoked'), 'success')
       fetchData()
       onProvisioningChange()

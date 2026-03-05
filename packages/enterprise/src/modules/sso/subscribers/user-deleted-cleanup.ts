@@ -1,3 +1,4 @@
+import type { EntityData } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { SsoIdentity, SsoRoleGrant, SsoUserDeactivation } from '../data/entities'
 
@@ -23,7 +24,7 @@ export default async function handle(payload: UserDeletedPayload, ctx: ResolverC
   await em.nativeUpdate(
     SsoIdentity,
     { userId: payload.userId, deletedAt: null },
-    { deletedAt: new Date() } as any,
+    { deletedAt: new Date() } as EntityData<SsoIdentity>,
   )
 
   await em.nativeDelete(SsoRoleGrant, { userId: payload.userId })

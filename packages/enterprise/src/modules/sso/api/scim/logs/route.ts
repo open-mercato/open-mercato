@@ -3,7 +3,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ScimProvisioningLog } from '../../../data/entities'
-import { resolveSsoAdminContext, SsoAdminAuthError } from '../../admin-context'
+import { resolveSsoAdminContext } from '../../admin-context'
+import { handleSsoAdminApiError } from '../../error-handler'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sso.config.view'] },
@@ -45,11 +46,7 @@ export async function GET(req: Request) {
       })),
     })
   } catch (err) {
-    if (err instanceof SsoAdminAuthError || (err as any)?.name === 'SsoAdminAuthError') {
-      return NextResponse.json({ error: (err as any).message }, { status: (err as any).statusCode })
-    }
-    console.error('[SCIM Logs API] Error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleSsoAdminApiError(err, 'SCIM Logs API')
   }
 }
 

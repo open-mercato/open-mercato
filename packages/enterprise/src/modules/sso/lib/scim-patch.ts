@@ -5,6 +5,8 @@
  * - Strict attribute allowlist
  */
 
+import { coerceBoolean } from './scim-utils'
+
 export interface ScimPatchOperation {
   op: string
   path?: string
@@ -76,12 +78,6 @@ function normalizePatchValue(value: unknown, path?: string): unknown {
   }
 
   return value
-}
-
-function coerceBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') return value
-  if (typeof value === 'string') return value.toLowerCase() === 'true'
-  return Boolean(value)
 }
 
 export class ScimPatchError extends Error {

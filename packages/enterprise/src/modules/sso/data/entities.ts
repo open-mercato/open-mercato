@@ -222,6 +222,9 @@ export class SsoRoleGrant {
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
   tenantId?: string | null
 
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
   @Property({ name: 'user_id', type: 'uuid' })
   @Index({ name: 'sso_role_grants_user_id_idx' })
   userId!: string

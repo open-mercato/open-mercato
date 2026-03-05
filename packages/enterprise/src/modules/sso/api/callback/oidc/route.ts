@@ -37,7 +37,7 @@ async function handleCallback(req: Request): Promise<NextResponse> {
     if (callbackParams.error) {
       void emitSsoEvent('sso.login.failed', {
         reason: callbackParams.error,
-      }).catch(() => undefined)
+      }).catch((e) => console.error('[SSO Event]', e))
       return NextResponse.redirect(toAbsoluteUrl(req, '/login?error=sso_idp_error'))
     }
 
@@ -57,7 +57,7 @@ async function handleCallback(req: Request): Promise<NextResponse> {
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.NODE_ENV !== 'development',
       maxAge: 60 * 60 * 8,
     })
 
@@ -65,7 +65,7 @@ async function handleCallback(req: Request): Promise<NextResponse> {
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.NODE_ENV !== 'development',
       expires: result.sessionExpiresAt,
     })
 
@@ -76,7 +76,7 @@ async function handleCallback(req: Request): Promise<NextResponse> {
     console.error('[SSO Callback] Error:', err)
     void emitSsoEvent('sso.login.failed', {
       reason: err instanceof Error ? err.message : 'callback_failed',
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
     const message = err instanceof Error ? err.message : ''
     const errorCode = message.includes('email is not verified') ? 'sso_email_not_verified' : 'sso_failed'
     return NextResponse.redirect(toAbsoluteUrl(req, `/login?error=${errorCode}`))

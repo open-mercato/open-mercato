@@ -1,9 +1,10 @@
-import { EntityManager } from '@mikro-orm/postgresql'
+import { EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SsoIdentity, SsoUserDeactivation, ScimProvisioningLog } from '../data/entities'
 import { toScimUserResource, fromScimUserPayload, type ScimUserResource, type ScimUserPayload } from '../lib/scim-mapper'
+import { coerceBoolean } from '../lib/scim-utils'
 import { parseScimFilter, scimFilterToWhere } from '../lib/scim-filter'
 import { buildListResponse } from '../lib/scim-response'
 import type { ScimScope } from '../api/scim/context'
@@ -52,13 +53,14 @@ export class ScimService {
 
     // Check if user already exists by email
     const emailHash = computeEmailHash(email)
+    const where: FilterQuery<User> = {
+      organizationId: scope.organizationId,
+      deletedAt: null,
+      $or: [{ email }, { emailHash }],
+    }
     const existingUser = await findOneWithDecryption(
       this.em, User,
-      {
-        organizationId: scope.organizationId,
-        deletedAt: null,
-        $or: [{ email }, { emailHash }],
-      } as any,
+      where,
       {},
       { tenantId: scope.tenantId ?? '', organizationId: scope.organizationId },
     )
@@ -76,7 +78,7 @@ export class ScimService {
 
       // Auto-link: create SsoIdentity for existing user
       const identity = this.em.create(SsoIdentity, {
-        tenantId: scope.tenantId,
+        tenantId: scope.tenantId ?? null,
         organizationId: scope.organizationId,
         ssoConfigId: scope.ssoConfigId,
         userId: existingUser.id,
@@ -86,16 +88,16 @@ export class ScimService {
         idpGroups: [],
         externalId: parsed.externalId ?? null,
         provisioningMethod: 'scim',
-      } as any)
+      })
       await this.em.persistAndFlush(identity)
 
       const deactivation = parsed.active === false
         ? await this.createDeactivation(existingUser.id, scope)
         : null
 
-      await this.log(scope, 'CREATE', (identity as SsoIdentity).id, parsed.externalId, 201)
+      await this.log(scope, 'CREATE', identity.id, parsed.externalId, 201)
       return {
-        resource: toScimUserResource(existingUser, identity as SsoIdentity, baseUrl, deactivation),
+        resource: toScimUserResource(existingUser, identity, baseUrl, deactivation),
         status: 201,
       }
     }
@@ -103,37 +105,37 @@ export class ScimService {
     // Create new user + identity
     return this.em.transactional(async (txEm) => {
       const user = txEm.create(User, {
-        tenantId: scope.tenantId,
+        tenantId: scope.tenantId ?? null,
         organizationId: scope.organizationId,
         email,
         emailHash: computeEmailHash(email),
-        name: buildDisplayName(parsed),
+        name: buildDisplayName(parsed) ?? undefined,
         passwordHash: null,
         isConfirmed: true,
-      } as any)
+      })
       await txEm.persistAndFlush(user)
 
       const identity = txEm.create(SsoIdentity, {
-        tenantId: scope.tenantId,
+        tenantId: scope.tenantId ?? null,
         organizationId: scope.organizationId,
         ssoConfigId: scope.ssoConfigId,
-        userId: (user as User).id,
+        userId: user.id,
         idpSubject: parsed.externalId ?? email,
         idpEmail: email,
         idpName: buildDisplayName(parsed),
         idpGroups: [],
         externalId: parsed.externalId ?? null,
         provisioningMethod: 'scim',
-      } as any)
+      })
       await txEm.persistAndFlush(identity)
 
       const deactivation = parsed.active === false
-        ? await this.createDeactivationTx(txEm, (user as User).id, scope)
+        ? await this.createDeactivationTx(txEm, user.id, scope)
         : null
 
-      await this.logTx(txEm, scope, 'CREATE', (identity as SsoIdentity).id, parsed.externalId, 201)
+      await this.logTx(txEm, scope, 'CREATE', identity.id, parsed.externalId, 201)
       return {
-        resource: toScimUserResource(user as User, identity as SsoIdentity, baseUrl, deactivation),
+        resource: toScimUserResource(user, identity, baseUrl, deactivation),
         status: 201,
       }
     })
@@ -180,19 +182,31 @@ export class ScimService {
       offset,
     })
 
+    const userIds = identities.map((i) => i.userId)
+
+    const users = userIds.length > 0
+      ? await findWithDecryption(
+          this.em, User,
+          { id: { $in: userIds }, deletedAt: null },
+          {},
+          { tenantId: scope.tenantId ?? '', organizationId: scope.organizationId },
+        )
+      : []
+    const userMap = new Map(users.map((u) => [u.id, u]))
+
+    const deactivations = userIds.length > 0
+      ? await this.em.find(SsoUserDeactivation, {
+          userId: { $in: userIds }, ssoConfigId: scope.ssoConfigId,
+        })
+      : []
+    const deactivationMap = new Map(deactivations.map((d) => [d.userId, d]))
+
     const resources: ScimUserResource[] = []
     for (const identity of identities) {
-      const user = await findOneWithDecryption(
-        this.em, User,
-        { id: identity.userId, deletedAt: null },
-        {},
-        { tenantId: scope.tenantId ?? '', organizationId: scope.organizationId },
-      )
+      const user = userMap.get(identity.userId)
       if (!user) continue
 
-      const deactivation = await this.em.findOne(SsoUserDeactivation, {
-        userId: user.id, ssoConfigId: scope.ssoConfigId,
-      })
+      const deactivation = deactivationMap.get(user.id) ?? null
       resources.push(toScimUserResource(user, identity, baseUrl, deactivation))
     }
 
@@ -330,18 +344,19 @@ export class ScimService {
       deactivation.reactivatedAt = null
     } else {
       deactivation = this.em.create(SsoUserDeactivation, {
-        tenantId: scope.tenantId,
+        tenantId: scope.tenantId ?? null,
         organizationId: scope.organizationId,
         userId,
         ssoConfigId: scope.ssoConfigId,
         deactivatedAt: new Date(),
-      } as any) as SsoUserDeactivation
+      })
       this.em.persist(deactivation)
     }
     await this.em.flush()
 
     // Revoke all active sessions
-    await this.em.nativeDelete(Session, { user: userId } as any)
+    const sessionWhere: FilterQuery<Session> = { user: userId }
+    await this.em.nativeDelete(Session, sessionWhere)
   }
 
   private async reactivateUser(userId: string, scope: ScimScope): Promise<void> {
@@ -356,24 +371,24 @@ export class ScimService {
 
   private async createDeactivation(userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
     const deactivation = this.em.create(SsoUserDeactivation, {
-      tenantId: scope.tenantId,
+      tenantId: scope.tenantId ?? null,
       organizationId: scope.organizationId,
       userId,
       ssoConfigId: scope.ssoConfigId,
       deactivatedAt: new Date(),
-    } as any) as SsoUserDeactivation
+    })
     await this.em.persistAndFlush(deactivation)
     return deactivation
   }
 
   private async createDeactivationTx(txEm: EntityManager, userId: string, scope: ScimScope): Promise<SsoUserDeactivation> {
     const deactivation = txEm.create(SsoUserDeactivation, {
-      tenantId: scope.tenantId,
+      tenantId: scope.tenantId ?? null,
       organizationId: scope.organizationId,
       userId,
       ssoConfigId: scope.ssoConfigId,
       deactivatedAt: new Date(),
-    } as any) as SsoUserDeactivation
+    })
     await txEm.persistAndFlush(deactivation)
     return deactivation
   }
@@ -387,7 +402,7 @@ export class ScimService {
     errorMessage?: string,
   ): Promise<void> {
     const entry = this.em.create(ScimProvisioningLog, {
-      tenantId: scope.tenantId,
+      tenantId: scope.tenantId ?? null,
       organizationId: scope.organizationId,
       ssoConfigId: scope.ssoConfigId,
       operation,
@@ -396,7 +411,7 @@ export class ScimService {
       scimExternalId: externalId ?? null,
       responseStatus,
       errorMessage: errorMessage ?? null,
-    } as any)
+    })
     await this.em.persistAndFlush(entry)
   }
 
@@ -409,7 +424,7 @@ export class ScimService {
     responseStatus: number,
   ): Promise<void> {
     const entry = txEm.create(ScimProvisioningLog, {
-      tenantId: scope.tenantId,
+      tenantId: scope.tenantId ?? null,
       organizationId: scope.organizationId,
       ssoConfigId: scope.ssoConfigId,
       operation,
@@ -417,7 +432,7 @@ export class ScimService {
       resourceId: resourceId ?? null,
       scimExternalId: externalId ?? null,
       responseStatus,
-    } as any)
+    })
     await txEm.persistAndFlush(entry)
   }
 }
@@ -426,12 +441,6 @@ function buildDisplayName(parsed: ScimUserPayload): string | null {
   if (parsed.displayName) return parsed.displayName
   const parts = [parsed.givenName, parsed.familyName].filter(Boolean)
   return parts.length > 0 ? parts.join(' ') : null
-}
-
-function coerceBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') return value
-  if (typeof value === 'string') return value.toLowerCase() === 'true'
-  return Boolean(value)
 }
 
 export class ScimServiceError extends Error {

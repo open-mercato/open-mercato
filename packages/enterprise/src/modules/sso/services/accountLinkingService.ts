@@ -1,4 +1,4 @@
-import { EntityManager } from '@mikro-orm/postgresql'
+import { EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
 import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
@@ -98,7 +98,7 @@ export class AccountLinkingService {
           { email: idpPayload.email },
           { emailHash },
         ],
-      } as any,
+      } as FilterQuery<User>,
       {},
       { tenantId, organizationId: config.organizationId },
     )
@@ -117,16 +117,16 @@ export class AccountLinkingService {
       provisioningMethod: 'manual',
       firstLoginAt: now,
       lastLoginAt: now,
-    } as any)
+    })
     await this.em.persistAndFlush(identity)
 
     void emitSsoEvent('sso.identity.linked', {
       id: identity.id,
       tenantId,
       organizationId: config.organizationId,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
 
-    return { user, identity: identity as SsoIdentity }
+    return { user, identity }
   }
 
   private async jitProvision(
@@ -143,17 +143,17 @@ export class AccountLinkingService {
         name: idpPayload.name ?? null,
         passwordHash: null,
         isConfirmed: true,
-      } as any)
+      })
       await txEm.persistAndFlush(user)
 
-      await this.assignRolesFromSso(txEm, user as User, config, tenantId, idpPayload.groups)
+      await this.assignRolesFromSso(txEm, user, config, tenantId, idpPayload.groups)
 
       const now = new Date()
       const identity = txEm.create(SsoIdentity, {
         tenantId,
         organizationId: config.organizationId,
         ssoConfigId: config.id,
-        userId: (user as User).id,
+        userId: user.id,
         idpSubject: idpPayload.subject,
         idpEmail: idpPayload.email,
         idpName: idpPayload.name ?? null,
@@ -161,16 +161,16 @@ export class AccountLinkingService {
         provisioningMethod: 'jit',
         firstLoginAt: now,
         lastLoginAt: now,
-      } as any)
+      })
       await txEm.persistAndFlush(identity)
 
       void emitSsoEvent('sso.identity.created', {
         id: identity.id,
         tenantId,
         organizationId: config.organizationId,
-      }).catch(() => undefined)
+      }).catch((e) => console.error('[SSO Event]', e))
 
-      return { user: user as User, identity: identity as SsoIdentity }
+      return { user, identity }
     })
   }
 
@@ -209,7 +209,7 @@ export class AccountLinkingService {
     const resolvedTenantId = tenantId || user.tenantId || ''
     if (!resolvedTenantId) return
 
-    const allRoles = await em.find(Role, { tenantId: resolvedTenantId, deletedAt: null } as any)
+    const allRoles = await em.find(Role, { tenantId: resolvedTenantId, deletedAt: null } as FilterQuery<Role>)
     const roleByNormalizedName = new Map<string, Role>()
     for (const role of allRoles) {
       const normalized = normalizeToken(role.name)
@@ -242,10 +242,11 @@ export class AccountLinkingService {
       await this.ensureUserRole(em, user, role)
       const grant = em.create(SsoRoleGrant, {
         tenantId: resolvedTenantId,
+        organizationId: config.organizationId,
         userId: user.id,
         roleId,
         ssoConfigId: config.id,
-      } as any)
+      })
       em.persist(grant)
     }
 
@@ -255,7 +256,7 @@ export class AccountLinkingService {
         user: user.id,
         role: grant.roleId,
         deletedAt: null,
-      } as any)
+      } as FilterQuery<UserRole>)
       if (userRole) {
         em.remove(userRole)
       }
@@ -263,7 +264,7 @@ export class AccountLinkingService {
     }
 
     // Clean up orphaned soft-deleted UserRole rows (ghost rows from previous soft-delete logic)
-    const allUserRoles = await em.find(UserRole, { user: user.id } as any)
+    const allUserRoles = await em.find(UserRole, { user: user.id } as FilterQuery<UserRole>)
     for (const ur of allUserRoles) {
       if (ur.deletedAt) {
         em.remove(ur)
@@ -280,10 +281,10 @@ export class AccountLinkingService {
       user: user.id,
       role: role.id,
       deletedAt: null,
-    } as any)
+    } as FilterQuery<UserRole>)
     if (existingLink) return
 
-    const userRole = em.create(UserRole, { user, role } as any)
+    const userRole = em.create(UserRole, { user, role })
     await em.persistAndFlush(userRole)
   }
 }
