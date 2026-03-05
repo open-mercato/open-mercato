@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import type { RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import { ScimToken, SsoConfig } from '../data/entities'
@@ -55,7 +56,7 @@ export class ScimTokenService {
       createdBy: null,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId!,
-    } as any)
+    } as RequiredEntityData<ScimToken>)
 
     await this.em.persistAndFlush(token)
 

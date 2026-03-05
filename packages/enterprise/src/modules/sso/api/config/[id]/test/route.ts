@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { SsoConfigService, SsoConfigError } from '../../../../services/ssoConfigService'
-import { resolveSsoAdminContext, SsoAdminAuthError } from '../../../admin-context'
+import { SsoConfigService } from '../../../../services/ssoConfigService'
+import { resolveSsoAdminContext } from '../../../admin-context'
+import { handleSsoAdminApiError } from '../../../error-handler'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -20,15 +21,8 @@ export async function POST(req: Request, ctx: RouteContext) {
     const result = await service.testConnection(scope, id)
 
     return NextResponse.json(result)
-  } catch (err: any) {
-    if (err instanceof SsoAdminAuthError || err?.name === 'SsoAdminAuthError') {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode })
-    }
-    if (err instanceof SsoConfigError || err?.name === 'SsoConfigError') {
-      return NextResponse.json({ error: err.message }, { status: err.statusCode })
-    }
-    console.error('[SSO Config API] Error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  } catch (err) {
+    return handleSsoAdminApiError(err, 'SSO Config API')
   }
 }
 

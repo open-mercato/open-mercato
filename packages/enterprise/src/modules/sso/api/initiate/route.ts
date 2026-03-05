@@ -41,7 +41,7 @@ export async function GET(req: Request) {
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env.NODE_ENV !== 'development',
       maxAge: 300,
     })
     return res
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
     console.error('[SSO Initiate] Error:', err)
     void emitSsoEvent('sso.login.failed', {
       reason: err instanceof Error ? err.message : 'initiate_failed',
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
     return NextResponse.redirect(toAbsoluteUrl(req, '/login?error=sso_failed'))
   }
 }

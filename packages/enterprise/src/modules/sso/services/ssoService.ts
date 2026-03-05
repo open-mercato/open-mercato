@@ -59,7 +59,7 @@ export class SsoService {
     void emitSsoEvent('sso.login.initiated', {
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
 
     const authUrl = await provider.buildAuthUrl(config, {
       state: state.state,
@@ -141,7 +141,7 @@ export class SsoService {
       id: String(user.id),
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch(() => undefined)
+    }).catch((e) => console.error('[SSO Event]', e))
 
     return {
       token,

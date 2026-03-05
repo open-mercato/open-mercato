@@ -1,5 +1,6 @@
 import type { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { SsoIdentity, SsoUserDeactivation } from '../data/entities'
+import { coerceBoolean } from './scim-utils'
 
 const SCIM_USER_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:User'
 
@@ -84,10 +85,4 @@ export function fromScimUserPayload(payload: Record<string, unknown>): ScimUserP
   }
 
   return result
-}
-
-function coerceBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') return value
-  if (typeof value === 'string') return value.toLowerCase() === 'true'
-  return Boolean(value)
 }

@@ -66,12 +66,15 @@ export class OidcProvider implements SsoProtocolProvider {
     const mergedClaims = await mergeWithUserInfoClaims(oidcConfig, tokens, claims)
 
     const subject = String(mergedClaims.sub ?? claims.sub ?? '')
-    const email = (mergedClaims.email ?? mergedClaims.upn ?? mergedClaims.unique_name) as string | undefined
+    const rawEmail = mergedClaims.email as string | undefined
+    const upnCandidate = (mergedClaims.upn ?? mergedClaims.unique_name) as string | undefined
+    const upnAsEmail = typeof upnCandidate === 'string' && upnCandidate.includes('@') ? upnCandidate : undefined
+    const email = rawEmail ?? upnAsEmail
     if (!email) {
       throw new Error('IdP did not return an email claim (checked: email, upn, unique_name)')
     }
 
-    const emailVerified = mergedClaims.email_verified !== false
+    const emailVerified = mergedClaims.email_verified === true
     const groups = extractIdentityGroups(mergedClaims)
 
   
@@ -139,7 +142,7 @@ async function mergeWithUserInfoClaims(
   }
 }
 
-function extractIdentityGroups(claims: Record<string, unknown>): string[] | undefined {
+export function extractIdentityGroups(claims: Record<string, unknown>): string[] | undefined {
   const groups = new Set<string>()
 
   const add = (value: unknown) => {
@@ -160,7 +163,7 @@ function extractIdentityGroups(claims: Record<string, unknown>): string[] | unde
   return groups.size > 0 ? Array.from(groups) : undefined
 }
 
-function coerceClaimValues(value: unknown): string[] {
+export function coerceClaimValues(value: unknown): string[] {
   if (typeof value === 'string') {
     const normalized = value.trim()
     return normalized ? [normalized] : []

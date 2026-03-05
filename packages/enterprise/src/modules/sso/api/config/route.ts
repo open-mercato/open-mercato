@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { SsoConfigService, SsoConfigError } from '../../services/ssoConfigService'
+import { SsoConfigService } from '../../services/ssoConfigService'
 import { ssoConfigAdminCreateSchema, ssoConfigListQuerySchema } from '../../data/validators'
-import { resolveSsoAdminContext, SsoAdminAuthError } from '../admin-context'
+import { resolveSsoAdminContext } from '../admin-context'
+import { handleSsoAdminApiError } from '../error-handler'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sso.config.view'] },
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ ...result, isSuperAdmin: scope.isSuperAdmin })
   } catch (err) {
-    return handleError(err)
+    return handleSsoAdminApiError(err, 'SSO Config API')
   }
 }
 
@@ -49,20 +50,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json(config, { status: 201 })
   } catch (err) {
-    return handleError(err)
+    return handleSsoAdminApiError(err, 'SSO Config API')
   }
-}
-
-function handleError(err: unknown): NextResponse {
-  const e = err as any
-  if (err instanceof SsoAdminAuthError || e?.name === 'SsoAdminAuthError') {
-    return NextResponse.json({ error: e.message }, { status: e.statusCode })
-  }
-  if (err instanceof SsoConfigError || e?.name === 'SsoConfigError') {
-    return NextResponse.json({ error: e.message }, { status: e.statusCode })
-  }
-  console.error('[SSO Config API] Error:', err)
-  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 }
 
 export const openApi: OpenApiRouteDoc = {
