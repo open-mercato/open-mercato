@@ -1,5 +1,5 @@
 import { createQueue } from '../factory'
-import type { JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
+import type { Queue, JobHandler, AsyncQueueOptions, QueueStrategyType } from '../types'
 
 /**
  * Options for running a queue worker.
@@ -19,6 +19,59 @@ export type WorkerRunnerOptions<T = unknown> = {
   background?: boolean
   /** Queue strategy to use. Defaults to QUEUE_STRATEGY env var or 'local' */
   strategy?: QueueStrategyType
+}
+
+const managedQueues = new Set<Queue<unknown>>()
+let shutdownHandlersRegistered = false
+let shutdownInProgress = false
+
+function unregisterShutdownHandlers(sigtermHandler: () => void, sigintHandler: () => void): void {
+  process.off('SIGTERM', sigtermHandler)
+  process.off('SIGINT', sigintHandler)
+  shutdownHandlersRegistered = false
+}
+
+function registerShutdownHandlers(): void {
+  if (shutdownHandlersRegistered) return
+
+  const shutdown = async (signal: string) => {
+    if (shutdownInProgress) return
+    shutdownInProgress = true
+
+    console.log(`[worker] Received ${signal}, shutting down gracefully...`)
+
+    let hasError = false
+    for (const queue of managedQueues) {
+      try {
+        await queue.close()
+      } catch (error) {
+        hasError = true
+        console.error('[worker] Error during shutdown:', error)
+      }
+    }
+
+    managedQueues.clear()
+    unregisterShutdownHandlers(sigtermHandler, sigintHandler)
+    shutdownInProgress = false
+
+    if (!hasError) {
+      console.log('[worker] Worker closed successfully')
+    }
+
+    process.exit(hasError ? 1 : 0)
+  }
+
+  const sigtermHandler = () => {
+    void shutdown('SIGTERM')
+  }
+
+  const sigintHandler = () => {
+    void shutdown('SIGINT')
+  }
+
+  process.on('SIGTERM', sigtermHandler)
+  process.on('SIGINT', sigintHandler)
+  shutdownHandlersRegistered = true
 }
 
 /**
@@ -73,20 +126,8 @@ export async function runWorker<T = unknown>(
 
   // Set up graceful shutdown
   if (gracefulShutdown) {
-    const shutdown = async (signal: string) => {
-      console.log(`[worker] Received ${signal}, shutting down gracefully...`)
-      try {
-        await queue.close()
-        console.log('[worker] Worker closed successfully')
-        process.exit(0)
-      } catch (error) {
-        console.error('[worker] Error during shutdown:', error)
-        process.exit(1)
-      }
-    }
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'))
-    process.on('SIGINT', () => shutdown('SIGINT'))
+    managedQueues.add(queue as Queue<unknown>)
+    registerShutdownHandlers()
   }
 
   // Start processing
