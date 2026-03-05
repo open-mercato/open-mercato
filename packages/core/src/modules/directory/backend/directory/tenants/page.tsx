@@ -113,7 +113,7 @@ export default function DirectoryTenantsPage() {
 
   const rows = data?.items ?? []
   const total = data?.total ?? 0
-  const totalPages = data?.totalPages ?? 1
+  const totalPages = data?.totalPages ?? 0
 
   const handleDelete = React.useCallback(async (tenant: TenantRow) => {
     const confirmMessage = t('directory.tenants.list.confirmDelete', 'Delete tenant "{{name}}"? This will archive it.').replace('{{name}}', tenant.name)

@@ -172,7 +172,7 @@ export default function DirectoryOrganizationsPage() {
     return base
   }, [isSuperAdmin, t])
   const total = data?.total ?? 0
-  const totalPages = data?.totalPages ?? 1
+  const totalPages = data?.totalPages ?? 0
 
   const handleDelete = React.useCallback(async (org: OrganizationRow) => {
     const confirmLabel = t('directory.organizations.list.confirmDelete', 'Archive organization "{{name}}"?', { name: org.name })

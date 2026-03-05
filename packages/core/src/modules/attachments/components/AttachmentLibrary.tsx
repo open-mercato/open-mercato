@@ -1033,7 +1033,7 @@ export function AttachmentLibrary() {
   }, [deleteTarget, queryClient, selectedRow, t])
 
   const total = data?.total ?? 0
-  const totalPages = data?.totalPages ?? 1
+  const totalPages = data?.totalPages ?? 0
   return (
     <>
       <DataTable<AttachmentRow>
