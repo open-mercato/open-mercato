@@ -10,4 +10,7 @@ export default {
   'gateway_stripe.config.statementDescriptor': 'Opis na wyciągu',
   'gateway_stripe.config.statementDescriptor.help': 'Co pojawia się na wyciągu bankowym klienta (maks. 22 znaki)',
   'gateway_stripe.config.allowPromotionCodes': 'Zezwól na kody promocyjne przy kasie',
+  'gateway_stripe.tabs.settings': 'Ustawienia Stripe',
+  'gateway_stripe.config.help': 'Skonfiguruj dane uwierzytelniające w Integracjach i przypisz metody Stripe w konfiguracji sprzedaży.',
+  'gateway_stripe.config.openPaymentMethods': 'Otwórz metody płatności',
 }

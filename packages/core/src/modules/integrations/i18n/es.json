@@ -31,6 +31,7 @@
   "integrations.detail.logs.level.info": "Info",
   "integrations.detail.logs.level.warn": "Advertencia",
   "integrations.detail.logs.title": "Registros de operaci\u00f3n",
+  "integrations.detail.paymentMethodsLink": "Ir a la configuraci\u00f3n de m\u00e9todos de pago",
   "integrations.detail.stateError": "No se pudo actualizar el estado",
   "integrations.detail.stateUpdated": "Estado de integraci\u00f3n actualizado",
   "integrations.detail.tabs.credentials": "Credenciales",

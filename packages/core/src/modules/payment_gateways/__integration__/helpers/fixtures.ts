@@ -38,7 +38,7 @@ export async function getTransactionStatus(
   request: APIRequestContext,
   token: string,
   transactionId: string,
-): Promise<{ status: string; transactionId: string; amount: string; currencyCode: string }> {
+): Promise<{ status: string; transactionId: string; amount: number; currencyCode: string; amountReceived?: number }> {
   const response = await apiRequest(request, 'GET', `/api/payment-gateways/status?transactionId=${transactionId}`, {
     token,
   })

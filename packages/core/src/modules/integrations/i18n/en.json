@@ -31,6 +31,7 @@
   "integrations.detail.logs.level.info": "Info",
   "integrations.detail.logs.level.warn": "Warning",
   "integrations.detail.logs.title": "Operation Logs",
+  "integrations.detail.paymentMethodsLink": "Go to payment methods configuration",
   "integrations.detail.stateError": "Failed to update state",
   "integrations.detail.stateUpdated": "Integration state updated",
   "integrations.detail.tabs.credentials": "Credentials",

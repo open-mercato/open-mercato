@@ -11,13 +11,16 @@ import {
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
+import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { GatewayTransaction } from '../data/entities'
 import { isValidTransition } from './status-machine'
+import { emitPaymentGatewayEvent } from '../events'
 
 export interface PaymentGatewayServiceDeps {
   em: EntityManager
   integrationCredentialsService: CredentialsService
   integrationStateService?: IntegrationStateService
+  integrationLogService?: IntegrationLogService
 }
 
 export interface CreatePaymentSessionInput {
@@ -36,7 +39,20 @@ export interface CreatePaymentSessionInput {
 }
 
 export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
-  const { em, integrationCredentialsService } = deps
+  const { em, integrationCredentialsService, integrationLogService } = deps
+
+  async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown>) {
+    const eventMap: Partial<Record<UnifiedPaymentStatus, string>> = {
+      authorized: 'payment_gateways.payment.authorized',
+      captured: 'payment_gateways.payment.captured',
+      failed: 'payment_gateways.payment.failed',
+      refunded: 'payment_gateways.payment.refunded',
+      cancelled: 'payment_gateways.payment.cancelled',
+    }
+    const eventId = eventMap[status]
+    if (!eventId) return
+    await emitPaymentGatewayEvent(eventId, payload)
+  }
 
   async function resolveAdapterAndCredentials(providerKey: string, scope: { organizationId: string; tenantId: string }) {
     const adapter = getGatewayAdapter(providerKey)
@@ -86,6 +102,14 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         tenantId: input.tenantId,
       })
       await em.persistAndFlush(transaction)
+      await emitPaymentGatewayEvent('payment_gateways.session.created', {
+        transactionId: transaction.id,
+        paymentId: transaction.paymentId,
+        providerKey: transaction.providerKey,
+        status: transaction.unifiedStatus,
+        organizationId: transaction.organizationId,
+        tenantId: transaction.tenantId,
+      })
 
       return { transaction, session }
     },
@@ -110,6 +134,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       transaction.unifiedStatus = result.status
       transaction.gatewayMetadata = { ...transaction.gatewayMetadata, captureResult: result.providerData }
       await em.flush()
+      await emitStatusEvent(result.status, {
+        transactionId: transaction.id,
+        paymentId: transaction.paymentId,
+        providerKey: transaction.providerKey,
+        organizationId: transaction.organizationId,
+        tenantId: transaction.tenantId,
+      })
 
       return result
     },
@@ -136,6 +167,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       transaction.gatewayRefundId = result.refundId
       transaction.gatewayMetadata = { ...transaction.gatewayMetadata, refundResult: result.providerData }
       await em.flush()
+      await emitStatusEvent(result.status, {
+        transactionId: transaction.id,
+        paymentId: transaction.paymentId,
+        providerKey: transaction.providerKey,
+        organizationId: transaction.organizationId,
+        tenantId: transaction.tenantId,
+      })
 
       return result
     },
@@ -159,6 +197,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
       transaction.unifiedStatus = result.status
       await em.flush()
+      await emitStatusEvent(result.status, {
+        transactionId: transaction.id,
+        paymentId: transaction.paymentId,
+        providerKey: transaction.providerKey,
+        organizationId: transaction.organizationId,
+        tenantId: transaction.tenantId,
+      })
 
       return result
     },
@@ -180,9 +225,30 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       })
 
       if (status.status !== transaction.unifiedStatus && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)) {
+        const previousStatus = transaction.unifiedStatus
         transaction.unifiedStatus = status.status
+        transaction.gatewayStatus = status.status
+        transaction.gatewayMetadata = { ...transaction.gatewayMetadata, statusResult: status.providerData ?? null }
         transaction.lastPolledAt = new Date()
         await em.flush()
+        await emitStatusEvent(status.status, {
+          transactionId: transaction.id,
+          paymentId: transaction.paymentId,
+          providerKey: transaction.providerKey,
+          previousStatus,
+          organizationId: transaction.organizationId,
+          tenantId: transaction.tenantId,
+        })
+        if (integrationLogService) {
+          await integrationLogService.scoped(`gateway_${transaction.providerKey}`, {
+            organizationId: transaction.organizationId,
+            tenantId: transaction.tenantId,
+          }).info('Payment status updated by poller', {
+            transactionId: transaction.id,
+            previousStatus,
+            nextStatus: status.status,
+          })
+        }
       }
 
       return status
@@ -200,6 +266,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         return
       }
 
+      const previousStatus = transaction.unifiedStatus
       transaction.unifiedStatus = update.unifiedStatus
       if (update.providerStatus) {
         transaction.gatewayStatus = update.providerStatus
@@ -209,14 +276,44 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       }
       transaction.lastWebhookAt = new Date()
       await em.flush()
+      await emitStatusEvent(update.unifiedStatus, {
+        transactionId: transaction.id,
+        paymentId: transaction.paymentId,
+        providerKey: transaction.providerKey,
+        previousStatus,
+        organizationId: transaction.organizationId,
+        tenantId: transaction.tenantId,
+      })
     },
 
     async findTransaction(id: string): Promise<GatewayTransaction | null> {
       return em.findOne(GatewayTransaction, { id })
     },
 
-    async findTransactionBySessionId(providerSessionId: string, organizationId: string): Promise<GatewayTransaction | null> {
-      return em.findOne(GatewayTransaction, { providerSessionId, organizationId })
+    async findTransactionBySessionId(providerSessionId: string, providerKey?: string): Promise<GatewayTransaction | null> {
+      return em.findOne(GatewayTransaction, {
+        providerSessionId,
+        ...(providerKey ? { providerKey } : {}),
+      })
+    },
+
+    async listTransactionsForStatusPolling(scope?: {
+      organizationId?: string
+      tenantId?: string
+      providerKey?: string
+      limit?: number
+    }): Promise<GatewayTransaction[]> {
+      const where: Record<string, unknown> = {
+        unifiedStatus: { $in: ['pending', 'authorized', 'partially_captured'] },
+      }
+      if (scope?.organizationId) where.organizationId = scope.organizationId
+      if (scope?.tenantId) where.tenantId = scope.tenantId
+      if (scope?.providerKey) where.providerKey = scope.providerKey
+
+      return em.find(GatewayTransaction, where, {
+        orderBy: { updatedAt: 'asc' },
+        limit: scope?.limit ?? 100,
+      })
     },
   }
 }

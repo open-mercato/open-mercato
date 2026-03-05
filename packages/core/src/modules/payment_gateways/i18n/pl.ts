@@ -13,4 +13,9 @@ export default {
   'payment_gateways.status.failed': 'Nieudana',
   'payment_gateways.status.expired': 'Wygasła',
   'payment_gateways.status.unknown': 'Nieznany',
+  'payment_gateways.column.gatewayStatus': 'Status bramki',
+  'payment_gateways.field.captureMethod': 'Tryb przechwycenia bramki',
+  'payment_gateways.field.paymentTypes': 'Typy płatności bramki',
+  'payment_gateways.captureMethod.automatic': 'Automatyczny',
+  'payment_gateways.captureMethod.manual': 'Manualny',
 }

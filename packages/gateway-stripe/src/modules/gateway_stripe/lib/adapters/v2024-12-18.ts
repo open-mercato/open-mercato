@@ -15,7 +15,7 @@ import type {
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { resolveStripeClient } from '../client'
-import { mapStripeStatus } from '../status-map'
+import { mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
 import { toCents, fromCents, buildStripeMetadata } from '../shared'
 import { verifyStripeWebhook } from '../webhook-handler'
 
@@ -105,7 +105,11 @@ export const stripeAdapterV20241218: GatewayAdapter = {
     return verifyStripeWebhook(input)
   },
 
-  mapStatus(providerStatus: string): UnifiedPaymentStatus {
+  mapStatus(providerStatus: string, eventType?: string): UnifiedPaymentStatus {
+    if (eventType) {
+      const mappedEvent = mapWebhookEventToStatus(eventType)
+      if (mappedEvent) return mappedEvent
+    }
     return mapStripeStatus(providerStatus)
   },
 }

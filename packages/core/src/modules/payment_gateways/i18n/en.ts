@@ -13,4 +13,9 @@ export default {
   'payment_gateways.status.failed': 'Failed',
   'payment_gateways.status.expired': 'Expired',
   'payment_gateways.status.unknown': 'Unknown',
+  'payment_gateways.column.gatewayStatus': 'Gateway status',
+  'payment_gateways.field.captureMethod': 'Gateway capture method',
+  'payment_gateways.field.paymentTypes': 'Gateway payment types',
+  'payment_gateways.captureMethod.automatic': 'Automatic',
+  'payment_gateways.captureMethod.manual': 'Manual',
 }

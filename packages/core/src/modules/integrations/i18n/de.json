@@ -31,6 +31,7 @@
   "integrations.detail.logs.level.info": "Info",
   "integrations.detail.logs.level.warn": "Warnung",
   "integrations.detail.logs.title": "Betriebsprotokolle",
+  "integrations.detail.paymentMethodsLink": "Zur Konfiguration der Zahlungsmethoden",
   "integrations.detail.stateError": "Status konnte nicht aktualisiert werden",
   "integrations.detail.stateUpdated": "Integrationsstatus aktualisiert",
   "integrations.detail.tabs.credentials": "Zugangsdaten",

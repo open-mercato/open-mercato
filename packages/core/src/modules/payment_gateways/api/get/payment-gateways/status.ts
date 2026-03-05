@@ -32,15 +32,21 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
+    const status = await service.getPaymentStatus(transactionId, {
+      organizationId: auth.orgId as string,
+      tenantId: auth.tenantId,
+    })
+
     return NextResponse.json({
       transactionId: transaction.id,
       paymentId: transaction.paymentId,
       providerKey: transaction.providerKey,
       sessionId: transaction.providerSessionId,
-      status: transaction.unifiedStatus,
+      status: status.status,
       gatewayStatus: transaction.gatewayStatus,
-      amount: transaction.amount,
-      currencyCode: transaction.currencyCode,
+      amount: status.amount,
+      amountReceived: status.amountReceived,
+      currencyCode: status.currencyCode,
       redirectUrl: transaction.redirectUrl,
       clientSecret: transaction.clientSecret,
       createdAt: transaction.createdAt.toISOString(),
