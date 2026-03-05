@@ -52,9 +52,17 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     ? await Promise.all(
       getBundleIntegrations(integration.bundleId).map(async (item) => {
         const itemState = await stateService.get(item.id, scope)
+        const resolvedState = {
+          isEnabled: itemState?.isEnabled ?? true,
+          apiVersion: itemState?.apiVersion ?? null,
+          reauthRequired: itemState?.reauthRequired ?? false,
+          lastHealthStatus: itemState?.lastHealthStatus ?? null,
+          lastHealthCheckedAt: itemState?.lastHealthCheckedAt?.toISOString() ?? null,
+        }
         return {
           ...item,
-          isEnabled: itemState?.isEnabled ?? true,
+          isEnabled: resolvedState.isEnabled,
+          state: resolvedState,
         }
       }),
     )
