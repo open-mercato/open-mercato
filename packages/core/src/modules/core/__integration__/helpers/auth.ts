@@ -75,6 +75,15 @@ async function dismissGlobalNoticesIfPresent(page: Page): Promise<void> {
   }
 }
 
+async function recoverClientSideErrorPageIfPresent(page: Page): Promise<void> {
+  const clientErrorHeading = page
+    .getByRole('heading', { name: /Application error: a client-side exception has occurred/i })
+    .first();
+  if (!(await clientErrorHeading.isVisible().catch(() => false))) return;
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await dismissGlobalNoticesIfPresent(page);
+}
+
 export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   const creds = DEFAULT_CREDENTIALS[role];
   const hasBackendUrl = (): boolean => /\/backend(?:\/.*)?$/.test(page.url());
@@ -88,8 +97,15 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
   };
 
   await acknowledgeGlobalNotices(page);
-  await page.goto('/login');
-  await dismissGlobalNoticesIfPresent(page);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await dismissGlobalNoticesIfPresent(page);
+    await recoverClientSideErrorPageIfPresent(page);
+    if (await page.getByLabel('Email').isVisible().catch(() => false)) break;
+    if (attempt === 1) {
+      throw new Error(`Login form is unavailable for role: ${role}; current URL: ${page.url()}`);
+    }
+  }
   await page.getByLabel('Email').fill(creds.email);
   const passwordInput = page.getByLabel('Password');
   await passwordInput.fill(creds.password);

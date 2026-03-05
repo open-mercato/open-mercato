@@ -49,6 +49,34 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
   return firstEditableField
 }
 
+async function openLocaleFieldWithRetry(
+  page: Page,
+  localeCode: string,
+  preferredPlaceholder?: string,
+): Promise<{ dialog: Locator; field: Locator }> {
+  let dialog = await openTranslationsDrawer(page)
+  await expect(dialog).toBeVisible()
+  await dismissRecordDeletedDialogIfPresent(page)
+  await dialog.getByRole('button', { name: localeCode }).click()
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const field = await waitForTranslationField(dialog, preferredPlaceholder)
+      return { dialog, field }
+    } catch (error) {
+      if (attempt === 1) throw error
+      await page.keyboard.press('Escape').catch(() => {})
+      await dismissRecordDeletedDialogIfPresent(page)
+      dialog = await openTranslationsDrawer(page)
+      await expect(dialog).toBeVisible()
+      await dismissRecordDeletedDialogIfPresent(page)
+      await dialog.getByRole('button', { name: localeCode }).click()
+    }
+  }
+
+  throw new Error('Could not resolve translation field after retry')
+}
+
 /**
  * TC-TRANS-006: Translation Action on Product Detail
  * Covers the translation action injected in CrudForm header that opens a translation dialog.
@@ -96,13 +124,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
       await page.goto(`/backend/catalog/products/${productId}`)
       await dismissRecordDeletedDialogIfPresent(page)
 
-      const dialog = await openTranslationsDrawer(page)
-      await expect(dialog).toBeVisible()
-
-      const deTab = dialog.getByRole('button', { name: 'DE' })
-      await deTab.click()
-
-      const translationField = await waitForTranslationField(dialog, productTitle)
+      const { dialog, field: translationField } = await openLocaleFieldWithRetry(page, 'DE', productTitle)
       await translationField.fill('Widget Titel QA')
 
       const saveTranslationsButton = dialog.getByTestId('translations-save')
@@ -134,25 +156,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
       await page.waitForLoadState('domcontentloaded')
       await dismissRecordDeletedDialogIfPresent(page)
 
-      let dialog = await openTranslationsDrawer(page)
-      await expect(dialog).toBeVisible()
-      await dismissRecordDeletedDialogIfPresent(page)
-      await dialog.getByRole('button', { name: 'DE' }).click()
-
-      let translationField: Locator | null = null
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          translationField = await waitForTranslationField(dialog, productTitle)
-          break
-        } catch (error) {
-          if (attempt === 1) throw error
-          await page.keyboard.press('Escape').catch(() => {})
-          await dismissRecordDeletedDialogIfPresent(page)
-          dialog = await openTranslationsDrawer(page)
-          await dialog.getByRole('button', { name: 'DE' }).click()
-        }
-      }
-      if (!translationField) throw new Error('Could not resolve translation field after retry')
+      const { dialog, field: translationField } = await openLocaleFieldWithRetry(page, 'DE', productTitle)
       await translationField.fill('API Verifiziert QA')
 
       const saveTranslationsButton = dialog.getByTestId('translations-save')
