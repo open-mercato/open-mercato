@@ -711,8 +711,23 @@ interface ScimLogRow {
   createdAt: string
 }
 
+const googleIssuerHost = 'accounts.google.com'
+
+function isGoogleIssuer(issuer?: string): boolean {
+  if (!issuer) return false
+
+  const normalizedIssuer = issuer.trim()
+  if (!normalizedIssuer) return false
+
+  try {
+    return new URL(normalizedIssuer).hostname.toLowerCase() === googleIssuerHost
+  } catch {
+    return normalizedIssuer.toLowerCase() === googleIssuerHost
+  }
+}
+
 function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChange, runMutationWithContext }: { configId: string; jitEnabled: boolean; issuer?: string; onProvisioningChange: () => void; runMutationWithContext: <T>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>) => Promise<T> }) {
-  const isGoogleProvider = issuer?.includes('accounts.google.com') === true
+  const isGoogleProvider = isGoogleIssuer(issuer)
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
