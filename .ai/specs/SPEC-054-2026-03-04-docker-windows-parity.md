@@ -148,6 +148,10 @@ This feature is developer-experience infrastructure; no user-facing API/UI paths
 ## Changelog
 
 - 2026-03-03: Created feature request spec for Docker command parity across Windows Docker workflows and native dev command surface.
+- 2026-03-05: Implemented all three phases.
+- 2026-03-05: Added `docker:ephemeral` and `docker:ephemeral:down` wrappers for ephemeral environment support; updated compatibility matrix and command reference in `docker/README.md`.
+- 2026-03-05: Redesigned command surface to 1:1 native parity — renamed `docker:greenfield` to `docker:up`, added `docker:down`, `docker:dev:greenfield`, `docker:dev`, `docker:build:packages`; docs split into "compose lifecycle" and "exec commands" sections.
+
 ## Key Commands
 
 The key commands to migrate are:
@@ -155,3 +159,24 @@ The key commands to migrate are:
 - `yarn dev:greenfield`
 - `yarn initialize`
 - `yarn generate`
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Inventory + Matrix | Done | 2026-03-05 | Compatibility matrix published in `docker/README.md` |
+| Phase 2 — Wrapper Commands | Done | 2026-03-05 | `scripts/docker-exec.mjs` helper + 16 `docker:*` scripts in root `package.json`; 1:1 native command parity |
+| Phase 3 — Validation + Docs | Done | 2026-03-05 | Windows cookbook + troubleshooting section in `docker/README.md` |
+
+### Phase 1 — Detailed Progress
+- [x] Enumerate root scripts and classify Docker support level
+- [x] Publish compatibility matrix in `docker/README.md`
+
+### Phase 2 — Detailed Progress
+- [x] Create cross-platform Node.js helper `scripts/docker-exec.mjs` (auto-detects active compose profile, executes command in container, prints actionable errors when stack is down)
+- [x] Add compose lifecycle scripts: `docker:up`, `docker:down`, `docker:ephemeral`, `docker:ephemeral:down`
+- [x] Add 1:1 exec mirrors: `docker:dev`, `docker:dev:greenfield`, `docker:build:packages`, `docker:generate`, `docker:initialize`, `docker:reinstall`, `docker:db:migrate`, `docker:db:generate`, `docker:lint`, `docker:typecheck`, `docker:test`, `docker:install-skills`
+
+### Phase 3 — Detailed Progress
+- [x] "Windows + Docker Developer Command Cookbook" section added to `docker/README.md`
+- [x] Troubleshooting sub-section for Docker wrapper errors
