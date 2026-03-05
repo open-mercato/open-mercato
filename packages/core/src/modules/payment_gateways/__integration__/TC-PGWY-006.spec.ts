@@ -6,7 +6,10 @@ import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__inte
  */
 test.describe('TC-PGWY-006: Webhook processing', () => {
   test('should accept a webhook POST for mock provider', async ({ request }) => {
+    const token = await getAuthToken(request)
+
     const response = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+      token,
       data: {
         type: 'payment.completed',
         id: `evt_${Date.now()}`,
@@ -19,7 +22,10 @@ test.describe('TC-PGWY-006: Webhook processing', () => {
   })
 
   test('should return error for unknown webhook provider', async ({ request }) => {
+    const token = await getAuthToken(request)
+
     const response = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/unknown_provider', {
+      token,
       data: { type: 'test.event', id: 'evt_1' },
     })
 
