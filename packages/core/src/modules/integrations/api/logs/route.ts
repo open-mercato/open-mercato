@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { listIntegrationLogsQuerySchema } from '../../data/validators'
-import type { IntegrationLogService } from '../../lib/log-service'
+import { listIntegrationLogsQuerySchema } from '@open-mercato/core/modules/integrations/data/validators'
+import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['integrations.manage'] },

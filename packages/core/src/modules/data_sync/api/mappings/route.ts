@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { SyncMapping } from '../../data/entities'
+import { SyncMapping } from '@open-mercato/core/modules/data_sync/data/entities'
 
 const listMappingsQuerySchema = z.object({
   integrationId: z.string().min(1).optional(),
