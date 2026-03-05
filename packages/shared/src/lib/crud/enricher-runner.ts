@@ -13,6 +13,7 @@ import type {
   SingleEnrichmentResult,
 } from './response-enricher'
 import { getEnrichersForEntity } from './enricher-registry'
+import { logEnricherTiming } from '../umes/enricher-timing'
 
 const DEFAULT_TIMEOUT = 2000
 const SLOW_WARN_MS = 100
@@ -222,6 +223,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
           `[UMES] Enricher ${enricher.id} took ${elapsedMs}ms (threshold: ${SLOW_WARN_MS}ms)`,
         )
       }
+      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
       currentItems = result
       if (shouldUseCache && cacheKey) {
@@ -288,6 +290,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
   for (const entry of activeEntries) {
     const enricher = entry.enricher
     const timeout = enricher.timeout ?? DEFAULT_TIMEOUT
+    const startTime = Date.now()
 
     try {
       const recordId = extractRecordId(currentRecord)
@@ -305,6 +308,9 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
         enricher.enrichOne(currentRecord, context) as Promise<T>,
         timeoutPromise(timeout),
       ])
+
+      const elapsedMs = Date.now() - startTime
+      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
       currentRecord = result
       if (shouldUseCache && cacheKey) {
