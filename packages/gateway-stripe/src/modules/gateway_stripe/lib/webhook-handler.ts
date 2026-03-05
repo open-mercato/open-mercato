@@ -18,7 +18,7 @@ export async function verifyStripeWebhook(input: VerifyWebhookInput): Promise<We
   return {
     eventType: event.type,
     eventId: event.id,
-    data: event.data.object as Record<string, unknown>,
+    data: event.data.object as unknown as Record<string, unknown>,
     idempotencyKey: event.id,
     timestamp: new Date(event.created * 1000),
   }
