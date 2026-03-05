@@ -3,10 +3,14 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
-import { getBundle, getIntegration, resolveIntegrationCredentialsSchema } from '@open-mercato/shared/modules/integrations/types'
+import {
+  getBundle,
+  getIntegration,
+  resolveIntegrationCredentialsSchema,
+  type IntegrationScope,
+} from '@open-mercato/shared/modules/integrations/types'
 import { EncryptionMap } from '../../entities/data/entities'
 import { IntegrationCredentials } from '../data/entities'
-import type { IntegrationScope } from './types'
 
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
 const DERIVED_KEY_CONTEXT = 'integrations.credentials'
