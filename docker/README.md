@@ -112,7 +112,7 @@ Windows users who develop through Docker can run any monorepo command using the 
 
 | Native command | Docker equivalent | Notes |
 |---------------|------------------|-------|
-| `yarn dev` | `yarn docker:dev` | Starts Next.js dev server inside container |
+| `yarn dev` | `yarn docker:dev` | Dev profile: restarts existing `app` service and tails main process logs (prevents duplicate port-3000 servers). Use `yarn docker:dev --skip-rebuilt` to skip install/build/generate for that restart only. |
 | `yarn build:packages` | `yarn docker:build:packages` | Builds all packages inside container |
 | `yarn generate` | `yarn docker:generate` | Writes generated files from inside the container |
 | `yarn initialize` | `yarn docker:initialize` | Initializes / re-initializes the app |
@@ -171,6 +171,18 @@ docker compose -f docker-compose.fullapp.dev.yml ps
 **Command times out or hangs**
 
 Some commands (e.g. `db:generate`) write files back to the repo via mounted volumes. This is expected — wait for completion.
+
+**`docker:dev` fails with `EADDRINUSE: 3000`**
+
+This happens when a second `yarn dev` process is started inside the same container. Use `yarn docker:dev` (reload+tail wrapper) or `yarn docker:dev:up` instead of manually running `yarn dev` via `docker compose exec`.
+
+**`docker:dev` runs install/build/generate but you want a quick restart**
+
+Use:
+```
+yarn docker:dev --skip-rebuilt
+```
+This skips install/build/generate on the next container restart only, then returns to normal behavior.
 
 **Force a specific compose file**
 
