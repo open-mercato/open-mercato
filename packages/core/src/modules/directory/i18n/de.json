@@ -33,6 +33,7 @@
   "directory.organizations.form.loading": "Organisation wird geladen...",
   "directory.organizations.form.pathLabel": "Pfad: {path}",
   "directory.organizations.form.rootOption": "— Wurzelebene —",
+  "directory.organizations.form.tenant.select": "Mandanten auswählen",
   "directory.organizations.form.title.edit": "Organisation bearbeiten",
   "directory.organizations.list.actions.create": "Erstellen",
   "directory.organizations.list.actions.delete": "Löschen",
