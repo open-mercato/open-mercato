@@ -15,15 +15,17 @@ Verify that `yarn docker:generate` executes `yarn generate` inside the running d
 ## Prerequisites
 - Dev stack is running (`yarn docker:dev:up` completed successfully)
 - Repo is mounted into the container (dev profile only)
+- If running this scenario after another Docker exec scenario, run `yarn docker:dev` first to reinitialize the dev environment
 
 ## Test Steps
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| 1 | Note the modification time of `apps/mercato/.mercato/generated/` on host | Baseline timestamp recorded |
-| 2 | Run `yarn docker:generate` from repo root (Windows terminal or any shell) | Helper prints `[docker-exec] Running in container (docker-compose.fullapp.dev.yml): yarn generate` |
-| 3 | Wait for command to complete | Process exits with code 0 |
-| 4 | Check `apps/mercato/.mercato/generated/` modification time | Files have been updated (newer than baseline) |
-| 5 | Verify no errors in output | No TypeScript or generation errors printed |
+| 1 | Run `yarn docker:dev` to reinitialize the development environment before the exec test | Dev environment is reinitialized and ready for command parity validation |
+| 2 | Note the modification time of `apps/mercato/.mercato/generated/` on host | Baseline timestamp recorded |
+| 3 | Run `yarn docker:generate` from repo root (Windows terminal or any shell) | Helper prints `[docker-exec] Running in container (docker-compose.fullapp.dev.yml): yarn generate` |
+| 4 | Wait for command to complete | Process exits with code 0 |
+| 5 | Check `apps/mercato/.mercato/generated/` modification time | Files have been updated (newer than baseline) |
+| 6 | Verify no errors in output | No TypeScript or generation errors printed |
 
 ## Expected Results
 - `docker-exec.mjs` detects the active compose file automatically
