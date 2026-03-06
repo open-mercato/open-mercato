@@ -3,6 +3,8 @@
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import Link from 'next/link'
+import { Button } from '@open-mercato/ui/primitives/button'
 import PasswordChangeForm from '../../../components/PasswordChangeForm'
 
 export default function SecurityProfilePage() {
@@ -23,10 +25,15 @@ export default function SecurityProfilePage() {
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 {t(
-                  'security.profile.mfa.placeholder',
-                  'MFA management is being introduced in the next phase.',
+                  'security.profile.mfa.description',
+                  'Manage your MFA methods and recovery codes.',
                 )}
               </p>
+              <Button type="button" asChild size="sm" className="mt-3">
+                <Link href="/backend/profile/security/mfa">
+                  {t('security.profile.mfa.manage', 'Manage MFA settings')}
+                </Link>
+              </Button>
             </section>
             <InjectionSpot
               spotId="security.profile.sidebar"

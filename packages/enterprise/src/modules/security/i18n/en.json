@@ -25,12 +25,98 @@
       },
       "mfa": {
         "title": "Multi-factor authentication",
-        "placeholder": "MFA management is being introduced in the next phase."
+        "description": "Manage your MFA methods and recovery codes.",
+        "manage": "Manage MFA settings",
+        "loading": "Loading MFA settings...",
+        "enrolled": {
+          "title": "Enrolled methods",
+          "empty": "No MFA methods enabled yet."
+        },
+        "providers": {
+          "title": "Add method",
+          "empty": "No additional MFA providers are currently available.",
+          "setupTotp": "Set up TOTP",
+          "setupPasskey": "Set up passkey",
+          "setupGeneric": "Set up provider",
+          "setupOtpEmail": "Enable email OTP",
+          "otpEnabled": "Email OTP enabled."
+        },
+        "method": {
+          "type": "Type",
+          "lastUsed": "Last used",
+          "active": "Active",
+          "remove": "Remove",
+          "neverUsed": "Never used",
+          "unknownTime": "Unknown"
+        },
+        "remove": {
+          "title": "Remove MFA method?",
+          "text": "This removes the selected MFA method. Continue?",
+          "success": "MFA method removed."
+        },
+        "recovery": {
+          "sectionTitle": "Recovery codes",
+          "title": "Recovery codes",
+          "warning": "Store these codes in a safe place. You will not be able to view them again.",
+          "regenerate": "Regenerate codes",
+          "regenerated": "Recovery codes regenerated.",
+          "copy": "Copy all",
+          "download": "Download .txt",
+          "copySuccess": "Recovery codes copied.",
+          "copyError": "Unable to copy recovery codes."
+        },
+        "totp": {
+          "title": "TOTP setup",
+          "start": "Start setup",
+          "secret": "Manual secret",
+          "uri": "Provisioning URI",
+          "codePlaceholder": "Enter 6-digit code",
+          "confirm": "Confirm TOTP",
+          "confirmSuccess": "TOTP method enabled."
+        },
+        "passkey": {
+          "title": "Passkey setup",
+          "label": "Label",
+          "authenticator": "Authenticator type",
+          "platform": "This device",
+          "crossPlatform": "Security key",
+          "start": "Start setup",
+          "ready": "Passkey registration options are ready.",
+          "register": "Register passkey",
+          "success": "Passkey enabled."
+        },
+        "generic": {
+          "setupTitle": "Configure {provider}",
+          "payload": "Setup payload (JSON)",
+          "start": "Start setup",
+          "clientData": "Setup response data",
+          "verifyCode": "Verification code (if required)",
+          "verifyCodePlaceholder": "Enter verification code",
+          "confirm": "Confirm setup",
+          "restart": "Restart",
+          "setupStarted": "Provider setup started.",
+          "setupComplete": "MFA method enabled."
+        },
+        "verify": {
+          "codePlaceholder": "Enter verification code",
+          "submit": "Verify",
+          "resend": "Resend code"
+        }
       }
     },
     "menu": {
       "profile": {
         "securityMfa": "Security & MFA"
+      }
+    },
+    "login": {
+      "mfaChallenge": {
+        "title": "Multi-factor authentication required",
+        "description": "Complete MFA verification to finish signing in.",
+        "noMethods": "No MFA methods are currently available for this account.",
+        "actions": {
+          "back": "Back to sign in"
+        }
       }
     },
     "audit": {

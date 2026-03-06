@@ -1,3 +1,7 @@
+'use client'
+
+import PasskeySetupFlow from '../../../../../components/PasskeySetupFlow'
+
 export default function SetupPasskeyPage() {
-  return <div>Passkey setup scaffold</div>
+  return <PasskeySetupFlow />
 }
