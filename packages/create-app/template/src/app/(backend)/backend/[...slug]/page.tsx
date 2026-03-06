@@ -1,15 +1,33 @@
 import { notFound, redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
+import Link from 'next/link'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
+import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 
 type Awaitable<T> = T | Promise<T>
+
+async function renderAccessDenied() {
+  const { translate } = await resolveTranslations()
+  return (
+    <AccessDeniedMessage
+      label={translate('auth.accessDenied.title', 'Access Denied')}
+      description={translate('auth.accessDenied.message', 'You do not have permission to view this page. Please contact your administrator.')}
+      action={
+        <Link href="/backend" className="text-sm underline hover:opacity-80">
+          {translate('auth.accessDenied.dashboard', 'Go to Dashboard')}
+        </Link>
+      }
+    />
+  )
+}
 
 export default async function BackendCatchAll(props: { params: Awaitable<{ slug?: string[] }> }) {
   const params = await props.params
@@ -23,7 +41,7 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
     if (required.length) {
       const roles = auth.roles || []
       const ok = required.some(r => roles.includes(r))
-      if (!ok) redirect('/login?requireRole=' + encodeURIComponent(required.join(',')))
+      if (!ok) return renderAccessDenied()
     }
     const features = match.route.requireFeatures
     if (features && features.length) {
@@ -38,14 +56,14 @@ export default async function BackendCatchAll(props: { params: Awaitable<{ slug?
         organizationIdForCheck = organizationId
         tenantIdForCheck = scope.tenantId ?? auth.tenantId ?? null
         if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
-          redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
+          return renderAccessDenied()
         }
       } catch {
         organizationIdForCheck = auth.orgId ?? null
         tenantIdForCheck = auth.tenantId ?? null
       }
       const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: tenantIdForCheck, organizationId: organizationIdForCheck })
-      if (!ok) redirect('/login?requireFeature=' + encodeURIComponent(features.join(',')))
+      if (!ok) return renderAccessDenied()
     }
   }
   const pageHandle = ComponentReplacementHandles.page(pathname)
