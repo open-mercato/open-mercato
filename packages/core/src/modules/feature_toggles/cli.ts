@@ -1,18 +1,27 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { FeatureToggle } from './data/entities'
+const logger = cliLogger.forModule('core')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import fs from 'node:fs'
+const logger = cliLogger.forModule('core')
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+const logger = cliLogger.forModule('core')
 import { toggleCreateSchemaList } from './data/validators'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+const logger = cliLogger.forModule('core')
 
 type ParsedArgs = Record<string, string | boolean>
+const logger = cliLogger.forModule('core')
 
 // ESM equivalent of __dirname
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const logger = cliLogger.forModule('core')
 const defaultFilePath = path.resolve(__dirname, 'defaults.json')
 
 function parseArgs(rest: string[]): ParsedArgs {
@@ -99,6 +108,7 @@ function buildCommandContext(container: Awaited<ReturnType<typeof createRequestC
 }
 
 const createToggle: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'toggle-create',
   async run(rest) {
     const args = parseArgs(rest)
@@ -106,7 +116,7 @@ const createToggle: ModuleCli = {
     const name = stringOption(args, 'name')
 
     if (!identifier || !name) {
-      console.error('Usage: mercato feature_toggles toggle-create --identifier <id> --name <name> [--type boolean|string|number|json] [--defaultValue <value>] [--category <value>] [--description <value>]')
+      logger.error('Usage: mercato feature_toggles toggle-create --identifier <id> --name <name> [--type boolean|string|number|json] [--defaultValue <value>] [--category <value>] [--description <value>]')
       return
     }
 
@@ -120,7 +130,7 @@ const createToggle: ModuleCli = {
     try {
       defaultValue = parseValue(type, defaultValueRaw)
     } catch (e: any) {
-      console.error(e.message)
+      logger.error(e.message)
       return
     }
 
@@ -140,7 +150,7 @@ const createToggle: ModuleCli = {
         },
         ctx,
       })
-      console.log('✅ Feature toggle created:', "Identifier: " + identifier)
+      logger.info('✅ Feature toggle created:', "Identifier: " + identifier)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -151,13 +161,14 @@ const createToggle: ModuleCli = {
 }
 
 const updateToggle: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'toggle-update',
   async run(rest) {
     const args = parseArgs(rest)
     const identifier = stringOption(args, 'identifier')
 
     if (!identifier) {
-      console.error('Usage: mercato feature_toggles toggle-update --identifier <id> [--name <name>] [--defaultValue <value>] [--category <value>] [--description <value>]')
+      logger.error('Usage: mercato feature_toggles toggle-update --identifier <id> [--name <name>] [--defaultValue <value>] [--category <value>] [--description <value>]')
       return
     }
 
@@ -165,7 +176,7 @@ const updateToggle: ModuleCli = {
     const em = container.resolve('em') as EntityManager
     const toggle = await em.findOne(FeatureToggle, { identifier })
     if (!toggle) {
-      console.error('Feature toggle not found:', identifier)
+      logger.error('Feature toggle not found:', identifier)
       return
     }
 
@@ -180,7 +191,7 @@ const updateToggle: ModuleCli = {
       try {
         defaultValue = parseValue(toggle.type, defaultValueRaw)
       } catch (e: any) {
-        console.error(e.message)
+        logger.error(e.message)
         return
       }
     }
@@ -201,7 +212,7 @@ const updateToggle: ModuleCli = {
         },
         ctx,
       })
-      console.log('✅ Feature toggle updated:', "Identifier: " + identifier)
+      logger.info('✅ Feature toggle updated:', "Identifier: " + identifier)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -212,19 +223,20 @@ const updateToggle: ModuleCli = {
 }
 
 const deleteToggle: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'toggle-delete',
   async run(rest) {
     const args = parseArgs(rest)
     const identifier = stringOption(args, 'identifier')
     if (!identifier) {
-      console.error('Usage: mercato feature_toggles toggle-delete --identifier <id>')
+      logger.error('Usage: mercato feature_toggles toggle-delete --identifier <id>')
       return
     }
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const toggle = await em.findOne(FeatureToggle, { identifier })
     if (!toggle) {
-      console.error('Feature toggle not found:', identifier)
+      logger.error('Feature toggle not found:', identifier)
       return
     }
     const toggleId = toggle.id
@@ -238,7 +250,7 @@ const deleteToggle: ModuleCli = {
         },
         ctx,
       })
-      console.log('✅ Feature toggle deleted:', identifier ?? toggleId)
+      logger.info('✅ Feature toggle deleted:', identifier ?? toggleId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -249,6 +261,7 @@ const deleteToggle: ModuleCli = {
 }
 
 const setOverrideValue: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'override-set-value',
   async run(rest) {
     const args = parseArgs(rest)
@@ -257,14 +270,14 @@ const setOverrideValue: ModuleCli = {
     const valueRaw = stringOption(args, 'value')
 
     if (!identifier || !tenantId) {
-      console.error('Usage: mercato feature_toggles override-set-value --identifier <id> --tenantId <uuid> --value <value>')
+      logger.error('Usage: mercato feature_toggles override-set-value --identifier <id> --tenantId <uuid> --value <value>')
       return
     }
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
     const toggle = await em.findOne(FeatureToggle, { identifier })
     if (!toggle) {
-      console.error('Feature toggle not found:', identifier)
+      logger.error('Feature toggle not found:', identifier)
       return
     }
 
@@ -273,7 +286,7 @@ const setOverrideValue: ModuleCli = {
       try {
         value = parseValue(toggle.type, valueRaw)
       } catch (e: any) {
-        console.error(e.message)
+        logger.error(e.message)
         return
       }
     }
@@ -292,7 +305,7 @@ const setOverrideValue: ModuleCli = {
         },
         ctx,
       })
-      console.log('✅ Feature toggle override updated:', identifier, "Tenant ID: " + tenantId, "Value: " + (valueRaw || 'unchanged'))
+      logger.info('✅ Feature toggle override updated:', identifier, "Tenant ID: " + tenantId, "Value: " + (valueRaw || 'unchanged'))
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -303,6 +316,7 @@ const setOverrideValue: ModuleCli = {
 }
 
 const seedDefaults: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'seed-defaults',
   async run(rest) {
     const args = parseArgs(rest)
@@ -344,9 +358,9 @@ const seedDefaults: ModuleCli = {
         ctx,
       })
       created += 1
-      console.log(`✅ Created feature toggle ${toggle.identifier}`)
+      logger.info(`✅ Created feature toggle ${toggle.identifier}`)
     }
-    console.log(`✅ Feature toggle defaults seeded (created: ${created}, skipped: ${skipped})`)
+    logger.info(`✅ Feature toggle defaults seeded (created: ${created}, skipped: ${skipped})`)
   },
 }
 

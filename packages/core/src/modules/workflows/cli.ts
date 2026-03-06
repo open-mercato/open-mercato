@@ -37,8 +37,8 @@ const seedDemo: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
 
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-demo --tenant <tenantId> --org <organizationId>')
-      console.error('   or: mercato workflows seed-demo -t <tenantId> -o <organizationId>')
+      logger.error('Usage: mercato workflows seed-demo --tenant <tenantId> --org <organizationId>')
+      logger.error('   or: mercato workflows seed-demo -t <tenantId> -o <organizationId>')
       return
     }
 
@@ -58,7 +58,7 @@ const seedDemo: ModuleCli = {
       })
 
       if (existing) {
-        console.log(`ℹ️  Demo workflow '${demoData.workflowId}' already exists (ID: ${existing.id})`)
+        logger.info(`ℹ️  Demo workflow '${demoData.workflowId}' already exists (ID: ${existing.id})`)
         return
       }
 
@@ -71,23 +71,23 @@ const seedDemo: ModuleCli = {
 
       await em.persistAndFlush(workflow)
 
-      console.log(`✅ Seeded demo workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
-      console.log('')
-      console.log('Demo workflow is ready! You can now:')
-      console.log('  1. View it in admin: /backend/definitions')
-      console.log('  2. Try the demo page: /checkout-demo')
-      console.log('  3. Start an instance via API: POST /api/workflows/instances')
-      console.log('')
-      console.log('Note: This workflow includes a USER_TASK step for customer information.')
-      console.log('When the workflow reaches this step, it will pause and require user input.')
-      console.log('Complete pending tasks at: /backend/tasks')
+      logger.info(`✅ Seeded demo workflow: ${workflow.workflowName}`)
+      logger.info(`  - ID: ${workflow.id}`)
+      logger.info(`  - Workflow ID: ${workflow.workflowId}`)
+      logger.info(`  - Version: ${workflow.version}`)
+      logger.info(`  - Steps: ${workflow.definition.steps.length}`)
+      logger.info(`  - Transitions: ${workflow.definition.transitions.length}`)
+      logger.info('')
+      logger.info('Demo workflow is ready! You can now:')
+      logger.info('  1. View it in admin: /backend/definitions')
+      logger.info('  2. Try the demo page: /checkout-demo')
+      logger.info('  3. Start an instance via API: POST /api/workflows/instances')
+      logger.info('')
+      logger.info('Note: This workflow includes a USER_TASK step for customer information.')
+      logger.info('When the workflow reaches this step, it will pause and require user input.')
+      logger.info('Complete pending tasks at: /backend/tasks')
     } catch (error) {
-      console.error('Error seeding demo workflow:', error)
+      logger.error('Error seeding demo workflow:', error)
       throw error
     }
   },
@@ -104,20 +104,20 @@ const seedDemoWithRules: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
 
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-demo-with-rules --tenant <tenantId> --org <organizationId>')
-      console.error('   or: mercato workflows seed-demo-with-rules -t <tenantId> -o <organizationId>')
+      logger.error('Usage: mercato workflows seed-demo-with-rules --tenant <tenantId> --org <organizationId>')
+      logger.error('   or: mercato workflows seed-demo-with-rules -t <tenantId> -o <organizationId>')
       return
     }
 
-      console.log('🧩 Seeding demo workflow with guard rules...\n')
+      logger.info('🧩 Seeding demo workflow with guard rules...\n')
 
     try {
       // Seed the workflow definition
-      console.log('1. 🧩 Seeding demo workflow...')
+      logger.info('1. 🧩 Seeding demo workflow...')
       await seedDemo.run(rest)
 
       // Seed the guard rules
-      console.log('\n2. 🧠 Seeding guard rules...')
+      logger.info('\n2. 🧠 Seeding guard rules...')
       const { resolve } = await createRequestContainer()
       const em = resolve<EntityManager>('em')
 
@@ -139,7 +139,7 @@ const seedDemoWithRules: ModuleCli = {
         })
 
         if (existing) {
-          console.log(`  ⊘ Guard rule '${ruleData.ruleId}' already exists`)
+          logger.info(`  ⊘ Guard rule '${ruleData.ruleId}' already exists`)
           skippedCount++
           continue
         }
@@ -151,16 +151,16 @@ const seedDemoWithRules: ModuleCli = {
         })
 
         await em.persistAndFlush(rule)
-        console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
+        logger.info(`  ✓ Seeded guard rule: ${rule.ruleName}`)
         seededCount++
       }
 
-      console.log(`\n✅ Demo workflow with guard rules seeded successfully!`)
-      console.log(`  - Workflow: checkout_simple_v1`)
-      console.log(`  - Guard rules seeded: ${seededCount}`)
-      console.log(`  - Guard rules skipped: ${skippedCount}`)
+      logger.info(`\n✅ Demo workflow with guard rules seeded successfully!`)
+      logger.info(`  - Workflow: checkout_simple_v1`)
+      logger.info(`  - Guard rules seeded: ${seededCount}`)
+      logger.info(`  - Guard rules skipped: ${skippedCount}`)
     } catch (error) {
-      console.error('Error seeding demo with rules:', error)
+      logger.error('Error seeding demo with rules:', error)
       throw error
     }
   },
@@ -177,7 +177,7 @@ const seedSalesPipeline: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
 
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-sales-pipeline --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato workflows seed-sales-pipeline --tenant <tenantId> --org <organizationId>')
       return
     }
 
@@ -197,7 +197,7 @@ const seedSalesPipeline: ModuleCli = {
       })
 
       if (existing) {
-        console.log(`ℹ️  Sales pipeline workflow '${pipelineData.workflowId}' already exists (ID: ${existing.id})`)
+        logger.info(`ℹ️  Sales pipeline workflow '${pipelineData.workflowId}' already exists (ID: ${existing.id})`)
         return
       }
 
@@ -210,17 +210,17 @@ const seedSalesPipeline: ModuleCli = {
 
       await em.persistAndFlush(workflow)
 
-      console.log(`✅ Seeded sales pipeline workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
-      console.log(`  - Activities: ${workflow.definition.transitions.reduce((sum, t) => sum + (t.activities?.length || 0), 0)}`)
-      console.log('')
-      console.log('Sales pipeline workflow is ready!')
+      logger.info(`✅ Seeded sales pipeline workflow: ${workflow.workflowName}`)
+      logger.info(`  - ID: ${workflow.id}`)
+      logger.info(`  - Workflow ID: ${workflow.workflowId}`)
+      logger.info(`  - Version: ${workflow.version}`)
+      logger.info(`  - Steps: ${workflow.definition.steps.length}`)
+      logger.info(`  - Transitions: ${workflow.definition.transitions.length}`)
+      logger.info(`  - Activities: ${workflow.definition.transitions.reduce((sum, t) => sum + (t.activities?.length || 0), 0)}`)
+      logger.info('')
+      logger.info('Sales pipeline workflow is ready!')
     } catch (error) {
-      console.error('Error seeding sales pipeline workflow:', error)
+      logger.error('Error seeding sales pipeline workflow:', error)
       throw error
     }
   },
@@ -237,7 +237,7 @@ const seedSimpleApproval: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
 
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-simple-approval --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato workflows seed-simple-approval --tenant <tenantId> --org <organizationId>')
       return
     }
 
@@ -257,7 +257,7 @@ const seedSimpleApproval: ModuleCli = {
       })
 
       if (existing) {
-        console.log(`ℹ️  Simple approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
+        logger.info(`ℹ️  Simple approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
         return
       }
 
@@ -270,16 +270,16 @@ const seedSimpleApproval: ModuleCli = {
 
       await em.persistAndFlush(workflow)
 
-      console.log(`✅ Seeded simple approval workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
-      console.log('')
-      console.log('Simple approval workflow is ready!')
+      logger.info(`✅ Seeded simple approval workflow: ${workflow.workflowName}`)
+      logger.info(`  - ID: ${workflow.id}`)
+      logger.info(`  - Workflow ID: ${workflow.workflowId}`)
+      logger.info(`  - Version: ${workflow.version}`)
+      logger.info(`  - Steps: ${workflow.definition.steps.length}`)
+      logger.info(`  - Transitions: ${workflow.definition.transitions.length}`)
+      logger.info('')
+      logger.info('Simple approval workflow is ready!')
     } catch (error) {
-      console.error('Error seeding simple approval workflow:', error)
+      logger.error('Error seeding simple approval workflow:', error)
       throw error
     }
   },
@@ -296,7 +296,7 @@ const seedOrderApproval: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
 
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-order-approval --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato workflows seed-order-approval --tenant <tenantId> --org <organizationId>')
       return
     }
 
@@ -338,7 +338,7 @@ const seedOrderApproval: ModuleCli = {
           organizationId,
         })
         em.persist(newRule)
-        console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
+        logger.info(`  ✓ Seeded guard rule: ${rule.ruleName}`)
         rulesSeeded++
       }
 
@@ -358,9 +358,9 @@ const seedOrderApproval: ModuleCli = {
       })
 
       if (existing) {
-        console.log(`✅ Order approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
-        console.log(`  - Guard rules seeded: ${rulesSeeded}`)
-        console.log(`  - Guard rules skipped: ${rulesSkipped}`)
+        logger.info(`✅ Order approval workflow '${approvalData.workflowId}' already exists (ID: ${existing.id})`)
+        logger.info(`  - Guard rules seeded: ${rulesSeeded}`)
+        logger.info(`  - Guard rules skipped: ${rulesSkipped}`)
         return
       }
 
@@ -373,18 +373,18 @@ const seedOrderApproval: ModuleCli = {
 
       await em.persistAndFlush(workflow)
 
-      console.log(`✅ Seeded order approval workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
-      console.log(`  - Guard rules seeded: ${rulesSeeded}`)
-      console.log(`  - Guard rules skipped: ${rulesSkipped}`)
-      console.log('')
-      console.log('Order approval workflow is ready!')
+      logger.info(`✅ Seeded order approval workflow: ${workflow.workflowName}`)
+      logger.info(`  - ID: ${workflow.id}`)
+      logger.info(`  - Workflow ID: ${workflow.workflowId}`)
+      logger.info(`  - Version: ${workflow.version}`)
+      logger.info(`  - Steps: ${workflow.definition.steps.length}`)
+      logger.info(`  - Transitions: ${workflow.definition.transitions.length}`)
+      logger.info(`  - Guard rules seeded: ${rulesSeeded}`)
+      logger.info(`  - Guard rules skipped: ${rulesSkipped}`)
+      logger.info('')
+      logger.info('Order approval workflow is ready!')
     } catch (error) {
-      console.error('Error seeding order approval workflow:', error)
+      logger.error('Error seeding order approval workflow:', error)
       throw error
     }
   },
@@ -401,17 +401,17 @@ const startWorker: ModuleCli = {
 
     const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
 
-    console.log('[Workflow Worker] Starting activity worker...')
-    console.log(`[Workflow Worker] Strategy: ${strategy}`)
+    logger.info('[Workflow Worker] Starting activity worker...')
+    logger.info(`[Workflow Worker] Strategy: ${strategy}`)
 
     if (strategy === 'local') {
       const pollMs = process.env.LOCAL_QUEUE_POLL_MS || '5000'
-      console.log(`[Workflow Worker] Polling interval: ${pollMs}ms`)
-      console.log('[Workflow Worker] NOTE: Local strategy is for development only.')
-      console.log('[Workflow Worker] Use QUEUE_STRATEGY=async with Redis for production.')
+      logger.info(`[Workflow Worker] Polling interval: ${pollMs}ms`)
+      logger.info('[Workflow Worker] NOTE: Local strategy is for development only.')
+      logger.info('[Workflow Worker] Use QUEUE_STRATEGY=async with Redis for production.')
     } else {
-      console.log(`[Workflow Worker] Concurrency: ${concurrency}`)
-      console.log(`[Workflow Worker] Redis: ${getRedisUrl('QUEUE')}`)
+      logger.info(`[Workflow Worker] Concurrency: ${concurrency}`)
+      logger.info(`[Workflow Worker] Redis: ${getRedisUrl('QUEUE')}`)
     }
 
     try {
@@ -437,7 +437,7 @@ const startWorker: ModuleCli = {
         gracefulShutdown: true,
       })
     } catch (error) {
-      console.error('[Workflow Worker] Failed to start worker:', error)
+      logger.error('[Workflow Worker] Failed to start worker:', error)
       throw error
     }
   },
@@ -454,32 +454,32 @@ const seedAll: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
 
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-all --tenant <tenantId> --org <organizationId>')
+      logger.error('Usage: mercato workflows seed-all --tenant <tenantId> --org <organizationId>')
       return
     }
 
-    console.log('🧩 Seeding all example workflows...\n')
+    logger.info('🧩 Seeding all example workflows...\n')
 
     try {
       // Seed demo checkout with rules
       await seedDemoWithRules.run(rest)
-      console.log('')
+      logger.info('')
 
       // Seed sales pipeline
       await seedSalesPipeline.run(rest)
-      console.log('')
+      logger.info('')
 
       // Seed simple approval
       await seedSimpleApproval.run(rest)
-      console.log('')
+      logger.info('')
 
       // Seed order approval
       await seedOrderApproval.run(rest)
-      console.log('')
+      logger.info('')
 
-      console.log('✅ All example workflows seeded successfully!')
+      logger.info('✅ All example workflows seeded successfully!')
     } catch (error) {
-      console.error('Error seeding workflows:', error)
+      logger.error('Error seeding workflows:', error)
       throw error
     }
   },
@@ -494,9 +494,9 @@ const processActivities: ModuleCli = {
     const args = parseArgs(rest)
     const limit = parseInt(args.limit ?? args.l ?? '0')
 
-    console.log('[Workflow Activities] Processing pending activities...')
+    logger.info('[Workflow Activities] Processing pending activities...')
     if (limit > 0) {
-      console.log(`[Workflow Activities] Limit: ${limit} jobs`)
+      logger.info(`[Workflow Activities] Limit: ${limit} jobs`)
     }
 
     try {
@@ -516,10 +516,10 @@ const processActivities: ModuleCli = {
 
       // Get initial counts
       const initialCounts = await queue.getJobCounts()
-      console.log(`[Workflow Activities] Pending jobs: ${initialCounts.waiting}`)
+      logger.info(`[Workflow Activities] Pending jobs: ${initialCounts.waiting}`)
 
       if (initialCounts.waiting === 0) {
-        console.log('[Workflow Activities] No jobs to process')
+        logger.info('[Workflow Activities] No jobs to process')
         await queue.close()
         return
       }
@@ -527,20 +527,20 @@ const processActivities: ModuleCli = {
       // Process jobs
       const result = await queue.process(handler as any, limit > 0 ? { limit } : undefined)
 
-      console.log(`\n[Workflow Activities] ✓ Processed ${result.processed} activities`)
+      logger.info(`\n[Workflow Activities] ✓ Processed ${result.processed} activities`)
       if (result.failed > 0) {
-        console.log(`[Workflow Activities] ✗ Failed: ${result.failed} activities`)
+        logger.info(`[Workflow Activities] ✗ Failed: ${result.failed} activities`)
       }
 
       // Show remaining
       const finalCounts = await queue.getJobCounts()
       if (finalCounts.waiting > 0) {
-        console.log(`[Workflow Activities] Remaining: ${finalCounts.waiting} jobs`)
+        logger.info(`[Workflow Activities] Remaining: ${finalCounts.waiting} jobs`)
       }
 
       await queue.close()
     } catch (error) {
-      console.error('[Workflow Activities] Error processing activities:', error)
+      logger.error('[Workflow Activities] Error processing activities:', error)
       throw error
     }
   },

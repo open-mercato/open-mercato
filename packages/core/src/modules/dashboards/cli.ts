@@ -1,13 +1,20 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
+const logger = cliLogger.forModule('core')
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
+const logger = cliLogger.forModule('core')
 import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { seedAnalyticsData } from './seed/analytics'
+const logger = cliLogger.forModule('core')
 
 type Args = Record<string, string>
+const logger = cliLogger.forModule('core')
 
 function parseArgs(rest: string[]): Args {
   const args: Args = {}
@@ -96,6 +103,7 @@ export async function seedDashboardDefaultsForTenant(
 }
 
 const seedDefaults: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'seed-defaults',
   async run(rest) {
     const args = parseArgs(rest)
@@ -104,7 +112,7 @@ const seedDefaults: ModuleCli = {
     const roleCsv = args.roles || 'superadmin,admin,employee'
     const widgetCsv = args.widgets || ''
     if (!tenantId) {
-      console.error('Usage: mercato dashboards seed-defaults --tenant <tenantId> [--roles superadmin,admin,employee] [--widgets id1,id2]')
+      logger.error('Usage: mercato dashboards seed-defaults --tenant <tenantId> [--roles superadmin,admin,employee] [--widgets id1,id2]')
       return
     }
 
@@ -114,7 +122,7 @@ const seedDefaults: ModuleCli = {
       .filter(Boolean)
 
     if (!roleNames.length) {
-      console.log('No roles provided, nothing to seed.')
+      logger.info('No roles provided, nothing to seed.')
       return
     }
 
@@ -126,12 +134,13 @@ const seedDefaults: ModuleCli = {
       organizationId,
       roleNames,
       widgetIds: widgetCsv ? widgetCsv.split(',').map((id) => id.trim()).filter(Boolean) : undefined,
-      logger: (message) => console.log(message),
+      logger: (message) => logger.info(message),
     })
   },
 }
 
 const enableAnalyticsWidgets: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'enable-analytics-widgets',
   async run(rest) {
     const args = parseArgs(rest)
@@ -139,7 +148,7 @@ const enableAnalyticsWidgets: ModuleCli = {
     const organizationId = args.organization || args.organizationId || args.org || null
     const roleCsv = args.roles || 'admin,employee'
     if (!tenantId) {
-      console.error('Usage: mercato dashboards enable-analytics-widgets --tenant <tenantId> [--org <orgId>] [--roles admin,employee]')
+      logger.error('Usage: mercato dashboards enable-analytics-widgets --tenant <tenantId> [--org <orgId>] [--roles admin,employee]')
       return
     }
 
@@ -149,7 +158,7 @@ const enableAnalyticsWidgets: ModuleCli = {
       .filter(Boolean)
 
     if (!roleNames.length) {
-      console.log('No roles provided, nothing to update.')
+      logger.info('No roles provided, nothing to update.')
       return
     }
 
@@ -165,12 +174,13 @@ const enableAnalyticsWidgets: ModuleCli = {
     })
 
     if (!updated) {
-      console.log('No dashboard role widgets updated.')
+      logger.info('No dashboard role widgets updated.')
     }
   },
 }
 
 const seedAnalytics: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'seed-analytics',
   async run(rest) {
     const args = parseArgs(rest)
@@ -180,14 +190,14 @@ const seedAnalytics: ModuleCli = {
     const ordersPerMonth = args.ordersPerMonth ? parseInt(args.ordersPerMonth, 10) : 50
 
     if (!tenantId || !organizationId) {
-      console.error('Usage: mercato dashboards seed-analytics --tenant <tenantId> --organization <organizationId> [--months 6] [--ordersPerMonth 50]')
+      logger.error('Usage: mercato dashboards seed-analytics --tenant <tenantId> --organization <organizationId> [--months 6] [--ordersPerMonth 50]')
       return
     }
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as EntityManager
 
-    console.log(`Seeding analytics data for ${months} months with ~${ordersPerMonth} orders/month...`)
+    logger.info(`Seeding analytics data for ${months} months with ~${ordersPerMonth} orders/month...`)
 
     try {
       const result = await em.transactional(async (tem) =>
@@ -195,21 +205,22 @@ const seedAnalytics: ModuleCli = {
       )
 
       if (result.orders === 0) {
-        console.log('Analytics data already exists. Skipping seed.')
+        logger.info('Analytics data already exists. Skipping seed.')
       } else {
-        console.log(`Seeded analytics data:`)
-        console.log(`  - Orders: ${result.orders}`)
-        console.log(`  - Customers: ${result.customers}`)
-        console.log(`  - Products: ${result.products}`)
-        console.log(`  - Deals: ${result.deals}`)
+        logger.info(`Seeded analytics data:`)
+        logger.info(`  - Orders: ${result.orders}`)
+        logger.info(`  - Customers: ${result.customers}`)
+        logger.info(`  - Products: ${result.products}`)
+        logger.info(`  - Deals: ${result.deals}`)
       }
     } catch (error) {
-      console.error('Failed to seed analytics data:', error)
+      logger.error('Failed to seed analytics data:', error)
     }
   },
 }
 
 const debugAnalytics: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'debug-analytics',
   async run(rest) {
     const args = parseArgs(rest)
@@ -217,7 +228,7 @@ const debugAnalytics: ModuleCli = {
     const organizationId = args.organization || args.organizationId || args.org || null
 
     if (!tenantId) {
-      console.error('Usage: mercato dashboards debug-analytics --tenant <tenantId> [--organization <organizationId>]')
+      logger.error('Usage: mercato dashboards debug-analytics --tenant <tenantId> [--organization <organizationId>]')
       return
     }
 
@@ -225,7 +236,7 @@ const debugAnalytics: ModuleCli = {
     const em = resolve('em') as EntityManager
     const conn = em.getConnection()
 
-    console.log('Checking analytics data...\n')
+    logger.info('Checking analytics data...\n')
 
     const ordersResult = await conn.execute(
       `SELECT COUNT(*) as total, MIN(placed_at) as earliest, MAX(placed_at) as latest
@@ -233,7 +244,7 @@ const debugAnalytics: ModuleCli = {
        WHERE tenant_id = ? AND order_number LIKE 'SO-ANALYTICS-%'`,
       [tenantId]
     )
-    console.log('Orders summary:', ordersResult[0])
+    logger.info('Orders summary:', ordersResult[0])
 
     const recentOrders = await conn.execute(
       `SELECT order_number, placed_at, status, grand_total_gross_amount::numeric as total
@@ -242,7 +253,7 @@ const debugAnalytics: ModuleCli = {
        ORDER BY placed_at DESC LIMIT 5`,
       [tenantId]
     )
-    console.log('\nRecent orders:', recentOrders)
+    logger.info('\nRecent orders:', recentOrders)
 
     const januaryOrders = await conn.execute(
       `SELECT COUNT(*) as count, SUM(grand_total_gross_amount::numeric) as total
@@ -253,7 +264,7 @@ const debugAnalytics: ModuleCli = {
          AND placed_at <= '2026-01-31 23:59:59'`,
       [tenantId]
     )
-    console.log('\nJanuary 2026 orders:', januaryOrders[0])
+    logger.info('\nJanuary 2026 orders:', januaryOrders[0])
 
     const allOrders = await conn.execute(
       `SELECT COUNT(*) as count
@@ -261,7 +272,7 @@ const debugAnalytics: ModuleCli = {
        WHERE tenant_id = ?`,
       [tenantId]
     )
-    console.log('\nTotal orders in tenant:', allOrders[0])
+    logger.info('\nTotal orders in tenant:', allOrders[0])
 
     const orgCheck = await conn.execute(
       `SELECT organization_id, COUNT(*) as count
@@ -270,7 +281,7 @@ const debugAnalytics: ModuleCli = {
        GROUP BY organization_id`,
       [tenantId]
     )
-    console.log('\nOrders by organization:', orgCheck)
+    logger.info('\nOrders by organization:', orgCheck)
 
     if (organizationId) {
       const orgOrders = await conn.execute(
@@ -282,7 +293,7 @@ const debugAnalytics: ModuleCli = {
            AND placed_at <= '2026-01-31 23:59:59'`,
         [tenantId, organizationId]
       )
-      console.log(`\nJanuary orders for org ${organizationId}:`, orgOrders[0])
+      logger.info(`\nJanuary orders for org ${organizationId}:`, orgOrders[0])
     }
 
     // Check for NULL placed_at
@@ -292,7 +303,7 @@ const debugAnalytics: ModuleCli = {
        WHERE tenant_id = ? AND placed_at IS NULL`,
       [tenantId]
     )
-    console.log('\nOrders with NULL placed_at:', nullPlacedAt[0])
+    logger.info('\nOrders with NULL placed_at:', nullPlacedAt[0])
 
     // Check non-analytics orders
     const nonAnalytics = await conn.execute(
@@ -302,10 +313,10 @@ const debugAnalytics: ModuleCli = {
        ORDER BY placed_at DESC NULLS LAST LIMIT 10`,
       [tenantId]
     )
-    console.log('\nNon-analytics orders:', nonAnalytics)
+    logger.info('\nNon-analytics orders:', nonAnalytics)
 
     // Simulate widget query
-    console.log('\n--- Simulating widget query for this_month ---')
+    logger.info('\n--- Simulating widget query for this_month ---')
     const widgetQuery = await conn.execute(
       `SELECT COALESCE(SUM(grand_total_gross_amount::numeric), 0) AS value
        FROM sales_orders
@@ -316,7 +327,7 @@ const debugAnalytics: ModuleCli = {
          AND placed_at <= '2026-01-31 23:59:59'`,
       [tenantId, `{${organizationId}}`]
     )
-    console.log('Widget query result (revenue sum):', widgetQuery[0])
+    logger.info('Widget query result (revenue sum):', widgetQuery[0])
 
     const widgetCountQuery = await conn.execute(
       `SELECT COUNT(*) AS value
@@ -328,7 +339,7 @@ const debugAnalytics: ModuleCli = {
          AND placed_at <= '2026-01-31 23:59:59'`,
       [tenantId, `{${organizationId}}`]
     )
-    console.log('Widget query result (order count):', widgetCountQuery[0])
+    logger.info('Widget query result (order count):', widgetCountQuery[0])
   },
 }
 

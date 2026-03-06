@@ -1,28 +1,41 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
+const logger = cliLogger.forModule('core')
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+const logger = cliLogger.forModule('core')
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+const logger = cliLogger.forModule('core')
 
 type ProgressBarHandle = {
+const logger = cliLogger.forModule('core')
   update(completed: number): void
   complete(): void
 }
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+const logger = cliLogger.forModule('core')
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+const logger = cliLogger.forModule('core')
 import { upsertIndexBatch, type AnyRow } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+const logger = cliLogger.forModule('core')
 import { purgeIndexScope } from './lib/purge'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
+const logger = cliLogger.forModule('core')
 import type { VectorIndexService } from '@open-mercato/search/vector'
 
 type ParsedArgs = Record<string, string | boolean>
+const logger = cliLogger.forModule('core')
 
 type PartitionProgressInfo = { processed: number; total: number }
+const logger = cliLogger.forModule('core')
 
 function isIndexerVerbose(): boolean {
   const parsed = parseBooleanToken(process.env.OM_INDEXER_VERBOSE ?? '')
@@ -138,8 +151,10 @@ function toNonNegativeInt(value: number | undefined, fallback = 0): number {
 }
 
 const DEFAULT_BATCH_SIZE = 200
+const logger = cliLogger.forModule('core')
 
 type RebuildExecutionOptions = {
+const logger = cliLogger.forModule('core')
   em: EntityManager
   knex: Knex
   entityType: string
@@ -159,6 +174,7 @@ type RebuildExecutionOptions = {
 }
 
 type RebuildResult = {
+const logger = cliLogger.forModule('core')
   processed: number
   matched: number
 }
@@ -294,6 +310,7 @@ async function getColumnSet(knex: Knex, tableName: string): Promise<Set<string>>
 }
 
 type ScopeDescriptor = {
+const logger = cliLogger.forModule('core')
   global: boolean
   orgId?: string
   tenantId?: string
@@ -313,12 +330,13 @@ function describeScope(scope: ScopeDescriptor): string {
 }
 
 const rebuild: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'rebuild',
   async run(rest) {
     const args = parseArgs(rest)
     const entity = stringOption(args, 'entity', 'e')
     if (!entity) {
-      console.error(
+      logger.error(
         'Usage: mercato query_index rebuild --entity <module:entity> [--record <id>] [--org <id>] [--tenant <id>] [--global] [--withDeleted] [--limit <n>] [--offset <n>]',
       )
       return
@@ -344,13 +362,13 @@ const rebuild: ModuleCli = {
       const supportsDeleted = columns.has('deleted_at')
 
       if (!globalFlag && orgId && !supportsOrg) {
-        console.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
+        logger.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
       }
       if (!globalFlag && tenantId && !supportsTenant) {
-        console.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
+        logger.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
       }
       if (!includeDeleted && !supportsDeleted) {
-        console.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
+        logger.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
       }
 
       const result = await rebuildEntityIndexes({
@@ -374,9 +392,9 @@ const rebuild: ModuleCli = {
 
       if (recordId) {
         if (result.processed === 0) {
-          console.log(`No matching row found for ${entity} with id ${recordId}`)
+          logger.info(`No matching row found for ${entity} with id ${recordId}`)
         } else {
-          console.log(`Rebuilt index for ${entity} record ${recordId}`)
+          logger.info(`Rebuilt index for ${entity} record ${recordId}`)
         }
         return
       }
@@ -392,11 +410,11 @@ const rebuild: ModuleCli = {
       })
 
       if (result.matched === 0) {
-        console.log(`No rows matched filters for ${entity}${scopeLabel}`)
+        logger.info(`No rows matched filters for ${entity}${scopeLabel}`)
         return
       }
 
-      console.log(`Rebuilt ${result.processed} row(s) for ${entity}${scopeLabel}`)
+      logger.info(`Rebuilt ${result.processed} row(s) for ${entity}${scopeLabel}`)
     } catch (error) {
       await recordIndexerError(
         { em },
@@ -421,6 +439,7 @@ const rebuild: ModuleCli = {
 }
 
 const rebuildAll: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'rebuild-all',
   async run(rest) {
     const args = parseArgs(rest)
@@ -433,7 +452,7 @@ const rebuildAll: ModuleCli = {
     const batchSize = toPositiveInt(numberOption(args, 'batch', 'chunk', 'size')) ?? DEFAULT_BATCH_SIZE
     const recordId = stringOption(args, 'record', 'recordId', 'id')
     if (recordId) {
-      console.error('`rebuild-all` does not support --record. Use `mercato query_index rebuild --record <id>` instead.')
+      logger.error('`rebuild-all` does not support --record. Use `mercato query_index rebuild --record <id>` instead.')
       return
     }
 
@@ -445,7 +464,7 @@ const rebuildAll: ModuleCli = {
       const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
       const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       if (!entityIds.length) {
-        console.log('No entity definitions registered for query indexing.')
+        logger.info('No entity definitions registered for query indexing.')
         return
       }
 
@@ -459,13 +478,13 @@ const rebuildAll: ModuleCli = {
         const supportsDeleted = columns.has('deleted_at')
 
         if (!globalFlag && orgId && !supportsOrg) {
-          console.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
+          logger.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
         }
         if (!globalFlag && tenantId && !supportsTenant) {
-          console.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
+          logger.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
         }
         if (!includeDeleted && !supportsDeleted) {
-          console.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
+          logger.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
         }
 
         const scopeLabel = describeScope({
@@ -478,7 +497,7 @@ const rebuildAll: ModuleCli = {
           supportsDeleted,
         })
 
-        console.log(`[${idx + 1}/${entityIds.length}] Rebuilding ${entity}${scopeLabel}`)
+        logger.info(`[${idx + 1}/${entityIds.length}] Rebuilding ${entity}${scopeLabel}`)
         const result = await rebuildEntityIndexes({
           em,
           knex,
@@ -497,13 +516,13 @@ const rebuildAll: ModuleCli = {
         })
         totalProcessed += result.processed
         if (result.matched === 0) {
-          console.log('  -> no rows matched filters')
+          logger.info('  -> no rows matched filters')
         } else {
-          console.log(`  -> processed ${result.processed} row(s)`)
+          logger.info(`  -> processed ${result.processed} row(s)`)
         }
       }
 
-      console.log(`Finished rebuilding all query indexes (processed ${totalProcessed} row(s))`)
+      logger.info(`Finished rebuilding all query indexes (processed ${totalProcessed} row(s))`)
     } catch (error) {
       await recordIndexerError(
         { em },
@@ -526,6 +545,7 @@ const rebuildAll: ModuleCli = {
 }
 
 const reindex: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'reindex',
   async run(rest) {
     const args = parseArgs(rest)
@@ -550,7 +570,7 @@ const reindex: ModuleCli = {
     )
 
     if (partitionIndexOption !== undefined && partitionIndexOption >= partitionCount) {
-      console.error(`partitionIndex (${partitionIndexOption}) must be < partitionCount (${partitionCount})`)
+      logger.error(`partitionIndex (${partitionIndexOption}) must be < partitionCount (${partitionCount})`)
       if (typeof (container as any)?.dispose === 'function') {
         await (container as any).dispose()
       }
@@ -590,10 +610,10 @@ const reindex: ModuleCli = {
           },
         ).catch(() => undefined)
         if (!skipPurge) {
-          console.log(`Purging existing index rows for ${entity}...`)
+          logger.info(`Purging existing index rows for ${entity}...`)
           await purgeIndexScope(baseEm, { entityType: entity, organizationId: orgId, tenantId })
         }
-        console.log(`Reindexing ${entity}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`)
+        logger.info(`Reindexing ${entity}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`)
         const verbose = isIndexerVerbose()
         const progressState = verbose ? new Map<number, { last: number }>() : null
         const groupedProgress =
@@ -608,7 +628,7 @@ const reindex: ModuleCli = {
           state.last = now
           progressState.set(part, state)
           const percent = info.total > 0 ? ((info.processed / info.total) * 100).toFixed(2) : '0.00'
-          console.log(
+          logger.info(
             `     [${entityId}] partition ${part + 1}/${partitionCount}: ${info.processed.toLocaleString()} / ${info.total.toLocaleString()} (${percent}%)`,
           )
         }
@@ -617,9 +637,9 @@ const reindex: ModuleCli = {
           partitionTargets.map(async (part, idx) => {
             const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
             if (partitionTargets.length === 1) {
-              console.log(`  -> processing${label}`)
+              logger.info(`  -> processing${label}`)
             } else if (verbose && idx === 0) {
-              console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
+              logger.info(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
             }
             const partitionContainer = await createRequestContainer()
             const partitionEm = partitionContainer.resolve<EntityManager>('em')
@@ -667,7 +687,7 @@ const reindex: ModuleCli = {
               } else if (!useBar) {
                 renderProgress(part, entity, { processed: partitionStats.processed, total: partitionStats.total })
               } else {
-                console.log(
+                logger.info(
                   `     processed ${partitionStats.processed} row(s)${partitionStats.total ? ` (base ${partitionStats.total})` : ''}`,
                 )
               }
@@ -681,7 +701,7 @@ const reindex: ModuleCli = {
         )
         groupedProgress?.complete()
         const totalProcessed = stats.reduce((acc, value) => acc + value, 0)
-        console.log(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        logger.info(`Finished ${entity}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
         await recordIndexerLog(
           { em: baseEm },
           {
@@ -705,7 +725,7 @@ const reindex: ModuleCli = {
       const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
       const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       if (!entityIds.length) {
-        console.log('No entity definitions registered for query indexing.')
+        logger.info('No entity definitions registered for query indexing.')
         return
       }
       for (let idx = 0; idx < entityIds.length; idx += 1) {
@@ -729,10 +749,10 @@ const reindex: ModuleCli = {
           },
         ).catch(() => undefined)
         if (!skipPurge) {
-          console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
+          logger.info(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
           await purgeIndexScope(baseEm, { entityType: id, organizationId: orgId, tenantId })
         }
-        console.log(
+        logger.info(
           `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
         )
         const verbose = isIndexerVerbose()
@@ -749,7 +769,7 @@ const reindex: ModuleCli = {
           state.last = now
           progressState.set(part, state)
           const percent = info.total > 0 ? ((info.processed / info.total) * 100).toFixed(2) : '0.00'
-          console.log(
+          logger.info(
             `     [${entityId}] partition ${part + 1}/${partitionCount}: ${info.processed.toLocaleString()} / ${info.total.toLocaleString()} (${percent}%)`,
           )
         }
@@ -758,9 +778,9 @@ const reindex: ModuleCli = {
           partitionTargets.map(async (part, partitionIdx) => {
             const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
             if (partitionTargets.length === 1) {
-              console.log(`  -> processing${label}`)
+              logger.info(`  -> processing${label}`)
             } else if (verbose && partitionIdx === 0) {
-              console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
+              logger.info(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
             }
             const partitionContainer = await createRequestContainer()
             const partitionEm = partitionContainer.resolve<EntityManager>('em')
@@ -805,7 +825,7 @@ const reindex: ModuleCli = {
               } else if (!useBar) {
                 renderProgress(part, id, { processed: result.processed, total: result.total })
               } else {
-                console.log(
+                logger.info(
                   `     processed ${result.processed} row(s)${result.total ? ` (base ${result.total})` : ''}`,
                 )
               }
@@ -819,7 +839,7 @@ const reindex: ModuleCli = {
         )
         groupedProgress?.complete()
         const totalProcessed = partitionResults.reduce((acc, value) => acc + value, 0)
-        console.log(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+        logger.info(`  -> ${id} complete: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
         await recordIndexerLog(
           { em: baseEm },
           {
@@ -838,7 +858,7 @@ const reindex: ModuleCli = {
           },
         ).catch(() => undefined)
       }
-      console.log(`Finished reindexing ${entityIds.length} entities`)
+      logger.info(`Finished reindexing ${entityIds.length} entities`)
     } catch (error) {
       const targetLabel = entity ?? 'multiple entities'
       await recordIndexerLog(
@@ -885,6 +905,7 @@ const reindex: ModuleCli = {
 }
 
 const purge: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'purge',
   async run(rest) {
     const args = parseArgs(rest)
@@ -921,7 +942,7 @@ const purge: ModuleCli = {
             organizationId: orgId ?? null,
           },
         ).catch(() => undefined)
-        console.log(`Scheduled purge for ${entity}`)
+        logger.info(`Scheduled purge for ${entity}`)
         return
       }
 
@@ -946,7 +967,7 @@ const purge: ModuleCli = {
           },
         ).catch(() => undefined)
       }
-      console.log(`Scheduled purge for ${entityIds.length} entities`)
+      logger.info(`Scheduled purge for ${entityIds.length} entities`)
     } catch (error) {
       await recordIndexerLog(
         { em: em ?? undefined },

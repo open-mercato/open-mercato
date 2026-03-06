@@ -1,7 +1,11 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from './data/entities.js'
+const logger = cliLogger.forModule('core')
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 function parseArgs(rest: string[]): Record<string, string> {
@@ -15,6 +19,7 @@ function parseArgs(rest: string[]): Record<string, string> {
 }
 
 const listCommand: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'list',
   async run(rest) {
     const args = parseArgs(rest)
@@ -46,13 +51,13 @@ const listCommand: ModuleCli = {
     })
 
     if (jobs.length === 0) {
-      console.log('No scheduled jobs found.')
+      logger.info('No scheduled jobs found.')
       return
     }
 
-    console.log(`\nFound ${jobs.length} scheduled job(s):\n`)
-    console.log('ID'.padEnd(38) + 'Name'.padEnd(35) + 'Type'.padEnd(12) + 'Schedule'.padEnd(20) + 'Status'.padEnd(10) + 'Next Run')
-    console.log('-'.repeat(140))
+    logger.info(`\nFound ${jobs.length} scheduled job(s):\n`)
+    logger.info('ID'.padEnd(38) + 'Name'.padEnd(35) + 'Type'.padEnd(12) + 'Schedule'.padEnd(20) + 'Status'.padEnd(10) + 'Next Run')
+    logger.info('-'.repeat(140))
 
     for (const job of jobs) {
       const id = String(job.id).padEnd(38)
@@ -61,14 +66,15 @@ const listCommand: ModuleCli = {
       const schedule = (job.scheduleValue || '').substring(0, 18).padEnd(20)
       const status = (job.isEnabled ? '✓ Enabled' : '✗ Disabled').padEnd(10)
       const nextRun = job.nextRunAt ? new Date(job.nextRunAt).toISOString() : 'N/A'
-      console.log(`${id}${name}${type}${schedule}${status}${nextRun}`)
+      logger.info(`${id}${name}${type}${schedule}${status}${nextRun}`)
     }
 
-    console.log('')
+    logger.info('')
   },
 }
 
 const statusCommand: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'status',
   async run() {
     const { resolve } = await createRequestContainer()
@@ -84,29 +90,30 @@ const statusCommand: ModuleCli = {
 
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
-    console.log('\n📊 Scheduler Status\n')
-    console.log('Strategy:', queueStrategy === 'async' ? 'BullMQ (async)' : 'Local (polling)')
+    logger.info('\n📊 Scheduler Status\n')
+    logger.info('Strategy:', queueStrategy === 'async' ? 'BullMQ (async)' : 'Local (polling)')
     
     if (queueStrategy === 'local') {
       const pollInterval = parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10)
-      console.log('Poll Interval:', `${Math.round(pollInterval / 1000)}s`)
+      logger.info('Poll Interval:', `${Math.round(pollInterval / 1000)}s`)
     }
     
-    console.log('')
-    console.log('Schedules:')
-    console.log(`  Total: ${totalCount}`)
-    console.log(`  Enabled: ${enabledCount}`)
-    console.log(`  Due Now: ${dueCount}`)
-    console.log('')
+    logger.info('')
+    logger.info('Schedules:')
+    logger.info(`  Total: ${totalCount}`)
+    logger.info(`  Enabled: ${enabledCount}`)
+    logger.info(`  Due Now: ${dueCount}`)
+    logger.info('')
   },
 }
 
 const runCommand: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'run',
   async run(rest) {
     const scheduleId = rest[0]
     if (!scheduleId) {
-      console.error('Usage: mercato scheduler run <schedule-id>')
+      logger.error('Usage: mercato scheduler run <schedule-id>')
       return
     }
 
@@ -116,40 +123,41 @@ const runCommand: ModuleCli = {
 
     const job = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
     if (!job) {
-      console.error(`Schedule not found: ${scheduleId}`)
+      logger.error(`Schedule not found: ${scheduleId}`)
       return
     }
 
-    console.log(`\n🚀 Manually triggering schedule: ${job.name}\n`)
-    console.log(`  ID: ${job.id}`)
-    console.log(`  Type: ${job.scheduleType}`)
-    console.log(`  Schedule: ${job.scheduleValue}`)
-    console.log(`  Target: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
-    console.log('')
+    logger.info(`\n🚀 Manually triggering schedule: ${job.name}\n`)
+    logger.info(`  ID: ${job.id}`)
+    logger.info(`  Type: ${job.scheduleType}`)
+    logger.info(`  Schedule: ${job.scheduleValue}`)
+    logger.info(`  Target: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
+    logger.info('')
 
     try {
       // Manually enqueue the job (triggering the scheduler-execution worker)
       const schedulerQueue = queueService.getQueue('scheduler-execution')
       await schedulerQueue.add('execute-schedule', { scheduleId: job.id })
 
-      console.log('✓ Job successfully triggered via scheduler-execution queue')
-      console.log('  The worker will pick it up and enqueue to:', 
+      logger.info('✓ Job successfully triggered via scheduler-execution queue')
+      logger.info('  The worker will pick it up and enqueue to:', 
         job.targetType === 'queue' ? job.targetQueue : job.targetCommand)
-      console.log('✓ Manual trigger completed\n')
+      logger.info('✓ Manual trigger completed\n')
     } catch (error: unknown) {
-      console.error('✗ Failed to trigger job:', error instanceof Error ? error.message : String(error))
+      logger.error('✗ Failed to trigger job:', error instanceof Error ? error.message : String(error))
       process.exit(1)
     }
   },
 }
 
 const startCommand: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'start',
   async run() {
     const { resolve } = await createRequestContainer()
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
-    console.log(`🚀 Starting scheduler (strategy: ${queueStrategy})...\n`)
+    logger.info(`🚀 Starting scheduler (strategy: ${queueStrategy})...\n`)
 
     if (queueStrategy === 'async') {
       // BullMQ strategy: Sync schedules with BullMQ repeatable jobs
@@ -157,22 +165,22 @@ const startCommand: ModuleCli = {
         const bullmqService = resolve('bullmqSchedulerService') as { syncAll(): Promise<void> } | undefined
         
         if (!bullmqService) {
-          console.error('❌ BullMQSchedulerService not available.')
-          console.error('   Set QUEUE_STRATEGY=async and configure REDIS_URL.')
+          logger.error('❌ BullMQSchedulerService not available.')
+          logger.error('   Set QUEUE_STRATEGY=async and configure REDIS_URL.')
           process.exit(1)
         }
 
         // Sync all enabled schedules with BullMQ
         await bullmqService.syncAll()
 
-        console.log('✓ Scheduler sync completed')
-        console.log('')
-        console.log('BullMQ is managing all schedules.')
-        console.log('Start workers to process jobs:')
-        console.log('  yarn mercato worker:start')
-        console.log('')
+        logger.info('✓ Scheduler sync completed')
+        logger.info('')
+        logger.info('BullMQ is managing all schedules.')
+        logger.info('Start workers to process jobs:')
+        logger.info('  yarn mercato worker:start')
+        logger.info('')
       } catch (error: unknown) {
-        console.error('❌ Failed to sync schedules:', error instanceof Error ? error.message : String(error))
+        logger.error('❌ Failed to sync schedules:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     } else {
@@ -181,8 +189,8 @@ const startCommand: ModuleCli = {
         const localService = resolve('localSchedulerService') as { start(): Promise<void>; stop(): Promise<void> } | undefined
         
         if (!localService) {
-          console.error('❌ LocalSchedulerService not available.')
-          console.error('   This should not happen in local mode.')
+          logger.error('❌ LocalSchedulerService not available.')
+          logger.error('   This should not happen in local mode.')
           process.exit(1)
         }
 
@@ -191,17 +199,17 @@ const startCommand: ModuleCli = {
         // Start the local polling engine
         await localService.start()
 
-        console.log('✓ Local scheduler started (polling every', Math.round(pollInterval / 1000), 'seconds)')
-        console.log('Press Ctrl+C to stop.')
-        console.log('')
-        console.log('💡 Tip: For production, use QUEUE_STRATEGY=async with Redis.')
-        console.log('')
+        logger.info('✓ Local scheduler started (polling every', Math.round(pollInterval / 1000), 'seconds)')
+        logger.info('Press Ctrl+C to stop.')
+        logger.info('')
+        logger.info('💡 Tip: For production, use QUEUE_STRATEGY=async with Redis.')
+        logger.info('')
 
         // Keep the process alive and handle graceful shutdown
         const gracefulShutdown = async () => {
-          console.log('\n📛 Shutting down...')
+          logger.info('\n📛 Shutting down...')
           await localService.stop()
-          console.log('✓ Stopped')
+          logger.info('✓ Stopped')
           process.exit(0)
         }
 
@@ -211,7 +219,7 @@ const startCommand: ModuleCli = {
         // Keep process alive
         await new Promise(() => {}) // Never resolves
       } catch (error: unknown) {
-        console.error('❌ Failed to start local scheduler:', error instanceof Error ? error.message : String(error))
+        logger.error('❌ Failed to start local scheduler:', error instanceof Error ? error.message : String(error))
         process.exit(1)
       }
     }

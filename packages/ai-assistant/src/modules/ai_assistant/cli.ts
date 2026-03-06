@@ -1,7 +1,11 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+const logger = cliLogger.forModule('core')
 import { pathToFileURL } from 'node:url'
 
 /**
@@ -38,7 +42,7 @@ async function ensureBootstrap(): Promise<void> {
       bootstrap()
     }
   } catch (error) {
-    console.error('[MCP] Bootstrap failed:', error instanceof Error ? error.message : error)
+    logger.error('[MCP] Bootstrap failed:', error instanceof Error ? error.message : error)
     // Continue - some contexts may not have bootstrap available
   }
 }
@@ -63,6 +67,7 @@ function parseArgs(rest: string[]): Record<string, string | boolean> {
 }
 
 const mcpServe: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'mcp:serve',
   async run(rest) {
     const args = parseArgs(rest)
@@ -74,22 +79,22 @@ const mcpServe: ModuleCli = {
 
     // Either API key or tenant is required
     if (!apiKey && !tenantId) {
-      console.error('Usage: mercato ai_assistant mcp:serve [options]')
-      console.error('')
-      console.error('Authentication (choose one):')
-      console.error('  --api-key <secret>   API key secret for authentication (recommended)')
-      console.error('  --tenant <id>        Tenant ID (for manual context)')
-      console.error('')
-      console.error('Options (with --tenant):')
-      console.error('  --org <id>           Organization ID (optional)')
-      console.error('  --user <id>          User ID for ACL (optional, uses superadmin if not set)')
-      console.error('')
-      console.error('Common options:')
-      console.error('  --debug              Enable debug logging')
-      console.error('')
-      console.error('Examples:')
-      console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
-      console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000')
+      logger.error('Usage: mercato ai_assistant mcp:serve [options]')
+      logger.error('')
+      logger.error('Authentication (choose one):')
+      logger.error('  --api-key <secret>   API key secret for authentication (recommended)')
+      logger.error('  --tenant <id>        Tenant ID (for manual context)')
+      logger.error('')
+      logger.error('Options (with --tenant):')
+      logger.error('  --org <id>           Organization ID (optional)')
+      logger.error('  --user <id>          User ID for ACL (optional, uses superadmin if not set)')
+      logger.error('')
+      logger.error('Common options:')
+      logger.error('  --debug              Enable debug logging')
+      logger.error('')
+      logger.error('Examples:')
+      logger.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
+      logger.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000')
       return
     }
 
@@ -127,8 +132,10 @@ const mcpServe: ModuleCli = {
 }
 
 const MCP_DEFAULT_PORT = 3001
+const logger = cliLogger.forModule('core')
 
 const mcpServeHttp: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'mcp:serve-http',
   async run(rest) {
     const args = parseArgs(rest)
@@ -154,6 +161,7 @@ const mcpServeHttp: ModuleCli = {
 }
 
 const mcpDev: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'mcp:dev',
   async run() {
     await ensureBootstrap()
@@ -163,6 +171,7 @@ const mcpDev: ModuleCli = {
 }
 
 const listTools: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'mcp:list-tools',
   async run(rest) {
     const args = parseArgs(rest)
@@ -179,12 +188,12 @@ const listTools: ModuleCli = {
     const toolNames = registry.listToolNames()
 
     if (toolNames.length === 0) {
-      console.log('\nNo MCP tools registered.')
-      console.log('Tools can be registered by modules using registerMcpTool().\n')
+      logger.info('\nNo MCP tools registered.')
+      logger.info('Tools can be registered by modules using registerMcpTool().\n')
       return
     }
 
-    console.log(`\nRegistered MCP Tools (${toolNames.length}):\n`)
+    logger.info(`\nRegistered MCP Tools (${toolNames.length}):\n`)
 
     // Group tools by module
     const byModule = new Map<string, string[]>()
@@ -200,28 +209,29 @@ const listTools: ModuleCli = {
 
     for (const module of sortedModules) {
       const tools = byModule.get(module)!
-      console.log(`${module} (${tools.length} tools):`)
+      logger.info(`${module} (${tools.length} tools):`)
 
       for (const name of tools.sort()) {
         const tool = registry.getTool(name)
         if (!tool) continue
 
         if (verbose) {
-          console.log(`  ${name}`)
-          console.log(`    ${tool.description}`)
+          logger.info(`  ${name}`)
+          logger.info(`    ${tool.description}`)
           if (tool.requiredFeatures?.length) {
-            console.log(`    Requires: ${tool.requiredFeatures.join(', ')}`)
+            logger.info(`    Requires: ${tool.requiredFeatures.join(', ')}`)
           }
         } else {
-          console.log(`  - ${name}`)
+          logger.info(`  - ${name}`)
         }
       }
-      console.log('')
+      logger.info('')
     }
   },
 }
 
 const entityGraph: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'entity-graph',
   async run(rest) {
     const args = parseArgs(rest)
@@ -236,7 +246,7 @@ const entityGraph: ModuleCli = {
       './lib/entity-graph'
     )
 
-    console.log('[Entity Graph] Extracting from MikroORM metadata...')
+    logger.info('[Entity Graph] Extracting from MikroORM metadata...')
 
     const orm = await getOrm()
     const graph = await extractEntityGraph(orm)
@@ -246,28 +256,28 @@ const entityGraph: ModuleCli = {
 
     if (entity) {
       edges = filterGraphByEntity(graph, entity)
-      console.log(`[Entity Graph] Filtered by entity: ${entity}`)
+      logger.info(`[Entity Graph] Filtered by entity: ${entity}`)
     }
 
     if (module) {
       const filteredGraph = { ...graph, edges }
       edges = filterGraphByModule(filteredGraph, module)
-      console.log(`[Entity Graph] Filtered by module: ${module}`)
+      logger.info(`[Entity Graph] Filtered by module: ${module}`)
     }
 
     const filteredGraph = { ...graph, edges }
 
     if (format === 'json') {
-      console.log(JSON.stringify(filteredGraph, null, 2))
+      logger.info(JSON.stringify(filteredGraph, null, 2))
     } else {
       const triples = formatGraphAsTriples(filteredGraph)
-      console.log('')
+      logger.info('')
       for (const triple of triples) {
-        console.log(triple)
+        logger.info(triple)
       }
     }
 
-    console.log(`\n[Entity Graph] ${graph.nodes.length} entities, ${edges.length} relationships`)
+    logger.info(`\n[Entity Graph] ${graph.nodes.length} entities, ${edges.length} relationships`)
   },
 }
 

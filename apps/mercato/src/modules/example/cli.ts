@@ -6,6 +6,7 @@ import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/ent
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '@/.mercato/generated/entities.ids.generated'
 import type { CacheStrategy } from '@open-mercato/cache/types'
+import { parseCliArgs, cliLogger, buildUsage } from '@open-mercato/cli/lib/helpers'
 
 type TodoSeed = {
   title: string
@@ -85,28 +86,13 @@ type TodoSeedArgs = {
   tenantId: string
 }
 
-function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]
-    if (!a) continue
-    if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=')
-      if (v !== undefined) args[k] = v
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
-      else args[k] = true
-    }
-  }
-  return args
-}
+const logger = cliLogger.forModule('example')
 
 export async function seedExampleTodos(
   em: EntityManager,
   container: AppContainer,
   { organizationId, tenantId }: TodoSeedArgs,
-  options: { logger?: (message: string) => void } = {},
 ): Promise<boolean> {
-  const logger = options.logger ?? (() => {})
   const entityId = E.example.todo
 
   let cache: CacheStrategy | null = null
@@ -120,12 +106,12 @@ export async function seedExampleTodos(
     tenantIds: [tenantId],
     includeGlobal: false,
     dryRun: false,
-    logger,
+    logger: (message: string) => logger.debug(message),
   })
 
   const existing = await em.count(Todo, { organizationId, tenantId })
   if (existing > 0) {
-    logger(`📝 Example todos already seeded for org=${organizationId}, tenant=${tenantId}; skipping`)
+    logger.info(`📝 Example todos already seeded for org=${organizationId}, tenant=${tenantId}; skipping`)
     return false
   }
 
@@ -163,36 +149,54 @@ export async function seedExampleTodos(
     })
   }
 
-  logger(`Seeded ${todos.length} todos with custom fields for org=${organizationId}, tenant=${tenantId}`)
+  logger.success(`Seeded ${todos.length} todos with custom fields for org=${organizationId}, tenant=${tenantId}`)
   return true
 }
 
 const hello: ModuleCli = {
   command: 'hello',
-  async run() { console.log('Hello from example module!') },
+  async run() {
+    logger.success('Hello from example module!')
+  },
 }
-
 
 const seedTodos: ModuleCli = {
   command: 'seed-todos',
   async run(rest) {
-    const args = parseArgs(rest)
-    const orgIdArg = args.org || args.organizationId
-    const tenantIdArg = args.tenant || args.tenantId
-    if (!orgIdArg) {
-      console.error('Usage: mercato example seed-todos --org <organizationId> --tenant <tenantId>')
-      return
-    }
-    if (!tenantIdArg) {
-      console.error('Usage: mercato example seed-todos --org <organizationId> --tenant <tenantId>')
-      return
-    }
-    const orgId = orgIdArg as string
-    const tenantId = tenantIdArg as string
-    const container = await createRequestContainer()
-    const em = (container.resolve('em') as EntityManager)
+    const { args, missing } = parseCliArgs(rest, {
+      string: ['org', 'organizationId', 'tenant', 'tenantId'],
+      alias: { o: 'org', t: 'tenant' },
+      required: ['org', 'tenant'],
+    })
 
-    await seedExampleTodos(em, container, { organizationId: orgId, tenantId }, { logger: (message) => console.log(message) })
+    if (missing.length > 0) {
+      logger.error(`Missing required arguments: ${missing.map(m => `--${m}`).join(', ')}`)
+      logger.info(`Usage: ${buildUsage('mercato example seed-todos', {
+        required: ['org', 'tenant'],
+        alias: { o: 'org', t: 'tenant' }
+      })}`)
+      return
+    }
+
+    const orgId = (args.org || args.organizationId) as string
+    const tenantId = (args.tenant || args.tenantId) as string
+    
+    const spinner = logger.spinner('Seeding example todos...')
+    
+    try {
+      const container = await createRequestContainer()
+      const em = (container.resolve('em') as EntityManager)
+
+      const success = await seedExampleTodos(em, container, { organizationId: orgId, tenantId })
+      
+      if (success) {
+        spinner.stop('Successfully seeded example todos!')
+      } else {
+        spinner.stop('Example todos already exist, skipping.')
+      }
+    } catch (error) {
+      spinner.fail(`Failed to seed todos: ${error instanceof Error ? error.message : String(error)}`)
+    }
   },
 }
 

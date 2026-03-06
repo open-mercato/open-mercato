@@ -1,10 +1,15 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment } from './data/entities'
+const logger = cliLogger.forModule('core')
 import { deletePartitionFile } from './lib/storage'
 
 type ParsedArgs = Record<string, string | boolean>
+const logger = cliLogger.forModule('core')
 
 function parseArgs(rest: string[]): ParsedArgs {
   const args: ParsedArgs = {}
@@ -38,6 +43,7 @@ function coerceIdList(value?: string | boolean): string[] {
 }
 
 const deleteAttachments: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'delete',
   async run(rest) {
     const args = parseArgs(rest)
@@ -46,7 +52,7 @@ const deleteAttachments: ModuleCli = {
     coerceIdList(args.ids).forEach((id) => ids.add(id))
 
     if (ids.size === 0) {
-      console.error('Usage: mercato attachments delete --id <attachmentId> [--ids id1,id2] [--org <organizationId>] [--tenant <tenantId>]')
+      logger.error('Usage: mercato attachments delete --id <attachmentId> [--ids id1,id2] [--org <organizationId>] [--tenant <tenantId>]')
       return
     }
     const organizationId =
@@ -71,7 +77,7 @@ const deleteAttachments: ModuleCli = {
       if (tenantId) where.tenantId = tenantId
       const attachments = await em.find(Attachment, where)
       if (!attachments.length) {
-        console.log('No attachments matched the provided filters.')
+        logger.info('No attachments matched the provided filters.')
         return
       }
       const removedIds = new Set<string>()
@@ -79,15 +85,15 @@ const deleteAttachments: ModuleCli = {
         await deletePartitionFile(entry.partitionCode, entry.storagePath, entry.storageDriver)
         em.remove(entry)
         removedIds.add(entry.id)
-        console.log(`Deleted attachment ${entry.id}${entry.fileName ? ` (${entry.fileName})` : ''}`)
+        logger.info(`Deleted attachment ${entry.id}${entry.fileName ? ` (${entry.fileName})` : ''}`)
       }
       await em.flush()
       const missing = idList.filter((id) => !removedIds.has(id))
       if (missing.length > 0) {
-        console.log(`Not found: ${missing.join(', ')}`)
+        logger.info(`Not found: ${missing.join(', ')}`)
       }
     } catch (err) {
-      console.error('[attachments] delete command failed:', err)
+      logger.error('[attachments] delete command failed:', err)
     }
   },
 }

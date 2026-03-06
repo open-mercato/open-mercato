@@ -1,28 +1,41 @@
+import { cliLogger } from '@open-mercato/cli/lib/helpers'
+const logger = cliLogger.forModule('core')
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+const logger = cliLogger.forModule('core')
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+const logger = cliLogger.forModule('core')
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
+const logger = cliLogger.forModule('core')
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from '@open-mercato/core/modules/query_index/lib/reindexer'
+const logger = cliLogger.forModule('core')
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import type { SearchService } from '../../service'
+const logger = cliLogger.forModule('core')
 import type { SearchIndexer } from '../../indexer/search-indexer'
 import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../queue/vector-indexing'
+const logger = cliLogger.forModule('core')
 import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
+const logger = cliLogger.forModule('core')
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+const logger = cliLogger.forModule('core')
 
 type CliProgressBar = {
+const logger = cliLogger.forModule('core')
   update(completed: number): void
   complete(): void
 }
 
 type ParsedArgs = Record<string, string | boolean>
+const logger = cliLogger.forModule('core')
 
 type PartitionProgressInfo = { processed: number; total: number }
+const logger = cliLogger.forModule('core')
 
 function isIndexerVerbose(): boolean {
   const parsed = parseBooleanToken(process.env.OM_INDEXER_VERBOSE ?? '')
@@ -150,18 +163,18 @@ async function searchCommand(rest: string[]): Promise<void> {
   const limit = numberOpt(args, 'limit') ?? 20
 
   if (!query) {
-    console.error('Usage: yarn mercato search query --query "search terms" --tenant <id> [options]')
-    console.error('  --query, -q       Search query (required)')
-    console.error('  --tenant          Tenant ID (required)')
-    console.error('  --org             Organization ID (optional)')
-    console.error('  --entity          Entity types to search (comma-separated)')
-    console.error('  --strategy        Strategies to use (comma-separated: meilisearch,vector,tokens)')
-    console.error('  --limit           Max results (default: 20)')
+    logger.error('Usage: yarn mercato search query --query "search terms" --tenant <id> [options]')
+    logger.error('  --query, -q       Search query (required)')
+    logger.error('  --tenant          Tenant ID (required)')
+    logger.error('  --org             Organization ID (optional)')
+    logger.error('  --entity          Entity types to search (comma-separated)')
+    logger.error('  --strategy        Strategies to use (comma-separated: meilisearch,vector,tokens)')
+    logger.error('  --limit           Max results (default: 20)')
     return
   }
 
   if (!tenantId) {
-    console.error('Error: --tenant is required')
+    logger.error('Error: --tenant is required')
     return
   }
 
@@ -171,14 +184,14 @@ async function searchCommand(rest: string[]): Promise<void> {
     const searchService = container.resolve('searchService') as SearchService | undefined
 
     if (!searchService) {
-      console.error('Error: SearchService not available. Make sure the search module is registered.')
+      logger.error('Error: SearchService not available. Make sure the search module is registered.')
       return
     }
 
-    console.log(`\nSearching for: "${query}"`)
-    console.log(`Tenant: ${tenantId}`)
-    if (organizationId) console.log(`Organization: ${organizationId}`)
-    console.log('---')
+    logger.info(`\nSearching for: "${query}"`)
+    logger.info(`Tenant: ${tenantId}`)
+    if (organizationId) logger.info(`Organization: ${organizationId}`)
+    logger.info('---')
 
     const results = await searchService.search(query, {
       tenantId,
@@ -189,23 +202,23 @@ async function searchCommand(rest: string[]): Promise<void> {
     })
 
     if (results.length === 0) {
-      console.log('No results found.')
+      logger.info('No results found.')
       return
     }
 
-    console.log(`\nFound ${results.length} result(s):\n`)
+    logger.info(`\nFound ${results.length} result(s):\n`)
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i]
-      console.log(`${i + 1}. [${result.source}] ${result.entityId}`)
-      console.log(`   Record ID: ${result.recordId}`)
-      console.log(`   Score: ${result.score.toFixed(4)}`)
+      logger.info(`${i + 1}. [${result.source}] ${result.entityId}`)
+      logger.info(`   Record ID: ${result.recordId}`)
+      logger.info(`   Score: ${result.score.toFixed(4)}`)
       if (result.presenter) {
-        console.log(`   Title: ${result.presenter.title}`)
-        if (result.presenter.subtitle) console.log(`   Subtitle: ${result.presenter.subtitle}`)
+        logger.info(`   Title: ${result.presenter.title}`)
+        if (result.presenter.subtitle) logger.info(`   Subtitle: ${result.presenter.subtitle}`)
       }
-      if (result.url) console.log(`   URL: ${result.url}`)
-      console.log('')
+      if (result.url) logger.info(`   URL: ${result.url}`)
+      logger.info('')
     }
   } finally {
     try {
@@ -225,42 +238,42 @@ async function statusCommand(): Promise<void> {
     const searchService = container.resolve('searchService') as SearchService | undefined
     const strategies = container.resolve('searchStrategies') as any[] | undefined
 
-    console.log('\n=== Search Module Status ===\n')
+    logger.info('\n=== Search Module Status ===\n')
 
     if (!searchService) {
-      console.log('SearchService: NOT REGISTERED')
+      logger.info('SearchService: NOT REGISTERED')
       return
     }
 
-    console.log('SearchService: ACTIVE')
-    console.log('')
+    logger.info('SearchService: ACTIVE')
+    logger.info('')
 
     if (!strategies || strategies.length === 0) {
-      console.log('Strategies: NONE CONFIGURED')
+      logger.info('Strategies: NONE CONFIGURED')
       return
     }
 
-    console.log('Strategies:')
-    console.log('-----------')
+    logger.info('Strategies:')
+    logger.info('-----------')
 
     for (const strategy of strategies) {
       const available = await strategy.isAvailable?.() ?? true
       const status = available ? 'AVAILABLE' : 'UNAVAILABLE'
       const icon = available ? '✓' : '✗'
-      console.log(`  ${icon} ${strategy.name ?? strategy.id} (${strategy.id})`)
-      console.log(`    Status: ${status}`)
-      console.log(`    Priority: ${strategy.priority ?? 'N/A'}`)
-      console.log('')
+      logger.info(`  ${icon} ${strategy.name ?? strategy.id} (${strategy.id})`)
+      logger.info(`    Status: ${status}`)
+      logger.info(`    Priority: ${strategy.priority ?? 'N/A'}`)
+      logger.info('')
     }
 
     // Check environment variables
-    console.log('Environment:')
-    console.log('------------')
-    console.log(`  MEILISEARCH_HOST: ${process.env.MEILISEARCH_HOST ?? '(not set)'}`)
-    console.log(`  MEILISEARCH_API_KEY: ${process.env.MEILISEARCH_API_KEY ? '(set)' : '(not set)'}`)
-    console.log(`  OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? '(set)' : '(not set)'}`)
-    console.log(`  OM_SEARCH_ENABLED: ${process.env.OM_SEARCH_ENABLED ?? 'true (default)'}`)
-    console.log('')
+    logger.info('Environment:')
+    logger.info('------------')
+    logger.info(`  MEILISEARCH_HOST: ${process.env.MEILISEARCH_HOST ?? '(not set)'}`)
+    logger.info(`  MEILISEARCH_API_KEY: ${process.env.MEILISEARCH_API_KEY ? '(set)' : '(not set)'}`)
+    logger.info(`  OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? '(set)' : '(not set)'}`)
+    logger.info(`  OM_SEARCH_ENABLED: ${process.env.OM_SEARCH_ENABLED ?? 'true (default)'}`)
+    logger.info('')
   } finally {
     try {
       const em = container.resolve('em') as any
@@ -280,11 +293,11 @@ async function indexCommand(rest: string[]): Promise<void> {
   const organizationId = stringOpt(args, 'org', 'organizationId')
 
   if (!entityId || !recordId || !tenantId) {
-    console.error('Usage: yarn mercato search index --entity <entityId> --record <recordId> --tenant <tenantId>')
-    console.error('  --entity          Entity ID (e.g., customers:customer_person_profile)')
-    console.error('  --record          Record ID')
-    console.error('  --tenant          Tenant ID')
-    console.error('  --org             Organization ID (optional)')
+    logger.error('Usage: yarn mercato search index --entity <entityId> --record <recordId> --tenant <tenantId>')
+    logger.error('  --entity          Entity ID (e.g., customers:customer_person_profile)')
+    logger.error('  --record          Record ID')
+    logger.error('  --tenant          Tenant ID')
+    logger.error('  --org             Organization ID (optional)')
     return
   }
 
@@ -294,14 +307,14 @@ async function indexCommand(rest: string[]): Promise<void> {
     const searchIndexer = container.resolve('searchIndexer') as SearchIndexer | undefined
 
     if (!searchIndexer) {
-      console.error('Error: SearchIndexer not available.')
+      logger.error('Error: SearchIndexer not available.')
       return
     }
 
     // Load record from query engine
     const queryEngine = container.resolve('queryEngine') as any
 
-    console.log(`\nLoading record: ${entityId} / ${recordId}`)
+    logger.info(`\nLoading record: ${entityId} / ${recordId}`)
 
     const result = await queryEngine.query(entityId, {
       tenantId,
@@ -314,11 +327,11 @@ async function indexCommand(rest: string[]): Promise<void> {
     const record = result.items[0]
 
     if (!record) {
-      console.error('Error: Record not found')
+      logger.error('Error: Record not found')
       return
     }
 
-    console.log('Record loaded, indexing...')
+    logger.info('Record loaded, indexing...')
 
     // Extract custom fields
     const customFields: Record<string, unknown> = {}
@@ -338,7 +351,7 @@ async function indexCommand(rest: string[]): Promise<void> {
       customFields,
     })
 
-    console.log('Record indexed successfully!')
+    logger.info('Record indexed successfully!')
   } finally {
     try {
       const em = container.resolve('em') as any
@@ -354,46 +367,47 @@ async function testMeilisearchCommand(): Promise<void> {
   const host = process.env.MEILISEARCH_HOST
   const apiKey = process.env.MEILISEARCH_API_KEY
 
-  console.log('\n=== Meilisearch Connection Test ===\n')
+  logger.info('\n=== Meilisearch Connection Test ===\n')
 
   if (!host) {
-    console.log('MEILISEARCH_HOST: NOT SET')
-    console.log('\nMeilisearch is not configured. Set MEILISEARCH_HOST in your .env file.')
+    logger.info('MEILISEARCH_HOST: NOT SET')
+    logger.info('\nMeilisearch is not configured. Set MEILISEARCH_HOST in your .env file.')
     return
   }
 
-  console.log(`Host: ${host}`)
-  console.log(`API Key: ${apiKey ? '(configured)' : '(not set)'}`)
-  console.log('')
+  logger.info(`Host: ${host}`)
+  logger.info(`API Key: ${apiKey ? '(configured)' : '(not set)'}`)
+  logger.info('')
 
   try {
     const { MeiliSearch } = await import('meilisearch')
     const client = new MeiliSearch({ host, apiKey })
 
-    console.log('Testing connection...')
+    logger.info('Testing connection...')
     const health = await client.health()
-    console.log(`Health: ${health.status}`)
+    logger.info(`Health: ${health.status}`)
 
-    console.log('\nListing indexes...')
+    logger.info('\nListing indexes...')
     const indexes = await client.getIndexes()
 
     if (indexes.results.length === 0) {
-      console.log('No indexes found.')
+      logger.info('No indexes found.')
     } else {
-      console.log(`Found ${indexes.results.length} index(es):`)
+      logger.info(`Found ${indexes.results.length} index(es):`)
       for (const index of indexes.results) {
         const stats = await client.index(index.uid).getStats()
-        console.log(`  - ${index.uid}: ${stats.numberOfDocuments} documents`)
+        logger.info(`  - ${index.uid}: ${stats.numberOfDocuments} documents`)
       }
     }
 
-    console.log('\nMeilisearch connection successful!')
+    logger.info('\nMeilisearch connection successful!')
   } catch (error) {
-    console.error('Connection failed:', error instanceof Error ? error.message : error)
+    logger.error('Connection failed:', error instanceof Error ? error.message : error)
   }
 }
 
 const searchCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'query',
   async run(rest) {
     await searchCommand(rest)
@@ -401,6 +415,7 @@ const searchCli: ModuleCli = {
 }
 
 const statusCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'status',
   async run() {
     await statusCommand()
@@ -408,6 +423,7 @@ const statusCli: ModuleCli = {
 }
 
 const indexCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'index',
   async run(rest) {
     await indexCommand(rest)
@@ -415,6 +431,7 @@ const indexCli: ModuleCli = {
 }
 
 const testMeilisearchCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'test-meilisearch',
   async run() {
     await testMeilisearchCommand()
@@ -446,7 +463,7 @@ async function resetVectorCoverageAfterPurge(
       )
     }
   } catch (error) {
-    console.warn('[search.cli] Failed to reset vector coverage after purge', error instanceof Error ? error.message : error)
+    logger.warn('[search.cli] Failed to reset vector coverage after purge', error instanceof Error ? error.message : error)
   }
 }
 
@@ -530,12 +547,12 @@ async function reindexCommand(rest: string[]): Promise<void> {
       }
     })()
     if (!baseEventBus) {
-      console.warn('[search.cli] eventBus unavailable; vector embeddings may not be refreshed. Run bootstrap or ensure event bus configuration.')
+      logger.warn('[search.cli] eventBus unavailable; vector embeddings may not be refreshed. Run bootstrap or ensure event bus configuration.')
     }
 
     const partitionCount = Math.max(1, partitionsOption ?? DEFAULT_REINDEX_PARTITIONS)
     if (partitionIndexOption !== undefined && partitionIndexOption >= partitionCount) {
-      console.error(`partitionIndex (${partitionIndexOption}) must be < partitionCount (${partitionCount})`)
+      logger.error(`partitionIndex (${partitionIndexOption}) must be < partitionCount (${partitionCount})`)
       return
     }
     const partitionTargets =
@@ -554,7 +571,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
       const scopeLabel = tenantId
         ? `tenant=${tenantId}${organizationId ? `, org=${organizationId}` : ''}`
         : 'all tenants'
-      console.log(`Reindexing vectors for ${entityType} (${scopeLabel})${purgeFirst ? ' [purge]' : ''}`)
+      logger.info(`Reindexing vectors for ${entityType} (${scopeLabel})${purgeFirst ? ' [purge]' : ''}`)
       await recordIndexerLog(
         { em: baseEm ?? undefined },
         {
@@ -576,7 +593,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
       if (purgeFirst && tenantId) {
         try {
-          console.log('  -> purging existing vector index rows...')
+          logger.info('  -> purging existing vector index rows...')
           await searchIndexer.purgeEntity({ entityId: entityType as EntityId, tenantId })
           await resetVectorCoverageAfterPurge(baseEm, entityType, tenantId ?? null, organizationId ?? null)
           if (baseEventBus) {
@@ -601,10 +618,10 @@ async function reindexCommand(rest: string[]): Promise<void> {
             )
           }
         } catch (err) {
-          console.warn('  -> purge failed, continuing with reindex', err instanceof Error ? err.message : err)
+          logger.warn('  -> purge failed, continuing with reindex', err instanceof Error ? err.message : err)
         }
       } else if (purgeFirst && !tenantId) {
-        console.warn('  -> skipping purge: tenant scope not provided')
+        logger.warn('  -> skipping purge: tenant scope not provided')
       }
 
       const verbose = isIndexerVerbose()
@@ -621,7 +638,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
         state.last = now
         progressState.set(part, state)
         const percent = info.total > 0 ? ((info.processed / info.total) * 100).toFixed(2) : '0.00'
-        console.log(
+        logger.info(
           `     [${entityType}] partition ${part + 1}/${partitionCount}: ${info.processed.toLocaleString()} / ${info.total.toLocaleString()} (${percent}%)`,
         )
       }
@@ -630,9 +647,9 @@ async function reindexCommand(rest: string[]): Promise<void> {
         partitionTargets.map(async (part, idx) => {
           const label = partitionTargets.length > 1 ? ` [partition ${part + 1}/${partitionCount}]` : ''
           if (partitionTargets.length === 1) {
-            console.log(`  -> processing${label}`)
+            logger.info(`  -> processing${label}`)
           } else if (verbose && idx === 0) {
-            console.log(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
+            logger.info(`  -> processing partitions in parallel (count=${partitionTargets.length})`)
           }
 
           const partitionContainer = await createRequestContainer()
@@ -670,7 +687,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
             } else if (!useBar) {
               renderProgress(part, { processed: stats.processed, total: stats.total })
             } else {
-              console.log(
+              logger.info(
                 `     processed ${stats.processed} row(s)${stats.total ? ` (base ${stats.total})` : ''}`,
               )
             }
@@ -685,7 +702,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
       groupedProgress?.complete()
       const totalProcessed = processed.reduce((acc, value) => acc + value, 0)
-      console.log(`Finished ${entityType}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
+      logger.info(`Finished ${entityType}: processed ${totalProcessed} row(s) across ${partitionTargets.length} partition(s)`)
       await recordIndexerLog(
         { em: baseEm ?? undefined },
         {
@@ -711,31 +728,31 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
     if (entityId) {
       if (!enabledEntities.has(entityId)) {
-        console.error(`Entity ${entityId} is not enabled for vector search.`)
+        logger.error(`Entity ${entityId} is not enabled for vector search.`)
         return
       }
       const purgeFirst = defaultPurge
       await runReindex(entityId, purgeFirst)
-      console.log('Vector reindex completed.')
+      logger.info('Vector reindex completed.')
       return
     }
 
     const entityIds = searchIndexer.listEnabledEntities()
     if (!entityIds.length) {
-      console.log('No entities enabled for vector search.')
+      logger.info('No entities enabled for vector search.')
       return
     }
-    console.log(`Reindexing ${entityIds.length} vector-enabled entities...`)
+    logger.info(`Reindexing ${entityIds.length} vector-enabled entities...`)
     let processedOverall = 0
     for (let idx = 0; idx < entityIds.length; idx += 1) {
       const id = entityIds[idx]!
-      console.log(`[${idx + 1}/${entityIds.length}] Preparing ${id}...`)
+      logger.info(`[${idx + 1}/${entityIds.length}] Preparing ${id}...`)
       processedOverall += await runReindex(id, defaultPurge)
     }
-    console.log(`Vector reindex completed. Total processed rows: ${processedOverall.toLocaleString()}`)
+    logger.info(`Vector reindex completed. Total processed rows: ${processedOverall.toLocaleString()}`)
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
-    console.error('[search.cli] Reindex failed:', err.stack ?? err.message)
+    logger.error('[search.cli] Reindex failed:', err.stack ?? err.message)
     await recordError(err)
     throw err
   } finally {
@@ -744,6 +761,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
 }
 
 const reindexCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'reindex',
   async run(rest) {
     await reindexCommand(rest)
@@ -751,19 +769,20 @@ const reindexCli: ModuleCli = {
 }
 
 const reindexHelpCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'reindex-help',
   async run() {
-    console.log('Usage: yarn mercato search reindex [options]')
-    console.log('  --tenant <id>           Optional tenant scope (required for purge & coverage).')
-    console.log('  --org <id>              Optional organization scope (requires tenant).')
-    console.log('  --entity <module:entity> Reindex a single entity (defaults to all enabled entities).')
-    console.log('  --partitions <n>        Number of partitions to process in parallel (default from query index).')
-    console.log('  --partition <idx>       Restrict to a specific partition index.')
-    console.log('  --batch <n>             Override batch size per chunk.')
-    console.log('  --force                 Force reindex even if another job is running.')
-    console.log('  --purgeFirst            Purge vector rows before reindexing (defaults to skip).')
-    console.log('  --skipPurge             Explicitly skip purging vector rows.')
-    console.log('  --skipResetCoverage     Keep existing coverage snapshots.')
+    logger.info('Usage: yarn mercato search reindex [options]')
+    logger.info('  --tenant <id>           Optional tenant scope (required for purge & coverage).')
+    logger.info('  --org <id>              Optional organization scope (requires tenant).')
+    logger.info('  --entity <module:entity> Reindex a single entity (defaults to all enabled entities).')
+    logger.info('  --partitions <n>        Number of partitions to process in parallel (default from query index).')
+    logger.info('  --partition <idx>       Restrict to a specific partition index.')
+    logger.info('  --batch <n>             Override batch size per chunk.')
+    logger.info('  --force                 Force reindex even if another job is running.')
+    logger.info('  --purgeFirst            Purge vector rows before reindexing (defaults to skip).')
+    logger.info('  --skipPurge             Explicitly skip purging vector rows.')
+    logger.info('  --skipResetCoverage     Keep existing coverage snapshots.')
   },
 }
 
@@ -778,23 +797,23 @@ async function workerCommand(rest: string[]): Promise<void> {
   const validQueues = [VECTOR_INDEXING_QUEUE_NAME, FULLTEXT_INDEXING_QUEUE_NAME]
 
   if (!queueName || !validQueues.includes(queueName)) {
-    console.error('\nUsage: yarn mercato search worker <queue-name> [options]\n')
-    console.error('Available queues:')
-    console.error(`  ${VECTOR_INDEXING_QUEUE_NAME}        Process vector embedding indexing jobs`)
-    console.error(`  ${FULLTEXT_INDEXING_QUEUE_NAME}   Process fulltext indexing jobs`)
-    console.error('\nOptions:')
-    console.error('  --concurrency <n>   Number of concurrent jobs to process (default: 1)')
-    console.error('\nExamples:')
-    console.error(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
-    console.error(`  yarn mercato search worker ${FULLTEXT_INDEXING_QUEUE_NAME} --concurrency=5`)
+    logger.error('\nUsage: yarn mercato search worker <queue-name> [options]\n')
+    logger.error('Available queues:')
+    logger.error(`  ${VECTOR_INDEXING_QUEUE_NAME}        Process vector embedding indexing jobs`)
+    logger.error(`  ${FULLTEXT_INDEXING_QUEUE_NAME}   Process fulltext indexing jobs`)
+    logger.error('\nOptions:')
+    logger.error('  --concurrency <n>   Number of concurrent jobs to process (default: 1)')
+    logger.error('\nExamples:')
+    logger.error(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
+    logger.error(`  yarn mercato search worker ${FULLTEXT_INDEXING_QUEUE_NAME} --concurrency=5`)
     return
   }
 
   // Check if Redis is configured for async queue
   const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
   if (queueStrategy !== 'async') {
-    console.error('\nError: Queue workers require QUEUE_STRATEGY=async')
-    console.error('Set QUEUE_STRATEGY=async and configure REDIS_URL in your environment.\n')
+    logger.error('\nError: Queue workers require QUEUE_STRATEGY=async')
+    logger.error('Set QUEUE_STRATEGY=async and configure REDIS_URL in your environment.\n')
     return
   }
 
@@ -803,10 +822,10 @@ async function workerCommand(rest: string[]): Promise<void> {
   // Dynamically import runWorker to avoid loading BullMQ unless needed
   const { runWorker } = await import('@open-mercato/queue/worker')
 
-  console.log(`\nStarting ${queueName} worker...`)
-  console.log(`  Concurrency: ${concurrency}`)
-  console.log(`  Redis: ${redisUrl.replace(/\/\/[^:]+:[^@]+@/, '//<credentials>@')}`)
-  console.log('')
+  logger.info(`\nStarting ${queueName} worker...`)
+  logger.info(`  Concurrency: ${concurrency}`)
+  logger.info(`  Redis: ${redisUrl.replace(/\/\/[^:]+:[^@]+@/, '//<credentials>@')}`)
+  logger.info('')
 
   if (queueName === VECTOR_INDEXING_QUEUE_NAME) {
     const { handleVectorIndexJob } = await import('./workers/vector-index.worker')
@@ -836,6 +855,7 @@ async function workerCommand(rest: string[]): Promise<void> {
 }
 
 const workerCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'worker',
   async run(rest) {
     await workerCommand(rest)
@@ -843,26 +863,27 @@ const workerCli: ModuleCli = {
 }
 
 const helpCli: ModuleCli = {
+const logger = cliLogger.forModule('core')
   command: 'help',
   async run() {
-    console.log('\nUsage: yarn mercato search <command> [options]\n')
-    console.log('Commands:')
-    console.log('  status              Show search module status and available strategies')
-    console.log('  query               Execute a search query')
-    console.log('  index               Index a specific record')
-    console.log('  reindex             Reindex vector embeddings for entities')
-    console.log('  reindex-help        Show reindex command options')
-    console.log('  test-meilisearch    Test Meilisearch connection')
-    console.log('  worker              Start a queue worker for search indexing')
-    console.log('  help                Show this help message')
-    console.log('\nExamples:')
-    console.log('  yarn mercato search status')
-    console.log('  yarn mercato search query --query "john doe" --tenant tenant-123')
-    console.log('  yarn mercato search index --entity customers:customer_person_profile --record abc123 --tenant tenant-123')
-    console.log('  yarn mercato search reindex --tenant tenant-123 --entity customers:customer_person_profile')
-    console.log('  yarn mercato search test-meilisearch')
-    console.log(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
-    console.log(`  yarn mercato search worker ${FULLTEXT_INDEXING_QUEUE_NAME} --concurrency=5`)
+    logger.info('\nUsage: yarn mercato search <command> [options]\n')
+    logger.info('Commands:')
+    logger.info('  status              Show search module status and available strategies')
+    logger.info('  query               Execute a search query')
+    logger.info('  index               Index a specific record')
+    logger.info('  reindex             Reindex vector embeddings for entities')
+    logger.info('  reindex-help        Show reindex command options')
+    logger.info('  test-meilisearch    Test Meilisearch connection')
+    logger.info('  worker              Start a queue worker for search indexing')
+    logger.info('  help                Show this help message')
+    logger.info('\nExamples:')
+    logger.info('  yarn mercato search status')
+    logger.info('  yarn mercato search query --query "john doe" --tenant tenant-123')
+    logger.info('  yarn mercato search index --entity customers:customer_person_profile --record abc123 --tenant tenant-123')
+    logger.info('  yarn mercato search reindex --tenant tenant-123 --entity customers:customer_person_profile')
+    logger.info('  yarn mercato search test-meilisearch')
+    logger.info(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
+    logger.info(`  yarn mercato search worker ${FULLTEXT_INDEXING_QUEUE_NAME} --concurrency=5`)
   },
 }
 
