@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { createContext, useContext } from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from './button'
 
@@ -9,10 +10,10 @@ type TabsContextValue = {
   onValueChange: (value: string) => void
 }
 
-const TabsContext = React.createContext<TabsContextValue | undefined>(undefined)
+const TabsContext = createContext<TabsContextValue | undefined>(undefined)
 
 function useTabsContext() {
-  const context = React.useContext(TabsContext)
+  const context = useContext(TabsContext)
   if (!context) {
     throw new Error('Tabs components must be used within a Tabs provider')
   }

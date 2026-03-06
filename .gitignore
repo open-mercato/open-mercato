@@ -119,3 +119,4 @@ docker/opencode/opencode.jsonc
 .ai/qa/ephemeral-env.lock/*
 .ai/qa/ephemeral*
 .ai/dev-ephemeral-envs.json
+.agents/

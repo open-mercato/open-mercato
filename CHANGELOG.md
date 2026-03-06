@@ -1,3 +1,133 @@
+# 0.4.6 (2026-03-06)
+
+## Highlights
+This release delivers **Single Sign-On (SSO)** 🔐 — a full enterprise-grade SSO module with OIDC, SCIM directory sync, and JIT provisioning supporting Google Workspace, Microsoft Entra ID, and Zitadel. It also ships the **Integration Hub** foundation (SPEC-045a/b), **VS Code Dev Container** for one-click development, major **UMES progression** (phases E–N covering mutation lifecycle, query engine extensibility, recursive widgets, DevTools, and integration extensions), **SSE-based real-time notifications & progress**, **Actionable Notifications** (SPEC-042/043), **AI Inbox Phase 2**, and **Preview Environments** for QA. Welcome to **7 first-time contributors**! 🎉
+
+## ✨ Features
+
+### 🔐 Single Sign-On (SSO) — Enterprise
+- Full SSO module with OIDC provider support (Google Workspace, Microsoft Entra ID, Zitadel) including login flow, error handling, and email verification. (#765) *(@MStaniaszek1998, @pkarw)*
+- SCIM 2.0 directory sync with filter and patch operations for automated user provisioning. *(@pkarw)*
+- Just-In-Time (JIT) provisioning with mutual exclusivity enforcement between JIT and SCIM modes. *(@pkarw)*
+- Administrator UI for configuring SSO domains via widget injection (decoupled from core auth). *(@pkarw)*
+- Google Workspace OIDC blockers resolved with automatic provider detection. *(@pkarw)*
+- Security audit fixes addressing critical and high severity findings. *(@pkarw)*
+- Enterprise feature flag toggle for SSO module visibility. *(@pkarw)*
+- SSO documentation with setup guides for Entra ID, Google Workspace, and Zitadel. (#862) *(@MStaniaszek1998)*
+- Multi-language i18n support (EN, PL, DE, ES) for all SSO strings. *(@pkarw)*
+
+### 🔌 Integration Hub (SPEC-045)
+- 🏪 Integration Marketplace foundation — registry, bundles, credentials, state management, health checks, logs, and admin UI. (#831) *(@pkarw)*
+- 🔄 Data Sync Hub — adapters, run lifecycle, workers, mapping APIs, scheduled sync, and progress linkage. (#831) *(@pkarw)*
+- 📋 Gap-filling for integration hub specifications and edge cases. (#828) *(@pkarw)*
+
+### 🔄 UMES (Unified Module Event System) — Phases E–N
+- 📦 Phases E–H — extended module event patterns and subscriber infrastructure. (#751) *(@pkarw)*
+- 🔗 Phase L — integration extensions enabling cross-module event wiring. (#781) *(@pat-lewczuk)*
+- 🧬 Phase M — mutation lifecycle hooks (m1–m4) with before/after guards and sync subscribers. (#782) *(@pat-lewczuk)*
+- 🔍 Phase N — query engine extensibility with query-level enrichers and sync query events. (#811) *(@pat-lewczuk)*
+- 🔁 Phase J — recursive widgets for nested injection patterns. (#821) *(@pkarw)*
+- 🛠️ Phase K — UMES DevTools with conflict detection for debugging event flows. (#834) *(@pat-lewczuk)*
+
+### 📢 Actionable Notifications & Multi-ID Filtering (SPEC-042/043)
+- Actionable notification handlers with `useNotificationEffect`, record locks polling refactor, and filter-by-IDs query parameter support. (#797) *(@pkarw)*
+
+### 📡 SSE Real-Time Notifications & Progress
+- Migration of progress tracking and notifications from polling to Server-Sent Events (SSE) for real-time browser updates. (#810) *(@pkarw)*
+
+### 🤖 AI Inbox Phase 2 (SPEC-053)
+- Enhanced AI-powered inbox operations with improved message processing and agent capabilities. (#816) *(@haxiorz)*
+
+### 🐳 VS Code Dev Container
+- One-click development setup with full VS Code Dev Container configuration (PostgreSQL, Redis, Elasticsearch). (#758) *(@kurrak)*
+- Dev container maintenance skill and migration to Debian-slim base image. *(@pkarw)*
+- Corepack download prompt disabled in lifecycle scripts. *(@pkarw)*
+
+### 🚀 Preview Environments
+- Preview Docker build stage and entrypoint script for automated QA environment deployments. *(@pkarw)*
+- QA deployment documentation for Dokploy-based ephemeral environments. (#851) *(@dominikpalatynski)*
+
+### 🧹 Code Quality
+- SPEC-051 deduplication — SonarQube-safe phase 1 removing code duplications across modules. (#813) *(@haxiorz)*
+- SonarQube fixes first batch — addressing static analysis findings. (#784) *(@haxiorz)*
+- Mandatory CI/CD-like verification gate added to code-review skill. (#788) *(@haxiorz)*
+
+### 🗃️ Other Features
+- 🐘 Support for custom PostgreSQL schema via `DATABASE_URL` — enables multi-schema deployments. (#753) *(@jtomaszewski)*
+- 💬 Universal message object attachments for the messages module. (#756) *(@dominikpalatynski)*
+- 🔔 Unified notification and message icons across the platform. (#836) *(@karolkozer)*
+- 📊 SPEC-050 catalog unit tests phase 1. (#766) *(@migsilva89)*
+- 📜 Messages ACL check reworked for backward compatibility. (#762) *(@pkarw)*
+- 🔧 AI Inbox Actions Phase 1 gap fixes. (#760) *(@haxiorz)*
+- 🖱️ Added scroll function for improved UX navigation. (#789) *(@michal1986)*
+
+## 🐛 Fixes
+- 💰 Variant price no longer decreases by VAT on reopen — fixes pricing recalculation bug. (#786) (#860) *(@knatalicz)*
+- 🔄 CrudForm infinite loop — resolved re-render loop in form initialization. (#845) *(@haxiorz)*
+- 📄 Hide pagination bar on empty results and fix loading flash. (#806) (#867) *(@rengare)*
+- 🧭 Reset stale breadcrumb on client-side navigation. (#847) (#848) *(@knatalicz)*
+- 💱 Correct `handleSetBase` API path in currencies module. (#843) (#844) *(@knatalicz)*
+- 🤖 AI assistant visibility fix — proper feature flag toggling. (#852) (#855) *(@MrBuldops)*
+- 👥 Fix `updatedAt` value in customer people API route. (#812) *(@karolkozer)*
+- ✅ Resolve 404 loop and duplicate loading/error state in CustomerTodosTable. (#808) (#850) *(@michal1986)*
+- 🔍 Fix search settings visibility. (#746) (#840) *(@MrBuldops)*
+- 📂 TenantSelect 400 error, misleading validation response, and missing auto-select. (#857) (#858) *(@knatalicz)*
+- 🌙 Fix text not visible in dropdown using dark mode. (#800) *(@haxiorz)*
+- 🚪 Fix dead-end screens UX — improved navigation fallbacks. (#801) *(@haxiorz)*
+- 🔧 Remove redundant ternary branches in DataTable error display. (#839) *(@rengare)*
+- 🪟 Fix create-app Windows ESM import compatibility. (#776) *(@armal)*
+- 🧩 Zod v4 `.partial()` on refined product schema. (#750) *(@andrzejewsky)*
+- 🔑 Update `requireFeatures` for GET requests in metadata to align with permissions. *(@pkarw)*
+- 🐳 Remove preview stage from root Dockerfile. (#865) *(@dominikpalatynski)*
+- 🪟 Normalize shell script EOL and set Testcontainers Docker Desktop overrides for Windows. *(@pkarw)*
+- 🔒 CodeQL security fixes. *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📋 SPEC-053: B2B PRM Starter & Operations documentation. (#826) *(@matgren)*
+- 📋 SPEC-037: WhatsApp external communication + AI chat integration. (#674) *(@MastalerzKamil)*
+- 📋 SPEC-046b/046c: Customer detail workstreams alignment. (#771) (#775) *(@matgren, @michal1986)*
+- 📋 SPEC-051: Code duplication fixes specification. (#799) *(@haxiorz)*
+- 📖 UMES Phase N implementation documentation. (#829) *(@pat-lewczuk)*
+- 📖 Updated README and QA deployment guide for ephemeral environments. (#851) *(@dominikpalatynski)*
+- 📖 Database migration docs update. (#767) *(@kriss145)*
+
+## 🚀 CI/CD & Infrastructure
+- 🐳 Dev Container setup with Docker Compose, lifecycle scripts, and Debian-slim base. (#758)
+- 🚀 Preview environment Docker build stage for automated QA deployments.
+- 🔒 CodeQL security scanning fixes across the codebase.
+
+## 👥 Contributors
+
+- @pkarw
+- @pat-lewczuk
+- @haxiorz
+- @knatalicz
+- @dominikpalatynski
+- @michal1986
+- @karolkozer
+- @jtomaszewski
+- @MStaniaszek1998
+- @matgren
+- @rengare
+- @MrBuldops
+- @migsilva89
+- @andrzejewsky
+- @kriss145
+
+### 🌟 First-time Contributors
+
+Welcome and thank you to our new contributors! 🙌
+
+- @armal
+- @kurrak
+- @rengare
+- @knatalicz
+- @MrBuldops
+- @kjuliaa
+- @MastalerzKamil
+
+---
+
 # 0.4.5 (2026-02-26)
 
 ## Highlights

@@ -61,6 +61,72 @@ describe('TenantSelect', () => {
     })
   })
 
+  it('requests pageSize=100 from the directory tenants endpoint', async () => {
+    let capturedUrl: string | undefined
+    ;(readApiResultOrThrow as jest.Mock).mockImplementationOnce(async (url: string) => {
+      capturedUrl = url
+      return { items: [{ id: 't-100', name: 'Tenant A', isActive: true }] }
+    })
+
+    renderWithProviders(<TenantSelect />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Tenant A' })).toBeInTheDocument()
+    })
+
+    expect(capturedUrl).toContain('pageSize=100')
+    expect(capturedUrl).not.toContain('pageSize=200')
+  })
+
+  it('auto-selects first tenant when value is null and includeEmptyOption is false', async () => {
+    const onChange = jest.fn()
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValueOnce({
+      items: [
+        { id: 't-first', name: 'First Tenant', isActive: true },
+        { id: 't-second', name: 'Second Tenant', isActive: true },
+      ],
+    })
+
+    renderWithProviders(<TenantSelect value={null} onChange={onChange} />, { dict })
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith('t-first')
+    })
+  })
+
+  it('does not auto-select when value is already set', async () => {
+    const onChange = jest.fn()
+    ;(readApiResultOrThrow as jest.Mock).mockResolvedValueOnce({
+      items: [
+        { id: 't-first', name: 'First Tenant', isActive: true },
+        { id: 't-second', name: 'Second Tenant', isActive: true },
+      ],
+    })
+
+    renderWithProviders(<TenantSelect value="t-second" onChange={onChange} />, { dict })
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'First Tenant' })).toBeInTheDocument()
+    })
+
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('auto-selects first tenant from fallback endpoint', async () => {
+    const onChange = jest.fn()
+    ;(readApiResultOrThrow as jest.Mock)
+      .mockRejectedValueOnce(new Error('directory down'))
+      .mockResolvedValueOnce({
+        tenants: [{ id: 't-fallback', name: 'Fallback Tenant', isActive: true }],
+      })
+
+    renderWithProviders(<TenantSelect value={null} onChange={onChange} />, { dict })
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith('t-fallback')
+    })
+  })
+
   it('shows an error option when both fetch attempts fail', async () => {
     ;(readApiResultOrThrow as jest.Mock)
       .mockRejectedValueOnce(new Error('directory down'))

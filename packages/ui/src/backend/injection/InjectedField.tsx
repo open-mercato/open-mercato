@@ -55,7 +55,7 @@ function SelectField({
       <Label htmlFor={field.id}>{label}</Label>
       <select
         id={field.id}
-        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-9 w-full rounded-md border border-input bg-background pl-3 pr-8 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         value={typeof value === 'string' ? value : ''}
         disabled={disabled || (options.length === 0 && !field.options?.length)}
         onChange={(event) => onChange(field.id, event.target.value || undefined)}

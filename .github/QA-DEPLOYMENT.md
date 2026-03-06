@@ -6,6 +6,45 @@ This guide explains how to deploy a branch to a QA environment and what to expec
 
 ## Overview
 
+There are two ways to get a QA environment:
+
+1. **Dynamic preview deployments** — automatic, per-PR environments for core contributors (described below).
+2. **Slot-based deployments** — manual, shared `qa1`/`qa2` environments available to anyone (described further down).
+
+---
+
+## Dynamic Preview Deployments (Core Contributors)
+
+For pull requests opened **directly from the repository** (i.e. by core contributors, not from forks), a dedicated preview environment is provisioned automatically in Dokploy when both conditions are met:
+
+- The PR targets the **`develop`** branch.
+- The PR has the **`preview-env`** label.
+
+### Preview URL
+
+Each preview environment gets a unique URL of the form:
+
+```
+https://preview-{appName}-{uniqueId}.openmercato.com/backend
+```
+
+The URL is posted as a comment on the PR once the environment is ready.
+
+### Lifecycle
+
+- The environment is created (or updated) on every push to the PR branch while the `preview-env` label is present.
+- The environment is torn down automatically when the PR is closed or merged.
+- Removing the `preview-env` label stops further updates but does not immediately destroy the existing environment.
+
+### Notes
+
+- Preview environments use a fresh database seeded with demo data, identical to slot-based deployments.
+- Only PRs from the main repository qualify — forks do not trigger preview deployments. Use a slot-based deployment instead (see below).
+
+---
+
+## Slot-Based Deployments
+
 There are two named QA slots: **qa1** and **qa2**. Each slot is a long-lived environment with a fixed URL. A slot runs one deployment at a time — deploying to a slot replaces whatever was there before.
 
 | Slot | URL |

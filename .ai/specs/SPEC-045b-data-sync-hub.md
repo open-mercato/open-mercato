@@ -2529,3 +2529,25 @@ export function createRateLimiter(requestsPerSecond: number) {
 | 2026-02-24 | Added scheduler and progress integration details |
 | 2026-02-24 | Added `sync_excel` reference implementation |
 | 2026-03-04 | Clarified canonical ownership of `sync_external_id_mappings` and added migration/BC + compliance sections |
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase A — Data Sync hub foundation | Done | 2026-03-04 | Added module skeleton, adapter contract, adapter registry, run engine, run service, workers, and core APIs |
+| Phase B — Sync run/progress/log integration | Done | 2026-03-04 | `SyncRun` + `ProgressJob` linkage implemented with status/progress updates and integration log writes |
+| Phase C — Reference provider (`sync_medusa`) | In Progress | 2026-03-04 | Added bundle manifest + baseline adapters; outbound subscribers/webhooks/full lifecycle mapping pending |
+| Phase D — Scheduler/UI/extensions | Not Started | — | Scheduling CRUD + sync-scheduled worker behavior + admin widgets/pages pending |
+
+### Phase A/B — Detailed Progress
+- [x] Step 1: Create `data_sync` module structure with ACL/setup/events/DI
+- [x] Step 2: Add `SyncRun`, `SyncCursor`, `SyncMapping`, `SyncSchedule` entities
+- [x] Step 3: Add adapter contract + adapter registry
+- [x] Step 4: Add sync run service (`create/list/detail/status/cursor`)
+- [x] Step 5: Add sync engine for import/export streaming loop and run lifecycle updates
+- [x] Step 6: Add workers (`sync-import`, `sync-export`, `sync-scheduled` placeholder)
+- [x] Step 7: Add APIs (`run`, `runs`, `runs/:id`, `cancel`, `retry`, `validate`)
+- [x] Step 8: Add `sync_medusa` bundle manifest + baseline adapters
+- [ ] Step 9: Implement scheduler service synchronization and run-now/toggle/delete schedule APIs
+- [ ] Step 10: Implement mapping CRUD APIs/widgets and dashboard/detail pages
+- [ ] Step 11: Implement outbound subscribers, webhook ingestion, and loop-prevention metadata

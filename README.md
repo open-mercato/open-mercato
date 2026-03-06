@@ -328,15 +328,23 @@ MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
 OPENAI_API_KEY=sk-...  # Optional, for AI features
 ```
 
-### QA Preview
+### Ephemeral Environments
 
-Run the same image used on QA slots locally for testing a specific branch without a full dev setup:
+Spin up a self-contained, throwaway environment for quick testing or previewing a branch — no local database, or full dev setup required. Each run starts with a fresh database and is automatically reset on restart.
 
 ```bash
-docker compose -f docker-compose.preview.yaml --env-file .env.preview up --build
+docker compose -f docker-compose.preview.yaml up --build
 ```
 
-Navigate to `http://localhost:5000`. The environment resets its database on every start.
+Navigate to `http://localhost:5000`.
+
+To stop the environment:
+
+```bash
+docker compose -f docker-compose.preview.yaml down
+```
+
+> **Attention:** This type of deployment is ephemeral and intended for testing purposes only. After stopping the containers, all data will be lost. Do not use this setup in production.
 
 
 ### VPS Deployment

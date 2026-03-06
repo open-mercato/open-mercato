@@ -240,6 +240,16 @@ src/modules/<module>/
 - **i18n**: Add translations to `i18n/<locale>.json` under `<module>.notifications.*` keys
 - **Handler behavior**: Keep handlers idempotent; use `ctx.emitEvent(...)` for cross-component updates and `ctx.toast(...)`/`ctx.popup(...)` for UX side-effects
 
+## Integrations & Data Sync
+
+> **Moved**: Detailed guides now live in dedicated module AGENTS.md files:
+> - `src/modules/integrations/AGENTS.md` — foundation layer (registry, credentials, state, health, logs, admin UI)
+> - `src/modules/data_sync/AGENTS.md` — sync hub (adapters, run lifecycle, workers, mappings, admin UI)
+>
+> Docs reference:
+> - `apps/docs/docs/framework/modules/integrations-data-sync.mdx`
+> - `apps/docs/docs/api/integrations-data-sync.mdx`
+
 ## Widget Injection
 
 Widget injection is the preferred way to build inter-module UI extensions. Avoid coupling modules directly — inject UI instead.

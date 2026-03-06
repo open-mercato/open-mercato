@@ -5,6 +5,7 @@ import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useNotifications } from './useNotifications'
 import { NotificationPanel } from './NotificationPanel'
+import { NotificationCountBadge } from './NotificationCountBadge'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRenderers } from './NotificationPanel'
 
@@ -53,11 +54,7 @@ export function NotificationBell({ className, t, customRenderers }: Notification
         aria-label={ariaLabel}
       >
         <Bell className={cn('h-5 w-5', pulse && 'animate-pulse')} />
-        {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[10px] font-medium text-white dark:bg-destructive dark:text-destructive-foreground">
-            {unreadCount > 99 ? '99+' : unreadCount}
-          </span>
-        )}
+        <NotificationCountBadge count={unreadCount} />
       </IconButton>
 
       <NotificationPanel

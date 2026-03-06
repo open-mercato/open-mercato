@@ -429,6 +429,7 @@ export function TranslationManager({
             size="sm"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || !entityType || !recordId}
+            data-testid="translations-save"
           >
             <Save className="mr-2 h-3 w-3" />
             {mutation.isPending
@@ -494,6 +495,7 @@ export function TranslationManager({
             type="button"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || loadingEntities || !!entitiesError || !entityType || !recordId}
+            data-testid="translations-save"
           >
             <Save className="mr-2 h-4 w-4" />
             {mutation.isPending

@@ -40,7 +40,7 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
     // Navigate to Create form
     await page.getByRole('link', { name: 'Create' }).click();
     await expect(page).toHaveURL(/\/backend\/entities\/user\/create$/);
-    await expect(page.getByText('Create Entity')).toBeVisible();
+    await expect(page.locator('main').getByText('Create Entity', { exact: true })).toBeVisible();
 
     // Verify form fields
     await expect(page.getByText('Entity ID', { exact: false })).toBeVisible();

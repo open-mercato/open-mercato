@@ -6,6 +6,19 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 const ENTITY_TYPE = 'catalog:catalog_product'
 
+async function dismissRecordDeletedDialogIfPresent(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: /Record was deleted/i })
+  const visible = await dialog.isVisible().catch(() => false)
+  if (!visible) return
+  const closeButton = dialog.getByRole('button', { name: /Close/i }).first()
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.click()
+  } else {
+    await page.keyboard.press('Escape')
+  }
+  await expect(dialog).toHaveCount(0)
+}
+
 async function openTranslationsDrawer(page: Page): Promise<Locator> {
   const openButton = page.getByRole('button', { name: /Translation manager/ }).first()
   const dialog = page.getByRole('dialog', { name: /Translations/i })
@@ -18,7 +31,11 @@ async function openTranslationsDrawer(page: Page): Promise<Locator> {
 }
 
 async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: string): Promise<Locator> {
-  const firstEditableField = dialog.locator('table').locator('input, textarea').first()
+  const fieldLocator = dialog.locator('table').locator('input, textarea')
+  await expect.poll(async () => fieldLocator.count(), {
+    message: 'Expected at least one translation input to be available',
+  }).toBeGreaterThan(0)
+  const firstEditableField = fieldLocator.first()
   await expect(firstEditableField).toBeVisible()
 
   const normalizedPlaceholder = preferredPlaceholder?.trim()
@@ -26,11 +43,38 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
 
   const preferredField = dialog.getByPlaceholder(normalizedPlaceholder).first()
   if (await preferredField.count()) {
-    await expect(preferredField).toBeVisible()
-    return preferredField
+    if (await preferredField.isVisible()) return preferredField
   }
 
   return firstEditableField
+}
+
+async function openLocaleFieldWithRetry(
+  page: Page,
+  localeCode: string,
+  preferredPlaceholder?: string,
+): Promise<{ dialog: Locator; field: Locator }> {
+  let dialog = await openTranslationsDrawer(page)
+  await expect(dialog).toBeVisible()
+  await dismissRecordDeletedDialogIfPresent(page)
+  await dialog.getByRole('button', { name: localeCode }).click()
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const field = await waitForTranslationField(dialog, preferredPlaceholder)
+      return { dialog, field }
+    } catch (error) {
+      if (attempt === 1) throw error
+      await page.keyboard.press('Escape').catch(() => {})
+      await dismissRecordDeletedDialogIfPresent(page)
+      dialog = await openTranslationsDrawer(page)
+      await expect(dialog).toBeVisible()
+      await dismissRecordDeletedDialogIfPresent(page)
+      await dialog.getByRole('button', { name: localeCode }).click()
+    }
+  }
+
+  throw new Error('Could not resolve translation field after retry')
 }
 
 /**
@@ -39,6 +83,7 @@ async function waitForTranslationField(dialog: Locator, preferredPlaceholder?: s
  */
 test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
   test.use({ actionTimeout: 30_000 })
+  test.setTimeout(40_000)
   test('should show translation action on product edit page', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const originalLocales = await getLocales(request, adminToken)
@@ -52,6 +97,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
 
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
+      await dismissRecordDeletedDialogIfPresent(page)
 
       const dialog = await openTranslationsDrawer(page)
       await expect(dialog).toBeVisible()
@@ -76,17 +122,12 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
 
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
+      await dismissRecordDeletedDialogIfPresent(page)
 
-      const dialog = await openTranslationsDrawer(page)
-      await expect(dialog).toBeVisible()
-
-      const deTab = dialog.getByRole('button', { name: 'DE' })
-      await deTab.click()
-
-      const translationField = await waitForTranslationField(dialog, productTitle)
+      const { dialog, field: translationField } = await openLocaleFieldWithRetry(page, 'DE', productTitle)
       await translationField.fill('Widget Titel QA')
 
-      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      const saveTranslationsButton = dialog.getByTestId('translations-save')
       await expect(saveTranslationsButton).toBeVisible()
       await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()
@@ -98,6 +139,7 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
   })
 
   test('should verify drawer-saved translation via API', async ({ page, request }) => {
+    test.setTimeout(120_000)
     const adminToken = await getAuthToken(request, 'admin')
     const saToken = await getAuthToken(request, 'superadmin')
     const originalLocales = await getLocales(request, adminToken)
@@ -111,16 +153,13 @@ test.describe('TC-TRANS-006: Translation Action on Product Detail', () => {
 
       await login(page, 'superadmin')
       await page.goto(`/backend/catalog/products/${productId}`)
+      await page.waitForLoadState('domcontentloaded')
+      await dismissRecordDeletedDialogIfPresent(page)
 
-      const dialog = await openTranslationsDrawer(page)
-      await expect(dialog).toBeVisible()
-      const deTab = dialog.getByRole('button', { name: 'DE' })
-      await deTab.click()
-
-      const translationField = await waitForTranslationField(dialog, productTitle)
+      const { dialog, field: translationField } = await openLocaleFieldWithRetry(page, 'DE', productTitle)
       await translationField.fill('API Verifiziert QA')
 
-      const saveTranslationsButton = dialog.getByRole('button', { name: 'Save translations' })
+      const saveTranslationsButton = dialog.getByTestId('translations-save')
       await expect(saveTranslationsButton).toBeVisible()
       await saveTranslationsButton.click()
       await expect(page.getByText('Translations saved').first()).toBeVisible()

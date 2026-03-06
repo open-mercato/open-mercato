@@ -119,6 +119,16 @@ const sidebars: SidebarsConfig = {
       items: [
         "enterprise/overview",
         "enterprise/record-locks",
+        {
+          type: "category",
+          label: "Single Sign-On (SSO)",
+          items: [
+            "enterprise/sso/index",
+            "enterprise/sso/entra-id-setup",
+            "enterprise/sso/google-workspace-setup",
+            "enterprise/sso/zitadel-setup",
+          ],
+        },
       ],
     },
     {
@@ -134,6 +144,7 @@ const sidebars: SidebarsConfig = {
             "api/directory",
             "api/dashboards",
             "api/customers",
+            "api/integrations-data-sync",
             "api/entities",
             "api/attachments",
             "api/vector",
@@ -246,6 +257,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/notifications",
             "framework/modules/messages",
             "framework/modules/currencies",
+            "framework/modules/integrations-data-sync",
             "framework/modules/sales-providers",
             "framework/modules/sales-calculations",
           ],

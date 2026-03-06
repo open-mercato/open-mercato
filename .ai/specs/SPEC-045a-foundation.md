@@ -1905,3 +1905,23 @@ integrations.detail:tabs              # Integration-level tabs
 | 2026-02-24 | Added SSH keypair credential type |
 | 2026-02-24 | Added widget injection on integration detail pages |
 | 2026-03-04 | Added explicit migration/BC bridges, backward-compatible `IntegrationDefinition` contract guidance, and phase-level compliance report |
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase A — Shared contracts and registry | Done | 2026-03-04 | Extended `IntegrationDefinition` with marketplace metadata, bundles, apiVersions, credential schemas; added bundle-aware registry helpers |
+| Phase B — Generator discovery | Done | 2026-03-04 | `integration.ts` discovery added in CLI generator (supports `integration`, `integrations`, `bundle`, `bundles`) |
+| Phase C — Integrations core backend | In Progress | 2026-03-04 | Added entities, DI services, events, and API routes (`list`, `detail`, `state`, `version`, `credentials`, `logs`) |
+| Phase D — Integrations admin UI + advanced auth | Not Started | — | OAuth flows, SSH key flows, bundle/detail UI, version picker UI, workers pending |
+
+### Phase C — Detailed Progress
+- [x] Step 1: Extend shared integration contracts (`IntegrationBundle`, `ApiVersionDefinition`, credential field unions)
+- [x] Step 2: Add `integration.ts` scanner support to module generator
+- [x] Step 3: Add `IntegrationCredentials`, `IntegrationState`, `IntegrationLog` entities
+- [x] Step 4: Add credentials/state/log services and DI registration
+- [x] Step 5: Add core APIs for listing/detail/version/state/credentials/logs
+- [x] Step 6: Add typed integration events
+- [ ] Step 7: Implement OAuth routes/session/token refresh worker
+- [ ] Step 8: Implement SSH key utility routes and verification
+- [ ] Step 9: Build backend marketplace/detail pages and bundle management UI

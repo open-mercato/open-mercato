@@ -145,9 +145,9 @@ No example module additions — this phase is infrastructure only. The DevTools 
 - Any active interceptors for the current route
 
 **Testing notes**:
-- DevTools only available in `NODE_ENV=development`
+- DevTools availability controlled by `NEXT_PUBLIC_UMES_DEVTOOLS=true` env var (see Environment Variables section below)
 - Panel activation via keyboard shortcut or a UI toggle
-- Verify panel is NOT present in production mode
+- Verify panel is NOT present when env var is unset or `false`
 - Check that enricher timing is displayed (e.g., "12ms")
 
 ### TC-UMES-DT02: Build-time conflict detection warns on duplicate priority replacements
@@ -182,9 +182,17 @@ No example module additions — this phase is infrastructure only. The DevTools 
 
 ---
 
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_UMES_DEVTOOLS` | `true` (in `.env.example`) | Enables the UMES DevTools panel (Ctrl+Shift+U). Set to `false` in production deployments to hide DevTools. The panel is client-side only — the env var is inlined at Next.js build time via the `NEXT_PUBLIC_` prefix. The ephemeral integration test environment sets this to `true` automatically. |
+
+**Why not `NODE_ENV`?** Next.js inlines `process.env.NODE_ENV` at build time. Production builds (including CI and ephemeral test environments) set `NODE_ENV=production`, which would permanently disable DevTools. Using a dedicated env var decouples DevTools availability from the build mode, allowing developers to enable DevTools in staging/QA environments while keeping them off in production.
+
 ## Backward Compatibility
 
-- DevTools panel only renders in development mode — zero production impact
+- DevTools panel only renders when `NEXT_PUBLIC_UMES_DEVTOOLS=true` — zero production impact when unset
 - Build-time checks are additive — existing `yarn generate` behavior unchanged
 - CLI commands are new additions — no existing commands modified
 - Interceptor audit logging uses existing `action_log` infrastructure
