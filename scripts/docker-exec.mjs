@@ -7,6 +7,7 @@
  *
  * Usage:
  *   node scripts/docker-exec.mjs <yarn-script> [args...]
+ *   node scripts/docker-exec.mjs dev --skip-rebuilt
  *
  * Environment overrides:
  *   DOCKER_COMPOSE_FILE  – path to a specific compose file to use
@@ -78,10 +79,56 @@ if (!composeFile) {
 }
 
 const [script, ...scriptArgs] = args;
-const execArgs = ['compose', '-f', composeFile, 'exec', 'app', 'yarn', script, ...scriptArgs];
+const skipRebuiltFlag = '--skip-rebuilt';
+const skipRebuiltMarker = '/tmp/docker-exec-skip-rebuilt.skip';
+const forwardedScriptArgs = scriptArgs.filter((arg) => arg !== skipRebuiltFlag);
+
+function runDockerCommand(commandArgs) {
+  return spawnSync('docker', commandArgs, { stdio: 'inherit' });
+}
+
+const isDevCompose = composeFile.endsWith('docker-compose.fullapp.dev.yml');
+
+if (script === 'dev' && isDevCompose) {
+  const shouldSkipRebuilt = scriptArgs.includes(skipRebuiltFlag);
+
+  console.log(`[docker-exec] Reloading app service (${composeFile}) on main process...`);
+  if (shouldSkipRebuilt) {
+    console.log(`[docker-exec]   ${skipRebuiltFlag} enabled (skip install/build/generate on restart)`);
+  }
+  console.log('[docker-exec]   docker compose restart app');
+  console.log('[docker-exec]   docker compose logs -f app');
+  console.log('');
+
+  if (shouldSkipRebuilt) {
+    const skipRebuiltResult = runDockerCommand([
+      'compose',
+      '-f',
+      composeFile,
+      'exec',
+      'app',
+      'touch',
+      skipRebuiltMarker,
+    ]);
+
+    if ((skipRebuiltResult.status ?? 1) !== 0) {
+      process.exit(skipRebuiltResult.status ?? 1);
+    }
+  }
+
+  const restartResult = runDockerCommand(['compose', '-f', composeFile, 'restart', 'app']);
+  if ((restartResult.status ?? 1) !== 0) {
+    process.exit(restartResult.status ?? 1);
+  }
+
+  const logsResult = runDockerCommand(['compose', '-f', composeFile, 'logs', '-f', 'app']);
+  process.exit(logsResult.status ?? 0);
+}
+
+const execArgs = ['compose', '-f', composeFile, 'exec', 'app', 'yarn', script, ...forwardedScriptArgs];
 
 console.log(`[docker-exec] Running in container (${composeFile}):`);
-console.log(`[docker-exec]   yarn ${[script, ...scriptArgs].join(' ')}`);
+console.log(`[docker-exec]   yarn ${[script, ...forwardedScriptArgs].join(' ')}`);
 console.log('');
 
 const result = spawnSync('docker', execArgs, { stdio: 'inherit' });
