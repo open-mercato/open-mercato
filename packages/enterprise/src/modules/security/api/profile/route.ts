@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { buildSecurityOpenApi, securityErrorSchema } from '../openapi'
+import type { MfaService } from '../../services/MfaService'
 
 const profileResponseSchema = z.object({
   userId: z.string().uuid(),
@@ -41,6 +42,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
+  const mfaService = container.resolve<MfaService>('mfaService')
   const user = await findOneWithDecryption(
     em,
     User,
@@ -56,14 +58,16 @@ export async function GET(req: Request) {
     )
   }
 
+  const methods = await mfaService.getUserMethods(auth.sub)
+
   return NextResponse.json({
     userId: String(user.id),
     email: String(user.email),
     hasPassword: Boolean(user.passwordHash),
     passwordPolicy: getPasswordPolicy(),
     mfa: {
-      enabled: false,
-      enrolledMethods: 0,
+      enabled: methods.length > 0,
+      enrolledMethods: methods.length,
     },
   })
 }
