@@ -60,3 +60,21 @@ export async function resolveCanonicalUnitCode(
   const canonical = typeof entry.value === "string" ? entry.value.trim() : "";
   return canonical.length ? canonical : unitCode;
 }
+
+export async function resolveProductUnitDefaults(
+  em: EntityManager,
+  params: {
+    organizationId: string;
+    tenantId: string;
+    defaultUnit?: string | null;
+    defaultSalesUnit?: string | null;
+  },
+): Promise<{ defaultUnit: string | null; defaultSalesUnit: string | null }> {
+  const resolveUnit = async (unitCode: string | null | undefined): Promise<string | null> => {
+    if (!unitCode) return null;
+    return resolveCanonicalUnitCode(em, { organizationId: params.organizationId, tenantId: params.tenantId, unitCode });
+  };
+  const defaultUnit = await resolveUnit(params.defaultUnit);
+  const defaultSalesUnit = await resolveUnit(params.defaultSalesUnit);
+  return { defaultUnit, defaultSalesUnit };
+}

@@ -14,8 +14,8 @@ export const setup: ModuleSetupConfig = {
   },
 
   defaultRoleFeatures: {
-    admin: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'],
-    employee: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'],
+    admin: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage', 'catalog.price_history.view', 'catalog.settings.view', 'catalog.settings.edit'],
+    employee: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage', 'catalog.price_history.view', 'catalog.settings.view'],
   },
 }
 

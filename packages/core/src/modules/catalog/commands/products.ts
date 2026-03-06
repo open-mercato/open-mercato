@@ -74,77 +74,49 @@ import {
 import { canonicalizeUnitCode } from "../lib/unitCodes";
 import {
   resolveCanonicalUnitCode,
+  resolveProductUnitDefaults,
 } from "../lib/unitResolution";
 
 type ProductSnapshot = {
-  id: string;
-  organizationId: string;
-  tenantId: string;
-  title: string;
-  subtitle: string | null;
-  description: string | null;
-  sku: string | null;
-  handle: string | null;
-  taxRateId: string | null;
-  taxRate: string | null;
-  productType: CatalogProductType;
-  statusEntryId: string | null;
-  primaryCurrencyCode: string | null;
-  defaultUnit: string | null;
-  defaultSalesUnit: string | null;
-  defaultSalesUnitQuantity: string;
-  uomRoundingScale: number;
-  uomRoundingMode: "half_up" | "down" | "up";
-  unitPriceEnabled: boolean;
-  unitPriceReferenceUnit: "kg" | "l" | "m2" | "m3" | "pc" | null;
-  unitPriceBaseQuantity: string | null;
-  defaultMediaId: string | null;
-  defaultMediaUrl: string | null;
-  weightValue: string | null;
-  weightUnit: string | null;
-  dimensions: Record<string, unknown> | null;
-  optionSchemaId: string | null;
-  customFieldsetCode: string | null;
-  metadata: Record<string, unknown> | null;
-  isConfigurable: boolean;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  offers: OfferSnapshot[];
-  tags: string[];
-  categoryIds: string[];
-  custom: Record<string, unknown> | null;
-};
-
-async function resolveProductUnitDefaults(
-  em: EntityManager,
-  params: {
-    organizationId: string;
-    tenantId: string;
-    defaultUnit: string | null | undefined;
-    defaultSalesUnit: string | null | undefined;
-  },
-): Promise<{ defaultUnit: string | null; defaultSalesUnit: string | null }> {
-  const defaultUnitInput = canonicalizeUnitCode(params.defaultUnit);
-  const defaultSalesUnitInput = canonicalizeUnitCode(params.defaultSalesUnit);
-  if (!defaultUnitInput && defaultSalesUnitInput) {
-    throw new CrudHttpError(400, { error: "uom.default_unit_missing" });
-  }
-  const defaultUnit = defaultUnitInput
-    ? await resolveCanonicalUnitCode(em, {
-        organizationId: params.organizationId,
-        tenantId: params.tenantId,
-        unitCode: defaultUnitInput,
-      })
-    : null;
-  const defaultSalesUnit = defaultSalesUnitInput
-    ? await resolveCanonicalUnitCode(em, {
-        organizationId: params.organizationId,
-        tenantId: params.tenantId,
-        unitCode: defaultSalesUnitInput,
-      })
-    : null;
-  return { defaultUnit, defaultSalesUnit };
+  id: string
+  organizationId: string
+  tenantId: string
+  title: string
+  subtitle: string | null
+  description: string | null
+  sku: string | null
+  handle: string | null
+  taxRateId: string | null
+  taxRate: string | null
+  productType: CatalogProductType
+  statusEntryId: string | null
+  primaryCurrencyCode: string | null
+  defaultUnit: string | null
+  defaultSalesUnit: string | null
+  defaultSalesUnitQuantity: string
+  uomRoundingScale: number
+  uomRoundingMode: 'half_up' | 'down' | 'up'
+  unitPriceEnabled: boolean
+  unitPriceReferenceUnit: 'kg' | 'l' | 'm2' | 'm3' | 'pc' | null
+  unitPriceBaseQuantity: string | null
+  defaultMediaId: string | null
+  defaultMediaUrl: string | null
+  weightValue: string | null
+  weightUnit: string | null
+  dimensions: Record<string, unknown> | null
+  optionSchemaId: string | null
+  customFieldsetCode: string | null
+  metadata: Record<string, unknown> | null
+  isConfigurable: boolean
+  isActive: boolean
+  omnibusExempt: boolean
+  firstListedAt: string | null
+  createdAt: string
+  updatedAt: string
+  offers: OfferSnapshot[]
+  tags: string[]
+  categoryIds: string[]
+  custom: Record<string, unknown> | null
 }
 
 async function ensureBaseUnitCanBeRemoved(
@@ -1139,6 +1111,8 @@ async function loadProductSnapshot(
     metadata,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
+    omnibusExempt: record.omnibusExempt ?? false,
+    firstListedAt: record.firstListedAt?.toISOString() ?? null,
     optionSchemaId: optionTemplateId,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -1185,11 +1159,13 @@ function applyProductSnapshot(
   record.customFieldsetCode = snapshot.customFieldsetCode ?? null;
   record.optionSchemaTemplate = snapshot.optionSchemaId
     ? em.getReference(CatalogOptionSchemaTemplate, snapshot.optionSchemaId)
-    : null;
-  record.isConfigurable = snapshot.isConfigurable;
-  record.isActive = snapshot.isActive;
-  record.createdAt = new Date(snapshot.createdAt);
-  record.updatedAt = new Date(snapshot.updatedAt);
+    : null
+  record.isConfigurable = snapshot.isConfigurable
+  record.isActive = snapshot.isActive
+  record.omnibusExempt = snapshot.omnibusExempt ?? false
+  record.firstListedAt = snapshot.firstListedAt ? new Date(snapshot.firstListedAt) : null
+  record.createdAt = new Date(snapshot.createdAt)
+  record.updatedAt = new Date(snapshot.updatedAt)
 }
 
 const createProductCommand: CommandHandler<
@@ -1278,6 +1254,8 @@ const createProductCommand: CommandHandler<
       customFieldsetCode: parsed.customFieldsetCode ?? null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
+      omnibusExempt: parsed.omnibusExempt ?? false,
+      firstListedAt: parsed.firstListedAt ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -1606,9 +1584,10 @@ const updateProductCommand: CommandHandler<
     if (parsed.customFieldsetCode !== undefined) {
       record.customFieldsetCode = parsed.customFieldsetCode ?? null;
     }
-    if (parsed.isConfigurable !== undefined)
-      record.isConfigurable = parsed.isConfigurable;
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive;
+    if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
+    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    if (parsed.omnibusExempt !== undefined) record.omnibusExempt = parsed.omnibusExempt ?? false
+    if (parsed.firstListedAt !== undefined) record.firstListedAt = parsed.firstListedAt ?? null
     try {
       await em.flush();
     } catch (error) {
@@ -1720,6 +1699,8 @@ const updateProductCommand: CommandHandler<
         productType: before.productType ?? "simple",
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
+        omnibusExempt: before.omnibusExempt ?? false,
+        firstListedAt: before.firstListedAt ? new Date(before.firstListedAt) : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       });
@@ -1896,6 +1877,8 @@ const deleteProductCommand: CommandHandler<
         productType: before.productType ?? "simple",
         isConfigurable: before.isConfigurable,
         isActive: before.isActive,
+        omnibusExempt: before.omnibusExempt ?? false,
+        firstListedAt: before.firstListedAt ? new Date(before.firstListedAt) : null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       });

@@ -673,6 +673,24 @@ export class SalesOrderLine {
   @Property({ name: 'custom_field_set_id', type: 'uuid', nullable: true })
   customFieldSetId?: string | null
 
+  @Property({ name: 'omnibus_reference_net', type: 'text', nullable: true })
+  omnibusReferenceNet?: string | null
+
+  @Property({ name: 'omnibus_reference_gross', type: 'text', nullable: true })
+  omnibusReferenceGross?: string | null
+
+  @Property({ name: 'omnibus_promotion_anchor_at', type: Date, nullable: true })
+  omnibusPromotionAnchorAt?: Date | null
+
+  @Property({ name: 'omnibus_applicability_reason', type: 'text', nullable: true })
+  omnibusApplicabilityReason?: string | null
+
+  @Property({ name: 'is_personalized', type: 'boolean', nullable: true })
+  isPersonalized?: boolean | null
+
+  @Property({ name: 'personalization_reason', type: 'text', nullable: true })
+  personalizationReason?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -1109,6 +1127,24 @@ export class SalesQuoteLine {
 
   @Property({ name: 'custom_field_set_id', type: 'uuid', nullable: true })
   customFieldSetId?: string | null
+
+  @Property({ name: 'omnibus_reference_net', type: 'text', nullable: true })
+  omnibusReferenceNet?: string | null
+
+  @Property({ name: 'omnibus_reference_gross', type: 'text', nullable: true })
+  omnibusReferenceGross?: string | null
+
+  @Property({ name: 'omnibus_promotion_anchor_at', type: Date, nullable: true })
+  omnibusPromotionAnchorAt?: Date | null
+
+  @Property({ name: 'omnibus_applicability_reason', type: 'text', nullable: true })
+  omnibusApplicabilityReason?: string | null
+
+  @Property({ name: 'is_personalized', type: 'boolean', nullable: true })
+  isPersonalized?: boolean | null
+
+  @Property({ name: 'personalization_reason', type: 'text', nullable: true })
+  personalizationReason?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
