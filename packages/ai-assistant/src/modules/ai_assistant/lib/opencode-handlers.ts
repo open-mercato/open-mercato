@@ -565,6 +565,43 @@ export async function handleOpenCodeMessageStreaming(
                       result: part.content,
                     })
                     break
+                  case 'tool': {
+                    // OpenCode tool part structure:
+                    //   tool: "open-mercato_<toolName>"
+                    //   callID: "toolu_..."
+                    //   state: { status: "pending"|"running"|"completed", input: {...}, output: "JSON string" }
+                    const toolPart = part as Record<string, unknown>
+                    const state = toolPart.state as { status: string; input?: unknown; output?: string } | undefined
+                    const rawToolName = (toolPart.tool as string) || ''
+                    // Strip MCP server prefix (e.g. "open-mercato_" → "")
+                    const toolName = rawToolName.replace(/^[^_]+_/, '')
+
+                    if (state?.status === 'running' && state.input) {
+                      // Emit tool-call when tool starts running
+                      await onEvent({
+                        type: 'tool-call',
+                        id: (toolPart.callID as string) || part.id,
+                        toolName,
+                        args: state.input,
+                      })
+                    } else if (state?.status === 'completed' && state.output !== undefined) {
+                      // Emit tool-result when tool completes — output is a JSON string
+                      let parsedOutput: unknown = state.output
+                      if (typeof state.output === 'string') {
+                        try {
+                          parsedOutput = JSON.parse(state.output)
+                        } catch {
+                          // Keep as string if not valid JSON
+                        }
+                      }
+                      await onEvent({
+                        type: 'tool-result',
+                        id: (toolPart.callID as string) || part.id,
+                        result: parsedOutput,
+                      })
+                    }
+                    break
+                  }
                   case 'step-start':
                   case 'step-finish':
                     await onEvent({ type: 'debug', partType: part.type, data: part })

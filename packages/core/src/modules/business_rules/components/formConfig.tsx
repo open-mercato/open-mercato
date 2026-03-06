@@ -166,22 +166,56 @@ export function createFieldDefinitions(t: (key: string) => string): CrudField[] 
 }
 
 /**
+ * Optional AI suggestion banner renderer.
+ * Passed from the page to avoid a dependency from core → ai-assistant.
+ */
+export type SuggestionBannerRenderer = (
+  sectionId: string,
+  currentValue: unknown,
+  setValue: (value: unknown) => void
+) => React.ReactNode
+
+/**
  * Create Form Groups
  * Returns grouped layout configuration for the CrudForm
  */
 export function createFormGroups(
   t: (key: string) => string,
   ConditionBuilderComponent: React.ComponentType<any>,
-  ActionBuilderComponent: React.ComponentType<any>
+  ActionBuilderComponent: React.ComponentType<any>,
+  renderSuggestionBanner?: SuggestionBannerRenderer
 ): CrudFormGroup[] {
   // Wrapper to adapt CrudForm props to ConditionBuilder props
   const ConditionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
-    return <ConditionBuilderComponent value={props.value} onChangeAction={props.setValue} error={props.error} showJsonPreview />
+    const banner = renderSuggestionBanner?.('conditionExpression', props.value, props.setValue)
+    return (
+      <div className={banner ? 'ai-suggestion-pending' : undefined}>
+        {banner}
+        <ConditionBuilderComponent value={props.value} onChangeAction={props.setValue} error={props.error} showJsonPreview />
+      </div>
+    )
   }
 
-  // Wrapper to adapt CrudForm props to ActionBuilder props
-  const ActionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
-    return <ActionBuilderComponent value={props.value} onChange={props.setValue} error={props.error} showJsonPreview />
+  // Wrapper to adapt CrudForm props to ActionBuilder props — success
+  const SuccessActionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
+    const banner = renderSuggestionBanner?.('successActions', props.value, props.setValue)
+    return (
+      <div className={banner ? 'ai-suggestion-pending' : undefined}>
+        {banner}
+        <ActionBuilderComponent value={props.value} onChange={props.setValue} error={props.error} showJsonPreview />
+      </div>
+    )
+  }
+
+  // Wrapper to adapt CrudForm props to ActionBuilder props — failure
+  const FailureActionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
+    const banner = renderSuggestionBanner?.('failureActions', props.value, props.setValue)
+    return (
+      <div className={banner ? 'ai-suggestion-pending' : undefined}>
+        {banner}
+        <ActionBuilderComponent value={props.value} onChange={props.setValue} error={props.error} showJsonPreview />
+      </div>
+    )
   }
   return [
     {
@@ -221,7 +255,7 @@ export function createFormGroups(
           id: 'successActions',
           label: '',
           type: 'custom',
-          component: ActionBuilderWrapper,
+          component: SuccessActionBuilderWrapper,
         },
       ],
     },
@@ -234,7 +268,7 @@ export function createFormGroups(
           id: 'failureActions',
           label: '',
           type: 'custom',
-          component: ActionBuilderWrapper,
+          component: FailureActionBuilderWrapper,
         },
       ],
     },

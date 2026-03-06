@@ -41,5 +41,19 @@
   "ai_assistant.status.executing": "Ejecutando herramientas...",
   "ai_assistant.status.responding": "Respondiendo...",
   "ai_assistant.status.thinking": "Pensando...",
-  "ai_assistant.status.working": "Procesando..."
+  "ai_assistant.status.working": "Procesando...",
+  "ai_assistant.form_bridge.suggestion_title": "Sugerencia de IA",
+  "ai_assistant.form_bridge.accept": "Aceptar",
+  "ai_assistant.form_bridge.reject": "Rechazar",
+  "ai_assistant.form_bridge.undo_accept": "Deshacer",
+  "ai_assistant.form_bridge.preview_diff": "Vista previa de cambios",
+  "ai_assistant.form_bridge.hide_diff": "Ocultar cambios",
+  "ai_assistant.form_bridge.stale_warning": "El formulario fue modificado desde que se generó esta sugerencia",
+  "ai_assistant.form_bridge.generating": "La IA está generando una sugerencia...",
+  "ai_assistant.form_bridge.accept_shortcut": "Cmd+Enter para aceptar",
+  "ai_assistant.form_bridge.reject_shortcut": "Escape para rechazar",
+  "ai_assistant.form_bridge.section_conditions": "Condiciones",
+  "ai_assistant.form_bridge.section_success_actions": "Acciones de éxito",
+  "ai_assistant.form_bridge.section_failure_actions": "Acciones de fallo",
+  "ai_assistant.form_bridge.ai_connected": "IA conectada"
 }
