@@ -130,7 +130,7 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     )
   })
 
-  it('returns 503 when RESEND_API_KEY is not set', async () => {
+  it('returns 503 when RESEND_API_KEY is not set and messages module unavailable', async () => {
     setupHappyPath()
     delete process.env.RESEND_API_KEY
 
@@ -141,7 +141,7 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     expect(payload.error).toContain('not configured')
   })
 
-  it('returns 503 when email delivery is disabled', async () => {
+  it('returns 503 when email delivery is disabled and messages module unavailable', async () => {
     setupHappyPath()
     process.env.OM_DISABLE_EMAIL_DELIVERY = 'true'
 

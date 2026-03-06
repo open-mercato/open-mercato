@@ -3,6 +3,9 @@ import type { CacheStrategy } from '@open-mercato/cache'
 const COUNTS_CACHE_PREFIX = 'inbox_ops:counts'
 const SETTINGS_CACHE_PREFIX = 'inbox_ops:settings'
 
+// Cache key and tag share the same value intentionally — each tenant has exactly
+// one counts entry and one settings entry, so a 1:1 key-to-tag mapping suffices.
+
 export const COUNTS_CACHE_TTL_MS = 30 * 1000
 export const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000
 

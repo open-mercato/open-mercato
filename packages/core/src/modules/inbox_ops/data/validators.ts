@@ -150,6 +150,8 @@ export const inboxProposalCategoryEnum = z.enum([
   'other',
 ])
 
+export const ALL_CATEGORIES = inboxProposalCategoryEnum.options
+
 export const categorizeProposalSchema = z.object({
   category: inboxProposalCategoryEnum,
 })

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   resolveOpenCodeModel,
@@ -11,43 +12,21 @@ import { executeAction } from './lib/executionEngine'
 import { resolveExtractionProviderId, createStructuredModel, withTimeout } from './lib/llmProvider'
 import { resolveOptionalEventBus } from './lib/eventBus'
 
-/**
- * AI Tools definitions for the InboxOps module.
- *
- * These tool definitions are discovered by the ai-assistant module's generator
- * and registered as MCP tools. The inbox_ops module does not depend on ai-assistant.
- *
- * Tool Definition Format:
- * - name: Unique tool identifier (module_action format, no dots allowed)
- * - description: Human-readable description for AI clients
- * - inputSchema: Zod schema for input validation
- * - requiredFeatures: ACL features required to execute
- * - handler: Async function that executes the tool
- */
-
-/**
- * Tool context provided by the MCP server at execution time.
- */
 type ToolContext = {
   tenantId: string | null
   organizationId: string | null
   userId: string | null
-  container: {
-    resolve: <T = unknown>(name: string) => T
-  }
+  container: AwilixContainer
   userFeatures: string[]
   isSuperAdmin: boolean
 }
 
-/**
- * Tool definition structure.
- */
-type AiToolDefinition = {
+interface AiToolDefinition {
   name: string
   description: string
-  inputSchema: z.ZodType<any>
+  inputSchema: z.ZodType
   requiredFeatures?: string[]
-  handler: (input: any, ctx: ToolContext) => Promise<unknown>
+  handler: (input: never, ctx: ToolContext) => Promise<unknown>
 }
 
 // =============================================================================
@@ -85,7 +64,7 @@ function resolveCrossModuleEntities(container: ToolContext['container']) {
 // inbox_ops_list_proposals — Query proposals by status, category, date range
 // =============================================================================
 
-const listProposalsTool: AiToolDefinition = {
+const listProposalsTool = {
   name: 'inbox_ops_list_proposals',
   description: `List inbox proposals with optional filters by status, category, and date range.
 
@@ -116,7 +95,7 @@ Returns: total count and an array of proposals with id, summary, status, categor
       .describe('Filter proposals created on or before this date (ISO 8601)'),
   }),
   requiredFeatures: ['inbox_ops.proposals.view'],
-  handler: async (input, ctx) => {
+  handler: async (input: { status?: string; category?: string; limit?: number; dateFrom?: string; dateTo?: string }, ctx: ToolContext) => {
     const scope = requireTenantContext(ctx)
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
@@ -194,7 +173,7 @@ Returns: total count and an array of proposals with id, summary, status, categor
 // inbox_ops_get_proposal — Fetch proposal detail with actions and discrepancies
 // =============================================================================
 
-const getProposalTool: AiToolDefinition = {
+const getProposalTool = {
   name: 'inbox_ops_get_proposal',
   description: `Get full details of an inbox proposal including its actions and discrepancies.
 
@@ -203,7 +182,7 @@ Returns: proposal with id, summary, status, category, confidence, actions array,
     proposalId: z.string().uuid().describe('The UUID of the proposal to retrieve'),
   }),
   requiredFeatures: ['inbox_ops.proposals.view'],
-  handler: async (input, ctx) => {
+  handler: async (input: { proposalId: string }, ctx: ToolContext) => {
     const scope = requireTenantContext(ctx)
     const em = ctx.container.resolve<EntityManager>('em').fork()
 
@@ -286,7 +265,7 @@ Returns: proposal with id, summary, status, category, confidence, actions array,
 // inbox_ops_accept_action — Accept and execute a specific action
 // =============================================================================
 
-const acceptActionTool: AiToolDefinition = {
+const acceptActionTool = {
   name: 'inbox_ops_accept_action',
   description: `Accept and execute a specific action from an inbox proposal. Creates the entity in the target module (e.g., order, contact).
 
@@ -297,7 +276,7 @@ Returns on error: error message with appropriate detail.`,
     actionId: z.string().uuid().describe('The UUID of the action to accept'),
   }),
   requiredFeatures: ['inbox_ops.proposals.manage'],
-  handler: async (input, ctx) => {
+  handler: async (input: { proposalId: string; actionId: string }, ctx: ToolContext) => {
     const scope = requireTenantContext(ctx)
     if (!ctx.userId) {
       throw new Error('User context is required')
@@ -341,9 +320,7 @@ Returns on error: error message with appropriate detail.`,
     }
 
     const entities = resolveCrossModuleEntities(ctx.container)
-    const eventBus = resolveOptionalEventBus(
-      ctx.container as unknown as import('awilix').AwilixContainer,
-    )
+    const eventBus = resolveOptionalEventBus(ctx.container)
 
     const result = await executeAction(action, {
       em,
@@ -351,7 +328,7 @@ Returns on error: error message with appropriate detail.`,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       eventBus,
-      container: ctx.container as unknown as import('awilix').AwilixContainer,
+      container: ctx.container,
       entities: entities as unknown as import('./lib/executionEngine').CrossModuleEntities,
     })
 
@@ -394,7 +371,7 @@ const categorizeEmailSchema = z.object({
   reasoning: z.string(),
 })
 
-const categorizeEmailTool: AiToolDefinition = {
+const categorizeEmailTool = {
   name: 'inbox_ops_categorize_email',
   description: `Categorize email or text content using AI. Classifies text into one of: rfq, order, order_update, complaint, shipping_update, inquiry, payment, other.
 
@@ -408,7 +385,7 @@ Input text is limited to 10,000 characters for cost control.`,
       .describe('Email or text content to categorize (max 10K chars)'),
   }),
   requiredFeatures: ['inbox_ops.proposals.view'],
-  handler: async (input, ctx) => {
+  handler: async (input: { text: string }, ctx: ToolContext) => {
     requireTenantContext(ctx)
 
     const providerId = resolveExtractionProviderId()
@@ -463,7 +440,7 @@ Return a JSON object with:
  * All AI tools exported by the inbox_ops module.
  * Discovered by ai-assistant module's generator.
  */
-export const aiTools = [
+export const aiTools: AiToolDefinition[] = [
   listProposalsTool,
   getProposalTool,
   acceptActionTool,

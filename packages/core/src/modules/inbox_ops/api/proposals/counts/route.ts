@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { InboxProposal } from '../../../data/entities'
-import type { InboxProposalCategory } from '../../../data/entities'
+import { ALL_CATEGORIES } from '../../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../../routeHelpers'
 import {
   resolveCache,
@@ -14,11 +14,6 @@ import {
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.proposals.view'] },
 }
-
-const ALL_CATEGORIES: InboxProposalCategory[] = [
-  'rfq', 'order', 'order_update', 'complaint',
-  'shipping_update', 'inquiry', 'payment', 'other',
-]
 
 export async function GET(req: Request) {
   try {
