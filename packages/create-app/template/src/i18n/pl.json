@@ -408,6 +408,7 @@
   "startPage.chooseRole.title": "Wybierz swoją rolę",
   "startPage.defaultPassword.description1": "Domyślne hasło dla wszystkich kont demonstracyjnych to",
   "startPage.defaultPassword.description2": "Aby zmienić hasła, użyj polecenia CLI:",
+  "startPage.defaultPassword.description3": "Adresy e-mail kont demo są wypisywane w terminalu podczas wykonywania yarn initialize.",
   "startPage.defaultPassword.title": "Domyślne hasło",
   "startPage.onboarding.cta": "Rozpocznij onboardowanie",
   "startPage.onboarding.description": "Utwórz najemcę, organizację i konto administratora w kilka minut. Zweryfikujemy Twój e-mail i dostarczymy wstępnie skonfigurowane środowisko, abyś mógł eksplorować Open Mercato z rzeczywistymi danymi.",
