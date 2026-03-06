@@ -21,5 +21,9 @@ else
   yarn db:migrate
 fi
 
+echo "Starting MCP server on port 3001..."
+cd /app/apps/mercato
+yarn mercato ai_assistant mcp:serve-http --port 3001 &
+
 cd /app
 exec yarn dev
