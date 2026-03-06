@@ -20,9 +20,9 @@ This ADR defines a new **security** module inside the enterprise package that de
 
 ## 2. Decision
 
-We will implement a `security` module at `packages/enterprise/src/modules/security/` that provides six capabilities:
+We will implement a `security` module at `packages/enterprise/src/modules/security/` that provides seven capabilities:
 
-1. **Extensible profile page** with password management and widget injection points for other modules.
+1. **Security surfaces inside the existing auth profile area** (password hardening + MFA pages) exposed via UMES navigation injection and profile subroutes, with no auth module code changes.
 2. **Multi-factor authentication** with three built-in methods — TOTP authenticator apps (multiple), passkeys/WebAuthn (multiple), and OTP email — plus a **pluggable MFA provider registry** so third-party module developers can register custom MFA methods (e.g. SMS, push notifications, hardware tokens) that are auto-discovered at bootstrap.
 3. **MFA enforcement** configurable by superadmin at platform, tenant, or organisation scope.
 4. **Sudo challenge system** allowing superadmin to require re-authentication for specific packages, modules, routes, or features — configurable from the admin UI.
@@ -46,7 +46,7 @@ The module lives at `packages/enterprise/src/modules/security/` following the st
 | Auth login flow (API) | API Interceptor `after` hook (`api/interceptors.ts`) | Rewrites login response to inject `mfa_required` + pending token — no auth module modification — see §14.1 |
 | Auth login flow (UI) | UMES Phase H (component wrapper on `section:auth.login.form`) + Phase C (DOM event `om:auth:login-response`) | Intercepts form response client-side to present MFA challenge UI — requires two additive-only additions to the login page (component handle + event emit) — see §14.4 |
 | Directory module | Foreign key (`tenantId`, `orgId`) | Enforcement policies scoped to tenants/orgs |
-| Profile UI | Widget injection | Password change and MFA sections injected into profile page |
+| Profile UI | UMES Phase A menu injection (`menu:topbar:profile-dropdown`) + profile-area security subroutes | Injects "Security & MFA" entry into existing profile menu and routes users to `/backend/profile/security/*` pages owned by the security module, without modifying auth profile pages |
 | Sudo protection | Shared library export | Challenge middleware + React hook for other modules to consume |
 | Audit trail | Event system | All security actions emit events consumed by `audit_logs` module |
 | Notifications | Event subscribers | MFA changes, enforcement deadlines, and recovery code usage trigger user notifications |
@@ -1268,14 +1268,14 @@ export const securityEvents = {
 
 ## 13. Frontend pages
 
-### 13.1 Profile and MFA pages (`backend/profile/`)
+### 13.1 Profile-area security and MFA pages (`backend/profile/security/`)
 
 | Page path | Description |
 |---|---|
-| `backend/profile/page.tsx` | Extensible profile page with widget injection points. Contains password change form by default. Registers `security.profile.sections` and `security.profile.sidebar` injection points for other modules. |
-| `backend/profile/mfa/page.tsx` | MFA management page. Dynamically renders all registered providers from `MfaProviderRegistry`. Displays current enrolled methods with status badges, provides setup wizards for each available provider type (built-in + custom), shows recovery code management section. The "Add method" UI queries `/api/security/mfa/providers` to list available providers and renders each provider's `SetupComponent` or a generic form if none is provided. |
-| `backend/profile/mfa/setup-totp/page.tsx` | TOTP setup wizard: QR code display, manual secret entry toggle, 6-digit verification input, recovery codes display on first MFA enrollment. |
-| `backend/profile/mfa/setup-passkey/page.tsx` | Passkey registration flow using WebAuthn browser API. Browser compatibility check, authenticator selection (platform vs roaming), label input. |
+| `backend/profile/security/page.tsx` | Security profile page (owned by security module, routed under the existing auth profile area). Contains hardened password change form (current password required) and links to MFA management. No overrides/replacements of auth profile pages are required. |
+| `backend/profile/security/mfa/page.tsx` | MFA management page. Dynamically renders all registered providers from `MfaProviderRegistry`. Displays current enrolled methods with status badges, provides setup wizards for each available provider type (built-in + custom), shows recovery code management section. The "Add method" UI queries `/api/security/mfa/providers` to list available providers and renders each provider's `SetupComponent` or a generic form if none is provided. |
+| `backend/profile/security/mfa/setup-totp/page.tsx` | TOTP setup wizard: QR code display, manual secret entry toggle, 6-digit verification input, recovery codes display on first MFA enrollment. |
+| `backend/profile/security/mfa/setup-passkey/page.tsx` | Passkey registration flow using WebAuthn browser API. Browser compatibility check, authenticator selection (platform vs roaming), label input. |
 
 ### 13.2 Admin pages (`backend/security/`)
 
@@ -1304,12 +1304,12 @@ export const securityEvents = {
 
 ### 13.4 Widget injection points
 
-The profile page exposes injection points so other modules can extend it:
+The security profile hub page exposes injection points so other modules can extend it:
 
 | Injection ID | Location | Description |
 |---|---|---|
-| `security.profile.sections` | Profile page body | Other modules register widget components that render as additional collapsible sections below password change. |
-| `security.profile.sidebar` | Profile side navigation | Modules add extra navigation items (e.g. "API Keys", "Connected Apps"). |
+| `security.profile.sections` | Security profile page body | Other modules register widget components that render as additional collapsible sections below password change. |
+| `security.profile.sidebar` | Security profile side navigation | Modules add extra navigation items (e.g. "API Keys", "Connected Apps"). |
 | `security.admin.user-actions` | Admin user table rows | Modules add context-specific action buttons per user row. |
 
 ---
@@ -1506,6 +1506,19 @@ Security module (zero auth module coupling):
 ```
 
 The auth module additions are **additive-only** (no existing behaviour changed), declare **no MFA concepts** (generic event/handle names), and become part of the UMES frozen contract surface from the moment they land.
+
+---
+
+### 14.5 Profile/password integration without auth module changes (UMES Phase A)
+
+For profile/security navigation we use a pure-injection strategy with no auth module edits:
+
+- Security module registers a menu injection for `menu:topbar:profile-dropdown` that adds a `Security & MFA` item linking to `/backend/profile/security`.
+- Security module owns profile-area security pages under `backend/profile/security/*` and does not replace `auth` profile pages.
+- Existing auth routes (`/backend/profile`, `/backend/profile/change-password`, `/api/auth/profile`) remain unchanged for backward compatibility.
+- Enterprise users are directed to security-owned UX in the same profile URL namespace by the injected menu item; legacy links continue to work.
+
+This uses UMES Phase A (menu/item injection) and avoids route collisions with core profile pages.
 
 ---
 
@@ -1709,15 +1722,16 @@ SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster 
 
 ### Phase 1: Foundation (weeks 1–2)
 
-Goal: module scaffolding, database entities, profile page with password management.
+Goal: module scaffolding, database entities, profile-area security pages with password management.
 
 | Task | Priority | Est. days | Depends on |
 |---|---|---|---|
 | Scaffold module structure (all standard files) | High | 0.5 | — |
 | Create database entities and migration | High | 1 | Scaffold |
 | Implement `PasswordService` | High | 1 | Entities |
-| Build profile page with widget injection points | High | 1.5 | PasswordService |
-| Build `PasswordChangeForm` component | High | 1 | Profile page |
+| Build profile-area security page (`/backend/profile/security`) with widget injection points | High | 1.5 | PasswordService |
+| Build `PasswordChangeForm` component | High | 1 | Profile-area security page |
+| Register UMES menu injection (`menu:topbar:profile-dropdown`) with "Security & MFA" entry | High | 0.5 | Profile-area security page |
 | Profile/password API endpoints with OpenAPI specs | High | 1 | PasswordService |
 | Command scaffold for password/enforcement/sudo config mutations | High | 1 | Scaffold |
 | Feature permissions and role setup (`setup.ts`, `acl.ts`) | High | 0.5 | Scaffold |
@@ -1927,11 +1941,12 @@ security/
 │
 ├── backend/
 │   ├── profile/
-│   │   ├── page.tsx                            # User profile page (extensible)
-│   │   └── mfa/
-│   │       ├── page.tsx                        # MFA management page
-│   │       ├── setup-totp/page.tsx             # TOTP setup wizard
-│   │       └── setup-passkey/page.tsx          # Passkey registration flow
+│   │   └── security/
+│   │       ├── page.tsx                        # Profile-area security page
+│   │       └── mfa/
+│   │           ├── page.tsx                    # MFA management page
+│   │           ├── setup-totp/page.tsx         # TOTP setup wizard
+│   │           └── setup-passkey/page.tsx      # Passkey registration flow
 │   └── security/
 │       ├── page.tsx                            # Security dashboard
 │       ├── enforcement/page.tsx                # Enforcement management
@@ -1956,6 +1971,7 @@ security/
 │
 ├── widgets/
 │   ├── injection/profile-sections.ts           # Profile page widget injection config
+│   ├── injection/profile-dropdown-security-item.ts # UMES Phase A: inject "Security" link into profile dropdown
 │   ├── dashboard/security-stats.ts             # Dashboard widget config
 │   └── components.ts                           # UMES Phase H: component replacement/wrapper overrides (login form MFA wrapper, etc.)
 │

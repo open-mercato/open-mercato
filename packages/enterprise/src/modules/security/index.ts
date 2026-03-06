@@ -1,6 +1,9 @@
-import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+import './commands/changePassword'
 
-export const metadata: ModuleInfo = {
-  name: 'security',
+export const metadata = {
+  id: 'security',
   version: '0.1.0',
-}
+  enterprise: true,
+} as const
+
+export { features } from './acl'

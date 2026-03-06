@@ -1,0 +1,42 @@
+{
+  "security": {
+    "label": "Security",
+    "profile": {
+      "pageTitle": "Security & MFA",
+      "password": {
+        "title": "Password security",
+        "description": "Change your account password and keep your credentials secure.",
+        "form": {
+          "currentPassword": "Current password",
+          "newPassword": "New password",
+          "confirmPassword": "Confirm new password",
+          "submit": "Update password",
+          "success": "Password updated.",
+          "requirementsTitle": "Password requirements",
+          "errors": {
+            "required": "Both current and new password are required.",
+            "currentRequired": "Current password is required.",
+            "confirmRequired": "Please confirm the new password.",
+            "passwordPolicy": "Password does not meet the requirements.",
+            "passwordMismatch": "Passwords do not match.",
+            "save": "Failed to update password."
+          }
+        }
+      },
+      "mfa": {
+        "title": "Multi-factor authentication",
+        "placeholder": "MFA management is being introduced in the next phase."
+      }
+    },
+    "menu": {
+      "profile": {
+        "securityMfa": "Security & MFA"
+      }
+    },
+    "audit": {
+      "password": {
+        "change": "Change password"
+      }
+    }
+  }
+}
