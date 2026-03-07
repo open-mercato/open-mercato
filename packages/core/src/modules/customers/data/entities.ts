@@ -254,6 +254,8 @@ export class CustomerCompanyProfile {
 
 @Entity({ tableName: 'customer_deals' })
 @Index({ name: 'customer_deals_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'customer_deals_org_status_closed_idx', properties: ['organizationId', 'tenantId', 'status', 'closedAt'] })
+@Index({ name: 'customer_deals_org_owner_status_idx', properties: ['organizationId', 'tenantId', 'ownerUserId', 'status'] })
 export class CustomerDeal {
   [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -302,6 +304,21 @@ export class CustomerDeal {
   @Property({ name: 'source', type: 'text', nullable: true })
   source?: string | null
 
+  @Property({ name: 'close_reason_id', type: 'uuid', nullable: true })
+  closeReasonId?: string | null
+
+  @Property({ name: 'close_reason_notes', type: 'text', nullable: true })
+  closeReasonNotes?: string | null
+
+  @Property({ name: 'closed_at', type: Date, nullable: true })
+  closedAt?: Date | null
+
+  @Property({ name: 'stage_entered_at', type: Date, nullable: true })
+  stageEnteredAt?: Date | null
+
+  @Property({ name: 'last_activity_at', type: Date, nullable: true })
+  lastActivityAt?: Date | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -322,6 +339,9 @@ export class CustomerDeal {
 
   @OneToMany(() => CustomerComment, (comment) => comment.deal)
   comments = new Collection<CustomerComment>(this)
+
+  @OneToMany(() => CustomerDealLine, (line) => line.deal)
+  lines = new Collection<CustomerDealLine>(this)
 }
 
 @Entity({ tableName: 'customer_deal_people' })
@@ -367,12 +387,86 @@ export class CustomerDealCompanyLink {
   company!: CustomerEntity
 }
 
+@Entity({ tableName: 'customer_deal_lines' })
+@Index({ name: 'customer_deal_lines_deal_idx', properties: ['deal'] })
+@Index({ name: 'customer_deal_lines_product_idx', properties: ['productId', 'organizationId'] })
+@Index({ name: 'customer_deal_lines_org_idx', properties: ['organizationId', 'tenantId'] })
+export class CustomerDealLine {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'lineNumber' | 'quantity' | 'unitPrice' | 'lineTotal' | 'discountPercent' | 'discountAmount'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'line_number', type: 'integer', default: 0 })
+  lineNumber: number = 0
+
+  @Property({ name: 'product_id', type: 'uuid', nullable: true })
+  productId?: string | null
+
+  @Property({ name: 'product_variant_id', type: 'uuid', nullable: true })
+  productVariantId?: string | null
+
+  @Property({ name: 'name', type: 'text' })
+  name!: string
+
+  @Property({ name: 'sku', type: 'text', nullable: true })
+  sku?: string | null
+
+  @Property({ name: 'description', type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'quantity', type: 'numeric', columnType: 'numeric(18,6)', default: 1 })
+  quantity: number = 1
+
+  @Property({ name: 'unit', type: 'text', nullable: true })
+  unit?: string | null
+
+  @Property({ name: 'unit_price', type: 'numeric', columnType: 'numeric(14,2)', default: 0 })
+  unitPrice: number = 0
+
+  @Property({ name: 'discount_percent', type: 'numeric', columnType: 'numeric(5,2)', nullable: true, default: 0 })
+  discountPercent?: number | null
+
+  @Property({ name: 'discount_amount', type: 'numeric', columnType: 'numeric(14,2)', nullable: true, default: 0 })
+  discountAmount?: number | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', columnType: 'numeric(7,4)', nullable: true })
+  taxRate?: number | null
+
+  @Property({ name: 'line_total', type: 'numeric', columnType: 'numeric(14,2)', default: 0 })
+  lineTotal: number = 0
+
+  @Property({ name: 'currency', type: 'varchar', length: 3, nullable: true })
+  currency?: string | null
+
+  @Property({ name: 'product_snapshot', type: 'jsonb', nullable: true })
+  productSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @ManyToOne(() => CustomerDeal, { fieldName: 'deal_id' })
+  deal!: CustomerDeal
+}
+
 @Entity({ tableName: 'customer_activities' })
 @Index({ name: 'customer_activities_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'customer_activities_entity_idx', properties: ['entity'] })
 @Index({ name: 'customer_activities_entity_occurred_created_idx', properties: ['entity', 'occurredAt', 'createdAt'] })
 export class CustomerActivity {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'reminderSent' | 'isOverdue'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -394,6 +488,21 @@ export class CustomerActivity {
 
   @Property({ name: 'occurred_at', type: Date, nullable: true })
   occurredAt?: Date | null
+
+  @Property({ name: 'due_at', type: Date, nullable: true })
+  dueAt?: Date | null
+
+  @Property({ name: 'reminder_at', type: Date, nullable: true })
+  reminderAt?: Date | null
+
+  @Property({ name: 'reminder_sent', type: 'boolean', default: false })
+  reminderSent: boolean = false
+
+  @Property({ name: 'is_overdue', type: 'boolean', default: false })
+  isOverdue: boolean = false
+
+  @Property({ name: 'assigned_to_user_id', type: 'uuid', nullable: true })
+  assignedToUserId?: string | null
 
   @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
   authorUserId?: string | null
@@ -458,6 +567,121 @@ export class CustomerComment {
 
   @ManyToOne(() => CustomerDeal, { fieldName: 'deal_id', nullable: true })
   deal?: CustomerDeal | null
+}
+
+@Entity({ tableName: 'customer_deal_emails' })
+@Index({ name: 'customer_deal_emails_deal_idx', properties: ['dealId', 'sentAt'] })
+@Index({ name: 'customer_deal_emails_thread_idx', properties: ['threadId'] })
+@Index({ name: 'customer_deal_emails_org_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_deal_emails_message_unique', properties: ['messageId'] })
+export class CustomerDealEmail {
+  [OptionalProps]?: 'hasAttachments' | 'isRead' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'deal_id', type: 'uuid' })
+  dealId!: string
+
+  @Property({ name: 'thread_id', type: 'text', nullable: true })
+  threadId?: string | null
+
+  @Property({ name: 'message_id', type: 'text', nullable: true })
+  messageId?: string | null
+
+  @Property({ name: 'in_reply_to', type: 'text', nullable: true })
+  inReplyTo?: string | null
+
+  @Property({ name: 'direction', type: 'text' })
+  direction!: string
+
+  @Property({ name: 'from_address', type: 'text' })
+  fromAddress!: string
+
+  @Property({ name: 'from_name', type: 'text', nullable: true })
+  fromName?: string | null
+
+  @Property({ name: 'to_addresses', type: 'jsonb', default: '[]' })
+  toAddresses: Array<{ email: string; name?: string }> = []
+
+  @Property({ name: 'cc_addresses', type: 'jsonb', nullable: true, default: '[]' })
+  ccAddresses?: Array<{ email: string; name?: string }> | null
+
+  @Property({ name: 'bcc_addresses', type: 'jsonb', nullable: true, default: '[]' })
+  bccAddresses?: Array<{ email: string; name?: string }> | null
+
+  @Property({ name: 'subject', type: 'text' })
+  subject!: string
+
+  @Property({ name: 'body_text', type: 'text', nullable: true })
+  bodyText?: string | null
+
+  @Property({ name: 'body_html', type: 'text', nullable: true })
+  bodyHtml?: string | null
+
+  @Property({ name: 'sent_at', type: Date })
+  sentAt!: Date
+
+  @Property({ name: 'provider', type: 'text', nullable: true })
+  provider?: string | null
+
+  @Property({ name: 'provider_message_id', type: 'text', nullable: true })
+  providerMessageId?: string | null
+
+  @Property({ name: 'provider_metadata', type: 'jsonb', nullable: true })
+  providerMetadata?: Record<string, unknown> | null
+
+  @Property({ name: 'has_attachments', type: 'boolean', default: false })
+  hasAttachments: boolean = false
+
+  @Property({ name: 'is_read', type: 'boolean', default: true })
+  isRead: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_deal_mentions' })
+@Index({ name: 'customer_deal_mentions_user_idx', properties: ['mentionedUserId', 'isRead'] })
+@Index({ name: 'customer_deal_mentions_deal_idx', properties: ['dealId'] })
+export class CustomerDealMention {
+  [OptionalProps]?: 'isRead' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'deal_id', type: 'uuid' })
+  dealId!: string
+
+  @Property({ name: 'comment_id', type: 'uuid' })
+  commentId!: string
+
+  @Property({ name: 'mentioned_user_id', type: 'uuid' })
+  mentionedUserId!: string
+
+  @Property({ name: 'is_read', type: 'boolean', default: false })
+  isRead: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'customer_addresses' })
@@ -708,6 +932,112 @@ export class CustomerPipelineStage {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_deal_stage_histories' })
+@Index({ name: 'customer_deal_stage_histories_deal_idx', properties: ['dealId', 'createdAt'] })
+@Index({ name: 'customer_deal_stage_histories_stage_idx', properties: ['toStageId', 'organizationId'] })
+@Index({ name: 'customer_deal_stage_histories_org_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'customer_deal_stage_histories_analytics_idx',
+  properties: ['organizationId', 'tenantId', 'createdAt', 'toStageId'],
+})
+export class CustomerDealStageHistory {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'deal_id', type: 'uuid' })
+  dealId!: string
+
+  @Property({ name: 'from_stage_id', type: 'uuid', nullable: true })
+  fromStageId?: string | null
+
+  @Property({ name: 'to_stage_id', type: 'uuid' })
+  toStageId!: string
+
+  @Property({ name: 'from_stage_label', type: 'text', nullable: true })
+  fromStageLabel?: string | null
+
+  @Property({ name: 'to_stage_label', type: 'text' })
+  toStageLabel!: string
+
+  @Property({ name: 'from_pipeline_id', type: 'uuid', nullable: true })
+  fromPipelineId?: string | null
+
+  @Property({ name: 'to_pipeline_id', type: 'uuid' })
+  toPipelineId!: string
+
+  @Property({ name: 'changed_by_user_id', type: 'uuid', nullable: true })
+  changedByUserId?: string | null
+
+  @Property({ name: 'duration_seconds', type: 'int', nullable: true })
+  durationSeconds?: number | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_saved_views' })
+@Index({ name: 'customer_saved_views_user_idx', properties: ['userId', 'entityType'] })
+@Index({ name: 'customer_saved_views_org_idx', properties: ['organizationId', 'tenantId', 'entityType', 'isShared'] })
+export class CustomerSavedView {
+  [OptionalProps]?: 'isDefault' | 'isShared' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'jsonb', default: '{}' })
+  filters: Record<string, unknown> = {}
+
+  @Property({ name: 'sort_field', type: 'text', nullable: true })
+  sortField?: string | null
+
+  @Property({ name: 'sort_dir', type: 'text', nullable: true })
+  sortDir?: string | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  columns?: string[] | null
+
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
+
+  @Property({ name: 'is_shared', type: 'boolean', default: false })
+  isShared: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'customer_todo_links' })

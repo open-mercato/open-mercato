@@ -39,6 +39,25 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/customers/deals/{sourceEntityId}',
     expiresAfterHours: 168, // 7 days
   },
+  {
+    type: 'customers.deal.mentioned',
+    module: 'customers',
+    titleKey: 'customers.notifications.deal.mentioned.title',
+    bodyKey: 'customers.notifications.deal.mentioned.body',
+    icon: 'at-sign',
+    severity: 'info',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/customers/deals/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/customers/deals/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
 ]
 
 export default notificationTypes

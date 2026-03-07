@@ -16,6 +16,8 @@ export const dictionaryKindSchema = z.enum([
   'address-types',
   'activity-types',
   'deal-statuses',
+  'deal-contact-roles',
+  'deal-close-reasons',
   'pipeline-stages',
   'job-titles',
   'industries',
@@ -29,6 +31,8 @@ export type DictionaryEntityKind =
   | 'address_type'
   | 'activity_type'
   | 'deal_status'
+  | 'deal_contact_role'
+  | 'deal_close_reason'
   | 'pipeline_stage'
   | 'job_title'
   | 'industry'
@@ -40,6 +44,8 @@ const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   'address-types': 'address_type',
   'activity-types': 'activity_type',
   'deal-statuses': 'deal_status',
+  'deal-contact-roles': 'deal_contact_role',
+  'deal-close-reasons': 'deal_close_reason',
   'pipeline-stages': 'pipeline_stage',
   'job-titles': 'job_title',
   industries: 'industry',

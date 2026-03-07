@@ -67,6 +67,11 @@ type ActivitySnapshot = {
     subject: string | null
     body: string | null
     occurredAt: Date | null
+    dueAt: Date | null
+    reminderAt: Date | null
+    reminderSent: boolean
+    isOverdue: boolean
+    assignedToUserId: string | null
     authorUserId: string | null
     appearanceIcon: string | null
     appearanceColor: string | null
@@ -108,6 +113,11 @@ async function loadActivitySnapshot(em: EntityManager, id: string): Promise<Acti
       subject: activity.subject ?? null,
       body: activity.body ?? null,
       occurredAt: activity.occurredAt ?? null,
+      dueAt: activity.dueAt ?? null,
+      reminderAt: activity.reminderAt ?? null,
+      reminderSent: activity.reminderSent ?? false,
+      isOverdue: activity.isOverdue ?? false,
+      assignedToUserId: activity.assignedToUserId ?? null,
       authorUserId: activity.authorUserId ?? null,
       appearanceIcon: activity.appearanceIcon ?? null,
       appearanceColor: activity.appearanceColor ?? null,
@@ -172,6 +182,9 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
       subject: parsed.subject ?? null,
       body: parsed.body ?? null,
       occurredAt: parsed.occurredAt ?? null,
+      dueAt: parsed.dueAt ?? null,
+      reminderAt: parsed.reminderAt ?? null,
+      assignedToUserId: parsed.assignedToUserId ?? null,
       authorUserId: normalizedAuthor,
       appearanceIcon: resolvedAppearanceIcon,
       appearanceColor: resolvedAppearanceColor,
@@ -277,6 +290,12 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     if (parsed.subject !== undefined) activity.subject = parsed.subject ?? null
     if (parsed.body !== undefined) activity.body = parsed.body ?? null
     if (parsed.occurredAt !== undefined) activity.occurredAt = parsed.occurredAt ?? null
+    if (parsed.dueAt !== undefined) activity.dueAt = parsed.dueAt ?? null
+    if (parsed.reminderAt !== undefined) {
+      activity.reminderAt = parsed.reminderAt ?? null
+      if (parsed.reminderAt) activity.reminderSent = false
+    }
+    if (parsed.assignedToUserId !== undefined) activity.assignedToUserId = parsed.assignedToUserId ?? null
     if (parsed.authorUserId !== undefined) activity.authorUserId = parsed.authorUserId ?? null
     if (parsed.appearanceIcon !== undefined) {
       activity.appearanceIcon = parsed.appearanceIcon ?? null
@@ -479,6 +498,11 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           subject: before.activity.subject,
           body: before.activity.body,
           occurredAt: before.activity.occurredAt,
+          dueAt: before.activity.dueAt,
+          reminderAt: before.activity.reminderAt,
+          reminderSent: before.activity.reminderSent,
+          isOverdue: before.activity.isOverdue,
+          assignedToUserId: before.activity.assignedToUserId,
           authorUserId: before.activity.authorUserId,
           appearanceIcon: before.activity.appearanceIcon,
           appearanceColor: before.activity.appearanceColor,
@@ -493,6 +517,11 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         activity.subject = before.activity.subject
         activity.body = before.activity.body
         activity.occurredAt = before.activity.occurredAt
+        activity.dueAt = before.activity.dueAt
+        activity.reminderAt = before.activity.reminderAt
+        activity.reminderSent = before.activity.reminderSent
+        activity.isOverdue = before.activity.isOverdue
+        activity.assignedToUserId = before.activity.assignedToUserId
         activity.authorUserId = before.activity.authorUserId
         activity.appearanceIcon = before.activity.appearanceIcon
         activity.appearanceColor = before.activity.appearanceColor

@@ -106,6 +106,8 @@ const DICTIONARY_KINDS = new Set([
   'activity_type',
   'deal_status',
   'pipeline_stage',
+  'deal_close_reason',
+  'deal_contact_role',
   'job_title',
   'industry',
 ])
@@ -123,6 +125,8 @@ export async function ensureDictionaryEntry(
       | 'activity_type'
       | 'deal_status'
       | 'pipeline_stage'
+      | 'deal_close_reason'
+      | 'deal_contact_role'
       | 'job_title'
       | 'industry'
     value: string

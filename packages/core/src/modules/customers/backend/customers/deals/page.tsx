@@ -13,6 +13,7 @@ import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/c
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -31,6 +32,26 @@ import {
   filterCustomFieldDefs,
 } from '@open-mercato/ui/backend/utils/customFieldDefs'
 
+type SavedViewItem = {
+  id: string
+  entityType: string
+  name: string
+  filters: Record<string, unknown>
+  sortField: string | null
+  sortDir: string | null
+  columns: string[] | null
+  isDefault: boolean
+  isShared: boolean
+  userId: string
+  createdAt: string
+  updatedAt: string
+}
+
+type SavedViewsResponse = {
+  items?: SavedViewItem[]
+  total?: number
+}
+
 type DealRow = {
   id: string
   title: string
@@ -43,6 +64,7 @@ type DealRow = {
   probability?: number | null
   expectedCloseAt?: string | null
   updatedAt?: string | null
+  source?: string | null
   companies: { id: string; label: string }[]
   people: { id: string; label: string }[]
 } & Record<string, unknown>
@@ -284,6 +306,72 @@ export default function CustomersDealsPage() {
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
+
+  const [savedViews, setSavedViews] = React.useState<SavedViewItem[]>([])
+  const [selectedViewId, setSelectedViewId] = React.useState<string>('')
+  const [showSaveForm, setShowSaveForm] = React.useState(false)
+  const [saveViewName, setSaveViewName] = React.useState('')
+  const [isSavingView, setIsSavingView] = React.useState(false)
+
+  const fetchSavedViews = React.useCallback(async () => {
+    try {
+      const call = await apiCall<SavedViewsResponse>('/api/customers/saved-views?entityType=deal')
+      if (!call.ok) return
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      setSavedViews(items)
+    } catch {}
+  }, [])
+
+  React.useEffect(() => {
+    fetchSavedViews()
+  }, [fetchSavedViews, scopeVersion, reloadToken])
+
+  const handleSelectView = React.useCallback((viewId: string) => {
+    setSelectedViewId(viewId)
+    if (!viewId) return
+    const view = savedViews.find((v) => v.id === viewId)
+    if (!view) return
+    const viewFilters = (view.filters && typeof view.filters === 'object' && !Array.isArray(view.filters))
+      ? (view.filters as FilterValues)
+      : {}
+    setFilterValues(viewFilters)
+    setSelectedPersonIds([])
+    setSelectedCompanyIds([])
+    setPage(1)
+  }, [savedViews])
+
+  const handleSaveView = React.useCallback(async () => {
+    const trimmedName = saveViewName.trim()
+    if (!trimmedName) return
+    setIsSavingView(true)
+    try {
+      const call = await apiCall<{ id?: string; ok?: boolean }>('/api/customers/saved-views', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entityType: 'deal',
+          name: trimmedName,
+          filters: filterValues,
+        }),
+      })
+      if (call.ok) {
+        flash(t('customers.deals.list.savedViews.saveSuccess', 'View saved successfully.'), 'success')
+        setSaveViewName('')
+        setShowSaveForm(false)
+        await fetchSavedViews()
+      } else {
+        const errorMsg = typeof (call.result as Record<string, unknown> | undefined)?.error === 'string'
+          ? (call.result as { error: string }).error
+          : t('customers.deals.list.savedViews.saveError', 'Failed to save view.')
+        flash(errorMsg, 'error')
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customers.deals.list.savedViews.saveError', 'Failed to save view.')
+      flash(message, 'error')
+    } finally {
+      setIsSavingView(false)
+    }
+  }, [saveViewName, filterValues, fetchSavedViews, t])
 
   const initialPersonIds = React.useMemo(
     () => extractIdsFromParams(searchParams, 'personId'),
@@ -751,6 +839,17 @@ export default function CustomersDealsPage() {
       loadOptions: loadCompanyOptions,
       placeholder: t('customers.deals.list.filters.companiesPlaceholder'),
     },
+    {
+      id: 'source',
+      label: t('customers.deals.list.filters.source', 'Source'),
+      type: 'text',
+      placeholder: t('customers.deals.list.filters.sourcePlaceholder', 'Filter by source'),
+    },
+    {
+      id: 'expectedCloseAt',
+      label: t('customers.deals.list.filters.expectedCloseAt', 'Expected close date'),
+      type: 'dateRange',
+    },
   ], [companyOptions, loadCompanyOptions, loadPeopleOptions, personOptions, t])
 
   const { data: customFieldDefs = [] } = useCustomFieldDefs([E.customers.customer_deal], {
@@ -894,17 +993,114 @@ export default function CustomersDealsPage() {
     ]
   }, [customFieldDefs, dictionaryMaps, pipelineNames, t])
 
+  const summary = React.useMemo(() => {
+    let totalValue = 0
+    let probabilitySum = 0
+    let probabilityCount = 0
+    rows.forEach((row) => {
+      if (typeof row.valueAmount === 'number' && Number.isFinite(row.valueAmount)) {
+        totalValue += row.valueAmount
+      }
+      if (typeof row.probability === 'number' && Number.isFinite(row.probability)) {
+        probabilitySum += row.probability
+        probabilityCount += 1
+      }
+    })
+    const averageProbability = probabilityCount > 0 ? probabilitySum / probabilityCount : null
+    return { totalValue, averageProbability, dealCount: total }
+  }, [rows, total])
+
   return (
     <Page>
       <PageBody>
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="saved-view-select" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+              {t('customers.deals.list.savedViews.label', 'Saved views')}
+            </label>
+            <select
+              id="saved-view-select"
+              className="h-9 rounded border border-input bg-background px-3 text-sm"
+              value={selectedViewId}
+              onChange={(e) => handleSelectView(e.target.value)}
+            >
+              <option value="">
+                {t('customers.deals.list.savedViews.defaultOption', 'All deals')}
+              </option>
+              {savedViews.map((view) => (
+                <option key={view.id} value={view.id}>{view.name}</option>
+              ))}
+            </select>
+          </div>
+          {!showSaveForm && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSaveForm(true)}
+            >
+              {t('customers.deals.list.savedViews.saveCurrentView', 'Save current view')}
+            </Button>
+          )}
+          {showSaveForm && (
+            <div className="flex items-center gap-2">
+              <Input
+                className="h-9 w-48"
+                placeholder={t('customers.deals.list.savedViews.namePlaceholder', 'View name')}
+                value={saveViewName}
+                onChange={(e) => setSaveViewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleSaveView()
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setShowSaveForm(false)
+                    setSaveViewName('')
+                  }
+                }}
+                autoFocus
+              />
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveView}
+                disabled={isSavingView || !saveViewName.trim()}
+              >
+                {isSavingView
+                  ? t('customers.deals.list.savedViews.saving', 'Saving...')
+                  : t('customers.deals.list.savedViews.save', 'Save')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowSaveForm(false)
+                  setSaveViewName('')
+                }}
+              >
+                {t('customers.deals.list.savedViews.cancel', 'Cancel')}
+              </Button>
+            </div>
+          )}
+        </div>
         <DataTable<DealRow>
           title={t('customers.deals.list.title')}
           actions={(
-            <Button asChild>
-              <Link href="/backend/customers/deals/create">
-                {t('customers.deals.list.actions.new', 'New deal')}
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" asChild>
+                <Link href="/backend/customers/deals/analytics">
+                  {t('customers.deals.list.actions.analytics', 'Analytics')}
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link href="/backend/customers/deals/create">
+                  {t('customers.deals.list.actions.new', 'New deal')}
+                </Link>
+              </Button>
+            </div>
           )}
           columns={columns}
           data={rows}
@@ -966,6 +1162,34 @@ export default function CustomersDealsPage() {
           entityId={E.customers.customer_deal}
           perspective={{ tableId: 'customers.deals.list' }}
         />
+        {rows.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-6 rounded-lg border bg-card px-4 py-3">
+            <div className="flex flex-col">
+              <span className="text-xs text-muted-foreground">
+                {t('customers.deals.list.summary.totalDeals', 'Total deals')}
+              </span>
+              <span className="text-sm font-semibold">{summary.dealCount}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs text-muted-foreground">
+                {t('customers.deals.list.summary.totalValue', 'Total value')}
+              </span>
+              <span className="text-sm font-semibold">
+                {formatCurrency(summary.totalValue, null, '0')}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs text-muted-foreground">
+                {t('customers.deals.list.summary.avgProbability', 'Avg. probability')}
+              </span>
+              <span className="text-sm font-semibold">
+                {summary.averageProbability !== null
+                  ? `${Math.round(summary.averageProbability)}%`
+                  : t('customers.deals.list.noValue')}
+              </span>
+            </div>
+          </div>
+        )}
       </PageBody>
       {ConfirmDialogElement}
     </Page>
@@ -998,6 +1222,7 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
       : typeof probabilityRaw === 'string' && probabilityRaw.trim().length
         ? Number(probabilityRaw)
         : null
+  const source = typeof item.source === 'string' && item.source.trim().length ? item.source.trim() : null
   const expectedCloseAt = typeof item.expected_close_at === 'string' ? item.expected_close_at : null
   const updatedAt = typeof item.updated_at === 'string' ? item.updated_at : null
   const peopleRaw = Array.isArray(item.people) ? item.people : []
@@ -1036,6 +1261,7 @@ function mapDeal(item: Record<string, unknown>): DealRow | null {
     valueAmount,
     valueCurrency,
     probability,
+    source,
     expectedCloseAt,
     updatedAt,
     people,
