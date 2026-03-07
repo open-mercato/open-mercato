@@ -61,7 +61,7 @@ export async function GET(request: Request) {
      WHERE organization_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?
      GROUP BY to_stage_label
      ORDER BY deal_count DESC`,
-    [scope.organizationId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
+    [scope.selectedId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
   )
 
   const stages: Array<{ label: string; dealCount: number; conversionRate: number }> = []
@@ -87,19 +87,18 @@ export const metadata = {
 }
 
 export const openApi: OpenApiRouteDoc = {
-  get: {
-    summary: 'Deal funnel analytics',
-    description: 'Returns deal stage funnel with entry counts and conversion rates between stages.',
-    tags: ['Customers'],
-    parameters: [
-      { name: 'from', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Start date (defaults to 12 months ago)' },
-      { name: 'to', in: 'query', schema: { type: 'string', format: 'date' }, description: 'End date (defaults to today)' },
-    ],
-    responses: {
-      200: { description: 'Funnel stages with deal counts and conversion rates' },
-      400: { description: 'Invalid query parameters' },
-      401: { description: 'Authentication required' },
-      403: { description: 'Access denied' },
+  tag: 'Customers',
+  summary: 'Deal funnel analytics',
+  methods: {
+    GET: {
+      summary: 'Deal funnel analytics',
+      description: 'Returns deal stage funnel with entry counts and conversion rates between stages.',
+      responses: [
+        { status: 200, description: 'Funnel stages with deal counts and conversion rates' },
+        { status: 400, description: 'Invalid query parameters' },
+        { status: 401, description: 'Authentication required' },
+        { status: 403, description: 'Access denied' },
+      ],
     },
   },
 }

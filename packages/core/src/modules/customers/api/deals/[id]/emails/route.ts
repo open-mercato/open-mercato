@@ -244,11 +244,8 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List deal emails',
       description: 'Lists emails for a deal, ordered by sent date descending.',
-      parameters: [
-        { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
-        { name: 'page', in: 'query', schema: { type: 'integer', default: 1, minimum: 1 } },
-        { name: 'pageSize', in: 'query', schema: { type: 'integer', default: 20, minimum: 1, maximum: 50 } },
-      ],
+      pathParams: paramsSchema,
+      query: querySchema,
       responses: [
         { status: 200, description: 'Email list', schema: emailListResponseSchema },
       ],

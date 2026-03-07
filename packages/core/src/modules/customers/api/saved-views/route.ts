@@ -266,47 +266,44 @@ export const metadata = {
 }
 
 export const openApi: OpenApiRouteDoc = {
-  get: {
-    summary: 'List saved views',
-    description: 'Returns saved views for the current user and shared views in the organization.',
-    tags: ['Customers'],
-    parameters: [
-      { name: 'entityType', in: 'query', schema: { type: 'string', enum: ['deal', 'person', 'company'], default: 'deal' } },
-    ],
-    responses: {
-      200: { description: 'List of saved views' },
-      401: { description: 'Authentication required' },
-      403: { description: 'Access denied' },
+  tag: 'Customers',
+  summary: 'Saved views',
+  methods: {
+    GET: {
+      summary: 'List saved views',
+      description: 'Returns saved views for the current user and shared views in the organization.',
+      responses: [
+        { status: 200, description: 'List of saved views' },
+        { status: 401, description: 'Authentication required' },
+        { status: 403, description: 'Access denied' },
+      ],
     },
-  },
-  post: {
-    summary: 'Create saved view',
-    description: 'Creates a new saved view with filter, sort, and column configuration.',
-    tags: ['Customers'],
-    responses: {
-      201: { description: 'View created' },
-      400: { description: 'Validation error' },
-      401: { description: 'Authentication required' },
-      403: { description: 'Access denied' },
+    POST: {
+      summary: 'Create saved view',
+      description: 'Creates a new saved view with filter, sort, and column configuration.',
+      responses: [
+        { status: 201, description: 'View created' },
+        { status: 400, description: 'Validation error' },
+        { status: 401, description: 'Authentication required' },
+        { status: 403, description: 'Access denied' },
+      ],
     },
-  },
-  put: {
-    summary: 'Update saved view',
-    description: 'Updates an existing saved view.',
-    tags: ['Customers'],
-    responses: {
-      200: { description: 'View updated' },
-      400: { description: 'Validation error' },
-      404: { description: 'View not found' },
+    PUT: {
+      summary: 'Update saved view',
+      description: 'Updates an existing saved view.',
+      responses: [
+        { status: 200, description: 'View updated' },
+        { status: 400, description: 'Validation error' },
+        { status: 404, description: 'View not found' },
+      ],
     },
-  },
-  delete: {
-    summary: 'Delete saved view',
-    description: 'Soft-deletes a saved view.',
-    tags: ['Customers'],
-    responses: {
-      200: { description: 'View deleted' },
-      404: { description: 'View not found' },
+    DELETE: {
+      summary: 'Delete saved view',
+      description: 'Soft-deletes a saved view.',
+      responses: [
+        { status: 200, description: 'View deleted' },
+        { status: 404, description: 'View not found' },
+      ],
     },
   },
 }

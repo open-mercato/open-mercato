@@ -138,7 +138,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     decryptionScope,
   )
 
-  const dealIds = dealLinks.map((link) => (link as Record<string, unknown>).deal as string).filter(Boolean)
+  const dealIds = dealLinks.map((link) => (link as unknown as Record<string, unknown>).deal as string).filter(Boolean)
 
   if (query.dealId) {
     if (!dealIds.includes(query.dealId)) {
@@ -198,7 +198,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
           em,
           CustomerComment,
           {
-            dealId: deal.id,
+            deal: deal.id,
             organizationId: deal.organizationId,
             tenantId: deal.tenantId,
             deletedAt: null,
@@ -212,7 +212,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
           em,
           CustomerActivity,
           {
-            dealId: deal.id,
+            deal: deal.id,
             organizationId: deal.organizationId,
             tenantId: deal.tenantId,
             ...(Object.keys(beforeFilter).length ? { occurredAt: beforeFilter } : {}),
@@ -287,8 +287,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
       em,
       CustomerComment,
       {
-        entityId: entity.id,
-        dealId: null,
+        entity: entity.id,
+        deal: null,
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
         deletedAt: null,
@@ -301,8 +301,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
       em,
       CustomerActivity,
       {
-        entityId: entity.id,
-        dealId: null,
+        entity: entity.id,
+        deal: null,
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
         ...(Object.keys(beforeFilter).length ? { occurredAt: beforeFilter } : {}),
@@ -495,13 +495,8 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get customer entity timeline',
       description: 'Returns a unified, paginated timeline aggregating all deal activity for a customer entity (company or person), plus entity-level comments and activities.',
-      parameters: [
-        { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
-        { name: 'limit', in: 'query', schema: { type: 'integer', default: 30, minimum: 1, maximum: 100 } },
-        { name: 'before', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'Cursor: return entries older than this timestamp' },
-        { name: 'types', in: 'query', schema: { type: 'string' }, description: 'Comma-separated list of event types to include' },
-        { name: 'dealId', in: 'query', schema: { type: 'string', format: 'uuid' }, description: 'Filter to a specific deal' },
-      ],
+      pathParams: paramsSchema,
+      query: querySchema,
       responses: [
         { status: 200, description: 'Timeline entries with deal context', schema: timelineResponseSchema },
       ],

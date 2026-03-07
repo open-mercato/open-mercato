@@ -99,7 +99,7 @@ const createSavedViewCommand: CommandHandler<SavedViewCreateInput, { savedViewId
         {
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
-          userId: ctx.userId!,
+          userId: ctx.auth?.sub ?? '',
           entityType: parsed.entityType,
           isDefault: true,
           deletedAt: null,
@@ -111,7 +111,7 @@ const createSavedViewCommand: CommandHandler<SavedViewCreateInput, { savedViewId
     const view = em.create(CustomerSavedView, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      userId: ctx.userId!,
+      userId: ctx.auth?.sub ?? '',
       entityType: parsed.entityType,
       name: parsed.name,
       filters: parsed.filters ?? {},

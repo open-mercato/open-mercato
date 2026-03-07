@@ -22,8 +22,19 @@ interface StaleDealRow {
   last_activity_at: Date | null
 }
 
-export default async function handle(_job: QueuedJob, ctx: HandlerContext): Promise<void> {
+interface InactivityJobPayload {
+  tenantId: string
+  organizationId: string
+}
+
+export default async function handle(job: QueuedJob, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
+  const payload = job.payload as InactivityJobPayload
+
+  if (!payload?.tenantId || !payload?.organizationId) {
+    console.warn('[deal-inactivity-check] Missing tenantId or organizationId in job payload, skipping')
+    return
+  }
 
   const inactivityThreshold = 7 * 24 * 60 * 60 * 1000
   const cutoff = new Date(Date.now() - inactivityThreshold)
@@ -33,13 +44,15 @@ export default async function handle(_job: QueuedJob, ctx: HandlerContext): Prom
     `SELECT id, organization_id, tenant_id, title, owner_user_id, last_activity_at
      FROM customer_deals
      WHERE deleted_at IS NULL
+       AND organization_id = ?
+       AND tenant_id = ?
        AND status NOT IN ('won', 'lost')
        AND (
          last_activity_at IS NOT NULL AND last_activity_at < ?
          OR last_activity_at IS NULL AND created_at < ?
        )
      LIMIT 200`,
-    [cutoff, cutoff],
+    [payload.organizationId, payload.tenantId, cutoff, cutoff],
   ).then((result: { rows: StaleDealRow[] }) => result.rows)
 
   if (rows.length === 0) {

@@ -1,24 +1,24 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/data/encryption'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerDealEmail } from '../data/entities'
 import { dealEmailSendSchema } from '../data/validators'
 import { emitCustomersEvent } from '../events'
 import type { EmailProviderAdapter } from '../lib/email/adapter'
-import { StubEmailAdapter } from '../lib/email/adapter'
 import type { z } from 'zod'
 
 type DealEmailSendInput = z.infer<typeof dealEmailSendSchema>
 
-export const sendDealEmailCommand = registerCommand<DealEmailSendInput, { emailId: string }>({
+const sendDealEmailHandler: CommandHandler<DealEmailSendInput, { emailId: string }> = {
   id: 'customers.deal-emails.send',
-  undoable: false,
+  isUndoable: false,
 
   async execute(input, ctx) {
     const parsed = dealEmailSendSchema.parse(input)
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const deal = await findOneWithDecryption<CustomerDeal>(
+    const deal = await findOneWithDecryption(
       em,
       CustomerDeal,
       {
@@ -26,7 +26,8 @@ export const sendDealEmailCommand = registerCommand<DealEmailSendInput, { emailI
         organizationId: parsed.organizationId,
         tenantId: parsed.tenantId,
       },
-      ctx,
+      {},
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!deal) {
       throw new Error('Deal not found')
@@ -36,11 +37,11 @@ export const sendDealEmailCommand = registerCommand<DealEmailSendInput, { emailI
     try {
       adapter = ctx.container.resolve('emailProviderAdapter') as EmailProviderAdapter
     } catch {
-      adapter = new StubEmailAdapter()
+      throw new Error('Email provider adapter is not configured. Please set up email integration in CRM settings.')
     }
 
-    const senderEmail = ctx.auth?.email ?? 'noreply@open-mercato.local'
-    const senderName = ctx.auth?.name ?? undefined
+    const senderEmail = String(ctx.auth?.email ?? 'noreply@open-mercato.local')
+    const senderName: string | undefined = ctx.auth?.name ? String(ctx.auth.name) : undefined
 
     const sendResult = await adapter.send({
       from: { email: senderEmail, name: senderName },
@@ -89,4 +90,7 @@ export const sendDealEmailCommand = registerCommand<DealEmailSendInput, { emailI
 
     return { emailId: email.id }
   },
-})
+}
+
+registerCommand(sendDealEmailHandler)
+export const sendDealEmailCommand = sendDealEmailHandler

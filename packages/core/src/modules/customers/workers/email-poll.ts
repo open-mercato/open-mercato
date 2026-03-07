@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDealEmail } from '../data/entities'
 import { emitCustomersEvent } from '../events'
 import type { EmailProviderAdapter, InboundEmail } from '../lib/email/adapter'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata: WorkerMeta = {
   queue: 'customers:email-poll',
@@ -39,12 +40,12 @@ export default async function handler(_payload: unknown, ctx: Record<string, unk
   for (const msg of inbound) {
     if (!msg.messageId) continue
 
-    const existing = await em.findOne(CustomerDealEmail, { messageId: msg.messageId })
+    const existing = await findOneWithDecryption(em, CustomerDealEmail, { messageId: msg.messageId }, {}, {})
     if (existing) continue
 
     let dealEmail: CustomerDealEmail | null = null
     if (msg.inReplyTo) {
-      const parent = await em.findOne(CustomerDealEmail, { messageId: msg.inReplyTo })
+      const parent = await findOneWithDecryption(em, CustomerDealEmail, { messageId: msg.inReplyTo }, {}, {})
       if (parent) {
         dealEmail = em.create(CustomerDealEmail, {
           organizationId: parent.organizationId,
@@ -76,11 +77,11 @@ export default async function handler(_payload: unknown, ctx: Record<string, unk
     await em.flush()
 
     await emitCustomersEvent('customers.deal.email.received', {
-      id: dealEmail.id,
-      dealId: dealEmail.dealId,
-      organizationId: dealEmail.organizationId,
-      tenantId: dealEmail.tenantId,
-      subject: dealEmail.subject,
+      id: dealEmail!.id,
+      dealId: dealEmail!.dealId,
+      organizationId: dealEmail!.organizationId,
+      tenantId: dealEmail!.tenantId,
+      subject: dealEmail!.subject,
       direction: 'inbound',
     })
   }

@@ -119,20 +119,18 @@ export const metadata = {
 }
 
 export const openApi: OpenApiRouteDoc = {
-  get: {
-    summary: 'List deal stage history',
-    description: 'Returns the stage transition history for a specific deal, ordered by most recent first.',
-    tags: ['Customers'],
-    parameters: [
-      { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
-      { name: 'limit', in: 'query', schema: { type: 'integer', default: 50, minimum: 1, maximum: 100 } },
-      { name: 'offset', in: 'query', schema: { type: 'integer', default: 0, minimum: 0 } },
-    ],
-    responses: {
-      200: { description: 'Stage history entries' },
-      401: { description: 'Authentication required' },
-      403: { description: 'Access denied' },
-      404: { description: 'Deal not found' },
+  tag: 'Customers',
+  summary: 'Deal stage history',
+  methods: {
+    GET: {
+      summary: 'List deal stage history',
+      description: 'Returns the stage transition history for a specific deal, ordered by most recent first.',
+      responses: [
+        { status: 200, description: 'Stage history entries' },
+        { status: 401, description: 'Authentication required' },
+        { status: 403, description: 'Access denied' },
+        { status: 404, description: 'Deal not found' },
+      ],
     },
   },
 }

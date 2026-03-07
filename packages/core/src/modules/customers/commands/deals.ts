@@ -289,7 +289,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     await syncDealCompanies(em, deal, parsed.companyIds ?? [])
 
     if (deal.pipelineStageId && deal.pipelineId) {
-      await recordStageHistory(em, deal, null, deal.pipelineStageId, null, deal.pipelineId, ctx.userId ?? null)
+      await recordStageHistory(em, deal, null, deal.pipelineStageId, null, deal.pipelineId, ctx.auth?.sub ?? null)
     }
 
     await em.flush()
@@ -409,7 +409,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         record.pipelineStageId,
         previousPipelineId,
         record.pipelineId,
-        ctx.userId ?? null,
+        ctx.auth?.sub ?? null,
       )
     }
 

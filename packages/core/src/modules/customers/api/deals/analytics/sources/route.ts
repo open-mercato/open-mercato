@@ -66,7 +66,7 @@ export async function GET(request: Request) {
        AND deleted_at IS NULL
      GROUP BY COALESCE(source, 'unknown')
      ORDER BY deal_count DESC`,
-    [scope.organizationId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
+    [scope.selectedId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
   )
 
   const sources = rows.map((row: Record<string, unknown>) => {
@@ -91,19 +91,18 @@ export const metadata = {
 }
 
 export const openApi: OpenApiRouteDoc = {
-  get: {
-    summary: 'Deal sources analytics',
-    description: 'Returns deal analytics grouped by source, including deal counts, total values, and win rates.',
-    tags: ['Customers'],
-    parameters: [
-      { name: 'from', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Start date (defaults to 12 months ago)' },
-      { name: 'to', in: 'query', schema: { type: 'string', format: 'date' }, description: 'End date (defaults to today)' },
-    ],
-    responses: {
-      200: { description: 'Sources with deal counts, total values, won counts, and win rates' },
-      400: { description: 'Invalid query parameters' },
-      401: { description: 'Authentication required' },
-      403: { description: 'Access denied' },
+  tag: 'Customers',
+  summary: 'Deal sources analytics',
+  methods: {
+    GET: {
+      summary: 'Deal sources analytics',
+      description: 'Returns deal analytics grouped by source, including deal counts, total values, and win rates.',
+      responses: [
+        { status: 200, description: 'Sources with deal counts, total values, won counts, and win rates' },
+        { status: 400, description: 'Invalid query parameters' },
+        { status: 401, description: 'Authentication required' },
+        { status: 403, description: 'Access denied' },
+      ],
     },
   },
 }

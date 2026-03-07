@@ -142,7 +142,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
         em,
         CustomerComment,
         {
-          dealId: deal.id,
+          deal: deal.id,
           organizationId: deal.organizationId,
           tenantId: deal.tenantId,
           deletedAt: null,
@@ -156,7 +156,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
         em,
         CustomerActivity,
         {
-          dealId: deal.id,
+          deal: deal.id,
           organizationId: deal.organizationId,
           tenantId: deal.tenantId,
           ...(Object.keys(beforeFilter).length ? { occurredAt: beforeFilter } : {}),
@@ -334,12 +334,8 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get deal timeline',
       description: 'Returns a unified, paginated timeline of all deal events (stage changes, comments, activities, emails, file uploads, field changes).',
-      parameters: [
-        { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
-        { name: 'limit', in: 'query', schema: { type: 'integer', default: 30, minimum: 1, maximum: 100 } },
-        { name: 'before', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'Cursor: return entries older than this timestamp' },
-        { name: 'types', in: 'query', schema: { type: 'string' }, description: 'Comma-separated list of event types to include' },
-      ],
+      pathParams: paramsSchema,
+      query: querySchema,
       responses: [
         { status: 200, description: 'Timeline entries', schema: timelineResponseSchema },
       ],

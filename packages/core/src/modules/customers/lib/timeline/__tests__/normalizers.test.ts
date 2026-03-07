@@ -6,7 +6,7 @@ import {
   normalizeActivities,
   normalizeAttachments,
   normalizeEmails,
-} from './normalizers'
+} from '../normalizers'
 import type {
   AuditLogEntry,
   StageHistoryEntry,
@@ -14,7 +14,7 @@ import type {
   ActivityEntry,
   AttachmentEntry,
   EmailEntry,
-} from './normalizers'
+} from '../normalizers'
 
 const KNOWN_USER_ID = 'user-abc-123'
 const UNKNOWN_USER_ID = 'user-unknown-456'
