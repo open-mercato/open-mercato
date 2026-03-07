@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 
@@ -23,7 +23,7 @@ test.describe('TC-AUTH-018: Password Change & Session Invalidation', () => {
     organizationId = ctx.organizationId
   })
 
-  async function createTestUser(request: Parameters<Parameters<typeof test>[1]>[0]['request'], email: string) {
+  async function createTestUser(request: APIRequestContext, email: string) {
     const res = await apiRequest(request, 'POST', '/api/auth/users', {
       token: adminToken!,
       data: { email, password: initialPassword, organizationId, roles: ['employee'] },
@@ -32,7 +32,7 @@ test.describe('TC-AUTH-018: Password Change & Session Invalidation', () => {
     return ((await res.json()) as { id: string }).id
   }
 
-  async function deleteTestUser(request: Parameters<Parameters<typeof test>[1]>[0]['request'], userId: string) {
+  async function deleteTestUser(request: APIRequestContext, userId: string) {
     await apiRequest(request, 'DELETE', `/api/auth/users?id=${encodeURIComponent(userId)}`, {
       token: adminToken!,
     }).catch(() => undefined)
