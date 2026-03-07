@@ -78,8 +78,7 @@ export async function GET(request: Request) {
     em,
     CustomerPipelineStage,
     {
-      pipeline: query.pipelineId,
-      deletedAt: null,
+      pipelineId: query.pipelineId,
     },
     { orderBy: { order: 'ASC' } },
     decryptionScope,
@@ -108,7 +107,7 @@ export async function GET(request: Request) {
       stageId: stage.id,
       stageLabel: stage.label,
       stageOrder: stage.order ?? 0,
-      stageColor: stage.color ?? null,
+      stageColor: null,
       dealCount: 0,
       totalValue: 0,
       averageAge: 0,
@@ -182,20 +181,18 @@ export const metadata = {
 }
 
 export const openApi: OpenApiRouteDoc = {
-  get: {
-    summary: 'Get pipeline metrics',
-    description: 'Returns aggregated metrics per pipeline stage including deal counts, total values, weighted values, and conversion rates.',
-    tags: ['Customers'],
-    parameters: [
-      { name: 'pipelineId', in: 'query', required: true, schema: { type: 'string', format: 'uuid' } },
-      { name: 'dateFrom', in: 'query', schema: { type: 'string', format: 'date-time' } },
-      { name: 'dateTo', in: 'query', schema: { type: 'string', format: 'date-time' } },
-    ],
-    responses: {
-      200: { description: 'Pipeline metrics with per-stage breakdown' },
-      400: { description: 'Invalid query parameters' },
-      401: { description: 'Authentication required' },
-      403: { description: 'Access denied' },
+  tag: 'Customers',
+  summary: 'Pipeline metrics',
+  methods: {
+    GET: {
+      summary: 'Get pipeline metrics',
+      description: 'Returns aggregated metrics per pipeline stage including deal counts, total values, weighted values, and conversion rates.',
+      responses: [
+        { status: 200, description: 'Pipeline metrics with per-stage breakdown' },
+        { status: 400, description: 'Invalid query parameters' },
+        { status: 401, description: 'Authentication required' },
+        { status: 403, description: 'Access denied' },
+      ],
     },
   },
 }

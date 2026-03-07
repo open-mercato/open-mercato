@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateTimeline } from './aggregator'
-import type { AggregateOptions } from './aggregator'
-import type { TimelineEntry, TimelineEntryKind } from './types'
+import { aggregateTimeline } from '../aggregator'
+import type { AggregateOptions } from '../aggregator'
+import type { TimelineEntry, TimelineEntryKind } from '../types'
 
 function makeEntry(overrides: Partial<TimelineEntry> & { id: string; occurredAt: string }): TimelineEntry {
   return {

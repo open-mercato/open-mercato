@@ -65,7 +65,7 @@ export async function GET(request: Request) {
        AND duration_seconds IS NOT NULL
      GROUP BY to_stage_label
      ORDER BY avg_duration_seconds DESC`,
-    [scope.organizationId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
+    [scope.selectedId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
   )
 
   const stages = rows.map((row: Record<string, unknown>) => ({
@@ -84,19 +84,18 @@ export const metadata = {
 }
 
 export const openApi: OpenApiRouteDoc = {
-  get: {
-    summary: 'Deal velocity analytics',
-    description: 'Returns average time spent in each deal stage, computed from stage transition history.',
-    tags: ['Customers'],
-    parameters: [
-      { name: 'from', in: 'query', schema: { type: 'string', format: 'date' }, description: 'Start date (defaults to 12 months ago)' },
-      { name: 'to', in: 'query', schema: { type: 'string', format: 'date' }, description: 'End date (defaults to today)' },
-    ],
-    responses: {
-      200: { description: 'Stages with average duration in days and deal counts' },
-      400: { description: 'Invalid query parameters' },
-      401: { description: 'Authentication required' },
-      403: { description: 'Access denied' },
+  tag: 'Customers',
+  summary: 'Deal velocity analytics',
+  methods: {
+    GET: {
+      summary: 'Deal velocity analytics',
+      description: 'Returns average time spent in each deal stage, computed from stage transition history.',
+      responses: [
+        { status: 200, description: 'Stages with average duration in days and deal counts' },
+        { status: 400, description: 'Invalid query parameters' },
+        { status: 401, description: 'Authentication required' },
+        { status: 403, description: 'Access denied' },
+      ],
     },
   },
 }

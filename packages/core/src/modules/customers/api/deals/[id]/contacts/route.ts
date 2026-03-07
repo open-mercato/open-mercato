@@ -151,26 +151,26 @@ export const metadata = {
 }
 
 export const openApi: OpenApiRouteDoc = {
-  get: {
-    summary: 'List deal contacts with roles',
-    description: 'Returns all people linked to a deal with their participant roles.',
-    tags: ['Customers'],
-    parameters: [
-      { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
-    ],
-    responses: {
-      200: { description: 'List of contacts' },
-      404: { description: 'Deal not found' },
+  tag: 'Customers',
+  summary: 'Deal contacts with roles',
+  methods: {
+    GET: {
+      summary: 'List deal contacts with roles',
+      description: 'Returns all people linked to a deal with their participant roles.',
+      pathParams: paramsSchema,
+      responses: [
+        { status: 200, description: 'List of contacts' },
+        { status: 404, description: 'Deal not found' },
+      ],
     },
-  },
-  put: {
-    summary: 'Update deal contact role',
-    description: 'Sets the participant role for a person linked to a deal.',
-    tags: ['Customers'],
-    responses: {
-      200: { description: 'Role updated' },
-      400: { description: 'Validation error' },
-      404: { description: 'Contact or deal not found' },
+    PUT: {
+      summary: 'Update deal contact role',
+      description: 'Sets the participant role for a person linked to a deal.',
+      responses: [
+        { status: 200, description: 'Role updated' },
+        { status: 400, description: 'Validation error' },
+        { status: 404, description: 'Contact or deal not found' },
+      ],
     },
   },
 }
