@@ -14,6 +14,8 @@ export interface McpToolContext {
   isSuperAdmin: boolean
   /** API key secret for authenticating HTTP requests to internal APIs */
   apiKeySecret?: string
+  /** Session token for memory layer (deduplication of search/GET calls) */
+  sessionId?: string
 }
 
 /**

@@ -4,8 +4,26 @@ import { modules } from '@/.mercato/generated/modules.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { Metadata } from 'next'
+import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 
-export default async function SiteCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {
+type FrontendParams = { params: Promise<{ slug: string[] }> }
+
+export async function generateMetadata({ params }: FrontendParams): Promise<Metadata> {
+  const p = await params
+  const pathname = '/' + (p.slug?.join('/') ?? '')
+  const match = findFrontendMatch(modules, pathname)
+  if (!match) {
+    return {}
+  }
+
+  return resolveLocalizedTitleMetadata({
+    title: match.route.title,
+    titleKey: match.route.titleKey,
+  })
+}
+
+export default async function SiteCatchAll({ params }: FrontendParams) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const match = findFrontendMatch(modules, pathname)
