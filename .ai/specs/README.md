@@ -123,8 +123,17 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered�
 | [SPEC-045g](SPEC-045g-google-workspace.md) | 2026-02-24 | Integration Marketplace — Google Workspace | Google Workspace integration: spreadsheet-based product import as a reference data-sync connector |
 | [SPEC-045h](SPEC-045h-stripe-payment-gateway.md) | 2026-02-24 | Integration Marketplace — Stripe Gateway | Stripe payment gateway reference implementation as a marketplace connector |
 | [SPEC-046](SPEC-046-2026-02-25-customer-detail-pages-v2.md) | 2026-02-25 | Customer Detail Pages v2 | CrudForm-based rewrite of company and person detail pages with two-zone layout and UMES injection slots |
+| [SPEC-046b](SPEC-046b-2026-02-27-customers-interactions-unification.md) | 2026-02-27 | Customers Interactions Unification | Canonical customer interactions model and compatibility adapters for activities/todos, scoped as child workstream of SPEC-046 |
+| [SPEC-046c](SPEC-046c-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks | Decouples example task sync and moves `/backend/customer-tasks` ownership to customers, scoped as child workstream of SPEC-046 |
 | [SPEC-047](SPEC-047-2026-02-25-sales-document-detail-pages-v2.md) | 2026-02-25 | Sales Document Detail Pages v2 | CrudForm-based rewrite of quote and order detail pages with two-zone layout and UMES injection slots |
-| [SPEC-048](SPEC-048-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
+| [SPEC-048](SPEC-048-2026-02-25-notifications-sse-migration.md) | 2026-02-25 | Migrate Notifications from Polling to SSE | Replaces 5-second notifications polling with SSE event delivery using the DOM Event Bridge |
+| [SPEC-049](SPEC-049-2026-02-26-message-objects-universal-view-attachments.md) | 2026-02-26 | Universal Message Object Attachments | Generic message object attachment previews/details and compose-flow wiring across modules |
+| [SPEC-050](SPEC-050-2026-02-28-example-module-umes-alignment-customer-tasks.md) | 2026-02-28 | Example Module UMES Alignment for Customer Tasks (Moved) | Pointer retained for backward links; canonical workstream spec is SPEC-046c |
+| [SPEC-052](SPEC-052-2026-02-22-integration-test-coverage-quick-wins.md) | 2026-02-22 | Integration Test Coverage Quick Wins | Pure-API integration tests for 6 zero-coverage core modules (currencies, staff, dictionaries, api_keys, audit_logs, directory) |
+| [SPEC-054](SPEC-054-2026-03-04-docker-windows-parity.md) | 2026-03-04 | Docker Windows Parity | Align Docker-based development workflow and migration commands for Windows parity |
+| [SPEC-055](SPEC-055-2026-02-23-promotions-module.md) | 2026-02-23 | Promotions Module | Standalone promotions module with recursive rule tree, extensible evaluation engine, and resolved cart effects |
+| [SPEC-056](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp external communication + AI chat integration | WhatsApp conversation history, AI summaries, and tiered AI replies (easy auto-reply vs complex proposal-only). Extends Messages module (#414). Aligns with SPEC-045/045d. |
+| [SPEC-057](SPEC-057-2026-03-05-standalone-app-ai-folder.md) | 2026-03-05 | Standalone App `.ai` Folder & AI-Driven Development Kit | Dedicated `.ai/` folder for `create-mercato-app` template with adapted skills, UMES reference docs, and standalone Task Router for extension-first development. [#853](https://github.com/open-mercato/open-mercato/issues/853) |
 
 ## Specification Structure
 

@@ -41,7 +41,7 @@ export function normalizeOptionSchemaCode(value?: string | null): string {
     .trim()
     .replace(/[^a-z0-9\-_]+/g, '-')
     .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/(?:^-+|-+$)/g, '')
   return slug.slice(0, OPTION_SCHEMA_CODE_MAX_LENGTH)
 }
 

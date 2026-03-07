@@ -3,8 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { NotificationPanel } from '@open-mercato/ui/backend/notifications'
-import { useNotificationsPoll } from '@open-mercato/ui/backend/notifications'
+import { NotificationPanel, useNotifications } from '@open-mercato/ui/backend/notifications'
 
 export function NotificationInboxPageClient() {
   const t = useT()
@@ -18,7 +17,7 @@ export function NotificationInboxPageClient() {
     dismissUndo,
     undoDismiss,
     markAllRead,
-  } = useNotificationsPoll()
+  } = useNotifications()
 
   return (
     <NotificationPanel

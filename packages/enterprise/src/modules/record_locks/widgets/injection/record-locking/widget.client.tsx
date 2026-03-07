@@ -13,6 +13,12 @@ import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
 import {
+  RECORD_LOCKS_FORCE_RELEASED_EVENT,
+  RECORD_LOCKS_INCOMING_CHANGES_EVENT,
+  RECORD_LOCKS_LOCK_CONTENDED_EVENT,
+  RECORD_LOCKS_RECORD_DELETED_EVENT,
+} from '@open-mercato/enterprise/modules/record_locks/notifications.handlers'
+import {
   ChangedFieldsTable,
   type ChangeRow,
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
@@ -84,8 +90,33 @@ type CrudSaveErrorEventDetail = {
   error?: unknown
 }
 
+type RecordLockContendedEventDetail = {
+  sourceEntityId?: string | null
+}
+
+type RecordDeletedEventDetail = {
+  resourceId?: string | null
+  resourceKind?: string | null
+}
+
+type RecordLockIncomingChangesEventDetail = {
+  resourceId?: string | null
+  resourceKind?: string | null
+}
+
+type RecordLockForceReleasedEventDetail = {
+  resourceId?: string | null
+  resourceKind?: string | null
+}
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object'
+}
+
+function readStringOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 function isUuid(value: string | null | undefined): value is string {
@@ -685,28 +716,20 @@ export default function RecordLockingWidget({
   React.useEffect(() => {
     if (!isPrimaryInstance) return
     if (!mine || !state?.lock?.id) return
-    let cancelled = false
 
-    const syncContentionBanner = async () => {
-      const call = await apiCall<{ items?: Array<{ sourceEntityId?: string | null; type?: string }> }>(
-        '/api/notifications?status=unread&type=record_locks.lock.contended&pageSize=20'
-      )
-      if (cancelled) return
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      const hasUnreadContention = items.some((item) => item.sourceEntityId === state.lock?.id)
-      if (hasUnreadContention) {
-        setShowLockContentionBanner(true)
-      }
+    const onContention = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordLockContendedEventDetail)
+        : null
+      if (!detail) return
+      if (detail.sourceEntityId !== state.lock?.id) return
+      setShowLockContentionBanner(true)
     }
 
-    void syncContentionBanner()
-    const interval = window.setInterval(() => {
-      void syncContentionBanner()
-    }, 5000)
+    window.addEventListener(RECORD_LOCKS_LOCK_CONTENDED_EVENT, onContention)
 
     return () => {
-      cancelled = true
-      window.clearInterval(interval)
+      window.removeEventListener(RECORD_LOCKS_LOCK_CONTENDED_EVENT, onContention)
     }
   }, [isPrimaryInstance, mine, state?.lock?.id])
 
@@ -714,27 +737,14 @@ export default function RecordLockingWidget({
     if (!isPrimaryInstance) return
     if (!state?.resourceKind || !state?.resourceId) return
     if (state.recordDeleted === true) return
-    let cancelled = false
-
-    const syncRecordDeletedState = async () => {
-      const call = await apiCall<{
-        items?: Array<{
-          sourceEntityId?: string | null
-          bodyVariables?: Record<string, string> | null
-        }>
-      }>('/api/notifications?status=unread&type=record_locks.record.deleted&pageSize=20')
-      if (cancelled) return
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      const hasUnreadRecordDeleted = items.some((item) => {
-        const matchesResourceId = item.sourceEntityId === state.resourceId
-        if (!matchesResourceId) return false
-        const kindFromBody = typeof item.bodyVariables?.resourceKind === 'string'
-          ? item.bodyVariables.resourceKind.trim()
-          : ''
-        if (!kindFromBody) return true
-        return kindFromBody === state.resourceKind
-      })
-      if (!hasUnreadRecordDeleted) return
+    const onRecordDeleted = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordDeletedEventDetail)
+        : null
+      if (!detail) return
+      if (detail.resourceId !== state.resourceId) return
+      const kind = readStringOrNull(detail.resourceKind)
+      if (kind && kind !== state.resourceKind) return
       setIsConflictDialogOpen(true)
       setRecordLockFormState(formId, {
         recordDeleted: true,
@@ -747,14 +757,10 @@ export default function RecordLockingWidget({
       })
     }
 
-    void syncRecordDeletedState()
-    const interval = window.setInterval(() => {
-      void syncRecordDeletedState()
-    }, 5000)
+    window.addEventListener(RECORD_LOCKS_RECORD_DELETED_EVENT, onRecordDeleted)
 
     return () => {
-      cancelled = true
-      window.clearInterval(interval)
+      window.removeEventListener(RECORD_LOCKS_RECORD_DELETED_EVENT, onRecordDeleted)
     }
   }, [formId, isPrimaryInstance, state?.recordDeleted, state?.resourceId, state?.resourceKind])
 
@@ -793,7 +799,6 @@ export default function RecordLockingWidget({
       )
     if (hasUnresolvedConflict) return
     if (!state?.resourceKind || !state?.resourceId) return
-    let cancelled = false
     const refreshPresence = async () => {
       const call = await apiCall<AcquireResponse>('/api/record_locks/acquire', {
         method: 'POST',
@@ -804,7 +809,6 @@ export default function RecordLockingWidget({
         }),
       })
       const payload = call.result ?? {}
-      if (cancelled) return
       if (!call.ok) {
         const currentState = getRecordLockFormState(formId)
         setRecordLockFormState(formId, {
@@ -838,14 +842,60 @@ export default function RecordLockingWidget({
         allowForceUnlock: payload.allowForceUnlock ?? false,
       })
     }
-
-    const interval = window.setInterval(() => {
+    const onIncomingChanges = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordLockIncomingChangesEventDetail)
+        : null
+      if (!detail) return
+      if (detail.resourceId !== state.resourceId) return
+      const kind = readStringOrNull(detail.resourceKind)
+      if (kind && kind !== state.resourceKind) return
+      setShowIncomingChangesRequested(true)
       void refreshPresence()
-    }, 4000)
+    }
+    const onForceReleased = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? ((event as CustomEvent<unknown>).detail as RecordLockForceReleasedEventDetail)
+        : null
+      if (!detail) return
+      if (detail.resourceId !== state.resourceId) return
+      const kind = readStringOrNull(detail.resourceKind)
+      if (kind && kind !== state.resourceKind) return
+      void refreshPresence()
+    }
+    const onBridgeReconnected = (event: Event) => {
+      const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
+        ? (event as CustomEvent<Record<string, unknown>>).detail
+        : null
+      if (detail?.id !== 'om:bridge:reconnected') return
+      void refreshPresence()
+    }
+    const onFocus = () => {
+      void refreshPresence()
+    }
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        void refreshPresence()
+      }
+    }
+
+    window.addEventListener(RECORD_LOCKS_INCOMING_CHANGES_EVENT, onIncomingChanges)
+    window.addEventListener(RECORD_LOCKS_FORCE_RELEASED_EVENT, onForceReleased)
+    window.addEventListener('om:event', onBridgeReconnected)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    const heartbeatInterval = window.setInterval(() => {
+      void refreshPresence()
+    }, 30_000)
+    void refreshPresence()
 
     return () => {
-      cancelled = true
-      window.clearInterval(interval)
+      window.removeEventListener(RECORD_LOCKS_INCOMING_CHANGES_EVENT, onIncomingChanges)
+      window.removeEventListener(RECORD_LOCKS_FORCE_RELEASED_EVENT, onForceReleased)
+      window.removeEventListener('om:event', onBridgeReconnected)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.clearInterval(heartbeatInterval)
     }
   }, [
     formId,

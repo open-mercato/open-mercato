@@ -18,6 +18,7 @@ import {
   type OptionDefinition,
   createVariantInitialValues,
   normalizeOptionSchema,
+  mapPriceItemToDraft,
 } from '@open-mercato/core/modules/catalog/components/products/variantForm'
 import {
   type PriceKindSummary,
@@ -152,7 +153,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   }, [t])
 
   React.useEffect(() => {
-    if (!variantId || isCreateSentinel) return
+    if (!variantId || isCreateSentinel || priceKinds.length === 0) return
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -173,7 +174,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         if (resolvedProductId) setCurrentProductId(resolvedProductId)
         const metadata = typeof record.metadata === 'object' && record.metadata ? { ...(record.metadata as Record<string, unknown>) } : {}
         const attachments = await fetchVariantAttachments(variantId!)
-        const priceDrafts = await loadVariantPrices(variantId!)
+        const priceDrafts = await loadVariantPrices(variantId!, priceKinds)
         const priceIdMap: Record<string, string> = {}
         Object.entries(priceDrafts).forEach(([kindId, draft]) => {
           if (draft.priceId) priceIdMap[kindId] = draft.priceId
@@ -299,7 +300,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     }
     load()
     return () => { cancelled = true }
-  }, [variantId, t, currentProductId])
+  }, [variantId, t, currentProductId, priceKinds])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const list: CrudFormGroup[] = [
@@ -598,7 +599,8 @@ async function fetchVariantAttachments(variantId: string): Promise<ProductMediaI
   }
 }
 
-async function loadVariantPrices(variantId: string): Promise<Record<string, VariantPriceDraft>> {
+async function loadVariantPrices(variantId: string, priceKinds: PriceKindSummary[]): Promise<Record<string, VariantPriceDraft>> {
+  const kindDisplayModes = new Map(priceKinds.map((k) => [k.id, k.displayMode]))
   const drafts: Record<string, VariantPriceDraft> = {}
   const pageSize = 100
   let page = 1
@@ -610,37 +612,8 @@ async function loadVariantPrices(variantId: string): Promise<Record<string, Vari
       if (!res.ok) break
       const items = Array.isArray(res.result?.items) ? res.result?.items : []
       for (const item of items) {
-        const kindId =
-          typeof item.price_kind_id === 'string'
-            ? item.price_kind_id
-            : typeof item.priceKindId === 'string'
-              ? item.priceKindId
-              : null
-        if (!kindId) continue
-        const unitNet =
-          typeof item.unit_price_net === 'string'
-            ? item.unit_price_net
-            : typeof item.unitPriceNet === 'string'
-              ? item.unitPriceNet
-              : null
-        const unitGross =
-          typeof item.unit_price_gross === 'string'
-            ? item.unit_price_gross
-            : typeof item.unitPriceGross === 'string'
-              ? item.unitPriceGross
-              : null
-        drafts[kindId] = {
-          priceKindId: kindId,
-          priceId: typeof item.id === 'string' ? item.id : undefined,
-          amount: unitNet ?? unitGross ?? '',
-          currencyCode:
-            typeof item.currency_code === 'string'
-              ? item.currency_code
-              : typeof item.currencyCode === 'string'
-                ? item.currencyCode
-                : null,
-          displayMode: unitGross ? 'including-tax' : 'excluding-tax',
-        }
+        const draft = mapPriceItemToDraft(item as Record<string, unknown>, kindDisplayModes)
+        if (draft) drafts[draft.priceKindId] = draft
       }
       if (items.length < pageSize) break
       page += 1

@@ -111,7 +111,18 @@ function parseProcessEnvAccess(
 }
 
 function evaluateStaticExpression(node: ts.Expression, env: NodeJS.ProcessEnv): unknown {
-  if (ts.isParenthesizedExpression(node)) return evaluateStaticExpression(node.expression, env)
+  return evaluateStaticExpressionWithScope(node, env, new Map())
+}
+
+function evaluateStaticExpressionWithScope(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+  scope: Map<string, unknown>,
+): unknown {
+  if (ts.isParenthesizedExpression(node)) return evaluateStaticExpressionWithScope(node.expression, env, scope)
+  if (ts.isIdentifier(node)) {
+    return scope.get(node.text)
+  }
   if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text
   if (ts.isNumericLiteral(node)) return Number(node.text)
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true
@@ -122,39 +133,43 @@ function evaluateStaticExpression(node: ts.Expression, env: NodeJS.ProcessEnv): 
   if (envAccess.matched) return envAccess.value
 
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
-    return !Boolean(evaluateStaticExpression(node.operand, env))
+    return !Boolean(evaluateStaticExpressionWithScope(node.operand, env, scope))
   }
 
   if (ts.isBinaryExpression(node)) {
     if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-      return Boolean(evaluateStaticExpression(node.left, env))
-        && Boolean(evaluateStaticExpression(node.right, env))
+      return Boolean(evaluateStaticExpressionWithScope(node.left, env, scope))
+        && Boolean(evaluateStaticExpressionWithScope(node.right, env, scope))
     }
     if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
-      return Boolean(evaluateStaticExpression(node.left, env))
-        || Boolean(evaluateStaticExpression(node.right, env))
+      return Boolean(evaluateStaticExpressionWithScope(node.left, env, scope))
+        || Boolean(evaluateStaticExpressionWithScope(node.right, env, scope))
     }
     if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken) {
-      return evaluateStaticExpression(node.left, env) === evaluateStaticExpression(node.right, env)
+      return evaluateStaticExpressionWithScope(node.left, env, scope) === evaluateStaticExpressionWithScope(node.right, env, scope)
     }
     if (node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
-      return evaluateStaticExpression(node.left, env) !== evaluateStaticExpression(node.right, env)
+      return evaluateStaticExpressionWithScope(node.left, env, scope) !== evaluateStaticExpressionWithScope(node.right, env, scope)
     }
   }
 
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'parseBooleanWithDefault') {
     const rawValueNode = node.arguments[0]
     const fallbackNode = node.arguments[1]
-    const rawValue = rawValueNode ? evaluateStaticExpression(rawValueNode, env) : undefined
-    const fallbackValue = fallbackNode ? evaluateStaticExpression(fallbackNode, env) : false
+    const rawValue = rawValueNode ? evaluateStaticExpressionWithScope(rawValueNode, env, scope) : undefined
+    const fallbackValue = fallbackNode ? evaluateStaticExpressionWithScope(fallbackNode, env, scope) : false
     return parseBooleanWithDefault(typeof rawValue === 'string' ? rawValue : undefined, Boolean(fallbackValue))
   }
 
   return undefined
 }
 
-function evaluateStaticCondition(node: ts.Expression, env: NodeJS.ProcessEnv): boolean {
-  const evaluated = evaluateStaticExpression(node, env)
+function evaluateStaticCondition(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+  scope: Map<string, unknown>,
+): boolean {
+  const evaluated = evaluateStaticExpressionWithScope(node, env, scope)
   return Boolean(evaluated)
 }
 
@@ -162,17 +177,18 @@ function collectPushEntriesFromStatement(
   statement: ts.Statement,
   env: NodeJS.ProcessEnv,
   targetVariableName: string,
+  scope: Map<string, unknown>,
 ): ModuleEntry[] {
   if (ts.isBlock(statement)) {
-    return statement.statements.flatMap((child) => collectPushEntriesFromStatement(child, env, targetVariableName))
+    return statement.statements.flatMap((child) => collectPushEntriesFromStatement(child, env, targetVariableName, scope))
   }
 
   if (ts.isIfStatement(statement)) {
-    if (evaluateStaticCondition(statement.expression, env)) {
-      return collectPushEntriesFromStatement(statement.thenStatement, env, targetVariableName)
+    if (evaluateStaticCondition(statement.expression, env, scope)) {
+      return collectPushEntriesFromStatement(statement.thenStatement, env, targetVariableName, scope)
     }
     if (statement.elseStatement) {
-      return collectPushEntriesFromStatement(statement.elseStatement, env, targetVariableName)
+      return collectPushEntriesFromStatement(statement.elseStatement, env, targetVariableName, scope)
     }
     return []
   }
@@ -197,25 +213,34 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
   const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const modules: ModuleEntry[] = []
   const variableName = 'enabledModules'
+  const scope = new Map<string, unknown>()
   let foundDeclaration = false
 
   for (const statement of sourceFile.statements) {
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
-        if (!ts.isIdentifier(declaration.name) || declaration.name.text !== variableName) continue
-        if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
-        const fromArray = declaration.initializer.elements.flatMap((element) => {
-          if (!ts.isObjectLiteralExpression(element)) return []
-          const entry = parseModuleEntryFromObjectLiteral(element)
-          return entry ? [entry] : []
-        })
-        modules.push(...fromArray)
-        foundDeclaration = true
+        if (!ts.isIdentifier(declaration.name)) continue
+        if (declaration.name.text === variableName) {
+          if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
+          const fromArray = declaration.initializer.elements.flatMap((element) => {
+            if (!ts.isObjectLiteralExpression(element)) return []
+            const entry = parseModuleEntryFromObjectLiteral(element)
+            return entry ? [entry] : []
+          })
+          modules.push(...fromArray)
+          foundDeclaration = true
+          continue
+        }
+        if (!declaration.initializer) continue
+        scope.set(
+          declaration.name.text,
+          evaluateStaticExpressionWithScope(declaration.initializer, env, scope),
+        )
       }
       continue
     }
     if (!foundDeclaration) continue
-    modules.push(...collectPushEntriesFromStatement(statement, env, variableName))
+    modules.push(...collectPushEntriesFromStatement(statement, env, variableName, scope))
   }
 
   return modules

@@ -1,3 +1,4 @@
+"use client"
 import { CrudFormGroup, CrudCustomFieldRenderProps, CrudField } from "@open-mercato/ui/backend/CrudForm";
 import { JsonBuilder } from "@open-mercato/ui/backend/JsonBuilder";
 import { useT } from '@open-mercato/shared/lib/i18n/context'

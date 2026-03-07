@@ -72,7 +72,7 @@ export function generateRuleId(ruleName: string): string {
   return ruleName
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/(?:^_+|_+$)/g, '')
     .substring(0, 50)
 }
 

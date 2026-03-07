@@ -7,6 +7,7 @@ import type { SearchIndexer } from '@open-mercato/search/indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { searchDebug, searchError } from '../../../../lib/debug'
@@ -15,6 +16,11 @@ import {
   clearReindexLock,
   getReindexLockStatus,
 } from '../../lib/reindex-lock'
+import {
+  completeReindexProgress,
+  ensureReindexProgressJob,
+  failReindexProgress,
+} from '../../lib/reindex-progress'
 import { reindexOpenApi } from '../openapi'
 
 /** Strategy with optional stats support */
@@ -84,6 +90,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const progressService = container.resolve('progressService') as ProgressService
   const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 
   // Check if another fulltext reindex operation is already in progress
@@ -194,7 +201,7 @@ export async function POST(req: Request) {
           organizationId: orgId,
           recreateIndex: true,
           useQueue,
-          onProgress: async (progress) => {
+          onProgress: (progress) => {
             searchDebug('search.reindex', 'Progress', progress)
             // Note: Heartbeat is updated by workers during job processing, not during enqueueing
           },
@@ -250,7 +257,7 @@ export async function POST(req: Request) {
           organizationId: orgId,
           recreateIndex: true,
           useQueue,
-          onProgress: async (progress) => {
+          onProgress: (progress) => {
             searchDebug('search.reindex', 'Progress', progress)
             // Note: Heartbeat is updated by workers during job processing, not during enqueueing
           },
@@ -299,6 +306,34 @@ export async function POST(req: Request) {
             },
           )
         }
+      }
+
+      await ensureReindexProgressJob({
+        em,
+        progressService,
+        type: 'fulltext',
+        tenantId,
+        organizationId: auth.orgId ?? null,
+        userId: auth.sub ?? null,
+        totalCount: result.recordsIndexed,
+        description: entityId
+          ? `Reindex ${entityId} (${useQueue ? 'queued' : 'sync'})`
+          : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
+      })
+      if (!useQueue) {
+        await completeReindexProgress({
+          em,
+          progressService,
+          type: 'fulltext',
+          tenantId,
+          organizationId: auth.orgId ?? null,
+          resultSummary: {
+            entitiesProcessed: result.entitiesProcessed,
+            recordsIndexed: result.recordsIndexed,
+            jobsEnqueued: result.jobsEnqueued ?? 0,
+            errors: result.errors.length,
+          },
+        })
       }
 
       // Get updated stats from all strategies
@@ -399,6 +434,15 @@ export async function POST(req: Request) {
         payload: { action, entityId, useQueue },
       },
     )
+
+    await failReindexProgress({
+      em,
+      progressService,
+      type: 'fulltext',
+      tenantId,
+      organizationId: auth.orgId ?? null,
+      errorMessage: error instanceof Error ? error.message : 'Fulltext reindex failed',
+    })
 
     // Return generic message to client - don't expose internal error details
     return toJson(

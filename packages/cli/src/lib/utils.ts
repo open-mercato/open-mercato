@@ -67,7 +67,7 @@ function collectStructureEntries(target: string, base: string, acc: string[]): v
 }
 
 export function calculateStructureChecksum(paths: string[]): string {
-  const normalized = Array.from(new Set(paths.map((p) => path.resolve(p)))).sort()
+  const normalized = Array.from(new Set(paths.map((p) => path.resolve(p)))).sort((a, b) => a.localeCompare(b))
   const entries: string[] = []
   for (const target of normalized) {
     if (!fs.existsSync(target)) {
@@ -173,7 +173,7 @@ export function toSnake(s: string): string {
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/\W+/g, '_')
     .replace(/_{2,}/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/(?:^_+|_+$)/g, '')
     .toLowerCase()
 }
 

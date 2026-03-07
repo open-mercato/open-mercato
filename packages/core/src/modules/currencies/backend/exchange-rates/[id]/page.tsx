@@ -1,14 +1,20 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudFormGroup, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  loadCurrencyOptions,
+  exchangeRateGroups,
+  validateExchangeRateForm,
+  buildExchangeRatePayload,
+} from '../../../lib/exchangeRateFormConfig'
 
 /**
  * Formats a Date object to YYYY-MM-DDTHH:MM format in local timezone
@@ -36,13 +42,6 @@ type ExchangeRateData = {
   tenantId: string
 }
 
-type CurrencyOption = {
-  id: string
-  code: string
-  name: string
-  isActive: boolean
-}
-
 export default function EditExchangeRatePage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
@@ -51,30 +50,10 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
-  const loadCurrencyOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    try {
-      const params = new URLSearchParams()
-      if (query) {
-        params.set('search', query)
-      }
-      params.set('isActive', 'true')
-      params.set('pageSize', '100')
-
-      const call = await apiCall<{ items: CurrencyOption[] }>(
-        `/api/currencies/currencies?${params.toString()}`
-      )
-
-      if (call.ok && call.result?.items) {
-        return call.result.items.map((c) => ({
-          value: c.code,
-          label: c.code,
-        }))
-      }
-    } catch (error) {
-      console.error('Failed to load currencies:', error)
-    }
-    return []
-  }, [])
+  const loadOptions = React.useCallback(
+    (query?: string) => loadCurrencyOptions(apiCall, query),
+    []
+  )
 
   // Load exchange rate data
   React.useEffect(() => {
@@ -95,93 +74,16 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
     loadExchangeRate()
   }, [params, t])
 
-  const groups = React.useMemo<CrudFormGroup[]>(
-    () => [
-      {
-        id: 'rate-details',
-        column: 1,
-        fields: [
-          {
-            id: 'fromCurrencyCode',
-            type: 'combobox',
-            label: t('exchangeRates.form.field.fromCurrency'),
-            placeholder: t('exchangeRates.form.field.fromCurrencyPlaceholder'),
-            required: true,
-            loadOptions: loadCurrencyOptions,
-            allowCustomValues: false,
-            description: t('exchangeRates.form.field.fromCurrencyHelp'),
-          },
-          {
-            id: 'toCurrencyCode',
-            type: 'combobox',
-            label: t('exchangeRates.form.field.toCurrency'),
-            placeholder: t('exchangeRates.form.field.toCurrencyPlaceholder'),
-            required: true,
-            loadOptions: loadCurrencyOptions,
-            allowCustomValues: false,
-            description: t('exchangeRates.form.field.toCurrencyHelp'),
-          },
-          {
-            id: 'rate',
-            type: 'number',
-            label: t('exchangeRates.form.field.rate'),
-            placeholder: '1.00000000',
-            required: true,
-            description: t('exchangeRates.form.field.rateHelp'),
-          },
-          {
-            id: 'date',
-            type: 'datetime-local',
-            label: t('exchangeRates.form.field.date'),
-            required: true,
-            description: t('exchangeRates.form.field.dateHelp'),
-          },
-        ],
-      },
-      {
-        id: 'metadata',
-        column: 2,
-        title: t('exchangeRates.form.group.metadata'),
-        fields: [
-          {
-            id: 'source',
-            type: 'text',
-            label: t('exchangeRates.form.field.source'),
-            placeholder: t('exchangeRates.form.field.sourcePlaceholder'),
-            required: true,
-            description: t('exchangeRates.form.field.sourceHelp'),
-          },
-          {
-            id: 'type',
-            type: 'select',
-            label: t('exchangeRates.form.field.type'),
-            placeholder: t('exchangeRates.form.field.typePlaceholder'),
-            required: false,
-            description: t('exchangeRates.form.field.typeHelp'),
-            options: [
-              { value: '', label: t('exchangeRates.form.field.typeNone') },
-              { value: 'buy', label: t('exchangeRates.form.field.typeBuy') },
-              { value: 'sell', label: t('exchangeRates.form.field.typeSell') },
-            ],
-          },
-          {
-            id: 'isActive',
-            type: 'checkbox',
-            label: t('exchangeRates.form.field.isActive'),
-          },
-        ],
-      },
-    ],
-    [t, loadCurrencyOptions]
+  const groups = React.useMemo(
+    () => exchangeRateGroups(t, loadOptions),
+    [t, loadOptions]
   )
 
   if (loading) {
     return (
       <Page>
         <PageBody>
-          <div className="flex items-center justify-center p-8">
-            <div className="text-muted-foreground">{t('exchangeRates.form.loading')}</div>
-          </div>
+          <LoadingMessage label={t('exchangeRates.form.loading')} />
         </PageBody>
       </Page>
     )
@@ -191,7 +93,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
     return (
       <Page>
         <PageBody>
-          <div className="text-destructive">{error || t('exchangeRates.form.errors.notFound')}</div>
+          <ErrorMessage label={error || t('exchangeRates.form.errors.notFound')} />
         </PageBody>
       </Page>
     )
@@ -218,72 +120,10 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
           submitLabel={t('exchangeRates.form.action.save')}
           cancelHref="/backend/exchange-rates"
           onSubmit={async (values) => {
-            // Validate currency codes
-            const fromCode = String(values.fromCurrencyCode || '').trim().toUpperCase()
-            const toCode = String(values.toCurrencyCode || '').trim().toUpperCase()
-
-            if (!/^[A-Z]{3}$/.test(fromCode)) {
-              throw createCrudFormError(t('exchangeRates.form.errors.fromCurrencyFormat'), {
-                fromCurrencyCode: t('exchangeRates.form.errors.currencyCodeFormat'),
-              })
-            }
-
-            if (!/^[A-Z]{3}$/.test(toCode)) {
-              throw createCrudFormError(t('exchangeRates.form.errors.toCurrencyFormat'), {
-                toCurrencyCode: t('exchangeRates.form.errors.currencyCodeFormat'),
-              })
-            }
-
-            if (fromCode === toCode) {
-              throw createCrudFormError(t('exchangeRates.form.errors.sameCurrency'), {
-                toCurrencyCode: t('exchangeRates.form.errors.sameCurrency'),
-              })
-            }
-
-            // Validate rate
-            const rate = parseFloat(String(values.rate || '0'))
-            if (isNaN(rate) || rate <= 0) {
-              throw createCrudFormError(t('exchangeRates.form.errors.invalidRate'), {
-                rate: t('exchangeRates.form.errors.invalidRate'),
-              })
-            }
-
-            // Validate date
-            const date = values.date ? new Date(String(values.date)) : null
-
-            if (!date || isNaN(date.getTime())) {
-              throw createCrudFormError(t('exchangeRates.form.errors.invalidDate'), {
-                date: t('exchangeRates.form.errors.invalidDate'),
-              })
-            }
-
-            // Validate source
-            const source = String(values.source || '').trim()
-            if (!source || source.length < 2) {
-              throw createCrudFormError(t('exchangeRates.form.errors.sourceTooShort'), {
-                source: t('exchangeRates.form.errors.sourceTooShort'),
-              })
-            }
-            if (source.length > 50) {
-              throw createCrudFormError(t('exchangeRates.form.errors.sourceTooLong'), {
-                source: t('exchangeRates.form.errors.sourceTooLong'),
-              })
-            }
-            if (!/^[a-zA-Z0-9\s\-_]+$/.test(source)) {
-              throw createCrudFormError(t('exchangeRates.form.errors.sourceInvalidFormat'), {
-                source: t('exchangeRates.form.errors.sourceInvalidFormat'),
-              })
-            }
-
+            const validated = validateExchangeRateForm(values, t)
             const payload = {
               id: exchangeRate.id,
-              fromCurrencyCode: fromCode,
-              toCurrencyCode: toCode,
-              rate: rate.toFixed(8),
-              date: date.toISOString(),
-              source,
-              type: values.type && values.type !== '' ? values.type : null,
-              isActive: values.isActive !== false,
+              ...buildExchangeRatePayload(values, validated),
             }
 
             await updateCrud('currencies/exchange-rates', payload)

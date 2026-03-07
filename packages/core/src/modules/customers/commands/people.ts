@@ -662,6 +662,15 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       profile.company = await resolveCompanyReference(em, parsed.companyEntityId, record.organizationId, record.tenantId)
     }
 
+    const profileFieldsUpdated = [
+      parsed.firstName, parsed.lastName, parsed.preferredName, parsed.jobTitle,
+      parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
+      parsed.twitterUrl, parsed.companyEntityId,
+    ].some((v) => v !== undefined)
+    if (profileFieldsUpdated) {
+      record.updatedAt = new Date()
+    }
+
     if (parsed.displayName !== undefined) {
       const nextDisplayName = parsed.displayName.trim()
       if (!nextDisplayName) {

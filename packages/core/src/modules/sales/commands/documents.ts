@@ -3216,8 +3216,8 @@ function buildTagChange(
 ): { from: string[]; to: string[] } | null {
   const beforeIds = normalizeTagIds(beforeTags?.map((tag) => tag.tagId));
   const afterIds = normalizeTagIds(afterTags?.map((tag) => tag.tagId));
-  beforeIds.sort();
-  afterIds.sort();
+  beforeIds.sort((a, b) => a.localeCompare(b));
+  afterIds.sort((a, b) => a.localeCompare(b));
   if (
     beforeIds.length === afterIds.length &&
     beforeIds.every((id, index) => id === afterIds[index])

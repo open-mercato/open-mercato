@@ -4,11 +4,10 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -68,7 +67,6 @@ export function CustomerTodosTable(): React.JSX.Element {
   const [search, setSearch] = React.useState('')
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
-  const [filters, setFilters] = React.useState<FilterValues>({})
 
   const params = React.useMemo(() => {
     const usp = new URLSearchParams({
@@ -76,10 +74,8 @@ export function CustomerTodosTable(): React.JSX.Element {
       pageSize: String(pageSize),
     })
     if (search.trim().length > 0) usp.set('search', search.trim())
-    const doneValue = filters.is_done
-    if (doneValue === 'true' || doneValue === 'false') usp.set('isDone', doneValue)
     return usp.toString()
-  }, [page, pageSize, search, filters])
+  }, [page, pageSize, search])
 
   const columns = React.useMemo<ColumnDef<CustomerTodoItem>[]>(() => [
     {
@@ -144,6 +140,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         { errorMessage: t('customers.workPlan.customerTodos.table.error.load') },
       )
     },
+    placeholderData: keepPreviousData,
   })
 
   const rows = data?.items ?? []
@@ -174,33 +171,6 @@ export function CustomerTodosTable(): React.JSX.Element {
     },
   }), [rows, t, viewExportColumns])
 
-  const filterDefs = React.useMemo<FilterDef[]>(() => [
-    {
-      id: 'is_done',
-      label: t('customers.workPlan.customerTodos.table.filters.done'),
-      type: 'select',
-      options: [
-        { label: t('customers.workPlan.customerTodos.table.filters.doneOption.any'), value: '' },
-        { label: t('customers.workPlan.customerTodos.table.filters.doneOption.open'), value: 'false' },
-        { label: t('customers.workPlan.customerTodos.table.filters.doneOption.completed'), value: 'true' },
-      ],
-    },
-  ], [t])
-
-  const onFiltersApply = React.useCallback((next: FilterValues) => {
-    const nextValue = next?.is_done
-    setFilters((prev) => {
-      if (prev.is_done === nextValue) return prev
-      return { is_done: nextValue }
-    })
-    setPage(1)
-  }, [])
-
-  const onFiltersClear = React.useCallback(() => {
-    setFilters({})
-    setPage(1)
-  }, [])
-
   const handleRefresh = React.useCallback(async () => {
     try {
       await refetch()
@@ -218,16 +188,17 @@ export function CustomerTodosTable(): React.JSX.Element {
   }, [router])
 
   const errorMessage = error ? (error instanceof Error ? error.message : t('customers.workPlan.customerTodos.table.error.load')) : null
-  const isEmpty = !isLoading && !errorMessage && rows.length === 0
+  const emptyStateMessage = !isLoading && !errorMessage && rows.length === 0
+    ? (search ? t('customers.workPlan.customerTodos.table.state.noMatches') : t('customers.workPlan.customerTodos.table.state.empty'))
+    : undefined
 
   return (
-    <div className="space-y-4">
-      <DataTable
-        title={t('customers.workPlan.customerTodos.table.title')}
-        actions={(
-          <Button
-            variant="outline"
-            onClick={() => { void handleRefresh() }}
+    <DataTable
+      title={t('customers.workPlan.customerTodos.table.title')}
+      actions={(
+        <Button
+          variant="outline"
+          onClick={() => { void handleRefresh() }}
           disabled={isFetching}
         >
           {t('customers.workPlan.customerTodos.table.actions.refresh')}
@@ -242,10 +213,6 @@ export function CustomerTodosTable(): React.JSX.Element {
         setPage(1)
       }}
       perspective={{ tableId: 'customers.todos.list' }}
-      filters={filterDefs}
-      filterValues={filters}
-      onFiltersApply={onFiltersApply}
-      onFiltersClear={onFiltersClear}
       rowActions={(row) => {
         const customerLink = buildCustomerHref(row)
         if (!customerLink) return null
@@ -270,20 +237,9 @@ export function CustomerTodosTable(): React.JSX.Element {
         onPageChange: setPage,
       }}
       isLoading={isLoading}
-      />
-      {errorMessage ? (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-          {errorMessage}
-        </div>
-      ) : null}
-      {isEmpty ? (
-        <div className="py-8 text-sm text-muted-foreground">
-          {search || filters.is_done
-            ? t('customers.workPlan.customerTodos.table.state.noMatches')
-            : t('customers.workPlan.customerTodos.table.state.empty')}
-        </div>
-      ) : null}
-    </div>
+      error={errorMessage}
+      emptyState={emptyStateMessage}
+    />
   )
 }
 

@@ -42,3 +42,31 @@ export class Todo {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'example_customer_priorities' })
+export class ExampleCustomerPriority {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'customer_id', type: 'uuid' })
+  customerId!: string
+
+  /** Customer priority level. Valid values: 'low' | 'normal' | 'high' | 'critical'. */
+  @Property({ type: 'text', default: 'normal' })
+  priority: 'low' | 'normal' | 'high' | 'critical' = 'normal'
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

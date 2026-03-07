@@ -111,7 +111,7 @@ export default function CategoriesDataTable() {
 
   const rows = data?.items ?? []
   const total = data?.total ?? 0
-  const totalPages = data?.totalPages ?? 1
+  const totalPages = data?.totalPages ?? 0
 
   const columns = React.useMemo<ColumnDef<CategoryRow>[]>(() => [
     {

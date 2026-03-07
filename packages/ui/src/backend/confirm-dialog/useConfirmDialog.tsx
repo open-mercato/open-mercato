@@ -2,6 +2,16 @@
 import * as React from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 
+function DialogMountTracker({ trackerRef }: { trackerRef: React.MutableRefObject<boolean> }) {
+  React.useEffect(() => {
+    trackerRef.current = true;
+    return () => {
+      trackerRef.current = false;
+    };
+  }, [trackerRef]);
+  return null;
+}
+
 export type ConfirmDialogOptions = {
   title?: string;
   text?: string;
@@ -102,20 +112,10 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
     [handleCancel]
   );
 
-  const DialogMountTracker = React.useCallback(() => {
-    React.useEffect(() => {
-      isDialogElementRenderedRef.current = true;
-      return () => {
-        isDialogElementRenderedRef.current = false;
-      };
-    }, []);
-    return null;
-  }, []);
-
   const ConfirmDialogElement = React.useMemo(
     () => (
       <>
-        <DialogMountTracker />
+        <DialogMountTracker trackerRef={isDialogElementRenderedRef} />
         <ConfirmDialog
           open={open}
           onOpenChange={handleOpenChange}
@@ -135,7 +135,6 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
       handleConfirm,
       options,
       loading,
-      DialogMountTracker,
     ]
   );
 

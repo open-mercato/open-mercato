@@ -1,0 +1,125 @@
+---
+title: Integration Enhancements
+description: Current integration-oriented extension options and quick-starts.
+---
+
+This page focuses on extension points used to integrate Open Mercato with external systems.
+
+## Payment and shipping gateways
+
+- Register custom providers with `registerPaymentProvider` and `registerShippingProvider`.
+- Providers can declare UI settings fields, validation schema, and runtime adjustment calculators.
+- Provider settings are persisted and reused in totals calculation.
+
+Start with: [Shipping & payment providers](/framework/modules/sales-providers)
+
+## Messaging as an integration boundary
+
+- Extend `message-types.ts` to define workflow-specific messages.
+- Extend `message-objects.ts` to attach domain records (customers, orders, staff, etc.).
+- Combine with message actions to trigger commands or links.
+
+Start with: [Messages system](/framework/modules/messages)
+
+## Notifications and inbox delivery
+
+- Add notification definitions in `notifications.ts`.
+- Add client renderers in `notifications.client.ts`.
+- Emit domain events and subscribe to produce user-facing notifications.
+
+Start with: [Notifications](/framework/modules/notifications), [Events overview](/framework/events/overview)
+
+## Search and vector integrations
+
+- Fulltext integration: implement a compatible fulltext driver.
+- Vector integration: configure vector entities and choose vector driver/backend.
+- Embedding provider integration supports OpenAI/Google/Mistral/Cohere/Bedrock/Ollama.
+
+Start with: [Hybrid search](/framework/database/hybrid-search)
+
+## Workflow and scheduler integration patterns
+
+- Use workflow activities/signals for external system orchestration.
+- Use scheduler jobs for recurring pull/sync integrations.
+- Use progress events for UI status during long-running sync jobs.
+
+Start with: [Workflows extending](/framework/workflows/extending), [Scheduler](/framework/scheduler/overview), [Progress](/framework/progress/overview)
+
+## API-level integration hooks
+
+- Route-level interception: `api/interceptors.ts`
+- Response composition: `data/enrichers.ts`
+- Mutation guards (UMES M): `data/guards.ts` — register guards with priority ordering, payload modification, and `afterSuccess` callbacks
+- Command interceptors (UMES M): `commands/interceptors.ts` — `beforeExecute`/`afterExecute` hooks for execute and undo flows
+- Event-driven side effects: `subscribers/*.ts` (supports `sync: true` metadata for in-pipeline lifecycle events — UMES M)
+- Long-running processing: `workers/*.ts`
+
+Start with: [API extension guide](/framework/api/extending-api), [Queue workers](/framework/events/queue-workers)
+
+## Integration extension widgets (UMES Phase L)
+
+Phase L adds first-class UI widgets and data primitives for building integration modules.
+
+### InjectionWizard
+
+Multi-step wizard widget for integration onboarding (OAuth flows, API credential entry, scope configuration). Renders a numbered step indicator with navigation and per-step validation.
+
+- Define steps as `InjectionWizardStep[]` with `id`, `label`, optional `fields`, optional `validate`, and optional `customComponent`
+- Step validation returns `{ ok, message?, fieldErrors? }` to block progression
+- `onComplete` callback receives accumulated data from all steps
+- Supports `Escape` to cancel
+
+Import: `import { InjectionWizard } from '@open-mercato/ui/backend/injection/InjectionWizard'`
+
+### StatusBadgeRenderer
+
+Status badge widget with pollable status loaders. Displays a color-coded dot, label, optional count badge, and optional tooltip.
+
+- Statuses: `healthy` (green), `warning` (yellow), `error` (red), `unknown` (gray)
+- `statusLoader` is called on mount and at `pollInterval` (default 60 s)
+- Optional `href` makes the badge a link
+
+Import: `import { StatusBadgeRenderer } from '@open-mercato/ui/backend/injection/StatusBadgeRenderer'`
+
+### ExternalIdsWidget
+
+Injection widget for displaying external system ID mappings. Reads the `_integrations` namespace from enriched API responses and renders a row per integration with provider name, external ID code badge, sync status dot, and optional external link.
+
+- Sync statuses: `synced`, `pending`, `error`, `not_synced`
+- Provider name resolved via `getIntegrationTitle()` from the integration registry
+
+Widget: `packages/core/src/modules/integrations/widgets/injection/external-ids/widget.client.tsx`
+
+### Integration registry
+
+Register integration definitions at module bootstrap so the platform can discover metadata and build deep links.
+
+```ts
+import { registerIntegration, getAllIntegrations, getIntegrationTitle } from '@open-mercato/shared/modules/integrations/types'
+
+registerIntegration({
+  id: 'sync_shopify',
+  title: 'Shopify',
+  icon: 'shopify',
+  buildExternalUrl: (externalId) => `https://admin.shopify.com/store/demo/products/${externalId}`,
+})
+
+getAllIntegrations()              // returns all registered IntegrationDefinition[]
+getIntegrationTitle('sync_shopify') // 'Shopify'
+getIntegrationTitle('unknown')      // 'unknown' (falls back to ID)
+```
+
+Start with: [Widget injection](/framework/widget-injection), [Data extensibility](/framework/database/data-extensibility)
+
+## Data integration and entity mapping today
+
+Currently available:
+
+- Custom entities and custom fields for schema-level adaptation
+- Message object type mapping for cross-module record linking
+- Query index and search indexing for downstream lookup/search use cases
+- External ID mapping enricher and ExternalIdsWidget (UMES Phase L — see above)
+
+Now available (UMES Phase N):
+
+- Query-level enrichers and sync query lifecycle events — see [Query engine extensibility](./query-engine-extensibility)

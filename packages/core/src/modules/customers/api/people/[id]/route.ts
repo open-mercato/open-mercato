@@ -613,6 +613,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             linkedInUrl: profile.linkedInUrl,
             twitterUrl: profile.twitterUrl,
             companyEntityId: profile.company ? (typeof profile.company === 'string' ? profile.company : profile.company.id) : null,
+            updatedAt: profile.updatedAt.toISOString(),
           }
         : null,
       customFields,
@@ -777,6 +778,7 @@ const personDetailResponseSchema = z.object({
       linkedInUrl: z.string().nullable().optional(),
       twitterUrl: z.string().nullable().optional(),
       companyEntityId: z.string().uuid().nullable().optional(),
+      updatedAt: z.string(),
     })
     .nullable(),
   customFields: z.record(z.string(), z.unknown()),

@@ -38,6 +38,15 @@ export type AppEventPayload = {
 }
 
 /**
+ * Filter which operations trigger widget event handlers.
+ * When set, handlers only fire for the specified operations.
+ */
+export type WidgetInjectionEventFilter = {
+  /** Only run handlers for these operations. Omit to run for all. */
+  operations?: ('create' | 'update' | 'delete')[]
+}
+
+/**
  * Widget injection event handlers for lifecycle management.
  *
  * Handlers are classified into two categories:
@@ -45,6 +54,9 @@ export type AppEventPayload = {
  * - **Transformer events**: Pipeline handlers where output of widget N becomes input of widget N+1
  */
 export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = {
+  /** Filter which operations trigger these event handlers */
+  filter?: WidgetInjectionEventFilter
+
   // === Existing: Lifecycle Actions ===
 
   /**
@@ -122,8 +134,12 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
   /**
    * Transform form data before submission. Output of widget N becomes input of widget N+1.
    * Transformer event — pipeline dispatch.
+   *
+   * Return `{ data, applyToForm: true }` to also reflect the transformed values back into
+   * the visible form fields (opt-in). Default behavior (returning plain `TData`) only
+   * modifies the submit payload and leaves the visible form unchanged.
    */
-  transformFormData?: (data: TData, context: TContext) => Promise<TData>
+  transformFormData?: (data: TData, context: TContext) => Promise<TData | { data: TData; applyToForm: true }>
 
   /**
    * Transform data for display purposes. Output of widget N becomes input of widget N+1.
@@ -234,7 +250,10 @@ export type InjectionBulkActionDefinition = {
   id: string
   label: string
   icon?: string
-  onExecute: (selectedRows: unknown[], context: unknown) => Promise<void>
+  onExecute: (
+    selectedRows: unknown[],
+    context: unknown,
+  ) => Promise<void | { ok: boolean; message?: string; affectedCount?: number }>
 }
 
 export type InjectionFilterDefinition = {
@@ -245,12 +264,21 @@ export type InjectionFilterDefinition = {
   strategy: 'server' | 'client'
   queryParam?: string
   enrichedField?: string
+  filterFn?: (row: unknown, value: unknown) => boolean
 }
 
-export type FieldVisibilityCondition<TContext = unknown> = (
-  values: Record<string, unknown>,
-  context: TContext,
-) => boolean
+export type FieldVisibilityRule = {
+  field: string
+  operator: 'eq' | 'neq' | 'in' | 'notIn' | 'truthy' | 'falsy'
+  value?: unknown
+}
+
+export type FieldVisibilityCondition<TContext = unknown> =
+  | FieldVisibilityRule
+  | ((
+      values: Record<string, unknown>,
+      context: TContext,
+    ) => boolean)
 
 export type CustomFieldProps<TContext = unknown> = {
   value: unknown
@@ -297,12 +325,13 @@ export type InjectionContext = {
 export type InjectionWizardStep = {
   id: string
   label: string
+  description?: string
   fields?: InjectionFieldDefinition[]
   customComponent?: LazyExoticComponent<ComponentType<WizardStepProps>>
   validate?: (
     data: Record<string, unknown>,
     context: InjectionContext,
-  ) => Promise<{ ok: boolean; message?: string }>
+  ) => Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string> }>
 }
 
 export type InjectionWizardWidget = {

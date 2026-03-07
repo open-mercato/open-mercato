@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChevronUp, ChevronDown } from 'lucide-react'
@@ -24,6 +25,8 @@ import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { SseEventIndicator } from './injection/SseEventIndicator'
+import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
+import { UmesDevToolsPanel } from './devtools'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -286,13 +289,13 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   return item.href
 }
 
-const HeaderContext = React.createContext<{
+const HeaderContext = createContext<{
   setBreadcrumb: (b?: Breadcrumb) => void
   setTitle: (t?: string) => void
 } | null>(null)
 
 export function ApplyBreadcrumb({ breadcrumb, title, titleKey }: { breadcrumb?: Array<{ label: string; href?: string; labelKey?: string }>; title?: string; titleKey?: string }) {
-  const ctx = React.useContext(HeaderContext)
+  const ctx = useContext(HeaderContext)
   const t = useT()
   const resolvedBreadcrumb = React.useMemo<Breadcrumb | undefined>(() => {
     if (!breadcrumb) return undefined
@@ -720,6 +723,16 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setHeaderTitle(currentTitle)
     setHeaderBreadcrumb(breadcrumb)
   }, [currentTitle, breadcrumb])
+  // Clear breadcrumb on client-side navigation so stale state doesn't persist;
+  // the new page's ApplyBreadcrumb (if any) will set the correct values
+  const prevPathname = React.useRef(pathname)
+  React.useEffect(() => {
+    if (pathname !== prevPathname.current) {
+      prevPathname.current = pathname
+      setHeaderTitle(undefined)
+      setHeaderBreadcrumb(undefined)
+    }
+  }, [pathname])
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
@@ -1354,7 +1367,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         {!customizing && (
           <>
           {shouldRenderSidebarInjectionSpots ? (
-            <InjectionSpot
+            <StatusBadgeInjectionSpot
               spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
               context={injectionContext}
             />
@@ -1499,7 +1512,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             })()}
           </div>
           <div className="flex items-center gap-1 md:gap-2 text-sm shrink-0">
-            <InjectionSpot
+            <StatusBadgeInjectionSpot
               spotId={GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID}
               context={injectionContext}
             />
@@ -1552,7 +1565,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} aria-hidden="true" />
           <aside className="absolute left-0 top-0 flex h-full w-[260px] flex-col bg-background border-r overflow-hidden">
             <div className="shrink-0 p-3 pb-2 flex items-center justify-between border-b">
               <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
@@ -1574,6 +1587,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         </div>
       )}
     </div>
+    <UmesDevToolsPanel />
     </HeaderContext.Provider>
   )
 }

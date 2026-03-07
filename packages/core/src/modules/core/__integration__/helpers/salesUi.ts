@@ -165,6 +165,114 @@ async function selectFirstAddressIfAvailable(page: Page): Promise<void> {
   }
 }
 
+async function ensureShippingMethodFixture(page: Page): Promise<void> {
+  const token = await getAuthToken(page.request, 'admin').catch(() => null);
+  if (!token) return;
+
+  const existing = await apiRequest(
+    page.request,
+    'GET',
+    '/api/sales/shipping-methods?page=1&pageSize=1&isActive=true',
+    { token },
+  ).catch(() => null);
+  const existingBody = (await existing?.json().catch(() => null)) as { result?: { items?: unknown[] } } | null;
+  const existingItems = Array.isArray(existingBody?.result?.items) ? existingBody?.result?.items : [];
+  if (existingItems.length > 0) return;
+
+  const stamp = Date.now();
+  await apiRequest(page.request, 'POST', '/api/sales/shipping-methods', {
+    token,
+    data: {
+      name: `QA Shipping Method ${stamp}`,
+      code: `qa-shipping-${stamp}`,
+      isActive: true,
+      currencyCode: 'USD',
+      baseRateNet: '10.00',
+      baseRateGross: '10.00',
+    },
+  }).catch(() => {});
+}
+
+function lookupRootFromInput(input: Locator): Locator {
+  return input.locator('xpath=ancestor::div[contains(@class,"space-y-3")][1]');
+}
+
+async function waitForLookupIdle(root: Locator): Promise<void> {
+  await root
+    .getByText(/Searching…|Searching\.\.\.|Loading…|Loading\.\.\./i)
+    .first()
+    .waitFor({ state: 'hidden', timeout: 700 })
+    .catch(() => {});
+}
+
+async function selectAnyLookupOption(root: Locator): Promise<boolean> {
+  const selectButton = root.getByRole('button', { name: /^Select$/i }).first();
+  if ((await selectButton.count()) > 0 && (await selectButton.isVisible().catch(() => false))) {
+    await selectButton.click().catch(() => {});
+    return true;
+  }
+
+  const row = root.locator('[role="button"]').first();
+  if ((await row.count()) > 0 && (await row.isVisible().catch(() => false))) {
+    await row.click().catch(() => {});
+    return true;
+  }
+
+  return false;
+}
+
+async function selectLookupValue(
+  input: Locator,
+  query: string,
+  preferredRowPattern?: RegExp,
+): Promise<boolean> {
+  if ((await input.count()) === 0) return false;
+  await input.click().catch(() => {});
+  await input.press('ControlOrMeta+a').catch(() => {});
+  await input.fill(query).catch(() => {});
+
+  const root = lookupRootFromInput(input);
+  await waitForLookupIdle(root);
+
+  const selectByPreferredRow = async (): Promise<boolean> => {
+    if (!preferredRowPattern) return false;
+    const row = root.locator('[role="button"]').filter({ hasText: preferredRowPattern }).first();
+    if ((await row.count()) === 0) return false;
+    const action = row.getByRole('button', { name: /^Select$/i }).first();
+    if ((await action.count()) > 0 && (await action.isVisible().catch(() => false))) {
+      await action.click();
+      return true;
+    }
+    if ((await row.isVisible().catch(() => false))) {
+      await row.click().catch(() => {});
+      return true;
+    }
+    return false;
+  };
+
+  if (await selectByPreferredRow()) return true;
+
+  const deadline = Date.now() + 4_000;
+  while (Date.now() < deadline) {
+    await waitForLookupIdle(root);
+    if (await selectAnyLookupOption(root)) return true;
+    if (await selectByPreferredRow()) return true;
+    const selectedButton = root.getByRole('button', { name: /^Selected$/i }).first();
+    if ((await selectedButton.count()) > 0 && (await selectedButton.isVisible().catch(() => false))) {
+      return true;
+    }
+    await input.page().waitForTimeout(250);
+  }
+
+  await input.press('ArrowDown').catch(() => {});
+  await input.press('Enter').catch(() => {});
+  const selectedButton = root.getByRole('button', { name: /^Selected$/i }).first();
+  if ((await selectedButton.count()) > 0 && (await selectedButton.isVisible().catch(() => false))) {
+    return true;
+  }
+  return await selectAnyLookupOption(root);
+}
+
 export async function createSalesDocument(page: Page, options: CreateDocumentOptions): Promise<string> {
   const fixtureContext = await ensureSalesDocumentFixtures(page, options);
   const customerQuery = fixtureContext.customerQuery;
@@ -176,32 +284,27 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     timeout: TEST_WAIT_TIMEOUT_MS,
   });
 
-  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeVisible({ timeout: 10_000 });
-  await page.waitForTimeout(500);
-  await expect(page.getByRole('button', { name: /Generate/i }).first()).toBeEnabled({ timeout: 30_000 });
+  const generateButton = page.getByRole('button', { name: /Generate/i }).first();
+  const hasGenerateButton = (await generateButton.count()) > 0;
+  if (hasGenerateButton) {
+    await expect(generateButton).toBeVisible({ timeout: 10_000 });
+    await expect(generateButton).toBeEnabled({ timeout: 30_000 });
+  }
 
   await page.getByText('Document type').click();
-  await page.getByRole('textbox', { name: /Search customers/i }).fill(customerQuery);
+  const customerSelected = await selectLookupValue(
+    page.getByRole('textbox', { name: /Search customers/i }).first(),
+    customerQuery,
+    new RegExp(escapeRegExp(customerQuery), 'i'),
+  );
+  if (!customerSelected) throw new Error(`Could not select customer "${customerQuery}" while creating sales ${options.kind}.`);
 
-  const selectButton = page
-    .locator('[role="button"]')
-    .filter({ hasText: customerQuery })
-    .getByRole('button', { name: 'Select' });
-
-  await expect(selectButton.first()).toBeVisible({ timeout: 10_000 });
-  await selectButton.scrollIntoViewIfNeeded();
-  await selectButton.click();
-// Channel selection
-await page.getByRole('textbox', { name: /Select a channel/i }).fill(channelQuery);
-try {
-  await page
-    .getByRole('button', { name: /Select$/i })
-    .filter({ hasText: new RegExp(escapeRegExp(channelQuery), 'i') })
-    .first()
-    .click({ timeout: 2000 });
-} catch {
-  await page.getByRole('button', { name: /Select$/i }).first().click();
-}
+  const channelSelected = await selectLookupValue(
+    page.getByRole('textbox', { name: /Select a channel/i }).first(),
+    channelQuery,
+    new RegExp(escapeRegExp(channelQuery), 'i'),
+  );
+  if (!channelSelected) throw new Error(`Could not select channel "${channelQuery}" while creating sales ${options.kind}.`);
 
   await selectFirstAddressIfAvailable(page);
 
@@ -235,20 +338,17 @@ async function selectFirstOption(container: Locator, rowNamePattern: RegExp): Pr
 async function selectShipmentMethod(dialog: Locator): Promise<void> {
   const shippingMethodInput = dialog.getByPlaceholder(/Select method/i).first();
   if ((await shippingMethodInput.count()) === 0) return;
-  await shippingMethodInput.click().catch(() => {});
-  await shippingMethodInput.press('ControlOrMeta+a').catch(() => {});
-  await shippingMethodInput.type('Standard', { delay: 20 }).catch(() => {});
-  await shippingMethodInput.press('Enter').catch(() => {});
-  await selectFirstOption(dialog, /standard ground|express air|select/i);
+  const selected = await selectLookupValue(shippingMethodInput, 'Standard', /standard ground|express air|standard/i);
+  if (!selected) {
+    await selectFirstOption(dialog, /standard ground|express air|select/i);
+  }
 }
 
 async function selectShipmentStatus(dialog: Locator): Promise<void> {
   const statusInput = dialog.getByPlaceholder(/Select shipment status/i).first();
   if ((await statusInput.count()) > 0) {
-    await statusInput.click().catch(() => {});
-    await statusInput.press('ControlOrMeta+a').catch(() => {});
-    await statusInput.type('Shipped', { delay: 20 }).catch(() => {});
-    await statusInput.press('Enter').catch(() => {});
+    const selected = await selectLookupValue(statusInput, 'Shipped', /shipped|in transit|packed/i);
+    if (selected) return;
   }
   await selectFirstOption(dialog, /shipped.*select|in transit.*select|packed.*select|select/i);
 }
@@ -258,11 +358,10 @@ async function selectShipmentAddress(dialog: Locator): Promise<void> {
   if ((await addressInput.count()) === 0) return;
   const currentValue = await addressInput.inputValue().catch(() => '');
   if (currentValue.trim().length > 0) return;
-  if ((await addressInput.count()) > 0) {
-    await addressInput.click().catch(() => {});
-    await addressInput.press('Enter').catch(() => {});
+  const selected = await selectLookupValue(addressInput, 'Address', /shipping address|document address|address/i);
+  if (!selected) {
+    await selectFirstOption(dialog, /shipping address|document address|select/i);
   }
-  await selectFirstOption(dialog, /shipping address|select/i);
 }
 
 async function fillShipmentQuantity(dialog: Locator): Promise<void> {
@@ -423,58 +522,50 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
     const amountInput = dialog.getByRole('spinbutton').first();
     await amountInput.click();
     await amountInput.press('ControlOrMeta+a');
-    await amountInput.type(amountInputValue, { delay: 20 });
+    await amountInput.fill(amountInputValue);
     await amountInput.press('Tab');
+  };
+  const selectFirstOption = async (optionNamePattern: RegExp): Promise<void> => {
+    const option = dialog.getByRole('button', { name: optionNamePattern }).first();
+    if ((await option.count()) === 0) return;
+    const selectButton = option.getByRole('button', { name: /^Select$/i }).first();
+    if ((await selectButton.count()) > 0) {
+      await selectButton.click();
+      return;
+    }
+    await option.click();
   };
   await setAmount();
 
-  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
-  const paymentMethodOption = dialog.getByRole('button', { name: /bank transfer|credit card|cash on delivery/i }).first();
-  if ((await paymentMethodOption.count()) > 0) {
-    const methodSelectButton = paymentMethodOption.getByRole('button', { name: /^Select$/i }).first();
-    if ((await methodSelectButton.count()) > 0) {
-      await methodSelectButton.click();
-    } else {
-      await paymentMethodOption.click();
-    }
-  }
-  const paymentStatusOption = dialog.getByRole('button', { name: /pending.*select|captured.*select/i }).first();
-  if ((await paymentStatusOption.count()) > 0) {
-    const statusSelectButton = paymentStatusOption.getByRole('button', { name: /^Select$/i }).first();
-    if ((await statusSelectButton.count()) > 0) {
-      await statusSelectButton.click();
-    } else {
-      await paymentStatusOption.click();
-    }
-  }
+  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+  await selectFirstOption(/bank transfer|credit card|cash on delivery/i);
+  await selectFirstOption(/pending.*select|captured.*select/i);
   const saveButton = dialog.getByRole('button', { name: /Save/i }).first();
   const operationMessage = page.getByText(/Last operation:\s*Create payment/i).first();
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     await setAmount();
+    await selectFirstOption(/bank transfer|credit card|cash on delivery/i);
+    await selectFirstOption(/pending.*select|captured.*select/i);
     await saveButton.click();
-    const closed = await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).then(() => true).catch(() => false);
-    if (closed) {
-      break;
-    }
-    const operationVisible = await operationMessage.isVisible().catch(() => false);
-    if (operationVisible) {
-      break;
-    }
-    const hasRequiredFieldError = await dialog.getByText(/This field is required/i).isVisible().catch(() => false);
-    if (!hasRequiredFieldError) {
-      await page.waitForTimeout(200);
-    }
+    await Promise.race([
+      dialog.waitFor({ state: 'hidden', timeout: 2_500 }).catch(() => {}),
+      operationMessage.waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {}),
+      dialog.getByText(/This field is required/i).first().waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {}),
+    ]);
+    if (!(await dialog.isVisible().catch(() => false))) break;
+    if (await operationMessage.isVisible().catch(() => false)) break;
   }
   if (await dialog.isVisible().catch(() => false)) {
     await dialog.press('Escape').catch(() => {});
-    await dialog.waitFor({ state: 'hidden', timeout: 4_000 }).catch(() => {});
+    await dialog.waitFor({ state: 'hidden', timeout: 1_500 }).catch(() => {});
   }
-  await operationMessage.waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
+  await operationMessage.waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {});
   const added = await operationMessage.isVisible().catch(() => false);
   return { amountLabel, added };
 }
 
 export async function addShipment(page: Page): Promise<{ trackingNumber: string; shipmentNumber: string; added: boolean }> {
+  await ensureShippingMethodFixture(page);
   await page.getByRole('button', { name: /^Shipments$/i }).click();
   const trackingNumber = `SHIP-${Date.now()}`;
   const shipmentNumber = String(Date.now());
@@ -506,10 +597,31 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
     await dialog.press('ControlOrMeta+Enter').catch(() => {});
   }
 
-  const closed = await dialog
+  let closed = await dialog
     .waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS })
     .then(() => true)
     .catch(() => false);
+
+  if (!closed) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await selectShipmentRequiredOptions(dialog);
+      await selectShipmentMethod(dialog);
+      await selectShipmentAddress(dialog);
+      await fillShipmentQuantity(dialog);
+      await fillShipmentDates(dialog);
+      await fillShipmentNumber(dialog, shipmentNumber);
+      if (canClickSave) {
+        await saveButton.click({ timeout: 2_000 }).catch(() => {});
+      } else {
+        await dialog.press('ControlOrMeta+Enter').catch(() => {});
+      }
+      closed = await dialog
+        .waitFor({ state: 'hidden', timeout: 2_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (closed) break;
+    }
+  }
 
   if (!closed) {
     return { trackingNumber, shipmentNumber, added: false };

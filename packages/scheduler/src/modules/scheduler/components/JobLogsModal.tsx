@@ -98,10 +98,18 @@ export function JobLogsModal({
           <DialogTitle>
             {t('scheduler.job_logs.title', 'Queue Job')}: {scheduleName}
           </DialogTitle>
-          <p 
+          <p
             className="text-sm text-muted-foreground font-mono truncate cursor-pointer hover:text-primary transition-colors"
             title={queueJobId ?? undefined}
             onClick={() => queueJobId && navigator.clipboard.writeText(queueJobId)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                if (queueJobId) navigator.clipboard.writeText(queueJobId)
+              }
+            }}
+            role="button"
+            tabIndex={0}
           >
             {t('scheduler.job_logs.job_id', 'Job ID')}: {queueJobId}
           </p>

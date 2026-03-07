@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -101,7 +101,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
       customFields[key] = value
     }
   }
-  return {
+  return withDataTableNamespaces({
     id,
     name,
     description,
@@ -116,7 +116,7 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
     organizationId,
     source,
     ...customFields,
-  }
+  }, item)
 }
 
 export default function CustomersPeoplePage() {

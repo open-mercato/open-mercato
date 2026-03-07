@@ -16,6 +16,8 @@ import { TaxRatesSettings } from '../TaxRatesSettings'
 import { SalesChannelOffersPanel } from '../channels/SalesChannelOffersPanel'
 import { ChannelOfferForm } from '../channels/ChannelOfferForm'
 
+jest.setTimeout(20000)
+
 const mockApiCall = jest.fn()
 const mockReadApiResultOrThrow = jest.fn()
 const mockCreateCrud = jest.fn()
@@ -81,6 +83,10 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
+  withDataTableNamespaces: (mappedRow: Record<string, unknown>, sourceItem: Record<string, unknown>) => ({
+    ...mappedRow,
+    ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
+  }),
   DataTable: ({ title, data = [], children }: any) => {
     const key = typeof title === 'string' ? title.replace(/\\s+/g, '-').toLowerCase() : 'table'
     return (

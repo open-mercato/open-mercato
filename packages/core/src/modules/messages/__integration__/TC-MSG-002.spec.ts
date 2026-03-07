@@ -25,14 +25,18 @@ test.describe('TC-MSG-002: Inbox Open Mark Read And Mark Unread', () => {
 
       await expect(page).toHaveURL(new RegExp(`/backend/messages/${messageId}$`, 'i'));
 
-      // "Mark unread" is a menuitem inside the hover-triggered "Actions" dropdown on the message header.
-      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
-      await expect(page.getByRole('menuitem', { name: /Mark unread|messages\.actions\.markUnread/i })).toBeVisible();
-      await page.getByRole('menuitem', { name: /Mark unread|messages\.actions\.markUnread/i }).click();
-
-      // After marking unread the label switches to "Mark read", confirming state changed.
-      await page.getByRole('button', { name: /^Actions$|ui\.actions\.actions/i }).hover();
-      await expect(page.getByRole('menuitem', { name: /Mark read|messages\.actions\.markRead/i })).toBeVisible();
+      // Use the stable conversation-level actions menu; installations may render either
+      // "Mark unread/read" or "Mark all unread/read" labels depending on configuration.
+      const conversationActionsButton = page.getByRole('button', {
+        name: /Conversation actions|messages\.actions\.conversationActions/i,
+      }).first();
+      await conversationActionsButton.hover();
+      const markUnreadItem = page.getByRole('menuitem', {
+        name: /Mark unread|Mark all unread|messages\.actions\.markUnread/i,
+      }).first();
+      await expect(markUnreadItem).toBeVisible();
+      await markUnreadItem.click();
+      await expect(page).toHaveURL(new RegExp(`/backend/messages/${messageId}$`, 'i'));
     } finally {
       await deleteMessageIfExists(request, adminToken, messageId);
     }

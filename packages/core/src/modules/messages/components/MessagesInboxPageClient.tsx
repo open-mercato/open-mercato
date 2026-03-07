@@ -149,7 +149,7 @@ export function MessagesInboxPageClient() {
         total: Number(call.result?.total ?? 0),
         page: Number(call.result?.page ?? page),
         pageSize: Number(call.result?.pageSize ?? pageSize),
-        totalPages: Number(call.result?.totalPages ?? 1),
+        totalPages: Number(call.result?.totalPages ?? 0),
       }
     },
   })
@@ -375,7 +375,7 @@ export function MessagesInboxPageClient() {
 
   const rows = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
-  const totalPages = listQuery.data?.totalPages ?? 1
+  const totalPages = listQuery.data?.totalPages ?? 0
 
   return (
     <div className="space-y-4">
