@@ -46,6 +46,7 @@ import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
+import { CustomerTimelineAction } from '../../../../components/detail/CustomerTimelineAction'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -732,22 +733,25 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
             validators={validators}
             onDisplayNameSave={updateDisplayName}
             utilityActions={(
-              <SendObjectMessageDialog
-                object={{
-                  entityModule: 'customers',
-                  entityType: 'company',
-                  entityId: companyId,
-                  previewData: {
-                    title: company.displayName,
-                    subtitle: company.primaryEmail ?? undefined,
-                    metadata: {
-                      [t('customers.companies.detail.highlights.primaryPhone')]: company.primaryPhone ?? '-',
-                      [t('customers.companies.detail.fields.industry')]: profile?.industry ?? '-',
+              <>
+                <SendObjectMessageDialog
+                  object={{
+                    entityModule: 'customers',
+                    entityType: 'company',
+                    entityId: companyId,
+                    previewData: {
+                      title: company.displayName,
+                      subtitle: company.primaryEmail ?? undefined,
+                      metadata: {
+                        [t('customers.companies.detail.highlights.primaryPhone')]: company.primaryPhone ?? '-',
+                        [t('customers.companies.detail.fields.industry')]: profile?.industry ?? '-',
+                      },
                     },
-                  },
-                }}
-                viewHref={`/backend/customers/companies/${companyId}`}
-              />
+                  }}
+                  viewHref={`/backend/customers/companies/${companyId}`}
+                />
+                <CustomerTimelineAction entityId={companyId} entityType="company" t={t} />
+              </>
             )}
             onPrimaryEmailSave={(value) => updateCompanyField('primaryEmail', value)}
             onPrimaryPhoneSave={(value) => updateCompanyField('primaryPhone', value)}

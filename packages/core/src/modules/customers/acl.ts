@@ -14,6 +14,11 @@ export const features = [
   { id: 'customers.widgets.next-interactions', title: 'Use customer next interactions widget', module: 'customers' },
   { id: 'customers.widgets.new-customers', title: 'Use customer new customers widget', module: 'customers' },
   { id: 'customers.widgets.new-deals', title: 'Use customer new deals widget', module: 'customers' },
+  { id: 'customers.analytics.view', title: 'View CRM analytics', module: 'customers' },
+  { id: 'customers.deals.bulk', title: 'Bulk update deals', module: 'customers' },
+  { id: 'customers.saved-views.manage', title: 'Manage saved views', module: 'customers' },
+  { id: 'customers.emails.view', title: 'View deal emails', module: 'customers' },
+  { id: 'customers.emails.send', title: 'Send emails from deals', module: 'customers' },
 ]
 
 export default features

@@ -122,6 +122,41 @@ export const dealUpdateSchema = z
     id: uuid(),
   })
   .merge(dealCreateSchema.partial())
+  .extend({
+    closeReasonId: uuid().nullable().optional(),
+    closeReasonNotes: z.string().max(2000).nullable().optional(),
+  })
+
+export const dealLineCreateSchema = scopedSchema.extend({
+  dealId: uuid(),
+  productId: uuid().nullable().optional(),
+  productVariantId: uuid().nullable().optional(),
+  name: z.string().trim().min(1).max(200),
+  sku: z.string().trim().max(100).nullable().optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
+  quantity: z.coerce.number().min(0.000001).default(1),
+  unit: z.string().trim().max(50).nullable().optional(),
+  unitPrice: z.coerce.number().min(0).default(0),
+  discountPercent: z.coerce.number().min(0).max(100).nullable().optional(),
+  discountAmount: z.coerce.number().min(0).nullable().optional(),
+  taxRate: z.coerce.number().min(0).max(100).nullable().optional(),
+  currency: z.string().min(3).max(3).nullable().optional(),
+})
+
+export const dealLineUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(dealLineCreateSchema.partial())
+
+export const dealLineReorderSchema = scopedSchema.extend({
+  dealId: uuid(),
+  lineIds: z.array(uuid()).min(1),
+})
+
+export type DealLineCreateInput = z.infer<typeof dealLineCreateSchema>
+export type DealLineUpdateInput = z.infer<typeof dealLineUpdateSchema>
+export type DealLineReorderInput = z.infer<typeof dealLineReorderSchema>
 
 export const activityCreateSchema = scopedSchema.extend({
   entityId: uuid(),
@@ -129,6 +164,9 @@ export const activityCreateSchema = scopedSchema.extend({
   subject: z.string().max(200).optional(),
   body: z.string().max(8000).optional(),
   occurredAt: z.coerce.date().optional(),
+  dueAt: z.coerce.date().optional().nullable(),
+  reminderAt: z.coerce.date().optional().nullable(),
+  assignedToUserId: uuid().optional().nullable(),
   dealId: uuid().optional(),
   authorUserId: uuid().optional(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
@@ -214,6 +252,8 @@ const dictionaryKindEnum = z.enum([
   'address_type',
   'activity_type',
   'deal_status',
+  'deal_close_reason',
+  'deal_contact_role',
   'pipeline_stage',
   'job_title',
   'industry',
@@ -370,3 +410,43 @@ export type PipelineStageCreateInput = z.infer<typeof pipelineStageCreateSchema>
 export type PipelineStageUpdateInput = z.infer<typeof pipelineStageUpdateSchema>
 export type PipelineStageDeleteInput = z.infer<typeof pipelineStageDeleteSchema>
 export type PipelineStageReorderInput = z.infer<typeof pipelineStageReorderSchema>
+
+// --- Deal Email schemas ---
+
+const emailRecipientSchema = z.object({
+  email: z.string().email().max(320),
+  name: z.string().max(200).optional(),
+})
+
+export const dealEmailSendSchema = scopedSchema.extend({
+  dealId: uuid(),
+  to: z.array(emailRecipientSchema).min(1),
+  cc: z.array(emailRecipientSchema).optional(),
+  bcc: z.array(emailRecipientSchema).optional(),
+  subject: z.string().min(1).max(998),
+  bodyHtml: z.string().min(1),
+  bodyText: z.string().optional(),
+  inReplyTo: z.string().max(500).optional(),
+})
+
+export type DealEmailSendInput = z.infer<typeof dealEmailSendSchema>
+
+// --- Saved View schemas ---
+
+export const savedViewCreateSchema = scopedSchema.extend({
+  entityType: z.enum(['deal', 'person', 'company']),
+  name: z.string().trim().min(1).max(100),
+  filters: z.record(z.string(), z.unknown()).default({}),
+  sortField: z.string().max(100).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
+  columns: z.array(z.string().max(100)).optional(),
+  isDefault: z.boolean().optional(),
+  isShared: z.boolean().optional(),
+})
+
+export const savedViewUpdateSchema = z.object({
+  id: uuid(),
+}).merge(savedViewCreateSchema.partial())
+
+export type SavedViewCreateInput = z.infer<typeof savedViewCreateSchema>
+export type SavedViewUpdateInput = z.infer<typeof savedViewUpdateSchema>

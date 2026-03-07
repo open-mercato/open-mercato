@@ -22,6 +22,8 @@ import {
   CustomerActivity,
   CustomerAddress,
   CustomerComment,
+  CustomerDealStageHistory,
+  CustomerDealEmail,
   CustomerPipeline,
   CustomerPipelineStage,
 } from './data/entities'
@@ -59,6 +61,27 @@ const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'win', label: 'Win', color: '#16a34a', icon: 'lucide:award' },
   { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
+]
+
+const DEAL_CLOSE_REASON_DEFAULTS: DictionaryDefault[] = [
+  { value: 'budget', label: 'Budget constraints', color: '#f59e0b', icon: 'lucide:wallet' },
+  { value: 'competitor', label: 'Lost to competitor', color: '#ef4444', icon: 'lucide:swords' },
+  { value: 'no_decision', label: 'No decision made', color: '#6b7280', icon: 'lucide:circle-pause' },
+  { value: 'timing', label: 'Bad timing', color: '#8b5cf6', icon: 'lucide:clock' },
+  { value: 'no_need', label: 'No longer needed', color: '#64748b', icon: 'lucide:x-circle' },
+  { value: 'price', label: 'Price too high', color: '#dc2626', icon: 'lucide:trending-down' },
+  { value: 'fit', label: 'Product fit issues', color: '#d97706', icon: 'lucide:puzzle' },
+  { value: 'champion_left', label: 'Champion left', color: '#9333ea', icon: 'lucide:user-minus' },
+  { value: 'successful_close', label: 'Successful close', color: '#22c55e', icon: 'lucide:trophy' },
+]
+
+const DEAL_CONTACT_ROLE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'decision_maker', label: 'Decision Maker', icon: 'lucide:crown' },
+  { value: 'champion', label: 'Champion', icon: 'lucide:star' },
+  { value: 'influencer', label: 'Influencer', icon: 'lucide:megaphone' },
+  { value: 'blocker', label: 'Blocker', icon: 'lucide:shield-alert' },
+  { value: 'end_user', label: 'End User', icon: 'lucide:user' },
+  { value: 'budget_holder', label: 'Budget Holder', icon: 'lucide:wallet' },
 ]
 
 const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
@@ -188,6 +211,29 @@ type ExampleNote = {
   color?: string
 }
 
+type ExampleDealStageHistoryEntry = {
+  fromStageLabel: string | null
+  toStageLabel: string
+  durationSeconds: number | null
+  occurredAt: string
+}
+
+type ExampleDealComment = {
+  body: string
+  occurredAt: string
+}
+
+type ExampleDealEmail = {
+  direction: 'inbound' | 'outbound'
+  fromAddress: string
+  fromName: string
+  toAddresses: Array<{ email: string; name?: string }>
+  subject: string
+  bodyText: string
+  sentAt: string
+  hasAttachments?: boolean
+}
+
 type ExampleDeal = {
   slug: string
   title: string
@@ -200,6 +246,9 @@ type ExampleDeal = {
   expectedCloseAt?: string
   people: ExampleDealParticipant[]
   activities?: ExampleActivity[]
+  stageHistory?: ExampleDealStageHistoryEntry[]
+  comments?: ExampleDealComment[]
+  emails?: ExampleDealEmail[]
   source?: string
   custom?: Record<string, unknown>
 }
@@ -375,6 +424,108 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             },
           },
         ],
+        stageHistory: [
+          {
+            fromStageLabel: null,
+            toStageLabel: 'Opportunity',
+            durationSeconds: null,
+            occurredAt: isoDaysFromNow(-42, { hour: 10 }),
+          },
+          {
+            fromStageLabel: 'Opportunity',
+            toStageLabel: 'Marketing Qualified Lead',
+            durationSeconds: 604800,
+            occurredAt: isoDaysFromNow(-35, { hour: 14 }),
+          },
+          {
+            fromStageLabel: 'Marketing Qualified Lead',
+            toStageLabel: 'Sales Qualified Lead',
+            durationSeconds: 518400,
+            occurredAt: isoDaysFromNow(-29, { hour: 11, minute: 30 }),
+          },
+          {
+            fromStageLabel: 'Sales Qualified Lead',
+            toStageLabel: 'Offering',
+            durationSeconds: 864000,
+            occurredAt: isoDaysFromNow(-19, { hour: 16 }),
+          },
+          {
+            fromStageLabel: 'Offering',
+            toStageLabel: 'Negotiations',
+            durationSeconds: 432000,
+            occurredAt: isoDaysFromNow(-14, { hour: 9, minute: 45 }),
+          },
+        ],
+        comments: [
+          {
+            body: 'Initial site assessment completed. HOA board has approved rooftop access for 40 homes in phase 1.',
+            occurredAt: isoDaysFromNow(-38, { hour: 15 }),
+          },
+          {
+            body: 'Budget approved by Daniel Cho. Moving forward with financing options from SolarFund Capital.',
+            occurredAt: isoDaysFromNow(-25, { hour: 10, minute: 30 }),
+          },
+          {
+            body: 'Mia confirmed the board wants to include EV charger pre-wiring in the scope. Need to revise the proposal — could increase deal value by ~$25K.',
+            occurredAt: isoDaysFromNow(-12, { hour: 14, minute: 15 }),
+          },
+          {
+            body: 'Legal team raised concerns about warranty terms for panels in coastal salt air environment. Sent updated warranty addendum for review.',
+            occurredAt: isoDaysFromNow(-5, { hour: 11 }),
+          },
+        ],
+        emails: [
+          {
+            direction: 'outbound',
+            fromAddress: 'sales@acme.com',
+            fromName: 'Sofia Nguyen',
+            toAddresses: [{ email: 'mia.johnson@brightsidesolar.com', name: 'Mia Johnson' }],
+            subject: 'Redwood Residences — Solar Proposal & ROI Analysis',
+            bodyText: 'Hi Mia,\n\nPlease find attached our detailed proposal for the Redwood Residences solar rollout. The ROI analysis shows a 4.2-year payback period with the current incentive structure.\n\nLooking forward to discussing next steps.\n\nBest,\nSofia',
+            sentAt: isoDaysFromNow(-30, { hour: 9 }),
+          },
+          {
+            direction: 'inbound',
+            fromAddress: 'mia.johnson@brightsidesolar.com',
+            fromName: 'Mia Johnson',
+            toAddresses: [{ email: 'sales@acme.com', name: 'Sofia Nguyen' }],
+            subject: 'Re: Redwood Residences — Solar Proposal & ROI Analysis',
+            bodyText: 'Hi Sofia,\n\nThanks for the proposal. The board reviewed it and has a few questions about the maintenance tiers. Can we schedule a call this week?\n\nAlso, Daniel wants to explore the battery add-on option.\n\nBest,\nMia',
+            sentAt: isoDaysFromNow(-28, { hour: 14, minute: 20 }),
+          },
+          {
+            direction: 'outbound',
+            fromAddress: 'sales@acme.com',
+            fromName: 'Sofia Nguyen',
+            toAddresses: [
+              { email: 'mia.johnson@brightsidesolar.com', name: 'Mia Johnson' },
+              { email: 'daniel.cho@brightsidesolar.com', name: 'Daniel Cho' },
+            ],
+            subject: 'Redwood Residences — Revised Proposal with Battery Option',
+            bodyText: 'Hi Mia and Daniel,\n\nAttached is the revised proposal including the battery storage option. The total investment increases to $185K but reduces the payback period to 3.8 years with the additional energy savings.\n\nI\'ve also included a comparison of maintenance tier options as requested.\n\nBest,\nSofia',
+            sentAt: isoDaysFromNow(-20, { hour: 11, minute: 30 }),
+            hasAttachments: true,
+          },
+          {
+            direction: 'inbound',
+            fromAddress: 'daniel.cho@brightsidesolar.com',
+            fromName: 'Daniel Cho',
+            toAddresses: [{ email: 'sales@acme.com', name: 'Sofia Nguyen' }],
+            subject: 'Re: Redwood Residences — Revised Proposal with Battery Option',
+            bodyText: 'Sofia,\n\nThe revised numbers look good. We\'re leaning toward Tier 2 maintenance. Can you send over the final contract draft? We\'d like to have legal review it before the next board meeting on the 15th.\n\nThanks,\nDaniel',
+            sentAt: isoDaysFromNow(-18, { hour: 16, minute: 45 }),
+          },
+          {
+            direction: 'outbound',
+            fromAddress: 'sales@acme.com',
+            fromName: 'Sofia Nguyen',
+            toAddresses: [{ email: 'daniel.cho@brightsidesolar.com', name: 'Daniel Cho' }],
+            subject: 'Redwood Residences — Contract Draft for Legal Review',
+            bodyText: 'Hi Daniel,\n\nPlease find the contract draft attached. I\'ve included the updated warranty terms for coastal installations as discussed.\n\nLet me know if you need any adjustments before the board meeting.\n\nBest,\nSofia',
+            sentAt: isoDaysFromNow(-6, { hour: 10 }),
+            hasAttachments: true,
+          },
+        ],
       },
       {
         slug: 'sunset-lofts-battery',
@@ -410,6 +561,34 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
               follow_up_owner: 'Mia Johnson',
             },
           },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-60, { hour: 9 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 691200, occurredAt: isoDaysFromNow(-52, { hour: 11 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1036800, occurredAt: isoDaysFromNow(-40, { hour: 15 }) },
+        ],
+      },
+      {
+        slug: 'marina-del-rey-commercial',
+        title: 'Marina Del Rey Commercial Solar Array',
+        description: 'Large commercial rooftop installation for a marina retail complex.',
+        status: 'win',
+        pipelineStage: 'win',
+        valueAmount: 320000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-60),
+        probability: 100,
+        source: 'partner_referral',
+        people: [
+          { slug: 'daniel-cho', participantRole: 'Executive Sponsor' },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-180, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 864000, occurredAt: isoDaysFromNow(-170, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 604800, occurredAt: isoDaysFromNow(-163, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1209600, occurredAt: isoDaysFromNow(-149, { hour: 16 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 2592000, occurredAt: isoDaysFromNow(-119, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 5097600, occurredAt: isoDaysFromNow(-60, { hour: 15 }) },
         ],
       },
     ],
@@ -574,6 +753,14 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             },
           },
         ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-120, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 432000, occurredAt: isoDaysFromNow(-115, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 518400, occurredAt: isoDaysFromNow(-109, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 864000, occurredAt: isoDaysFromNow(-99, { hour: 15 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 1728000, occurredAt: isoDaysFromNow(-79, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 4665600, occurredAt: isoDaysFromNow(-25, { hour: 16 }) },
+        ],
       },
       {
         slug: 'midwest-outfitters',
@@ -609,6 +796,32 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
               follow_up_owner: 'Arjun Patel',
             },
           },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-30, { hour: 10 }) },
+        ],
+      },
+      {
+        slug: 'harborview-saas-platform',
+        title: 'Harborview SaaS Platform License',
+        description: 'Enterprise platform license for data analytics across all divisions.',
+        status: 'win',
+        pipelineStage: 'win',
+        valueAmount: 156000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-15),
+        probability: 100,
+        source: 'inbound_web',
+        people: [
+          { slug: 'arjun-patel', participantRole: 'Executive Sponsor' },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-100, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 259200, occurredAt: isoDaysFromNow(-97, { hour: 11 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 432000, occurredAt: isoDaysFromNow(-92, { hour: 14 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 950400, occurredAt: isoDaysFromNow(-81, { hour: 10 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 1555200, occurredAt: isoDaysFromNow(-63, { hour: 15 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 4147200, occurredAt: isoDaysFromNow(-15, { hour: 16 }) },
         ],
       },
     ],
@@ -759,6 +972,11 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             },
           },
         ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-55, { hour: 9 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 777600, occurredAt: isoDaysFromNow(-46, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 950400, occurredAt: isoDaysFromNow(-35, { hour: 11 }) },
+        ],
       },
       {
         slug: 'cedar-creek-retreat',
@@ -794,6 +1012,58 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
               follow_up_owner: 'Taylor Brooks',
             },
           },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-150, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 518400, occurredAt: isoDaysFromNow(-144, { hour: 15 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 691200, occurredAt: isoDaysFromNow(-136, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1296000, occurredAt: isoDaysFromNow(-121, { hour: 14 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 2160000, occurredAt: isoDaysFromNow(-96, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Loose', durationSeconds: 2246400, occurredAt: isoDaysFromNow(-70, { hour: 17 }) },
+        ],
+      },
+      {
+        slug: 'grand-pacific-penthouse',
+        title: 'Grand Pacific Penthouse Collection',
+        description: 'Luxury interior design for 6 penthouse units in downtown Portland.',
+        status: 'win',
+        pipelineStage: 'win',
+        valueAmount: 275000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-40),
+        probability: 100,
+        source: 'inbound_web',
+        people: [
+          { slug: 'taylor-brooks', participantRole: 'Principal Designer' },
+          { slug: 'naomi-harris', participantRole: 'Project Lead' },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-140, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 345600, occurredAt: isoDaysFromNow(-136, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 604800, occurredAt: isoDaysFromNow(-129, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1036800, occurredAt: isoDaysFromNow(-117, { hour: 16 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 1728000, occurredAt: isoDaysFromNow(-97, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 4924800, occurredAt: isoDaysFromNow(-40, { hour: 15 }) },
+        ],
+      },
+      {
+        slug: 'urban-loft-staging',
+        title: 'Urban Loft Staging Package',
+        description: 'Property staging for 15 loft units for a real estate developer.',
+        status: 'loose',
+        pipelineStage: 'loose',
+        valueAmount: 68000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-90),
+        probability: 0,
+        source: 'outbound_campaign',
+        people: [{ slug: 'naomi-harris', participantRole: 'Project Lead' }],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-160, { hour: 9 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 604800, occurredAt: isoDaysFromNow(-153, { hour: 13 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 777600, occurredAt: isoDaysFromNow(-144, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1382400, occurredAt: isoDaysFromNow(-128, { hour: 15 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Loose', durationSeconds: 3283200, occurredAt: isoDaysFromNow(-90, { hour: 16 }) },
         ],
       },
     ],
@@ -1132,6 +1402,27 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       value: entry.value,
       label: entry.label,
       color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of DEAL_CLOSE_REASON_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'deal_close_reason',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of DEAL_CONTACT_ROLE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'deal_contact_role',
+      value: entry.value,
+      label: entry.label,
       icon: entry.icon,
     })
   }
@@ -1549,7 +1840,9 @@ async function seedCustomerExamples(
     const companyEntity = companyEntities.get(company.slug)
     if (!companyEntity) continue
     for (const dealInfo of company.deals ?? []) {
+      const dealId = randomUUID()
       const deal = em.create(CustomerDeal, {
+        id: dealId,
         organizationId,
         tenantId,
         title: dealInfo.title,
@@ -1636,6 +1929,58 @@ async function seedCustomerExamples(
             })
           )
         }
+      }
+
+      for (const stageEntry of dealInfo.stageHistory ?? []) {
+        const stageHistory = em.create(CustomerDealStageHistory, {
+          organizationId,
+          tenantId,
+          dealId: deal.id,
+          fromStageId: null,
+          fromStageLabel: stageEntry.fromStageLabel,
+          toStageId: randomUUID(),
+          toStageLabel: stageEntry.toStageLabel,
+          fromPipelineId: null,
+          toPipelineId: randomUUID(),
+          changedByUserId: null,
+          durationSeconds: stageEntry.durationSeconds,
+          createdAt: new Date(stageEntry.occurredAt),
+          updatedAt: new Date(stageEntry.occurredAt),
+        })
+        em.persist(stageHistory)
+      }
+
+      for (const commentEntry of dealInfo.comments ?? []) {
+        const comment = em.create(CustomerComment, {
+          organizationId,
+          tenantId,
+          entity: companyEntity,
+          deal,
+          body: commentEntry.body,
+          authorUserId: null,
+          createdAt: new Date(commentEntry.occurredAt),
+          updatedAt: new Date(commentEntry.occurredAt),
+        })
+        em.persist(comment)
+      }
+
+      for (const emailEntry of dealInfo.emails ?? []) {
+        const dealEmail = em.create(CustomerDealEmail, {
+          organizationId,
+          tenantId,
+          dealId: deal.id,
+          direction: emailEntry.direction,
+          fromAddress: emailEntry.fromAddress,
+          fromName: emailEntry.fromName,
+          toAddresses: emailEntry.toAddresses,
+          subject: emailEntry.subject,
+          bodyText: emailEntry.bodyText,
+          sentAt: new Date(emailEntry.sentAt),
+          hasAttachments: emailEntry.hasAttachments ?? false,
+          createdAt: new Date(emailEntry.sentAt),
+          updatedAt: new Date(emailEntry.sentAt),
+        })
+        em.persist(dealEmail)
       }
     }
   }
