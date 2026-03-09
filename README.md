@@ -565,3 +565,19 @@ What’s included:
 Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
+
+## Restaurant SaaS MVP
+
+This workspace now includes a restaurant-focused vertical slice with:
+
+- executive landing at `/restaurant`
+- public table-aware route at `/restaurant/table/t12`
+- customer ordering flow with modeled payment
+- kitchen, floor and admin operational views
+- recipe-driven inventory and supplier receipt replenishment
+- supporting docs under `docs/restaurant-saas/`
+
+Review docs:
+- `docs/restaurant-saas/architecture.md`
+- `docs/restaurant-saas/data-model.md`
+- `docs/restaurant-saas/flows.md`

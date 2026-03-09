@@ -42,6 +42,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'example', from: '@app' },
+  { id: 'restaurant_ops', from: '@app' },
   
 ]
 

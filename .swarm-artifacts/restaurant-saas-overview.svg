@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-label="Restaurant SaaS overview evidence">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#020617" />
+      <stop offset="55%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#bg)" />
+  <rect x="72" y="68" width="1456" height="290" rx="36" fill="#020617" stroke="#1e293b" />
+  <text x="120" y="130" fill="#67e8f9" font-size="18" font-family="Arial, sans-serif" letter-spacing="5">RESTAURANT SAAS MVP</text>
+  <text x="120" y="200" fill="#ffffff" font-size="48" font-family="Arial, sans-serif" font-weight="700">Pedido desde mesa, cocina conectada e inventario vivo</text>
+  <text x="120" y="250" fill="#cbd5e1" font-size="24" font-family="Arial, sans-serif">Cliente por QR → pago online → cocina → sala → stock por receta → reposición por factura</text>
+  <rect x="1020" y="110" width="420" height="190" rx="28" fill="#0f172a" stroke="#22d3ee" stroke-opacity="0.35" />
+  <text x="1060" y="155" fill="#e0f2fe" font-size="18" font-family="Arial, sans-serif">Flujo principal modelado</text>
+  <text x="1060" y="195" fill="#ffffff" font-size="22" font-family="Arial, sans-serif">1. Mesa identificada</text>
+  <text x="1060" y="225" fill="#ffffff" font-size="22" font-family="Arial, sans-serif">2. Carta + carrito + pago</text>
+  <text x="1060" y="255" fill="#ffffff" font-size="22" font-family="Arial, sans-serif">3. Cocina / sala / admin</text>
+  <rect x="72" y="404" width="940" height="520" rx="34" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="110" y="454" fill="#64748b" font-size="18" font-family="Arial, sans-serif" letter-spacing="4">CLIENTE EN MESA</text>
+  <text x="110" y="510" fill="#0f172a" font-size="34" font-family="Arial, sans-serif" font-weight="700">Mesa 12 · carta digital del local</text>
+  <rect x="110" y="550" width="400" height="150" rx="24" fill="#f8fafc" stroke="#e2e8f0" />
+  <text x="138" y="596" fill="#0f172a" font-size="28" font-family="Arial, sans-serif">Smash burger trufa</text>
+  <text x="138" y="630" fill="#475569" font-size="18" font-family="Arial, sans-serif">Doble carne, cheddar y mayo de trufa</text>
+  <text x="138" y="670" fill="#0f172a" font-size="24" font-family="Arial, sans-serif" font-weight="700">14,00 €</text>
+  <rect x="540" y="550" width="400" height="150" rx="24" fill="#f8fafc" stroke="#e2e8f0" />
+  <text x="568" y="596" fill="#0f172a" font-size="28" font-family="Arial, sans-serif">Croquetas de jamón</text>
+  <text x="568" y="630" fill="#475569" font-size="18" font-family="Arial, sans-serif">Entrante shareable con alioli cítrico</text>
+  <text x="568" y="670" fill="#0f172a" font-size="24" font-family="Arial, sans-serif" font-weight="700">9,00 €</text>
+  <rect x="1048" y="404" width="480" height="240" rx="34" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="1088" y="454" fill="#64748b" font-size="18" font-family="Arial, sans-serif" letter-spacing="4">KITCHEN DISPLAY</text>
+  <text x="1088" y="510" fill="#0f172a" font-size="32" font-family="Arial, sans-serif" font-weight="700">Cola priorizada</text>
+  <text x="1088" y="555" fill="#334155" font-size="22" font-family="Arial, sans-serif">ord-live-3 · Mesa 12 · Alta prioridad</text>
+  <text x="1088" y="590" fill="#475569" font-size="18" font-family="Arial, sans-serif">1× Smash burger · 1× Aperol spritz</text>
+  <rect x="1048" y="684" width="480" height="240" rx="34" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="1088" y="734" fill="#64748b" font-size="18" font-family="Arial, sans-serif" letter-spacing="4">ADMIN + INVENTARIO</text>
+  <text x="1088" y="790" fill="#0f172a" font-size="32" font-family="Arial, sans-serif" font-weight="700">Stock disponible y reposición</text>
+  <text x="1088" y="835" fill="#334155" font-size="22" font-family="Arial, sans-serif">Carne smash: actual 1440 g · comprometido 180 g</text>
+  <text x="1088" y="870" fill="#334155" font-size="22" font-family="Arial, sans-serif">Factura FAC-2026-340 repone carne y pan</text>
+</svg>
