@@ -616,6 +616,21 @@ export const shipmentUpdateSchema = z
   })
   .merge(shipmentCreateSchema.partial())
 
+export const returnCreateSchema = scoped.extend({
+  orderId: uuid(),
+  reason: z.string().trim().max(4000).optional(),
+  notes: z.string().trim().max(4000).optional(),
+  returnedAt: z.coerce.date().optional(),
+  lines: z
+    .array(
+      z.object({
+        orderLineId: uuid(),
+        quantity: decimal({ min: 0 }),
+      })
+    )
+    .min(1),
+})
+
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
   invoiceNumber: z.string().trim().min(1).max(191),
@@ -813,6 +828,7 @@ export type QuoteAdjustmentCreateInput = z.infer<typeof quoteAdjustmentCreateSch
 export type QuoteAdjustmentUpdateInput = z.infer<typeof quoteAdjustmentUpdateSchema>
 export type ShipmentCreateInput = z.infer<typeof shipmentCreateSchema>
 export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>
+export type ReturnCreateInput = z.infer<typeof returnCreateSchema>
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>

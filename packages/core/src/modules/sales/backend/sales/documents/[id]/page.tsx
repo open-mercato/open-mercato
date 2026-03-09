@@ -40,6 +40,7 @@ import { SalesDocumentPaymentsSection } from '@open-mercato/core/modules/sales/c
 import { SalesDocumentAdjustmentsSection } from '@open-mercato/core/modules/sales/components/documents/AdjustmentsSection'
 import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/components/documents/AdjustmentDialog'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
+import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -3941,6 +3942,7 @@ export default function SalesDocumentDetailPage({
         tabs.push(
           { id: 'shipments', label: t('sales.documents.detail.tabs.shipments', 'Shipments') },
           { id: 'payments', label: t('sales.documents.detail.tabs.payments', 'Payments') },
+          { id: 'returns', label: t('sales.documents.detail.tabs.returns', 'Returns') },
         )
       }
       tabs.push({ id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') })
@@ -4079,6 +4081,10 @@ export default function SalesDocumentDetailPage({
         title: t('sales.documents.detail.empty.payments.title', 'No payments yet.'),
         description: t('sales.documents.detail.empty.payments.description', 'Payments are work in progress.'),
       },
+      returns: {
+        title: t('sales.returns.empty.title', 'No returns yet.'),
+        description: t('sales.returns.empty.description', 'Create a return to generate credit adjustments for returned items.'),
+      },
       adjustments: {
         title: t('sales.documents.detail.empty.adjustments.title', 'No adjustments yet.'),
         description: t(
@@ -4166,6 +4172,18 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           onActionChange={handleSectionActionChange}
           onAddComment={appendShipmentComment}
+        />
+      )
+    }
+    if (activeTab === 'returns') {
+      if (kind !== 'order') {
+        const placeholder = tabEmptyStates.returns
+        return <TabEmptyState title={placeholder.title} description={placeholder.description} />
+      }
+      return (
+        <SalesReturnsSection
+          orderId={record.id}
+          currencyCode={record.currencyCode ?? null}
         />
       )
     }

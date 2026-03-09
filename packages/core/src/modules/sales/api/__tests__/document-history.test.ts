@@ -1,4 +1,5 @@
 import { detectStatusChange, normalizeActionLogToHistoryEntry } from '../../lib/historyHelpers'
+import { parseDocumentHistoryTypes } from '../document-history/route'
 
 function makeLog(overrides: Partial<{
   id: string
@@ -22,9 +23,14 @@ function makeLog(overrides: Partial<{
 }
 
 describe('detectStatusChange', () => {
-  it('returns null for creations (null snapshotBefore)', () => {
+  it('treats creation with initial status as status transition (for Status history)', () => {
     const log = makeLog({ snapshotBefore: null, snapshotAfter: { order: { status: 'draft' } } })
-    expect(detectStatusChange(log)).toBeNull()
+    expect(detectStatusChange(log)).toEqual({ statusFrom: null, statusTo: 'draft' })
+  })
+
+  it('returns created entry with null status when snapshotAfter has no status', () => {
+    const log = makeLog({ snapshotBefore: null, snapshotAfter: { order: { note: 'x' } } })
+    expect(detectStatusChange(log)).toEqual({ statusFrom: null, statusTo: null })
   })
 
   it('detects direct status change from logStatusChange entries', () => {
@@ -142,5 +148,24 @@ describe('normalizeActionLogToHistoryEntry', () => {
     const log = makeLog()
     expect(normalizeActionLogToHistoryEntry(log, 'order').metadata?.documentKind).toBe('order')
     expect(normalizeActionLogToHistoryEntry(log, 'quote').metadata?.documentKind).toBe('quote')
+  })
+})
+
+describe('parseDocumentHistoryTypes', () => {
+  it('returns empty set for empty input', () => {
+    expect(Array.from(parseDocumentHistoryTypes(undefined))).toEqual([])
+    expect(Array.from(parseDocumentHistoryTypes(''))).toEqual([])
+    expect(Array.from(parseDocumentHistoryTypes(' , '))).toEqual([])
+  })
+
+  it('parses and sanitizes known types', () => {
+    expect(Array.from(parseDocumentHistoryTypes('status'))).toEqual(['status'])
+    expect(Array.from(parseDocumentHistoryTypes('status,action'))).toEqual(['status', 'action'])
+    expect(Array.from(parseDocumentHistoryTypes(' Status ,  COMMENT '))).toEqual(['status', 'comment'])
+  })
+
+  it('ignores unknown types', () => {
+    expect(Array.from(parseDocumentHistoryTypes('status,invalid,comment'))).toEqual(['status', 'comment'])
+    expect(Array.from(parseDocumentHistoryTypes('invalid'))).toEqual([])
   })
 })

@@ -38,12 +38,16 @@ export function detectStatusChange(log: ActionLog): {
   statusFrom: string | null
   statusTo: string | null
 } | null {
-  // Skip creations — no previous state means no transition
-  if (!log.snapshotBefore) return null
-  const before = extractStatusFromSnapshot(log.snapshotBefore)
   const after = extractStatusFromSnapshot(log.snapshotAfter)
+  const before = log.snapshotBefore
+    ? extractStatusFromSnapshot(log.snapshotBefore)
+    : null
+  // Creation (no snapshotBefore): always one status entry (initial value or "created")
+  if (!log.snapshotBefore) {
+    return { statusFrom: null, statusTo: after ?? null }
+  }
   if (before !== after && (before !== null || after !== null)) {
-    return { statusFrom: before, statusTo: after }
+    return { statusFrom: before, statusTo: after ?? null }
   }
   return null
 }
