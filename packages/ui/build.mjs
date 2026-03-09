@@ -19,6 +19,31 @@ if (entryPoints.length === 0) {
 
 console.log(`Found ${entryPoints.length} entry points`)
 
+function normalizeImportPath(fileDir, importPath) {
+  if (
+    importPath.endsWith('.js') ||
+    importPath.endsWith('.json') ||
+    importPath.endsWith('.mjs') ||
+    importPath.endsWith('.cjs')
+  ) {
+    return importPath
+  }
+
+  if (importPath.startsWith('.')) {
+    const resolvedPath = join(fileDir, importPath)
+    if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
+      return `${importPath}/index.js`
+    }
+    return `${importPath}.js`
+  }
+
+  if (importPath.startsWith('next/')) {
+    return `${importPath}.js`
+  }
+
+  return importPath
+}
+
 // Plugin to add .js extension to relative imports
 const addJsExtension = {
   name: 'add-js-extension',
@@ -29,29 +54,21 @@ const addJsExtension = {
       for (const file of outputFiles) {
         const fileDir = dirname(file)
         let content = readFileSync(file, 'utf-8')
-        // Add .js to relative imports that don't have an extension
+        // Add .js to relative and next/* imports that don't have an extension
         content = content.replace(
-          /from\s+["'](\.[^"']+)["']/g,
-          (match, path) => {
-            if (path.endsWith('.js') || path.endsWith('.json')) return match
-            // Check if it's a directory with index.js
-            const resolvedPath = join(fileDir, path)
-            if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
-              return `from "${path}/index.js"`
-            }
-            return `from "${path}.js"`
+          /from\s+["']((?:next\/|\.)[^"']+)["']/g,
+          (match, importPath) => {
+            const normalized = normalizeImportPath(fileDir, importPath)
+            if (normalized === importPath) return match
+            return `from "${normalized}"`
           }
         )
         content = content.replace(
-          /import\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
-          (match, path) => {
-            if (path.endsWith('.js') || path.endsWith('.json')) return match
-            // Check if it's a directory with index.js
-            const resolvedPath = join(fileDir, path)
-            if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
-              return `import("${path}/index.js")`
-            }
-            return `import("${path}.js")`
+          /import\s*\(\s*["']((?:next\/|\.)[^"']+)["']\s*\)/g,
+          (match, importPath) => {
+            const normalized = normalizeImportPath(fileDir, importPath)
+            if (normalized === importPath) return match
+            return `import("${normalized}")`
           }
         )
         writeFileSync(file, content)

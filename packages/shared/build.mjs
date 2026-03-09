@@ -74,6 +74,14 @@ const addJsExtension = {
             return `import("${path}.js")`
           }
         )
+        content = content.replace(
+          /from\s+["']([^"']+\.json)["'](?!\s+with\s*\{\s*type:\s*["']json["']\s*\})/g,
+          (match, path) => `from "${path}" with { type: "json" }`
+        )
+        content = content.replace(
+          /import\s*\(\s*["']([^"']+\.json)["']\s*\)/g,
+          (match, path) => `import("${path}", { with: { type: "json" } })`
+        )
         // Handle side-effect imports: import "./path" (no from clause)
         content = content.replace(
           /import\s+["'](\.[^"']+)["'];/g,
