@@ -3,6 +3,8 @@ export const features = [
   { id: 'customers.people.manage', title: 'Manage people', module: 'customers' },
   { id: 'customers.companies.view', title: 'View companies', module: 'customers' },
   { id: 'customers.companies.manage', title: 'Manage companies', module: 'customers' },
+  { id: 'customers.branches.view', title: 'View branches', module: 'customers' },
+  { id: 'customers.branches.manage', title: 'Manage branches', module: 'customers' },
   { id: 'customers.deals.view', title: 'View deals', module: 'customers' },
   { id: 'customers.deals.manage', title: 'Manage deals', module: 'customers' },
   { id: 'customers.activities.view', title: 'View activities', module: 'customers' },

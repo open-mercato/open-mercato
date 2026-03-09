@@ -18,10 +18,10 @@ type EntityRow = {
 type EntitiesResponse = { items: EntityRow[] }
 
 const columns: ColumnDef<EntityRow>[] = [
-  { accessorKey: 'entityId', header: 'Entity', meta: { priority: 1 }, cell: ({ getValue }) => <span className="font-mono">{String(getValue())}</span> },
-  { accessorKey: 'label', header: 'Label', meta: { priority: 2 } },
-  { accessorKey: 'source', header: 'Source', meta: { priority: 3 } },
-  { accessorKey: 'count', header: 'Fields', meta: { priority: 4 } },
+  { accessorKey: 'entityId', header: 'Entity', meta: { priority: 1, truncate: false }, cell: ({ getValue }) => <span className="font-mono">{String(getValue())}</span> },
+  { accessorKey: 'label', header: 'Label', meta: { priority: 2, truncate: false } },
+  { accessorKey: 'source', header: 'Source', meta: { priority: 3, truncate: false } },
+  { accessorKey: 'count', header: 'Fields', meta: { priority: 4, truncate: false } },
 ]
 
 function toCsv(rows: EntityRow[]) {

@@ -144,6 +144,8 @@ export function CustomerTimelinePanel({ entityId, entityType, open, onOpenChange
           setEntries((prev) => [...prev, ...payload.items])
         } else {
           setEntries(payload.items)
+        }
+        if (payload.deals?.length > 0) {
           setDeals(payload.deals)
         }
         setNextCursor(payload.nextCursor)

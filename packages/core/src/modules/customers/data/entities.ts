@@ -684,6 +684,57 @@ export class CustomerDealMention {
   updatedAt: Date = new Date()
 }
 
+export type CustomerBranchType = 'headquarters' | 'branch' | 'warehouse' | 'office'
+
+@Entity({ tableName: 'customer_branches' })
+@Index({ name: 'customer_branches_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'customer_branches_company_idx', properties: ['companyEntityId'] })
+export class CustomerBranch {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'company_entity_id', type: 'uuid' })
+  companyEntityId!: string
+
+  @Property({ name: 'name', type: 'text' })
+  name!: string
+
+  @Property({ name: 'branch_type', type: 'text', nullable: true })
+  branchType?: CustomerBranchType | null
+
+  @Property({ name: 'specialization', type: 'text', nullable: true })
+  specialization?: string | null
+
+  @Property({ name: 'budget', type: 'numeric', columnType: 'numeric(14,2)', nullable: true })
+  budget?: string | null
+
+  @Property({ name: 'headcount', type: 'integer', nullable: true })
+  headcount?: number | null
+
+  @Property({ name: 'responsible_person_id', type: 'uuid', nullable: true })
+  responsiblePersonId?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'customer_addresses' })
 @Index({ name: 'customer_addresses_entity_idx', properties: ['entity'] })
 export class CustomerAddress {
@@ -739,6 +790,9 @@ export class CustomerAddress {
 
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
+
+  @Property({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

@@ -138,16 +138,25 @@ export async function GET(request: Request, context: { params?: Record<string, u
     decryptionScope,
   )
 
-  const dealIds = dealLinks.map((link) => (link as unknown as Record<string, unknown>).deal as string).filter(Boolean)
+  const dealIds = dealLinks.map((link) => {
+    const raw = (link as unknown as Record<string, unknown>).deal
+    if (typeof raw === 'string') return raw
+    if (raw && typeof raw === 'object' && 'id' in raw) return String((raw as Record<string, unknown>).id)
+    return null
+  }).filter((id): id is string => id !== null)
 
-  if (query.dealId) {
-    if (!dealIds.includes(query.dealId)) {
-      return NextResponse.json({ items: [], nextCursor: null, deals: [] })
-    }
+  if (query.dealId && !dealIds.includes(query.dealId)) {
+    // dealId not linked to this entity — return empty items but still provide full deals list
+    const fallbackDeals = dealIds.length > 0
+      ? (await findWithDecryption(em, CustomerDeal, { id: { $in: dealIds }, deletedAt: null }, {}, decryptionScope))
+          .map((deal) => ({ id: deal.id, title: deal.title ?? 'Untitled deal' }))
+      : []
+    return NextResponse.json({ items: [], nextCursor: null, deals: fallbackDeals })
   }
 
   const filteredDealIds = query.dealId ? [query.dealId] : dealIds
 
+  // Fetch deals for timeline entries (filtered by dealId when provided)
   const deals = filteredDealIds.length > 0
     ? await findWithDecryption(
         em,
@@ -157,6 +166,17 @@ export async function GET(request: Request, context: { params?: Record<string, u
         decryptionScope,
       )
     : []
+
+  // Always fetch ALL linked deals for the dropdown
+  const allLinkedDeals = query.dealId && dealIds.length > 0
+    ? await findWithDecryption(
+        em,
+        CustomerDeal,
+        { id: { $in: dealIds }, deletedAt: null },
+        {},
+        decryptionScope,
+      )
+    : deals
 
   const actionLogs = container.resolve('actionLogService') as ActionLogService
 
@@ -442,7 +462,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     types: typesFilter,
   })
 
-  const dealsList = deals.map((deal) => ({ id: deal.id, title: deal.title ?? 'Untitled deal' }))
+  const dealsList = allLinkedDeals.map((deal) => ({ id: deal.id, title: deal.title ?? 'Untitled deal' }))
 
   return NextResponse.json({ items, nextCursor, deals: dealsList })
 }

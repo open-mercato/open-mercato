@@ -220,7 +220,32 @@ export const addressCreateSchema = scopedSchema.extend({
   latitude: z.coerce.number().optional(),
   longitude: z.coerce.number().optional(),
   isPrimary: z.boolean().optional(),
+  branchId: uuid().nullable().optional(),
 })
+
+// --- Branch schemas ---
+
+const branchTypeEnum = z.enum(['headquarters', 'branch', 'warehouse', 'office'])
+
+export const branchCreateSchema = scopedSchema.extend({
+  companyEntityId: uuid(),
+  name: z.string().trim().min(1).max(200),
+  branchType: branchTypeEnum.optional(),
+  specialization: z.string().trim().max(300).optional(),
+  budget: z.coerce.number().min(0).optional(),
+  headcount: z.coerce.number().int().min(0).optional(),
+  responsiblePersonId: uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const branchUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(branchCreateSchema.partial())
+
+export type BranchCreateInput = z.infer<typeof branchCreateSchema>
+export type BranchUpdateInput = z.infer<typeof branchUpdateSchema>
 
 export const addressUpdateSchema = z
   .object({

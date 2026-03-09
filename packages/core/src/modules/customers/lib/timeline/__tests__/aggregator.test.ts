@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { aggregateTimeline } from '../aggregator'
 import type { AggregateOptions } from '../aggregator'
 import type { TimelineEntry, TimelineEntryKind } from '../types'
