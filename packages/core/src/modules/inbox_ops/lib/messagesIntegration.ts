@@ -1,5 +1,7 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { getRecipientUserIdsForFeature } from '../../notifications/lib/notificationRecipients'
 
 interface ResolverLike {
   resolve: <T = unknown>(name: string) => T
@@ -45,6 +47,15 @@ function resolveCommandBus(container: ResolverLike): CommandBus | null {
   }
 }
 
+/**
+ * Creates an internal message record for an incoming inbox email.
+ *
+ * The message is delivered to all users with the `inbox_ops.proposals.view`
+ * feature in the tenant — mirroring the same audience that sees proposals
+ * in the inbox_ops module. This follows the shared-queue pattern used by
+ * all major ERP/CRM systems (Salesforce queues, Dynamics 365 queues,
+ * HubSpot shared inboxes, Odoo team followers).
+ */
 export async function createMessageRecordForEmail(
   email: InboxEmailData,
   ctx: MessagesIntegrationContext,
@@ -53,17 +64,24 @@ export async function createMessageRecordForEmail(
     const commandBus = resolveCommandBus(ctx.container)
     if (!commandBus) return null
 
+    const em = ctx.container.resolve('em') as EntityManager
+    const knex = em.getKnex()
+    const recipientUserIds = await getRecipientUserIdsForFeature(
+      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view',
+    )
+
+    const recipients = recipientUserIds.map((userId) => ({ userId, type: 'to' as const }))
     const bodyText = email.cleanedText || email.rawText || ''
 
     const { result } = await commandBus.execute('messages.messages.compose', {
       input: {
         type: 'inbox_ops.email',
-        visibility: 'internal' as const,
+        visibility: recipients.length > 0 ? 'internal' as const : 'public' as const,
         sourceEntityType: 'inbox_ops:inbox_email',
         sourceEntityId: email.id,
         externalEmail: email.forwardedByAddress,
         externalName: email.forwardedByName || undefined,
-        recipients: [],
+        recipients,
         subject: email.subject,
         body: bodyText.slice(0, 50000),
         bodyFormat: 'text' as const,
