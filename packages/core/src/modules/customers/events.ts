@@ -16,6 +16,11 @@ const events = [
   { id: 'customers.company.updated', label: 'Customer (Company) Updated', entity: 'company', category: 'crud' },
   { id: 'customers.company.deleted', label: 'Customer (Company) Deleted', entity: 'company', category: 'crud' },
 
+  // Branches
+  { id: 'customers.branch.created', label: 'Branch Created', entity: 'branch', category: 'crud' },
+  { id: 'customers.branch.updated', label: 'Branch Updated', entity: 'branch', category: 'crud' },
+  { id: 'customers.branch.deleted', label: 'Branch Deleted', entity: 'branch', category: 'crud' },
+
   // Deals
   { id: 'customers.deal.created', label: 'Deal Created', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.updated', label: 'Deal Updated', entity: 'deal', category: 'crud' },

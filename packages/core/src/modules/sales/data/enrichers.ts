@@ -13,6 +13,9 @@
 
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { buildAttachmentImageUrl } from '../../attachments/lib/imageUrls'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 
 type LineRecord = Record<string, unknown> & { id: string }
 
@@ -114,7 +117,152 @@ function createCatalogImageEnricher(targetEntity: string): ResponseEnricher<Line
   }
 }
 
+// --- Sales Customer Metrics Enricher ---
+
+type EntityRecord = Record<string, unknown> & { id: string }
+type EnricherScope = EnricherContext & { container: { resolve(name: string): unknown } }
+
+type SalesEnrichment = {
+  _sales: {
+    orderCount: number
+    totalRevenue: number
+    lastOrderDate: string | null
+    averageOrderValue: number
+  }
+}
+
+type OrderRecord = {
+  id: string
+  total_amount?: string | number | null
+  created_at?: string | null
+  customer_entity_id?: string | null
+}
+
+const SALES_ORDER_ENTITY = 'sales:sales_order' as EntityId
+
+const FALLBACK: SalesEnrichment = {
+  _sales: {
+    orderCount: 0,
+    totalRevenue: 0,
+    lastOrderDate: null,
+    averageOrderValue: 0,
+  },
+}
+
+const salesCustomerEnricher: ResponseEnricher<EntityRecord, SalesEnrichment> = {
+  id: 'sales.customer-metrics',
+  targetEntity: 'customers.company',
+  features: ['sales.orders.view'],
+  priority: 5,
+  timeout: 2000,
+  critical: false,
+  fallback: FALLBACK,
+
+  async enrichOne(record, context: EnricherScope) {
+    const queryEngine = context.container?.resolve('queryEngine') as QueryEngine | undefined
+    if (!queryEngine) return { ...record, ...FALLBACK }
+
+    try {
+      const result = await queryEngine.query<OrderRecord>(SALES_ORDER_ENTITY, {
+        tenantId: context.tenantId ?? null,
+        organizationIds: context.organizationId ? [context.organizationId] : undefined,
+        filters: {
+          customer_entity_id: { $eq: record.id },
+        },
+        page: { page: 1, pageSize: 1000 },
+        sort: [{ field: 'created_at', dir: SortDir.Desc }],
+      })
+
+      const orders = result.items ?? []
+      let totalRevenue = 0
+      let lastOrderDate: string | null = null
+
+      for (const order of orders) {
+        const amount = typeof order.total_amount === 'string'
+          ? parseFloat(order.total_amount)
+          : (order.total_amount ?? 0)
+        if (!Number.isNaN(amount)) totalRevenue += amount
+        if (order.created_at) {
+          if (!lastOrderDate || order.created_at > lastOrderDate) {
+            lastOrderDate = order.created_at
+          }
+        }
+      }
+
+      const orderCount = orders.length
+      return {
+        ...record,
+        _sales: {
+          orderCount,
+          totalRevenue: Math.round(totalRevenue * 100) / 100,
+          lastOrderDate,
+          averageOrderValue: orderCount > 0 ? Math.round((totalRevenue / orderCount) * 100) / 100 : 0,
+        },
+      }
+    } catch {
+      return { ...record, ...FALLBACK }
+    }
+  },
+
+  async enrichMany(records, context: EnricherScope) {
+    const queryEngine = context.container?.resolve('queryEngine') as QueryEngine | undefined
+    if (!queryEngine) return records.map((r) => ({ ...r, ...FALLBACK }))
+
+    const ids = records.map((r) => r.id)
+    const metricsMap = new Map<string, SalesEnrichment['_sales']>()
+
+    try {
+      const result = await queryEngine.query<OrderRecord>(SALES_ORDER_ENTITY, {
+        tenantId: context.tenantId ?? null,
+        organizationIds: context.organizationId ? [context.organizationId] : undefined,
+        filters: {
+          customer_entity_id: { $in: ids },
+        },
+        page: { page: 1, pageSize: 5000 },
+        sort: [{ field: 'created_at', dir: SortDir.Desc }],
+      })
+
+      for (const order of result.items ?? []) {
+        const customerId = order.customer_entity_id
+        if (!customerId) continue
+
+        let metrics = metricsMap.get(customerId)
+        if (!metrics) {
+          metrics = { orderCount: 0, totalRevenue: 0, lastOrderDate: null, averageOrderValue: 0 }
+          metricsMap.set(customerId, metrics)
+        }
+
+        metrics.orderCount++
+        const amount = typeof order.total_amount === 'string'
+          ? parseFloat(order.total_amount)
+          : (order.total_amount ?? 0)
+        if (!Number.isNaN(amount)) metrics.totalRevenue += amount
+        if (order.created_at) {
+          if (!metrics.lastOrderDate || order.created_at > metrics.lastOrderDate) {
+            metrics.lastOrderDate = order.created_at
+          }
+        }
+      }
+
+      for (const metrics of metricsMap.values()) {
+        metrics.totalRevenue = Math.round(metrics.totalRevenue * 100) / 100
+        metrics.averageOrderValue = metrics.orderCount > 0
+          ? Math.round((metrics.totalRevenue / metrics.orderCount) * 100) / 100
+          : 0
+      }
+    } catch {
+      // Sales module query failed — return fallback for all
+    }
+
+    return records.map((r) => ({
+      ...r,
+      _sales: metricsMap.get(r.id) ?? FALLBACK._sales,
+    }))
+  },
+}
+
 export const enrichers: ResponseEnricher[] = [
   createCatalogImageEnricher('sales:sales_quote_line'),
   createCatalogImageEnricher('sales:sales_order_line'),
+  salesCustomerEnricher,
 ]

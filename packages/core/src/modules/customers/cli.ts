@@ -24,9 +24,11 @@ import {
   CustomerComment,
   CustomerDealStageHistory,
   CustomerDealEmail,
+  CustomerBranch,
   CustomerPipeline,
   CustomerPipelineStage,
 } from './data/entities'
+import { SalesOrder } from '@open-mercato/core/modules/sales/data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
 
 type SeedArgs = {
@@ -253,6 +255,15 @@ type ExampleDeal = {
   custom?: Record<string, unknown>
 }
 
+type ExampleOrder = {
+  orderNumber: string
+  status?: string
+  currencyCode?: string
+  grandTotalGrossAmount: number
+  placedAt: string
+  comments?: string
+}
+
 type ExampleCompany = {
   slug: string
   displayName: string
@@ -272,6 +283,14 @@ type ExampleCompany = {
   address?: ExampleAddress
   people?: ExamplePerson[]
   deals?: ExampleDeal[]
+  orders?: ExampleOrder[]
+  branches?: Array<{
+    name: string
+    branchType?: 'headquarters' | 'branch' | 'warehouse' | 'office'
+    specialization?: string
+    budget?: number
+    headcount?: number
+  }>
   interactions?: ExampleActivity[]
   notes?: ExampleNote[]
   custom?: Record<string, unknown>
@@ -1102,6 +1121,319 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       },
     ],
   },
+  {
+    slug: 'lubmedical',
+    displayName: 'Lubmedical Sp. z o.o. Sp.k.',
+    legalName: 'Lubmedical Sp. z o.o. Sp.k.',
+    brandName: 'Lubmedical',
+    industry: 'Medical Devices Distribution',
+    sizeBucket: '11-50',
+    domain: 'lubmedical.pl',
+    websiteUrl: 'https://www.lubmedical.pl',
+    description:
+      'Dystrybutor sprzętu medycznego i materiałów jednorazowych dla szpitali i placówek medycznych w Polsce. Specjalizacja w aparaturze medycznej, sprzęcie chirurgicznym oraz materiałach jednorazowych. Segment B2B — dystrybucja ogólnokrajowa.',
+    primaryEmail: 'zakupy@lubmedical.pl',
+    primaryPhone: '+48 81 744 22 10',
+    source: 'partner_referral',
+    lifecycleStage: 'customer',
+    status: 'customer',
+    annualRevenue: 456000,
+    address: {
+      name: 'Centrala',
+      purpose: 'office',
+      addressLine1: 'ul. Anny Walentynowicz 34',
+      city: 'Lublin',
+      region: 'lubelskie',
+      postalCode: '20-328',
+      country: 'PL',
+      latitude: 51.2271,
+      longitude: 22.5471,
+    },
+    branches: [
+      {
+        name: 'Lubmedical – centrala',
+        branchType: 'headquarters',
+        specialization: 'aparatura medyczna, sprzęt chirurgiczny, dystrybucja sprzętu dla szpitali, materiały jednorazowe',
+        budget: 35000,
+        headcount: 30,
+      },
+    ],
+    people: [
+      {
+        slug: 'barbara-kurek',
+        firstName: 'Barbara',
+        lastName: 'Kurek',
+        jobTitle: 'Dyrektor handlowy',
+        department: 'Dział handlowy',
+        seniority: 'director',
+        email: 'zakupy@lubmedical.pl',
+        phone: '+48 81 744 22 10',
+        timezone: 'Europe/Warsaw',
+        description: 'Główny decydent w procesie zakupowym. Preferowany kontakt: email. Relacja: neutralna / rozwijana.',
+        custom: {
+          buying_role: 'economic_buyer',
+          newsletter_opt_in: false,
+        },
+      },
+      {
+        slug: 'piotr-nowak-lubmedical',
+        firstName: 'Piotr',
+        lastName: 'Nowak',
+        jobTitle: 'Product Manager',
+        department: 'Dział produktowy',
+        seniority: 'manager',
+        email: 'p.nowak@lubmedical.pl',
+        phone: '+48 81 744 22 10',
+        timezone: 'Europe/Warsaw',
+        description: 'Influencer w procesie decyzyjnym. Preferowany kontakt: telefon. Dobra relacja z handlowcem.',
+        custom: {
+          buying_role: 'influencer',
+          newsletter_opt_in: true,
+        },
+      },
+      {
+        slug: 'katarzyna-wojcik-lubmedical',
+        firstName: 'Katarzyna',
+        lastName: 'Wójcik',
+        jobTitle: 'Księgowość',
+        department: 'Finanse',
+        seniority: 'mid',
+        email: 'ksiegowosc@lubmedical.pl',
+        phone: '+48 81 744 22 10',
+        timezone: 'Europe/Warsaw',
+        description: 'Kontakt administracyjny / fakturowy. Preferowany kontakt: email.',
+        custom: {
+          buying_role: 'influencer',
+          newsletter_opt_in: false,
+        },
+      },
+    ],
+    deals: [
+      {
+        slug: 'lubmedical-om-2026-014',
+        title: 'OM-2026-014 — Pakiet dezynfekcyjny + rękawice',
+        description:
+          'Oferta na pakiet środków dezynfekcyjnych oraz rękawic nitrylowych. Klient negocjuje rabat 12% od katalogu, budżet do 25 000 PLN na zamówienie. Zaproponowany rabat handlowy: 8%.',
+        status: 'in_progress',
+        pipelineStage: 'negotiations',
+        valueAmount: 22300,
+        valueCurrency: 'PLN',
+        probability: 60,
+        expectedCloseAt: isoDaysFromNow(14),
+        source: 'partner_referral',
+        people: [
+          { slug: 'barbara-kurek', participantRole: 'Decision Maker' },
+          { slug: 'piotr-nowak-lubmedical', participantRole: 'Influencer' },
+        ],
+        activities: [
+          {
+            slug: 'lubmedical-offer-sent',
+            entity: 'company',
+            type: 'email',
+            subject: 'Wysłana oferta — pakiet dezynfekcyjny + rękawice',
+            body: 'Wysłano ofertę OM-2026-014 na pakiet dezynfekcyjny i rękawice nitrylowe. Wartość: 22 300 PLN. Oczekiwanie na odpowiedź klienta.',
+            occurredAt: isoDaysFromNow(-5, { hour: 10, minute: 0 }),
+            icon: 'lucide:mail',
+            color: '#2563eb',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: false,
+              follow_up_owner: 'Tomasz Zieliński',
+            },
+          },
+        ],
+        stageHistory: [
+          {
+            fromStageLabel: null,
+            toStageLabel: 'Opportunity',
+            durationSeconds: null,
+            occurredAt: isoDaysFromNow(-21, { hour: 9 }),
+          },
+          {
+            fromStageLabel: 'Opportunity',
+            toStageLabel: 'Offering',
+            durationSeconds: 604800,
+            occurredAt: isoDaysFromNow(-14, { hour: 11 }),
+          },
+          {
+            fromStageLabel: 'Offering',
+            toStageLabel: 'Negotiations',
+            durationSeconds: 777600,
+            occurredAt: isoDaysFromNow(-5, { hour: 10 }),
+          },
+        ],
+        comments: [
+          {
+            body: 'Klient analizuje zmianę dostawcy rękawic nitrylowych. Zainteresowani umową długoterminową na dostawy cykliczne.',
+            occurredAt: isoDaysFromNow(-3, { hour: 14, minute: 30 }),
+          },
+          {
+            body: 'Budżet klienta na zamówienie: do 25 000 PLN. Oczekiwany rabat -12% od cen katalogowych. Nasza propozycja: 8%.',
+            occurredAt: isoDaysFromNow(-5, { hour: 11, minute: 0 }),
+          },
+        ],
+        emails: [
+          {
+            direction: 'outbound',
+            fromAddress: 'tomasz.zielinski@openmercato.com',
+            fromName: 'Tomasz Zieliński',
+            toAddresses: [
+              { email: 'zakupy@lubmedical.pl', name: 'Barbara Kurek' },
+            ],
+            subject: 'Oferta OM-2026-014 — Pakiet dezynfekcyjny + rękawice nitrylowe',
+            bodyText:
+              'Szanowna Pani Barbaro,\n\nW załączeniu przesyłam ofertę na pakiet dezynfekcyjny wraz z rękawicami nitrylowymi. Oferta uwzględnia rabat handlowy 8%.\n\nŁączna wartość: 22 300 PLN netto.\n\nProszę o kontakt w razie pytań.\n\nZ poważaniem,\nTomasz Zieliński',
+            sentAt: isoDaysFromNow(-5, { hour: 10 }),
+            hasAttachments: true,
+          },
+        ],
+        custom: {
+          competitive_risk: 'medium',
+          implementation_complexity: 'simple',
+          requires_legal_review: false,
+        },
+      },
+    ],
+    interactions: [
+      {
+        slug: 'lubmedical-call-supplier-change',
+        entity: 'company',
+        type: 'call',
+        subject: 'Rozmowa telefoniczna — analiza zmiany dostawcy',
+        body: 'Klient analizuje zmianę dostawcy rękawic nitrylowych. Zainteresowani umową długoterminową. Omówiono warunki cenowe i terminy dostaw.',
+        occurredAt: isoDaysFromNow(-3, { hour: 14, minute: 30 }),
+        icon: 'lucide:phone-call',
+        color: '#2563eb',
+        custom: {
+          engagement_sentiment: 'positive',
+          shared_with_leadership: true,
+          follow_up_owner: 'Tomasz Zieliński',
+        },
+      },
+      {
+        slug: 'lubmedical-offer-disinfectant',
+        entity: 'company',
+        type: 'email',
+        subject: 'Wysłana oferta — pakiet dezynfekcyjny + rękawice',
+        body: 'Przesłano ofertę na rękawice nitrylowe oraz środki dezynfekcyjne. Klient porównuje z ofertami konkurencji.',
+        occurredAt: isoDaysFromNow(-21, { hour: 9, minute: 0 }),
+        icon: 'lucide:mail',
+        color: '#16a34a',
+        custom: {
+          engagement_sentiment: 'neutral',
+          shared_with_leadership: false,
+          follow_up_owner: 'Tomasz Zieliński',
+        },
+      },
+      {
+        slug: 'lubmedical-trade-meeting',
+        entity: 'company',
+        type: 'meeting',
+        subject: 'Spotkanie branżowe — przetargi szpitalne',
+        body: 'Omówiono współpracę przy przetargach szpitalnych. Klient zainteresowany wspólnym startowaniem w przetargach na dostawy materiałów jednorazowych.',
+        occurredAt: isoDaysFromNow(-57, { hour: 11, minute: 0 }),
+        icon: 'lucide:users',
+        color: '#a855f7',
+        custom: {
+          engagement_sentiment: 'positive',
+          shared_with_leadership: true,
+          follow_up_owner: 'Tomasz Zieliński',
+        },
+      },
+    ],
+    notes: [
+      {
+        entity: 'company',
+        body: 'Klient zwykle zamawia rękawice co 30 dni — minęło 35 dni od ostatniego zamówienia. Rozważyć kontakt z przypomnieniem o uzupełnieniu zapasów.',
+        occurredAt: isoDaysFromNow(-1, { hour: 9, minute: 0 }),
+        icon: 'lucide:alert-triangle',
+        color: '#d97706',
+      },
+      {
+        entity: 'company',
+        body: 'Potencjał cross-sell: wysoki. Klient kupuje głównie materiały jednorazowe — możliwość rozszerzenia o sprzęt zabiegowy i aparaturę diagnostyczną.',
+        occurredAt: isoDaysFromNow(-10, { hour: 15 }),
+        icon: 'lucide:lightbulb',
+        color: '#22c55e',
+      },
+      {
+        entity: 'person',
+        personSlug: 'barbara-kurek',
+        body: 'Barbara preferuje kontakt mailowy. Rozmowy telefoniczne rezerwować na kluczowe negocjacje.',
+        occurredAt: isoDaysFromNow(-8, { hour: 10, minute: 30 }),
+        icon: 'lucide:bookmark',
+        color: '#0ea5e9',
+      },
+      {
+        entity: 'person',
+        personSlug: 'piotr-nowak-lubmedical',
+        body: 'Piotr jest otwarty na prezentacje nowych produktów. Dobry kontakt — traktować jako championa wewnętrznego.',
+        occurredAt: isoDaysFromNow(-12, { hour: 16 }),
+        icon: 'lucide:star',
+        color: '#f59e0b',
+      },
+    ],
+    orders: [
+      {
+        orderNumber: 'ZAM-2025-0187',
+        status: 'completed',
+        currencyCode: 'PLN',
+        grandTotalGrossAmount: 41250.00,
+        placedAt: isoDaysFromNow(-142),
+        comments: 'Zamówienie cykliczne — rękawice nitrylowe + środki dezynfekcyjne',
+      },
+      {
+        orderNumber: 'ZAM-2025-0214',
+        status: 'completed',
+        currencyCode: 'PLN',
+        grandTotalGrossAmount: 38900.50,
+        placedAt: isoDaysFromNow(-112),
+        comments: 'Materiały jednorazowe — igły, strzykawki, opatrunki',
+      },
+      {
+        orderNumber: 'ZAM-2025-0259',
+        status: 'completed',
+        currencyCode: 'PLN',
+        grandTotalGrossAmount: 44100.00,
+        placedAt: isoDaysFromNow(-81),
+        comments: 'Pakiet dezynfekcyjny rozszerzony + rękawice chirurgiczne',
+      },
+      {
+        orderNumber: 'ZAM-2026-0012',
+        status: 'completed',
+        currencyCode: 'PLN',
+        grandTotalGrossAmount: 36750.25,
+        placedAt: isoDaysFromNow(-52),
+        comments: 'Zamówienie standardowe — materiały jednorazowe',
+      },
+      {
+        orderNumber: 'ZAM-2026-0048',
+        status: 'completed',
+        currencyCode: 'PLN',
+        grandTotalGrossAmount: 39500.00,
+        placedAt: isoDaysFromNow(-23),
+        comments: 'Rękawice nitrylowe + opatrunki specjalistyczne',
+      },
+      {
+        orderNumber: 'ZAM-2026-0071',
+        status: 'processing',
+        currencyCode: 'PLN',
+        grandTotalGrossAmount: 42800.00,
+        placedAt: isoDaysFromNow(-3),
+        comments: 'Zamówienie w realizacji — dezynfekcja + sprzęt zabiegowy',
+      },
+    ],
+    custom: {
+      nip: '9462561430',
+      regon: '060395339',
+      krs: '0000450877',
+      assigned_salesperson: 'Tomasz Zieliński',
+      relationship_health: 'monitor',
+      renewal_quarter: 'Q2',
+      executive_notes: 'Klient kluczowy dla regionu lubelskiego. Model zakupów centralny. Potencjał A — priorytetowa obsługa.',
+      customer_marketing_case: false,
+    },
+  },
 ]
 
 const STRESS_TEST_SOURCE = 'stress_test'
@@ -1623,7 +1955,9 @@ async function seedCustomerExamples(
   const personEntities = new Map<string, CustomerEntity>()
 
   for (const company of CUSTOMER_EXAMPLES) {
+    const companyEntityId = randomUUID()
     const companyEntity = em.create(CustomerEntity, {
+      id: companyEntityId,
       organizationId,
       tenantId,
       kind: 'company',
@@ -1693,6 +2027,23 @@ async function seedCustomerExamples(
     }
 
     companyEntities.set(company.slug, companyEntity)
+
+    for (const branchInfo of company.branches ?? []) {
+      const branch = em.create(CustomerBranch, {
+        organizationId,
+        tenantId,
+        companyEntityId: companyEntity.id,
+        name: branchInfo.name,
+        branchType: branchInfo.branchType ?? null,
+        specialization: branchInfo.specialization ?? null,
+        budget: typeof branchInfo.budget === 'number' ? toAmount(branchInfo.budget) : null,
+        headcount: branchInfo.headcount ?? null,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(branch)
+    }
 
     for (const person of company.people ?? []) {
       const nameParts = [person.firstName, person.lastName].filter((part) => !!part && part.trim().length)
@@ -3167,10 +3518,543 @@ async function seedDefaultPipeline(em: EntityManager, { tenantId, organizationId
   await em.flush()
 }
 
-export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary, seedDefaultPipeline }
+async function seedSingleCompanyExample(
+  em: EntityManager,
+  container: AppContainer,
+  { tenantId, organizationId }: SeedArgs,
+  companySlug: string
+): Promise<boolean> {
+  const companyData = CUSTOMER_EXAMPLES.find((c) => c.slug === companySlug)
+  if (!companyData) {
+    console.error(`[customers.cli] Company slug "${companySlug}" not found in CUSTOMER_EXAMPLES`)
+    return false
+  }
+
+  const dealTitles = (companyData.deals ?? [])
+    .map((d) => d.title)
+    .filter((t): t is string => typeof t === 'string')
+  if (dealTitles.length > 0) {
+    const already = await em.count(CustomerDeal, {
+      tenantId,
+      organizationId,
+      title: { $in: dealTitles as any },
+    })
+    if (already > 0) {
+      return false
+    }
+  }
+
+  await seedCustomerDictionaries(em, { tenantId, organizationId })
+
+  if (typeof companyData.industry === 'string' && companyData.industry.trim()) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'industry',
+      value: companyData.industry.trim(),
+      label: companyData.industry.trim(),
+    })
+  }
+
+  // Flush dictionary entries before creating customer entities to avoid
+  // mixed batch inserts that confuse MikroORM's ChangeSetPersister
+  await em.flush()
+
+  // Ensure custom field definitions exist (NIP, REGON, KRS, etc.)
+  let cache: CacheStrategy | null = null
+  if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
+    try { cache = (container.resolve('cache') as CacheStrategy) } catch { cache = null }
+  }
+  try {
+    await installCustomEntitiesFromModules(em, cache, {
+      tenantIds: [tenantId], includeGlobal: false, dryRun: false, logger: () => {},
+    })
+  } catch { /* non-critical */ }
+  try {
+    await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
+  } catch { /* non-critical */ }
+
+  const dataEngine = new DefaultDataEngine(em, container)
+  const customFieldAssignments: Array<() => Promise<void>> = []
+  const personEntities = new Map<string, CustomerEntity>()
+
+  const companyEntityId = randomUUID()
+  const companyEntity = em.create(CustomerEntity, {
+    id: companyEntityId,
+    organizationId,
+    tenantId,
+    kind: 'company',
+    displayName: companyData.displayName,
+    description: companyData.description ?? null,
+    primaryEmail: companyData.primaryEmail ?? null,
+    primaryPhone: companyData.primaryPhone ?? null,
+    lifecycleStage: companyData.lifecycleStage ?? null,
+    status: companyData.status ?? null,
+    source: companyData.source ?? null,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+  const companyProfile = em.create(CustomerCompanyProfile, {
+    id: randomUUID(),
+    organizationId,
+    tenantId,
+    entity: companyEntity,
+    legalName: companyData.legalName ?? null,
+    brandName: companyData.brandName ?? null,
+    domain: companyData.domain ?? null,
+    websiteUrl: companyData.websiteUrl ?? null,
+    industry: typeof companyData.industry === 'string' ? companyData.industry.trim() || null : null,
+    sizeBucket: companyData.sizeBucket ?? null,
+    annualRevenue: typeof companyData.annualRevenue === 'number' ? toAmount(companyData.annualRevenue) : null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+  em.persist(companyEntity)
+  em.persist(companyProfile)
+
+  if (companyData.custom && Object.keys(companyData.custom).length) {
+    const values = { ...companyData.custom } as CustomFieldValuesPayload
+    customFieldAssignments.push(async () =>
+      dataEngine.setCustomFields({
+        entityId: CoreEntities.customers.customer_company_profile,
+        recordId: companyProfile.id,
+        organizationId,
+        tenantId,
+        values,
+      })
+    )
+  }
+
+  if (companyData.address?.addressLine1) {
+    const address = em.create(CustomerAddress, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: companyEntity,
+      name: companyData.address.name ?? null,
+      purpose: companyData.address.purpose ?? 'office',
+      addressLine1: companyData.address.addressLine1,
+      addressLine2: companyData.address.addressLine2 ?? null,
+      city: companyData.address.city ?? null,
+      region: companyData.address.region ?? null,
+      postalCode: companyData.address.postalCode ?? null,
+      country: companyData.address.country ?? null,
+      latitude: companyData.address.latitude ?? null,
+      longitude: companyData.address.longitude ?? null,
+      buildingNumber: companyData.address.buildingNumber ?? null,
+      flatNumber: companyData.address.flatNumber ?? null,
+      isPrimary: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(address)
+  }
+
+  for (const branchInfo of companyData.branches ?? []) {
+    const branch = em.create(CustomerBranch, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      companyEntityId: companyEntity.id,
+      name: branchInfo.name,
+      branchType: branchInfo.branchType ?? null,
+      specialization: branchInfo.specialization ?? null,
+      budget: typeof branchInfo.budget === 'number' ? toAmount(branchInfo.budget) : null,
+      headcount: branchInfo.headcount ?? null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(branch)
+  }
+
+  for (const person of companyData.people ?? []) {
+    const nameParts = [person.firstName, person.lastName].filter((part) => !!part && part.trim().length)
+    const displayName = nameParts.length ? nameParts.join(' ') : person.email
+    const personEntityId = randomUUID()
+    const personEntity = em.create(CustomerEntity, {
+      id: personEntityId,
+      organizationId,
+      tenantId,
+      kind: 'person',
+      displayName,
+      description: person.description ?? null,
+      primaryEmail: person.email,
+      primaryPhone: person.phone ?? null,
+      lifecycleStage: companyData.lifecycleStage ?? null,
+      status: 'active',
+      source: person.source ?? companyData.source ?? null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    const personProfile = em.create(CustomerPersonProfile, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: personEntity,
+      company: companyEntity,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      preferredName: person.preferredName ?? null,
+      jobTitle: person.jobTitle ?? null,
+      department: person.department ?? null,
+      seniority: person.seniority ?? null,
+      timezone: person.timezone ?? null,
+      linkedInUrl: person.linkedInUrl ?? null,
+      twitterUrl: person.twitterUrl ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(personEntity)
+    em.persist(personProfile)
+
+    if (person.custom && Object.keys(person.custom).length) {
+      const values = { ...person.custom } as CustomFieldValuesPayload
+      customFieldAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_person_profile,
+          recordId: personProfile.id,
+          organizationId,
+          tenantId,
+          values,
+        })
+      )
+    }
+
+    if (person.address?.addressLine1) {
+      const addr = em.create(CustomerAddress, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        entity: personEntity,
+        name: person.address.name ?? null,
+        purpose: person.address.purpose ?? 'work',
+        addressLine1: person.address.addressLine1,
+        addressLine2: person.address.addressLine2 ?? null,
+        city: person.address.city ?? null,
+        region: person.address.region ?? null,
+        postalCode: person.address.postalCode ?? null,
+        country: person.address.country ?? null,
+        latitude: person.address.latitude ?? null,
+        longitude: person.address.longitude ?? null,
+        buildingNumber: person.address.buildingNumber ?? null,
+        flatNumber: person.address.flatNumber ?? null,
+        isPrimary: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(addr)
+    }
+
+    personEntities.set(person.slug, personEntity)
+  }
+
+  for (const interaction of companyData.interactions ?? []) {
+    const targetEntity =
+      interaction.entity === 'person' && interaction.personSlug
+        ? personEntities.get(interaction.personSlug)
+        : companyEntity
+    if (!targetEntity) continue
+    const activity = em.create(CustomerActivity, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: targetEntity,
+      deal: null,
+      activityType: interaction.type,
+      subject: interaction.subject ?? null,
+      body: interaction.body ?? null,
+      occurredAt: interaction.occurredAt ? new Date(interaction.occurredAt) : null,
+      appearanceIcon: interaction.icon ?? null,
+      appearanceColor: interaction.color ?? null,
+      authorUserId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(activity)
+
+    if (interaction.custom && Object.keys(interaction.custom).length) {
+      const values = { ...interaction.custom } as CustomFieldValuesPayload
+      customFieldAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_activity,
+          recordId: activity.id,
+          organizationId,
+          tenantId,
+          values,
+        })
+      )
+    }
+  }
+
+  for (const note of companyData.notes ?? []) {
+    const targetEntity =
+      note.entity === 'person' && note.personSlug ? personEntities.get(note.personSlug) : companyEntity
+    if (!targetEntity) continue
+    const comment = em.create(CustomerComment, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: targetEntity,
+      deal: null,
+      body: note.body,
+      authorUserId: null,
+      appearanceIcon: note.icon ?? null,
+      appearanceColor: note.color ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    if (note.occurredAt) {
+      const timestamp = new Date(note.occurredAt)
+      if (!Number.isNaN(timestamp.getTime())) {
+        comment.createdAt = timestamp
+        comment.updatedAt = timestamp
+      }
+    }
+    em.persist(comment)
+  }
+
+  await em.flush()
+
+  for (const dealInfo of companyData.deals ?? []) {
+    const dealId = randomUUID()
+    const deal = em.create(CustomerDeal, {
+      id: dealId,
+      organizationId,
+      tenantId,
+      title: dealInfo.title,
+      description: dealInfo.description ?? null,
+      status: dealInfo.status ?? 'open',
+      pipelineStage: dealInfo.pipelineStage ?? null,
+      valueAmount: toAmount(dealInfo.valueAmount),
+      valueCurrency:
+        dealInfo.valueCurrency ?? (typeof dealInfo.valueAmount === 'number' ? 'PLN' : null),
+      probability:
+        typeof dealInfo.probability === 'number' ? Math.round(dealInfo.probability) : null,
+      expectedCloseAt: dealInfo.expectedCloseAt ? new Date(dealInfo.expectedCloseAt) : null,
+      ownerUserId: null,
+      source: dealInfo.source ?? companyData.source ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(deal)
+
+    if (dealInfo.custom && Object.keys(dealInfo.custom).length) {
+      const values = { ...dealInfo.custom } as CustomFieldValuesPayload
+      customFieldAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_deal,
+          recordId: deal.id,
+          organizationId,
+          tenantId,
+          values,
+        })
+      )
+    }
+
+    const companyLink = em.create(CustomerDealCompanyLink, {
+      id: randomUUID(),
+      deal,
+      company: companyEntity,
+      createdAt: new Date(),
+    })
+    em.persist(companyLink)
+
+    for (const participant of dealInfo.people ?? []) {
+      const personEntity = personEntities.get(participant.slug)
+      if (!personEntity) continue
+      const link = em.create(CustomerDealPersonLink, {
+        id: randomUUID(),
+        deal,
+        person: personEntity,
+        participantRole: participant.participantRole ?? null,
+        createdAt: new Date(),
+      })
+      em.persist(link)
+    }
+
+    for (const activityInfo of dealInfo.activities ?? []) {
+      const targetEntity =
+        activityInfo.entity === 'person' && activityInfo.personSlug
+          ? personEntities.get(activityInfo.personSlug)
+          : companyEntity
+      if (!targetEntity) continue
+      const activity = em.create(CustomerActivity, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        entity: targetEntity,
+        deal,
+        activityType: activityInfo.type,
+        subject: activityInfo.subject ?? null,
+        body: activityInfo.body ?? null,
+        occurredAt: activityInfo.occurredAt ? new Date(activityInfo.occurredAt) : null,
+        appearanceIcon: activityInfo.icon ?? null,
+        appearanceColor: activityInfo.color ?? null,
+        authorUserId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(activity)
+
+      if (activityInfo.custom && Object.keys(activityInfo.custom).length) {
+        const values = { ...activityInfo.custom } as CustomFieldValuesPayload
+        customFieldAssignments.push(async () =>
+          dataEngine.setCustomFields({
+            entityId: CoreEntities.customers.customer_activity,
+            recordId: activity.id,
+            organizationId,
+            tenantId,
+            values,
+          })
+        )
+      }
+    }
+
+    for (const stageEntry of dealInfo.stageHistory ?? []) {
+      const stageHistory = em.create(CustomerDealStageHistory, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        dealId: deal.id,
+        fromStageId: null,
+        fromStageLabel: stageEntry.fromStageLabel,
+        toStageId: randomUUID(),
+        toStageLabel: stageEntry.toStageLabel,
+        fromPipelineId: null,
+        toPipelineId: randomUUID(),
+        changedByUserId: null,
+        durationSeconds: stageEntry.durationSeconds,
+        createdAt: new Date(stageEntry.occurredAt),
+        updatedAt: new Date(stageEntry.occurredAt),
+      })
+      em.persist(stageHistory)
+    }
+
+    for (const commentEntry of dealInfo.comments ?? []) {
+      const comment = em.create(CustomerComment, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        entity: companyEntity,
+        deal,
+        body: commentEntry.body,
+        authorUserId: null,
+        createdAt: new Date(commentEntry.occurredAt),
+        updatedAt: new Date(commentEntry.occurredAt),
+      })
+      em.persist(comment)
+    }
+
+    for (const emailEntry of dealInfo.emails ?? []) {
+      const dealEmail = em.create(CustomerDealEmail, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        dealId: deal.id,
+        direction: emailEntry.direction,
+        fromAddress: emailEntry.fromAddress,
+        fromName: emailEntry.fromName,
+        toAddresses: emailEntry.toAddresses,
+        subject: emailEntry.subject,
+        bodyText: emailEntry.bodyText,
+        sentAt: new Date(emailEntry.sentAt),
+        hasAttachments: emailEntry.hasAttachments ?? false,
+        createdAt: new Date(emailEntry.sentAt),
+        updatedAt: new Date(emailEntry.sentAt),
+      })
+      em.persist(dealEmail)
+    }
+  }
+
+  await em.flush()
+
+  // Seed sales orders linked to this company
+  for (const orderInfo of companyData.orders ?? []) {
+    const placedDate = orderInfo.placedAt ? new Date(orderInfo.placedAt) : new Date()
+    const grossAmount = toAmount(orderInfo.grandTotalGrossAmount) ?? '0'
+    const netAmount = toAmount(orderInfo.grandTotalGrossAmount / 1.23) ?? '0'
+    const taxAmount = toAmount(orderInfo.grandTotalGrossAmount - orderInfo.grandTotalGrossAmount / 1.23) ?? '0'
+    const order = em.create(SalesOrder, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      orderNumber: orderInfo.orderNumber,
+      customerEntityId: companyEntityId,
+      currencyCode: orderInfo.currencyCode ?? 'PLN',
+      status: orderInfo.status ?? 'completed',
+      placedAt: placedDate,
+      comments: orderInfo.comments ?? null,
+      grandTotalGrossAmount: grossAmount,
+      grandTotalNetAmount: netAmount,
+      subtotalNetAmount: netAmount,
+      subtotalGrossAmount: grossAmount,
+      taxTotalAmount: taxAmount,
+      discountTotalAmount: '0',
+      shippingNetAmount: '0',
+      shippingGrossAmount: '0',
+      surchargeTotalAmount: '0',
+      paidTotalAmount: grossAmount,
+      refundedTotalAmount: '0',
+      outstandingAmount: '0',
+      lineItemCount: 0,
+      createdAt: placedDate,
+      updatedAt: placedDate,
+    })
+    em.persist(order)
+  }
+
+  if ((companyData.orders?.length ?? 0) > 0) {
+    await em.flush()
+  }
+
+  for (const assign of customFieldAssignments) {
+    try {
+      await assign()
+    } catch (err) {
+      console.warn('[customers.cli] Custom field assignment failed (non-critical)', err)
+    }
+  }
+
+  return true
+}
+
+export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedSingleCompanyExample, seedCurrencyDictionary, seedDefaultPipeline }
 export type { SeedArgs as CustomerSeedArgs }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest]
+const seedSingleCompany: ModuleCli = {
+  command: 'seed-company',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    const slug = String(args.slug ?? args.company ?? '')
+    if (!tenantId || !organizationId || !slug) {
+      console.error('Usage: mercato customers seed-company --tenant <tenantId> --org <organizationId> --slug <companySlug>')
+      console.error('Available slugs:', CUSTOMER_EXAMPLES.map((c) => c.slug).join(', '))
+      return
+    }
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager)
+    try {
+      const seeded = await em.transactional(async (tem) =>
+        seedSingleCompanyExample(tem, container, { tenantId, organizationId }, slug)
+      )
+      if (seeded) {
+        console.log(`Company "${slug}" seeded for organization ${organizationId}`)
+      } else {
+        console.log(`Company "${slug}" already present or not found; skipping`)
+      }
+    } catch (err) {
+      console.error('Seed failed with stack:', err instanceof Error ? err.stack : err)
+      throw err
+    }
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedSingleCompany, seedStressTest]
 
 export default customersCliCommands
 const CUSTOMER_CUSTOM_FIELD_SETS = [
@@ -3196,6 +4080,26 @@ const CUSTOMER_CUSTOM_FIELD_SETS = [
   {
     entity: CoreEntities.customers.customer_company_profile,
     fields: [
+      cf.text('nip', {
+        label: 'NIP',
+        description: 'Tax identification number (Numer Identyfikacji Podatkowej).',
+        filterable: true,
+      }),
+      cf.text('regon', {
+        label: 'REGON',
+        description: 'Statistical identification number (Rejestr Gospodarki Narodowej).',
+        filterable: true,
+      }),
+      cf.text('krs', {
+        label: 'KRS',
+        description: 'National Court Register number (Krajowy Rejestr Sądowy).',
+        filterable: true,
+      }),
+      cf.text('assigned_salesperson', {
+        label: 'Assigned salesperson',
+        description: 'Sales representative responsible for this account.',
+        filterable: true,
+      }),
       cf.select('relationship_health', ['healthy', 'monitor', 'at_risk'], {
         label: 'Relationship health',
         description: 'Overall account health assessment.',

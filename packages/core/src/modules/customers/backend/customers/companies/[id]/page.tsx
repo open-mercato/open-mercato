@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Separator } from '@open-mercato/ui/primitives/separator'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { Plus, Users } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -48,9 +49,12 @@ import { createCustomerNotesAdapter } from '../../../../components/detail/notesA
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { CustomerTimelineAction } from '../../../../components/detail/CustomerTimelineAction'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
+import { CustomerDashboard } from '../../../../components/detail/CustomerDashboard'
+import { CrmAlerts } from '../../../../components/detail/CrmAlerts'
+import { BranchesSection } from '../../../../components/detail/BranchesSection'
+import { PurchaseHistorySection } from '../../../../components/detail/PurchaseHistorySection'
 
 type CompanyOverview = {
   company: {
@@ -94,7 +98,7 @@ type CompanyOverview = {
   } | null
 }
 
-type SectionKey = 'notes' | 'activities' | 'deals' | 'people' | 'addresses' | 'tasks' | string
+type SectionKey = 'overview' | 'notes' | 'activities' | 'deals' | 'people' | 'addresses' | 'tasks' | 'branches' | 'purchase-history' | string
 
 export default function CustomerCompanyDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -106,10 +110,10 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const searchParams = useSearchParams()
   const initialTab = React.useMemo(() => {
     const raw = searchParams?.get('tab')
-    if (raw === 'notes' || raw === 'activities' || raw === 'deals' || raw === 'people' || raw === 'addresses' || raw === 'tasks') {
+    if (raw === 'overview' || raw === 'notes' || raw === 'activities' || raw === 'deals' || raw === 'people' || raw === 'addresses' || raw === 'tasks' || raw === 'branches' || raw === 'purchase-history') {
       return raw
     }
-    return 'notes'
+    return 'overview'
   }, [searchParams])
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -264,12 +268,21 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   )
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
+  const [metricsAlerts, setMetricsAlerts] = React.useState<Array<{ type: string; severity: 'warning' | 'error'; tab?: string }>>([])
+
+  const handleAlertsLoaded = React.useCallback((alerts: Array<{ type: string; severity: 'warning' | 'error'; tab?: string }>) => {
+    setMetricsAlerts(alerts)
+  }, [])
+
   const tabs = React.useMemo(
     () => [
+      { id: 'overview' as const, label: t('customers.companies.detail.tabs.overview', 'Overview') },
       { id: 'notes' as const, label: t('customers.companies.detail.tabs.notes', 'Notes') },
       { id: 'activities' as const, label: t('customers.companies.detail.tabs.activities', 'Activities') },
       { id: 'deals' as const, label: t('customers.companies.detail.tabs.deals', 'Deals') },
       { id: 'people' as const, label: t('customers.companies.detail.tabs.people', 'People') },
+      { id: 'branches' as const, label: t('customers.companies.detail.tabs.branches', 'Branches') },
+      { id: 'purchase-history' as const, label: t('customers.companies.detail.tabs.purchaseHistory', 'Purchase history') },
       { id: 'addresses' as const, label: t('customers.companies.detail.tabs.addresses', 'Addresses') },
       { id: 'tasks' as const, label: t('customers.companies.detail.tabs.tasks', 'Tasks') },
       ...injectedTabs.map((tab) => ({ id: tab.id as SectionKey, label: tab.label })),
@@ -726,10 +739,13 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   return (
     <Page>
       <PageBody>
-        <div className="space-y-8">
+        <div className="space-y-4">
+          {/* ── HEADER ── */}
           <CompanyHighlights
             company={company}
             profile={profile ?? null}
+            customFields={data.customFields}
+            customFieldEntityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
             validators={validators}
             onDisplayNameSave={updateDisplayName}
             utilityActions={(
@@ -786,19 +802,164 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
             isDeleting={isDeleting}
           />
 
-          <DetailTabsLayout
-            className="space-y-6"
-            tabs={tabs}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            sectionAction={sectionAction}
-            onSectionAction={handleSectionAction}
-            navAriaLabel={t('customers.companies.detail.tabs.label', 'Company detail sections')}
-            navClassName="gap-4"
+          {/* ── KPI STRIP ── */}
+          <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+            <CustomerDashboard
+              companyId={companyId}
+              injectionContext={injectionContext}
+              onAlertsLoaded={handleAlertsLoaded}
+            />
+          </div>
+
+          {/* ── CONTACT TILES ── */}
+          {data.people.length > 0 && (
+            <div className="flex flex-wrap items-stretch gap-3 rounded-lg border bg-card px-5 py-3.5 shadow-sm">
+              <div className="flex items-center border-r pr-3">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  <Users className="size-3.5" />
+                  {t('customers.companies.detail.contacts.label', 'Contacts')}
+                </span>
+              </div>
+              {data.people.slice(0, 5).map((person) => {
+                const personWords = person.displayName.trim().split(/\s+/).filter(Boolean)
+                const personInitials = personWords.length >= 2
+                  ? (personWords[0][0] + personWords[1][0]).toUpperCase()
+                  : person.displayName.slice(0, 2).toUpperCase()
+                return (
+                  <Link
+                    key={person.id}
+                    href={`/backend/customers/people/${person.id}`}
+                    className="group flex min-w-[200px] items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 transition-all hover:bg-card hover:shadow-sm"
+                  >
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+                      {personInitials}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold">{person.displayName}</div>
+                      {person.jobTitle && (
+                        <div className="truncate text-xs text-muted-foreground">{person.jobTitle}</div>
+                      )}
+                    </div>
+                  </Link>
+                )
+              })}
+              <Link
+                href={`/backend/customers/people/create?companyId=${encodeURIComponent(companyId)}`}
+                className="flex items-center gap-2 rounded-lg border border-dashed px-4 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
+              >
+                <Plus className="size-3.5" />
+                {t('customers.companies.detail.contacts.add', 'Add contact')}
+              </Link>
+            </div>
+          )}
+
+          {/* ── TAB NAVIGATION ── */}
+          <nav
+            className="flex rounded-lg border bg-card shadow-sm"
+            role="tablist"
+            aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}
           >
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  '-mb-px border-b-2 px-5 py-3 text-sm font-semibold transition-colors',
+                  activeTab === tab.id
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          {/* ── TAB CONTENT ── */}
+          <div>
+            {metricsAlerts.length > 0 && (
+              <div className="mb-4">
+                <CrmAlerts alerts={metricsAlerts} onNavigateToTab={setActiveTab} />
+              </div>
+            )}
+
+            {sectionAction && activeTab !== 'overview' && (
+              <div className="mb-4 flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSectionAction}
+                  disabled={sectionAction.disabled}
+                >
+                  {sectionAction.icon ?? <Plus className="mr-2 h-4 w-4" />}
+                  {sectionAction.label}
+                </Button>
+              </div>
+            )}
+
             {(() => {
               const injected = injectedTabMap.get(activeTab)
               if (injected) return injected()
+
+              if (activeTab === 'overview') {
+                return (
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    {/* Left column: Company details */}
+                    <div className="min-w-0 space-y-4">
+                      <div className="rounded-lg border bg-card p-5">
+                        <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                          {t('customers.companies.detail.sections.details', 'Company details')}
+                        </h3>
+                        <DetailFieldsSection fields={detailFields} />
+                        <InjectionSpot
+                          spotId="customers.company.detail:details"
+                          context={injectionContext}
+                          data={data}
+                          onDataChange={(next) => setData(next as CompanyOverview)}
+                        />
+                      </div>
+                      <div className="rounded-lg border bg-card p-5">
+                        <CustomDataSection
+                          entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
+                          values={data.customFields ?? {}}
+                          onSubmit={handleCustomFieldsSubmit}
+                          title={t('customers.companies.detail.sections.customFields', 'Custom fields')}
+                        />
+                      </div>
+                      <div className="rounded-lg border bg-card p-5">
+                        <TagsSection
+                          entityId={companyId}
+                          tags={data.tags}
+                          onChange={handleTagsChange}
+                          isSubmitting={false}
+                        />
+                      </div>
+                    </div>
+                    {/* Right column: Branches + Purchase summary */}
+                    <div className="min-w-0 space-y-4">
+                      <div className="rounded-lg border bg-card p-5">
+                        <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                          {t('customers.companies.detail.tabs.branches', 'Branches')}
+                        </h3>
+                        <BranchesSection
+                          companyId={companyId}
+                          runMutation={runMutationWithContext}
+                        />
+                      </div>
+                      <div className="rounded-lg border bg-card p-5">
+                        <h3 className="mb-4 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                          {t('customers.companies.detail.tabs.purchaseHistory', 'Purchase history')}
+                        </h3>
+                        <PurchaseHistorySection companyId={companyId} />
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
+
               if (activeTab === 'notes') {
                 return (
                   <NotesSection
@@ -874,6 +1035,22 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                   />
                 )
               }
+              if (activeTab === 'branches') {
+                return (
+                  <BranchesSection
+                    companyId={companyId}
+                    onActionChange={handleSectionActionChange}
+                    runMutation={runMutationWithContext}
+                  />
+                )
+              }
+              if (activeTab === 'purchase-history') {
+                return (
+                  <PurchaseHistorySection
+                    companyId={companyId}
+                  />
+                )
+              }
               if (activeTab === 'addresses') {
                 return (
                   <AddressesSection
@@ -912,36 +1089,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
               }
               return null
             })()}
-          </DetailTabsLayout>
-
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <h2 className="text-sm font-semibold">{t('customers.companies.detail.sections.details', 'Company details')}</h2>
-              <DetailFieldsSection fields={detailFields} />
-              <InjectionSpot
-                spotId="customers.company.detail:details"
-                context={injectionContext}
-                data={data}
-                onDataChange={(next) => setData(next as CompanyOverview)}
-              />
-            </div>
-
-            <CustomDataSection
-              entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
-              values={data.customFields ?? {}}
-              onSubmit={handleCustomFieldsSubmit}
-              title={t('customers.companies.detail.sections.customFields', 'Custom fields')}
-            />
-
-            <TagsSection
-              entityId={companyId}
-              tags={data.tags}
-              onChange={handleTagsChange}
-              isSubmitting={false}
-            />
           </div>
-
-          <Separator className="my-4" />
         </div>
       </PageBody>
       {ConfirmDialogElement}
