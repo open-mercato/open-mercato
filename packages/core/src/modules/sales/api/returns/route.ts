@@ -163,7 +163,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create return',
-      body: returnCreateSchema,
+      requestBody: { schema: returnCreateSchema },
       responses: [{ status: 201, description: 'Return created', schema: z.object({ id: z.string().uuid().nullable() }) }],
     },
   },

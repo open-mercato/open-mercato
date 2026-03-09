@@ -371,6 +371,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         tenantId: input.tenantId,
         scope: 'line',
         kind: 'return',
+        rate: '0',
         amountNet: totalNet.toString(),
         amountGross: totalGross.toString(),
         currencyCode: order.currencyCode,

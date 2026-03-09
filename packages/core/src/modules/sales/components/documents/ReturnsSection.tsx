@@ -189,8 +189,8 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
     })
   }, [returns])
 
-  if (loading) return <LoadingMessage />
-  if (error) return <ErrorMessage message={error} />
+  if (loading) return <LoadingMessage label={t('sales.returns.loading', 'Loading returns…')} />
+  if (error) return <ErrorMessage label={error} />
 
   if (!rows.length) {
     return (
