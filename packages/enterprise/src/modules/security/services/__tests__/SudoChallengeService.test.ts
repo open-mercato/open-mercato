@@ -1,15 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { ChallengeMethod, SudoTargetType } from '../../data/entities'
+import { registerSecuritySudoTargetEntries } from '../../lib/module-security-registry'
 import { SudoChallengeService } from '../SudoChallengeService'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
-}))
-
-jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
-  getModules: jest.fn(),
 }))
 
 type ConfigRecord = {
@@ -39,7 +35,6 @@ type SessionRecord = {
 }
 
 const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
-const mockedGetModules = getModules as jest.MockedFunction<typeof getModules>
 
 function createServiceContext() {
   const configs: ConfigRecord[] = []
@@ -151,21 +146,19 @@ describe('SudoChallengeService', () => {
       organizationId: 'org-1',
       deletedAt: null,
     } as never)
-    mockedGetModules.mockReturnValue([
+    registerSecuritySudoTargetEntries([
       {
-        id: 'security',
-        setup: {
-          sudoProtected: [
-            {
-              type: 'feature',
-              identifier: 'security.sudo.manage',
-              ttlSeconds: 300,
-              challengeMethod: 'auto',
-            },
-          ],
-        },
+        moduleId: 'security',
+        targets: [
+          {
+            type: 'feature',
+            identifier: 'security.sudo.manage',
+            ttlSeconds: 300,
+            challengeMethod: 'auto',
+          },
+        ],
       },
-    ] as never)
+    ])
   })
 
   test('registers developer defaults on demand and resolves protection', async () => {

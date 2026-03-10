@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { Loader2 } from 'lucide-react'
-import Image from 'next/image.js'
 import { useRouter } from 'next/navigation.js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -11,21 +10,53 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 
 type TotpSetupResponse = {
+  setupId?: string
+  clientData?: Record<string, unknown>
+  secret?: string
+  uri?: string
+  qrDataUrl?: string
+}
+
+type TotpSetupState = {
   setupId: string
-  secret: string
-  uri: string
-  qrDataUrl: string
+  secret: string | null
+  uri: string | null
+  qrDataUrl: string | null
 }
 
 type TotpConfirmResponse = {
   ok?: boolean
 }
 
+function readNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeTotpSetupResponse(response: TotpSetupResponse): TotpSetupState {
+  const setupId = readNonEmptyString(response.setupId)
+  if (!setupId) {
+    throw new Error('Missing setupId')
+  }
+
+  const clientData = response.clientData && typeof response.clientData === 'object'
+    ? response.clientData
+    : {}
+
+  return {
+    setupId,
+    secret: readNonEmptyString(clientData.secret) ?? readNonEmptyString(response.secret),
+    uri: readNonEmptyString(clientData.uri) ?? readNonEmptyString(response.uri),
+    qrDataUrl: readNonEmptyString(clientData.qrDataUrl) ?? readNonEmptyString(response.qrDataUrl),
+  }
+}
+
 export default function TotpProviderDetails() {
   const t = useT()
   const router = useRouter()
   const [loading, setLoading] = React.useState(false)
-  const [setup, setSetup] = React.useState<TotpSetupResponse | null>(null)
+  const [setup, setSetup] = React.useState<TotpSetupState | null>(null)
   const [setupError, setSetupError] = React.useState<string | null>(null)
   const [showManualSecret, setShowManualSecret] = React.useState(false)
   const [code, setCode] = React.useState('')
@@ -35,14 +66,14 @@ export default function TotpProviderDetails() {
     setSetupError(null)
     try {
       const result = await readApiResultOrThrow<TotpSetupResponse>(
-        '/api/security/mfa/totp/setup',
+        '/api/security/mfa/provider/totp',
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({}),
         },
       )
-      setSetup(result)
+      setSetup(normalizeTotpSetupResponse(result))
       setShowManualSecret(false)
       setCode('')
     } catch (error) {
@@ -60,19 +91,20 @@ export default function TotpProviderDetails() {
     setLoading(true)
     try {
       await readApiResultOrThrow<TotpConfirmResponse>(
-        '/api/security/mfa/totp/confirm',
+        '/api/security/mfa/provider/totp',
         {
-          method: 'POST',
+          method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ setupId: setup.setupId, code: code.trim() }),
+          body: JSON.stringify({ setupId: setup.setupId, payload: { code: code.trim() } }),
         },
       )
       setCode('')
+      router.push('/backend/profile/security/mfa')
       flash(t('security.profile.mfa.totp.confirmSuccess', 'TOTP method enabled.'), 'success')
     } finally {
       setLoading(false)
     }
-  }, [code, setup, t])
+  }, [code, router, setup, t])
 
   React.useEffect(() => {
     if (setup != null) return
@@ -107,13 +139,12 @@ export default function TotpProviderDetails() {
             'Use an authenticator app or browser extension to scan this code.',
           )}
         </p>
-        {setup ? (
-          <Image
+        {setup?.qrDataUrl ? (
+          <img
             src={setup.qrDataUrl}
             alt={t('security.profile.mfa.totp.qrAlt', 'TOTP QR code')}
             width={224}
             height={224}
-            unoptimized
             className="size-56 rounded-md border border-slate-700 bg-white p-2"
           />
         ) : (
@@ -137,7 +168,7 @@ export default function TotpProviderDetails() {
             ? t('security.profile.mfa.totp.hideManual', 'Hide setup key')
             : t('security.profile.mfa.totp.showManual', 'Show setup key')}
         </Button>
-        {showManualSecret && setup ? (
+        {showManualSecret && setup?.secret ? (
           <div className="rounded-md border border-slate-700 bg-slate-900 p-3">
             <code className="break-all text-sm text-slate-100">{setup.secret}</code>
           </div>

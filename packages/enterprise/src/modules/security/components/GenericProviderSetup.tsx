@@ -57,7 +57,7 @@ export default function GenericProviderSetup({
     try {
       const payload = parseJsonRecord(setupPayload)
       const response = await readApiResultOrThrow<SetupResponse>(
-        `/api/security/mfa/provider/${encodeURIComponent(providerType)}/setup`,
+        `/api/security/mfa/provider/${encodeURIComponent(providerType)}`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -89,9 +89,9 @@ export default function GenericProviderSetup({
         : parseJsonRecord(setupPayload)
 
       const response = await readApiResultOrThrow<ConfirmResponse>(
-        `/api/security/mfa/provider/${encodeURIComponent(providerType)}/confirm`,
+        `/api/security/mfa/provider/${encodeURIComponent(providerType)}`,
         {
-          method: 'POST',
+          method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ setupId, payload }),
         },

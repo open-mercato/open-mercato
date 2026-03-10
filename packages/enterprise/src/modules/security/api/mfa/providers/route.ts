@@ -9,6 +9,12 @@ const providersResponseSchema = z.object({
     label: z.string(),
     icon: z.string(),
     allowMultiple: z.boolean(),
+    components: z.object({
+      setup: z.string().optional(),
+      list: z.string().optional(),
+      details: z.string().optional(),
+      challenge: z.string().optional(),
+    }).optional(),
   })),
 })
 

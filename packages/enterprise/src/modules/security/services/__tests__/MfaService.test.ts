@@ -231,7 +231,7 @@ describe('MfaService', () => {
   })
 
   test('setupOtpEmail falls back to user email when payload email is missing', async () => {
-    const { service } = createServiceContext()
+    const { service, registry } = createServiceContext()
     mockedFindOneWithDecryption.mockResolvedValueOnce({
       id: 'user-1',
       tenantId: 'tenant-1',
@@ -240,26 +240,40 @@ describe('MfaService', () => {
       deletedAt: null,
     } as never)
 
-    const setupSpy = jest.spyOn(service, 'setupMethod').mockResolvedValueOnce({
+    const otpProvider = createProvider({
+      type: 'otp_email',
+      allowMultiple: false,
+      resolveSetupPayload: jest.fn((user, payload) => ({
+        ...(payload as Record<string, unknown>),
+        email: user.email,
+      })),
+      setup: jest.fn(async (_userId, payload) => ({
+        setupId: 'setup-otp-1',
+        clientData: payload as Record<string, unknown>,
+      })),
+    })
+    registry.register(otpProvider)
+
+    const result = await service.setupMethod('user-1', 'otp_email', { label: 'Work' })
+
+    expect(otpProvider.resolveSetupPayload).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'user@example.com',
+    }), { label: 'Work' })
+    expect(otpProvider.setup).toHaveBeenCalledWith('user-1', {
+      email: 'user@example.com',
+      label: 'Work',
+    })
+    expect(result).toEqual({
       setupId: 'setup-otp-1',
-      clientData: {},
-    })
-    const confirmSpy = jest.spyOn(service, 'confirmMethod').mockResolvedValueOnce({})
-
-    await service.setupOtpEmail('user-1', { label: 'Work' })
-
-    expect(setupSpy).toHaveBeenCalledWith('user-1', 'otp_email', {
-      email: 'user@example.com',
-      label: 'Work',
-    })
-    expect(confirmSpy).toHaveBeenCalledWith('user-1', 'setup-otp-1', {
-      email: 'user@example.com',
-      label: 'Work',
+      clientData: {
+        email: 'user@example.com',
+        label: 'Work',
+      },
     })
   })
 
   test('setupOtpEmail fails when neither payload nor user profile provides an email', async () => {
-    const { service } = createServiceContext()
+    const { service, registry } = createServiceContext()
     mockedFindOneWithDecryption.mockResolvedValueOnce({
       id: 'user-1',
       tenantId: 'tenant-1',
@@ -268,7 +282,18 @@ describe('MfaService', () => {
       deletedAt: null,
     } as never)
 
-    await expect(service.setupOtpEmail('user-1', {})).rejects.toThrow(
+    registry.register(createProvider({
+      type: 'otp_email',
+      allowMultiple: false,
+      resolveSetupPayload: jest.fn((user) => {
+        if (!user.email) {
+          throw new Error('Unable to configure Email OTP without a destination email')
+        }
+        return { email: user.email }
+      }),
+    }))
+
+    await expect(service.setupMethod('user-1', 'otp_email', {})).rejects.toThrow(
       'Unable to configure Email OTP without a destination email',
     )
   })

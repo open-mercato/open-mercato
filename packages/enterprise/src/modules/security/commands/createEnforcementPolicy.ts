@@ -47,10 +47,11 @@ registerCommand({
   async buildLog({ input, result, ctx }) {
     const { translate } = await resolveTranslations()
     const payload = input as CommandInput
+    const commandResult = result as { id: string }
     return {
       actionLabel: translate('security.audit.enforcement.create', 'Create enforcement policy'),
       resourceKind: 'security.enforcement_policy',
-      resourceId: result.id,
+      resourceId: commandResult.id,
       tenantId: payload.tenantId ?? null,
       organizationId: payload.organizationId ?? null,
       actorUserId: ctx.auth?.sub ?? null,

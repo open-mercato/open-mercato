@@ -12,6 +12,13 @@ export type MfaVerifyContext = {
   challenge?: Record<string, unknown> | null
 }
 
+export type MfaProviderUser = {
+  id: string
+  email?: string | null
+  tenantId: string
+  organizationId?: string | null
+}
+
 export interface MfaSetupComponentProps {
   clientData: Record<string, unknown>
   onConfirm: (payload: unknown) => Promise<void>
@@ -33,6 +40,7 @@ export interface MfaProviderInterface {
   readonly setupSchema: z.ZodSchema
   readonly verifySchema: z.ZodSchema
 
+  resolveSetupPayload?(user: MfaProviderUser, payload: unknown): Promise<unknown> | unknown
   setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }>
   confirmSetup(userId: string, setupId: string, payload: unknown): Promise<{ metadata: Record<string, unknown> }>
   prepareChallenge(
@@ -40,7 +48,57 @@ export interface MfaProviderInterface {
     method: MfaMethodRecord,
   ): Promise<{ clientData?: Record<string, unknown>; verifyContext?: MfaVerifyContext }>
   verify(userId: string, method: MfaMethodRecord, payload: unknown, context?: MfaVerifyContext): Promise<boolean>
+}
 
-  SetupComponent?: React.ComponentType<MfaSetupComponentProps>
-  VerifyComponent?: React.ComponentType<MfaVerifyComponentProps>
+export type MfaProviderComponents = {
+  setup?: string
+  list?: string
+  details?: string
+  challenge?: string
+}
+
+export type MfaProviderSetup = MfaProviderInterface & {
+  readonly components?: MfaProviderComponents
+}
+
+export function buildMfaProviderComponentHandles(providerType: string): Required<MfaProviderComponents> {
+  return {
+    setup: `section:security.mfa.setup.provider:${providerType}`,
+    list: `section:security.mfa.providers.list-item:${providerType}`,
+    details: `section:security.mfa.provider.details:${providerType}`,
+    challenge: `section:security.mfa.challenge.provider:${providerType}`,
+  }
+}
+
+export function createMfaProviderSetup(
+  provider: MfaProviderInterface,
+  components?: MfaProviderComponents,
+): MfaProviderSetup {
+  return {
+    type: provider.type,
+    label: provider.label,
+    icon: provider.icon,
+    allowMultiple: provider.allowMultiple,
+    setupSchema: provider.setupSchema,
+    verifySchema: provider.verifySchema,
+    resolveSetupPayload: provider.resolveSetupPayload?.bind(provider),
+    setup: provider.setup.bind(provider),
+    confirmSetup: provider.confirmSetup.bind(provider),
+    prepareChallenge: provider.prepareChallenge.bind(provider),
+    verify: provider.verify.bind(provider),
+    components,
+  }
+}
+
+export function isMfaProviderSetup(value: unknown): value is MfaProviderSetup {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<MfaProviderSetup>
+  return typeof candidate.type === 'string'
+    && typeof candidate.label === 'string'
+    && typeof candidate.icon === 'string'
+    && typeof candidate.allowMultiple === 'boolean'
+    && typeof candidate.setup === 'function'
+    && typeof candidate.confirmSetup === 'function'
+    && typeof candidate.prepareChallenge === 'function'
+    && typeof candidate.verify === 'function'
 }

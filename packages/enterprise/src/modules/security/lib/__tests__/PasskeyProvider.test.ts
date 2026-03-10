@@ -90,6 +90,26 @@ describe('PasskeyProvider', () => {
     expect(confirmation.metadata.counter).toBe(0)
   })
 
+  test('uses the user email as the default WebAuthn user name and display name', async () => {
+    const provider = new PasskeyProvider()
+    const resolvedPayload = provider.resolveSetupPayload?.(
+      {
+        id: 'user-1',
+        email: 'owner@example.com',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      {},
+    )
+
+    await provider.setup('user-1', resolvedPayload ?? {})
+
+    expect(generateRegistrationOptionsMock).toHaveBeenCalledWith(expect.objectContaining({
+      userName: 'owner@example.com',
+      userDisplayName: 'owner@example.com',
+    }))
+  })
+
   test('confirms setup across different provider instances', async () => {
     const setupProvider = new PasskeyProvider()
     const confirmProvider = new PasskeyProvider()

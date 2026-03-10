@@ -16,6 +16,12 @@ export type MfaProvider = {
   label: string
   icon: string
   allowMultiple: boolean
+  components?: {
+    setup?: string
+    list?: string
+    details?: string
+    challenge?: string
+  }
 }
 
 export interface SecurityModuleConfig {

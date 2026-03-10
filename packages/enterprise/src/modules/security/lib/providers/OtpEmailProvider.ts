@@ -2,7 +2,12 @@ import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
-import type { MfaMethodRecord, MfaProviderInterface, MfaVerifyContext } from '../mfa-provider-interface'
+import type {
+  MfaMethodRecord,
+  MfaProviderInterface,
+  MfaProviderUser,
+  MfaVerifyContext,
+} from '../mfa-provider-interface'
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from '../otp'
 import OtpCodeEmail from '../../emails/otp-code'
 
@@ -54,6 +59,23 @@ export class OtpEmailProvider implements MfaProviderInterface {
 
   private readonly pendingSetups = new Map<string, PendingSetup>()
   private readonly pendingChallenges = new Map<string, PendingOtpChallenge>()
+
+  resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
+    const parsed = setupPayloadSchema.partial().parse(payload ?? {})
+    if (parsed.email) {
+      return parsed
+    }
+
+    const email = typeof user.email === 'string' ? user.email.trim() : ''
+    if (email.length === 0) {
+      throw new Error('Unable to configure Email OTP without a destination email')
+    }
+
+    return {
+      ...parsed,
+      email,
+    }
+  }
 
   async setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
     const parsed = setupPayloadSchema.parse(payload ?? {})

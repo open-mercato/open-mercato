@@ -2,8 +2,11 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getModules } from '@open-mercato/shared/lib/modules/registry'
-import type { ModuleSetupConfig, ModuleSudoProtectedTarget } from '@open-mercato/shared/modules/setup'
+import {
+  dedupeSudoTargets,
+  getSecuritySudoTargetEntries,
+  type SecuritySudoTarget,
+} from '../lib/module-security-registry'
 import {
   ChallengeMethod,
   SudoChallengeConfig,
@@ -19,6 +22,7 @@ import type {
 import type { PasswordService } from './PasswordService'
 import type { MfaService } from './MfaService'
 import type { MfaVerificationService } from './MfaVerificationService'
+import { sudoTargets as defaultSudoTargets } from '../security.sudo'
 
 const PENDING_CHALLENGE_TTL_MS = 10 * 60 * 1000
 const DEFAULT_TTL_SECONDS = 300
@@ -423,22 +427,19 @@ export class SudoChallengeService {
   }
 
   private async ensureDeveloperDefaultsRegistered(): Promise<void> {
-    let modules: Array<{ setup?: ModuleSetupConfig }> = []
-    try {
-      modules = getModules()
-    } catch {
-      return
-    }
+    const registryEntries = getSecuritySudoTargetEntries()
+    const registryTargets = registryEntries.flatMap((entry) => entry.targets ?? [])
+    const fallbackTargets = registryEntries.length === 0 ? defaultSudoTargets : []
 
-    for (const module of modules) {
-      const declaredTargets = module.setup?.sudoProtected ?? []
-      for (const target of declaredTargets) {
-        await this.registerDeveloperDefault(this.readDeveloperDefault(target))
-      }
+    for (const target of dedupeSudoTargets([
+      ...registryTargets,
+      ...fallbackTargets,
+    ])) {
+      await this.registerDeveloperDefault(this.readDeveloperDefault(target))
     }
   }
 
-  private readDeveloperDefault(target: ModuleSudoProtectedTarget): DeveloperDefaultPayload {
+  private readDeveloperDefault(target: SecuritySudoTarget): DeveloperDefaultPayload {
     return {
       targetType: this.toTargetType(target.type),
       targetIdentifier: target.identifier,
@@ -605,7 +606,7 @@ export class SudoChallengeService {
       ?? 'open-mercato-sudo-secret'
   }
 
-  private toTargetType(type: ModuleSudoProtectedTarget['type']): SudoTargetType {
+  private toTargetType(type: SecuritySudoTarget['type']): SudoTargetType {
     switch (type) {
       case 'package':
         return SudoTargetType.PACKAGE
@@ -620,7 +621,7 @@ export class SudoChallengeService {
   }
 
   private toChallengeMethod(
-    method: ModuleSudoProtectedTarget['challengeMethod'],
+    method: SecuritySudoTarget['challengeMethod'],
   ): ChallengeMethod | undefined {
     switch (method) {
       case 'password':

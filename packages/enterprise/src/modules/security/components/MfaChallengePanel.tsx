@@ -11,6 +11,11 @@ export type MfaChallengeMethod = {
   type: string
   label: string
   icon: string
+  components?: {
+    list?: string
+    details?: string
+    challenge?: string
+  }
 }
 
 const RECOVERY_CODE_METHOD_TYPE = 'recovery_code'
@@ -176,7 +181,7 @@ export default function MfaChallengePanel({
 
   const selected = methods.find((method) => method.type === selectedMethod) ?? null
   const alternativeMethods = methods.filter((method) => method.type !== selectedMethod)
-  const ChallengeComponent = useProviderChallengeComponent(selected?.type ?? 'unknown')
+  const ChallengeComponent = useProviderChallengeComponent(selected ?? { type: 'unknown' })
 
   return (
     <section

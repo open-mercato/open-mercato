@@ -6,7 +6,12 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server'
 import { z } from 'zod'
-import type { MfaMethodRecord, MfaProviderInterface, MfaVerifyContext } from '../mfa-provider-interface'
+import type {
+  MfaMethodRecord,
+  MfaProviderInterface,
+  MfaProviderUser,
+  MfaVerifyContext,
+} from '../mfa-provider-interface'
 
 const SETUP_TTL_MS = 10 * 60 * 1000
 const CHALLENGE_TTL_MS = 5 * 60 * 1000
@@ -14,6 +19,7 @@ const SETUP_TOKEN_VERSION = 'v1'
 
 const setupPayloadSchema = z.object({
   label: z.string().min(1).max(100).optional(),
+  userName: z.string().min(1).max(255).optional(),
   authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
 })
 
@@ -74,14 +80,27 @@ export class PasskeyProvider implements MfaProviderInterface {
   readonly setupSchema = setupPayloadSchema
   readonly verifySchema = verifyPayloadSchema
 
+  resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
+    const parsed = setupPayloadSchema.parse(payload ?? {})
+    const email = typeof user.email === 'string' ? user.email.trim() : ''
+
+    return {
+      ...parsed,
+      ...(parsed.label || email.length === 0 ? {} : { label: email }),
+      ...(parsed.userName || email.length === 0 ? {} : { userName: email }),
+    }
+  }
+
   async setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
     const parsed = setupPayloadSchema.parse(payload ?? {})
+    const userName = parsed.userName ?? parsed.label ?? userId
+    const userDisplayName = parsed.label ?? parsed.userName ?? userId
     const options = await generateRegistrationOptions({
       rpName: this.getRpName(),
       rpID: this.getRpId(),
       userID: this.toWebAuthnUserId(userId),
-      userName: userId,
-      userDisplayName: parsed.label ?? userId,
+      userName,
+      userDisplayName,
       timeout: SETUP_TTL_MS,
       attestationType: 'none',
       authenticatorSelection: {

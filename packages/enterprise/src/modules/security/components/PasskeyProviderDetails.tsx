@@ -15,11 +15,12 @@ import type { MfaMethod } from '../types'
 
 type RegisterOptionsResponse = {
   setupId: string
-  options: Record<string, unknown>
+  clientData?: Record<string, unknown>
 }
 
 type RegisterResponse = {
   ok?: boolean
+  recoveryCodes?: string[]
 }
 
 function readErrorMessage(error: unknown): string {
@@ -76,7 +77,7 @@ export default function PasskeyProviderDetails({
     setLoading(true)
     try {
       const optionsResult = await readApiResultOrThrow<RegisterOptionsResponse>(
-        '/api/security/mfa/passkey/register-options',
+        '/api/security/mfa/provider/passkey',
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -87,18 +88,20 @@ export default function PasskeyProviderDetails({
       )
 
       const registrationResponse = await startRegistration({
-        optionsJSON: (optionsResult.options ?? {}) as never,
+        optionsJSON: (optionsResult.clientData ?? {}) as never,
       })
 
       await readApiResultOrThrow<RegisterResponse>(
-        '/api/security/mfa/passkey/register',
+        '/api/security/mfa/provider/passkey',
         {
-          method: 'POST',
+          method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             setupId: optionsResult.setupId,
-            response: registrationResponse,
-            label: label.trim() || undefined,
+            payload: {
+              response: registrationResponse,
+              label: label.trim() || undefined,
+            },
           }),
         },
       )

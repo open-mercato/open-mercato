@@ -38,7 +38,7 @@ function ProviderListCell({ row, onOpenProvider }: ProviderListCellProps) {
 
   const provider = row.provider
   if (!provider) return null
-  const ListComponent = useProviderListComponent(provider.type)
+  const ListComponent = useProviderListComponent(provider)
 
   return (
     <ListComponent

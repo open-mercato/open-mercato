@@ -2,21 +2,12 @@
 
 import * as React from 'react'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { buildMfaProviderComponentHandles } from '../lib/mfa-provider-interface'
 import GenericProviderSetup from './GenericProviderSetup'
 import GenericProviderVerify from './GenericProviderVerify'
-import OtpEmailChallengeVerify from './OtpEmailChallengeVerify'
-import OtpEmailProviderDetails from './OtpEmailProviderDetails'
-import PasskeyChallengeVerify from './PasskeyChallengeVerify'
-import PasskeyProviderDetails from './PasskeyProviderDetails'
-import RecoveryCodeChallengeVerify from './RecoveryCodeChallengeVerify'
-import TotpChallengeVerify from './TotpChallengeVerify'
-import TotpProviderDetails from './TotpProviderDetails'
 import type { MfaMethod, MfaProvider } from '../types'
 import type { MfaChallengeMethod } from './MfaChallengePanel'
 import GenericMfaProviderListItem from './mfa-provider-list-items/GenericMfaProviderListItem'
-import OtpEmailProviderListItem from './mfa-provider-list-items/OtpEmailProviderListItem'
-import PasskeyProviderListItem from './mfa-provider-list-items/PasskeyProviderListItem'
-import TotpProviderListItem from './mfa-provider-list-items/TotpProviderListItem'
 import MfaProviderMethodListItem from './MfaProviderMethodListItem'
 
 export type ProviderSetupComponentProps = {
@@ -26,14 +17,6 @@ export type ProviderSetupComponentProps = {
 }
 
 type ProviderSetupComponent = React.ComponentType<ProviderSetupComponentProps>
-
-function TotpProviderSetupComponent() {
-  return <TotpProviderDetails />
-}
-
-function PasskeyProviderSetupComponent() {
-  return <PasskeyProviderDetails />
-}
 
 function GenericProviderSetupComponent({
   provider,
@@ -50,22 +33,15 @@ function GenericProviderSetupComponent({
   )
 }
 
-const builtInSetupComponents: Record<string, ProviderSetupComponent> = {
-  totp: TotpProviderSetupComponent,
-  passkey: PasskeyProviderSetupComponent,
-}
-
-export function getProviderSetupComponentId(providerType: string): string {
-  return `section:security.mfa.setup.provider:${providerType}`
-}
-
-export function useProviderSetupComponent(providerType: string): ProviderSetupComponent {
-  const fallback = React.useMemo<ProviderSetupComponent>(() => {
-    return builtInSetupComponents[providerType] ?? GenericProviderSetupComponent
-  }, [providerType])
+export function useProviderSetupComponent(provider: {
+  type: string
+  label: string
+  components?: MfaProvider['components']
+}): ProviderSetupComponent {
+  const fallback = React.useMemo<ProviderSetupComponent>(() => GenericProviderSetupComponent, [])
 
   return useRegisteredComponent<ProviderSetupComponentProps>(
-    getProviderSetupComponentId(providerType),
+    provider.components?.setup ?? buildMfaProviderComponentHandles(provider.type).setup,
     fallback,
   )
 }
@@ -78,23 +54,11 @@ export type ProviderListComponentProps = {
 
 type ProviderListComponent = React.ComponentType<ProviderListComponentProps>
 
-const builtInListComponents: Record<string, ProviderListComponent> = {
-  otp_email: OtpEmailProviderListItem,
-  passkey: PasskeyProviderListItem,
-  totp: TotpProviderListItem,
-}
-
-export function getProviderListComponentId(providerType: string): string {
-  return `section:security.mfa.providers.list-item:${providerType}`
-}
-
-export function useProviderListComponent(providerType: string): ProviderListComponent {
-  const fallback = React.useMemo<ProviderListComponent>(() => {
-    return builtInListComponents[providerType] ?? GenericMfaProviderListItem
-  }, [providerType])
+export function useProviderListComponent(provider: MfaProvider): ProviderListComponent {
+  const fallback = React.useMemo<ProviderListComponent>(() => GenericMfaProviderListItem, [])
 
   return useRegisteredComponent<ProviderListComponentProps>(
-    getProviderListComponentId(providerType),
+    provider.components?.list ?? buildMfaProviderComponentHandles(provider.type).list,
     fallback,
   )
 }
@@ -108,42 +72,6 @@ export type ProviderDetailsComponentProps = {
 }
 
 type ProviderDetailsComponent = React.ComponentType<ProviderDetailsComponentProps>
-
-function TotpProviderDetailsComponent() {
-  return <TotpProviderDetails />
-}
-
-function PasskeyProviderDetailsComponent({
-  methods,
-  saving,
-  onRemoveMethod,
-  onMethodsChanged,
-}: ProviderDetailsComponentProps) {
-  return (
-    <PasskeyProviderDetails
-      methods={methods}
-      saving={saving}
-      onRemoveMethod={onRemoveMethod}
-      onMethodAdded={onMethodsChanged}
-    />
-  )
-}
-
-function OtpEmailProviderDetailsComponent({
-  methods,
-  saving,
-  onRemoveMethod,
-  onMethodsChanged,
-}: ProviderDetailsComponentProps) {
-  return (
-    <OtpEmailProviderDetails
-      methods={methods}
-      saving={saving}
-      onRemoveMethod={onRemoveMethod}
-      onMethodsChanged={onMethodsChanged}
-    />
-  )
-}
 
 function GenericProviderDetailsComponent({
   provider,
@@ -179,23 +107,11 @@ function GenericProviderDetailsComponent({
   )
 }
 
-const builtInProviderDetailsComponents: Record<string, ProviderDetailsComponent> = {
-  otp_email: OtpEmailProviderDetailsComponent,
-  totp: TotpProviderDetailsComponent,
-  passkey: PasskeyProviderDetailsComponent,
-}
-
-export function getProviderDetailsComponentId(providerType: string): string {
-  return `section:security.mfa.provider.details:${providerType}`
-}
-
-export function useProviderDetailsComponent(providerType: string): ProviderDetailsComponent {
-  const fallback = React.useMemo<ProviderDetailsComponent>(() => {
-    return builtInProviderDetailsComponents[providerType] ?? GenericProviderDetailsComponent
-  }, [providerType])
+export function useProviderDetailsComponent(provider: MfaProvider): ProviderDetailsComponent {
+  const fallback = React.useMemo<ProviderDetailsComponent>(() => GenericProviderDetailsComponent, [])
 
   return useRegisteredComponent<ProviderDetailsComponentProps>(
-    getProviderDetailsComponentId(providerType),
+    provider.components?.details ?? buildMfaProviderComponentHandles(provider.type).details,
     fallback,
   )
 }
@@ -211,42 +127,6 @@ export type ProviderChallengeComponentProps = {
 
 type ProviderChallengeComponent = React.ComponentType<ProviderChallengeComponentProps>
 
-function PasskeyProviderChallengeComponent({
-  loading,
-  onPrepare,
-  onVerify,
-}: ProviderChallengeComponentProps) {
-  return <PasskeyChallengeVerify loading={loading} onPrepare={onPrepare} onVerify={onVerify} />
-}
-
-function TotpProviderChallengeComponent({
-  onVerify,
-  submitLabel,
-}: ProviderChallengeComponentProps) {
-  return <TotpChallengeVerify onVerify={onVerify} submitLabel={submitLabel} />
-}
-
-function RecoveryCodeProviderChallengeComponent({
-  onVerify,
-  submitLabel,
-}: ProviderChallengeComponentProps) {
-  return <RecoveryCodeChallengeVerify onVerify={onVerify} submitLabel={submitLabel} />
-}
-
-function OtpEmailProviderChallengeComponent({
-  onVerify,
-  onResend,
-  submitLabel,
-}: ProviderChallengeComponentProps) {
-  return (
-    <OtpEmailChallengeVerify
-      onVerify={onVerify}
-      onResend={onResend}
-      submitLabel={submitLabel}
-    />
-  )
-}
-
 function GenericProviderChallengeComponent({
   onVerify,
   onResend,
@@ -261,24 +141,11 @@ function GenericProviderChallengeComponent({
   )
 }
 
-const builtInChallengeComponents: Record<string, ProviderChallengeComponent> = {
-  otp_email: OtpEmailProviderChallengeComponent,
-  passkey: PasskeyProviderChallengeComponent,
-  totp: TotpProviderChallengeComponent,
-  recovery_code: RecoveryCodeProviderChallengeComponent,
-}
-
-export function getProviderChallengeComponentId(providerType: string): string {
-  return `section:security.mfa.challenge.provider:${providerType}`
-}
-
-export function useProviderChallengeComponent(providerType: string): ProviderChallengeComponent {
-  const fallback = React.useMemo<ProviderChallengeComponent>(() => {
-    return builtInChallengeComponents[providerType] ?? GenericProviderChallengeComponent
-  }, [providerType])
+export function useProviderChallengeComponent(method: { type: string; components?: MfaProvider['components'] }): ProviderChallengeComponent {
+  const fallback = React.useMemo<ProviderChallengeComponent>(() => GenericProviderChallengeComponent, [])
 
   return useRegisteredComponent<ProviderChallengeComponentProps>(
-    getProviderChallengeComponentId(providerType),
+    method.components?.challenge ?? buildMfaProviderComponentHandles(method.type).challenge,
     fallback,
   )
 }

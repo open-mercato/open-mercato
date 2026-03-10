@@ -20,6 +20,12 @@ type ProviderDisplay = {
   label: string
   icon: string
   allowMultiple: boolean
+  components?: {
+    setup?: string
+    list?: string
+    details?: string
+    challenge?: string
+  }
 }
 
 export class MfaServiceError extends Error {
@@ -61,7 +67,16 @@ export class MfaService {
       }
     }
 
-    const result = await provider.setup(userId, payload)
+    const resolvedPayload = provider.resolveSetupPayload
+      ? await provider.resolveSetupPayload({
+        id: user.id,
+        email: user.email ?? null,
+        tenantId: user.tenantId,
+        organizationId: user.organizationId ?? null,
+      }, payload)
+      : payload
+
+    const result = await provider.setup(userId, resolvedPayload)
     const now = new Date()
     const method = this.em.create(UserMfaMethod, {
       userId,
@@ -130,92 +145,6 @@ export class MfaService {
     return { recoveryCodes }
   }
 
-  async setupTotp(
-    userId: string,
-    label?: string,
-  ): Promise<{ setupId: string; uri: string; secret: string; qrDataUrl: string }> {
-    const result = await this.setupMethod(userId, 'totp', label ? { label } : {})
-    const uri = this.readString(result.clientData, 'uri')
-    const secret = this.readString(result.clientData, 'secret')
-    const qrDataUrl = this.readString(result.clientData, 'qrDataUrl')
-    return { setupId: result.setupId, uri, secret, qrDataUrl }
-  }
-
-  async confirmTotp(
-    userId: string,
-    setupId: string,
-    code: string,
-  ): Promise<{ recoveryCodes?: string[] }> {
-    return this.confirmMethod(userId, setupId, { code })
-  }
-
-  async getRegistrationOptions(
-    userId: string,
-    payload?: Record<string, unknown>,
-  ): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
-    const result = await this.setupMethod(userId, 'passkey', payload ?? {})
-    return {
-      setupId: result.setupId,
-      clientData: result.clientData,
-    }
-  }
-
-  async completeRegistration(
-    userId: string,
-    credential: Record<string, unknown>,
-    label?: string,
-  ): Promise<{ recoveryCodes?: string[] }> {
-    const setupId = this.readString(credential, 'setupId')
-    const payload = label ? { ...credential, label } : credential
-    return this.confirmMethod(userId, setupId, payload)
-  }
-
-  async setupOtpEmail(
-    userId: string,
-    payload?: Record<string, unknown>,
-  ): Promise<{ recoveryCodes?: string[] }> {
-    const resolvedPayload = { ...(payload ?? {}) }
-    const hasPayloadEmail = typeof resolvedPayload.email === 'string' && resolvedPayload.email.length > 0
-    if (!hasPayloadEmail) {
-      const user = await this.findUserById(userId)
-      const userEmail = typeof user?.email === 'string' ? user.email : ''
-      if (userEmail.length === 0) {
-        throw new MfaServiceError('Unable to configure Email OTP without a destination email', 400)
-      }
-      resolvedPayload.email = userEmail
-    }
-
-    const setup = await this.setupMethod(userId, 'otp_email', resolvedPayload)
-    return this.confirmMethod(userId, setup.setupId, resolvedPayload)
-  }
-
-  async sendOtpEmail(userId: string, challengeId: string): Promise<void> {
-    const method = await this.em.findOne(UserMfaMethod, {
-      userId,
-      type: 'otp_email',
-      isActive: true,
-      deletedAt: null,
-    })
-    if (!method) {
-      throw new MfaServiceError('Email OTP method is not configured', 400)
-    }
-    const provider = this.mfaProviderRegistry.get('otp_email')
-    if (!provider) {
-      throw new MfaServiceError("MFA provider 'otp_email' is not registered", 400)
-    }
-    await provider.prepareChallenge(userId, {
-      id: method.id,
-      type: method.type,
-      userId: method.userId,
-      providerMetadata: method.providerMetadata,
-    })
-    await emitSecurityEvent('security.mfa.otp.sent', {
-      userId,
-      challengeId,
-      methodId: method.id,
-    })
-  }
-
   async getUserMethods(userId: string): Promise<UserMfaMethod[]> {
     return this.em.find(
       UserMfaMethod,
@@ -238,6 +167,7 @@ export class MfaService {
       label: provider.label,
       icon: provider.icon,
       allowMultiple: provider.allowMultiple,
+      ...(provider.components ? { components: provider.components } : {}),
     }))
   }
 
@@ -357,15 +287,6 @@ export class MfaService {
     const value = metadata.label
     return typeof value === 'string' && value.length > 0 ? value : null
   }
-
-  private readString(record: Record<string, unknown>, key: string): string {
-    const value = record[key]
-    if (typeof value !== 'string' || value.length === 0) {
-      throw new MfaServiceError(`Provider response is missing '${key}'`, 500)
-    }
-    return value
-  }
-
   private async findUserById(userId: string): Promise<User | null> {
     return findOneWithDecryption(this.em, User, { id: userId, deletedAt: null }, undefined, {})
   }
