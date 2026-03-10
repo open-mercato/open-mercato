@@ -422,14 +422,15 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       { method: 'POST' },
       { fallback: null },
     )
-    if (call.ok && call.result) {
-      setLatestHealthResult(call.result)
+    const result = call.result
+    if (call.ok && result) {
+      setLatestHealthResult(result)
       setDetail((prev) => prev ? {
         ...prev,
         state: {
           ...prev.state,
-          lastHealthStatus: call.result.status,
-          lastHealthCheckedAt: call.result.checkedAt,
+          lastHealthStatus: result.status,
+          lastHealthCheckedAt: result.checkedAt,
         },
       } : prev)
       void loadLogs()

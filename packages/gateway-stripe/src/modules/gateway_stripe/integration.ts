@@ -18,11 +18,17 @@ export const integration: IntegrationDefinition = {
   tags: ['cards', 'apple-pay', 'google-pay', 'bank-transfer', 'checkout'],
   apiVersions: [
     {
-      id: '2024-12-18',
-      label: 'v2024-12-18 (latest)',
+      id: '2025-02-24.acacia',
+      label: 'v2025-02-24.acacia (latest)',
       status: 'stable',
       default: true,
-      changelog: 'Payment Intents v2, improved error codes, enhanced refund metadata',
+      changelog: 'Latest acacia release supported by the installed Stripe SDK.',
+    },
+    {
+      id: '2024-12-18',
+      label: 'v2024-12-18',
+      status: 'stable',
+      changelog: 'Pinned compatibility release for tenants already using the 2024-12-18 version slot.',
     },
     {
       id: '2023-10-16',

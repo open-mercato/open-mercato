@@ -152,6 +152,7 @@
   "auth.users.widgets.mode.override": "Zastąp dla tego użytkownika",
   "auth.usersRoles": "Użytkownicy i role",
   "backend.nav.settings": "Ustawienia",
+  "backend.nav.externalSystems": "Systemy zewnetrzne",
   "backend.nav.settingsAdmin": "Administracja",
   "profile.page.description": "Zarządzaj ustawieniami konta",
   "profile.page.selectItem": "Wybierz element z menu, aby zarządzać swoim kontem.",

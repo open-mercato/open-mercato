@@ -45,7 +45,12 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       sessionId: paymentIntent.id,
       clientSecret: paymentIntent.client_secret ?? undefined,
       status: mapStripeStatus(paymentIntent.status),
-      providerData: { paymentIntentId: paymentIntent.id },
+      providerData: {
+        paymentIntentId: paymentIntent.id,
+        publishableKey: typeof input.credentials.publishableKey === 'string'
+          ? input.credentials.publishableKey
+          : undefined,
+      },
     }
   },
 

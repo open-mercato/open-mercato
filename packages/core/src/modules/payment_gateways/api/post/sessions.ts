@@ -43,8 +43,10 @@ export async function POST(req: Request) {
     return NextResponse.json({
       transactionId: transaction.id,
       sessionId: session.sessionId,
+      providerKey: transaction.providerKey,
       clientSecret: session.clientSecret,
       redirectUrl: session.redirectUrl,
+      providerData: session.providerData ?? null,
       status: session.status,
       paymentId: transaction.paymentId,
     }, { status: 201 })

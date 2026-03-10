@@ -99,3 +99,35 @@ export async function cancelPayment(
   }
   return response.json()
 }
+
+export async function listTransactions(
+  request: APIRequestContext,
+  token: string,
+): Promise<{ items: Array<{ id: string; paymentId: string }>; total: number }> {
+  const response = await apiRequest(request, 'GET', '/api/payment_gateways/transactions', {
+    token,
+  })
+  if (!response.ok()) {
+    const body = await response.text()
+    throw new Error(`Failed to list transactions: ${response.status()} ${body}`)
+  }
+  return response.json()
+}
+
+export async function getTransactionDetails(
+  request: APIRequestContext,
+  token: string,
+  transactionId: string,
+): Promise<{
+  transaction: { id: string; paymentId: string; unifiedStatus: string; webhookLog?: unknown[] | null }
+  logs: Array<{ id: string; message: string }>
+}> {
+  const response = await apiRequest(request, 'GET', `/api/payment_gateways/transactions/${transactionId}`, {
+    token,
+  })
+  if (!response.ok()) {
+    const body = await response.text()
+    throw new Error(`Failed to get transaction details: ${response.status()} ${body}`)
+  }
+  return response.json()
+}

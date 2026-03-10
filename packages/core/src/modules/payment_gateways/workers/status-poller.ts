@@ -39,12 +39,19 @@ export default async function handle(job: QueuedJob<PollerJobPayload>, ctx: Hand
       })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown polling error'
-      await integrationLogService.scoped(`gateway_${transaction.providerKey}`, {
+      await integrationLogService.write({
+        integrationId: `gateway_${transaction.providerKey}`,
+        scopeEntityType: 'payment_transaction',
+        scopeEntityId: transaction.id,
+        level: 'error',
+        message: 'Payment status polling failed',
+        payload: {
+          transactionId: transaction.id,
+          message,
+        },
+      }, {
         organizationId: transaction.organizationId,
         tenantId: transaction.tenantId,
-      }).error('Payment status polling failed', {
-        transactionId: transaction.id,
-        message,
       })
     }
   }

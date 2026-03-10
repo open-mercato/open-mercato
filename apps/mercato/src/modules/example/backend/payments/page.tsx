@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from 'react'
 import { useState, useEffect } from 'react'
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
@@ -11,6 +12,8 @@ import { WebhookSetupGuide } from '@open-mercato/ui/backend/WebhookSetupGuide'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { stripeWebhookSetupGuide } from '@open-mercato/gateway-stripe/modules/gateway_stripe/webhook-guide'
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js'
+import { loadStripe } from '@stripe/stripe-js'
 import {
   CreditCard,
   RefreshCw,
@@ -26,10 +29,15 @@ import {
 interface TransactionState {
   transactionId: string
   sessionId: string
+  providerKey?: string
   status: string
   paymentId: string
   clientSecret?: string
   redirectUrl?: string
+  providerData?: {
+    publishableKey?: string | null
+    paymentIntentId?: string | null
+  } | null
 }
 
 const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -42,6 +50,144 @@ const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructiv
   cancelled: 'destructive',
   failed: 'destructive',
   expired: 'secondary',
+}
+
+function mapStripeIntentStatus(status: string | undefined): string {
+  if (!status) return 'pending'
+  if (status === 'requires_capture') return 'authorized'
+  if (status === 'succeeded') return 'captured'
+  if (status === 'canceled') return 'cancelled'
+  if (status === 'requires_payment_method' || status === 'requires_action' || status === 'processing') return 'pending'
+  return status
+}
+
+type StripePaymentPanelProps = {
+  clientSecret: string
+  publishableKey: string
+  disabled?: boolean
+  onError: (message: string) => void
+  onSuccess: (message: string, nextStatus?: string) => void
+}
+
+function StripePaymentPanel({
+  clientSecret,
+  publishableKey,
+  disabled = false,
+  onError,
+  onSuccess,
+}: StripePaymentPanelProps) {
+  const stripePromise = React.useMemo(() => loadStripe(publishableKey), [publishableKey])
+
+  return (
+    <Elements stripe={stripePromise}>
+      <StripePaymentForm
+        clientSecret={clientSecret}
+        disabled={disabled}
+        onError={onError}
+        onSuccess={onSuccess}
+      />
+    </Elements>
+  )
+}
+
+type StripePaymentFormProps = {
+  clientSecret: string
+  disabled?: boolean
+  onError: (message: string) => void
+  onSuccess: (message: string, nextStatus?: string) => void
+}
+
+function StripePaymentForm({
+  clientSecret,
+  disabled = false,
+  onError,
+  onSuccess,
+}: StripePaymentFormProps) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const handleConfirmPayment = React.useCallback(async () => {
+    if (!stripe || !elements) return
+    const cardElement = elements.getElement(CardElement)
+    if (!cardElement) {
+      onError('Payment form is not ready yet.')
+      return
+    }
+
+    setIsSubmitting(true)
+    onError('')
+
+    try {
+      const result = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement,
+        },
+      })
+
+      if (result.error) {
+        onError(result.error.message ?? 'Stripe payment confirmation failed.')
+        return
+      }
+
+      const paymentIntentStatus = result.paymentIntent?.status
+      const nextStatus = mapStripeIntentStatus(paymentIntentStatus)
+      const successMessage = paymentIntentStatus === 'requires_capture'
+        ? 'Payment authorized successfully. Use Capture to settle the funds.'
+        : 'Payment confirmed successfully.'
+
+      onSuccess(successMessage, nextStatus)
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Stripe payment confirmation failed.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [clientSecret, elements, onError, onSuccess, stripe])
+
+  return (
+    <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold">Complete Stripe payment</p>
+        <p className="text-sm text-muted-foreground">
+          Enter a test card, confirm the payment, then use Capture if the payment becomes authorized.
+        </p>
+      </div>
+
+      <div className="rounded-md border bg-background px-3 py-3">
+        <CardElement
+          options={{
+            hidePostalCode: true,
+            style: {
+              base: {
+                color: 'var(--foreground)',
+                fontSize: '16px',
+                '::placeholder': {
+                  color: 'var(--muted-foreground)',
+                },
+              },
+              invalid: {
+                color: '#ef4444',
+              },
+            },
+          }}
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          onClick={() => void handleConfirmPayment()}
+          disabled={disabled || isSubmitting || !stripe || !elements}
+        >
+          {isSubmitting ? <Spinner className="mr-2 size-4" /> : <CreditCard className="mr-2 size-4" />}
+          Confirm test payment
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Use Stripe test card `4242 4242 4242 4242`, any future date, any CVC.
+        </p>
+      </div>
+    </div>
+  )
 }
 
 export default function PaymentGatewayDemoPage() {
@@ -95,6 +241,9 @@ export default function PaymentGatewayDemoPage() {
         setError(t('example.payments.error.invalidResponse', 'Invalid response payload'))
         return
       }
+      if (data.redirectUrl) {
+        window.open(data.redirectUrl, '_blank', 'noopener,noreferrer')
+      }
       setTransaction(data)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -143,6 +292,16 @@ export default function PaymentGatewayDemoPage() {
   const canCapture = transaction?.status === 'authorized'
   const canRefund = transaction?.status === 'captured' || transaction?.status === 'partially_captured'
   const canCancel = transaction?.status === 'authorized' || transaction?.status === 'pending'
+  const stripePublishableKey = typeof transaction?.providerData?.publishableKey === 'string'
+    ? transaction.providerData.publishableKey
+    : undefined
+  const showStripePaymentPanel = transaction?.providerKey === 'stripe'
+    && typeof transaction.clientSecret === 'string'
+    && transaction.clientSecret.length > 0
+    && typeof stripePublishableKey === 'string'
+    && stripePublishableKey.length > 0
+    && !transaction.redirectUrl
+    && transaction.status === 'pending'
 
   return (
     <Page>
@@ -253,27 +412,43 @@ export default function PaymentGatewayDemoPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                  {transaction.providerKey && (
+                    <>
+                      <span className="font-medium text-muted-foreground">Provider</span>
+                      <span>{transaction.providerKey}</span>
+                    </>
+                  )}
                   <span className="font-medium text-muted-foreground">Transaction ID</span>
                   <span className="font-mono text-xs">{transaction.transactionId}</span>
                   <span className="font-medium text-muted-foreground">Session ID</span>
                   <span className="font-mono text-xs">{transaction.sessionId}</span>
                   <span className="font-medium text-muted-foreground">Payment ID</span>
                   <span className="font-mono text-xs">{transaction.paymentId}</span>
-                  {transaction.clientSecret && (
-                    <>
-                      <span className="font-medium text-muted-foreground">Client Secret</span>
-                      <span className="font-mono text-xs">{transaction.clientSecret}</span>
-                    </>
-                  )}
                   {transaction.redirectUrl && (
                     <>
-                      <span className="font-medium text-muted-foreground">Redirect URL</span>
+                      <span className="font-medium text-muted-foreground">Payment page</span>
                       <a href={transaction.redirectUrl} target="_blank" rel="noreferrer" className="text-primary underline text-xs break-all">
-                        {transaction.redirectUrl}
+                        Open hosted payment page
                       </a>
                     </>
                   )}
                 </div>
+
+                {showStripePaymentPanel ? (
+                  <StripePaymentPanel
+                    clientSecret={transaction.clientSecret!}
+                    publishableKey={stripePublishableKey!}
+                    disabled={loading}
+                    onError={(message) => setError(message || null)}
+                    onSuccess={(message, nextStatus) => {
+                      setActionResult(message)
+                      if (nextStatus) {
+                        setTransaction((prev) => prev ? { ...prev, status: nextStatus } : prev)
+                      }
+                      void refreshStatus()
+                    }}
+                  />
+                ) : null}
 
                 {/* Lifecycle Actions */}
                 <div className="flex items-center gap-2 pt-2 border-t">

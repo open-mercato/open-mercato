@@ -19,11 +19,13 @@ import { mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
 import { toCents, fromCents, buildStripeMetadata } from '../shared'
 import { verifyStripeWebhook } from '../webhook-handler'
 
-export const stripeAdapterV20231016: GatewayAdapter = {
+const STRIPE_API_VERSION = '2025-02-24.acacia'
+
+export const stripeAdapterV20250224Acacia: GatewayAdapter = {
   providerKey: 'stripe',
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: toCents(input.amount),
@@ -53,10 +55,12 @@ export const stripeAdapterV20231016: GatewayAdapter = {
   },
 
   async capture(input: CaptureInput): Promise<CaptureResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+
     const captured = await stripe.paymentIntents.capture(input.sessionId, {
       amount_to_capture: input.amount ? toCents(input.amount) : undefined,
     })
+
     return {
       status: mapStripeStatus(captured.status),
       capturedAmount: fromCents(captured.amount_received),
@@ -65,11 +69,14 @@ export const stripeAdapterV20231016: GatewayAdapter = {
   },
 
   async refund(input: RefundInput): Promise<RefundResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+
     const refund = await stripe.refunds.create({
       payment_intent: input.sessionId,
       amount: input.amount ? toCents(input.amount) : undefined,
+      metadata: input.metadata as Record<string, string> | undefined,
     })
+
     return {
       refundId: refund.id,
       status: refund.status === 'succeeded' ? 'refunded' : 'pending',
@@ -78,13 +85,20 @@ export const stripeAdapterV20231016: GatewayAdapter = {
   },
 
   async cancel(input: CancelInput): Promise<CancelResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
-    const cancelled = await stripe.paymentIntents.cancel(input.sessionId)
-    return { status: mapStripeStatus(cancelled.status) }
+    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+
+    const cancelled = await stripe.paymentIntents.cancel(input.sessionId, {
+      cancellation_reason: 'requested_by_customer',
+    })
+
+    return {
+      status: mapStripeStatus(cancelled.status),
+    }
   },
 
   async getStatus(input: GetStatusInput): Promise<GatewayPaymentStatus> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+
     const pi = await stripe.paymentIntents.retrieve(input.sessionId)
     return {
       status: mapStripeStatus(pi.status),

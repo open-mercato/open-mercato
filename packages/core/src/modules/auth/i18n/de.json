@@ -152,6 +152,7 @@
   "auth.users.widgets.mode.override": "Für diesen Benutzer überschreiben",
   "auth.usersRoles": "Benutzer und Rollen",
   "backend.nav.settings": "Einstellungen",
+  "backend.nav.externalSystems": "Externe Systeme",
   "backend.nav.settingsAdmin": "Administration",
   "profile.page.description": "Verwalte deine Kontoeinstellungen",
   "profile.page.selectItem": "Wähle ein Element aus dem Menü, um dein Konto zu verwalten.",

@@ -5,7 +5,7 @@ import type { IntegrationCredentialWebhookHelp } from '@open-mercato/shared/modu
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Badge } from '../primitives/badge'
 import { Button } from '../primitives/button'
-import { ExternalLink, ChevronDown, ChevronRight, Globe, Webhook } from 'lucide-react'
+import { ChevronDown, ChevronRight, Globe, Webhook } from 'lucide-react'
 
 export type WebhookSetupGuideProps = {
   guide: IntegrationCredentialWebhookHelp

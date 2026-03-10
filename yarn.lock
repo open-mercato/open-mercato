@@ -5403,6 +5403,8 @@ __metadata:
     "@radix-ui/react-label": "npm:^2.1.8"
     "@radix-ui/react-slot": "npm:^1.2.4"
     "@react-email/components": "npm:^1.0.1"
+    "@stripe/react-stripe-js": "npm:^3.9.0"
+    "@stripe/stripe-js": "npm:^7.8.0"
     "@tailwindcss/postcss": "npm:^4.1.17"
     "@tanstack/react-query": "npm:^5.90.12"
     "@tanstack/react-table": "npm:^8.20.5"
@@ -7272,6 +7274,26 @@ __metadata:
   version: 1.1.0
   resolution: "@standard-schema/spec@npm:1.1.0"
   checksum: 10/a209615c9e8b2ea535d7db0a5f6aa0f962fd4ab73ee86a46c100fb78116964af1f55a27c1794d4801e534a196794223daa25ff5135021e03c7828aa3d95e1763
+  languageName: node
+  linkType: hard
+
+"@stripe/react-stripe-js@npm:^3.9.0":
+  version: 3.10.0
+  resolution: "@stripe/react-stripe-js@npm:3.10.0"
+  dependencies:
+    prop-types: "npm:^15.7.2"
+  peerDependencies:
+    "@stripe/stripe-js": ">=1.44.1 <8.0.0"
+    react: ">=16.8.0 <20.0.0"
+    react-dom: ">=16.8.0 <20.0.0"
+  checksum: 10/f498796c7cf2fb9892ccb0a22a0eedd28f710707324cb2e0e94be2f726deae59c356e1e7ee50149714f6f66fd5b06b090b2f13a4c45f0eed964a145ad4add912
+  languageName: node
+  linkType: hard
+
+"@stripe/stripe-js@npm:^7.8.0":
+  version: 7.9.0
+  resolution: "@stripe/stripe-js@npm:7.9.0"
+  checksum: 10/8d568df3cdaa6d5a9de69751388dd7363081634b8e23045c4580950b80af40cb75e72021e5e36b8aea3fc5df27369902f63255bf3a277dadafdae975d2347bbf
   languageName: node
   linkType: hard
 

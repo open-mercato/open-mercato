@@ -33,6 +33,25 @@ function readSessionIdFromEvent(event: WebhookEvent): string | null {
   return null
 }
 
+async function writeTransactionLog(
+  integrationLogService: IntegrationLogService,
+  providerKey: string,
+  scope: { organizationId: string; tenantId: string },
+  transactionId: string,
+  level: 'info' | 'warn' | 'error',
+  message: string,
+  payload?: Record<string, unknown>,
+) {
+  await integrationLogService.write({
+    integrationId: `gateway_${providerKey}`,
+    scopeEntityType: 'payment_transaction',
+    scopeEntityId: transactionId,
+    level,
+    message,
+    payload: payload ?? null,
+  }, scope)
+}
+
 export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
   const service = ctx.resolve<PaymentGatewayService>('paymentGatewayService')
@@ -52,34 +71,30 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
   if (!transaction) return
 
   const scope = { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
-  const log = integrationLogService.scoped(`gateway_${providerKey}`, scope)
   const duplicate = await checkWebhookIdempotency(em, event.idempotencyKey, providerKey, scope.organizationId)
   if (duplicate) {
-    await log.info('Duplicate payment gateway webhook skipped', {
+    await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Duplicate payment gateway webhook skipped', {
       eventType: event.eventType,
       idempotencyKey: event.idempotencyKey,
-      transactionId: transaction.id,
     })
     return
   }
 
   const adapter = getGatewayAdapter(providerKey)
   if (!adapter) {
-    await log.warn('Missing payment gateway adapter for webhook event', {
+    await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'warn', 'Missing payment gateway adapter for webhook event', {
       providerKey,
       eventType: event.eventType,
-      transactionId: transaction.id,
     })
     return
   }
 
   const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
   const unifiedStatus = adapter.mapStatus(providerStatus, event.eventType)
-  await log.info('Payment gateway webhook received', {
-    eventType: event.eventType,
-    transactionId: transaction.id,
-    providerStatus,
-    unifiedStatus,
+  await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook received', {
+      eventType: event.eventType,
+      providerStatus,
+      unifiedStatus,
   })
 
   if (unifiedStatus !== 'unknown') {
@@ -87,13 +102,28 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       unifiedStatus,
       providerStatus: event.eventType,
       providerData: event.data,
+      webhookEvent: {
+        eventType: event.eventType,
+        idempotencyKey: event.idempotencyKey,
+        processed: true,
+      },
+    })
+  } else {
+    await service.syncTransactionStatus(transaction.id, {
+      unifiedStatus,
+      providerStatus: event.eventType,
+      providerData: event.data,
+      webhookEvent: {
+        eventType: event.eventType,
+        idempotencyKey: event.idempotencyKey,
+        processed: true,
+      },
     })
   }
 
   await markWebhookProcessed(em, event.idempotencyKey, providerKey, event.eventType, scope)
-  await log.info('Payment gateway webhook processed', {
+  await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook processed', {
     eventType: event.eventType,
-    transactionId: transaction.id,
     unifiedStatus,
   })
 }

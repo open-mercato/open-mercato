@@ -55,6 +55,27 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     await emitPaymentGatewayEvent(eventId, payload)
   }
 
+  async function writeTransactionLog(
+    providerKey: string,
+    scope: { organizationId: string; tenantId: string },
+    transactionId: string,
+    level: 'info' | 'warn' | 'error',
+    message: string,
+    payload?: Record<string, unknown> | null,
+    code?: string | null,
+  ) {
+    if (!integrationLogService) return
+    await integrationLogService.write({
+      integrationId: `gateway_${providerKey}`,
+      scopeEntityType: 'payment_transaction',
+      scopeEntityId: transactionId,
+      level,
+      message,
+      code,
+      payload: payload ?? null,
+    }, scope)
+  }
+
   async function resolveAdapterAndCredentials(providerKey: string, scope: { organizationId: string; tenantId: string }) {
     const integrationId = `gateway_${providerKey}`
     const selectedVersion = deps.integrationStateService
@@ -117,6 +138,20 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         organizationId: transaction.organizationId,
         tenantId: transaction.tenantId,
       })
+      await writeTransactionLog(
+        transaction.providerKey,
+        scope,
+        transaction.id,
+        'info',
+        'Payment session created',
+        {
+          paymentId: transaction.paymentId,
+          providerSessionId: transaction.providerSessionId,
+          status: transaction.unifiedStatus,
+          amount: input.amount,
+          currencyCode: input.currencyCode,
+        },
+      )
 
       return { transaction, session }
     },
@@ -148,6 +183,18 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         organizationId: transaction.organizationId,
         tenantId: transaction.tenantId,
       })
+      await writeTransactionLog(
+        transaction.providerKey,
+        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        transaction.id,
+        'info',
+        'Payment captured',
+        {
+          amount: amount ?? null,
+          status: result.status,
+          capturedAmount: result.capturedAmount,
+        },
+      )
 
       return result
     },
@@ -181,6 +228,19 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         organizationId: transaction.organizationId,
         tenantId: transaction.tenantId,
       })
+      await writeTransactionLog(
+        transaction.providerKey,
+        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        transaction.id,
+        'info',
+        'Payment refunded',
+        {
+          amount: amount ?? null,
+          reason: reason ?? null,
+          status: result.status,
+          refundId: result.refundId,
+        },
+      )
 
       return result
     },
@@ -211,6 +271,17 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         organizationId: transaction.organizationId,
         tenantId: transaction.tenantId,
       })
+      await writeTransactionLog(
+        transaction.providerKey,
+        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        transaction.id,
+        'info',
+        'Payment cancelled',
+        {
+          reason: reason ?? null,
+          status: result.status,
+        },
+      )
 
       return result
     },
@@ -246,16 +317,17 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           organizationId: transaction.organizationId,
           tenantId: transaction.tenantId,
         })
-        if (integrationLogService) {
-          await integrationLogService.scoped(`gateway_${transaction.providerKey}`, {
-            organizationId: transaction.organizationId,
-            tenantId: transaction.tenantId,
-          }).info('Payment status updated by poller', {
-            transactionId: transaction.id,
+        await writeTransactionLog(
+          transaction.providerKey,
+          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+          transaction.id,
+          'info',
+          'Payment status updated by poller',
+          {
             previousStatus,
             nextStatus: status.status,
-          })
-        }
+          },
+        )
       }
 
       return status
@@ -265,32 +337,64 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       unifiedStatus: UnifiedPaymentStatus
       providerStatus?: string
       providerData?: Record<string, unknown>
+      webhookEvent?: {
+        eventType: string
+        idempotencyKey: string
+        processed: boolean
+        receivedAt?: string
+      }
     }): Promise<void> {
       const transaction = await em.findOneOrFail(GatewayTransaction, { id: transactionId })
       const currentStatus = transaction.unifiedStatus as UnifiedPaymentStatus
-
-      if (!isValidTransition(currentStatus, update.unifiedStatus)) {
-        return
-      }
-
+      const canTransition = isValidTransition(currentStatus, update.unifiedStatus)
+      const shouldApplyStatus = canTransition && update.unifiedStatus !== currentStatus
       const previousStatus = transaction.unifiedStatus
-      transaction.unifiedStatus = update.unifiedStatus
+      if (shouldApplyStatus) {
+        transaction.unifiedStatus = update.unifiedStatus
+      }
       if (update.providerStatus) {
         transaction.gatewayStatus = update.providerStatus
       }
       if (update.providerData) {
         transaction.gatewayMetadata = { ...transaction.gatewayMetadata, ...update.providerData }
       }
+      if (update.webhookEvent) {
+        const webhookLog = Array.isArray(transaction.webhookLog) ? transaction.webhookLog : []
+        webhookLog.push({
+          eventType: update.webhookEvent.eventType,
+          receivedAt: update.webhookEvent.receivedAt ?? new Date().toISOString(),
+          idempotencyKey: update.webhookEvent.idempotencyKey,
+          unifiedStatus: update.unifiedStatus,
+          processed: update.webhookEvent.processed,
+        })
+        transaction.webhookLog = webhookLog
+      }
       transaction.lastWebhookAt = new Date()
       await em.flush()
-      await emitStatusEvent(update.unifiedStatus, {
-        transactionId: transaction.id,
-        paymentId: transaction.paymentId,
-        providerKey: transaction.providerKey,
-        previousStatus,
-        organizationId: transaction.organizationId,
-        tenantId: transaction.tenantId,
-      })
+      if (shouldApplyStatus) {
+        await emitStatusEvent(update.unifiedStatus, {
+          transactionId: transaction.id,
+          paymentId: transaction.paymentId,
+          providerKey: transaction.providerKey,
+          previousStatus,
+          organizationId: transaction.organizationId,
+          tenantId: transaction.tenantId,
+        })
+      }
+      await writeTransactionLog(
+        transaction.providerKey,
+        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        transaction.id,
+        shouldApplyStatus ? 'info' : 'warn',
+        shouldApplyStatus ? 'Payment status synchronized from webhook' : 'Webhook received with no status transition',
+        {
+          previousStatus,
+          nextStatus: update.unifiedStatus,
+          providerStatus: update.providerStatus ?? null,
+          eventType: update.webhookEvent?.eventType ?? null,
+          idempotencyKey: update.webhookEvent?.idempotencyKey ?? null,
+        },
+      )
     },
 
     async findTransaction(id: string): Promise<GatewayTransaction | null> {

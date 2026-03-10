@@ -36,8 +36,9 @@ function readSessionIdHint(payload: Record<string, unknown> | null): string | nu
   return null
 }
 
-export async function POST(req: Request, { params }: { params: { provider: string } }) {
-  const providerKey = params.provider
+export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> | { provider: string } }) {
+  const resolvedParams = await params
+  const providerKey = resolvedParams.provider
   const registration = getWebhookHandler(providerKey)
   if (!registration) {
     return NextResponse.json({ error: `No webhook handler for provider: ${providerKey}` }, { status: 404 })

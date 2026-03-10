@@ -1,5 +1,18 @@
 import { z } from 'zod'
 
+const unifiedPaymentStatusSchema = z.enum([
+  'pending',
+  'authorized',
+  'captured',
+  'partially_captured',
+  'refunded',
+  'partially_refunded',
+  'cancelled',
+  'failed',
+  'expired',
+  'unknown',
+])
+
 export const createSessionSchema = z.object({
   providerKey: z.string().min(1),
   paymentMethodId: z.string().uuid().optional(),
@@ -42,3 +55,13 @@ export const getStatusSchema = z.object({
 })
 
 export type GetStatusPayload = z.infer<typeof getStatusSchema>
+
+export const listTransactionsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().max(200).optional(),
+  providerKey: z.string().trim().min(1).max(100).optional(),
+  status: unifiedPaymentStatusSchema.optional(),
+})
+
+export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>
