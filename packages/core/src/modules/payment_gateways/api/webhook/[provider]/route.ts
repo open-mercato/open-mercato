@@ -39,6 +39,7 @@ function readSessionIdHint(payload: Record<string, unknown> | null): string | nu
 export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> | { provider: string } }) {
   const resolvedParams = await params
   const providerKey = resolvedParams.provider
+  const container = await createRequestContainer()
   const registration = getWebhookHandler(providerKey)
   if (!registration) {
     return NextResponse.json({ error: `No webhook handler for provider: ${providerKey}` }, { status: 404 })
@@ -50,7 +51,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     headers[key] = value
   })
 
-  const container = await createRequestContainer()
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')

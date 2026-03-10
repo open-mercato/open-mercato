@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createPaymentSession, getTransactionStatus } from './helpers/fixtures'
 
+const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
+
 /**
  * TC-PGWY-011: Webhook malformed payload
  *
@@ -13,7 +15,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
   test('should reject a webhook with completely invalid JSON body', async ({ request }) => {
     const token = await getAuthToken(request)
 
-    const response = await request.fetch('http://localhost:3000/api/payment_gateways/webhook/mock', {
+    const response = await request.fetch(`${BASE_URL}/api/payment_gateways/webhook/mock`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -31,7 +33,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
   test('should reject a webhook with empty body', async ({ request }) => {
     const token = await getAuthToken(request)
 
-    const response = await request.fetch('http://localhost:3000/api/payment_gateways/webhook/mock', {
+    const response = await request.fetch(`${BASE_URL}/api/payment_gateways/webhook/mock`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

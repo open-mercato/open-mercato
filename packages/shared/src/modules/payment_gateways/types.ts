@@ -154,14 +154,35 @@ export interface RegisterAdapterOptions {
 
 // ── Registries ──────────────────────────────────────────────────────────────
 
-const adapterRegistry = new Map<string, GatewayAdapter>()
-const webhookHandlerRegistry = new Map<string, WebhookHandlerRegistration>()
+const ADAPTER_REGISTRY_KEY = '__openMercatoPaymentGatewayAdapters__'
+const WEBHOOK_REGISTRY_KEY = '__openMercatoPaymentGatewayWebhookHandlers__'
+
+function getAdapterRegistry(): Map<string, GatewayAdapter> {
+  const globalState = globalThis as typeof globalThis & {
+    [ADAPTER_REGISTRY_KEY]?: Map<string, GatewayAdapter>
+  }
+  if (!globalState[ADAPTER_REGISTRY_KEY]) {
+    globalState[ADAPTER_REGISTRY_KEY] = new Map<string, GatewayAdapter>()
+  }
+  return globalState[ADAPTER_REGISTRY_KEY]
+}
+
+function getWebhookHandlerRegistry(): Map<string, WebhookHandlerRegistration> {
+  const globalState = globalThis as typeof globalThis & {
+    [WEBHOOK_REGISTRY_KEY]?: Map<string, WebhookHandlerRegistration>
+  }
+  if (!globalState[WEBHOOK_REGISTRY_KEY]) {
+    globalState[WEBHOOK_REGISTRY_KEY] = new Map<string, WebhookHandlerRegistration>()
+  }
+  return globalState[WEBHOOK_REGISTRY_KEY]
+}
 
 function adapterKey(providerKey: string, version?: string): string {
   return version ? `${providerKey}:${version}` : providerKey
 }
 
 export function registerGatewayAdapter(adapter: GatewayAdapter, options?: RegisterAdapterOptions): () => void {
+  const adapterRegistry = getAdapterRegistry()
   const key = adapterKey(adapter.providerKey, options?.version)
   adapterRegistry.set(key, adapter)
   if (options?.version) {
@@ -176,6 +197,7 @@ export function registerGatewayAdapter(adapter: GatewayAdapter, options?: Regist
 }
 
 export function getGatewayAdapter(providerKey: string, version?: string): GatewayAdapter | undefined {
+  const adapterRegistry = getAdapterRegistry()
   if (version) {
     return adapterRegistry.get(adapterKey(providerKey, version)) ?? adapterRegistry.get(providerKey)
   }
@@ -183,6 +205,7 @@ export function getGatewayAdapter(providerKey: string, version?: string): Gatewa
 }
 
 export function listGatewayAdapters(): GatewayAdapter[] {
+  const adapterRegistry = getAdapterRegistry()
   const seen = new Set<string>()
   const result: GatewayAdapter[] = []
   for (const [key, adapter] of adapterRegistry) {
@@ -195,7 +218,7 @@ export function listGatewayAdapters(): GatewayAdapter[] {
 }
 
 export function clearGatewayAdapters(): void {
-  adapterRegistry.clear()
+  getAdapterRegistry().clear()
 }
 
 export function registerWebhookHandler(
@@ -203,6 +226,7 @@ export function registerWebhookHandler(
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>,
   options?: { queue?: string },
 ): () => void {
+  const webhookHandlerRegistry = getWebhookHandlerRegistry()
   webhookHandlerRegistry.set(providerKey, { handler, queue: options?.queue })
   return () => {
     webhookHandlerRegistry.delete(providerKey)
@@ -210,9 +234,9 @@ export function registerWebhookHandler(
 }
 
 export function getWebhookHandler(providerKey: string): WebhookHandlerRegistration | undefined {
-  return webhookHandlerRegistry.get(providerKey)
+  return getWebhookHandlerRegistry().get(providerKey)
 }
 
 export function clearWebhookHandlers(): void {
-  webhookHandlerRegistry.clear()
+  getWebhookHandlerRegistry().clear()
 }
