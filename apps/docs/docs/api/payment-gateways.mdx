@@ -1,0 +1,179 @@
+---
+title: Payment Gateways
+description: REST endpoints for payment sessions, captures, refunds, cancellations, status checks, and webhooks.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+All examples assume:
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+```
+
+## Shared conventions
+
+- Send `X-Api-Key: $API_KEY` on every request.
+- Access is feature-gated via module ACL (`payment_gateways.*`).
+- Requests are tenant/organization scoped from authenticated context.
+
+## Create payment session — `POST /payment_gateways/sessions`
+
+**Feature:** `payment_gateways.manage`
+
+Creates a new payment session through the specified gateway provider.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/sessions" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerKey": "stripe",
+    "amount": 49.99,
+    "currencyCode": "USD",
+    "captureMethod": "manual",
+    "description": "Order #1234"
+  }'
+```
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `providerKey` | string | yes | Provider identifier (e.g., `stripe`, `mock`) |
+| `amount` | number | yes | Payment amount |
+| `currencyCode` | string | yes | ISO 4217 currency code |
+| `captureMethod` | string | no | `automatic` (default) or `manual` |
+| `description` | string | no | Human-readable description |
+
+**Response (201):**
+
+```json
+{
+  "transactionId": "uuid",
+  "sessionId": "pi_xxx",
+  "clientSecret": "pi_xxx_secret_xxx",
+  "redirectUrl": "https://checkout.stripe.com/...",
+  "status": "pending",
+  "paymentId": "uuid"
+}
+```
+
+**Errors:** `422` invalid payload or unknown provider, `403` insufficient permissions.
+
+## Capture payment — `POST /payment_gateways/capture`
+
+**Feature:** `payment_gateways.capture`
+
+Captures an authorized payment. Omit `amount` for full capture.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/capture" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "transactionId": "uuid" }'
+```
+
+**Response (200):**
+
+```json
+{
+  "status": "captured",
+  "capturedAmount": 49.99
+}
+```
+
+## Refund payment — `POST /payment_gateways/refund`
+
+**Feature:** `payment_gateways.refund`
+
+Refunds a captured payment. Omit `amount` for full refund, or specify a partial amount.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/refund" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transactionId": "uuid",
+    "amount": 10.00,
+    "reason": "Customer request"
+  }'
+```
+
+**Response (200):**
+
+```json
+{
+  "refundId": "re_xxx",
+  "status": "refunded",
+  "refundedAmount": 10.00
+}
+```
+
+## Cancel payment — `POST /payment_gateways/cancel`
+
+**Feature:** `payment_gateways.manage`
+
+Voids an authorized or pending payment before capture.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/cancel" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "transactionId": "uuid" }'
+```
+
+**Response (200):**
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
+## Get transaction status — `GET /payment_gateways/status`
+
+**Feature:** `payment_gateways.view`
+
+```bash
+curl -X GET "$BASE_URL/payment_gateways/status?transactionId=uuid" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+**Response (200):**
+
+```json
+{
+  "transactionId": "uuid",
+  "paymentId": "uuid",
+  "providerKey": "stripe",
+  "sessionId": "pi_xxx",
+  "status": "captured",
+  "gatewayStatus": "succeeded",
+  "amount": 49.99,
+  "amountReceived": 49.99,
+  "currencyCode": "USD",
+  "createdAt": "2026-03-10T12:00:00.000Z",
+  "updatedAt": "2026-03-10T12:01:00.000Z"
+}
+```
+
+**Errors:** `404` transaction not found, `403` cross-tenant access denied.
+
+## Receive webhook — `POST /payment_gateways/webhook/{provider}`
+
+**Auth:** None (signature verified by provider handler)
+
+Receives inbound webhook events from payment providers. The provider key in the URL determines which registered handler verifies the signature.
+
+```bash
+# Example: Stripe sends to
+POST /api/payment_gateways/webhook/stripe
+```
+
+**Response:** `202` accepted for async processing, `401` signature verification failed, `404` unknown provider.
+
+Webhook events are processed asynchronously by dedicated workers. Each event includes an `idempotencyKey` to prevent duplicate processing.

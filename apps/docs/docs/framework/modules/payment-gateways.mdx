@@ -1,0 +1,159 @@
+---
+title: Payment Gateways
+description: Build and register payment gateway adapters with unified status tracking, webhook processing, and provider-agnostic checkout flows.
+---
+
+# Payment Gateways
+
+The `payment_gateways` module provides a provider-agnostic hub for payment processing. Each payment provider (Stripe, PayU, etc.) is a separate npm package implementing the `GatewayAdapter` interface — zero provider-specific code lives in core.
+
+## Architecture
+
+The system uses a two-layer architecture:
+
+- **Core module** (`packages/core/src/modules/payment_gateways/`) — adapter contract, status machine, webhook routing, `GatewayTransaction` entity, API endpoints.
+- **Provider packages** (`packages/gateway-<provider>/`) — each provider implements `GatewayAdapter`, registers adapters and webhook handlers, and is developed independently.
+
+Providers plug into the Integration Marketplace for credentials management, health checks, and admin UI.
+
+## GatewayAdapter interface
+
+Every provider implements this contract:
+
+```ts
+import type { GatewayAdapter } from '@open-mercato/shared/modules/payment_gateways/types'
+
+const myAdapter: GatewayAdapter = {
+  providerKey: 'my_provider',
+
+  async createSession(input) {
+    // Create payment intent / checkout session
+    return { sessionId: '...', status: 'pending', redirectUrl: '...' }
+  },
+
+  async capture(input) {
+    // Capture an authorized payment
+    return { status: 'captured', capturedAmount: input.amount ?? 0 }
+  },
+
+  async refund(input) {
+    // Refund (full or partial)
+    return { refundId: '...', status: 'refunded', refundedAmount: input.amount ?? 0 }
+  },
+
+  async cancel(input) {
+    // Cancel / void before capture
+    return { status: 'cancelled' }
+  },
+
+  async getStatus(input) {
+    // Query current status from provider
+    return { status: 'captured', amount: 100, amountReceived: 100, currencyCode: 'USD' }
+  },
+
+  async verifyWebhook(input) {
+    // Verify signature and parse event
+    return { eventType: 'payment.captured', eventId: '...', data: {}, idempotencyKey: '...', timestamp: new Date() }
+  },
+
+  mapStatus(providerStatus) {
+    // Map provider-specific status to unified status
+    return 'captured'
+  },
+}
+```
+
+## Unified payment status
+
+All providers map to a single status enum:
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Session created, awaiting customer action |
+| `authorized` | Payment authorized, ready for capture |
+| `captured` | Funds captured successfully |
+| `partially_captured` | Partial capture completed |
+| `refunded` | Full refund issued |
+| `partially_refunded` | Partial refund issued |
+| `cancelled` | Payment voided before capture |
+| `failed` | Payment attempt failed |
+| `expired` | Session expired |
+
+## Registering adapters
+
+Register adapters and webhook handlers in your provider module's `setup.ts`:
+
+```ts
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { registerGatewayAdapter, registerWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    superadmin: ['gateway_myprovider.view', 'gateway_myprovider.configure'],
+    admin: ['gateway_myprovider.view', 'gateway_myprovider.configure'],
+  },
+
+  async onTenantCreated() {
+    registerGatewayAdapter(myAdapter)
+    registerWebhookHandler('my_provider', verifyMyWebhook, { queue: 'my-provider-webhook' })
+  },
+}
+```
+
+Versioned adapters are supported — pass `{ version: '2024-12-18' }` to register multiple API versions for the same provider.
+
+## Webhook processing
+
+Webhooks flow through an async pipeline:
+
+1. Provider sends `POST /api/payment_gateways/webhook/{provider}`.
+2. Route handler looks up the registered webhook handler, verifies the signature, and constructs a normalized `WebhookEvent`.
+3. Event is enqueued to a dedicated worker queue (e.g., `stripe-webhook`).
+4. Returns `202 Accepted` immediately.
+5. Worker processes the event: updates `GatewayTransaction`, emits domain events, logs via `integrationLog`.
+
+Webhook handlers are idempotent — duplicate events are detected via `idempotencyKey`.
+
+## Integration Marketplace
+
+Provider modules declare an `IntegrationDefinition` in `integration.ts` with `hub: 'payment_gateways'` and `category: 'payment'`. This registers the provider in the marketplace for:
+
+- Credential management (API keys, secrets)
+- Enable/disable toggle
+- Health check monitoring
+- Activity logging
+- API version selection
+
+## Credential resolution
+
+Adapters receive credentials resolved by the core service in priority order:
+
+1. **IntegrationCredentials** (marketplace-managed, encrypted)
+2. **SalesPaymentMethod.providerSettings** (legacy fallback)
+
+During migration, both stores are updated simultaneously.
+
+## Events
+
+The module emits these domain events:
+
+- `payment_gateways.transaction.created` — new payment session
+- `payment_gateways.transaction.status_changed` — status transition
+- `payment_gateways.transaction.captured` — payment captured
+- `payment_gateways.transaction.refunded` — refund processed
+- `payment_gateways.transaction.cancelled` — payment cancelled
+- `payment_gateways.webhook.received` — webhook processed
+- `payment_gateways.webhook.failed` — webhook verification failed
+
+## Mock adapter
+
+A mock gateway is included for development and testing:
+
+```ts
+import { registerGatewayAdapter } from '@open-mercato/shared/modules/payment_gateways/types'
+import { mockGatewayAdapter } from './lib/mock-gateway-adapter'
+
+registerGatewayAdapter(mockGatewayAdapter)
+```
+
+The mock adapter simulates the full payment lifecycle in-memory without external API calls.

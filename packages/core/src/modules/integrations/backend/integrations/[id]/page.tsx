@@ -1,7 +1,10 @@
 "use client"
 import * as React from 'react'
-import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -11,12 +14,13 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type CredentialField = IntegrationCredentialField
+type IntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs'
 
 const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
 
@@ -60,13 +64,21 @@ type LogEntry = {
   level: 'info' | 'warn' | 'error'
   message: string
   createdAt: string
-  code?: string
+  code?: string | null
+  payload?: Record<string, unknown> | null
 }
 
 type IntegrationDetailPageProps = {
   params?: {
     id?: string | string[]
   }
+}
+
+type HealthCheckResponse = {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  message: string | null
+  details: Record<string, unknown> | null
+  checkedAt: string
 }
 
 const LOG_LEVEL_STYLES: Record<string, string> = {
@@ -86,8 +98,92 @@ function resolveRouteId(value: string | string[] | undefined): string | undefine
   return value
 }
 
+function resolvePathnameId(pathname: string): string | undefined {
+  const parts = pathname.split('/').filter(Boolean)
+  const integrationId = parts.at(-1)
+  if (!integrationId || integrationId === 'integrations' || integrationId === 'bundle') return undefined
+  return decodeURIComponent(integrationId)
+}
+
+function resolveRequestedTab(value: string | null | undefined, hasVersions: boolean): IntegrationDetailTab {
+  if (value === 'health' || value === 'logs') return value
+  if (value === 'version' && hasVersions) return 'version'
+  return 'credentials'
+}
+
+function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
+  return credFields.map((field) => {
+    const shared = {
+      id: field.key,
+      label: field.label,
+      description: field.helpText,
+      placeholder: field.placeholder,
+      required: field.required,
+    }
+
+    if (field.type === 'secret') {
+      return {
+        ...shared,
+        type: 'custom' as const,
+        component: ({ id, value, setValue, disabled }) => (
+          <Input
+            id={id}
+            type="password"
+            placeholder={field.placeholder}
+            value={typeof value === 'string' ? value : ''}
+            onChange={(event) => setValue(event.target.value)}
+            disabled={disabled}
+          />
+        ),
+      }
+    }
+
+    if (field.type === 'select' && field.options) {
+      return {
+        ...shared,
+        type: 'select' as const,
+        options: field.options,
+      }
+    }
+
+    if (field.type === 'boolean') {
+      return {
+        ...shared,
+        type: 'checkbox' as const,
+      }
+    }
+
+    return {
+      ...shared,
+      type: 'text' as const,
+    }
+  })
+}
+
+function isHealthLog(log: LogEntry): boolean {
+  return log.message === 'Health check passed' || log.message.startsWith('Health check:')
+}
+
+function extractHealthDetails(payload: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!payload) return {}
+  return Object.fromEntries(
+    Object.entries(payload).filter(([key, value]) => key !== 'status' && key !== 'message' && value !== undefined && value !== null),
+  )
+}
+
+function formatHealthValue(value: unknown): string {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (value instanceof Date) return value.toLocaleString()
+  return JSON.stringify(value)
+}
+
 export default function IntegrationDetailPage({ params }: IntegrationDetailPageProps) {
-  const integrationId = resolveRouteId(params?.id)
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const integrationId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
   const t = useT()
 
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)
@@ -95,7 +191,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [error, setError] = React.useState<string | null>(null)
 
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
-  const [isSavingCreds, setIsSavingCreds] = React.useState(false)
+  const [credentialsFormKey, setCredentialsFormKey] = React.useState(0)
+  const [isSavingCredentials, setIsSavingCredentials] = React.useState(false)
 
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [logLevel, setLogLevel] = React.useState<string>('')
@@ -103,9 +200,22 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
   const [isCheckingHealth, setIsCheckingHealth] = React.useState(false)
   const [isTogglingState, setIsTogglingState] = React.useState(false)
+  const [latestHealthResult, setLatestHealthResult] = React.useState<HealthCheckResponse | null>(null)
+  const [activeTab, setActiveTab] = React.useState<IntegrationDetailTab>('credentials')
+
+  const credentialsFormId = React.useId()
+
+  const resolveCurrentIntegrationId = React.useCallback(() => {
+    return integrationId ?? (
+      typeof window !== 'undefined'
+        ? resolvePathnameId(window.location.pathname)
+        : undefined
+    )
+  }, [integrationId])
 
   const loadDetail = React.useCallback(async () => {
-    if (!integrationId) {
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    if (!currentIntegrationId) {
       setIsLoading(false)
       setError(t('integrations.detail.loadError', 'Failed to load integration'))
       return
@@ -114,7 +224,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     setIsLoading(true)
     try {
       const call = await apiCall<IntegrationDetail>(
-        `/api/integrations/${encodeURIComponent(integrationId)}`,
+        `/api/integrations/${encodeURIComponent(currentIntegrationId)}`,
         undefined,
         { fallback: null },
       )
@@ -129,24 +239,27 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setError(t('integrations.detail.loadError', 'Failed to load integration'))
       setIsLoading(false)
     }
-  }, [integrationId, t])
+  }, [resolveCurrentIntegrationId, t])
 
   const loadCredentials = React.useCallback(async () => {
-    if (!integrationId) return
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    if (!currentIntegrationId) return
     const call = await apiCall<{ credentials: Record<string, unknown> }>(
-      `/api/integrations/${encodeURIComponent(integrationId)}/credentials`,
+      `/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`,
       undefined,
       { fallback: null },
     )
     if (call.ok && call.result?.credentials) {
       setCredValues(call.result.credentials)
+      setCredentialsFormKey((current) => current + 1)
     }
-  }, [integrationId])
+  }, [resolveCurrentIntegrationId])
 
   const loadLogs = React.useCallback(async () => {
-    if (!integrationId) return
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    if (!currentIntegrationId) return
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ integrationId, pageSize: '50' })
+    const params = new URLSearchParams({ integrationId: currentIntegrationId, pageSize: '50' })
     if (logLevel) params.set('level', logLevel)
     const call = await apiCall<{ items: LogEntry[] }>(
       `/api/integrations/logs?${params.toString()}`,
@@ -157,15 +270,17 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setLogs(call.result.items)
     }
     setIsLoadingLogs(false)
-  }, [integrationId, logLevel])
+  }, [logLevel, resolveCurrentIntegrationId])
 
   React.useEffect(() => { void loadDetail() }, [loadDetail])
   React.useEffect(() => { void loadCredentials() }, [loadCredentials])
   React.useEffect(() => { void loadLogs() }, [loadLogs])
 
   const handleToggleState = React.useCallback(async (enabled: boolean) => {
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    if (!currentIntegrationId) return
     setIsTogglingState(true)
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/state`, {
+    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isEnabled: enabled }),
@@ -177,25 +292,44 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       flash(t('integrations.detail.stateError'), 'error')
     }
     setIsTogglingState(false)
-  }, [integrationId, t])
+  }, [resolveCurrentIntegrationId, t])
 
-  const handleSaveCredentials = React.useCallback(async () => {
-    setIsSavingCreds(true)
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/credentials`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credentials: credValues }),
-    }, { fallback: null })
-    if (call.ok) {
-      flash(t('integrations.detail.credentials.saved'), 'success')
-    } else {
-      flash(t('integrations.detail.credentials.saveError'), 'error')
+  const handleSaveCredentials = React.useCallback(async (values: Record<string, unknown>) => {
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    if (!currentIntegrationId) return
+    setIsSavingCredentials(true)
+    try {
+      const call = await apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: values }),
+      }, { fallback: null })
+
+      if (call.ok) {
+        setCredValues(values)
+        setCredentialsFormKey((current) => current + 1)
+        flash(t('integrations.detail.credentials.saved'), 'success')
+        return
+      }
+
+      const result = call.result as {
+        error?: string
+        details?: { fieldErrors?: Record<string, string>; formErrors?: string[] }
+      } | null
+      throw createCrudFormError(
+        result?.error ?? t('integrations.detail.credentials.saveError', 'Failed to save credentials'),
+        result?.details?.fieldErrors,
+        { details: result?.details },
+      )
+    } finally {
+      setIsSavingCredentials(false)
     }
-    setIsSavingCreds(false)
-  }, [integrationId, credValues, t])
+  }, [resolveCurrentIntegrationId, t])
 
   const handleVersionChange = React.useCallback(async (version: string) => {
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(integrationId)}/version`, {
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    if (!currentIntegrationId) return
+    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apiVersion: version }),
@@ -206,172 +340,291 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } else {
       flash(t('integrations.detail.version.saveError'), 'error')
     }
-  }, [integrationId, t])
+  }, [resolveCurrentIntegrationId, t])
 
   const handleHealthCheck = React.useCallback(async () => {
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    if (!currentIntegrationId) return
     setIsCheckingHealth(true)
-    const call = await apiCall<{ status: string; checkedAt: string }>(
-      `/api/integrations/${encodeURIComponent(integrationId)}/health`,
+    const call = await apiCall<HealthCheckResponse>(
+      `/api/integrations/${encodeURIComponent(currentIntegrationId)}/health`,
       { method: 'POST' },
       { fallback: null },
     )
     if (call.ok && call.result) {
+      setLatestHealthResult(call.result)
       setDetail((prev) => prev ? {
         ...prev,
         state: {
           ...prev.state,
-          lastHealthStatus: call.result!.status,
-          lastHealthCheckedAt: call.result!.checkedAt,
+          lastHealthStatus: call.result.status,
+          lastHealthCheckedAt: call.result.checkedAt,
         },
       } : prev)
+      void loadLogs()
     } else {
       flash(t('integrations.detail.health.checkError'), 'error')
     }
     setIsCheckingHealth(false)
-  }, [integrationId, t])
+  }, [loadLogs, resolveCurrentIntegrationId, t])
+
+  const hasVersions = Boolean(detail?.integration.apiVersions?.length)
+  const integration = detail?.integration ?? null
+  const state = detail?.state ?? null
+  const editableCredentialFields = React.useMemo(
+    () => (detail?.integration.credentials?.fields ?? detail?.bundle?.credentials?.fields ?? []).filter(isEditableCredentialField),
+    [detail?.bundle?.credentials?.fields, detail?.integration.credentials?.fields],
+  )
+  const credentialFormFields = React.useMemo(
+    () => buildCredentialFields(editableCredentialFields),
+    [editableCredentialFields],
+  )
+  const credentialSchema = React.useMemo(() => (
+    z.object({}).passthrough().superRefine((rawValues, ctx) => {
+      const values = rawValues as Record<string, unknown>
+
+      editableCredentialFields.forEach((field) => {
+        const value = values[field.key]
+
+        if (field.type === 'boolean') {
+          if (value !== undefined && value !== null && typeof value !== 'boolean') {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [field.key],
+              message: t('integrations.detail.credentials.validation.boolean', 'Select a valid value.'),
+            })
+          }
+          if (field.required && typeof value !== 'boolean') {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [field.key],
+              message: t('integrations.detail.credentials.validation.required', '{field} is required.', { field: field.label }),
+            })
+          }
+          return
+        }
+
+        if (value !== undefined && value !== null && typeof value !== 'string') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: t('integrations.detail.credentials.validation.text', 'Enter a valid value.'),
+          })
+          return
+        }
+
+        const normalizedValue = typeof value === 'string' ? value : ''
+
+        if (field.required && normalizedValue.trim().length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: t('integrations.detail.credentials.validation.required', '{field} is required.', { field: field.label }),
+          })
+        }
+
+        if (normalizedValue.length > 20_000) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: t('integrations.detail.credentials.validation.tooLong', 'Value is too long.'),
+          })
+        }
+
+        if (
+          field.type === 'select'
+          && normalizedValue
+          && field.options
+          && !field.options.some((option) => option.value === normalizedValue)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: t('integrations.detail.credentials.validation.option', 'Select one of the available options.'),
+          })
+        }
+      })
+    })
+  ) as z.ZodType<Record<string, unknown>>, [editableCredentialFields, t])
+  const latestHealthLog = React.useMemo(() => logs.find(isHealthLog) ?? null, [logs])
+  const healthMessage =
+    latestHealthResult?.message ??
+    (typeof latestHealthLog?.payload?.message === 'string' ? latestHealthLog.payload.message : null)
+  const healthDetailsSource = latestHealthResult?.details ?? extractHealthDetails(latestHealthLog?.payload)
+  const healthDetails = latestHealthLog?.code
+    ? { ...healthDetailsSource, code: latestHealthLog.code }
+    : healthDetailsSource
+  const healthDetailEntries = Object.entries(healthDetails)
+  const healthStatusDescription = state?.lastHealthStatus
+    ? t(
+      `integrations.detail.health.meaning.${state.lastHealthStatus}`,
+      state.lastHealthStatus === 'healthy'
+        ? 'The provider responded successfully using the current credentials.'
+        : state.lastHealthStatus === 'degraded'
+          ? 'The provider responded, but reported warnings or limited functionality.'
+          : integration?.id === 'gateway_stripe'
+            ? 'Stripe rejected the last check. This usually means the secret key is invalid, missing required permissions, revoked, or Stripe was temporarily unavailable.'
+            : 'The last check failed. This usually means invalid credentials, missing permissions, or a provider outage.',
+    )
+    : null
+
+  React.useEffect(() => {
+    setActiveTab(resolveRequestedTab(searchParams?.get('tab'), hasVersions))
+  }, [hasVersions, searchParams])
+
+  const handleTabChange = React.useCallback((nextValue: string) => {
+    const currentIntegrationId = resolveCurrentIntegrationId()
+    const nextTab = resolveRequestedTab(nextValue, hasVersions)
+    setActiveTab(nextTab)
+    if (!currentIntegrationId) return
+    const basePath = `/backend/integrations/${encodeURIComponent(currentIntegrationId)}`
+    router.replace(nextTab === 'credentials' ? basePath : `${basePath}?tab=${encodeURIComponent(nextTab)}`)
+  }, [hasVersions, resolveCurrentIntegrationId, router])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
   if (error || !detail) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
 
-  const { integration, state } = detail
-  const credFields = integration.credentials?.fields ?? detail.bundle?.credentials?.fields ?? []
-  const hasVersions = Boolean(integration.apiVersions?.length)
+  const resolvedIntegration = detail.integration
+  const resolvedState = detail.state
+
+  const headerExtraActions = (
+    <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
+      <div className="space-y-0.5 text-left">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+          {t('integrations.detail.state.label', 'State')}
+        </p>
+        <p className="text-sm font-medium">
+          {resolvedState.isEnabled
+            ? t('integrations.detail.state.enabled', 'Enabled')
+            : t('integrations.detail.state.disabled', 'Disabled')}
+        </p>
+      </div>
+      <Switch
+        checked={resolvedState.isEnabled}
+        disabled={isTogglingState}
+        onCheckedChange={(checked) => void handleToggleState(checked)}
+      />
+    </div>
+  )
+
+  const showCredentialActions = activeTab === 'credentials' && credentialFormFields.length > 0
 
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div>
-          <Link href="/backend/integrations" className="text-sm text-muted-foreground hover:underline">
-            {t('integrations.detail.back')}
-          </Link>
-        </div>
+        <FormHeader
+          backHref="/backend/integrations"
+          title={resolvedIntegration.title}
+          actions={{
+            extraActions: headerExtraActions,
+            cancelHref: showCredentialActions ? '/backend/integrations' : undefined,
+            submit: showCredentialActions
+              ? {
+                formId: credentialsFormId,
+                pending: isSavingCredentials,
+                label: t('integrations.detail.credentials.save', 'Save credentials'),
+                pendingLabel: t('ui.forms.status.saving', 'Saving...'),
+              }
+              : undefined,
+          }}
+        />
 
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">{integration.title}</h1>
-            {integration.description && (
-              <p className="text-muted-foreground mt-1">{integration.description}</p>
-            )}
-            <div className="flex gap-2 mt-2">
-              {integration.category && <Badge variant="secondary">{integration.category}</Badge>}
-              {integration.hub && <Badge variant="outline">{integration.hub}</Badge>}
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">
-              {state.isEnabled ? t('integrations.detail.enable') : t('integrations.detail.disable')}
-            </span>
-            <Switch
-              checked={state.isEnabled}
-              disabled={isTogglingState}
-              onCheckedChange={(checked) => void handleToggleState(checked)}
-            />
+        <div className="space-y-2">
+          {resolvedIntegration.description ? (
+            <p className="text-sm text-muted-foreground">{resolvedIntegration.description}</p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {resolvedIntegration.category ? <Badge variant="secondary">{resolvedIntegration.category}</Badge> : null}
+            {resolvedIntegration.hub ? <Badge variant="outline">{resolvedIntegration.hub}</Badge> : null}
           </div>
         </div>
 
-        <Tabs defaultValue="credentials">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
           <TabsList>
             <TabsTrigger value="credentials">{t('integrations.detail.tabs.credentials')}</TabsTrigger>
-            {hasVersions && <TabsTrigger value="version">{t('integrations.detail.tabs.version')}</TabsTrigger>}
+            {hasVersions ? <TabsTrigger value="version">{t('integrations.detail.tabs.version')}</TabsTrigger> : null}
             <TabsTrigger value="health">{t('integrations.detail.tabs.health')}</TabsTrigger>
             <TabsTrigger value="logs">{t('integrations.detail.tabs.logs')}</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="credentials" className="space-y-4 mt-4">
-            {detail.bundle && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                {t('integrations.detail.credentials.bundleShared', { bundle: detail.bundle.title })}
-              </div>
-            )}
-            {credFields.length === 0 ? (
-              <p className="text-muted-foreground text-sm">{t('integrations.detail.credentials.notConfigured')}</p>
-            ) : (
-              <Card>
-                <CardContent className="pt-6 space-y-4">
-                  {credFields.filter(isEditableCredentialField).map((field) => (
-                    <div key={field.key} className="space-y-1.5">
-                      <label className="text-sm font-medium">
-                        {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
-                      </label>
-                      {field.type === 'select' && field.options ? (
-                        <select
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                          value={(credValues[field.key] as string) ?? ''}
-                          onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                        >
-                          <option value="">—</option>
-                          {field.options.map((opt) => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
-                      ) : field.type === 'boolean' ? (
-                        <Switch
-                          checked={Boolean(credValues[field.key])}
-                          onCheckedChange={(checked) => setCredValues((prev) => ({ ...prev, [field.key]: checked }))}
-                        />
-                      ) : (
-                        <Input
-                          type={field.type === 'secret' ? 'password' : 'text'}
-                          placeholder={field.placeholder}
-                          value={(credValues[field.key] as string) ?? ''}
-                          onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                        />
-                      )}
-                    </div>
-                  ))}
-                  <Button type="button" onClick={() => void handleSaveCredentials()} disabled={isSavingCreds}>
-                    {isSavingCreds ? <Spinner className="mr-2 h-4 w-4" /> : null}
-                    {t('integrations.detail.credentials.save')}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+          <TabsContent value="credentials" className="mt-0">
+            <section className="space-y-4 rounded-lg border bg-card p-6">
+              {detail.bundle ? (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                  {t('integrations.detail.credentials.bundleShared', { bundle: detail.bundle.title })}
+                </div>
+              ) : null}
+              {credentialFormFields.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {t('integrations.detail.credentials.notConfigured')}
+                </p>
+              ) : (
+                <CrudForm<Record<string, unknown>>
+                  key={`${resolvedIntegration.id}:${credentialsFormKey}`}
+                  formId={credentialsFormId}
+                  entityId="integrations.integration"
+                  schema={credentialSchema}
+                  fields={credentialFormFields}
+                  initialValues={credValues}
+                  onSubmit={handleSaveCredentials}
+                  embedded
+                  hideFooterActions
+                />
+              )}
+            </section>
           </TabsContent>
 
-          {hasVersions && (
-            <TabsContent value="version" className="space-y-4 mt-4">
+          {hasVersions ? (
+            <TabsContent value="version" className="mt-0 space-y-4">
               <Card>
                 <CardHeader>
                   <CardTitle>{t('integrations.detail.version.select')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {integration.apiVersions!.map((v) => {
-                    const isSelected = (state.apiVersion ?? integration.apiVersions!.find((x) => x.status === 'stable')?.id) === v.id
+                  {resolvedIntegration.apiVersions?.map((version) => {
+                    const stableVersion = resolvedIntegration.apiVersions?.find((item) => item.status === 'stable')?.id
+                    const isSelected = (resolvedState.apiVersion ?? stableVersion) === version.id
                     return (
                       <div
-                        key={v.id}
-                        className={`flex items-center justify-between rounded-lg border p-3 cursor-pointer transition-colors ${isSelected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
-                        onClick={() => void handleVersionChange(v.id)}
+                        key={version.id}
+                        className={`flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors ${isSelected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}
+                        onClick={() => void handleVersionChange(version.id)}
                       >
                         <div>
-                          <span className="font-medium text-sm">{v.label ?? v.id}</span>
+                          <span className="text-sm font-medium">{version.label ?? version.id}</span>
                           <Badge
-                            variant={v.status === 'stable' ? 'default' : v.status === 'deprecated' ? 'destructive' : 'secondary'}
+                            variant={version.status === 'stable' ? 'default' : version.status === 'deprecated' ? 'destructive' : 'secondary'}
                             className="ml-2"
                           >
-                            {t(`integrations.detail.version.${v.status}`)}
+                            {t(`integrations.detail.version.${version.status}`)}
                           </Badge>
-                          {v.status === 'deprecated' && v.sunsetAt && (
-                            <span className="text-xs text-muted-foreground ml-2">
-                              {t('integrations.detail.version.sunsetAt', { date: new Date(v.sunsetAt).toLocaleDateString() })}
+                          {version.status === 'deprecated' && version.sunsetAt ? (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {t('integrations.detail.version.sunsetAt', { date: new Date(version.sunsetAt).toLocaleDateString() })}
                             </span>
-                          )}
+                          ) : null}
                         </div>
-                        {isSelected && <Badge variant="outline">{t('integrations.detail.version.current')}</Badge>}
+                        {isSelected ? <Badge variant="outline">{t('integrations.detail.version.current')}</Badge> : null}
                       </div>
                     )
                   })}
                 </CardContent>
               </Card>
             </TabsContent>
-          )}
+          ) : null}
 
-          <TabsContent value="health" className="space-y-4 mt-4">
+          <TabsContent value="health" className="mt-0 space-y-4">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>{t('integrations.detail.health.title')}</CardTitle>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void handleHealthCheck()} disabled={isCheckingHealth}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleHealthCheck()}
+                    disabled={isCheckingHealth}
+                  >
                     {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : null}
                     {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
                   </Button>
@@ -380,17 +633,45 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               <CardContent className="space-y-3">
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium">{t('integrations.detail.health.title')}:</span>
-                  {state.lastHealthStatus ? (
-                    <Badge className={HEALTH_STATUS_STYLES[state.lastHealthStatus] ?? ''}>
-                      {t(`integrations.detail.health.${state.lastHealthStatus}`)}
+                  {resolvedState.lastHealthStatus ? (
+                    <Badge className={HEALTH_STATUS_STYLES[resolvedState.lastHealthStatus] ?? ''}>
+                      {t(`integrations.detail.health.${resolvedState.lastHealthStatus}`)}
                     </Badge>
                   ) : (
-                    <span className="text-sm text-muted-foreground">{t('integrations.detail.health.unknown')}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {t('integrations.detail.health.unknown')}
+                    </span>
                   )}
                 </div>
+                {healthStatusDescription ? (
+                  <p className="text-sm text-muted-foreground">{healthStatusDescription}</p>
+                ) : null}
+                {healthMessage ? (
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t('integrations.detail.health.lastResult', 'Last result')}
+                    </p>
+                    <p className="mt-1 text-sm">{healthMessage}</p>
+                  </div>
+                ) : null}
+                {healthDetailEntries.length > 0 ? (
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t('integrations.detail.health.details', 'Details')}
+                    </p>
+                    <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {healthDetailEntries.map(([key, value]) => (
+                        <div key={key}>
+                          <dt className="text-xs font-medium text-muted-foreground">{key}</dt>
+                          <dd className="mt-1 text-sm">{formatHealthValue(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ) : null}
                 <p className="text-xs text-muted-foreground">
-                  {state.lastHealthCheckedAt
-                    ? t('integrations.detail.health.lastChecked', { date: new Date(state.lastHealthCheckedAt).toLocaleString() })
+                  {resolvedState.lastHealthCheckedAt
+                    ? t('integrations.detail.health.lastChecked', { date: new Date(resolvedState.lastHealthCheckedAt).toLocaleString() })
                     : t('integrations.detail.health.neverChecked')
                   }
                 </p>
@@ -398,12 +679,12 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             </Card>
           </TabsContent>
 
-          <TabsContent value="logs" className="space-y-4 mt-4">
+          <TabsContent value="logs" className="mt-0 space-y-4">
             <div className="flex items-center gap-3">
               <select
                 className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                 value={logLevel}
-                onChange={(e) => setLogLevel(e.target.value)}
+                onChange={(event) => setLogLevel(event.target.value)}
               >
                 <option value="">{t('integrations.detail.logs.level.all')}</option>
                 <option value="info">{t('integrations.detail.logs.level.info')}</option>
@@ -414,7 +695,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {isLoadingLogs ? (
               <div className="flex justify-center py-8"><Spinner /></div>
             ) : logs.length === 0 ? (
-              <p className="text-muted-foreground text-sm py-4">{t('integrations.detail.logs.empty')}</p>
+              <p className="py-4 text-sm text-muted-foreground">{t('integrations.detail.logs.empty')}</p>
             ) : (
               <div className="rounded-lg border">
                 <table className="w-full text-sm">
@@ -428,7 +709,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   <tbody>
                     {logs.map((log) => (
                       <tr key={log.id} className="border-b last:border-0">
-                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                        <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
                           {new Date(log.createdAt).toLocaleString()}
                         </td>
                         <td className="px-4 py-2">
