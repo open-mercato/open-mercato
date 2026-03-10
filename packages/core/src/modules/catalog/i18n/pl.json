@@ -539,6 +539,7 @@
   "catalog.variants.form.editTitleFor": "Edytuj wariant • {{title}}",
   "catalog.variants.form.errors.deleteError": "Nie udało się usunąć wariantu.",
   "catalog.variants.form.errors.idMissing": "Brak ID wariantu po utworzeniu.",
+  "catalog.variants.form.errors.invalidPrice": "Podaj poprawną, nienegatywną cene.",
   "catalog.variants.form.errors.load": "Nie udało się załadować wariantu.",
   "catalog.variants.form.errors.nameRequired": "Podaj nazwę wariantu.",
   "catalog.variants.form.errors.notFound": "Nie znaleziono wariantu.",
