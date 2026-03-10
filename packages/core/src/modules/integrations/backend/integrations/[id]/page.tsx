@@ -1,7 +1,6 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -64,6 +63,12 @@ type LogEntry = {
   code?: string
 }
 
+type IntegrationDetailPageProps = {
+  params?: {
+    id?: string | string[]
+  }
+}
+
 const LOG_LEVEL_STYLES: Record<string, string> = {
   info: 'bg-blue-100 text-blue-800',
   warn: 'bg-yellow-100 text-yellow-800',
@@ -76,9 +81,13 @@ const HEALTH_STATUS_STYLES: Record<string, string> = {
   unhealthy: 'bg-red-100 text-red-800',
 }
 
-export default function IntegrationDetailPage() {
-  const params = useParams<{ id: string }>()
-  const integrationId = params?.id
+function resolveRouteId(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+export default function IntegrationDetailPage({ params }: IntegrationDetailPageProps) {
+  const integrationId = resolveRouteId(params?.id)
   const t = useT()
 
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)

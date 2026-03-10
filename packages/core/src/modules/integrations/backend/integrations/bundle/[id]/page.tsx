@@ -1,7 +1,6 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -50,9 +49,19 @@ type BundleDetail = {
   hasCredentials: boolean
 }
 
-export default function BundleConfigPage() {
-  const params = useParams<{ id: string }>()
-  const bundleId = params.id
+type BundleConfigPageProps = {
+  params?: {
+    id?: string | string[]
+  }
+}
+
+function resolveRouteId(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+export default function BundleConfigPage({ params }: BundleConfigPageProps) {
+  const bundleId = resolveRouteId(params?.id)
   const t = useT()
 
   const [detail, setDetail] = React.useState<BundleDetail | null>(null)

@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -62,10 +62,20 @@ const LOG_LEVEL_STYLES: Record<string, string> = {
   error: 'bg-red-100 text-red-800',
 }
 
-export default function SyncRunDetailPage() {
-  const params = useParams<{ id: string }>()
+type SyncRunDetailPageProps = {
+  params?: {
+    id?: string | string[]
+  }
+}
+
+function resolveRouteId(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const router = useRouter()
-  const runId = params.id
+  const runId = resolveRouteId(params?.id)
   const t = useT()
 
   const [run, setRun] = React.useState<SyncRunDetail | null>(null)
