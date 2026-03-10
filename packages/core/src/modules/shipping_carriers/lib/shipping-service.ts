@@ -96,23 +96,23 @@ export function createShippingCarrierService(deps: {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })
-      const tracking = await adapter.getTracking({
-        shipmentId: input.shipmentId,
-        trackingNumber: input.trackingNumber,
-        credentials,
-      })
-      if (input.shipmentId) {
-        const row = await em.findOne(CarrierShipment, {
+      const shipment = input.shipmentId
+        ? await em.findOne(CarrierShipment, {
           id: input.shipmentId,
           organizationId: input.organizationId,
           tenantId: input.tenantId,
         })
-        if (row) {
-          row.unifiedStatus = tracking.status
-          row.trackingEvents = tracking.events
-          row.lastPolledAt = new Date()
-          await em.flush()
-        }
+        : null
+      const tracking = await adapter.getTracking({
+        shipmentId: shipment?.carrierShipmentId ?? input.shipmentId,
+        trackingNumber: input.trackingNumber,
+        credentials,
+      })
+      if (shipment) {
+        shipment.unifiedStatus = tracking.status
+        shipment.trackingEvents = tracking.events
+        shipment.lastPolledAt = new Date()
+        await em.flush()
       }
       return tracking
     },

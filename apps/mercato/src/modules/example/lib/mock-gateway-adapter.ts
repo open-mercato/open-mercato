@@ -92,6 +92,30 @@ export const mockGatewayAdapter: GatewayAdapter = {
 
   async verifyWebhook(input: VerifyWebhookInput): Promise<WebhookEvent> {
     const body = typeof input.rawBody === 'string' ? JSON.parse(input.rawBody) : JSON.parse(input.rawBody.toString('utf-8'))
+    const sessionId = typeof body?.data?.id === 'string' ? body.data.id : null
+    const nextStatus = typeof body?.data?.status === 'string' ? body.data.status : null
+    const amount = typeof body?.data?.amount === 'number' ? body.data.amount : null
+
+    if (sessionId && nextStatus) {
+      const session = sessionStore.get(sessionId)
+      if (session) {
+        if (nextStatus === 'captured') {
+          session.status = 'captured'
+          session.capturedAmount = amount ?? session.amount
+        } else if (nextStatus === 'cancelled') {
+          session.status = 'cancelled'
+        } else if (nextStatus === 'refunded') {
+          session.status = 'refunded'
+          session.refundedAmount = amount ?? session.capturedAmount
+        } else if (nextStatus === 'partially_refunded') {
+          session.status = 'partially_refunded'
+          session.refundedAmount = amount ?? session.refundedAmount
+        } else if (nextStatus === 'failed') {
+          session.status = 'failed'
+        }
+      }
+    }
+
     return {
       eventType: body.type ?? 'mock.event',
       eventId: body.id ?? crypto.randomUUID(),

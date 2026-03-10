@@ -37,6 +37,23 @@ type LifecycleEventBus = {
   emitEvent?: (event: string, payload: unknown) => Promise<void>
 }
 
+function normalizeApiPath(pathname: string): string {
+  return ('/' + pathname).replace(/\/+/g, '/').replace(/\/+$/, '') || '/'
+}
+
+function getApiPathCandidates(pathname: string): string[] {
+  const normalized = normalizeApiPath(pathname)
+  const candidates = [normalized]
+
+  if (normalized === '/shipping-carriers') {
+    candidates.push('/shipping_carriers/shipping-carriers')
+  } else if (normalized.startsWith('/shipping-carriers/')) {
+    candidates.push(`/shipping_carriers/shipping-carriers/${normalized.slice('/shipping-carriers/'.length)}`)
+  }
+
+  return Array.from(new Set(candidates))
+}
+
 function buildRequestId(req: NextRequest): string {
   return req.headers.get('x-request-id') ?? crypto.randomUUID()
 }
@@ -249,7 +266,7 @@ async function handleRequest(
   const requestId = buildRequestId(req)
   const { t } = await resolveTranslations()
   const params = await paramsPromise
-  const pathname = '/' + (params.slug?.join('/') ?? '')
+  const pathname = normalizeApiPath(params.slug?.join('/') ?? '')
   const receivedPayload = {
     requestId,
     method,
@@ -257,7 +274,9 @@ async function handleRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
-  const api = findApi(modules, method, pathname)
+  const api = getApiPathCandidates(pathname)
+    .map((candidate) => findApi(modules, method, candidate))
+    .find((candidate): candidate is NonNullable<typeof candidate> => !!candidate)
   if (!api) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
