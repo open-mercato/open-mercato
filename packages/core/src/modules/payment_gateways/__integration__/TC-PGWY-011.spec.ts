@@ -21,7 +21,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      data: 'this is not json {{{',
+      data: Buffer.from('this is not json {{{'),
     })
 
     // Mock adapter's verifyWebhook calls JSON.parse, which throws on invalid JSON.
@@ -39,7 +39,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      data: '',
+      data: Buffer.alloc(0),
     })
 
     // Empty body causes JSON.parse to throw in verifyWebhook

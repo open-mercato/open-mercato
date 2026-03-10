@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+import type { IntegrationLogService } from '../../../integrations/lib/log-service'
 import type { PaymentGatewayService } from '../../../lib/gateway-service'
 import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
 import { getPaymentGatewayQueue } from '../../../lib/queue'
+import { processPaymentGatewayWebhookJob } from '../../../lib/webhook-processor'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
@@ -74,15 +77,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       credentials,
     })
 
-    await queue.enqueue({
-      name: 'payment-gateway-webhook',
-      payload: {
-        providerKey,
-        event,
-        transactionId: transaction?.id ?? null,
-        scope,
-      },
-    })
+    const jobPayload = {
+      providerKey,
+      event,
+      transactionId: transaction?.id ?? null,
+      scope,
+    }
+
+    if (process.env.QUEUE_STRATEGY === 'async') {
+      await queue.enqueue({
+        name: 'payment-gateway-webhook',
+        payload: jobPayload,
+      })
+    } else {
+      await processPaymentGatewayWebhookJob(
+        {
+          em: container.resolve('em') as EntityManager,
+          paymentGatewayService: service,
+          integrationLogService: container.resolve('integrationLogService') as IntegrationLogService,
+        },
+        jobPayload,
+      )
+    }
 
     return NextResponse.json({ received: true, queued: true }, { status: 202 })
   } catch (err: unknown) {
