@@ -522,6 +522,7 @@
   "catalog.search.priceKind.promotion": "Aktion",
   "catalog.search.status.inactive": "Inaktiv",
   "catalog.search.variant.default": "Standard",
+  "catalog.variants.errors.skuExists": "SKU wird bereits verwendet.",
   "catalog.variants.form.barcodeLabel": "Barcode",
   "catalog.variants.form.barcodePlaceholder": "EAN, UPC usw.",
   "catalog.variants.form.createAction": "Variante erstellen",
