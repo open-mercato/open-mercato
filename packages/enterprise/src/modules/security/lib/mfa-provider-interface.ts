@@ -8,6 +8,10 @@ export type MfaMethodRecord = {
   providerMetadata?: Record<string, unknown> | null
 }
 
+export type MfaVerifyContext = {
+  challenge?: Record<string, unknown> | null
+}
+
 export interface MfaSetupComponentProps {
   clientData: Record<string, unknown>
   onConfirm: (payload: unknown) => Promise<void>
@@ -31,8 +35,11 @@ export interface MfaProviderInterface {
 
   setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }>
   confirmSetup(userId: string, setupId: string, payload: unknown): Promise<{ metadata: Record<string, unknown> }>
-  prepareChallenge(userId: string, method: MfaMethodRecord): Promise<{ clientData?: Record<string, unknown> }>
-  verify(userId: string, method: MfaMethodRecord, payload: unknown): Promise<boolean>
+  prepareChallenge(
+    userId: string,
+    method: MfaMethodRecord,
+  ): Promise<{ clientData?: Record<string, unknown>; verifyContext?: MfaVerifyContext }>
+  verify(userId: string, method: MfaMethodRecord, payload: unknown, context?: MfaVerifyContext): Promise<boolean>
 
   SetupComponent?: React.ComponentType<MfaSetupComponentProps>
   VerifyComponent?: React.ComponentType<MfaVerifyComponentProps>

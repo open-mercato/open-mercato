@@ -11,7 +11,7 @@ const responseSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['security.mfa.manage'] },
+  POST: { requireAuth: true},
 }
 
 export async function POST(req: Request) {

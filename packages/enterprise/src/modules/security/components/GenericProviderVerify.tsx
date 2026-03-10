@@ -9,7 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 type GenericProviderVerifyProps = {
   onVerify: (payload: { code: string }) => Promise<void>
   onCancel?: () => void
-  onResend?: () => Promise<void>
+  onResend?: () => Promise<unknown>
   submitLabel?: string
 }
 

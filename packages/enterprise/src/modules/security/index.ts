@@ -1,4 +1,8 @@
 import './commands/changePassword'
+import './commands/createEnforcementPolicy'
+import './commands/updateEnforcementPolicy'
+import './commands/deleteEnforcementPolicy'
+import './commands/resetUserMfa'
 
 export const metadata = {
   id: 'security',

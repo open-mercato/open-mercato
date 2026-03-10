@@ -3,6 +3,7 @@ import { MfaChallenge, UserMfaMethod } from '../data/entities'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
 import type { MfaService } from './MfaService'
+import type { MfaVerifyContext } from '../lib/mfa-provider-interface'
 
 const CHALLENGE_TTL_MS = 10 * 60 * 1000
 const MAX_ATTEMPTS = 5
@@ -88,6 +89,8 @@ export class MfaVerificationService {
     })
 
     challenge.methodType = methodType
+    challenge.methodId = method.id
+    challenge.providerChallenge = result.verifyContext?.challenge ?? null
     await this.em.flush()
     return result
   }
@@ -109,13 +112,18 @@ export class MfaVerificationService {
       throw new MfaVerificationServiceError(`MFA provider '${methodType}' is not registered`, 400)
     }
 
-    const method = await this.findMethod(challenge.userId, methodType)
+    const method = challenge.methodId
+      ? await this.findMethodById(challenge.userId, challenge.methodId)
+      : await this.findMethod(challenge.userId, methodType)
+    const context: MfaVerifyContext | undefined = challenge.providerChallenge
+      ? { challenge: challenge.providerChallenge }
+      : undefined
     const verified = await provider.verify(challenge.userId, {
       id: method.id,
       type: method.type,
       userId: method.userId,
       providerMetadata: method.providerMetadata,
-    }, payload)
+    }, payload, context)
 
     if (verified) {
       challenge.verifiedAt = new Date()
@@ -179,6 +187,19 @@ export class MfaVerificationService {
     })
     if (!method) {
       throw new MfaVerificationServiceError(`MFA method '${methodType}' not found`, 404)
+    }
+    return method
+  }
+
+  private async findMethodById(userId: string, methodId: string): Promise<UserMfaMethod> {
+    const method = await this.em.findOne(UserMfaMethod, {
+      id: methodId,
+      userId,
+      isActive: true,
+      deletedAt: null,
+    })
+    if (!method) {
+      throw new MfaVerificationServiceError(`MFA method '${methodId}' not found`, 404)
     }
     return method
   }

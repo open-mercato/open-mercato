@@ -2032,3 +2032,18 @@ security/
 - Recovery codes add user responsibility to store codes securely. This is standard industry practice.
 - WebAuthn support depends on browser capabilities, but TOTP and OTP email provide universal fallback.
 - Custom MFA providers run in the same trust boundary as the module that registered them — this is consistent with Open Mercato's module architecture but means third-party modules should be code-reviewed.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 4 — Email templates (OTP/MFA/enforcement) | In Progress | 2026-03-09 | Implemented MFA enrolled/reset/enforcement reminder email templates and notification subscribers |
+| Phase 3 — Enforcement notification handlers | In Progress | 2026-03-09 | Added deadline reminder request event + reminder subscriber for 7/3/1-day windows |
+
+### Phase 3/4 — Detailed Progress (Notifications + Email Slice)
+- [x] Add concrete notification type definitions in `notifications.ts`
+- [x] Implement MFA enrolled notification subscriber with email delivery
+- [x] Implement MFA reset notification subscriber with email delivery
+- [x] Implement enforcement deadline reminder subscriber with email delivery
+- [x] Replace scaffold email templates (`mfa-enrolled.tsx`, `mfa-reset.tsx`, `enforcement-deadline.tsx`)
+- [x] Add i18n notification keys and subscriber tests

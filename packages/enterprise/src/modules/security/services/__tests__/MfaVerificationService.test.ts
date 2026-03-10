@@ -46,6 +46,8 @@ function createServiceContext() {
     attempts: number
     expiresAt: Date
     methodType?: string | null
+    methodId?: string | null
+    providerChallenge?: Record<string, unknown> | null
     verifiedAt?: Date | null
   }> = []
 
@@ -57,6 +59,8 @@ function createServiceContext() {
       attempts: Number(data.attempts ?? 0),
       expiresAt: data.expiresAt as Date,
       methodType: null,
+      methodId: null,
+      providerChallenge: null,
       verifiedAt: null,
     })),
     persist: jest.fn((challenge: (typeof challenges)[number]) => {
@@ -65,7 +69,16 @@ function createServiceContext() {
     flush: jest.fn().mockResolvedValue(undefined),
     find: jest.fn(async () => methods),
     findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
-      if ('id' in query && !('userId' in query)) {
+      if ('id' in query && 'userId' in query) {
+        return methods.find(
+          (item) =>
+            item.id === query.id &&
+            item.userId === query.userId &&
+            item.isActive === query.isActive &&
+            item.deletedAt === query.deletedAt,
+        ) ?? null
+      }
+      if ('id' in query && !('type' in query)) {
         return challenges.find((item) => item.id === query.id) ?? null
       }
       return methods.find(
@@ -124,6 +137,7 @@ describe('MfaVerificationService', () => {
     expect(verified).toBe(true)
     expect(challenges[0].verifiedAt).toBeInstanceOf(Date)
     expect(challenges[0].methodType).toBe('totp')
+    expect(challenges[0].methodId).toBe('method-1')
     expect(methods[0].lastUsedAt).toBeInstanceOf(Date)
     expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.verified', {
       userId: 'user-1',

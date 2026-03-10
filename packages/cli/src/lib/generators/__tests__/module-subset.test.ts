@@ -361,7 +361,7 @@ describe('generateModuleRegistryCli with module subsets', () => {
 })
 
 describe('all generated files are valid with varying subsets', () => {
-  it('produces all 9 generated files even when no modules have matching content', async () => {
+  it('produces all generated files even when no modules have matching content', async () => {
     scaffoldModule(tmpDir, 'bare_mod', 'pkg', ['acl.ts'])
     const enabled: ModuleEntry[] = [
       { id: 'bare_mod', from: '@open-mercato/core' },
@@ -380,6 +380,8 @@ describe('all generated files are valid with varying subsets', () => {
       'events.generated.ts',
       'analytics.generated.ts',
       'translations-fields.generated.ts',
+      'frontend-middleware.generated.ts',
+      'backend-middleware.generated.ts',
     ]
     for (const file of expectedFiles) {
       const content = readGenerated(tmpDir, file)
@@ -443,5 +445,21 @@ describe('all generated files are valid with varying subsets', () => {
     const notifications = readGenerated(tmpDir, 'notifications.generated.ts')!
     expect(notifications).toContain('as any).types')
     expect(notifications).toContain('as NotificationTypeDefinition[]')
+  })
+
+  it('discovers frontend and backend middleware conventions', async () => {
+    scaffoldModule(tmpDir, 'security', 'pkg', [
+      'frontend/middleware.ts',
+      'backend/middleware.ts',
+    ])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'security', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const frontendMiddleware = readGenerated(tmpDir, 'frontend-middleware.generated.ts')!
+    const backendMiddleware = readGenerated(tmpDir, 'backend-middleware.generated.ts')!
+    expect(frontendMiddleware).toContain("moduleId: 'security'")
+    expect(backendMiddleware).toContain("moduleId: 'security'")
   })
 })

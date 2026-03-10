@@ -38,6 +38,35 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
   })),
 }))
 
+jest.mock('@/.mercato/generated/backend-middleware.generated', () => ({
+  backendMiddlewareEntries: [
+    {
+      moduleId: 'security',
+      middleware: [
+        {
+          id: 'security.backend.mfa-enforcement',
+          mode: 'backend',
+          target: '/backend*',
+          run: async (context: { auth: { sub?: string }; ensureContainer: () => Promise<{ resolve: (key: string) => unknown }> }) => {
+            if (!context.auth?.sub) return { action: 'continue' as const }
+            const container = await context.ensureContainer()
+            const service = container.resolve('mfaEnforcementService') as {
+              checkUserCompliance: (userId: string) => Promise<{ compliant: boolean; enforced: boolean }>
+            } | null
+            if (!service) return { action: 'continue' as const }
+            const compliance = await service.checkUserCompliance(context.auth.sub)
+            if (!compliance.enforced || compliance.compliant) return { action: 'continue' as const }
+            return {
+              action: 'redirect' as const,
+              location: '/backend/profile/security/mfa?redirect=%2Fbackend%2Fentities%2Frecords&reason=mfa_enrollment_required',
+            }
+          },
+        },
+      ],
+    },
+  ],
+}))
+
 // Mock auth cookie reader
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromCookies: jest.fn(),
@@ -50,9 +79,16 @@ const mockRbac = {
     Parameters<RbacService['userHasAllFeatures']>
   >()
 }
+const mockMfaEnforcement = {
+  checkUserCompliance: jest.fn<Promise<{ compliant: boolean; enforced: boolean; deadline?: Date }>, [string]>(),
+}
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (key: string) => (key === 'rbacService' ? mockRbac : null),
+    resolve: (key: string) => {
+      if (key === 'rbacService') return mockRbac
+      if (key === 'mfaEnforcementService') return mockMfaEnforcement
+      return null
+    },
   }),
 }))
 
@@ -89,6 +125,7 @@ describe('Backend requireFeatures guard', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockMfaEnforcement.checkUserCompliance.mockResolvedValue({ compliant: true, enforced: false })
     cookieStore.get.mockReset()
     cookieStore.get.mockReturnValue(undefined)
     cookiesMock.mockClear()
@@ -137,5 +174,14 @@ describe('Backend requireFeatures guard', () => {
     const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['admin', 'page'] }) })
     expect(el).toBeTruthy()
     expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it('redirects to MFA enrollment page when enforcement is active and user is not compliant', async () => {
+    await setAuthMock({ sub: 'u1', tenantId: 't1', orgId: 'o1', roles: [] })
+    mockMfaEnforcement.checkUserCompliance.mockResolvedValueOnce({ compliant: false, enforced: true })
+
+    await expect(
+      BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) }),
+    ).rejects.toThrow(/REDIRECT \/backend\/profile\/security\/mfa\?/)
   })
 })
