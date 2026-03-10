@@ -540,6 +540,7 @@
   "catalog.variants.form.editTitleFor": "Variante bearbeiten · {{title}}",
   "catalog.variants.form.errors.deleteError": "Variante konnte nicht gelöscht werden.",
   "catalog.variants.form.errors.idMissing": "Varianten-ID fehlt nach dem Erstellen.",
+  "catalog.variants.form.errors.invalidPrice": "Geben Sie einen gultigen, nicht negativen Preis an.",
   "catalog.variants.form.errors.load": "Variante konnte nicht geladen werden.",
   "catalog.variants.form.errors.nameRequired": "Geben Sie den Variantennamen an.",
   "catalog.variants.form.errors.notFound": "Variante nicht gefunden.",
