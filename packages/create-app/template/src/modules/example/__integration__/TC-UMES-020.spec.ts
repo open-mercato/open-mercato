@@ -12,11 +12,11 @@ test.describe('TC-UMES-020: Payment Gateway demo page', () => {
 
     // Navigate to payment demo page
     await page.goto('/backend/payments')
-    await expect(page.getByText('Payment Gateway Demo')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Payment Gateway Demo' })).toBeVisible()
 
     // Verify setup instructions are visible
     await expect(page.getByText('How to Configure Payment Gateways')).toBeVisible()
-    await expect(page.getByText('Mock Gateway')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Pay with Mock Gateway/i })).toBeVisible()
 
     // Click "Pay with Mock Gateway"
     await page.getByRole('button', { name: /Pay with Mock Gateway/i }).click()
@@ -28,7 +28,7 @@ test.describe('TC-UMES-020: Payment Gateway demo page', () => {
     // Capture the payment
     await page.getByRole('button', { name: /Capture/i }).click()
     await expect(page.getByText('capture successful')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText('captured')).toBeVisible()
+    await expect(page.getByText('Captured', { exact: true })).toBeVisible()
 
     // Refund the payment
     await page.getByRole('button', { name: /Refund/i }).click()
