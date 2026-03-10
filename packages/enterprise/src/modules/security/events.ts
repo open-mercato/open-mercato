@@ -14,7 +14,12 @@ const events = [
   { id: 'security.enforcement.created', label: 'MFA Enforcement Created', category: 'lifecycle' },
   { id: 'security.enforcement.updated', label: 'MFA Enforcement Updated', category: 'lifecycle' },
   { id: 'security.enforcement.deadline_reminder_requested', label: 'MFA Enforcement Deadline Reminder Requested', category: 'lifecycle' },
+  { id: 'security.sudo.challenged', label: 'Sudo Challenged', category: 'lifecycle' },
+  { id: 'security.sudo.verified', label: 'Sudo Verified', category: 'lifecycle' },
+  { id: 'security.sudo.failed', label: 'Sudo Failed', category: 'lifecycle' },
+  { id: 'security.sudo.config.created', label: 'Sudo Config Created', category: 'lifecycle' },
   { id: 'security.sudo.config.updated', label: 'Sudo Config Updated', category: 'lifecycle' },
+  { id: 'security.sudo.config.deleted', label: 'Sudo Config Deleted', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({ moduleId: 'security', events })

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
-import { EnforcementScope } from './entities'
+import { ChallengeMethod, EnforcementScope, SudoTargetType } from './entities'
 
 const passwordSchema = buildPasswordSchema()
 
@@ -26,7 +26,42 @@ export const enforcementPolicySchema = z.object({
 
 export const updateEnforcementPolicySchema = enforcementPolicySchema.partial()
 
+export const sudoChallengeInitSchema = z.object({
+  targetType: z.nativeEnum(SudoTargetType).default(SudoTargetType.FEATURE),
+  targetIdentifier: z.string().min(1),
+})
+
+export const sudoChallengePrepareSchema = z.object({
+  sessionId: z.string().uuid(),
+  methodType: z.string().min(1),
+})
+
+export const sudoChallengeVerifySchema = z.object({
+  sessionId: z.string().uuid(),
+  targetType: z.nativeEnum(SudoTargetType).default(SudoTargetType.FEATURE),
+  targetIdentifier: z.string().min(1),
+  methodType: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).default({}),
+})
+
+export const sudoConfigSchema = z.object({
+  tenantId: z.string().uuid().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  targetType: z.nativeEnum(SudoTargetType),
+  targetIdentifier: z.string().min(1),
+  isEnabled: z.boolean().default(true),
+  ttlSeconds: z.coerce.number().int().min(30).max(1800).default(300),
+  challengeMethod: z.nativeEnum(ChallengeMethod).default(ChallengeMethod.AUTO),
+})
+
+export const sudoConfigUpdateSchema = sudoConfigSchema.partial()
+
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
 export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>
 export type EnforcementPolicyInput = z.infer<typeof enforcementPolicySchema>
 export type UpdateEnforcementPolicyInput = z.infer<typeof updateEnforcementPolicySchema>
+export type SudoChallengeInitInput = z.infer<typeof sudoChallengeInitSchema>
+export type SudoChallengePrepareInput = z.infer<typeof sudoChallengePrepareSchema>
+export type SudoChallengeVerifyInput = z.infer<typeof sudoChallengeVerifySchema>
+export type SudoConfigInput = z.infer<typeof sudoConfigSchema>
+export type SudoConfigUpdateInput = z.infer<typeof sudoConfigUpdateSchema>

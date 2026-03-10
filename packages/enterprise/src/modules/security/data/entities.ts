@@ -1,36 +1,19 @@
 import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/core'
+import {
+  ChallengeMethod,
+  EnforcementScope,
+  MfaMethodType,
+  SudoChallengeMethodUsed,
+  SudoTargetType,
+} from './constants'
 
-export enum MfaMethodType {
-  TOTP = 'totp',
-  OTP_EMAIL = 'otp_email',
-  PASSKEY = 'passkey',
-}
-
-export enum EnforcementScope {
-  PLATFORM = 'platform',
-  TENANT = 'tenant',
-  ORGANISATION = 'organisation',
-}
-
-export enum SudoTargetType {
-  PACKAGE = 'package',
-  MODULE = 'module',
-  ROUTE = 'route',
-  FEATURE = 'feature',
-}
-
-export enum ChallengeMethod {
-  AUTO = 'auto',
-  PASSWORD = 'password',
-  MFA = 'mfa',
-}
-
-export enum SudoChallengeMethodUsed {
-  PASSWORD = 'password',
-  TOTP = 'totp',
-  PASSKEY = 'passkey',
-  OTP_EMAIL = 'otp_email',
-}
+export {
+  ChallengeMethod,
+  EnforcementScope,
+  MfaMethodType,
+  SudoChallengeMethodUsed,
+  SudoTargetType,
+} from './constants'
 
 @Entity({ tableName: 'user_mfa_methods' })
 @Index({ name: 'idx_user_mfa_methods_user_type', properties: ['userId', 'type', 'isActive'] })

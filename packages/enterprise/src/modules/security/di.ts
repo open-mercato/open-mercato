@@ -9,6 +9,7 @@ import { MfaService } from './services/MfaService'
 import { MfaVerificationService } from './services/MfaVerificationService'
 import { MfaEnforcementService } from './services/MfaEnforcementService'
 import { MfaAdminService } from './services/MfaAdminService'
+import { SudoChallengeService } from './services/SudoChallengeService'
 
 export function register(container: AppContainer) {
   const mfaProviderRegistry = new MfaProviderRegistry()
@@ -23,5 +24,6 @@ export function register(container: AppContainer) {
     mfaVerificationService: asClass(MfaVerificationService).scoped(),
     mfaEnforcementService: asClass(MfaEnforcementService).scoped(),
     mfaAdminService: asClass(MfaAdminService).scoped(),
+    sudoChallengeService: asClass(SudoChallengeService).scoped(),
   })
 }

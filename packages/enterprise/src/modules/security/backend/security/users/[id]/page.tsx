@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation.js'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -12,6 +12,9 @@ import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import type { ComplianceItem, ComplianceResponse, UserStatus } from '../_shared'
 import SecurityUserForm, { type SecurityUserFormValue } from '../../../../components/SecurityUserForm'
+import { SudoProvider } from '../../../../components/SudoProvider'
+import { useSudoChallenge } from '../../../../components/hooks/useSudoChallenge'
+import { SudoTargetType } from '../../../../data/constants'
 
 type SecurityUserDetailPageProps = {
   params?: {
@@ -19,9 +22,10 @@ type SecurityUserDetailPageProps = {
   }
 }
 
-export default function SecurityUserDetailPage({ params }: SecurityUserDetailPageProps) {
+function SecurityUserDetailPageInner({ params }: SecurityUserDetailPageProps) {
   const t = useT()
   const router = useRouter()
+  const { requireSudo } = useSudoChallenge()
   const userId = React.useMemo(() => {
     if (typeof params?.id === 'string') return params.id
     if (Array.isArray(params?.id)) return params.id[0] ?? ''
@@ -96,11 +100,22 @@ export default function SecurityUserDetailPage({ params }: SecurityUserDetailPag
 
     setSaving(true)
     try {
+      const sudoToken = await requireSudo('security.admin.mfa.reset', {
+        targetType: SudoTargetType.FEATURE,
+      })
+      if (!sudoToken) {
+        flash(t('security.admin.sudo.flash.cancelled', 'Sudo challenge cancelled.'), 'error')
+        return
+      }
+
       await runMutationWithContext(
         () =>
           apiCallOrThrow(`/api/security/users/${encodeURIComponent(userId)}/mfa/reset`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: {
+              'content-type': 'application/json',
+              'x-sudo-token': sudoToken,
+            },
             body: JSON.stringify({ reason }),
           }),
         { userId, reason },
@@ -112,7 +127,7 @@ export default function SecurityUserDetailPage({ params }: SecurityUserDetailPag
     } finally {
       setSaving(false)
     }
-  }, [loadDetail, runMutationWithContext, t, userId])
+  }, [loadDetail, requireSudo, runMutationWithContext, t, userId])
 
   const pageTitle = React.useMemo(() => {
     if (summary?.email) {
@@ -169,5 +184,13 @@ export default function SecurityUserDetailPage({ params }: SecurityUserDetailPag
         )}
       </PageBody>
     </Page>
+  )
+}
+
+export default function SecurityUserDetailPage(props: SecurityUserDetailPageProps) {
+  return (
+    <SudoProvider>
+      <SecurityUserDetailPageInner {...props} />
+    </SudoProvider>
   )
 }

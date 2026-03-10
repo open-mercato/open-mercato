@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import { Loader2 } from 'lucide-react'
-import Image from 'next/image'
-import { useRouter } from 'next/navigation'
+import Image from 'next/image.js'
+import { useRouter } from 'next/navigation.js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
