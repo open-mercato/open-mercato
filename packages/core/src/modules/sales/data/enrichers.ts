@@ -1,148 +1,118 @@
 /**
  * Catalog Image Enricher
  *
- * Overrides the snapshot's `thumbnailUrl` with the current product/variant image
- * at API response time. The snapshot serves as fallback for deleted products.
+ * Overrides the snapshot's `thumbnailUrl` with a freshly built URL from the
+ * product/variant's current `defaultMediaId`. This ensures quote/order lines
+ * always reflect the latest product image, even when the underlying attachment
+ * changes. The snapshot serves as fallback for deleted products.
  *
- * Uses batch queries via `enrichMany` to prevent N+1.
+ * Uses raw Knex queries to avoid cross-module ORM entity metadata issues.
  */
 
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
-import { CatalogProduct, CatalogProductVariant } from '../../catalog/data/entities'
+import { buildAttachmentImageUrl } from '../../attachments/lib/imageUrls'
 
 type LineRecord = Record<string, unknown> & { id: string }
 
-type CatalogSnapshot = {
-  product?: { thumbnailUrl?: string | null; [key: string]: unknown }
-  variant?: { thumbnailUrl?: string | null; [key: string]: unknown }
-  [key: string]: unknown
+type SnapshotNode = { thumbnailUrl?: string | null; [key: string]: unknown }
+type CatalogSnapshot = { product?: SnapshotNode; variant?: SnapshotNode; [key: string]: unknown }
+
+function getKnex(em: unknown): unknown {
+  return (em as any).getConnection?.()?.getKnex?.()
 }
 
-function parseSnapshot(raw: unknown): CatalogSnapshot | null {
-  if (!raw || typeof raw !== 'object') return null
-  return raw as CatalogSnapshot
-}
-
-function collectProductIds(records: LineRecord[]): {
-  productIds: Set<string>
-  variantIds: Set<string>
-} {
-  const productIds = new Set<string>()
-  const variantIds = new Set<string>()
-  for (const record of records) {
-    const productId = record['product_id'] ?? record['productId']
-    const variantId = record['product_variant_id'] ?? record['productVariantId']
-    if (typeof productId === 'string') productIds.add(productId)
-    if (typeof variantId === 'string') variantIds.add(variantId)
-  }
-  return { productIds, variantIds }
-}
-
-async function fetchCurrentMediaUrls(
-  em: unknown,
-  productIds: Set<string>,
-  variantIds: Set<string>,
+async function fetchMediaIds(
+  knex: unknown,
+  table: string,
+  ids: Set<string>,
   organizationId: string,
-): Promise<{
-  productMedia: Map<string, string | null>
-  variantMedia: Map<string, string | null>
-}> {
-  const fork = (em as any).fork()
-  const productMedia = new Map<string, string | null>()
-  const variantMedia = new Map<string, string | null>()
+): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>()
+  if (ids.size === 0) return map
 
-  if (productIds.size > 0) {
-    const products: Array<{ id: string; defaultMediaUrl?: string | null }> = await fork.find(
-      CatalogProduct,
-      { id: { $in: [...productIds] }, organizationId, deletedAt: null },
-      { fields: ['id', 'defaultMediaUrl'] },
-    )
-    for (const product of products) {
-      productMedia.set(product.id, product.defaultMediaUrl ?? null)
-    }
+  const rows: Array<{ id: string; default_media_id: string | null }> = await (knex as any)(table)
+    .select('id', 'default_media_id')
+    .whereIn('id', [...ids])
+    .where('organization_id', organizationId)
+    .whereNull('deleted_at')
+
+  for (const row of rows) {
+    map.set(row.id, row.default_media_id ? buildAttachmentImageUrl(row.default_media_id) : null)
   }
-
-  if (variantIds.size > 0) {
-    const variants: Array<{ id: string; defaultMediaUrl?: string | null }> = await fork.find(
-      CatalogProductVariant,
-      { id: { $in: [...variantIds] }, organizationId, deletedAt: null },
-      { fields: ['id', 'defaultMediaUrl'] },
-    )
-    for (const variant of variants) {
-      variantMedia.set(variant.id, variant.defaultMediaUrl ?? null)
-    }
-  }
-
-  return { productMedia, variantMedia }
+  return map
 }
 
-function applyMediaToRecord(
-  record: LineRecord,
+function enrichRecords(
+  records: LineRecord[],
   productMedia: Map<string, string | null>,
   variantMedia: Map<string, string | null>,
-): LineRecord {
-  const snapshotKey = 'catalog_snapshot' in record ? 'catalog_snapshot' : 'catalogSnapshot'
-  const snapshot = parseSnapshot(record[snapshotKey])
-  if (!snapshot) return record
+): LineRecord[] {
+  return records.map((record) => {
+    const productId = record['product_id'] as string | undefined
+    const variantId = record['product_variant_id'] as string | undefined
 
-  const productId = (record['product_id'] ?? record['productId']) as string | undefined
-  const variantId = (record['product_variant_id'] ?? record['productVariantId']) as string | undefined
+    const productUrl = productId ? productMedia.get(productId) : undefined
+    const variantUrl = variantId ? variantMedia.get(variantId) : undefined
+    if (productUrl === undefined && variantUrl === undefined) return record
 
-  let changed = false
-  const updatedSnapshot = { ...snapshot }
+    const snapshot = (record['catalog_snapshot'] as CatalogSnapshot | null | undefined) ?? {}
+    const updatedSnapshot = { ...snapshot }
 
-  if (productId && productMedia.has(productId) && snapshot.product) {
-    updatedSnapshot.product = { ...snapshot.product, thumbnailUrl: productMedia.get(productId) ?? snapshot.product.thumbnailUrl }
-    changed = true
-  }
+    if (productUrl !== undefined) {
+      updatedSnapshot.product = { ...snapshot.product, thumbnailUrl: productUrl ?? snapshot.product?.thumbnailUrl }
+    }
+    if (variantUrl !== undefined) {
+      updatedSnapshot.variant = { ...snapshot.variant, thumbnailUrl: variantUrl ?? snapshot.variant?.thumbnailUrl }
+    }
 
-  if (variantId && variantMedia.has(variantId) && snapshot.variant) {
-    updatedSnapshot.variant = { ...snapshot.variant, thumbnailUrl: variantMedia.get(variantId) ?? snapshot.variant.thumbnailUrl }
-    changed = true
-  }
+    const changed =
+      updatedSnapshot.product?.thumbnailUrl !== snapshot.product?.thumbnailUrl ||
+      updatedSnapshot.variant?.thumbnailUrl !== snapshot.variant?.thumbnailUrl
+    if (!changed) return record
 
-  if (!changed) return record
-  return { ...record, [snapshotKey]: updatedSnapshot }
+    return { ...record, catalog_snapshot: updatedSnapshot }
+  })
 }
 
-const catalogImageEnricher: ResponseEnricher<LineRecord> = {
-  id: 'sales.catalog-image',
-  targetEntity: '*',
-  features: ['sales.quotes.view'],
-  priority: 5,
-  timeout: 1000,
-  critical: false,
-  fallback: {},
+function createCatalogImageEnricher(targetEntity: string): ResponseEnricher<LineRecord> {
+  return {
+    id: `sales.catalog-image:${targetEntity}`,
+    targetEntity,
+    features: [],
+    priority: 5,
+    timeout: 1000,
+    critical: false,
+    fallback: {},
 
-  async enrichOne(record, context: EnricherContext) {
-    const { productIds, variantIds } = collectProductIds([record])
-    if (productIds.size === 0 && variantIds.size === 0) return record
+    async enrichOne(record, context: EnricherContext) {
+      return (await this.enrichMany!([record], context))[0]
+    },
 
-    const { productMedia, variantMedia } = await fetchCurrentMediaUrls(
-      context.em,
-      productIds,
-      variantIds,
-      context.organizationId,
-    )
+    async enrichMany(records, context: EnricherContext) {
+      if (records.length === 0) return records
 
-    return applyMediaToRecord(record, productMedia, variantMedia)
-  },
+      const knex = getKnex(context.em)
+      if (!knex) return records
 
-  async enrichMany(records, context: EnricherContext) {
-    if (records.length === 0) return records
+      const productIds = new Set<string>()
+      const variantIds = new Set<string>()
+      for (const record of records) {
+        if (typeof record['product_id'] === 'string') productIds.add(record['product_id'])
+        if (typeof record['product_variant_id'] === 'string') variantIds.add(record['product_variant_id'])
+      }
+      if (productIds.size === 0 && variantIds.size === 0) return records
 
-    const { productIds, variantIds } = collectProductIds(records)
-    if (productIds.size === 0 && variantIds.size === 0) return records
+      const [productMedia, variantMedia] = await Promise.all([
+        fetchMediaIds(knex, 'catalog_products', productIds, context.organizationId),
+        fetchMediaIds(knex, 'catalog_product_variants', variantIds, context.organizationId),
+      ])
 
-    const { productMedia, variantMedia } = await fetchCurrentMediaUrls(
-      context.em,
-      productIds,
-      variantIds,
-      context.organizationId,
-    )
-
-    return records.map((record) => applyMediaToRecord(record, productMedia, variantMedia))
-  },
+      return enrichRecords(records, productMedia, variantMedia)
+    },
+  }
 }
 
-export const enrichers: ResponseEnricher[] = [catalogImageEnricher]
+export const enrichers: ResponseEnricher[] = [
+  createCatalogImageEnricher('sales:sales_quote_line'),
+  createCatalogImageEnricher('sales:sales_order_line'),
+]
