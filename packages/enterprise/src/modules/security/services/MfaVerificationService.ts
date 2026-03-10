@@ -12,6 +12,11 @@ type AvailableMethod = {
   type: string
   label: string
   icon: string
+  components?: {
+    list?: string
+    details?: string
+    challenge?: string
+  }
 }
 
 type ChallengeCreationResult = {
@@ -60,6 +65,7 @@ export class MfaVerificationService {
           type: provider.type,
           label: provider.label,
           icon: provider.icon,
+          ...(provider.components ? { components: provider.components } : {}),
         }
       })
       .filter((item): item is AvailableMethod => item !== null)

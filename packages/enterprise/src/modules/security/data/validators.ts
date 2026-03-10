@@ -15,6 +15,12 @@ export const mfaVerifySchema = z.object({
   payload: z.record(z.string(), z.unknown()).default({}),
 })
 
+export const removeMfaMethodSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const regenerateRecoveryCodesSchema = z.object({})
+
 export const enforcementPolicySchema = z.object({
   scope: z.nativeEnum(EnforcementScope),
   tenantId: z.string().uuid().nullable().optional(),
@@ -58,6 +64,8 @@ export const sudoConfigUpdateSchema = sudoConfigSchema.partial()
 
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
 export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>
+export type RemoveMfaMethodInput = z.infer<typeof removeMfaMethodSchema>
+export type RegenerateRecoveryCodesInput = z.infer<typeof regenerateRecoveryCodesSchema>
 export type EnforcementPolicyInput = z.infer<typeof enforcementPolicySchema>
 export type UpdateEnforcementPolicyInput = z.infer<typeof updateEnforcementPolicySchema>
 export type SudoChallengeInitInput = z.infer<typeof sudoChallengeInitSchema>

@@ -20,13 +20,6 @@ export type DefaultRoleFeatures = {
   employee?: string[]
 }
 
-export type ModuleSudoProtectedTarget = {
-  type: 'package' | 'module' | 'route' | 'feature'
-  identifier: string
-  ttlSeconds?: number
-  challengeMethod?: 'auto' | 'password' | 'mfa'
-}
-
 export type ModuleSetupConfig = {
   /**
    * Called inside setupInitialTenant() right after the tenant/org is created.
@@ -56,10 +49,4 @@ export type ModuleSetupConfig = {
    * Merged into role ACLs during tenant setup.
    */
   defaultRoleFeatures?: DefaultRoleFeatures
-
-  /**
-   * Developer-provided sudo-protected targets for this module.
-   * The security enterprise module may register these defaults at runtime.
-   */
-  sudoProtected?: ModuleSudoProtectedTarget[]
 }

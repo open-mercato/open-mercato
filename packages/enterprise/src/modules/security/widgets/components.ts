@@ -1,5 +1,21 @@
 import * as React from 'react'
+import { buildMfaProviderComponentHandles } from '../lib/mfa-provider-interface'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import {
+  OtpEmailProviderChallengeComponent,
+  OtpEmailProviderDetailsComponent,
+  OtpEmailProviderListComponent,
+  PasskeyProviderChallengeComponent,
+  PasskeyProviderDetailsComponent,
+  PasskeyProviderListComponent,
+  PasskeyProviderSetupComponent,
+  passthroughPropsSchema,
+  RecoveryCodeProviderChallengeComponent,
+  TotpProviderChallengeComponent,
+  TotpProviderDetailsComponent,
+  TotpProviderListComponent,
+  TotpProviderSetupComponent,
+} from '../components/mfa-provider-components'
 import MfaChallengePanel, { type MfaChallengeMethod } from '../components/MfaChallengePanel'
 
 type LoginResponseDetail = {
@@ -18,6 +34,19 @@ type MfaRequiredState = {
 
 type LoginFormSectionProps = {
   children?: React.ReactNode
+}
+
+function createSecurityReplacementOverride<TProps>(
+  componentId: string,
+  replacement: React.ComponentType<TProps>,
+): ComponentOverride {
+  return {
+    target: { componentId },
+    priority: 50,
+    metadata: { module: 'security' },
+    replacement: replacement as React.ComponentType<unknown>,
+    propsSchema: passthroughPropsSchema,
+  }
 }
 
 function parseMfaRequiredState(detail: unknown): MfaRequiredState | null {
@@ -91,6 +120,54 @@ export const componentOverrides: ComponentOverride[] = [
     metadata: { module: 'security' },
     wrapper: createMfaLoginFormWrapper,
   },
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('totp').setup,
+    TotpProviderSetupComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('passkey').setup,
+    PasskeyProviderSetupComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('totp').list,
+    TotpProviderListComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('passkey').list,
+    PasskeyProviderListComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('otp_email').list,
+    OtpEmailProviderListComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('totp').details,
+    TotpProviderDetailsComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('passkey').details,
+    PasskeyProviderDetailsComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('otp_email').details,
+    OtpEmailProviderDetailsComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('totp').challenge,
+    TotpProviderChallengeComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('passkey').challenge,
+    PasskeyProviderChallengeComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('otp_email').challenge,
+    OtpEmailProviderChallengeComponent,
+  ),
+  createSecurityReplacementOverride(
+    buildMfaProviderComponentHandles('recovery_code').challenge,
+    RecoveryCodeProviderChallengeComponent,
+  ),
 ]
 
 export default componentOverrides

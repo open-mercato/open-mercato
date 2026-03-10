@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
 import { mapMfaError, resolveMfaRequestContext } from '../../_shared'
 
@@ -17,8 +18,12 @@ export async function POST(req: Request) {
   if (context instanceof NextResponse) return context
 
   try {
-    const recoveryCodes = await context.mfaService.generateRecoveryCodes(context.auth.sub)
-    return NextResponse.json({ ok: true, recoveryCodes })
+    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const { result } = await commandBus.execute('security.mfa.recovery_codes.regenerate', {
+      input: {},
+      ctx: context.commandContext,
+    })
+    return NextResponse.json(result)
   } catch (error) {
     return mapMfaError(error)
   }

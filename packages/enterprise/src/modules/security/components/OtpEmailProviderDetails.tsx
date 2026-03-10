@@ -19,6 +19,11 @@ type OtpEmailProviderDetailsProps = {
 }
 
 type OtpSetupResponse = {
+  setupId?: string
+  clientData?: Record<string, unknown>
+}
+
+type OtpConfirmResponse = {
   ok?: boolean
   recoveryCodes?: string[]
 }
@@ -52,12 +57,26 @@ export default function OtpEmailProviderDetails({
     if (loading || configuredMethod) return
     setLoading(true)
     try {
-      await readApiResultOrThrow<OtpSetupResponse>(
-        '/api/security/mfa/otp-email/setup',
+      const setup = await readApiResultOrThrow<OtpSetupResponse>(
+        '/api/security/mfa/provider/otp_email',
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({}),
+        },
+      )
+      if (!setup.setupId) {
+        throw new Error('Missing setupId')
+      }
+      await readApiResultOrThrow<OtpConfirmResponse>(
+        '/api/security/mfa/provider/otp_email',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            setupId: setup.setupId,
+            payload: {},
+          }),
         },
       )
       await onMethodsChanged?.()

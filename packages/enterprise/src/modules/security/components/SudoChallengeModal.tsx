@@ -13,6 +13,11 @@ export type SudoChallengeMethod = {
   type: string
   label: string
   icon: string
+  components?: {
+    list?: string
+    details?: string
+    challenge?: string
+  }
 }
 
 export type PendingSudoChallenge = {
@@ -203,7 +208,7 @@ export default function SudoChallengeModal({
     () => challenge?.availableMfaMethods.filter((method) => method.type !== selectedMethod) ?? [],
     [challenge, selectedMethod],
   )
-  const ChallengeComponent = useProviderChallengeComponent(selected?.type ?? 'unknown')
+  const ChallengeComponent = useProviderChallengeComponent(selected ?? { type: 'unknown' })
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) handleClose() }}>

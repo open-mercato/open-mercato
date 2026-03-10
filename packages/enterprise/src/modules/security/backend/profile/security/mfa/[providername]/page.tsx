@@ -35,12 +35,17 @@ export default function MfaProviderMethodsPage({ params }: MfaProviderMethodsPag
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const ProviderDetailsComponent = useProviderDetailsComponent(providerType || 'unknown')
 
   const provider = React.useMemo(() => {
     if (!providerType) return null
     return providers.find((entry) => entry.type === providerType) ?? null
   }, [providerType, providers])
+  const ProviderDetailsComponent = useProviderDetailsComponent(provider ?? {
+    type: providerType || 'unknown',
+    label: providerType || 'unknown',
+    icon: 'Shield',
+    allowMultiple: true,
+  })
 
   const providerMethods = React.useMemo(() => {
     return methods.filter((method) => method.type === providerType)

@@ -19,6 +19,19 @@ export {
   SudoChallengeMethodUsed,
   SudoTargetType,
 } from './data/constants'
+export type {
+  MfaProviderComponents,
+  MfaProviderInterface,
+  MfaProviderSetup,
+  MfaProviderUser,
+  MfaSetupComponentProps,
+  MfaVerifyComponentProps,
+} from './lib/mfa-provider-interface'
+export type {
+  SecurityMfaProviderEntry,
+  SecuritySudoTarget,
+  SecuritySudoTargetEntry,
+} from './lib/module-security-registry'
 export { requireSudo, SudoRequiredError, isSudoRequiredError } from './lib/sudo-middleware'
 export { useSudoChallenge } from './components/hooks/useSudoChallenge'
 export { SudoProvider, withSudoProtection } from './components/SudoProvider'

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
@@ -10,6 +12,8 @@ const jsonRecordSchema = z.record(z.string(), z.unknown())
 
 export type MfaRequestContext = {
   auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
+  container: Awaited<ReturnType<typeof createRequestContainer>>
+  commandContext: CommandRuntimeContext
   mfaService: MfaService
   mfaVerificationService: MfaVerificationService
 }
@@ -23,6 +27,15 @@ export async function resolveMfaRequestContext(req: Request): Promise<MfaRequest
   const container = await createRequestContainer()
   return {
     auth,
+    container,
+    commandContext: {
+      container,
+      auth,
+      organizationScope: null,
+      selectedOrganizationId: auth.orgId ?? null,
+      organizationIds: auth.orgId ? [auth.orgId] : null,
+      request: req,
+    },
     mfaService: container.resolve<MfaService>('mfaService'),
     mfaVerificationService: container.resolve<MfaVerificationService>('mfaVerificationService'),
   }
@@ -50,6 +63,9 @@ export function readString(value: unknown): string | null {
 }
 
 export function mapMfaError(error: unknown): NextResponse {
+  if (error instanceof CrudHttpError) {
+    return NextResponse.json(error.body, { status: error.status })
+  }
   if (isMfaServiceError(error) || isMfaVerificationServiceError(error)) {
     return NextResponse.json({ error: error.message }, { status: error.statusCode })
   }

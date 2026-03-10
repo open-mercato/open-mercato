@@ -1,7 +1,12 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import QRCode from 'qrcode'
 import { z } from 'zod'
-import type { MfaMethodRecord, MfaProviderInterface, MfaVerifyContext } from '../mfa-provider-interface'
+import type {
+  MfaMethodRecord,
+  MfaProviderInterface,
+  MfaProviderUser,
+  MfaVerifyContext,
+} from '../mfa-provider-interface'
 
 const TOTP_PERIOD_SECONDS = 30
 const TOTP_DIGITS = 6
@@ -39,6 +44,19 @@ export class TotpProvider implements MfaProviderInterface {
   readonly verifySchema = confirmPayloadSchema
 
   private readonly pendingSetups = new Map<string, PendingSetup>()
+
+  resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
+    const parsed = setupPayloadSchema.parse(payload ?? {})
+    if (parsed.label) {
+      return parsed
+    }
+
+    const email = typeof user.email === 'string' ? user.email.trim() : ''
+    return {
+      ...parsed,
+      ...(email.length > 0 ? { label: email } : {}),
+    }
+  }
 
   async setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
     const parsed = setupPayloadSchema.parse(payload ?? {})

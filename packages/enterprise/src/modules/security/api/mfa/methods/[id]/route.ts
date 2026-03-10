@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
 import { mapMfaError, readUuidParam, resolveMfaRequestContext } from '../../_shared'
 
@@ -26,8 +27,12 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   }
 
   try {
-    await requestContext.mfaService.removeMethod(requestContext.auth.sub, methodId)
-    return NextResponse.json({ ok: true })
+    const commandBus = requestContext.container.resolve<CommandBus>('commandBus')
+    const { result } = await commandBus.execute('security.mfa.method.remove', {
+      input: { id: methodId },
+      ctx: requestContext.commandContext,
+    })
+    return NextResponse.json(result)
   } catch (error) {
     return mapMfaError(error)
   }
