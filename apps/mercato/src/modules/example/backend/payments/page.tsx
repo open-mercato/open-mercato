@@ -103,6 +103,7 @@ function StripePaymentForm({
   onError,
   onSuccess,
 }: StripePaymentFormProps) {
+  const t = useT()
   const stripe = useStripe()
   const elements = useElements()
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -111,7 +112,7 @@ function StripePaymentForm({
     if (!stripe || !elements) return
     const cardElement = elements.getElement(CardElement)
     if (!cardElement) {
-      onError('Payment form is not ready yet.')
+      onError(t('example.payments.stripe.form.notReady', 'Payment form is not ready yet.'))
       return
     }
 
@@ -126,30 +127,30 @@ function StripePaymentForm({
       })
 
       if (result.error) {
-        onError(result.error.message ?? 'Stripe payment confirmation failed.')
+        onError(result.error.message ?? t('example.payments.stripe.form.confirmFailed', 'Stripe payment confirmation failed.'))
         return
       }
 
       const paymentIntentStatus = result.paymentIntent?.status
       const nextStatus = mapStripeIntentStatus(paymentIntentStatus)
       const successMessage = paymentIntentStatus === 'requires_capture'
-        ? 'Payment authorized successfully. Use Capture to settle the funds.'
-        : 'Payment confirmed successfully.'
+        ? t('example.payments.stripe.form.authorized', 'Payment authorized successfully. Use Capture to settle the funds.')
+        : t('example.payments.stripe.form.confirmed', 'Payment confirmed successfully.')
 
       onSuccess(successMessage, nextStatus)
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'Stripe payment confirmation failed.')
+      onError(error instanceof Error ? error.message : t('example.payments.stripe.form.confirmFailed', 'Stripe payment confirmation failed.'))
     } finally {
       setIsSubmitting(false)
     }
-  }, [clientSecret, elements, onError, onSuccess, stripe])
+  }, [clientSecret, elements, onError, onSuccess, stripe, t])
 
   return (
     <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
       <div className="space-y-1">
-        <p className="text-sm font-semibold">Complete Stripe payment</p>
+        <p className="text-sm font-semibold">{t('example.payments.stripe.form.title', 'Complete Stripe payment')}</p>
         <p className="text-sm text-muted-foreground">
-          Enter a test card, confirm the payment, then use Capture if the payment becomes authorized.
+          {t('example.payments.stripe.form.description', 'Enter a test card, confirm the payment, then use Capture if the payment becomes authorized.')}
         </p>
       </div>
 
@@ -180,10 +181,10 @@ function StripePaymentForm({
           disabled={disabled || isSubmitting || !stripe || !elements}
         >
           {isSubmitting ? <Spinner className="mr-2 size-4" /> : <CreditCard className="mr-2 size-4" />}
-          Confirm test payment
+          {t('example.payments.stripe.form.submit', 'Confirm test payment')}
         </Button>
         <p className="text-xs text-muted-foreground">
-          Use Stripe test card `4242 4242 4242 4242`, any future date, any CVC.
+          {t('example.payments.stripe.form.testCard', 'Use Stripe test card `4242 4242 4242 4242`, any future date, any CVC.')}
         </p>
       </div>
     </div>
@@ -232,7 +233,7 @@ export default function PaymentGatewayDemoPage() {
         } else if (response.status === 422) {
           setError(t('example.payments.error.providerNotFound', 'Payment provider not found. Make sure the gateway adapter is registered.'))
         } else {
-          setError(body?.error ?? `HTTP ${response.status}`)
+          setError(body?.error ?? t('example.payments.error.http', 'HTTP {status}', { status: String(response.status) }))
         }
         return
       }
@@ -246,7 +247,7 @@ export default function PaymentGatewayDemoPage() {
       }
       setTransaction(data)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(err instanceof Error ? err.message : t('example.payments.error.unknown', 'Unknown error'))
     } finally {
       setLoading(false)
     }
@@ -264,13 +265,18 @@ export default function PaymentGatewayDemoPage() {
       })
       const data = response.result as { status?: string; error?: string } | null
       if (!response.ok) {
-        setError(data?.error ?? `${action} failed`)
+        setError(data?.error ?? t(`example.payments.error.${action}Failed`, '{action} failed', {
+          action: t(`example.payments.action.${action}`, action),
+        }))
         return
       }
-      setActionResult(`${action} successful: status = ${data?.status ?? 'unknown'}`)
+      setActionResult(t('example.payments.success.action', '{action} successful: status = {status}', {
+        action: t(`example.payments.action.${action}`, action),
+        status: t(`payment_gateways.status.${data?.status ?? 'unknown'}`, data?.status ?? 'unknown'),
+      }))
       await refreshStatus()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(err instanceof Error ? err.message : t('example.payments.error.unknown', 'Unknown error'))
     } finally {
       setLoading(false)
     }
@@ -283,9 +289,11 @@ export default function PaymentGatewayDemoPage() {
       if (response.ok) {
         const data = response.result as { status?: string } | null
         setTransaction((prev) => prev ? { ...prev, status: data?.status ?? prev.status } : prev)
+      } else {
+        setError(t('example.payments.error.refreshFailed', 'Failed to refresh payment status.'))
       }
-    } catch {
-      // Ignore refresh errors
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('example.payments.error.refreshFailed', 'Failed to refresh payment status.'))
     }
   }
 
@@ -406,7 +414,7 @@ export default function PaymentGatewayDemoPage() {
                     {t('example.payments.transaction', 'Transaction Details')}
                   </CardTitle>
                   <Badge variant={STATUS_BADGE_VARIANT[transaction.status] ?? 'secondary'}>
-                    {transaction.status}
+                    {t(`payment_gateways.status.${transaction.status}`, transaction.status)}
                   </Badge>
                 </div>
               </CardHeader>
@@ -414,21 +422,21 @@ export default function PaymentGatewayDemoPage() {
                 <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
                   {transaction.providerKey && (
                     <>
-                      <span className="font-medium text-muted-foreground">Provider</span>
-                      <span>{transaction.providerKey}</span>
+                      <span className="font-medium text-muted-foreground">{t('example.payments.fields.provider', 'Provider')}</span>
+                      <span>{t(`example.payments.provider.${transaction.providerKey}`, transaction.providerKey)}</span>
                     </>
                   )}
-                  <span className="font-medium text-muted-foreground">Transaction ID</span>
+                  <span className="font-medium text-muted-foreground">{t('example.payments.fields.transactionId', 'Transaction ID')}</span>
                   <span className="font-mono text-xs">{transaction.transactionId}</span>
-                  <span className="font-medium text-muted-foreground">Session ID</span>
+                  <span className="font-medium text-muted-foreground">{t('example.payments.fields.sessionId', 'Session ID')}</span>
                   <span className="font-mono text-xs">{transaction.sessionId}</span>
-                  <span className="font-medium text-muted-foreground">Payment ID</span>
+                  <span className="font-medium text-muted-foreground">{t('example.payments.fields.paymentId', 'Payment ID')}</span>
                   <span className="font-mono text-xs">{transaction.paymentId}</span>
                   {transaction.redirectUrl && (
                     <>
-                      <span className="font-medium text-muted-foreground">Payment page</span>
+                      <span className="font-medium text-muted-foreground">{t('example.payments.fields.paymentPage', 'Payment page')}</span>
                       <a href={transaction.redirectUrl} target="_blank" rel="noreferrer" className="text-primary underline text-xs break-all">
-                        Open hosted payment page
+                        {t('example.payments.fields.openPaymentPage', 'Open hosted payment page')}
                       </a>
                     </>
                   )}

@@ -167,12 +167,6 @@ function splitLogPayload(payload: Record<string, unknown> | null | undefined) {
   return { inlineEntries, nestedEntries }
 }
 
-function formatLogPrimitiveValue(value: string | number | boolean | null): string {
-  if (value === null) return 'None'
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  return String(value)
-}
-
 function DetailStat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border bg-muted/20 px-4 py-3">
@@ -198,6 +192,13 @@ export default function PaymentTransactionsPage() {
   const [detailError, setDetailError] = React.useState<string | null>(null)
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
+  const noneLabel = t('common.none', 'None')
+
+  const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
+    if (value === null) return noneLabel
+    if (typeof value === 'boolean') return value ? t('common.yes', 'Yes') : t('common.no', 'No')
+    return String(value)
+  }, [noneLabel, t])
 
   const loadRows = React.useCallback(async () => {
     setIsLoading(true)
@@ -463,7 +464,7 @@ export default function PaymentTransactionsPage() {
                     />
                     <DetailStat
                       label={t('payment_gateways.transactions.detail.summary.gatewayStatus', 'Gateway status')}
-                      value={detail.transaction.gatewayStatus ?? '—'}
+                      value={detail.transaction.gatewayStatus ?? noneLabel}
                     />
                     <DetailStat
                       label={t('payment_gateways.transactions.detail.summary.amount', 'Amount')}
@@ -555,12 +556,12 @@ export default function PaymentTransactionsPage() {
                                 {detail.logs.map((log) => {
                                   const isExpanded = expandedLogId === log.id
                                   const metadataEntries = [
-                                    ['Time', formatDateTime(log.createdAt)],
-                                    ['Level', log.level],
-                                    ['Code', log.code ?? null],
-                                    ['Run ID', log.runId ?? null],
-                                    ['Entity Type', log.scopeEntityType ?? null],
-                                    ['Entity ID', log.scopeEntityId ?? null],
+                                    [t('payment_gateways.transactions.log.time', 'Time'), formatDateTime(log.createdAt)],
+                                    [t('payment_gateways.transactions.log.level', 'Level'), t(`payment_gateways.transactions.level.${log.level}`, log.level)],
+                                    [t('payment_gateways.transactions.log.code', 'Code'), log.code ?? null],
+                                    [t('payment_gateways.transactions.log.runId', 'Run ID'), log.runId ?? null],
+                                    [t('payment_gateways.transactions.log.entityType', 'Entity Type'), log.scopeEntityType ?? null],
+                                    [t('payment_gateways.transactions.log.entityId', 'Entity ID'), log.scopeEntityId ?? null],
                                   ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
                                   const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
 
@@ -570,7 +571,7 @@ export default function PaymentTransactionsPage() {
                                         <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">{formatDateTime(log.createdAt)}</td>
                                         <td className="px-4 py-2">
                                           <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
-                                            {log.level}
+                                            {t(`payment_gateways.transactions.level.${log.level}`, log.level)}
                                           </Badge>
                                         </td>
                                         <td className="px-4 py-2">

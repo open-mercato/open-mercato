@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import type { IntegrationCredentialWebhookHelp } from '@open-mercato/shared/modules/integrations/types'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Badge } from '../primitives/badge'
 import { Button } from '../primitives/button'
@@ -15,11 +16,13 @@ export type WebhookSetupGuideProps = {
 
 export function WebhookSetupGuide({
   guide,
-  buttonLabel = 'Show details',
+  buttonLabel,
   className,
 }: WebhookSetupGuideProps) {
+  const t = useT()
   const [isOpen, setIsOpen] = React.useState(false)
   const [appOrigin, setAppOrigin] = React.useState('http://localhost:3000')
+  const resolvedButtonLabel = buttonLabel ?? t('ui.webhookGuide.showDetails', 'Show details')
 
   React.useEffect(() => {
     if (typeof window !== 'undefined' && window.location?.origin) {
@@ -39,7 +42,7 @@ export function WebhookSetupGuide({
         onClick={() => setIsOpen((current) => !current)}
       >
         {isOpen ? <ChevronDown className="mr-1 h-3.5 w-3.5" /> : <ChevronRight className="mr-1 h-3.5 w-3.5" />}
-        {isOpen ? 'Hide details' : buttonLabel}
+        {isOpen ? t('ui.webhookGuide.hideDetails', 'Hide details') : resolvedButtonLabel}
       </Button>
 
       {isOpen ? (
@@ -54,7 +57,7 @@ export function WebhookSetupGuide({
 
           <div className="space-y-2">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Stripe dashboard
+              {t('ui.webhookGuide.dashboardPath', 'Dashboard path')}
             </p>
             <div className="rounded-md border bg-background/70 px-3 py-2 text-sm">
               {guide.dashboardPathLabel}
@@ -63,7 +66,7 @@ export function WebhookSetupGuide({
 
           <div className="space-y-2">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Setup steps
+              {t('ui.webhookGuide.steps', 'Setup steps')}
             </p>
             <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
               {guide.steps.map((step) => (
@@ -74,7 +77,7 @@ export function WebhookSetupGuide({
 
           <div className="space-y-2">
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Webhook endpoint URL
+              {t('ui.webhookGuide.endpointUrl', 'Webhook endpoint URL')}
             </p>
             <div className="rounded-md border bg-background/70 px-3 py-2 font-mono text-xs break-all">
               {endpointUrl}
@@ -84,7 +87,7 @@ export function WebhookSetupGuide({
           {guide.events && guide.events.length > 0 ? (
             <div className="space-y-2">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Recommended events
+                {t('ui.webhookGuide.recommendedEvents', 'Recommended events')}
               </p>
               <div className="flex flex-wrap gap-2">
                 {guide.events.map((eventName) => (
@@ -99,7 +102,7 @@ export function WebhookSetupGuide({
           {guide.localDevelopment ? (
             <div className="space-y-3">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Local development
+                {t('ui.webhookGuide.localDevelopment', 'Local development')}
               </p>
               {guide.localDevelopment.note ? (
                 <p className="text-sm text-muted-foreground">{guide.localDevelopment.note}</p>
@@ -115,7 +118,7 @@ export function WebhookSetupGuide({
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Globe className="h-3.5 w-3.5" />
-            <span>Use your public application URL in Stripe, not a localhost address.</span>
+            <span>{t('ui.webhookGuide.publicUrlNote', 'Use your public application URL in Stripe, not a localhost address.')}</span>
           </div>
         </div>
       ) : null}
