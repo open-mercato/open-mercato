@@ -1,0 +1,34 @@
+---
+description: Core Open Mercato conventions for standalone app development
+alwaysApply: true
+---
+
+# {{PROJECT_NAME}} — Project Rules
+
+## What this project is
+
+A standalone Open Mercato application. Build domain features ON TOP of the framework.
+To customise a core module beyond the extension system: `yarn mercato eject <module>`.
+Never edit node_modules/@open-mercato/* directly.
+
+## Task routing
+
+Read AGENTS.md before starting any task — it maps task types to the minimum files to load.
+
+## Module system
+
+Modules in `src/modules/<id>/`. Register with `from: '@app'` in `src/modules.ts`.
+Run `yarn generate` after any module or entity change. Never edit `.mercato/generated/*`.
+
+## Entity and migration rule
+
+After editing any entity in `src/modules/<id>/entities/`:
+1. Create migration: `yarn db:generate`
+2. Show migration to user, confirm before applying
+3. Apply: `yarn db:migrate`
+4. Regenerate: `yarn generate`
+
+## Spec-driven development
+
+Check `.ai/specs/` before any significant feature. If no spec exists, ask the user
+whether to create one first.

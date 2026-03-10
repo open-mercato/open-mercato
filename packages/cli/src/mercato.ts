@@ -517,6 +517,13 @@ export async function run(argv = process.argv) {
     }
   }
 
+  // Handle agentic:init command (bootstrap-free)
+  if (first === 'agentic:init') {
+    const { runAgenticInit } = await import('./lib/agentic-init')
+    const exitCode = await runAgenticInit(parts.slice(1))
+    return exitCode
+  }
+
   // Handle eject command directly (bootstrap-free)
   if (first === 'eject') {
     try {
