@@ -163,28 +163,23 @@ export function mapMyProviderStatus(providerStatus: string): UnifiedPaymentStatu
 }
 ```
 
-## 5. Register in setup.ts
+## 5. Register at runtime in di.ts
 
 ```ts
-import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { registerGatewayAdapter, registerWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
 import { myProviderAdapter } from './lib/adapter'
 import { verifyMyProviderWebhook } from './lib/webhook-handler'
 
-export const setup: ModuleSetupConfig = {
-  defaultRoleFeatures: {
-    superadmin: ['gateway_myprovider.view', 'gateway_myprovider.configure'],
-    admin: ['gateway_myprovider.view', 'gateway_myprovider.configure'],
-  },
-
-  async onTenantCreated() {
-    registerGatewayAdapter(myProviderAdapter)
-    registerWebhookHandler('myprovider', verifyMyProviderWebhook, {
-      queue: 'myprovider-webhook',
-    })
-  },
+export function register(container: AppContainer) {
+  registerGatewayAdapter(myProviderAdapter)
+  registerWebhookHandler('myprovider', verifyMyProviderWebhook, {
+    queue: 'myprovider-webhook',
+  })
 }
 ```
+
+Keep `setup.ts` for tenant initialization concerns such as `defaultRoleFeatures`, seeded configuration, and example data. Do not rely on `setup.ts` for runtime adapter registration, because the gateway registry is in-memory and must be populated during app boot.
 
 ## 6. Add the webhook worker
 
@@ -231,6 +226,18 @@ Tell the payment provider to send events to:
 ```
 
 The dynamic `[provider]` route automatically dispatches to your registered handler.
+
+For local development, expose your app publicly with a tunnel such as ngrok:
+
+```bash
+ngrok http 3000
+```
+
+Then configure the provider to send webhooks to:
+
+```text
+https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/myprovider
+```
 
 ## 9. Enable and test
 

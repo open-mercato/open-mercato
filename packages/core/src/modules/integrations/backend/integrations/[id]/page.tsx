@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { WebhookSetupGuide } from '@open-mercato/ui/backend/WebhookSetupGuide'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -12,12 +13,14 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Bell, ChevronDown, ChevronRight, CreditCard, HardDrive, MessageSquare, RefreshCw, Truck, Webhook, Zap } from 'lucide-react'
 
 type CredentialField = IntegrationCredentialField
 type IntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs'
@@ -61,6 +64,9 @@ type IntegrationDetail = {
 
 type LogEntry = {
   id: string
+  runId?: string | null
+  scopeEntityType?: string | null
+  scopeEntityId?: string | null
   level: 'info' | 'warn' | 'error'
   message: string
   createdAt: string
@@ -93,6 +99,16 @@ const HEALTH_STATUS_STYLES: Record<string, string> = {
   unhealthy: 'bg-red-100 text-red-800',
 }
 
+const CATEGORY_ICONS: Record<string, React.ElementType> = {
+  payment: CreditCard,
+  shipping: Truck,
+  data_sync: RefreshCw,
+  communication: MessageSquare,
+  notification: Bell,
+  storage: HardDrive,
+  webhook: Webhook,
+}
+
 function resolveRouteId(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0]
   return value
@@ -116,7 +132,12 @@ function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
     const shared = {
       id: field.key,
       label: field.label,
-      description: field.helpText,
+      description: field.helpDetails ? (
+        <div className="space-y-1">
+          {field.helpText ? <div>{field.helpText}</div> : null}
+          <WebhookSetupGuide guide={field.helpDetails} buttonLabel="Show details" />
+        </div>
+      ) : field.helpText,
       placeholder: field.placeholder,
       required: field.required,
     }
@@ -179,6 +200,52 @@ function formatHealthValue(value: unknown): string {
   return JSON.stringify(value)
 }
 
+function formatTypeLabel(value: string): string {
+  return value.split('_').filter(Boolean).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ')
+}
+
+function isPrimitiveLogValue(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+}
+
+function formatLogDetailLabel(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatLogPrimitiveValue(value: string | number | boolean | null): string {
+  if (value === null) return 'None'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  return String(value)
+}
+
+function splitLogPayload(payload: Record<string, unknown> | null | undefined) {
+  if (!payload) {
+    return {
+      inlineEntries: [] as Array<[string, string | number | boolean | null]>,
+      nestedEntries: [] as Array<[string, unknown]>,
+    }
+  }
+
+  const inlineEntries: Array<[string, string | number | boolean | null]> = []
+  const nestedEntries: Array<[string, unknown]> = []
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (isPrimitiveLogValue(value)) {
+      inlineEntries.push([key, value])
+      return
+    }
+    nestedEntries.push([key, value])
+  })
+
+  return { inlineEntries, nestedEntries }
+}
+
 export default function IntegrationDetailPage({ params }: IntegrationDetailPageProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -197,6 +264,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [logLevel, setLogLevel] = React.useState<string>('')
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
+  const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
 
   const [isCheckingHealth, setIsCheckingHealth] = React.useState(false)
   const [isTogglingState, setIsTogglingState] = React.useState(false)
@@ -275,6 +343,9 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   React.useEffect(() => { void loadDetail() }, [loadDetail])
   React.useEffect(() => { void loadCredentials() }, [loadCredentials])
   React.useEffect(() => { void loadLogs() }, [loadLogs])
+  React.useEffect(() => {
+    setExpandedLogId((current) => (current && logs.some((log) => log.id === current) ? current : null))
+  }, [logs])
 
   const handleToggleState = React.useCallback(async (enabled: boolean) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -486,26 +557,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
   const resolvedIntegration = detail.integration
   const resolvedState = detail.state
-
-  const headerExtraActions = (
-    <div className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2">
-      <div className="space-y-0.5 text-left">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          {t('integrations.detail.state.label', 'State')}
-        </p>
-        <p className="text-sm font-medium">
-          {resolvedState.isEnabled
-            ? t('integrations.detail.state.enabled', 'Enabled')
-            : t('integrations.detail.state.disabled', 'Disabled')}
-        </p>
-      </div>
-      <Switch
-        checked={resolvedState.isEnabled}
-        disabled={isTogglingState}
-        onCheckedChange={(checked) => void handleToggleState(checked)}
-      />
-    </div>
-  )
+  const CategoryIcon = resolvedIntegration.category ? CATEGORY_ICONS[resolvedIntegration.category] : null
 
   const showCredentialActions = activeTab === 'credentials' && credentialFormFields.length > 0
 
@@ -516,7 +568,6 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           backHref="/backend/integrations"
           title={resolvedIntegration.title}
           actions={{
-            extraActions: headerExtraActions,
             cancelHref: showCredentialActions ? '/backend/integrations' : undefined,
             submit: showCredentialActions
               ? {
@@ -533,11 +584,43 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           {resolvedIntegration.description ? (
             <p className="text-sm text-muted-foreground">{resolvedIntegration.description}</p>
           ) : null}
-          <div className="flex flex-wrap gap-2">
-            {resolvedIntegration.category ? <Badge variant="secondary">{resolvedIntegration.category}</Badge> : null}
-            {resolvedIntegration.hub ? <Badge variant="outline">{resolvedIntegration.hub}</Badge> : null}
+          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+            {resolvedIntegration.category ? (
+              <div className="flex items-center gap-2">
+                {CategoryIcon ? <CategoryIcon className="h-4 w-4" /> : null}
+                <span>{formatTypeLabel(resolvedIntegration.category)}</span>
+              </div>
+            ) : null}
+            {resolvedIntegration.hub ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground/80">
+                  {t('integrations.detail.hub.label', 'Hub')}
+                </span>
+                <span>{formatTypeLabel(resolvedIntegration.hub)}</span>
+              </div>
+            ) : null}
           </div>
         </div>
+
+        <section className="rounded-lg border bg-card p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {t('integrations.detail.state.label', 'State')}
+              </p>
+              <p className="text-sm font-medium">
+                {resolvedState.isEnabled
+                  ? t('integrations.detail.state.enabled', 'Enabled')
+                  : t('integrations.detail.state.disabled', 'Disabled')}
+              </p>
+            </div>
+            <Switch
+              checked={resolvedState.isEnabled}
+              disabled={isTogglingState}
+              onCheckedChange={(checked) => void handleToggleState(checked)}
+            />
+          </div>
+        </section>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
           <TabsList>
@@ -625,7 +708,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     onClick={() => void handleHealthCheck()}
                     disabled={isCheckingHealth}
                   >
-                    {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : null}
+                    {isCheckingHealth ? <Spinner className="mr-2 h-4 w-4" /> : <Zap className="mr-2 h-4 w-4" />}
                     {isCheckingHealth ? t('integrations.detail.health.checking') : t('integrations.detail.health.check')}
                   </Button>
                 </div>
@@ -707,19 +790,128 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     </tr>
                   </thead>
                   <tbody>
-                    {logs.map((log) => (
-                      <tr key={log.id} className="border-b last:border-0">
-                        <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-                          {new Date(log.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2">
-                          <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
-                            {log.level}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-2">{log.message}</td>
-                      </tr>
-                    ))}
+                    {logs.map((log) => {
+                      const isExpanded = expandedLogId === log.id
+                      const metadataEntries = [
+                        ['Time', new Date(log.createdAt).toLocaleString()],
+                        ['Level', log.level],
+                        ['Code', log.code ?? null],
+                        ['Run ID', log.runId ?? null],
+                        ['Entity Type', log.scopeEntityType ?? null],
+                        ['Entity ID', log.scopeEntityId ?? null],
+                      ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
+                      const { inlineEntries, nestedEntries } = splitLogPayload(log.payload)
+
+                      return (
+                        <React.Fragment key={log.id}>
+                          <tr className="border-b last:border-0">
+                            <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
+                              {new Date(log.createdAt).toLocaleString()}
+                            </td>
+                            <td className="px-4 py-2">
+                              <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
+                                {log.level}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto w-full justify-start gap-2 px-0 py-0 text-left hover:bg-transparent"
+                                onClick={() => setExpandedLogId((current) => (current === log.id ? null : log.id))}
+                              >
+                                {isExpanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                                <span className="truncate">{log.message}</span>
+                              </Button>
+                            </td>
+                          </tr>
+                          {isExpanded ? (
+                            <tr className="border-b bg-muted/20 last:border-0">
+                              <td colSpan={3} className="px-4 py-4">
+                                <div className="space-y-4 rounded-lg border bg-card p-4">
+                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                                    <div className="space-y-4">
+                                      <section className="space-y-3">
+                                        <div>
+                                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                            {t('integrations.detail.logs.details.summary', 'Summary')}
+                                          </p>
+                                          <p className="mt-1 text-sm font-medium">{log.message}</p>
+                                        </div>
+                                        {metadataEntries.length > 0 ? (
+                                          <dl className="grid gap-3 sm:grid-cols-2">
+                                            {metadataEntries.map(([label, value]) => (
+                                              <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
+                                                <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                                  {label}
+                                                </dt>
+                                                <dd className="mt-1 break-all text-sm">{value}</dd>
+                                              </div>
+                                            ))}
+                                          </dl>
+                                        ) : null}
+                                      </section>
+
+                                      {inlineEntries.length > 0 ? (
+                                        <section className="space-y-3">
+                                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                            {t('integrations.detail.logs.details.fields', 'Fields')}
+                                          </p>
+                                          <dl className="grid gap-3 sm:grid-cols-2">
+                                            {inlineEntries.map(([key, value]) => (
+                                              <div key={key} className="rounded-md border bg-muted/30 px-3 py-2">
+                                                <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                                  {formatLogDetailLabel(key)}
+                                                </dt>
+                                                <dd className="mt-1 break-words text-sm">
+                                                  {formatLogPrimitiveValue(value)}
+                                                </dd>
+                                              </div>
+                                            ))}
+                                          </dl>
+                                        </section>
+                                      ) : null}
+                                    </div>
+
+                                    <div className="space-y-3">
+                                      {nestedEntries.map(([key, value]) => (
+                                        <JsonDisplay
+                                          key={key}
+                                          data={value}
+                                          title={formatLogDetailLabel(key)}
+                                          defaultExpanded
+                                          maxInitialDepth={1}
+                                          theme="dark"
+                                          maxHeight="16rem"
+                                          className="p-4"
+                                        />
+                                      ))}
+                                      {log.payload && nestedEntries.length === 0 ? (
+                                        <JsonDisplay
+                                          data={log.payload}
+                                          title={t('integrations.detail.logs.details.payload', 'Payload')}
+                                          defaultExpanded
+                                          maxInitialDepth={1}
+                                          theme="dark"
+                                          maxHeight="16rem"
+                                          className="p-4"
+                                        />
+                                      ) : null}
+                                      {!log.payload ? (
+                                        <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                                          {t('integrations.detail.logs.details.noPayload', 'No structured payload was stored for this log entry.')}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : null}
+                        </React.Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

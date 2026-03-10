@@ -7,8 +7,10 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Alert, AlertTitle, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { WebhookSetupGuide } from '@open-mercato/ui/backend/WebhookSetupGuide'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { stripeWebhookSetupGuide } from '@open-mercato/gateway-stripe/modules/gateway_stripe/webhook-guide'
 import {
   CreditCard,
   RefreshCw,
@@ -174,13 +176,16 @@ export default function PaymentGatewayDemoPage() {
                   <CreditCard className="size-4 text-indigo-500" />
                   {t('example.payments.setup.stripe', 'Stripe Gateway')}
                 </h4>
-                <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1.5 ml-1">
-                  <li>{t('example.payments.setup.step1', 'Create a Stripe account at stripe.com and get your API keys from the Stripe Dashboard.')}</li>
-                  <li>{t('example.payments.setup.step2', 'Go to Settings > Integrations in the admin panel. Find "Stripe" and enter your Publishable Key, Secret Key, and Webhook Signing Secret.')}</li>
-                  <li>{t('example.payments.setup.step3', 'Go to Settings > Sales > Payment Methods. Create a new payment method with Provider Key set to "stripe".')}</li>
-                  <li>{t('example.payments.setup.step4', 'For webhooks, configure Stripe to send events to: {YOUR_APP_URL}/api/payment_gateways/webhook/stripe')}</li>
-                  <li>{t('example.payments.setup.step5', 'Come back here and click "Pay with Stripe" to test.')}</li>
-                </ol>
+                <p className="mb-2 text-sm text-muted-foreground">
+                  {t(
+                    'example.payments.setup.webhookSummary',
+                    'Stripe credentials are configured in Integrations, and a webhook endpoint is recommended so payment lifecycle updates stay synchronized.',
+                  )}
+                </p>
+                <WebhookSetupGuide
+                  guide={stripeWebhookSetupGuide}
+                  buttonLabel={t('example.payments.setup.showWebhookGuide', 'Show me how to configure webhook')}
+                />
               </div>
             </CardContent>
           </Card>

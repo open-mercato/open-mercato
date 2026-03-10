@@ -1,4 +1,5 @@
 import type { IntegrationBundle, IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+import { stripeWebhookSetupGuide } from './webhook-guide'
 
 export const integration: IntegrationDefinition = {
   id: 'gateway_stripe',
@@ -12,7 +13,7 @@ export const integration: IntegrationDefinition = {
   package: '@open-mercato/gateway-stripe',
   version: '1.0.0',
   author: 'Open Mercato Team',
-  company: 'Stripe, Inc.',
+  company: 'Open Mercato',
   license: 'MIT',
   tags: ['cards', 'apple-pay', 'google-pay', 'bank-transfer', 'checkout'],
   apiVersions: [
@@ -35,9 +36,30 @@ export const integration: IntegrationDefinition = {
   ],
   credentials: {
     fields: [
-      { key: 'publishableKey', label: 'Publishable Key', type: 'text', required: true, placeholder: 'pk_live_...' },
-      { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
-      { key: 'webhookSecret', label: 'Webhook Signing Secret', type: 'secret', required: true, placeholder: 'whsec_...' },
+      {
+        key: 'publishableKey',
+        label: 'Publishable Key',
+        type: 'text',
+        required: true,
+        placeholder: 'pk_live_...',
+        helpText: 'Stripe Dashboard -> Developers -> API keys. Copy the Publishable key for the same mode you use here (test or live).',
+      },
+      {
+        key: 'secretKey',
+        label: 'Secret Key',
+        type: 'secret',
+        required: true,
+        helpText: 'Stripe Dashboard -> Developers -> API keys. Use the Secret key from the same mode. In live mode Stripe may only show it once, so reveal or rotate it there if needed.',
+      },
+      {
+        key: 'webhookSecret',
+        label: 'Webhook Signing Secret',
+        type: 'secret',
+        required: true,
+        placeholder: 'whsec_...',
+        helpText: 'Use the Stripe endpoint signing secret that starts with whsec_, not your API key.',
+        helpDetails: stripeWebhookSetupGuide,
+      },
     ],
   },
   healthCheck: { service: 'stripeHealthCheck' },

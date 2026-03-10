@@ -40,12 +40,28 @@ export interface CredentialFieldVisibleWhen {
   equals: string | number | boolean
 }
 
+export interface IntegrationCredentialWebhookHelp {
+  kind: 'webhook_setup'
+  title: string
+  summary: string
+  endpointPath: string
+  dashboardPathLabel: string
+  steps: string[]
+  events?: string[]
+  localDevelopment?: {
+    tunnelCommand: string
+    publicUrlExample: string
+    note?: string
+  }
+}
+
 export interface IntegrationCredentialFieldBase {
   key: string
   label: string
   required?: boolean
   placeholder?: string
   helpText?: string
+  helpDetails?: IntegrationCredentialWebhookHelp
   visibleWhen?: CredentialFieldVisibleWhen
 }
 

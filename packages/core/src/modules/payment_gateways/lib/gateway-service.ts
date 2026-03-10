@@ -56,12 +56,18 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   }
 
   async function resolveAdapterAndCredentials(providerKey: string, scope: { organizationId: string; tenantId: string }) {
-    const adapter = getGatewayAdapter(providerKey)
-    if (!adapter) {
-      throw new Error(`No gateway adapter registered for provider: ${providerKey}`)
-    }
-
     const integrationId = `gateway_${providerKey}`
+    const selectedVersion = deps.integrationStateService
+      ? await deps.integrationStateService.resolveApiVersion(integrationId, scope)
+      : undefined
+    const adapter = getGatewayAdapter(providerKey, selectedVersion)
+    if (!adapter) {
+      throw new Error(
+        selectedVersion
+          ? `No gateway adapter registered for provider: ${providerKey} (version: ${selectedVersion})`
+          : `No gateway adapter registered for provider: ${providerKey}`,
+      )
+    }
     const credentials = await integrationCredentialsService.resolve(integrationId, scope) ?? {}
 
     return { adapter, credentials }

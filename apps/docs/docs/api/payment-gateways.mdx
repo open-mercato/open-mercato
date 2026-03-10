@@ -177,3 +177,44 @@ POST /api/payment_gateways/webhook/stripe
 **Response:** `202` accepted for async processing, `401` signature verification failed, `404` unknown provider.
 
 Webhook events are processed asynchronously by dedicated workers. Each event includes an `idempotencyKey` to prevent duplicate processing.
+
+## Stripe webhook setup
+
+For Stripe, you should configure a webhook endpoint if you want Open Mercato to stay in sync with asynchronous payment state changes. Session creation can work without it, but captures, refunds, failures, and disputes will not be reflected reliably without webhook delivery.
+
+### Endpoint URL
+
+Configure Stripe to send webhooks to:
+
+```text
+https://YOUR_APP_URL/api/payment_gateways/webhook/stripe
+```
+
+For local development with ngrok:
+
+```bash
+ngrok http 3000
+```
+
+Then use:
+
+```text
+https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/stripe
+```
+
+### Recommended Stripe events
+
+Subscribe at minimum to:
+
+```text
+payment_intent.succeeded
+payment_intent.payment_failed
+payment_intent.canceled
+payment_intent.requires_action
+charge.refunded
+charge.refund.updated
+charge.dispute.created
+charge.dispute.closed
+```
+
+After creating the endpoint in **Stripe Dashboard -> Workbench -> Webhooks**, reveal the endpoint signing secret and paste the `whsec_...` value into the Stripe integration's **Webhook Signing Secret** field in Open Mercato.
