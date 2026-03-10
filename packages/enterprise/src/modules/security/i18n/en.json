@@ -390,6 +390,112 @@
           "unavailable": "Not available",
           "unavailableHint": "Sudo metrics will appear after sudo APIs are implemented."
         }
+      },
+      "sudo": {
+        "challenge": {
+          "title": "Confirm sensitive action",
+          "description": "Re-authenticate to continue with this protected action.",
+          "noMethods": "No sudo authentication methods are available.",
+          "actions": {
+            "verify": "Verify",
+            "moreOptions": "Use another method"
+          },
+          "password": {
+            "label": "Password",
+            "placeholder": "Enter your password"
+          },
+          "errors": {
+            "prepare": "Failed to prepare sudo challenge.",
+            "verify": "Failed to verify sudo challenge."
+          }
+        }
+      },
+      "audit": {
+        "sudo": {
+          "create": "Create sudo configuration",
+          "update": "Update sudo configuration",
+          "delete": "Delete sudo configuration"
+        }
+      },
+      "admin": {
+        "sudo": {
+          "title": "Sudo protection",
+          "notice": {
+            "title": "Sensitive operations require re-authentication",
+            "description": "Use sudo rules to require a fresh password or MFA challenge for selected features, routes, modules, or packages."
+          },
+          "errors": {
+            "load": "Failed to load sudo configuration."
+          },
+          "flash": {
+            "cancelled": "Sudo challenge cancelled.",
+            "created": "Sudo configuration created.",
+            "updated": "Sudo configuration updated.",
+            "deleted": "Sudo configuration deleted.",
+            "saveError": "Failed to save sudo configuration.",
+            "deleteError": "Failed to delete sudo configuration."
+          },
+          "actions": {
+            "add": "Add rule"
+          },
+          "dialog": {
+            "create": "Create sudo rule",
+            "edit": "Edit sudo rule"
+          },
+          "delete": {
+            "title": "Delete sudo rule?",
+            "text": "This removes the selected sudo protection rule."
+          },
+          "scope": {
+            "platform": "Platform"
+          },
+          "status": {
+            "enabled": "Enabled",
+            "disabled": "Disabled"
+          },
+          "source": {
+            "developer": "Developer default",
+            "admin": "Admin override"
+          },
+          "table": {
+            "targetType": "Type",
+            "targetIdentifier": "Target",
+            "scope": "Scope",
+            "challengeMethod": "Method",
+            "ttl": "TTL",
+            "ttlValue": "{value}s",
+            "source": "Source",
+            "status": "Status",
+            "actions": "Actions"
+          },
+          "targetType": {
+            "feature": "Feature",
+            "route": "Route",
+            "module": "Module",
+            "package": "Package"
+          },
+          "challengeMethod": {
+            "auto": "Auto",
+            "password": "Password",
+            "mfa": "MFA only"
+          },
+          "form": {
+            "title": "Sudo rule",
+            "targetType": "Target type",
+            "targetIdentifier": "Target identifier",
+            "targetIdentifierPlaceholder": "security.sudo.manage",
+            "tenantId": "Tenant ID",
+            "tenantIdPlaceholder": "Optional tenant scope",
+            "organizationId": "Organization ID",
+            "organizationIdPlaceholder": "Optional organization scope",
+            "ttlSeconds": "Token TTL (seconds)",
+            "challengeMethod": "Challenge method",
+            "isEnabled": "Enabled",
+            "errors": {
+              "tenantRequired": "Tenant is required when organization is set."
+            }
+          }
+        }
       }
     }
   }

@@ -2037,6 +2037,7 @@ security/
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
+| Phase 4 — Sudo system and protection APIs | In Progress | 2026-03-10 | Implemented sudo service, middleware, commands with undo tests, provider/hook/modal, admin configuration page, and bootstrap developer defaults |
 | Phase 4 — Email templates (OTP/MFA/enforcement) | In Progress | 2026-03-09 | Implemented MFA enrolled/reset/enforcement reminder email templates and notification subscribers |
 | Phase 3 — Enforcement notification handlers | In Progress | 2026-03-09 | Added deadline reminder request event + reminder subscriber for 7/3/1-day windows |
 
@@ -2047,3 +2048,14 @@ security/
 - [x] Implement enforcement deadline reminder subscriber with email delivery
 - [x] Replace scaffold email templates (`mfa-enrolled.tsx`, `mfa-reset.tsx`, `enforcement-deadline.tsx`)
 - [x] Add i18n notification keys and subscriber tests
+
+### Phase 4 — Detailed Progress (Sudo System Slice)
+- [x] Implement `SudoChallengeService`
+- [x] Implement `requireSudo` middleware
+- [x] Implement `SudoChallengeModal`
+- [x] Implement `useSudoChallenge` hook and `SudoProvider`
+- [x] Implement admin sudo configuration page
+- [x] Implement sudo config commands and undo tests
+- [x] Register developer sudo defaults from module setup declarations
+- [x] Implement `withSudoProtection`
+- [ ] Add end-to-end sudo integration coverage

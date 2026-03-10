@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../../openapi'
 import { mapSecurityUsersError, resolveSecurityUsersContext } from '../../../_shared'
+import { requireSudo } from '../../../../../lib/sudo-middleware'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -42,6 +43,7 @@ export async function POST(req: Request, routeContext: { params: Promise<{ id: s
   }
 
   try {
+    await requireSudo(req, 'security.admin.mfa.reset')
     const commandBus = context.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.admin.mfa.reset', {
       input: {
@@ -72,6 +74,7 @@ export const openApi = buildSecurityOpenApi({
       errors: [
         { status: 400, description: 'Invalid input', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 403, description: 'Sudo required', schema: securityErrorSchema },
         { status: 404, description: 'User not found', schema: securityErrorSchema },
       ],
     },
