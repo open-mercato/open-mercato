@@ -197,7 +197,7 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
       // 2. Update order without changing status → produces an 'action' entry (same status before/after)
       await apiRequest(page.request, 'PUT', '/api/sales/orders', {
         token,
-        data: { id: orderId, comments: 'QA history action entry' },
+        data: { id: orderId, comment: 'QA history action entry' },
       });
 
       // 3. Create a note → produces a 'comment' entry (SalesNote, source: 'note')
