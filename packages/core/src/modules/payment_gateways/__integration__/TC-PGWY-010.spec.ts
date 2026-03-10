@@ -29,13 +29,13 @@ test.describe('TC-PGWY-010: Webhook duplicate handling', () => {
     }
 
     // Send the same webhook event twice
-    const firstResponse = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+    const firstResponse = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
       token,
       data: webhookPayload,
     })
     expect(firstResponse.status()).toBe(202)
 
-    const secondResponse = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+    const secondResponse = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
       token,
       data: webhookPayload,
     })
@@ -75,7 +75,7 @@ test.describe('TC-PGWY-010: Webhook duplicate handling', () => {
     }
 
     // First webhook call
-    const firstResponse = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+    const firstResponse = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
       token,
       data: webhookPayload,
     })
@@ -85,7 +85,7 @@ test.describe('TC-PGWY-010: Webhook duplicate handling', () => {
     await new Promise((resolve) => setTimeout(resolve, 500))
 
     // Second duplicate call with same payload
-    const secondResponse = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+    const secondResponse = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
       token,
       data: webhookPayload,
     })

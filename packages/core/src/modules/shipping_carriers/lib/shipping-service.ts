@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import { CarrierShipment } from '../data/entities'
+import { emitShippingEvent } from '../events'
 import { getShippingAdapter } from './adapter-registry'
 
 export function createShippingCarrierService(deps: {
@@ -73,7 +74,14 @@ export function createShippingCarrierService(deps: {
         tenantId: input.tenantId,
       })
       await em.persistAndFlush(shipment)
-      // TODO: emit shipping_carriers.shipment.created event once event wiring is complete
+      await emitShippingEvent('shipping_carriers.shipment.created', {
+        shipmentId: shipment.id,
+        orderId: input.orderId,
+        providerKey: input.providerKey,
+        trackingNumber: created.trackingNumber,
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+      })
       return shipment
     },
 
@@ -132,7 +140,12 @@ export function createShippingCarrierService(deps: {
       })
       shipment.unifiedStatus = result.status
       await em.flush()
-      // TODO: emit shipping_carriers.shipment.cancelled event once event wiring is complete
+      await emitShippingEvent('shipping_carriers.shipment.cancelled', {
+        shipmentId: shipment.id,
+        providerKey: input.providerKey,
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+      })
       return result
     },
 

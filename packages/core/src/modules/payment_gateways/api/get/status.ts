@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { PaymentGatewayService } from '../../../lib/gateway-service'
-import { paymentGatewaysTag } from '../../openapi'
+import type { PaymentGatewayService } from '../../lib/gateway-service'
+import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },

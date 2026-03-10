@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { cancelSchema } from '../../../data/validators'
-import type { PaymentGatewayService } from '../../../lib/gateway-service'
-import { paymentGatewaysTag } from '../../openapi'
+import { refundSchema } from '../../data/validators'
+import type { PaymentGatewayService } from '../../lib/gateway-service'
+import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['payment_gateways.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['payment_gateways.refund'] },
 }
 
 export async function POST(req: Request) {
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   }
 
   const payload = await req.json().catch(() => null)
-  const parsed = cancelSchema.safeParse(payload)
+  const parsed = refundSchema.safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })
   }
@@ -25,27 +25,28 @@ export async function POST(req: Request) {
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
 
   try {
-    const result = await service.cancelPayment(
+    const result = await service.refundPayment(
       parsed.data.transactionId,
+      parsed.data.amount,
       parsed.data.reason,
       { organizationId: auth.orgId as string, tenantId: auth.tenantId },
     )
     return NextResponse.json(result)
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Cancel failed'
+    const message = err instanceof Error ? err.message : 'Refund failed'
     return NextResponse.json({ error: message }, { status: 502 })
   }
 }
 
 export const openApi = {
   tags: [paymentGatewaysTag],
-  summary: 'Cancel/void an authorized payment',
+  summary: 'Refund a captured payment',
   methods: {
     POST: {
-      summary: 'Cancel payment',
+      summary: 'Refund payment',
       tags: [paymentGatewaysTag],
       responses: [
-        { status: 200, description: 'Payment cancelled' },
+        { status: 200, description: 'Payment refunded' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },
       ],

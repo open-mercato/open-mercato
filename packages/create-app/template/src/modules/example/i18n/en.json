@@ -361,7 +361,7 @@
   "example.payments.setup.step1": "Create a Stripe account at stripe.com and get your API keys from the Stripe Dashboard.",
   "example.payments.setup.step2": "Go to Settings > Integrations in the admin panel. Find \"Stripe\" and enter your Publishable Key, Secret Key, and Webhook Signing Secret.",
   "example.payments.setup.step3": "Go to Settings > Sales > Payment Methods. Create a new payment method with Provider Key set to \"stripe\".",
-  "example.payments.setup.step4": "For webhooks, configure Stripe to send events to: {YOUR_APP_URL}/api/payment-gateways/webhook/stripe",
+  "example.payments.setup.step4": "For webhooks, configure Stripe to send events to: {YOUR_APP_URL}/api/payment_gateways/webhook/stripe",
   "example.payments.setup.step5": "Come back here and click \"Pay with Stripe\" to test.",
   "example.payments.setup.stripe": "Stripe Gateway",
   "example.payments.setup.title": "How to Configure Payment Gateways",

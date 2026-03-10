@@ -1,8 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { CarrierShipment } from '../data/entities'
+import { emitShippingEvent } from '../events'
 import { getShippingAdapter } from '../lib/adapter-registry'
-import { syncShipmentStatus } from '../lib/status-sync'
+import { syncShipmentStatus, TERMINAL_SHIPPING_STATUSES } from '../lib/status-sync'
 
 type WebhookJobPayload = {
   providerKey: string
@@ -44,4 +45,20 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
   if (!transitionApplied) return
 
   await em.flush()
+
+  const eventPayload = {
+    shipmentId: shipment.id,
+    providerKey: job.payload.providerKey,
+    previousStatus: carrierStatus,
+    newStatus: unifiedStatus,
+    organizationId: shipment.organizationId,
+    tenantId: shipment.tenantId,
+  }
+  await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload)
+  if (TERMINAL_SHIPPING_STATUSES.has(unifiedStatus)) {
+    const terminalEvent = unifiedStatus === 'delivered'
+      ? 'shipping_carriers.shipment.delivered' as const
+      : 'shipping_carriers.shipment.cancelled' as const
+    await emitShippingEvent(terminalEvent, eventPayload)
+  }
 }

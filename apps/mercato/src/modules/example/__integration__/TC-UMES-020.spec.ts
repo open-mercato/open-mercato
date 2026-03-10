@@ -38,7 +38,7 @@ test.describe('TC-UMES-020: Payment Gateway demo page', () => {
   test('should create a mock payment session via API', async ({ request }) => {
     const token = await getAuthToken(request, 'superadmin')
 
-    const response = await apiRequest(request, 'POST', '/api/payment-gateways/sessions', {
+    const response = await apiRequest(request, 'POST', '/api/payment_gateways/sessions', {
       token,
       data: {
         providerKey: 'mock',

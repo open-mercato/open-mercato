@@ -11,6 +11,12 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 45,
     },
   ],
+  'data-table:sales.orders:row-actions': [
+    {
+      widgetId: 'shipping_carriers.injection.create-shipment-button',
+      priority: 30,
+    },
+  ],
 }
 
 export default injectionTable

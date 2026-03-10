@@ -26,7 +26,7 @@ export default function PaymentGatewayDemoPage() {
     setError(null)
     setActionResult(null)
     try {
-      const response = await apiCall('/api/payment-gateways/sessions', {
+      const response = await apiCall('/api/payment_gateways/sessions', {
         method: 'POST',
         body: JSON.stringify({
           providerKey,
@@ -60,7 +60,7 @@ export default function PaymentGatewayDemoPage() {
     setError(null)
     setActionResult(null)
     try {
-      const response = await apiCall(`/api/payment-gateways/${action}`, {
+      const response = await apiCall(`/api/payment_gateways/${action}`, {
         method: 'POST',
         body: JSON.stringify({ transactionId: transaction.transactionId }),
       })
@@ -81,7 +81,7 @@ export default function PaymentGatewayDemoPage() {
   async function refreshStatus() {
     if (!transaction) return
     try {
-      const response = await apiCall(`/api/payment-gateways/status?transactionId=${transaction.transactionId}`)
+      const response = await apiCall(`/api/payment_gateways/status?transactionId=${transaction.transactionId}`)
       if (response.ok) {
         const data = response.result as { status?: string } | null
         setTransaction((prev) => prev ? { ...prev, status: data?.status ?? prev.status } : prev)
@@ -111,7 +111,7 @@ export default function PaymentGatewayDemoPage() {
               <li>{t('example.payments.setup.step1', 'Create a Stripe account at stripe.com and get your API keys from the Stripe Dashboard.')}</li>
               <li>{t('example.payments.setup.step2', 'Go to Settings > Integrations in the admin panel. Find "Stripe" and enter your Publishable Key, Secret Key, and Webhook Signing Secret.')}</li>
               <li>{t('example.payments.setup.step3', 'Go to Settings > Sales > Payment Methods. Create a new payment method with Provider Key set to "stripe".')}</li>
-              <li>{t('example.payments.setup.step4', 'For webhooks, configure Stripe to send events to: {YOUR_APP_URL}/api/payment-gateways/webhook/stripe')}</li>
+              <li>{t('example.payments.setup.step4', 'For webhooks, configure Stripe to send events to: {YOUR_APP_URL}/api/payment_gateways/webhook/stripe')}</li>
               <li>{t('example.payments.setup.step5', 'Come back here and click "Pay with Stripe" to test.')}</li>
             </ol>
           </section>

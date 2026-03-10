@@ -8,7 +8,7 @@ test.describe('TC-PGWY-002: Unknown provider returns error', () => {
   test('should return 400 when using a non-existent provider', async ({ request }) => {
     const token = await getAuthToken(request)
 
-    const response = await apiRequest(request, 'POST', '/api/payment-gateways/sessions', {
+    const response = await apiRequest(request, 'POST', '/api/payment_gateways/sessions', {
       token,
       data: {
         providerKey: 'non_existent_provider',

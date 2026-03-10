@@ -32,7 +32,7 @@ test.describe('TC-PGWY-009: Double capture — invalid state transition', () => 
     expect(statusAfterFirst.status).toBe('captured')
 
     // Attempt a second capture using raw apiRequest to inspect the response
-    const secondResponse = await apiRequest(request, 'POST', '/api/payment-gateways/capture', {
+    const secondResponse = await apiRequest(request, 'POST', '/api/payment_gateways/capture', {
       token,
       data: { transactionId: session.transactionId },
     })
@@ -66,7 +66,7 @@ test.describe('TC-PGWY-009: Double capture — invalid state transition', () => 
     expect(session.status).toBe('authorized')
 
     // Cancel first
-    const cancelResponse = await apiRequest(request, 'POST', '/api/payment-gateways/cancel', {
+    const cancelResponse = await apiRequest(request, 'POST', '/api/payment_gateways/cancel', {
       token,
       data: { transactionId: session.transactionId },
     })
@@ -76,7 +76,7 @@ test.describe('TC-PGWY-009: Double capture — invalid state transition', () => 
     expect(statusAfterCancel.status).toBe('cancelled')
 
     // Attempt capture on a cancelled payment — should not produce a captured status
-    const captureResponse = await apiRequest(request, 'POST', '/api/payment-gateways/capture', {
+    const captureResponse = await apiRequest(request, 'POST', '/api/payment_gateways/capture', {
       token,
       data: { transactionId: session.transactionId },
     })

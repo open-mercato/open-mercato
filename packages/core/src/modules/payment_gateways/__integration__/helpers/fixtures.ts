@@ -17,7 +17,7 @@ export async function createPaymentSession(
   paymentId: string
   clientSecret?: string
 }> {
-  const response = await apiRequest(request, 'POST', '/api/payment-gateways/sessions', {
+  const response = await apiRequest(request, 'POST', '/api/payment_gateways/sessions', {
     token,
     data: {
       providerKey: overrides?.providerKey ?? 'mock',
@@ -39,7 +39,7 @@ export async function getTransactionStatus(
   token: string,
   transactionId: string,
 ): Promise<{ status: string; transactionId: string; amount: number; currencyCode: string; amountReceived?: number }> {
-  const response = await apiRequest(request, 'GET', `/api/payment-gateways/status?transactionId=${transactionId}`, {
+  const response = await apiRequest(request, 'GET', `/api/payment_gateways/status?transactionId=${transactionId}`, {
     token,
   })
   if (!response.ok()) {
@@ -54,7 +54,7 @@ export async function capturePayment(
   transactionId: string,
   amount?: number,
 ): Promise<{ status: string; capturedAmount: number }> {
-  const response = await apiRequest(request, 'POST', '/api/payment-gateways/capture', {
+  const response = await apiRequest(request, 'POST', '/api/payment_gateways/capture', {
     token,
     data: { transactionId, amount },
   })
@@ -72,7 +72,7 @@ export async function refundPayment(
   amount?: number,
   reason?: string,
 ): Promise<{ status: string; refundedAmount: number; refundId: string }> {
-  const response = await apiRequest(request, 'POST', '/api/payment-gateways/refund', {
+  const response = await apiRequest(request, 'POST', '/api/payment_gateways/refund', {
     token,
     data: { transactionId, amount, reason },
   })
@@ -89,7 +89,7 @@ export async function cancelPayment(
   transactionId: string,
   reason?: string,
 ): Promise<{ status: string }> {
-  const response = await apiRequest(request, 'POST', '/api/payment-gateways/cancel', {
+  const response = await apiRequest(request, 'POST', '/api/payment_gateways/cancel', {
     token,
     data: { transactionId, reason },
   })

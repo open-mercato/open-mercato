@@ -170,7 +170,7 @@ export default function IntegrationsMarketplacePage() {
                 {t('integrations.marketplace.description')}
               </p>
             </div>
-            <div className="relative w-64 shrink-0">
+            <div className="relative w-64 shrink-0 hidden lg:block">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder={t('integrations.marketplace.search')}

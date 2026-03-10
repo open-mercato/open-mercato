@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
-import type { PaymentGatewayService } from '../../../../lib/gateway-service'
-import type { CredentialsService } from '../../../../../integrations/lib/credentials-service'
-import { getPaymentGatewayQueue } from '../../../../lib/queue'
-import { paymentGatewaysTag } from '../../../openapi'
+import type { PaymentGatewayService } from '../../../lib/gateway-service'
+import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
+import { getPaymentGatewayQueue } from '../../../lib/queue'
+import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
   POST: { requireAuth: false },

@@ -96,21 +96,30 @@ export default function IntegrationDetailPage() {
   const [isTogglingState, setIsTogglingState] = React.useState(false)
 
   const loadDetail = React.useCallback(async () => {
-    if (!integrationId) return
-    setIsLoading(true)
-    setError(null)
-    const call = await apiCall<IntegrationDetail>(
-      `/api/integrations/${encodeURIComponent(integrationId)}`,
-      undefined,
-      { fallback: null },
-    )
-    if (!call.ok || !call.result) {
-      setError(t('integrations.detail.loadError'))
+    if (!integrationId) {
       setIsLoading(false)
+      setError(t('integrations.detail.loadError', 'Failed to load integration'))
       return
     }
-    setDetail(call.result)
-    setIsLoading(false)
+    setError(null)
+    setIsLoading(true)
+    try {
+      const call = await apiCall<IntegrationDetail>(
+        `/api/integrations/${encodeURIComponent(integrationId)}`,
+        undefined,
+        { fallback: null },
+      )
+      if (!call.ok || !call.result) {
+        setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        setIsLoading(false)
+        return
+      }
+      setDetail(call.result)
+      setIsLoading(false)
+    } catch {
+      setError(t('integrations.detail.loadError', 'Failed to load integration'))
+      setIsLoading(false)
+    }
   }, [integrationId, t])
 
   const loadCredentials = React.useCallback(async () => {

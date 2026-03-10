@@ -13,7 +13,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
   test('should reject a webhook with completely invalid JSON body', async ({ request }) => {
     const token = await getAuthToken(request)
 
-    const response = await request.fetch('http://localhost:3000/api/payment-gateways/webhook/mock', {
+    const response = await request.fetch('http://localhost:3000/api/payment_gateways/webhook/mock', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -31,7 +31,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
   test('should reject a webhook with empty body', async ({ request }) => {
     const token = await getAuthToken(request)
 
-    const response = await request.fetch('http://localhost:3000/api/payment-gateways/webhook/mock', {
+    const response = await request.fetch('http://localhost:3000/api/payment_gateways/webhook/mock', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -57,7 +57,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
     expect(session.status).toBe('authorized')
 
     // Send a webhook referencing a non-existent session id
-    const response = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+    const response = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
       token,
       data: {
         type: 'payment.captured',
@@ -81,7 +81,7 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
     const token = await getAuthToken(request)
 
     // Valid JSON but missing the standard type/id fields
-    const response = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+    const response = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
       token,
       data: { unexpected: 'payload', nested: { value: 123 } },
     })

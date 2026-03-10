@@ -16,7 +16,7 @@ test.describe('TC-PGWY-006: Webhook processing', () => {
     })
     expect(session.status).toBe('authorized')
 
-    const response = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/mock', {
+    const response = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
       token,
       data: {
         type: 'payment.captured',
@@ -40,7 +40,7 @@ test.describe('TC-PGWY-006: Webhook processing', () => {
   test('should return error for unknown webhook provider', async ({ request }) => {
     const token = await getAuthToken(request)
 
-    const response = await apiRequest(request, 'POST', '/api/payment-gateways/webhook/unknown_provider', {
+    const response = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/unknown_provider', {
       token,
       data: { type: 'test.event', id: 'evt_1' },
     })
