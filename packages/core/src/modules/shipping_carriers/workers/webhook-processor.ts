@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { CarrierShipment } from '../data/entities'
 import { getShippingAdapter } from '../lib/adapter-registry'
+import { syncShipmentStatus } from '../lib/status-sync'
 
 type WebhookJobPayload = {
   providerKey: string
@@ -37,7 +38,10 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
     : job.payload.event.eventType
   const unifiedStatus = adapter.mapStatus(carrierStatus)
   shipment.carrierStatus = carrierStatus
-  shipment.unifiedStatus = unifiedStatus
   shipment.lastWebhookAt = new Date()
+
+  const transitionApplied = syncShipmentStatus(shipment, unifiedStatus)
+  if (!transitionApplied) return
+
   await em.flush()
 }

@@ -78,7 +78,7 @@ const HEALTH_STATUS_STYLES: Record<string, string> = {
 
 export default function IntegrationDetailPage() {
   const params = useParams<{ id: string }>()
-  const integrationId = params.id
+  const integrationId = params?.id
   const t = useT()
 
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)
@@ -96,6 +96,7 @@ export default function IntegrationDetailPage() {
   const [isTogglingState, setIsTogglingState] = React.useState(false)
 
   const loadDetail = React.useCallback(async () => {
+    if (!integrationId) return
     setIsLoading(true)
     setError(null)
     const call = await apiCall<IntegrationDetail>(
@@ -113,6 +114,7 @@ export default function IntegrationDetailPage() {
   }, [integrationId, t])
 
   const loadCredentials = React.useCallback(async () => {
+    if (!integrationId) return
     const call = await apiCall<{ credentials: Record<string, unknown> }>(
       `/api/integrations/${encodeURIComponent(integrationId)}/credentials`,
       undefined,
@@ -124,6 +126,7 @@ export default function IntegrationDetailPage() {
   }, [integrationId])
 
   const loadLogs = React.useCallback(async () => {
+    if (!integrationId) return
     setIsLoadingLogs(true)
     const params = new URLSearchParams({ integrationId, pageSize: '50' })
     if (logLevel) params.set('level', logLevel)

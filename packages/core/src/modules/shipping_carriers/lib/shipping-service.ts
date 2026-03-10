@@ -73,6 +73,7 @@ export function createShippingCarrierService(deps: {
         tenantId: input.tenantId,
       })
       await em.persistAndFlush(shipment)
+      // TODO: emit shipping_carriers.shipment.created event once event wiring is complete
       return shipment
     },
 
@@ -131,6 +132,7 @@ export function createShippingCarrierService(deps: {
       })
       shipment.unifiedStatus = result.status
       await em.flush()
+      // TODO: emit shipping_carriers.shipment.cancelled event once event wiring is complete
       return result
     },
 

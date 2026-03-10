@@ -12,6 +12,7 @@ export const integration: IntegrationDefinition = {
   package: '@open-mercato/gateway-stripe',
   version: '1.0.0',
   author: 'Open Mercato Team',
+  company: 'Stripe, Inc.',
   license: 'MIT',
   tags: ['cards', 'apple-pay', 'google-pay', 'bank-transfer', 'checkout'],
   apiVersions: [

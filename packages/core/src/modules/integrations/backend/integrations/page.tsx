@@ -13,7 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FilterBar, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Bell, CreditCard, HardDrive, LayoutGrid, MessageSquare, RefreshCw, Truck, Webhook } from 'lucide-react'
+import { Bell, CreditCard, HardDrive, LayoutGrid, MessageSquare, RefreshCw, Search, Truck, Webhook } from 'lucide-react'
 import {
   buildIntegrationMarketplaceFilterDefs,
   getIntegrationMarketplaceCategory,
@@ -28,6 +28,9 @@ type IntegrationItem = {
   category?: string
   icon?: string
   bundleId?: string
+  author?: string
+  company?: string
+  version?: string
   isEnabled: boolean
   hasCredentials: boolean
 }
@@ -160,12 +163,21 @@ export default function IntegrationsMarketplacePage() {
     <Page>
       <PageBody className="space-y-6">
         <section className="space-y-6 rounded-lg border bg-background p-6">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
+          <header className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
               <h2 className="text-lg font-semibold">{t('integrations.marketplace.title')}</h2>
               <p className="text-sm text-muted-foreground">
                 {t('integrations.marketplace.description')}
               </p>
+            </div>
+            <div className="relative w-64 shrink-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder={t('integrations.marketplace.search')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8"
+              />
             </div>
           </header>
 
@@ -182,32 +194,22 @@ export default function IntegrationsMarketplacePage() {
             />
           </div>
 
-          <div className="hidden lg:flex lg:flex-col gap-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <Input
-                placeholder={t('integrations.marketplace.search')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="max-w-sm"
-              />
-              <div className="flex flex-wrap gap-1.5">
-                {INTEGRATION_MARKETPLACE_CATEGORIES.map((category) => {
-                  const Icon = CATEGORY_ICONS[category]
-                  return (
-                    <Button
-                      key={category}
-                      type="button"
-                      variant={selectedCategory === category ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setFilterValues(normalizeIntegrationMarketplaceFilterValues({ category }))}
-                    >
-                      {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
-                      {t(`integrations.marketplace.categories.${category}`)}
-                    </Button>
-                  )
-                })}
-              </div>
-            </div>
+          <div className="hidden lg:flex flex-wrap gap-1.5">
+            {INTEGRATION_MARKETPLACE_CATEGORIES.map((category) => {
+              const Icon = CATEGORY_ICONS[category]
+              return (
+                <Button
+                  key={category}
+                  type="button"
+                  variant={selectedCategory === category ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilterValues(normalizeIntegrationMarketplaceFilterValues({ category }))}
+                >
+                  {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
+                  {t(`integrations.marketplace.categories.${category}`)}
+                </Button>
+              )
+            })}
           </div>
 
           {filteredItems.bundles.map((bundle) => (
@@ -281,9 +283,14 @@ export default function IntegrationsMarketplacePage() {
                       </Badge>
                     )}
                   </CardHeader>
-                  <CardContent className="flex-1">
+                  <CardContent className="flex-1 space-y-2">
                     {item.description && (
                       <p className="text-muted-foreground text-sm">{item.description}</p>
+                    )}
+                    {(item.company || item.author || item.version) && (
+                      <p className="text-muted-foreground text-xs">
+                        {[item.company || item.author, item.version ? `v${item.version}` : null].filter(Boolean).join(' · ')}
+                      </p>
                     )}
                   </CardContent>
                   <div className="px-6 pb-4">

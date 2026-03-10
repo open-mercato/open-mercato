@@ -130,6 +130,7 @@ export interface IntegrationDefinition {
   package?: string
   version?: string
   author?: string
+  company?: string
   license?: string
   tags?: string[]
   credentials?: IntegrationCredentialsSchema
