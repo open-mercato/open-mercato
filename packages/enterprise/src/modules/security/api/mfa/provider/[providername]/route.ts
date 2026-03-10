@@ -81,6 +81,7 @@ export async function PUT(req: Request, context: { params: Promise<{ providernam
       requestContext.auth.sub,
       setupId,
       payload,
+      providerType,
     )
     return NextResponse.json({
       ok: true,

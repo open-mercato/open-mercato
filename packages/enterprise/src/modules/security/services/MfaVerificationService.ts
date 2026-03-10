@@ -69,6 +69,9 @@ export class MfaVerificationService {
         }
       })
       .filter((item): item is AvailableMethod => item !== null)
+    if (availableMethods.length === 0) {
+      throw new MfaVerificationServiceError('No registered MFA providers are available for the configured methods', 400)
+    }
 
     return {
       challengeId: challenge.id,

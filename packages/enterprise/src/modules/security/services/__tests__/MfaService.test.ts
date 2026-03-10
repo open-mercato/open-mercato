@@ -193,6 +193,77 @@ describe('MfaService', () => {
     }))
   })
 
+  test('setupMethod rejects duplicate single-instance provider enrollment', async () => {
+    const { service, registry, methods } = createServiceContext()
+    registry.register(createProvider({
+      type: 'otp_email',
+      allowMultiple: false,
+      setup: jest.fn(async () => ({
+        setupId: 'setup-otp-1',
+        clientData: { email: 'user@example.com' },
+      })),
+    }))
+
+    methods.push({
+      id: 'method-existing',
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      type: 'otp_email',
+      label: 'Primary email',
+      secret: null,
+      providerMetadata: { email: 'user@example.com' },
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    })
+
+    await expect(service.setupMethod('user-1', 'otp_email', {})).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 409,
+      message: "MFA provider 'otp_email' is already configured",
+    })
+  })
+
+  test('confirmMethod rejects provider mismatch for setup session', async () => {
+    const { service } = createServiceContext()
+
+    await service.setupMethod('user-1', 'totp', {})
+
+    await expect(service.confirmMethod('user-1', 'setup-1', { code: '123456' }, 'passkey')).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 400,
+      message: 'MFA setup session does not match the requested provider',
+    })
+  })
+
+  test('confirmMethod skips recovery code regeneration when MFA already exists', async () => {
+    const { service, methods } = createServiceContext()
+    const generateSpy = jest.spyOn(service, 'generateRecoveryCodes').mockResolvedValue(['SHOULD-NOT-HAPPEN'])
+
+    methods.push({
+      id: 'method-existing',
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      type: 'passkey',
+      label: 'Laptop',
+      secret: null,
+      providerMetadata: { credentialId: 'cred-1' },
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    })
+
+    await service.setupMethod('user-1', 'totp', {})
+    const result = await service.confirmMethod('user-1', 'setup-1', { code: '123456' })
+
+    expect(result).toEqual({})
+    expect(generateSpy).not.toHaveBeenCalled()
+  })
+
   test('generateRecoveryCodes rotates previous codes and returns new plaintext set', async () => {
     const { service, recoveryCodes } = createServiceContext()
     recoveryCodes.push({
@@ -228,6 +299,12 @@ describe('MfaService', () => {
       userId: 'user-1',
       remaining: 9,
     })
+  })
+
+  test('verifyRecoveryCode returns false for blank input', async () => {
+    const { service } = createServiceContext()
+
+    await expect(service.verifyRecoveryCode('user-1', '   ')).resolves.toBe(false)
   })
 
   test('setupOtpEmail falls back to user email when payload email is missing', async () => {

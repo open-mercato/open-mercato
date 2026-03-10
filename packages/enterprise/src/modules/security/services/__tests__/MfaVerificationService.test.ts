@@ -127,6 +127,57 @@ describe('MfaVerificationService', () => {
     expect(challenges).toHaveLength(1)
   })
 
+  test('createChallenge rejects when no active methods exist', async () => {
+    const { service, em } = createServiceContext()
+    em.find.mockResolvedValueOnce([])
+
+    await expect(service.createChallenge('user-1')).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 400,
+      message: 'No MFA methods configured',
+    })
+  })
+
+  test('createChallenge rejects when configured methods reference no registered providers', async () => {
+    const { service, em } = createServiceContext()
+    em.find.mockResolvedValueOnce([{
+      id: 'method-unknown',
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      type: 'hardware_token',
+      isActive: true,
+      providerMetadata: {},
+      deletedAt: null,
+      createdAt: new Date(),
+      lastUsedAt: null,
+    }])
+
+    await expect(service.createChallenge('user-1')).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 400,
+      message: 'No registered MFA providers are available for the configured methods',
+    })
+  })
+
+  test('prepareChallenge persists provider verification context on the challenge', async () => {
+    const { service, challenges, registry } = createServiceContext()
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    provider.prepareChallenge = jest.fn(async () => ({
+      clientData: { sent: true },
+      verifyContext: { challenge: { nonce: 'challenge-nonce' } },
+    }))
+
+    const created = await service.createChallenge('user-1')
+    const result = await service.prepareChallenge(created.challengeId, 'totp')
+
+    expect(result).toEqual({ clientData: { sent: true }, verifyContext: { challenge: { nonce: 'challenge-nonce' } } })
+    expect(challenges[0].methodType).toBe('totp')
+    expect(challenges[0].providerChallenge).toEqual({ nonce: 'challenge-nonce' })
+  })
+
   test('verifyChallenge marks challenge verified and emits event', async () => {
     const { service, challenges, methods } = createServiceContext()
     const created = await service.createChallenge('user-1')
@@ -143,6 +194,46 @@ describe('MfaVerificationService', () => {
       userId: 'user-1',
       challengeId: 'challenge-1',
       methodType: 'totp',
+    })
+  })
+
+  test('verifyChallenge increments attempts when method type changes mid-challenge', async () => {
+    const { service, challenges } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+
+    await service.prepareChallenge(created.challengeId, 'totp')
+    const verified = await service.verifyChallenge(created.challengeId, 'passkey', { code: '123456' })
+
+    expect(verified).toBe(false)
+    expect(challenges[0].attempts).toBe(1)
+  })
+
+  test('verifyChallenge expires the challenge after the maximum attempts', async () => {
+    const { service, challenges, registry } = createServiceContext()
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    provider.verify = jest.fn(async () => false)
+    const created = await service.createChallenge('user-1')
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+    }
+
+    expect(challenges[0].attempts).toBe(5)
+    expect(challenges[0].expiresAt.getTime()).toBeLessThanOrEqual(Date.now())
+  })
+
+  test('verifyChallenge rejects already verified challenges', async () => {
+    const { service, challenges } = createServiceContext()
+    const created = await service.createChallenge('user-1')
+    challenges[0].verifiedAt = new Date()
+
+    await expect(service.verifyChallenge(created.challengeId, 'totp', { code: '123456' })).rejects.toMatchObject({
+      name: 'MfaVerificationServiceError',
+      statusCode: 400,
+      message: 'MFA challenge already verified',
     })
   })
 
