@@ -107,8 +107,8 @@ export function createSandbox(
       try {
         const normalized = normalizeCode(code)
 
-        // Wrap as self-executing async function
-        const wrapped = `(async () => { return (${normalized})() })()`
+        // Invoke the normalized async function directly
+        const wrapped = `(${normalized})()`
 
         const script = new vm.Script(wrapped, {
           filename: 'sandbox.js',
@@ -158,9 +158,13 @@ export function normalizeCode(code: string): string {
     .replace(/\n?```\s*$/, '')
     .trim()
 
-  // Auto-wrap bare expressions into async arrow functions
+  // Auto-wrap bare code into async arrow functions
   if (!/^\s*async\s*\(/.test(normalized)) {
-    normalized = `async () => { return ${normalized} }`
+    // Detect statement-leading keywords — these cannot follow `return`
+    const isStatement = /^\s*(const|let|var|for|while|if|try|switch|return|throw|class|function)\b/.test(normalized)
+    normalized = isStatement
+      ? `async () => { ${normalized} }`
+      : `async () => { return ${normalized} }`
   }
 
   return normalized

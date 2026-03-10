@@ -570,6 +570,11 @@ export async function handleOpenCodeMessageStreaming(
                       await onEvent({ type: 'text', content: delta })
                     }
                     break
+                  case 'thinking':
+                    // Extended thinking blocks — route to debug panel only, never to chat
+                    console.error(`[OpenCode SSE] Thinking block received (${(delta || part.text || '').length} chars)`)
+                    await onEvent({ type: 'debug', partType: 'thinking', data: { text: delta || part.text } })
+                    break
                   case 'tool_use':
                     if (part.name) {
                       usageStats.toolCalls++
@@ -599,8 +604,10 @@ export async function handleOpenCodeMessageStreaming(
               }
 
               case 'message.part.delta': {
+                const part = properties.part as { type?: string } | undefined
                 const delta = properties.delta as string | undefined
-                if (delta) {
+                // Filter out thinking deltas — only stream text part deltas to chat
+                if (delta && part?.type !== 'thinking') {
                   await onEvent({ type: 'text', content: delta })
                 }
                 break

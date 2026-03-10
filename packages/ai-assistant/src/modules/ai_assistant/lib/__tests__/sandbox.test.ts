@@ -31,6 +31,38 @@ describe('normalizeCode', () => {
   it('trims whitespace', () => {
     expect(normalizeCode('  async () => 42  ')).toBe('async () => 42')
   })
+
+  it('wraps const declarations without auto-return', () => {
+    expect(normalizeCode('const x = 1; return x')).toBe(
+      'async () => { const x = 1; return x }'
+    )
+  })
+
+  it('wraps let declarations without auto-return', () => {
+    expect(normalizeCode('let x = 1; x')).toBe('async () => { let x = 1; x }')
+  })
+
+  it('wraps var declarations without auto-return', () => {
+    expect(normalizeCode('var x = 1')).toBe('async () => { var x = 1 }')
+  })
+
+  it('wraps for loops without auto-return', () => {
+    expect(normalizeCode('for (const x of [1]) { console.log(x) }')).toBe(
+      'async () => { for (const x of [1]) { console.log(x) } }'
+    )
+  })
+
+  it('wraps if statements without auto-return', () => {
+    expect(normalizeCode('if (true) { return 1 }')).toBe(
+      'async () => { if (true) { return 1 } }'
+    )
+  })
+
+  it('wraps try/catch without auto-return', () => {
+    expect(normalizeCode('try { return 1 } catch(e) { return 2 }')).toBe(
+      'async () => { try { return 1 } catch(e) { return 2 } }'
+    )
+  })
 })
 
 describe('createSandbox', () => {
@@ -534,6 +566,62 @@ describe('createSandbox', () => {
         statusCode: 200,
         data: { items: [{ id: '1', name: 'ACME' }] },
       })
+    })
+  })
+
+  describe('statement execution', () => {
+    it('executes code with const declarations', async () => {
+      const api = {
+        request: jest.fn().mockResolvedValue({
+          success: true,
+          statusCode: 200,
+          data: { items: [{ id: '1', name: 'ACME' }] },
+        }),
+      }
+      const sandbox = createSandbox({ api })
+      const result = await sandbox.execute(
+        'const result = await api.request({ method: "GET", path: "/api/customers/companies" }); return result'
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.result).toEqual({
+        success: true,
+        statusCode: 200,
+        data: { items: [{ id: '1', name: 'ACME' }] },
+      })
+    })
+
+    it('executes for loops', async () => {
+      const sandbox = createSandbox({})
+      const result = await sandbox.execute(
+        'const items = [1, 2, 3]; let sum = 0; for (const item of items) { sum += item }; return sum'
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.result).toBe(6)
+    })
+
+    it('executes try/catch blocks', async () => {
+      const sandbox = createSandbox({})
+      const result = await sandbox.execute(
+        'try { throw new Error("test") } catch (e) { return e.message }'
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.result).toBe('test')
+    })
+
+    it('executes if/else blocks', async () => {
+      const sandbox = createSandbox({ val: 42 })
+      const result = await sandbox.execute(
+        'if (val > 10) { return "big" } else { return "small" }'
+      )
+      expect(result.error).toBeUndefined()
+      expect(result.result).toBe('big')
+    })
+
+    it('executes let declarations', async () => {
+      const sandbox = createSandbox({})
+      const result = await sandbox.execute('let x = 5; x = x * 2; return x')
+      expect(result.error).toBeUndefined()
+      expect(result.result).toBe(10)
     })
   })
 
