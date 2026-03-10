@@ -28,6 +28,8 @@ export default function CreateDealPage() {
           title: base.title,
           status: base.status ?? undefined,
           pipelineStage: base.pipelineStage ?? undefined,
+          pipelineId: base.pipelineId ?? undefined,
+          pipelineStageId: base.pipelineStageId ?? undefined,
           valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
           valueCurrency: base.valueCurrency ?? undefined,
           probability: typeof base.probability === 'number' ? base.probability : undefined,
