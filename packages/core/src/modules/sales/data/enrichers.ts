@@ -6,7 +6,9 @@
  * always reflect the latest product image, even when the underlying attachment
  * changes. The snapshot serves as fallback for deleted products.
  *
- * Uses raw Knex queries to avoid cross-module ORM entity metadata issues.
+ * Uses raw Knex queries because cross-module ORM entity class references
+ * do not resolve correctly at runtime (the imported class does not match the
+ * entity registered in MikroORM's metadata by the app bootstrap).
  */
 
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
