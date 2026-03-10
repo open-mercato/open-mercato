@@ -213,4 +213,63 @@ describe('MfaService', () => {
       total: 10,
     })
   })
+
+  test('verifyRecoveryCode accepts normalized lowercase and hyphenated input', async () => {
+    const { service, recoveryCodes } = createServiceContext()
+    const [firstCode] = await service.generateRecoveryCodes('user-1')
+    expect(firstCode).toBeTruthy()
+
+    const formatted = `${firstCode.slice(0, 5)}-${firstCode.slice(5)}`.toLowerCase()
+    const verified = await service.verifyRecoveryCode('user-1', ` ${formatted} `)
+
+    expect(verified).toBe(true)
+    expect(recoveryCodes.filter((entry) => entry.isUsed)).toHaveLength(1)
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.recovery.used', {
+      userId: 'user-1',
+      remaining: 9,
+    })
+  })
+
+  test('setupOtpEmail falls back to user email when payload email is missing', async () => {
+    const { service } = createServiceContext()
+    mockedFindOneWithDecryption.mockResolvedValueOnce({
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      email: 'user@example.com',
+      deletedAt: null,
+    } as never)
+
+    const setupSpy = jest.spyOn(service, 'setupMethod').mockResolvedValueOnce({
+      setupId: 'setup-otp-1',
+      clientData: {},
+    })
+    const confirmSpy = jest.spyOn(service, 'confirmMethod').mockResolvedValueOnce({})
+
+    await service.setupOtpEmail('user-1', { label: 'Work' })
+
+    expect(setupSpy).toHaveBeenCalledWith('user-1', 'otp_email', {
+      email: 'user@example.com',
+      label: 'Work',
+    })
+    expect(confirmSpy).toHaveBeenCalledWith('user-1', 'setup-otp-1', {
+      email: 'user@example.com',
+      label: 'Work',
+    })
+  })
+
+  test('setupOtpEmail fails when neither payload nor user profile provides an email', async () => {
+    const { service } = createServiceContext()
+    mockedFindOneWithDecryption.mockResolvedValueOnce({
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      email: null,
+      deletedAt: null,
+    } as never)
+
+    await expect(service.setupOtpEmail('user-1', {})).rejects.toThrow(
+      'Unable to configure Email OTP without a destination email',
+    )
+  })
 })

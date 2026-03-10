@@ -224,6 +224,12 @@ export class MfaChallenge {
   @Property({ name: 'method_type', type: 'text', nullable: true })
   methodType?: string | null
 
+  @Property({ name: 'method_id', type: 'uuid', nullable: true })
+  methodId?: string | null
+
+  @Property({ name: 'provider_challenge', type: 'jsonb', nullable: true })
+  providerChallenge?: Record<string, unknown> | null
+
   @Property({ type: 'integer', default: 0 })
   attempts: number = 0
 

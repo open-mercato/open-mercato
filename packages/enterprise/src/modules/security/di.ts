@@ -7,6 +7,8 @@ import { PasskeyProvider } from './lib/providers/PasskeyProvider'
 import { OtpEmailProvider } from './lib/providers/OtpEmailProvider'
 import { MfaService } from './services/MfaService'
 import { MfaVerificationService } from './services/MfaVerificationService'
+import { MfaEnforcementService } from './services/MfaEnforcementService'
+import { MfaAdminService } from './services/MfaAdminService'
 
 export function register(container: AppContainer) {
   const mfaProviderRegistry = new MfaProviderRegistry()
@@ -19,5 +21,7 @@ export function register(container: AppContainer) {
     passwordService: asClass(PasswordService).scoped(),
     mfaService: asClass(MfaService).scoped(),
     mfaVerificationService: asClass(MfaVerificationService).scoped(),
+    mfaEnforcementService: asClass(MfaEnforcementService).scoped(),
+    mfaAdminService: asClass(MfaAdminService).scoped(),
   })
 }

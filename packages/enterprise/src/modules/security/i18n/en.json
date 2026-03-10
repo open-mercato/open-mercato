@@ -26,6 +26,14 @@
       "mfa": {
         "title": "Multi-factor authentication",
         "description": "Manage your MFA methods and recovery codes.",
+        "enforcement": {
+          "notice": {
+            "title": "MFA enrollment required",
+            "text": "Your organization requires MFA enrollment. Set up at least one method to continue securely.",
+            "overdueText": "Your MFA enrollment deadline has passed. Set up MFA now to keep account access.",
+            "dismiss": "Dismiss"
+          }
+        },
         "manage": "Manage MFA settings",
         "loading": "Loading MFA settings...",
         "enrolled": {
@@ -33,8 +41,39 @@
           "empty": "No MFA methods enabled yet."
         },
         "providers": {
-          "title": "Add method",
-          "empty": "No additional MFA providers are currently available.",
+          "title": "Method types",
+          "description": "Open a provider to manage configured methods.",
+          "tableColumn": "Methods",
+          "empty": "No MFA providers are currently available.",
+          "configuredSingle": "1 configured method",
+          "configuredMany": "{count} configured methods",
+          "generic": {
+            "notConfigured": "Not configured yet."
+          },
+          "totp": {
+            "title": "Authenticator app",
+            "description": "Use an authenticator app or browser extension to get two-factor authentication codes when prompted.",
+            "configured": "Configured"
+          },
+          "passkey": {
+            "title": "Security keys",
+            "description": "Security keys are WebAuthn credentials that can only be used as a second factor of authentication.",
+            "keySingle": "1 key",
+            "keyMany": "{count} keys"
+          },
+          "otpEmail": {
+            "title": "Email OTP",
+            "description": "Receive one-time verification codes by email when signing in.",
+            "enabled": "Email OTP enabled.",
+            "emailLabel": "Email address (optional)",
+            "emailPlaceholder": "Use your account email",
+            "labelLabel": "Label (optional)",
+            "labelPlaceholder": "Email OTP"
+          },
+          "recovery": {
+            "title": "Recovery codes",
+            "description": "Use backup recovery codes as a last resort when you cannot access your primary MFA methods."
+          },
           "setupTotp": "Set up TOTP",
           "setupPasskey": "Set up passkey",
           "setupGeneric": "Set up provider",
@@ -57,22 +96,45 @@
         "recovery": {
           "sectionTitle": "Recovery codes",
           "title": "Recovery codes",
+          "pageTitle": "Two-factor recovery codes",
+          "pageDescription": "Recovery codes can be used to access your account in the event you lose access to your device and cannot receive two-factor authentication codes.",
+          "storageHint": "Keep your recovery codes as safe as your password. We recommend saving them with a password manager such as 1Password, Authy, or Keeper.",
+          "warningStrong": "Keep your recovery codes in a safe spot. These codes are the last resort for accessing your account in case you lose your password and second factors. If you cannot find these codes, you will lose access to your account.",
           "warning": "Store these codes in a safe place. You will not be able to view them again.",
+          "emptyState": "Generate a new set of recovery codes to view and save them.",
+          "generateTitle": "Generate new recovery codes",
+          "generateDescription": "When you generate new recovery codes, your old codes won't work anymore.",
           "regenerate": "Regenerate codes",
           "regenerated": "Recovery codes regenerated.",
           "copy": "Copy all",
+          "copyAction": "Copy",
           "download": "Download .txt",
+          "downloadAction": "Download",
+          "print": "Print",
           "copySuccess": "Recovery codes copied.",
           "copyError": "Unable to copy recovery codes."
         },
         "totp": {
           "title": "TOTP setup",
+          "description": "Use an authenticator app on your phone to scan a QR code and generate one-time login codes.",
+          "scenarioTitle": "Real-world scenario",
+          "scenarioText": "Example: A warehouse manager logs in from a shared workstation and confirms sign-in using a 6-digit code from their phone authenticator app.",
           "start": "Start setup",
+          "scanInstructions": "Open your authenticator app and scan this QR code.",
+          "qrAlt": "TOTP QR code",
+          "showManual": "Use manual setup instead",
+          "hideManual": "Hide manual setup",
           "secret": "Manual secret",
           "uri": "Provisioning URI",
           "codePlaceholder": "Enter 6-digit code",
           "confirm": "Confirm TOTP",
-          "confirmSuccess": "TOTP method enabled."
+          "confirmSuccess": "TOTP method enabled.",
+          "restart": "Generate a new QR",
+          "steps": {
+            "setup": "1. Scan QR code",
+            "verify": "2. Verify code",
+            "recovery": "3. Save recovery codes"
+          }
         },
         "passkey": {
           "title": "Passkey setup",
@@ -101,6 +163,12 @@
           "codePlaceholder": "Enter verification code",
           "submit": "Verify",
           "resend": "Resend code"
+        },
+        "setupMfa": {
+          "title": "MFA provider setup",
+          "loading": "Loading MFA provider setup...",
+          "missingProvider": "Missing MFA provider type.",
+          "providerUnavailable": "The selected MFA provider is not available."
         }
       }
     },
@@ -114,14 +182,214 @@
         "title": "Multi-factor authentication required",
         "description": "Complete MFA verification to finish signing in.",
         "noMethods": "No MFA methods are currently available for this account.",
+        "recovery": {
+          "title": "Two-factor authentication",
+          "description": "Enter one of your recovery codes to complete sign in.",
+          "codeLabel": "Recovery code",
+          "placeholder": "XXXXXX-XXXXXX",
+          "option": "2FA recovery code"
+        },
+        "passkey": {
+          "description": "Use your passkey to verify this sign-in.",
+          "action": "Verify with passkey",
+          "unsupported": "Passkeys are not supported by this browser."
+        },
+        "otpEmail": {
+          "title": "Two-factor authentication",
+          "description": "Enter the 6-digit code sent to your email address.",
+          "codeLabel": "Verification code",
+          "placeholder": "XXXXXX",
+          "resend": "Resend code"
+        },
         "actions": {
+          "verify": "Verify",
           "back": "Back to sign in"
         }
+      }
+    },
+    "notifications": {
+      "mfaEnrolled": {
+        "title": "MFA method enabled",
+        "body": "{method} was enabled for your account."
+      },
+      "mfaReset": {
+        "title": "MFA methods were reset",
+        "body": "An administrator reset your MFA methods. Reason: {reason}"
+      },
+      "enforcementDeadline": {
+        "title": "MFA enrollment deadline approaching",
+        "body": "Enroll in MFA within {days} days (deadline: {deadline}) to avoid account lockout."
       }
     },
     "audit": {
       "password": {
         "change": "Change password"
+      },
+      "mfa": {
+        "reset": "Reset user MFA"
+      }
+    },
+    "admin": {
+      "enforcement": {
+        "title": "MFA enforcement",
+        "description": "Manage enforcement policies across platform, tenant, and organisation scopes.",
+        "loading": "Loading enforcement policies...",
+        "empty": "No enforcement policies found.",
+        "errors": {
+          "load": "Failed to load enforcement policies."
+        },
+        "flash": {
+          "created": "Enforcement policy created.",
+          "createError": "Failed to create enforcement policy.",
+          "updated": "Enforcement policy updated.",
+          "updateError": "Failed to update enforcement policy.",
+          "deleted": "Enforcement policy deleted.",
+          "deleteError": "Failed to delete enforcement policy."
+        },
+        "scope": {
+          "platform": "Platform",
+          "tenant": "Tenant",
+          "organisation": "Organisation"
+        },
+        "methods": {
+          "totp": "Authenticator app (TOTP)",
+          "passkey": "Passkey",
+          "otp_email": "Email OTP",
+          "all": "All"
+        },
+        "target": {
+          "platform": "All tenants"
+        },
+        "deadline": {
+          "none": "No deadline"
+        },
+        "status": {
+          "enforced": "Enforced",
+          "disabled": "Disabled"
+        },
+        "delete": {
+          "title": "Delete enforcement policy?",
+          "text": "This removes the selected policy. Continue?"
+        },
+        "preview": {
+          "total": "Total",
+          "enrolled": "Enrolled",
+          "pending": "Pending",
+          "overdue": "Overdue"
+        },
+        "list": {
+          "title": "Existing policies",
+          "new": "Create new policy",
+          "scope": "Scope",
+          "target": "Target",
+          "deadline": "Deadline",
+          "methods": "Allowed methods",
+          "status": "Status",
+          "actions": "Actions"
+        },
+        "form": {
+          "titleCreate": "Create enforcement policy",
+          "titleEdit": "Edit enforcement policy",
+          "scope": "Scope",
+          "tenantId": "Tenant ID",
+          "tenantIdPlaceholder": "Enter tenant UUID",
+          "organizationId": "Organization ID",
+          "organizationIdPlaceholder": "Enter organization UUID",
+          "deadline": "Enforcement deadline",
+          "enabled": "Policy enforced",
+          "allowedMethods": "Allowed methods",
+          "allowedMethodsHint": "If no methods are selected, all available methods are allowed.",
+          "previewTitle": "Affected users preview",
+          "previewLoading": "Calculating affected users...",
+          "previewUnavailable": "Preview unavailable for the current scope selection.",
+          "create": "Create policy",
+          "saveChanges": "Save changes",
+          "errors": {
+            "tenantRequired": "Tenant ID is required for tenant and organisation scopes.",
+            "organizationRequired": "Organization ID is required for organisation scope."
+          }
+        }
+      },
+      "users": {
+        "title": "User security management",
+        "description": "Review MFA compliance per user and reset enrolled methods when needed.",
+        "loading": "Loading users...",
+        "empty": "No users found for this tenant.",
+        "errors": {
+          "load": "Failed to load user compliance data.",
+          "status": "Failed to load user MFA status.",
+          "reasonRequired": "Reset reason is required."
+        },
+        "flash": {
+          "reset": "User MFA reset completed.",
+          "resetError": "Failed to reset user MFA."
+        },
+        "table": {
+          "title": "Users",
+          "user": "User",
+          "email": "Email",
+          "mfaStatus": "MFA status",
+          "methodCount": "Method count",
+          "compliance": "Compliance",
+          "lastLogin": "Last login",
+          "actions": "Actions"
+        },
+        "mfa": {
+          "enabled": "Enabled",
+          "disabled": "Not enrolled"
+        },
+        "lastLogin": {
+          "unknown": "Unknown"
+        },
+        "actions": {
+          "viewDetail": "View detail",
+          "resetMfa": "Reset MFA"
+        },
+        "detail": {
+          "title": "User MFA detail",
+          "loading": "Loading user status...",
+          "enrolled": "Enrolled",
+          "recoveryCodes": "Recovery codes remaining",
+          "compliant": "Compliant",
+          "methods": "Methods",
+          "methodType": "Type",
+          "methodLabel": "Label",
+          "methodLastUsed": "Last used",
+          "noMethods": "No active methods.",
+          "unavailable": "Unable to load user details."
+        },
+        "reset": {
+          "reason": "Reset reason",
+          "reasonPlaceholder": "Enter reason for audit trail"
+        },
+        "compliance": {
+          "enrolled": "Enrolled",
+          "pending": "Pending",
+          "overdue": "Overdue"
+        }
+      },
+      "dashboard": {
+        "title": "Security dashboard",
+        "description": "Track MFA adoption, enforcement activity, and administrative security posture.",
+        "loading": "Loading security metrics...",
+        "errors": {
+          "load": "Failed to load security dashboard metrics."
+        },
+        "cards": {
+          "policiesActive": "Active enforcement policies",
+          "policiesTotal": "Total policies: {count}",
+          "usersEnrolled": "Users enrolled in MFA",
+          "usersPending": "Pending users: {count}",
+          "usersOverdue": "Overdue users",
+          "avgMethods": "Avg methods per enrolled user: {value}",
+          "sudoSummary": "Sudo protection summary"
+        },
+        "sudo": {
+          "available": "Available",
+          "availableHint": "Sudo endpoints are reachable.",
+          "unavailable": "Not available",
+          "unavailableHint": "Sudo metrics will appear after sudo APIs are implemented."
+        }
       }
     }
   }

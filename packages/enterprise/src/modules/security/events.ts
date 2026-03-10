@@ -8,9 +8,12 @@ const events = [
   { id: 'security.mfa.removed', label: 'MFA Removed', category: 'lifecycle' },
   { id: 'security.mfa.verified', label: 'MFA Verified', category: 'lifecycle' },
   { id: 'security.mfa.otp.sent', label: 'MFA OTP Sent', category: 'lifecycle' },
+  { id: 'security.mfa.reset', label: 'MFA Reset', category: 'lifecycle' },
   { id: 'security.recovery.regenerated', label: 'Recovery Codes Regenerated', category: 'lifecycle' },
   { id: 'security.recovery.used', label: 'Recovery Code Used', category: 'lifecycle' },
+  { id: 'security.enforcement.created', label: 'MFA Enforcement Created', category: 'lifecycle' },
   { id: 'security.enforcement.updated', label: 'MFA Enforcement Updated', category: 'lifecycle' },
+  { id: 'security.enforcement.deadline_reminder_requested', label: 'MFA Enforcement Deadline Reminder Requested', category: 'lifecycle' },
   { id: 'security.sudo.config.updated', label: 'Sudo Config Updated', category: 'lifecycle' },
 ] as const
 

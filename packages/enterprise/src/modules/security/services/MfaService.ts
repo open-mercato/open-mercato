@@ -120,8 +120,11 @@ export class MfaService {
 
     await emitSecurityEvent('security.mfa.enrolled', {
       userId,
+      tenantId: method.tenantId,
+      organizationId: method.organizationId ?? null,
       methodType: method.type,
       methodId: method.id,
+      enrolledAt: new Date().toISOString(),
     })
 
     return { recoveryCodes }
@@ -171,8 +174,19 @@ export class MfaService {
     userId: string,
     payload?: Record<string, unknown>,
   ): Promise<{ recoveryCodes?: string[] }> {
-    const setup = await this.setupMethod(userId, 'otp_email', payload ?? {})
-    return this.confirmMethod(userId, setup.setupId, payload ?? {})
+    const resolvedPayload = { ...(payload ?? {}) }
+    const hasPayloadEmail = typeof resolvedPayload.email === 'string' && resolvedPayload.email.length > 0
+    if (!hasPayloadEmail) {
+      const user = await this.findUserById(userId)
+      const userEmail = typeof user?.email === 'string' ? user.email : ''
+      if (userEmail.length === 0) {
+        throw new MfaServiceError('Unable to configure Email OTP without a destination email', 400)
+      }
+      resolvedPayload.email = userEmail
+    }
+
+    const setup = await this.setupMethod(userId, 'otp_email', resolvedPayload)
+    return this.confirmMethod(userId, setup.setupId, resolvedPayload)
   }
 
   async sendOtpEmail(userId: string, challengeId: string): Promise<void> {
@@ -290,6 +304,11 @@ export class MfaService {
   }
 
   async verifyRecoveryCode(userId: string, code: string): Promise<boolean> {
+    const candidates = this.buildRecoveryCodeCandidates(code)
+    if (candidates.length === 0) {
+      return false
+    }
+
     const recoveryCodes = await this.em.find(
       MfaRecoveryCode,
       {
@@ -302,7 +321,13 @@ export class MfaService {
     )
 
     for (const recoveryCode of recoveryCodes) {
-      const valid = await compare(code, recoveryCode.codeHash)
+      let valid = false
+      for (const candidate of candidates) {
+        if (await compare(candidate, recoveryCode.codeHash)) {
+          valid = true
+          break
+        }
+      }
       if (!valid) continue
       recoveryCode.isUsed = true
       recoveryCode.usedAt = new Date()
@@ -317,6 +342,15 @@ export class MfaService {
 
   private createRecoveryCode(): string {
     return randomBytes(5).toString('hex').toUpperCase()
+  }
+
+  private buildRecoveryCodeCandidates(input: string): string[] {
+    const trimmed = input.trim()
+    const compact = trimmed.replace(/[\s-]/g, '')
+    const normalized = compact.toUpperCase()
+    const candidates = [trimmed, trimmed.toUpperCase(), compact, normalized]
+      .filter((value) => value.length > 0)
+    return [...new Set(candidates)]
   }
 
   private getLabelFromMetadata(metadata: Record<string, unknown>): string | null {

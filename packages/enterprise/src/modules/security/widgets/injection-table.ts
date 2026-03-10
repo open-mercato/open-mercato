@@ -8,6 +8,13 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 500,
     },
   ],
+  'menu:sidebar:profile': [
+    {
+      widgetId: 'security.injection.profile-sidebar-security-item',
+      kind: 'stack',
+      priority: 500,
+    },
+  ],
 }
 
 export default injectionTable

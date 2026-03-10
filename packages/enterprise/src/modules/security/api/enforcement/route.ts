@@ -1,19 +1,119 @@
 import { NextResponse } from 'next/server'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { z } from 'zod'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { enforcementPolicySchema } from '../../data/validators'
+import { EnforcementScope } from '../../data/entities'
+import { buildSecurityOpenApi, securityErrorSchema } from '../openapi'
+import { mapEnforcementError, resolveEnforcementContext, toPolicyResponse } from './_shared'
 
-export async function GET() {
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 })
+const enforcementPolicyResponseSchema = z.object({
+  id: z.string().uuid(),
+  scope: z.nativeEnum(EnforcementScope),
+  tenantId: z.string().uuid().nullable(),
+  organizationId: z.string().uuid().nullable(),
+  isEnforced: z.boolean(),
+  allowedMethods: z.array(z.string()).nullable(),
+  enforcementDeadline: z.string().nullable(),
+  enforcedBy: z.string().uuid(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+const enforcementPolicyListResponseSchema = z.object({
+  items: z.array(enforcementPolicyResponseSchema),
+})
+
+const createEnforcementPolicyResponseSchema = z.object({
+  id: z.string().uuid(),
+})
+
+const listQuerySchema = z.object({
+  scope: z.nativeEnum(EnforcementScope).optional(),
+})
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['security.admin.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['security.admin.manage'] },
 }
 
-export async function POST() {
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 })
+export async function GET(req: Request) {
+  const context = await resolveEnforcementContext(req)
+  if (context instanceof NextResponse) return context
+
+  try {
+    const url = new URL(req.url)
+    const parsedQuery = listQuerySchema.safeParse({
+      scope: url.searchParams.get('scope') ?? undefined,
+    })
+    if (!parsedQuery.success) {
+      return NextResponse.json({ error: 'Invalid query parameters', issues: parsedQuery.error.issues }, { status: 400 })
+    }
+
+    const policies = await context.enforcementService.listPolicies(parsedQuery.data)
+    return NextResponse.json({
+      items: policies.map(toPolicyResponse),
+    })
+  } catch (error) {
+    return mapEnforcementError(error)
+  }
 }
 
-export const openApi: OpenApiRouteDoc = {
-  tag: 'Security',
+export async function POST(req: Request) {
+  const context = await resolveEnforcementContext(req)
+  if (context instanceof NextResponse) return context
+
+  let rawBody: unknown
+  try {
+    rawBody = await req.json()
+  } catch {
+    rawBody = {}
+  }
+
+  const parsedBody = enforcementPolicySchema.safeParse(rawBody)
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: 'Invalid payload', issues: parsedBody.error.issues }, { status: 400 })
+  }
+
+  try {
+    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const { result } = await commandBus.execute('security.enforcement.create', {
+      input: parsedBody.data,
+      ctx: context.commandContext,
+    })
+    return NextResponse.json(result, { status: 201 })
+  } catch (error) {
+    return mapEnforcementError(error)
+  }
+}
+
+export const openApi = buildSecurityOpenApi({
   summary: 'Enforcement policy routes',
   methods: {
-    GET: { summary: 'Get enforcement policies' },
-    POST: { summary: 'Create or update enforcement policies' },
+    GET: {
+      summary: 'List enforcement policies',
+      query: listQuerySchema,
+      responses: [
+        { status: 200, description: 'Enforcement policies', schema: enforcementPolicyListResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: securityErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create enforcement policy',
+      requestBody: {
+        contentType: 'application/json',
+        schema: enforcementPolicySchema,
+      },
+      responses: [
+        { status: 201, description: 'Policy created', schema: createEnforcementPolicyResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: securityErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 409, description: 'Conflict', schema: securityErrorSchema },
+      ],
+    },
   },
-}
+})

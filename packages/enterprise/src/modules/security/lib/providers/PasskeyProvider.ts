@@ -1,40 +1,70 @@
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+} from '@simplewebauthn/server'
 import { z } from 'zod'
-import type { MfaMethodRecord, MfaProviderInterface } from '../mfa-provider-interface'
+import type { MfaMethodRecord, MfaProviderInterface, MfaVerifyContext } from '../mfa-provider-interface'
 
 const SETUP_TTL_MS = 10 * 60 * 1000
 const CHALLENGE_TTL_MS = 5 * 60 * 1000
+const SETUP_TOKEN_VERSION = 'v1'
 
 const setupPayloadSchema = z.object({
   label: z.string().min(1).max(100).optional(),
   authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
 })
 
-const confirmPayloadSchema = z.object({
-  credentialId: z.string().min(1),
-  publicKey: z.string().min(1),
-  challenge: z.string().min(1),
-  transports: z.array(z.string().min(1)).optional(),
-  label: z.string().min(1).max(100).optional(),
-})
+const setupConfirmationPayloadSchema = z.union([
+  z.object({
+    response: z.record(z.string(), z.unknown()),
+    label: z.string().min(1).max(100).optional(),
+  }),
+  z.object({
+    credentialId: z.string().min(1),
+    publicKey: z.string().min(1),
+    challenge: z.string().min(1),
+    transports: z.array(z.string().min(1)).optional(),
+    label: z.string().min(1).max(100).optional(),
+  }),
+])
 
-const verifyPayloadSchema = z.object({
-  credentialId: z.string().min(1),
+const verifyPayloadSchema = z.union([
+  z.object({
+    response: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
+    credentialId: z.string().min(1),
+    challenge: z.string().min(1),
+  }),
+])
+
+const setupTokenSchema = z.object({
+  version: z.string().min(1),
+  userId: z.string().min(1),
   challenge: z.string().min(1),
+  label: z.string().min(1).max(100).optional(),
+  createdAt: z.number().int().nonnegative(),
+  nonce: z.string().min(1),
 })
 
 type PendingSetup = {
+  version: string
   userId: string
   challenge: string
   label?: string
   createdAt: number
+  nonce: string
 }
 
-type PendingChallenge = {
-  userId: string
-  challenge: string
-  createdAt: number
-}
+const verifyContextSchema = z.object({
+  challenge: z.object({
+    challenge: z.string().min(1),
+    createdAt: z.number().int().nonnegative(),
+  }),
+})
 
 export class PasskeyProvider implements MfaProviderInterface {
   readonly type = 'passkey'
@@ -44,30 +74,36 @@ export class PasskeyProvider implements MfaProviderInterface {
   readonly setupSchema = setupPayloadSchema
   readonly verifySchema = verifyPayloadSchema
 
-  private readonly pendingSetups = new Map<string, PendingSetup>()
-  private readonly pendingChallenges = new Map<string, PendingChallenge>()
-
   async setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
     const parsed = setupPayloadSchema.parse(payload ?? {})
-    const setupId = randomBytes(16).toString('hex')
-    const challenge = randomBytes(32).toString('base64url')
+    const options = await generateRegistrationOptions({
+      rpName: this.getRpName(),
+      rpID: this.getRpId(),
+      userID: this.toWebAuthnUserId(userId),
+      userName: userId,
+      userDisplayName: parsed.label ?? userId,
+      timeout: SETUP_TTL_MS,
+      attestationType: 'none',
+      authenticatorSelection: {
+        residentKey: 'required',
+        userVerification: 'preferred',
+        ...(parsed.authenticatorAttachment ? { authenticatorAttachment: parsed.authenticatorAttachment } : {}),
+      },
+    })
+
     const now = Date.now()
-    this.cleanupExpiredSetups(now)
-    this.pendingSetups.set(setupId, {
+    const setupId = this.createSetupToken({
+      version: SETUP_TOKEN_VERSION,
       userId,
-      challenge,
+      challenge: options.challenge,
       label: parsed.label,
       createdAt: now,
+      nonce: randomBytes(16).toString('hex'),
     })
+
     return {
       setupId,
-      clientData: {
-        challenge,
-        rpName: 'Open Mercato',
-        userId,
-        label: parsed.label ?? 'Passkey',
-        authenticatorAttachment: parsed.authenticatorAttachment,
-      },
+      clientData: options as unknown as Record<string, unknown>,
     }
   }
 
@@ -76,85 +112,278 @@ export class PasskeyProvider implements MfaProviderInterface {
     setupId: string,
     payload: unknown,
   ): Promise<{ metadata: Record<string, unknown> }> {
-    const parsed = confirmPayloadSchema.parse(payload)
-    const pending = this.pendingSetups.get(setupId)
-    if (!pending || pending.userId !== userId) {
+    const parsed = setupConfirmationPayloadSchema.parse(payload)
+    const pending = this.readSetupToken(setupId)
+    if (!pending || pending.version !== SETUP_TOKEN_VERSION || pending.userId !== userId) {
       throw new Error('Passkey setup session not found')
     }
     if (Date.now() - pending.createdAt > SETUP_TTL_MS) {
-      this.pendingSetups.delete(setupId)
       throw new Error('Passkey setup session expired')
     }
+
+    if ('response' in parsed) {
+      const verification = await verifyRegistrationResponse({
+        response: parsed.response as never,
+        expectedChallenge: pending.challenge,
+        expectedOrigin: this.getExpectedOrigins(),
+        expectedRPID: this.getRpId(),
+        requireUserVerification: false,
+      })
+
+      if (!verification.verified || !verification.registrationInfo) {
+        throw new Error('Passkey registration verification failed')
+      }
+
+      const registrationInfo = verification.registrationInfo as {
+        credential?: {
+          id: string
+          publicKey: Uint8Array
+          counter: number
+          transports?: string[]
+        }
+        credentialID?: string
+        credentialPublicKey?: Uint8Array
+        counter?: number
+      }
+
+      const credentialId = registrationInfo.credential?.id ?? registrationInfo.credentialID
+      const publicKeyBytes = registrationInfo.credential?.publicKey ?? registrationInfo.credentialPublicKey
+      const counter = registrationInfo.credential?.counter ?? registrationInfo.counter ?? 0
+      const transports = this.normalizeTransports(registrationInfo.credential?.transports)
+
+      if (!credentialId || !publicKeyBytes) {
+        throw new Error('Passkey registration did not return credential data')
+      }
+
+      return {
+        metadata: {
+          credentialId,
+          credentialPublicKey: this.bytesToBase64Url(publicKeyBytes),
+          counter,
+          transports,
+          label: parsed.label ?? pending.label ?? 'Passkey',
+        },
+      }
+    }
+
     if (parsed.challenge !== pending.challenge) {
       throw new Error('Invalid passkey setup challenge')
     }
-    this.pendingSetups.delete(setupId)
+
     return {
       metadata: {
         credentialId: parsed.credentialId,
-        publicKey: parsed.publicKey,
+        credentialPublicKey: parsed.publicKey,
+        counter: 0,
         transports: parsed.transports ?? [],
         label: parsed.label ?? pending.label ?? 'Passkey',
       },
     }
   }
 
-  async prepareChallenge(userId: string, method: MfaMethodRecord): Promise<{ clientData?: Record<string, unknown> }> {
+  async prepareChallenge(
+    userId: string,
+    method: MfaMethodRecord,
+  ): Promise<{ clientData?: Record<string, unknown>; verifyContext?: MfaVerifyContext }> {
     if (method.userId !== userId) {
       throw new Error('MFA method does not belong to user')
     }
-    const credentialId = method.providerMetadata?.credentialId
-    if (typeof credentialId !== 'string' || credentialId.length === 0) {
+
+    const metadata = method.providerMetadata ?? {}
+    const credentialId = typeof metadata.credentialId === 'string' ? metadata.credentialId : null
+    if (!credentialId) {
       throw new Error('Passkey credential is not configured')
     }
-    const challenge = randomBytes(32).toString('base64url')
-    const now = Date.now()
-    this.cleanupExpiredChallenges(now)
-    this.pendingChallenges.set(method.id, {
-      userId,
-      challenge,
-      createdAt: now,
+
+    const options = await generateAuthenticationOptions({
+      rpID: this.getRpId(),
+      userVerification: 'preferred',
+      timeout: CHALLENGE_TTL_MS,
+      allowCredentials: [{
+        id: credentialId,
+        type: 'public-key',
+        transports: this.normalizeTransports(metadata.transports),
+      }],
     })
+
+    const now = Date.now()
+
     return {
-      clientData: {
-        challenge,
-        credentialId,
+      clientData: options as unknown as Record<string, unknown>,
+      verifyContext: {
+        challenge: {
+          challenge: options.challenge,
+          createdAt: now,
+        },
       },
     }
   }
 
-  async verify(userId: string, method: MfaMethodRecord, payload: unknown): Promise<boolean> {
+  async verify(
+    userId: string,
+    method: MfaMethodRecord,
+    payload: unknown,
+    context?: MfaVerifyContext,
+  ): Promise<boolean> {
     const parsed = verifyPayloadSchema.parse(payload)
     if (method.userId !== userId) return false
+
+    const parsedContext = verifyContextSchema.safeParse(context)
+    if (!parsedContext.success) {
+      if ('credentialId' in parsed) {
+        const metadataCredentialId = method.providerMetadata?.credentialId
+        return typeof metadataCredentialId === 'string' && metadataCredentialId === parsed.credentialId
+      }
+      return false
+    }
+    const pending = parsedContext.data.challenge
+    if (Date.now() - pending.createdAt > CHALLENGE_TTL_MS) {
+      return false
+    }
+
+    if ('response' in parsed) {
+      const metadata = method.providerMetadata ?? {}
+      const credentialId = typeof metadata.credentialId === 'string' ? metadata.credentialId : null
+      const credentialPublicKey = typeof metadata.credentialPublicKey === 'string'
+        ? metadata.credentialPublicKey
+        : typeof metadata.publicKey === 'string'
+          ? metadata.publicKey
+          : null
+      const counter = typeof metadata.counter === 'number' && Number.isFinite(metadata.counter)
+        ? metadata.counter
+        : 0
+
+      if (!credentialId || !credentialPublicKey) {
+        return false
+      }
+
+      const verification = await verifyAuthenticationResponse({
+        response: parsed.response as never,
+        expectedChallenge: pending.challenge,
+        expectedOrigin: this.getExpectedOrigins(),
+        expectedRPID: this.getRpId(),
+        requireUserVerification: false,
+        credential: {
+          id: credentialId,
+          publicKey: this.base64UrlToBytes(credentialPublicKey),
+          counter,
+          transports: this.normalizeTransports(metadata.transports),
+        },
+      })
+
+      if (!verification.verified) {
+        return false
+      }
+
+      const nextCounter = verification.authenticationInfo?.newCounter
+      if (typeof nextCounter === 'number' && Number.isFinite(nextCounter)) {
+        const providerMetadata = method.providerMetadata ?? {}
+        providerMetadata.counter = nextCounter
+        method.providerMetadata = providerMetadata
+      }
+
+      return true
+    }
+
     const metadataCredentialId = method.providerMetadata?.credentialId
     if (typeof metadataCredentialId !== 'string' || metadataCredentialId !== parsed.credentialId) {
       return false
     }
-    const pending = this.pendingChallenges.get(method.id)
-    if (!pending || pending.userId !== userId) return false
-    if (Date.now() - pending.createdAt > CHALLENGE_TTL_MS) {
-      this.pendingChallenges.delete(method.id)
+    if (pending.challenge !== parsed.challenge) {
       return false
     }
-    if (pending.challenge !== parsed.challenge) return false
-    this.pendingChallenges.delete(method.id)
+
     return true
   }
 
-  private cleanupExpiredSetups(now: number): void {
-    for (const [setupId, setup] of this.pendingSetups.entries()) {
-      if (now - setup.createdAt > SETUP_TTL_MS) {
-        this.pendingSetups.delete(setupId)
-      }
+  private normalizeTransports(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return []
+    return raw.filter((value): value is string => typeof value === 'string' && value.length > 0)
+  }
+
+  private bytesToBase64Url(value: Uint8Array): string {
+    return Buffer.from(value).toString('base64url')
+  }
+
+  private base64UrlToBytes(value: string): Uint8Array {
+    return new Uint8Array(Buffer.from(value, 'base64url'))
+  }
+
+  private createSetupToken(setup: PendingSetup): string {
+    const encodedPayload = Buffer.from(JSON.stringify(setup), 'utf8').toString('base64url')
+    const signature = this.signSetupPayload(encodedPayload)
+    return `${encodedPayload}.${signature}`
+  }
+
+  private readSetupToken(token: string): PendingSetup | null {
+    const [encodedPayload, signature, ...extra] = token.split('.')
+    if (!encodedPayload || !signature || extra.length > 0) {
+      return null
+    }
+
+    const expectedSignature = this.signSetupPayload(encodedPayload)
+    const providedBuffer = Buffer.from(signature, 'base64url')
+    const expectedBuffer = Buffer.from(expectedSignature, 'base64url')
+    if (providedBuffer.length !== expectedBuffer.length || !timingSafeEqual(providedBuffer, expectedBuffer)) {
+      return null
+    }
+
+    try {
+      const raw = Buffer.from(encodedPayload, 'base64url').toString('utf8')
+      const parsed = JSON.parse(raw)
+      const result = setupTokenSchema.safeParse(parsed)
+      return result.success ? result.data : null
+    } catch {
+      return null
     }
   }
 
-  private cleanupExpiredChallenges(now: number): void {
-    for (const [methodId, challenge] of this.pendingChallenges.entries()) {
-      if (now - challenge.createdAt > CHALLENGE_TTL_MS) {
-        this.pendingChallenges.delete(methodId)
-      }
+  private signSetupPayload(encodedPayload: string): string {
+    return createHmac('sha256', this.getSetupTokenSecret()).update(encodedPayload).digest('base64url')
+  }
+
+  private getSetupTokenSecret(): string {
+    return process.env.JWT_SECRET || process.env.AUTH_SECRET || 'open-mercato-passkey-setup'
+  }
+
+  private getRpName(): string {
+    return process.env.SECURITY_WEBAUTHN_RP_NAME || 'Open Mercato'
+  }
+
+  private getRpId(): string {
+    return process.env.SECURITY_WEBAUTHN_RP_ID || 'localhost'
+  }
+
+  private getExpectedOrigins(): string[] {
+    const fromList = (process.env.SECURITY_WEBAUTHN_ORIGINS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+
+    const singletons = [
+      process.env.SECURITY_WEBAUTHN_ORIGIN,
+      process.env.APP_URL,
+      process.env.NEXT_PUBLIC_APP_URL,
+    ]
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+
+    const origins = [...new Set([...fromList, ...singletons])]
+    if (origins.length > 0) {
+      return origins
     }
+
+    const rpId = this.getRpId()
+    if (rpId === 'localhost') {
+      return ['http://localhost:3000']
+    }
+
+    return [`https://${rpId}`]
+  }
+
+  private toWebAuthnUserId(userId: string): Uint8Array {
+    return new TextEncoder().encode(userId)
   }
 }
 

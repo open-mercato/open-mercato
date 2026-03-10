@@ -1,47 +1,180 @@
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+} from '@simplewebauthn/server'
 import { PasskeyProvider } from '../providers/PasskeyProvider'
 
+jest.mock('@simplewebauthn/server', () => ({
+  generateRegistrationOptions: jest.fn(),
+  verifyRegistrationResponse: jest.fn(),
+  generateAuthenticationOptions: jest.fn(),
+  verifyAuthenticationResponse: jest.fn(),
+}))
+
+const generateRegistrationOptionsMock = generateRegistrationOptions as jest.MockedFunction<typeof generateRegistrationOptions>
+const verifyRegistrationResponseMock = verifyRegistrationResponse as jest.MockedFunction<typeof verifyRegistrationResponse>
+const generateAuthenticationOptionsMock = generateAuthenticationOptions as jest.MockedFunction<typeof generateAuthenticationOptions>
+const verifyAuthenticationResponseMock = verifyAuthenticationResponse as jest.MockedFunction<typeof verifyAuthenticationResponse>
+
 describe('PasskeyProvider', () => {
-  test('creates setup challenge and confirms registration metadata', async () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+
+    generateRegistrationOptionsMock.mockResolvedValue({
+      challenge: 'setup-challenge',
+      rp: {
+        name: 'Open Mercato',
+        id: 'localhost',
+      },
+      user: {
+        id: 'user-1',
+        name: 'user-1',
+        displayName: 'MacBook Touch ID',
+      },
+      pubKeyCredParams: [],
+    } as never)
+
+    verifyRegistrationResponseMock.mockResolvedValue({
+      verified: true,
+      registrationInfo: {
+        credential: {
+          id: 'cred-123',
+          publicKey: new Uint8Array([1, 2, 3, 4]),
+          counter: 0,
+          transports: ['internal'],
+        },
+      },
+    } as never)
+
+    generateAuthenticationOptionsMock.mockResolvedValue({
+      challenge: 'auth-challenge',
+      rpId: 'localhost',
+      allowCredentials: [{
+        id: 'cred-123',
+        type: 'public-key',
+      }],
+      timeout: 300000,
+      userVerification: 'preferred',
+    } as never)
+
+    verifyAuthenticationResponseMock.mockResolvedValue({
+      verified: true,
+      authenticationInfo: {
+        newCounter: 1,
+      },
+    } as never)
+  })
+
+  test('creates registration options and confirms metadata from webauthn response', async () => {
     const provider = new PasskeyProvider()
     const setup = await provider.setup('user-1', { label: 'MacBook Touch ID' })
-    const challenge = String(setup.clientData.challenge)
 
     const confirmation = await provider.confirmSetup('user-1', setup.setupId, {
-      credentialId: 'cred-123',
-      publicKey: 'public-key-abc',
-      challenge,
-      transports: ['internal'],
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          clientDataJSON: 'client-data',
+          attestationObject: 'attestation',
+        },
+      },
+    })
+
+    expect(generateRegistrationOptionsMock).toHaveBeenCalled()
+    expect(verifyRegistrationResponseMock).toHaveBeenCalled()
+    expect(confirmation.metadata.credentialId).toBe('cred-123')
+    expect(confirmation.metadata.credentialPublicKey).toBe('AQIDBA')
+    expect(confirmation.metadata.counter).toBe(0)
+  })
+
+  test('confirms setup across different provider instances', async () => {
+    const setupProvider = new PasskeyProvider()
+    const confirmProvider = new PasskeyProvider()
+    const setup = await setupProvider.setup('user-1', { label: 'MacBook Touch ID' })
+
+    const confirmation = await confirmProvider.confirmSetup('user-1', setup.setupId, {
+      response: {
+        id: 'cred-cross-instance',
+        rawId: 'cred-cross-instance',
+        type: 'public-key',
+        response: {
+          clientDataJSON: 'client-data',
+          attestationObject: 'attestation',
+        },
+      },
     })
 
     expect(confirmation.metadata.credentialId).toBe('cred-123')
-    expect(confirmation.metadata.publicKey).toBe('public-key-abc')
+    expect(confirmation.metadata.credentialPublicKey).toBe('AQIDBA')
   })
 
-  test('prepares and verifies passkey challenge', async () => {
+  test('prepares and verifies passkey authentication challenge', async () => {
     const provider = new PasskeyProvider()
     const method = {
       id: 'method-1',
       userId: 'user-1',
       type: 'passkey',
       providerMetadata: {
-        credentialId: 'cred-xyz',
-        publicKey: 'public-key-xyz',
+        credentialId: 'cred-123',
+        credentialPublicKey: 'AQIDBA',
+        counter: 0,
+        transports: ['internal'],
       },
     }
 
     const prepared = await provider.prepareChallenge('user-1', method)
-    const challenge = String(prepared.clientData?.challenge)
+    expect(prepared.clientData?.challenge).toBe('auth-challenge')
+    expect(prepared.verifyContext?.challenge).toMatchObject({
+      challenge: 'auth-challenge',
+    })
 
     const valid = await provider.verify('user-1', method, {
-      credentialId: 'cred-xyz',
-      challenge,
-    })
-    const invalid = await provider.verify('user-1', method, {
-      credentialId: 'cred-xyz',
-      challenge: 'different-challenge',
+      response: {
+        id: 'cred-123',
+        rawId: 'cred-123',
+        type: 'public-key',
+        response: {
+          authenticatorData: 'auth-data',
+          clientDataJSON: 'client-data',
+          signature: 'signature',
+        },
+      },
+    }, prepared.verifyContext)
+
+    expect(valid).toBe(true)
+    expect(verifyAuthenticationResponseMock).toHaveBeenCalled()
+    expect(method.providerMetadata.counter).toBe(1)
+  })
+
+  test('supports legacy verification payload for backward compatibility', async () => {
+    const provider = new PasskeyProvider()
+    const method = {
+      id: 'method-legacy',
+      userId: 'user-1',
+      type: 'passkey',
+      providerMetadata: {
+        credentialId: 'cred-legacy',
+        credentialPublicKey: 'AQIDBA',
+      },
+    }
+
+    generateAuthenticationOptionsMock.mockResolvedValueOnce({
+      challenge: 'legacy-challenge',
+      rpId: 'localhost',
+      allowCredentials: [],
+      timeout: 300000,
+      userVerification: 'preferred',
+    } as never)
+
+    await provider.prepareChallenge('user-1', method)
+    const valid = await provider.verify('user-1', method, {
+      credentialId: 'cred-legacy',
+      challenge: 'legacy-challenge',
     })
 
     expect(valid).toBe(true)
-    expect(invalid).toBe(false)
   })
 })

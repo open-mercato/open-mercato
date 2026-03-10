@@ -1,11 +1,14 @@
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import type { MfaMethodRecord, MfaProviderInterface } from '../mfa-provider-interface'
+import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import type { MfaMethodRecord, MfaProviderInterface, MfaVerifyContext } from '../mfa-provider-interface'
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from '../otp'
+import OtpCodeEmail from '../../emails/otp-code'
 
 const SETUP_TTL_MS = 10 * 60 * 1000
 const CHALLENGE_TTL_MS = 10 * 60 * 1000
+const CHALLENGE_TTL_MINUTES = CHALLENGE_TTL_MS / (60 * 1000)
 
 const setupPayloadSchema = z.object({
   email: z.string().email().optional(),
@@ -30,6 +33,13 @@ type PendingSetup = {
 
 type PendingOtpChallenge = {
   userId: string
+  codeHash: string
+  createdAt: number
+}
+
+type OtpVerifyChallenge = {
+  userId: string
+  methodId: string
   codeHash: string
   createdAt: number
 }
@@ -89,7 +99,10 @@ export class OtpEmailProvider implements MfaProviderInterface {
     }
   }
 
-  async prepareChallenge(userId: string, method: MfaMethodRecord): Promise<{ clientData?: Record<string, unknown> }> {
+  async prepareChallenge(
+    userId: string,
+    method: MfaMethodRecord,
+  ): Promise<{ clientData?: Record<string, unknown>; verifyContext?: MfaVerifyContext }> {
     if (method.userId !== userId) {
       throw new Error('MFA method does not belong to user')
     }
@@ -97,13 +110,28 @@ export class OtpEmailProvider implements MfaProviderInterface {
     const codeHash = await hashOtpCode(code)
     const now = Date.now()
     this.cleanupExpiredChallenges(now)
-    this.pendingChallenges.set(method.id, {
+    const challenge: OtpVerifyChallenge = {
       userId,
+      methodId: method.id,
       codeHash,
       createdAt: now,
-    })
+    }
+    this.pendingChallenges.set(method.id, challenge)
     const emailValue = method.providerMetadata?.email
     const email = typeof emailValue === 'string' ? emailValue : undefined
+    if (!email) {
+      throw new Error('Email OTP method is missing a destination email address')
+    }
+
+    await sendEmail({
+      to: email,
+      subject: 'Your Open Mercato verification code',
+      react: OtpCodeEmail({
+        code,
+        expiresInMinutes: CHALLENGE_TTL_MINUTES,
+      }),
+    })
+
     const exposeCode = parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
     return {
       clientData: {
@@ -112,13 +140,22 @@ export class OtpEmailProvider implements MfaProviderInterface {
         ...(exposeCode ? { code } : {}),
         expiresAt: new Date(now + CHALLENGE_TTL_MS).toISOString(),
       },
+      verifyContext: {
+        challenge,
+      },
     }
   }
 
-  async verify(userId: string, method: MfaMethodRecord, payload: unknown): Promise<boolean> {
+  async verify(
+    userId: string,
+    method: MfaMethodRecord,
+    payload: unknown,
+    context?: MfaVerifyContext,
+  ): Promise<boolean> {
     const parsed = verifyPayloadSchema.parse(payload)
     if (method.userId !== userId) return false
-    const challenge = this.pendingChallenges.get(method.id)
+    const challenge = this.readChallengeContext(context, userId, method.id)
+      ?? this.pendingChallenges.get(method.id)
     if (!challenge || challenge.userId !== userId) return false
     if (Date.now() - challenge.createdAt > CHALLENGE_TTL_MS) {
       this.pendingChallenges.delete(method.id)
@@ -153,6 +190,40 @@ export class OtpEmailProvider implements MfaProviderInterface {
     if (!localPart || !domain) return undefined
     if (localPart.length <= 2) return `${localPart[0] ?? '*'}*@${domain}`
     return `${localPart.slice(0, 2)}***@${domain}`
+  }
+
+  private readChallengeContext(
+    context: MfaVerifyContext | undefined,
+    userId: string,
+    methodId: string,
+  ): OtpVerifyChallenge | null {
+    const challenge = context?.challenge
+    if (!challenge || typeof challenge !== 'object') return null
+
+    const challengeUserId = challenge.userId
+    const challengeMethodId = challenge.methodId
+    const challengeCodeHash = challenge.codeHash
+    const challengeCreatedAt = challenge.createdAt
+
+    if (
+      typeof challengeUserId !== 'string' ||
+      typeof challengeMethodId !== 'string' ||
+      typeof challengeCodeHash !== 'string' ||
+      typeof challengeCreatedAt !== 'number'
+    ) {
+      return null
+    }
+
+    if (challengeUserId !== userId || challengeMethodId !== methodId) {
+      return null
+    }
+
+    return {
+      userId: challengeUserId,
+      methodId: challengeMethodId,
+      codeHash: challengeCodeHash,
+      createdAt: challengeCreatedAt,
+    }
   }
 }
 
