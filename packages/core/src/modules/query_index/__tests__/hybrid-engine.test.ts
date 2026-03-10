@@ -33,6 +33,8 @@ function createFakeKnex(config: {
       select: function (...cols: any[]) { ops.selects.push(cols); return this },
       where: function (...args: any[]) { ops.wheres.push(args); return this },
       andWhere: function (...args: any[]) { ops.wheres.push(args); return this },
+      whereRaw: function (...args: any[]) { ops.wheres.push(['raw', ...args]); return this },
+      andWhereRaw: function (...args: any[]) { ops.wheres.push(['andRaw', ...args]); return this },
       whereIn: function (...args: any[]) { ops.wheres.push(['in', ...args]); return this },
       whereNotIn: function (...args: any[]) { ops.wheres.push(['notIn', ...args]); return this },
       whereNull: function (col: any) { ops.wheres.push(['isNull', col]); return this },

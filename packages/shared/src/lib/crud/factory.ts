@@ -59,6 +59,7 @@ import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 import { mergeIdFilter, parseIdsParam } from './ids'
+import { parseExtensionHeaders } from '../umes/extension-headers'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -965,11 +966,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!interceptorContext) {
       return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
     }
+    const contextWithHeaders = {
+      ...interceptorContext,
+      extensionHeaders: parseExtensionHeaders(requestPayload.headers),
+    }
     const result = await runApiInterceptorsBefore({
       routePath: normalizeInterceptorRoutePath(args.request),
       method: args.method,
       request: requestPayload,
-      context: interceptorContext,
+      context: contextWithHeaders,
     })
     if (!result.ok) {
       return { errorResponse: json(result.body, { status: result.statusCode }), requestPayload, metadataByInterceptor: {} }

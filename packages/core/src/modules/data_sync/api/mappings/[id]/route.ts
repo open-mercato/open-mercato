@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { SyncMapping } from '../../../data/entities'
+import { SyncMapping } from '@open-mercato/core/modules/data_sync/data/entities'
 
 const idParamsSchema = z.object({ id: z.string().uuid() })
 
@@ -13,7 +13,7 @@ const updateMappingSchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['data_sync.view'] },
+  GET: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
   PUT: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
   DELETE: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
 }

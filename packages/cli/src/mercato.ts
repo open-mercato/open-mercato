@@ -188,13 +188,13 @@ export async function run(argv = process.argv) {
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
-          // Collect all user tables in public schema
-          const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+          // Collect all user tables in the configured schema (uses search_path from DATABASE_URL)
+          const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
           const dropTargets = new Set<string>((res.rows || []).map((r: any) => String(r.tablename)))
           for (const forced of ['vector_search', 'vector_search_migrations']) {
             const exists = await client.query(
-              `SELECT to_regclass($1) AS regclass`,
-              [`public.${forced}`],
+              `SELECT to_regclass(current_schema() || '.' || $1) AS regclass`,
+              [forced],
             )
             const regclass = (exists as { rows?: Array<{ regclass: string | null }> }).rows?.[0]?.regclass ?? null
             if (regclass) {
@@ -202,7 +202,7 @@ export async function run(argv = process.argv) {
             }
           }
           if (dropTargets.size === 0) {
-            console.log('   No tables found in public schema.')
+            console.log(`   No tables found in current schema.`)
           } else {
             let dropped = 0
             await client.query('BEGIN')
@@ -555,6 +555,30 @@ export async function run(argv = process.argv) {
       console.error(`❌ Eject failed: ${message}`)
       return 1
     }
+  }
+
+  // Handle UMES commands (bootstrap-free)
+  if (first === 'umes:list') {
+    const { runUmesList } = await import('./lib/umes/list')
+    await runUmesList()
+    return 0
+  }
+
+  if (first === 'umes:inspect') {
+    const moduleArg = second === '--module' ? remaining[0] : second
+    if (!moduleArg) {
+      console.error('Usage: yarn mercato umes:inspect --module <moduleId>')
+      return 1
+    }
+    const { runUmesInspect } = await import('./lib/umes/inspect')
+    await runUmesInspect(moduleArg)
+    return 0
+  }
+
+  if (first === 'umes:check') {
+    const { runUmesCheck } = await import('./lib/umes/check')
+    await runUmesCheck()
+    return 0
   }
 
   let modName = first

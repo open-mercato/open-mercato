@@ -7,6 +7,7 @@ import type {
 } from './api-interceptor'
 import { getApiInterceptorsForRoute } from './interceptor-registry'
 import { hasAllFeatures } from '../../security/features'
+import { logInterceptorActivity } from '../umes/interceptor-activity'
 
 const DEFAULT_TIMEOUT_MS = 5000
 
@@ -94,6 +95,7 @@ export async function runApiInterceptorsBefore(args: {
     if (!interceptor.before) continue
     if (!hasRequiredFeatures(interceptor.features, context.userFeatures)) continue
 
+    const startTime = Date.now()
     try {
       const timeoutMs = interceptor.timeoutMs ?? DEFAULT_TIMEOUT_MS
       const result = await runWithTimeout(
@@ -110,12 +112,34 @@ export async function runApiInterceptorsBefore(args: {
         if (process.env.NODE_ENV !== 'production') {
           rejectBody.interceptorId = interceptor.id
         }
+        logInterceptorActivity({
+          interceptorId: interceptor.id,
+          moduleId: entry.moduleId,
+          route: routePath,
+          method,
+          result: 'blocked',
+          durationMs: Date.now() - startTime,
+          timestamp: Date.now(),
+          statusCode: normalized.statusCode ?? 400,
+          message: normalized.message,
+        })
         return {
           ok: false,
           statusCode: normalized.statusCode ?? 400,
           body: rejectBody,
         }
       }
+
+      const hasModifications = !!(normalized.headers || normalized.body || normalized.query)
+      logInterceptorActivity({
+        interceptorId: interceptor.id,
+        moduleId: entry.moduleId,
+        route: routePath,
+        method,
+        result: hasModifications ? 'modified' : 'allowed',
+        durationMs: Date.now() - startTime,
+        timestamp: Date.now(),
+      })
 
       if (normalized.headers) {
         currentRequest = {
@@ -145,12 +169,34 @@ export async function runApiInterceptorsBefore(args: {
         if (process.env.NODE_ENV !== 'production') {
           timeoutBody.interceptorId = interceptor.id
         }
+        logInterceptorActivity({
+          interceptorId: interceptor.id,
+          moduleId: entry.moduleId,
+          route: routePath,
+          method,
+          result: 'blocked',
+          durationMs: Date.now() - startTime,
+          timestamp: Date.now(),
+          statusCode: 504,
+          message: 'Interceptor timeout',
+        })
         return {
           ok: false,
           statusCode: 504,
           body: timeoutBody,
         }
       }
+      logInterceptorActivity({
+        interceptorId: interceptor.id,
+        moduleId: entry.moduleId,
+        route: routePath,
+        method,
+        result: 'blocked',
+        durationMs: Date.now() - startTime,
+        timestamp: Date.now(),
+        statusCode: 500,
+        message: error instanceof Error ? error.message : String(error),
+      })
       return {
         ok: false,
         statusCode: 500,

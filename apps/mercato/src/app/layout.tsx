@@ -1,16 +1,12 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
-import Script from 'next/script'
 import './globals.css'
 import { bootstrap } from '@/bootstrap'
-import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { AppProviders } from '@/components/AppProviders'
 
 // Bootstrap all package registrations at module load time
 bootstrap()
-import { ThemeProvider, FrontendLayout, QueryProvider, AuthFooter } from '@open-mercato/ui'
-import { ClientBootstrapProvider } from '@/components/ClientBootstrap'
-import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
-import { detectLocale, loadDictionary, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { detectLocale, loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,15 +18,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export async function generateMetadata(): Promise<Metadata> {
-  const { t } = await resolveTranslations()
-  return {
-    title: t('app.metadata.title', 'Open Mercato'),
-    description: t('app.metadata.description', 'AI‑supportive, modular ERP foundation for product & service companies'),
-    icons: {
-      icon: "/open-mercato.svg",
-    },
-  }
+export const metadata: Metadata = {
+  title: 'Open Mercato',
+  description: 'AI-supportive, modular ERP foundation for product & service companies',
+  icons: {
+    icon: '/open-mercato.svg',
+  },
 }
 
 export default async function RootLayout({
@@ -43,30 +36,28 @@ export default async function RootLayout({
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
   return (
     <html lang={locale} suppressHydrationWarning>
+      <head>
+        <script
+          key="om-theme-init"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var stored = localStorage.getItem('om-theme');
+                  var theme = stored === 'dark' ? 'dark'
+                    : stored === 'light' ? 'light'
+                    : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                  if (theme === 'dark') document.documentElement.classList.add('dark');
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
-        <Script id="om-theme-init" strategy="beforeInteractive">
-          {`
-            (function() {
-              try {
-                var stored = localStorage.getItem('om-theme');
-                var theme = stored === 'dark' ? 'dark'
-                  : stored === 'light' ? 'light'
-                  : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                if (theme === 'dark') document.documentElement.classList.add('dark');
-              } catch (e) {}
-            })();
-          `}
-        </Script>
-        <I18nProvider locale={locale} dict={dict}>
-          <ClientBootstrapProvider>
-            <ThemeProvider>
-              <QueryProvider>
-                <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
-                <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
-              </QueryProvider>
-            </ThemeProvider>
-          </ClientBootstrapProvider>
-        </I18nProvider>
+        <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled}>
+          {children}
+        </AppProviders>
       </body>
     </html>
   );

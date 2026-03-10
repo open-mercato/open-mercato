@@ -155,7 +155,7 @@ export function usePersonTasks({
     const mapped = Array.isArray(payload.items) ? payload.items.map(mapRowToSummary) : []
     setPageInfo({
       page: payload.page ?? 1,
-      totalPages: payload.totalPages ?? 1,
+      totalPages: payload.totalPages ?? 0,
       total: payload.total ?? mapped.length,
     })
     setError(null)

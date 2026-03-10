@@ -8,10 +8,28 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import type { Metadata } from 'next'
+import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 
 type Awaitable<T> = T | Promise<T>
 
-export default async function BackendCatchAll(props: { params: Awaitable<{ slug?: string[] }> }) {
+type BackendParams = { params: Awaitable<{ slug?: string[] }> }
+
+export async function generateMetadata(props: BackendParams): Promise<Metadata> {
+  const params = await props.params
+  const pathname = '/backend/' + (params.slug?.join('/') ?? '')
+  const match = findBackendMatch(modules, pathname)
+  if (!match) {
+    return {}
+  }
+
+  return resolveLocalizedTitleMetadata({
+    title: match.route.title,
+    titleKey: match.route.titleKey,
+  })
+}
+
+export default async function BackendCatchAll(props: BackendParams) {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
   const match = findBackendMatch(modules, pathname)

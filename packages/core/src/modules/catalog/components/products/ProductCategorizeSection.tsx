@@ -1,3 +1,4 @@
+"use client"
 import * as React from 'react'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { Label } from '@open-mercato/ui/primitives/label'

@@ -41,12 +41,20 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
-  { id: 'example', from: '@app' }
+  { id: 'example', from: '@app' },
+
 ]
 
-if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {
+const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
+const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
+
+if (enterpriseModulesEnabled) {
   enabledModules.push(
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
   )
+}
+
+if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
+  enabledModules.push({ id: 'sso', from: '@open-mercato/enterprise' })
 }

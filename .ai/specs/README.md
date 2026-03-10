@@ -133,6 +133,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-054](SPEC-054-2026-03-04-docker-windows-parity.md) | 2026-03-04 | Docker Windows Parity | Align Docker-based development workflow and migration commands for Windows parity |
 | [SPEC-055](SPEC-055-2026-02-23-promotions-module.md) | 2026-02-23 | Promotions Module | Standalone promotions module with recursive rule tree, extensible evaluation engine, and resolved cart effects |
 | [SPEC-056](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp external communication + AI chat integration | WhatsApp conversation history, AI summaries, and tiered AI replies (easy auto-reply vs complex proposal-only). Extends Messages module (#414). Aligns with SPEC-045/045d. |
+| [SPEC-057](SPEC-057-2026-03-05-standalone-app-ai-folder.md) | 2026-03-05 | Standalone App `.ai` Folder & AI-Driven Development Kit | Dedicated `.ai/` folder for `create-mercato-app` template with adapted skills, UMES reference docs, and standalone Task Router for extension-first development. [#853](https://github.com/open-mercato/open-mercato/issues/853) |
 
 ## Specification Structure
 

@@ -1449,8 +1449,8 @@ export function DataTable<T>({
     containerRef.current?.scrollIntoView({ behavior, block: 'start' })
   }, [])
 
-  const renderPagination = () => {
-    if (!pagination) return null
+  const paginationNode = React.useMemo(() => {
+    if (!pagination || pagination.total === 0) return null
 
     const { page, totalPages, onPageChange, durationMs, cacheStatus } = pagination
     const startItem = (page - 1) * pagination.pageSize + 1
@@ -1508,7 +1508,7 @@ export function DataTable<T>({
         </div>
       </div>
     )
-  }
+  }, [pagination, measuredDurationMs, scrollTableIntoView, t])
 
   // Auto filters: fetch custom field defs when requested
   const resolvedEntityIds = React.useMemo(() => {
@@ -1923,7 +1923,7 @@ export function DataTable<T>({
             ) : error ? (
               <TableRow>
                 <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-destructive">
-                  {typeof error === 'string' ? error : error}
+                  {error}
                 </TableCell>
               </TableRow>
             ) : table.getRowModel().rows.length ? (
@@ -2033,7 +2033,7 @@ export function DataTable<T>({
           <InjectionSpot spotId={footerInjectionSpotId} context={resolvedInjectionContext} />
         </div>
       ) : null}
-      {renderPagination()}
+      {paginationNode}
       {canUsePerspectives ? (
         <PerspectiveSidebar
           open={isPerspectiveOpen}
