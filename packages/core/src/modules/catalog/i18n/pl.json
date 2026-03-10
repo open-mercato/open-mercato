@@ -522,6 +522,7 @@
   "catalog.search.priceKind.promotion": "Promocja",
   "catalog.search.status.inactive": "Nieaktywny",
   "catalog.search.variant.default": "Domyślny",
+  "catalog.variants.errors.skuExists": "SKU jest już używany.",
   "catalog.variants.form.barcodeLabel": "Kod kreskowy",
   "catalog.variants.form.barcodePlaceholder": "EAN, UPC itp.",
   "catalog.variants.form.createAction": "Utwórz wariant",
