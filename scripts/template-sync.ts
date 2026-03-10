@@ -8,6 +8,11 @@
  *   tsx scripts/template-sync.ts          # check only (exit 1 on drift)
  *   tsx scripts/template-sync.ts --fix    # full mirror sync (overwrite from app source)
  *   tsx scripts/template-sync.ts --ask    # when drift is found, prompt to sync
+ *
+ * Yarn shortcuts:
+ *   yarn template:sync
+ *   yarn template:sync:fix
+ *   yarn template:sync:ask
  */
 
 import fs from 'node:fs'
@@ -243,7 +248,7 @@ async function main() {
   }
 
   if (checkOnly) {
-    console.log(dim('Run `yarn template:sync --fix` to sync template from app source.'))
+    console.log(dim('Run `yarn template:sync:fix` to sync template from app source.'))
     process.exit(1)
   }
 

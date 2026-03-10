@@ -68,6 +68,15 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "category",
+          label: "Integrations & Payments",
+          items: [
+            "user-guide/integrations",
+            "user-guide/stripe-payments",
+            "user-guide/payment-transactions",
+          ],
+        },
+        {
+          type: "category",
           label: "Customers",
           items: [
             "user-guide/customers",

@@ -765,16 +765,19 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
           <TabsContent value="logs" className="mt-0 space-y-4">
             <div className="flex items-center gap-3">
-              <select
-                className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                value={logLevel}
-                onChange={(event) => setLogLevel(event.target.value)}
-              >
-                <option value="">{t('integrations.detail.logs.level.all')}</option>
-                <option value="info">{t('integrations.detail.logs.level.info')}</option>
-                <option value="warn">{t('integrations.detail.logs.level.warn')}</option>
-                <option value="error">{t('integrations.detail.logs.level.error')}</option>
-              </select>
+              <div className="relative inline-flex">
+                <select
+                  className="h-11 min-w-40 appearance-none rounded-xl border border-border bg-card pl-4 pr-11 text-sm font-medium text-foreground shadow-sm transition-colors focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  value={logLevel}
+                  onChange={(event) => setLogLevel(event.target.value)}
+                >
+                  <option value="">{t('integrations.detail.logs.level.all')}</option>
+                  <option value="info">{t('integrations.detail.logs.level.info')}</option>
+                  <option value="warn">{t('integrations.detail.logs.level.warn')}</option>
+                  <option value="error">{t('integrations.detail.logs.level.error')}</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
             </div>
             {isLoadingLogs ? (
               <div className="flex justify-center py-8"><Spinner /></div>

@@ -97,6 +97,31 @@ type StripePaymentFormProps = {
   onSuccess: (message: string, nextStatus?: string) => void
 }
 
+type StripeElementPalette = {
+  text: string
+  placeholder: string
+  danger: string
+}
+
+const DEFAULT_STRIPE_ELEMENT_PALETTE: StripeElementPalette = {
+  text: '#f5f5f5',
+  placeholder: '#a1a1aa',
+  danger: '#ef4444',
+}
+
+function resolveThemeColor(expression: string, fallback: string): string {
+  if (typeof window === 'undefined' || !document.body) return fallback
+  const probe = document.createElement('div')
+  probe.style.color = expression
+  probe.style.position = 'absolute'
+  probe.style.pointerEvents = 'none'
+  probe.style.opacity = '0'
+  document.body.appendChild(probe)
+  const resolved = window.getComputedStyle(probe).color
+  probe.remove()
+  return resolved && resolved !== '' ? resolved : fallback
+}
+
 function StripePaymentForm({
   clientSecret,
   disabled = false,
@@ -107,6 +132,15 @@ function StripePaymentForm({
   const stripe = useStripe()
   const elements = useElements()
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [palette, setPalette] = React.useState<StripeElementPalette>(DEFAULT_STRIPE_ELEMENT_PALETTE)
+
+  React.useEffect(() => {
+    setPalette({
+      text: resolveThemeColor('hsl(var(--foreground))', DEFAULT_STRIPE_ELEMENT_PALETTE.text),
+      placeholder: resolveThemeColor('hsl(var(--muted-foreground))', DEFAULT_STRIPE_ELEMENT_PALETTE.placeholder),
+      danger: resolveThemeColor('hsl(var(--destructive))', DEFAULT_STRIPE_ELEMENT_PALETTE.danger),
+    })
+  }, [])
 
   const handleConfirmPayment = React.useCallback(async () => {
     if (!stripe || !elements) return
@@ -160,14 +194,16 @@ function StripePaymentForm({
             hidePostalCode: true,
             style: {
               base: {
-                color: 'var(--foreground)',
+                color: palette.text,
                 fontSize: '16px',
+                iconColor: palette.text,
                 '::placeholder': {
-                  color: 'var(--muted-foreground)',
+                  color: palette.placeholder,
                 },
               },
               invalid: {
-                color: '#ef4444',
+                color: palette.danger,
+                iconColor: palette.danger,
               },
             },
           }}
