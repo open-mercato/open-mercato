@@ -99,6 +99,7 @@ export class MfaService {
     userId: string,
     setupId: string,
     payload: unknown,
+    providerType?: string,
   ): Promise<{ recoveryCodes?: string[] }> {
     const method = await this.em.findOne(UserMfaMethod, {
       userId,
@@ -108,6 +109,9 @@ export class MfaService {
     })
     if (!method) {
       throw new MfaServiceError('MFA setup session not found', 404)
+    }
+    if (providerType && method.type !== providerType) {
+      throw new MfaServiceError('MFA setup session does not match the requested provider', 400)
     }
 
     const provider = this.mfaProviderRegistry.get(method.type)
