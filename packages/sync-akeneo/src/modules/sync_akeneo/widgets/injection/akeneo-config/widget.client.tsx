@@ -4,6 +4,7 @@ import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -18,7 +19,7 @@ import {
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { PencilLine, Plus, RefreshCw, Save, Sparkles, Trash2, Wand2, X } from 'lucide-react'
-import { buildAkeneoFieldsetCode, buildDefaultAkeneoMapping, buildProductFieldMappings, normalizeAkeneoMapping, type AkeneoReconciliationSettings } from '../../../lib/shared'
+import { buildAkeneoFieldsetCode, buildDefaultAkeneoMapping, buildProductFieldMappings, dedupeStrings, normalizeAkeneoMapping, type AkeneoReconciliationSettings } from '../../../lib/shared'
 import { inferAkeneoProductMapping } from '../../../lib/inference'
 import type { AkeneoDiscoveryResponse } from '../../../data/validators'
 
@@ -35,6 +36,12 @@ type CustomFieldStatusResponse = {
   variantKeys: string[]
   createdKeys?: string[]
   message?: string
+}
+
+type DeleteImportedProductsResponse = {
+  ok: boolean
+  deletedProductCount: number
+  message: string
 }
 
 type CustomFieldRow = {
@@ -351,6 +358,13 @@ function inferPriceKindCode(attributeCode: string): string {
     : 'regular'
 }
 
+function buildSelectValues(values: Array<string | null | undefined>, currentValue?: string | null): string[] {
+  return dedupeStrings([
+    ...values,
+    currentValue ?? null,
+  ])
+}
+
 function buildDiscoveredFieldsetMappings(discovery: AkeneoDiscoveryResponse): FieldsetMappingRow[] {
   return (discovery.families ?? []).flatMap((family) => {
     const productFieldsetCode = buildAkeneoFieldsetCode('product', family.code)
@@ -378,7 +392,6 @@ function buildDiscoveredFieldsetMappings(discovery: AkeneoDiscoveryResponse): Fi
 function applyDiscoveryDefaults(
   state: FormState,
   discovery: AkeneoDiscoveryResponse | null,
-  options?: { overwriteMappings?: boolean },
 ): FormState {
   if (!discovery?.ok) return state
 
@@ -412,7 +425,6 @@ function applyDiscoveryDefaults(
   const hasMediaMappings = parseMediaMappingRows(state.mediaMappings).length > 0
   const hasPriceMappings = parsePriceMappingRows(state.priceMappings).some((row) => row.attributeCode.trim().length > 0)
   const hasFieldsetMappings = parseFieldsetMappingRows(state.fieldsetMappings).length > 0
-  const overwriteMappings = options?.overwriteMappings === true
   const preferredLocalChannel = discovery.localChannels.find((channel) => ['web', 'online', 'ecommerce', 'default'].includes(channel.code.trim().toLowerCase()))
     ?? discovery.localChannels[0]
     ?? null
@@ -423,11 +435,11 @@ function applyDiscoveryDefaults(
 
   return {
     ...state,
-    productLocale: overwriteMappings || state.productLocale === 'en_US' ? preferredLocale : state.productLocale,
-    categoryLocale: overwriteMappings || state.categoryLocale === 'en_US' ? preferredLocale : state.categoryLocale,
-    productChannel: overwriteMappings ? preferredAkeneoChannel : (state.productChannel || preferredAkeneoChannel),
+    productLocale: state.productLocale === 'en_US' ? preferredLocale : state.productLocale,
+    categoryLocale: state.categoryLocale === 'en_US' ? preferredLocale : state.categoryLocale,
+    productChannel: state.productChannel || preferredAkeneoChannel,
     fieldMap: inferred.fieldMap,
-    customFieldMappings: !overwriteMappings && hasCustomFields
+    customFieldMappings: hasCustomFields
       ? state.customFieldMappings
       : serializeCustomFieldRows(
           inferred.autoCustomFieldMappings.map((mapping) => ({
@@ -437,7 +449,7 @@ function applyDiscoveryDefaults(
             kind: mapping.kind ?? '',
           })),
         ),
-    mediaMappings: !overwriteMappings && hasMediaMappings
+    mediaMappings: hasMediaMappings
       ? state.mediaMappings
       : serializeMediaMappingRows(
           inferred.autoMediaMappings.map((mapping) => ({
@@ -446,10 +458,10 @@ function applyDiscoveryDefaults(
             kind: mapping.kind,
           })),
         ),
-    fieldsetMappings: !overwriteMappings && hasFieldsetMappings
+    fieldsetMappings: hasFieldsetMappings
       ? state.fieldsetMappings
       : serializeFieldsetMappingRows(buildDiscoveredFieldsetMappings(discovery)),
-    priceMappings: (!overwriteMappings && hasPriceMappings) || !preferredLocalChannel
+    priceMappings: hasPriceMappings || !preferredLocalChannel
       ? state.priceMappings
       : serializePriceMappingRows(
           inferred.autoPriceAttributeCodes.map((attributeCode) => ({
@@ -464,6 +476,7 @@ function applyDiscoveryDefaults(
 
 export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps<AkeneoWidgetContext>) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [state, setState] = React.useState<FormState>(() => buildInitialState())
   const [discovery, setDiscovery] = React.useState<AkeneoDiscoveryResponse | null>(null)
   const [customFieldStatus, setCustomFieldStatus] = React.useState<CustomFieldStatusResponse | null>(null)
@@ -472,6 +485,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   const [isCreatingCustomFields, setIsCreatingCustomFields] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
+  const [isDeletingImportedProducts, setIsDeletingImportedProducts] = React.useState(false)
 
   const buildMappingPayloads = React.useCallback((currentState: FormState) => {
     const customFieldMappings = parseRows(currentState.customFieldMappings)
@@ -684,6 +698,18 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     () => parseFieldsetMappingRows(state.fieldsetMappings),
     [state.fieldsetMappings],
   )
+  const discoveredAkeneoChannelCodes = React.useMemo(
+    () => (discovery?.channels ?? []).map((channel) => channel.code),
+    [discovery],
+  )
+  const discoveredLocalChannelCodes = React.useMemo(
+    () => (discovery?.localChannels ?? []).map((channel) => channel.code),
+    [discovery],
+  )
+  const discoveredPriceKindCodes = React.useMemo(
+    () => (discovery?.priceKinds ?? []).map((priceKind) => priceKind.code),
+    [discovery],
+  )
   const productFieldKeys = React.useMemo(
     () => new Set(customFieldStatus?.productKeys ?? []),
     [customFieldStatus],
@@ -808,7 +834,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     }))
   }
 
-  async function rediscoverAndOverwriteMappings() {
+  async function refreshDiscoveredMappings() {
     setIsSaving(true)
     try {
       const discoveryCall = await apiCall<AkeneoDiscoveryResponse>('/api/sync_akeneo/discovery?refresh=true')
@@ -817,12 +843,10 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
         throw new Error(discovered?.message ?? 'Failed to load Akeneo discovery metadata')
       }
 
-      const nextState = applyDiscoveryDefaults({
-        ...state,
-      }, discovered, { overwriteMappings: true })
+      const nextState = applyDiscoveryDefaults({ ...state }, discovered)
 
       await persistMappings(nextState, {
-        successMessage: t('sync_akeneo.discovery.rediscovered', 'Akeneo mappings rediscovered and saved.'),
+        successMessage: t('sync_akeneo.discovery.rediscovered', 'Akeneo fields refreshed and missing mappings added.'),
       })
 
       setState(nextState)
@@ -830,7 +854,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
       const customFieldsCall = await apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields')
       setCustomFieldStatus(customFieldsCall.result ?? null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to rediscover Akeneo mappings'
+      const message = error instanceof Error ? error.message : 'Failed to refresh Akeneo mappings'
       flash(message, 'error')
     } finally {
       setIsSaving(false)
@@ -849,6 +873,36 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
       flash(message, 'error')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function deleteImportedProducts() {
+    const confirmed = await confirm({
+      title: t('sync_akeneo.deleteImportedProducts.confirmTitle', 'Force delete all imported Akeneo products?'),
+      text: t('sync_akeneo.deleteImportedProducts.confirmText', 'This will permanently delete products imported by the Akeneo integration for the current organization, together with their imported variants and related catalog data. The Akeneo product cursor will also be reset so a fresh import can start from scratch.'),
+      confirmText: t('sync_akeneo.deleteImportedProducts.confirmAction', 'Force delete'),
+      cancelText: t('sync_akeneo.deleteImportedProducts.cancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    setIsDeletingImportedProducts(true)
+    try {
+      const result = await apiCall<DeleteImportedProductsResponse>('/api/sync_akeneo/delete-products', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      if (!result.ok || !result.result) {
+        throw new Error('Failed to delete imported Akeneo products')
+      }
+      flash(result.result.message, 'success')
+      await load(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete imported Akeneo products'
+      flash(message, 'error')
+    } finally {
+      setIsDeletingImportedProducts(false)
     }
   }
 
@@ -904,17 +958,19 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
           <div>
             <h3 className="text-sm font-semibold">{t('sync_akeneo.mapping.heading', 'Field mapping')}</h3>
             <p className="text-sm text-muted-foreground">
-              {t('sync_akeneo.mapping.help', 'Mappings are discovered automatically from the saved Akeneo credentials. You can review and override field, fieldset, price, channel, and media behavior here.')}
+              {t('sync_akeneo.mapping.help', 'Mappings are discovered automatically from the saved Akeneo credentials. Use refresh discovery to pull the latest Akeneo metadata and add any missing mappings without deleting your existing overrides.')}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => void load(true)} disabled={isLoading || isSaving}>
+            <Button type="button" variant="outline" onClick={() => void refreshDiscoveredMappings()} disabled={isLoading || isSaving || isDeletingImportedProducts}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              {t('sync_akeneo.mapping.refresh', 'Refresh fields')}
+              {t('sync_akeneo.mapping.refresh', 'Refresh discovery')}
             </Button>
-            <Button type="button" variant="outline" onClick={() => void rediscoverAndOverwriteMappings()} disabled={isLoading || isSaving}>
-              <Sparkles className="mr-2 h-4 w-4" />
-              {t('sync_akeneo.mapping.rediscover', 'Rediscover and overwrite')}
+            <Button type="button" variant="destructive" onClick={() => void deleteImportedProducts()} disabled={isLoading || isSaving || isDeletingImportedProducts}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              {isDeletingImportedProducts
+                ? t('sync_akeneo.deleteImportedProducts.deleting', 'Deleting...')
+                : t('sync_akeneo.deleteImportedProducts.action', 'Force delete all imported products')}
             </Button>
           </div>
         </div>
@@ -1020,7 +1076,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind]. The importer creates or updates Open Mercato custom field definitions and stores Akeneo metadata, validation rules, and groups on those fields.')}
+                  {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind]. After valid Akeneo credentials are saved, Open Mercato discovers mappings automatically: variant axes stay as product options, and other relevant Akeneo attributes are auto-mapped as custom fields unless you override them here. The importer creates or updates Open Mercato custom field definitions and stores Akeneo metadata, validation rules, and groups on those fields.')}
                 </p>
                 {customFieldRows.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border">
@@ -1060,7 +1116,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                   </div>
                 ) : (
                   <Notice compact>
-                    {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are mapped yet. Use the editor to add structured mappings.')}
+                    {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are shown yet. They are discovered and mapped automatically after credentials are saved or when you use Refresh discovery. Use the editor only if you want to review or override the automatic mapping.')}
                   </Notice>
                 )}
                 {customFieldRows.length > 0 ? (
@@ -1122,7 +1178,8 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                             />
                           </td>
                           <td className="px-3 py-2">
-                            <Input
+                            <select
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                               value={row.priceKindCode}
                               onChange={(event) => {
                                 const nextRows = [...priceMappingRows]
@@ -1130,11 +1187,16 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                                 updatePriceMappingRows(nextRows)
                               }}
                               disabled={isLoading || isSaving}
-                            />
+                            >
+                              <option value="">{t('sync_akeneo.mapping.priceKindPlaceholder', 'Select price kind')}</option>
+                              {buildSelectValues(discoveredPriceKindCodes, row.priceKindCode).map((priceKindCode) => (
+                                <option key={priceKindCode} value={priceKindCode}>{priceKindCode}</option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-3 py-2">
-                            <Input
-                              list="akeneo-channels"
+                            <select
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                               value={row.akeneoChannel}
                               onChange={(event) => {
                                 const nextRows = [...priceMappingRows]
@@ -1142,11 +1204,16 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                                 updatePriceMappingRows(nextRows)
                               }}
                               disabled={isLoading || isSaving}
-                              placeholder={t('sync_akeneo.mapping.channelPlaceholder', 'Optional')}
-                            />
+                            >
+                              <option value="">{t('sync_akeneo.mapping.channelPlaceholder', 'Optional')}</option>
+                              {buildSelectValues(discoveredAkeneoChannelCodes, row.akeneoChannel).map((channelCode) => (
+                                <option key={channelCode} value={channelCode}>{channelCode}</option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-3 py-2">
-                            <Input
+                            <select
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                               value={row.localChannelCode}
                               onChange={(event) => {
                                 const nextRows = [...priceMappingRows]
@@ -1154,7 +1221,12 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                                 updatePriceMappingRows(nextRows)
                               }}
                               disabled={isLoading || isSaving}
-                            />
+                            >
+                              <option value="">{t('sync_akeneo.mapping.localChannelPlaceholder', 'Select Open Mercato channel')}</option>
+                              {buildSelectValues(discoveredLocalChannelCodes, row.localChannelCode).map((channelCode) => (
+                                <option key={channelCode} value={channelCode}>{channelCode}</option>
+                              ))}
+                            </select>
                           </td>
                           <td className="px-3 py-2">
                             <Button
@@ -1424,7 +1496,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                       )) : (
                         <tr>
                           <td colSpan={7} className="px-3 py-6 text-center text-sm text-muted-foreground">
-                            {t('sync_akeneo.mapping.emptyFieldsets', 'No family fieldset mappings discovered yet. Save credentials and use rediscovery to generate them.')}
+                            {t('sync_akeneo.mapping.emptyFieldsets', 'No family fieldset mappings discovered yet. Save credentials and use Refresh discovery to generate them.')}
                           </td>
                         </tr>
                       )}
@@ -1839,6 +1911,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

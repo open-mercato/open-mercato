@@ -640,7 +640,9 @@ export default function ProductsDataTable() {
         injectionContext={{
           search,
           filters: filterValues,
+          customFieldset: customFieldsetFilter,
           page,
+          sorting,
           scopeVersion,
         }}
         pagination={{

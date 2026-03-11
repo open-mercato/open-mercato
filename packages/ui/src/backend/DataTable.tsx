@@ -23,6 +23,7 @@ import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
+import { useConfirmDialog } from './confirm-dialog'
 import type {
   PerspectiveDto,
   RolePerspectiveDto,
@@ -655,6 +656,7 @@ export function DataTable<T>({
   replacementHandle,
 }: DataTableProps<T>) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const resolvedRowClickActionIds = rowClickActionIds ?? DEFAULT_ROW_CLICK_ACTION_IDS
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -803,6 +805,20 @@ export function DataTable<T>({
     if (injectionSpotId?.startsWith('data-table:')) return injectionSpotId.slice('data-table:'.length)
     return null
   }, [injectionSpotId, perspective?.tableId])
+  const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
+  const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
+  const resolvedInjectionContext = React.useMemo(
+    () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
+    [injectionContext, perspective?.tableId, title]
+  )
+  const headerInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
+    [resolvedInjectionSpotId]
+  )
+  const footerInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
+    [resolvedInjectionSpotId]
+  )
   const { widgets: columnWidgets } = useInjectionDataWidgets(
     extensionTableId ? `data-table:${extensionTableId}:columns` : '__disabled__:columns',
   )
@@ -1630,14 +1646,19 @@ export function DataTable<T>({
 
   const runBulkAction = React.useCallback(
     async (action: InjectionBulkActionDefinition) => {
-      if (!selectedRows.length) return
+      if (action.requiresSelection !== false && !selectedRows.length) return
       try {
         const result = await action.onExecute(selectedRows, {
           tableId: extensionTableId,
           navigate: (href: string) => router.push(href),
+          confirm,
+          refresh: refreshButton?.onRefresh,
+          injectionContext: resolvedInjectionContext,
+          translate: t,
         })
         const normalized = result as BulkActionExecuteResult | void
         if (normalized && normalized.ok === false) {
+          if (normalized.message === undefined) return
           flash(
             normalized.message
               ?? t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
@@ -1665,7 +1686,7 @@ export function DataTable<T>({
         )
       }
     },
-    [extensionTableId, refreshButton, router, selectedRows, t],
+    [confirm, extensionTableId, refreshButton, resolvedInjectionContext, router, selectedRows, t],
   )
 
   const builtToolbar = React.useMemo(() => {
@@ -1735,7 +1756,7 @@ export function DataTable<T>({
               type="button"
               size="sm"
               variant="outline"
-              disabled={selectedRows.length === 0}
+              disabled={action.requiresSelection !== false && selectedRows.length === 0}
               onClick={() => void runBulkAction(action)}
             >
               {t(action.label, action.label)}
@@ -1782,21 +1803,6 @@ export function DataTable<T>({
   const renderToolbarInline = embedded && hasToolbar
   const shouldRenderToolbarBelow = hasToolbar && !renderToolbarInline
   const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
-  const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
-  const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
-  const resolvedInjectionContext = React.useMemo(
-    () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
-    [injectionContext, perspective?.tableId, title]
-  )
-  const headerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
-    [resolvedInjectionSpotId]
-  )
-  const footerInjectionSpotId = React.useMemo(
-    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
-    [resolvedInjectionSpotId]
-  )
-
   const containerClassName = embedded ? '' : 'rounded-lg border bg-card'
   const headerWrapperClassName = embedded ? 'pb-3' : 'px-4 py-3 border-b'
   const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'
@@ -2034,6 +2040,7 @@ export function DataTable<T>({
         </div>
       ) : null}
       {paginationNode}
+      {ConfirmDialogElement}
       {canUsePerspectives ? (
         <PerspectiveSidebar
           open={isPerspectiveOpen}

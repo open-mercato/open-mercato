@@ -250,6 +250,7 @@ export type InjectionBulkActionDefinition = {
   id: string
   label: string
   icon?: string
+  requiresSelection?: boolean
   onExecute: (
     selectedRows: unknown[],
     context: unknown,

@@ -26,6 +26,14 @@ const alwaysEnabledInjectionTable: ModuleInjectionTable = {
     widgetId: 'example.injection.example-profile-menu',
     priority: 50,
   },
+  'data-table:catalog.products:bulk-actions': {
+    widgetId: 'example.injection.catalog-product-bulk-delete',
+    priority: 40,
+  },
+  'data-table:catalog.products.list:bulk-actions': {
+    widgetId: 'example.injection.catalog-product-bulk-delete',
+    priority: 40,
+  },
 }
 
 const optionalCrossModuleInjectionTable: ModuleInjectionTable = {
