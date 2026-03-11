@@ -35,6 +35,7 @@ function applyImportCounters(batch: ImportBatch): Pick<Required<SyncCounterDelta
   for (const item of batch.items) {
     if (item.action === 'create') createdCount += 1
     else if (item.action === 'update') updatedCount += 1
+    else if (item.action === 'failed') failedCount += 1
     else skippedCount += 1
   }
 
@@ -93,6 +94,43 @@ export function createSyncEngine(deps: EngineDeps) {
         userId: scope.userId,
       },
     )
+  }
+
+  async function logImportItemFailures(
+    runId: string,
+    integrationId: string,
+    items: ImportBatch['items'],
+    scope: SyncScope,
+  ): Promise<void> {
+    const failedItems = items.filter((item) => item.action === 'failed')
+    for (const item of failedItems) {
+      const errorMessage = typeof item.data.errorMessage === 'string' && item.data.errorMessage.trim().length > 0
+        ? item.data.errorMessage.trim()
+        : 'Import item failed'
+      const sourceProductUuid = typeof item.data.sourceProductUuid === 'string' && item.data.sourceProductUuid.trim().length > 0
+        ? item.data.sourceProductUuid.trim()
+        : null
+      const sourceIdentifier = typeof item.data.sourceIdentifier === 'string' && item.data.sourceIdentifier.trim().length > 0
+        ? item.data.sourceIdentifier.trim()
+        : null
+      const message = [
+        `Failed to import Akeneo product ${item.externalId}`,
+        sourceProductUuid ? `(uuid: ${sourceProductUuid})` : null,
+        sourceIdentifier ? `(identifier: ${sourceIdentifier})` : null,
+        `: ${errorMessage}`,
+      ].filter((part) => part !== null).join(' ')
+
+      await integrationLogService.write(
+        {
+          integrationId,
+          runId,
+          level: 'error',
+          message,
+          payload: item.data,
+        },
+        scope,
+      )
+    }
   }
 
   async function finalizeRun(runId: string, status: 'completed' | 'failed' | 'cancelled', scope: SyncScope, error?: string): Promise<void> {
@@ -267,6 +305,7 @@ export function createSyncEngine(deps: EngineDeps) {
           await syncRunService.updateCursor(run.id, batch.cursor, scope)
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
+          await logImportItemFailures(run.id, run.integrationId, batch.items, scope)
 
           await integrationLogService.write(
             {

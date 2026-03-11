@@ -197,11 +197,26 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
 
       const items: ImportItem[] = []
       for (const product of page.items) {
-        const imported = await importer.upsertProduct(product, mapping)
-        for (const item of imported) {
-          if (item.data.localProductId) seenProductExternalIds.add(item.externalId)
-          if (item.data.localVariantId) seenVariantExternalIds.add(item.externalId)
-          items.push(item)
+        try {
+          const imported = await importer.upsertProduct(product, mapping)
+          for (const item of imported) {
+            if (item.data.localProductId) seenProductExternalIds.add(item.externalId)
+            if (item.data.localVariantId) seenVariantExternalIds.add(item.externalId)
+            items.push(item)
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Akeneo product import failed'
+          items.push({
+            externalId: product.parent ? `${product.parent}:${product.uuid}` : product.uuid,
+            action: 'failed',
+            data: {
+              errorMessage: message,
+              sourceProductUuid: product.uuid,
+              sourceIdentifier: product.identifier ?? null,
+              sourceParentCode: product.parent ?? null,
+              family: product.family ?? null,
+            },
+          })
         }
         if (typeof product.updated === 'string' && (!maxUpdatedAt || product.updated > maxUpdatedAt)) {
           maxUpdatedAt = product.updated

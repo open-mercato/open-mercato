@@ -30,7 +30,7 @@ export interface StreamImportInput {
 export interface ImportItem {
   externalId: string
   data: Record<string, unknown>
-  action: 'create' | 'update' | 'skip'
+  action: 'create' | 'update' | 'skip' | 'failed'
   hash?: string
 }
 
