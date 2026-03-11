@@ -33,6 +33,7 @@ type MetricsData = {
   alerts?: AlertItem[]
 }
 
+// Health status colors — intentionally not theme-dependent
 function healthColor(label: HealthScore['label']): string {
   switch (label) {
     case 'excellent':
@@ -104,7 +105,7 @@ function HealthRing({ score, label, ringLabel }: { score: number; label: HealthS
 
 function SkeletonStrip() {
   return (
-    <div className="grid animate-pulse grid-cols-5 divide-x">
+    <div className="grid animate-pulse grid-cols-2 md:grid-cols-3 lg:grid-cols-5 divide-x">
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex flex-col items-center px-5 py-4">
           <div className="h-3 w-10 rounded bg-muted" />
@@ -280,7 +281,7 @@ export function CustomerDashboard({
 
   return (
     <div>
-      <div className="grid grid-cols-5 divide-x">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 divide-x">
         {kpis.map((kpi, i) => (
           <div key={i} className="flex flex-col items-center px-5 py-4">
             {kpi.icon}

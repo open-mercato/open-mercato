@@ -232,7 +232,7 @@ export const branchCreateSchema = scopedSchema.extend({
   name: z.string().trim().min(1).max(200),
   branchType: branchTypeEnum.optional(),
   specialization: z.string().trim().max(300).optional(),
-  budget: z.coerce.number().min(0).optional(),
+  budget: z.coerce.number().min(0).optional().transform((v) => v !== undefined ? String(v) : undefined),
   headcount: z.coerce.number().int().min(0).optional(),
   responsiblePersonId: uuid().nullable().optional(),
   isActive: z.boolean().optional(),

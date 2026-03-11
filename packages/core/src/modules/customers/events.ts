@@ -34,11 +34,12 @@ const events = [
   { id: 'customers.deal.line.created', label: 'Deal Line Created', entity: 'deal-line', category: 'crud' },
   { id: 'customers.deal.line.updated', label: 'Deal Line Updated', entity: 'deal-line', category: 'crud' },
   { id: 'customers.deal.line.deleted', label: 'Deal Line Deleted', entity: 'deal-line', category: 'crud' },
+  { id: 'customers.deal.line.reordered', label: 'Deal Lines Reordered', entity: 'deal-line', category: 'crud' },
 
   // Saved Views
-  { id: 'customers.saved-view.created', label: 'Saved View Created', entity: 'saved-view', category: 'crud' },
-  { id: 'customers.saved-view.updated', label: 'Saved View Updated', entity: 'saved-view', category: 'crud' },
-  { id: 'customers.saved-view.deleted', label: 'Saved View Deleted', entity: 'saved-view', category: 'crud' },
+  { id: 'customers.savedView.created', label: 'Saved View Created', entity: 'saved-view', category: 'crud' },
+  { id: 'customers.savedView.updated', label: 'Saved View Updated', entity: 'saved-view', category: 'crud' },
+  { id: 'customers.savedView.deleted', label: 'Saved View Deleted', entity: 'saved-view', category: 'crud' },
 
   // Comments
   { id: 'customers.comment.created', label: 'Comment Created', entity: 'comment', category: 'crud' },

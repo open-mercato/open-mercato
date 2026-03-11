@@ -1,4 +1,4 @@
-import type { WorkerMeta } from '@open-mercato/queue'
+import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDealEmail } from '../data/entities'
 import { emitCustomersEvent } from '../events'
@@ -11,20 +11,35 @@ export const metadata: WorkerMeta = {
   concurrency: 1,
 }
 
-export default async function handler(_payload: unknown, ctx: Record<string, unknown>): Promise<void> {
-  const container = ctx.container as { resolve: (key: string) => unknown }
-  if (!container?.resolve) return
+type HandlerContext = JobContext & {
+  resolve: <T = unknown>(name: string) => T
+}
+
+interface EmailPollJobPayload {
+  tenantId: string
+  organizationId: string
+}
+
+export default async function handler(job: QueuedJob, ctx: HandlerContext): Promise<void> {
+  const payload = job.payload as EmailPollJobPayload
+
+  if (!payload?.tenantId || !payload?.organizationId) {
+    console.warn('[customers.email-poll] Missing tenantId or organizationId in job payload, skipping')
+    return
+  }
+
+  const decryptionScope = { tenantId: payload.tenantId, organizationId: payload.organizationId }
 
   let adapter: EmailProviderAdapter
   try {
-    adapter = container.resolve('emailProviderAdapter') as EmailProviderAdapter
+    adapter = ctx.resolve<EmailProviderAdapter>('emailProviderAdapter')
   } catch {
     return
   }
 
   if (!adapter.poll) return
 
-  const em = container.resolve('em') as EntityManager
+  const em = ctx.resolve<EntityManager>('em')
 
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
   let inbound: InboundEmail[]
@@ -40,12 +55,24 @@ export default async function handler(_payload: unknown, ctx: Record<string, unk
   for (const msg of inbound) {
     if (!msg.messageId) continue
 
-    const existing = await findOneWithDecryption(em, CustomerDealEmail, { messageId: msg.messageId }, {}, {})
+    const existing = await findOneWithDecryption(
+      em,
+      CustomerDealEmail,
+      { messageId: msg.messageId, organizationId: payload.organizationId, tenantId: payload.tenantId },
+      {},
+      decryptionScope,
+    )
     if (existing) continue
 
     let dealEmail: CustomerDealEmail | null = null
     if (msg.inReplyTo) {
-      const parent = await findOneWithDecryption(em, CustomerDealEmail, { messageId: msg.inReplyTo }, {}, {})
+      const parent = await findOneWithDecryption(
+        em,
+        CustomerDealEmail,
+        { messageId: msg.inReplyTo, organizationId: payload.organizationId, tenantId: payload.tenantId },
+        {},
+        decryptionScope,
+      )
       if (parent) {
         dealEmail = em.create(CustomerDealEmail, {
           organizationId: parent.organizationId,
@@ -77,11 +104,11 @@ export default async function handler(_payload: unknown, ctx: Record<string, unk
     await em.flush()
 
     await emitCustomersEvent('customers.deal.email.received', {
-      id: dealEmail!.id,
-      dealId: dealEmail!.dealId,
-      organizationId: dealEmail!.organizationId,
-      tenantId: dealEmail!.tenantId,
-      subject: dealEmail!.subject,
+      id: dealEmail.id,
+      dealId: dealEmail.dealId,
+      organizationId: dealEmail.organizationId,
+      tenantId: dealEmail.tenantId,
+      subject: dealEmail.subject,
       direction: 'inbound',
     })
   }

@@ -573,7 +573,7 @@ export class CustomerComment {
 @Index({ name: 'customer_deal_emails_deal_idx', properties: ['dealId', 'sentAt'] })
 @Index({ name: 'customer_deal_emails_thread_idx', properties: ['threadId'] })
 @Index({ name: 'customer_deal_emails_org_idx', properties: ['organizationId', 'tenantId'] })
-@Unique({ name: 'customer_deal_emails_message_unique', properties: ['messageId'] })
+@Unique({ name: 'customer_deal_emails_tenant_message_unique', properties: ['tenantId', 'messageId'] })
 export class CustomerDealEmail {
   [OptionalProps]?: 'hasAttachments' | 'isRead' | 'createdAt' | 'updatedAt'
 
@@ -651,6 +651,7 @@ export class CustomerDealEmail {
 }
 
 @Entity({ tableName: 'customer_deal_mentions' })
+@Index({ name: 'customer_deal_mentions_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'customer_deal_mentions_user_idx', properties: ['mentionedUserId', 'isRead'] })
 @Index({ name: 'customer_deal_mentions_deal_idx', properties: ['dealId'] })
 export class CustomerDealMention {

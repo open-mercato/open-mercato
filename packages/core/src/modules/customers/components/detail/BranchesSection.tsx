@@ -9,7 +9,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 
-type BranchRecord = {
+type BranchRecordRaw = {
   id: string
   name: string
   branch_type: string | null
@@ -19,6 +19,32 @@ type BranchRecord = {
   responsible_person_id: string | null
   is_active: boolean
   created_at: string | null
+}
+
+type BranchRecord = {
+  id: string
+  name: string
+  branchType: string | null
+  specialization: string | null
+  budget: string | null
+  headcount: number | null
+  responsiblePersonId: string | null
+  isActive: boolean
+  createdAt: string | null
+}
+
+function toBranchRecord(raw: BranchRecordRaw): BranchRecord {
+  return {
+    id: raw.id,
+    name: raw.name,
+    branchType: raw.branch_type,
+    specialization: raw.specialization,
+    budget: raw.budget,
+    headcount: raw.headcount,
+    responsiblePersonId: raw.responsible_person_id,
+    isActive: raw.is_active,
+    createdAt: raw.created_at,
+  }
 }
 
 type BranchFormData = {
@@ -37,11 +63,13 @@ function BranchForm({
   onSubmit,
   onCancel,
   isSubmitting,
+  idSuffix = 'new',
 }: {
   initial?: BranchFormData
   onSubmit: (data: BranchFormData) => void
   onCancel: () => void
   isSubmitting: boolean
+  idSuffix?: string
 }) {
   const t = useT()
   const [formData, setFormData] = React.useState<BranchFormData>(
@@ -147,9 +175,9 @@ function BranchForm({
             type="checkbox"
             checked={formData.isActive}
             onChange={(event) => setFormData((prev) => ({ ...prev, isActive: event.target.checked }))}
-            id="branch-active"
+            id={`branch-active-${idSuffix}`}
           />
-          <label htmlFor="branch-active" className="text-sm">
+          <label htmlFor={`branch-active-${idSuffix}`} className="text-sm">
             {t('customers.companies.detail.branches.active', 'Active')}
           </label>
         </div>
@@ -209,10 +237,10 @@ export function BranchesSection({
     setIsLoading(true)
     setLoadError(null)
     try {
-      const result = await readApiResultOrThrow<{ items: BranchRecord[] }>(
+      const result = await readApiResultOrThrow<{ items: BranchRecordRaw[] }>(
         `/api/customers/branches?companyEntityId=${encodeURIComponent(companyId)}&pageSize=100`,
       )
-      setBranches(result.items ?? [])
+      setBranches((result.items ?? []).map(toBranchRecord))
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : t('customers.companies.detail.branches.loadError', 'Failed to load branches.'))
     } finally {
@@ -360,15 +388,16 @@ export function BranchesSection({
                   <BranchForm
                     initial={{
                       name: branch.name,
-                      branchType: branch.branch_type ?? '',
+                      branchType: branch.branchType ?? '',
                       specialization: branch.specialization ?? '',
                       budget: branch.budget ?? '',
                       headcount: branch.headcount?.toString() ?? '',
-                      isActive: branch.is_active,
+                      isActive: branch.isActive,
                     }}
                     onSubmit={(data) => handleUpdate(branch.id, data)}
                     onCancel={() => setEditingId(null)}
                     isSubmitting={isSubmitting}
+                    idSuffix={branch.id}
                   />
                 </div>
               )
@@ -378,12 +407,12 @@ export function BranchesSection({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{branch.name}</span>
-                    {branch.branch_type && (
+                    {branch.branchType && (
                       <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                        {branchTypeLabels[branch.branch_type] ?? branch.branch_type}
+                        {branchTypeLabels[branch.branchType] ?? branch.branchType}
                       </span>
                     )}
-                    {!branch.is_active && (
+                    {!branch.isActive && (
                       <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-400">
                         {t('customers.companies.detail.branches.inactive', 'Inactive')}
                       </span>

@@ -6,7 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerDealPersonLink } from '../../../../data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const paramsSchema = z.object({
@@ -57,14 +57,19 @@ export async function GET(request: Request, context: { params?: Record<string, u
     await checkFeature(container, auth, ['customers.deals.view'])
 
     const em = (container.resolve('em') as EntityManager)
-    const deal = await em.findOne(CustomerDeal, { id: parsedParams.data.id, deletedAt: null })
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    }
+    const deal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: parsedParams.data.id, deletedAt: null, tenantId: auth.tenantId, organizationId: auth.orgId },
+      {},
+      decryptionScope,
+    )
     if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
-    }
-
-    const decryptionScope = {
-      tenantId: deal.tenantId ?? auth.tenantId ?? null,
-      organizationId: deal.organizationId ?? auth.orgId ?? null,
     }
 
     const links = await findWithDecryption(
@@ -116,7 +121,17 @@ export async function PUT(request: Request, context: { params?: Record<string, u
     const parsed = updateRoleSchema.parse(body)
 
     const em = (container.resolve('em') as EntityManager)
-    const deal = await em.findOne(CustomerDeal, { id: parsedParams.data.id, deletedAt: null })
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    }
+    const deal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: parsedParams.data.id, deletedAt: null, tenantId: auth.tenantId, organizationId: auth.orgId },
+      {},
+      decryptionScope,
+    )
     if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
     }
@@ -145,9 +160,8 @@ export async function PUT(request: Request, context: { params?: Record<string, u
 }
 
 export const metadata = {
-  methods: ['GET', 'PUT'],
-  requireAuth: true,
-  requireFeatures: ['customers.deals.view'],
+  GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
 }
 
 export const openApi: OpenApiRouteDoc = {

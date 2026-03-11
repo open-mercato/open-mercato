@@ -2,7 +2,7 @@ export type AggregateFunction = 'count' | 'sum' | 'avg' | 'min' | 'max'
 
 export type DateGranularity = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
-export type AnalyticsFieldType = 'numeric' | 'text' | 'uuid' | 'timestamp' | 'jsonb'
+export type AnalyticsFieldType = 'numeric' | 'text' | 'uuid' | 'timestamp' | 'jsonb' | 'boolean'
 
 export type AnalyticsEntityTypeConfig = {
   tableName: string

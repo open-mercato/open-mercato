@@ -1,6 +1,5 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerDeal } from '../data/entities'
 import { emitCustomersEvent } from '../events'
 
 export const metadata: WorkerMeta = {
@@ -46,11 +45,9 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
      WHERE deleted_at IS NULL
        AND organization_id = ?
        AND tenant_id = ?
-       AND status NOT IN ('won', 'lost')
-       AND (
-         last_activity_at IS NOT NULL AND last_activity_at < ?
-         OR last_activity_at IS NULL AND created_at < ?
-       )
+       AND status NOT IN ('won', 'lost', 'win', 'loose', 'closed')
+       AND ((last_activity_at IS NOT NULL AND last_activity_at < ?)
+         OR (last_activity_at IS NULL AND created_at < ?))
      LIMIT 200`,
     [payload.organizationId, payload.tenantId, cutoff, cutoff],
   ).then((result: { rows: StaleDealRow[] }) => result.rows)

@@ -28,7 +28,7 @@ import {
   CustomerPipeline,
   CustomerPipelineStage,
 } from './data/entities'
-import { SalesOrder } from '@open-mercato/core/modules/sales/data/entities'
+
 import { ensureDictionaryEntry } from './commands/shared'
 
 type SeedArgs = {
@@ -50,7 +50,7 @@ const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
   { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
   { value: 'win', label: 'Win', color: '#22c55e', icon: 'lucide:trophy' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
 ]
 
@@ -61,7 +61,7 @@ const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'offering', label: 'Offering', color: '#22c55e', icon: 'lucide:package' },
   { value: 'negotiations', label: 'Negotiations', color: '#facc15', icon: 'lucide:handshake' },
   { value: 'win', label: 'Win', color: '#16a34a', icon: 'lucide:award' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
 ]
 
@@ -1001,8 +1001,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         slug: 'cedar-creek-retreat',
         title: 'Cedar Creek Retreat Expansion',
         description: 'New wellness center build-out including retail area and treatment rooms.',
-        status: 'loose',
-        pipelineStage: 'loose',
+        status: 'lost',
+        pipelineStage: 'lost',
         valueAmount: 98000,
         valueCurrency: 'USD',
         expectedCloseAt: isoDaysFromNow(-70),
@@ -1038,7 +1038,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 691200, occurredAt: isoDaysFromNow(-136, { hour: 11 }) },
           { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1296000, occurredAt: isoDaysFromNow(-121, { hour: 14 }) },
           { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 2160000, occurredAt: isoDaysFromNow(-96, { hour: 10 }) },
-          { fromStageLabel: 'Negotiations', toStageLabel: 'Loose', durationSeconds: 2246400, occurredAt: isoDaysFromNow(-70, { hour: 17 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Lost', durationSeconds: 2246400, occurredAt: isoDaysFromNow(-70, { hour: 17 }) },
         ],
       },
       {
@@ -1069,8 +1069,8 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         slug: 'urban-loft-staging',
         title: 'Urban Loft Staging Package',
         description: 'Property staging for 15 loft units for a real estate developer.',
-        status: 'loose',
-        pipelineStage: 'loose',
+        status: 'lost',
+        pipelineStage: 'lost',
         valueAmount: 68000,
         valueCurrency: 'USD',
         expectedCloseAt: isoDaysFromNow(-90),
@@ -1082,7 +1082,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
           { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 604800, occurredAt: isoDaysFromNow(-153, { hour: 13 }) },
           { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 777600, occurredAt: isoDaysFromNow(-144, { hour: 11 }) },
           { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1382400, occurredAt: isoDaysFromNow(-128, { hour: 15 }) },
-          { fromStageLabel: 'Offering', toStageLabel: 'Loose', durationSeconds: 3283200, occurredAt: isoDaysFromNow(-90, { hour: 16 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Lost', durationSeconds: 3283200, occurredAt: isoDaysFromNow(-90, { hour: 16 }) },
         ],
       },
     ],
@@ -3080,7 +3080,7 @@ async function seedCustomerStressTest(
       const dealId = randomUUID()
       const valueAmount = toAmount(monetaryBase + randomInt(0, 7500))
       const expectedCloseAt =
-        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
+        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'lost'
           ? randomPastDate(120)
           : randomFutureDate(120)
       const dealRow: CustomerDealRow = {
@@ -3537,7 +3537,7 @@ async function seedSingleCompanyExample(
     const already = await em.count(CustomerDeal, {
       tenantId,
       organizationId,
-      title: { $in: dealTitles as any },
+      title: { $in: dealTitles },
     })
     if (already > 0) {
       return false
@@ -3562,7 +3562,7 @@ async function seedSingleCompanyExample(
 
   // Ensure custom field definitions exist (NIP, REGON, KRS, etc.)
   let cache: CacheStrategy | null = null
-  if (typeof (container as any).hasRegistration === 'function' && container.hasRegistration('cache')) {
+  if (container.hasRegistration('cache')) {
     try { cache = (container.resolve('cache') as CacheStrategy) } catch { cache = null }
   }
   try {
@@ -3971,43 +3971,43 @@ async function seedSingleCompanyExample(
 
   await em.flush()
 
-  // Seed sales orders linked to this company
-  for (const orderInfo of companyData.orders ?? []) {
+  // Seed sales orders linked to this company (raw insert to avoid cross-module entity import)
+  const orderRows = (companyData.orders ?? []).map((orderInfo) => {
     const placedDate = orderInfo.placedAt ? new Date(orderInfo.placedAt) : new Date()
     const grossAmount = toAmount(orderInfo.grandTotalGrossAmount) ?? '0'
     const netAmount = toAmount(orderInfo.grandTotalGrossAmount / 1.23) ?? '0'
     const taxAmount = toAmount(orderInfo.grandTotalGrossAmount - orderInfo.grandTotalGrossAmount / 1.23) ?? '0'
-    const order = em.create(SalesOrder, {
+    return {
       id: randomUUID(),
-      organizationId,
-      tenantId,
-      orderNumber: orderInfo.orderNumber,
-      customerEntityId: companyEntityId,
-      currencyCode: orderInfo.currencyCode ?? 'PLN',
+      organization_id: organizationId,
+      tenant_id: tenantId,
+      order_number: orderInfo.orderNumber,
+      customer_entity_id: companyEntityId,
+      currency_code: orderInfo.currencyCode ?? 'PLN',
       status: orderInfo.status ?? 'completed',
-      placedAt: placedDate,
+      placed_at: placedDate,
       comments: orderInfo.comments ?? null,
-      grandTotalGrossAmount: grossAmount,
-      grandTotalNetAmount: netAmount,
-      subtotalNetAmount: netAmount,
-      subtotalGrossAmount: grossAmount,
-      taxTotalAmount: taxAmount,
-      discountTotalAmount: '0',
-      shippingNetAmount: '0',
-      shippingGrossAmount: '0',
-      surchargeTotalAmount: '0',
-      paidTotalAmount: grossAmount,
-      refundedTotalAmount: '0',
-      outstandingAmount: '0',
-      lineItemCount: 0,
-      createdAt: placedDate,
-      updatedAt: placedDate,
-    })
-    em.persist(order)
-  }
+      grand_total_gross_amount: grossAmount,
+      grand_total_net_amount: netAmount,
+      subtotal_net_amount: netAmount,
+      subtotal_gross_amount: grossAmount,
+      tax_total_amount: taxAmount,
+      discount_total_amount: '0',
+      shipping_net_amount: '0',
+      shipping_gross_amount: '0',
+      surcharge_total_amount: '0',
+      paid_total_amount: grossAmount,
+      refunded_total_amount: '0',
+      outstanding_amount: '0',
+      line_item_count: 0,
+      created_at: placedDate,
+      updated_at: placedDate,
+    }
+  })
 
-  if ((companyData.orders?.length ?? 0) > 0) {
-    await em.flush()
+  if (orderRows.length > 0) {
+    const knex = em.getConnection().getKnex()
+    await knex('sales_orders').insert(orderRows)
   }
 
   for (const assign of customFieldAssignments) {

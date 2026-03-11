@@ -36,6 +36,9 @@ export type ActivitySummary = {
   authorEmail?: string | null
   dealId?: string | null
   dealTitle?: string | null
+  dueAt?: string | null
+  reminderAt?: string | null
+  assignedToUserId?: string | null
   customFields?: Array<{ key: string; label?: string | null; value: unknown }>
   customValues?: Record<string, unknown> | null
 }
@@ -59,6 +62,9 @@ export type ActivityCreatePayload = {
   subject?: string | null
   body?: string | null
   occurredAt?: string | null
+  dueAt?: string | null
+  reminderAt?: string | null
+  assignedToUserId?: string | null
   dealId?: string | null
   customFields?: Record<string, unknown>
 }

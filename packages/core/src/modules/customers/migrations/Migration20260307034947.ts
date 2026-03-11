@@ -11,4 +11,9 @@ export class Migration20260307034947 extends Migration {
     this.addSql(`alter table "customer_deal_lines" add constraint "customer_deal_lines_deal_id_foreign" foreign key ("deal_id") references "customer_deals" ("id") on update cascade;`);
   }
 
+  override async down(): Promise<void> {
+    this.addSql('alter table "customer_deal_lines" drop constraint if exists "customer_deal_lines_deal_id_foreign";');
+    this.addSql('drop table if exists "customer_deal_lines" cascade;');
+  }
+
 }

@@ -28,7 +28,7 @@ const savedViewCrudIndexer: CrudIndexerConfig<CustomerSavedView> = {
 
 const savedViewCrudEvents: CrudEventsConfig = {
   module: 'customers',
-  entity: 'saved-view',
+  entity: 'savedView',
   persistent: false,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
@@ -85,7 +85,7 @@ async function loadSavedViewSnapshot(em: EntityManager, id: string): Promise<Sav
 }
 
 const createSavedViewCommand: CommandHandler<SavedViewCreateInput, { savedViewId: string }> = {
-  id: 'customers.saved-view.create',
+  id: 'customers.savedView.create',
   async execute(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(savedViewCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -93,13 +93,17 @@ const createSavedViewCommand: CommandHandler<SavedViewCreateInput, { savedViewId
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
+    if (!ctx.auth?.sub) {
+      throw new CrudHttpError(401, { error: 'Authentication required' })
+    }
+
     if (parsed.isDefault) {
       await em.nativeUpdate(
         CustomerSavedView,
         {
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
-          userId: ctx.auth?.sub ?? '',
+          userId: ctx.auth.sub,
           entityType: parsed.entityType,
           isDefault: true,
           deletedAt: null,
@@ -111,7 +115,7 @@ const createSavedViewCommand: CommandHandler<SavedViewCreateInput, { savedViewId
     const view = em.create(CustomerSavedView, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      userId: ctx.auth?.sub ?? '',
+      userId: ctx.auth.sub,
       entityType: parsed.entityType,
       name: parsed.name,
       filters: parsed.filters ?? {},
@@ -173,7 +177,7 @@ const createSavedViewCommand: CommandHandler<SavedViewCreateInput, { savedViewId
 }
 
 const updateSavedViewCommand: CommandHandler<SavedViewUpdateInput, { savedViewId: string }> = {
-  id: 'customers.saved-view.update',
+  id: 'customers.savedView.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(savedViewUpdateSchema, rawInput)
     const em = ctx.container.resolve('em') as EntityManager
@@ -307,7 +311,7 @@ const updateSavedViewCommand: CommandHandler<SavedViewUpdateInput, { savedViewId
 
 const deleteSavedViewCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { savedViewId: string }> =
   {
-    id: 'customers.saved-view.delete',
+    id: 'customers.savedView.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Saved view id required')
       const em = ctx.container.resolve('em') as EntityManager

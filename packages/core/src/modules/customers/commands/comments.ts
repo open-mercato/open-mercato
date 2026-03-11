@@ -4,7 +4,6 @@ import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId, 
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerComment, CustomerDealMention } from '../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { emitCustomersEvent } from '../events'
 import { commentCreateSchema, commentUpdateSchema, type CommentCreateInput, type CommentUpdateInput } from '../data/validators'
 import {
@@ -130,28 +129,29 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       }
       if (mentionedUserIds.size) {
         const mentionEm = em.fork()
-        const validUsers = await mentionEm.find(User, {
-          id: { $in: Array.from(mentionedUserIds) },
-          tenantId: parsed.tenantId,
-        })
-        for (const user of validUsers) {
+        const mentionedIds = Array.from(mentionedUserIds)
+        const validUserRows = await mentionEm.getConnection().execute<Array<{ id: string }>>(
+          'SELECT id FROM users WHERE id = ANY(?) AND tenant_id = ? AND deleted_at IS NULL',
+          [mentionedIds, parsed.tenantId],
+        )
+        for (const row of validUserRows) {
           const mention = mentionEm.create(CustomerDealMention, {
             organizationId: parsed.organizationId,
             tenantId: parsed.tenantId,
             dealId,
             commentId: comment.id,
-            mentionedUserId: user.id,
+            mentionedUserId: row.id,
             isRead: false,
           })
           mentionEm.persist(mention)
         }
         await mentionEm.flush()
 
-        for (const user of validUsers) {
+        for (const row of validUserRows) {
           await emitCustomersEvent('customers.deal.mentioned', {
             dealId,
             commentId: comment.id,
-            mentionedUserId: user.id,
+            mentionedUserId: row.id,
             authorUserId: normalizedAuthor,
             organizationId: parsed.organizationId,
             tenantId: parsed.tenantId,

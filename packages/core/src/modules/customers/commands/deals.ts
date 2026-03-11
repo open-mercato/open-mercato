@@ -248,6 +248,7 @@ async function recordStageHistory(
   em.persist(history)
 }
 
+// 'loose' kept for backward compat with legacy data
 const CLOSED_STATUSES = new Set(['win', 'won', 'lost', 'loose', 'closed'])
 
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
