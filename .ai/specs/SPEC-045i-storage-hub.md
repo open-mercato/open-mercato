@@ -8,7 +8,7 @@
 
 ## TLDR
 
-Build a `storage_providers` hub that abstracts file storage backends for the attachments module. Introduce a pluggable `StorageDriver` interface so each attachment partition can independently store files on **local disk** (current behavior), **S3-compatible object storage** (AWS S3, DigitalOcean Spaces, MinIO), or **PostgreSQL** (`bytea` blobs). The storage provider is selected and configured through the Integration Marketplace — attachments resolve the active `StorageDriver` for each partition via the configured integration. Metadata remains in PostgreSQL; only file binary storage is abstracted.
+Build a `storage_providers` hub that abstracts file storage backends for the attachments module. Introduce a pluggable `StorageDriver` interface so each attachment partition can independently store files on **local disk** (current behavior, backward-compatible default) or **S3-compatible object storage** (AWS S3, DigitalOcean Spaces, MinIO). The storage provider is selected and configured through the Integration Marketplace — attachments resolve the active `StorageDriver` for each partition via the configured integration. Metadata remains in PostgreSQL; only file binary storage is abstracted. The S3 integration also supports **standalone usage** (upload/download files directly via API) independent of the attachments module — documented in §10.
 
 ---
 
@@ -18,8 +18,8 @@ The attachments module stores all file data on the local filesystem. This works 
 
 1. **Horizontally scaled deployments** — uploaded files are only available on the node that received the upload. No shared storage without external NFS/volume mounts.
 2. **Cloud-native deployments** — ephemeral containers lose local storage on restart. Files must live in durable object storage (S3, Spaces).
-3. **Small-scale / embedded deployments** — some operators prefer storing small attachments directly in PostgreSQL to eliminate filesystem dependencies entirely.
-4. **Per-partition flexibility** — public product media may belong in S3 (CDN-friendly) while private internal documents stay on local disk or in the database.
+3. **Per-partition flexibility** — public product media may belong in S3 (CDN-friendly) while private internal documents stay on local disk.
+4. **Standalone storage needs** — modules and integrations may need to upload/download files to S3 without going through the attachments module (e.g., data exports, report generation, backup archives).
 
 The `storageDriver` field (default `'local'`) and `configJson` (nullable JSONB) already exist on both `Attachment` and `AttachmentPartition` entities, indicating the architecture was designed for extensibility. Only `'local'` and `'legacyPublic'` drivers are implemented, and all file I/O uses direct `fs` calls scattered across 7+ files with no abstraction.
 
@@ -35,9 +35,8 @@ The `storage_providers` hub is a category in the Integration Marketplace (SPEC-0
 ┌─────────────────────────────────────────────────────────────────┐
 │  Integration Marketplace (SPEC-045)                              │
 │  └─ storage_providers hub                                        │
-│     ├─ storage_local (default, built-in)                         │
-│     ├─ storage_s3 (AWS S3, DO Spaces, MinIO, GCS S3-compat)     │
-│     └─ storage_database (PostgreSQL bytea blobs)                 │
+│     ├─ storage_local (default, built-in, backward-compatible)    │
+│     └─ storage_s3 (AWS S3, DO Spaces, MinIO, GCS S3-compat)     │
 └──────────────────────────────────┬──────────────────────────────┘
                                    │
                                    ▼
@@ -58,17 +57,17 @@ The `storage_providers` hub is a category in the Integration Marketplace (SPEC-0
                            │    Factory)               │
                            └────────┬────────────────┘
                                     │ resolveForAttachment(driver, config)
-                    ┌───────────────┼───────────────┐
-                    │               │               │
-                    ▼               ▼               ▼
-          ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐
-          │   Local      │ │   S3        │ │   Database      │
-          │   Driver     │ │   Driver    │ │   Driver        │
-          │              │ │             │ │                  │
-          │ fs.read/     │ │ GetObject/  │ │ SELECT/INSERT   │
-          │ fs.write/    │ │ PutObject/  │ │ attachment_     │
-          │ fs.unlink    │ │ DeleteObj   │ │ blobs           │
-          └─────────────┘ └─────────────┘ └─────────────────┘
+                    ┌───────────────┤
+                    │               │
+                    ▼               ▼
+          ┌─────────────┐ ┌─────────────┐
+          │   Local      │ │   S3        │
+          │   Driver     │ │   Driver    │
+          │              │ │             │
+          │ fs.read/     │ │ GetObject/  │
+          │ fs.write/    │ │ PutObject/  │
+          │ fs.unlink    │ │ DeleteObj   │
+          └─────────────┘ └─────────────┘
 ```
 
 ### 2.3 Key Design Decisions
@@ -211,19 +210,6 @@ credentials: {
 }
 ```
 
-### 5.4 DatabaseStorageDriver
-
-**New file**: `lib/drivers/databaseDriver.ts`
-
-Stores file contents as `bytea` in a new `attachment_blobs` table.
-
-| Method | Behavior |
-|--------|----------|
-| `store()` | Create `AttachmentBlob` entity, `storagePath` = blob UUID |
-| `read()` | `findOneOrFail` by id, return `.data` buffer |
-| `delete()` | Find + remove best-effort |
-| `toLocalPath()` | Write buffer to temp file, return cleanup |
-
 ---
 
 ## 6. Driver Factory
@@ -291,20 +277,6 @@ export function register(container: AppContainer) {
 **`attachments`** — already has:
 - `storage_driver text DEFAULT 'local'`
 
-### 8.2 New Entity: AttachmentBlob
-
-**Table**: `attachment_blobs`
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `id` | `uuid` | PK, `gen_random_uuid()` | Blob identifier (= `storagePath` on the attachment row) |
-| `partition_code` | `text` | NOT NULL | Partition code reference |
-| `org_id` | `uuid` | NULL | Organization scope |
-| `tenant_id` | `uuid` | NULL | Tenant scope |
-| `file_name` | `text` | NOT NULL | Original filename |
-| `data` | `bytea` | NOT NULL | File binary content |
-| `created_at` | `timestamptz` | NOT NULL | Creation timestamp |
-
 ---
 
 ## 9. API Contracts
@@ -314,7 +286,7 @@ export function register(container: AppContainer) {
 **POST** and **PUT** schemas extended with:
 
 ```typescript
-storageDriver: z.enum(['local', 's3', 'database']).optional().default('local')
+storageDriver: z.enum(['local', 's3']).optional().default('local')
 configJson: z.record(z.unknown()).optional().nullable()
 ```
 
@@ -373,10 +345,88 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 }
 ```
 
-### Database (PostgreSQL blobs)
-```json
-{ "storageDriver": "database", "configJson": null }
+---
+
+## 10. Standalone S3 Usage (Without Attachments Module)
+
+The S3 integration can be used **independently** of the attachments module. This enables modules and custom code to upload/download files directly to S3 buckets for use cases like data exports, report generation, backup archives, or any file operation that doesn't need the attachment entity model.
+
+### 10.1 Standalone API Routes
+
 ```
+# Upload a file directly to S3
+POST /api/storage-providers/s3/upload
+  Content-Type: multipart/form-data
+  Body: { file: File, key?: string, bucket?: string, contentType?: string }
+  Response: { key, bucket, url, size }
+
+# Download a file from S3
+GET /api/storage-providers/s3/download?key=exports/report-2026.csv&bucket=my-bucket
+  Response: File stream
+
+# Generate a pre-signed URL for direct browser upload/download
+POST /api/storage-providers/s3/signed-url
+  Body: { key: string, operation: 'upload' | 'download', expiresIn?: number, contentType?: string }
+  Response: { url, expiresAt }
+
+# Delete a file from S3
+DELETE /api/storage-providers/s3/delete
+  Body: { key: string, bucket?: string }
+  Response: 204
+
+# List files by prefix
+GET /api/storage-providers/s3/list?prefix=exports/&maxKeys=100
+  Response: { files: [{ key, size, lastModified }], truncated, nextContinuationToken }
+```
+
+All routes require `storage_providers.manage` feature and use the configured S3 integration credentials.
+
+### 10.2 Programmatic Usage (Server-Side)
+
+Other modules can use the S3 driver directly via DI without going through the attachments module:
+
+```typescript
+// In any module's API route or worker:
+const s3Driver = container.resolve<StorageDriver>('s3StorageDriver')
+
+// Upload a generated report
+const result = await s3Driver.store({
+  partitionCode: 'exports',
+  orgId: scope.organizationId,
+  tenantId: scope.tenantId,
+  fileName: 'monthly-report-2026-03.pdf',
+  buffer: reportBuffer,
+})
+
+// Read it back
+const { buffer } = await s3Driver.read('exports', result.storagePath)
+
+// Get a temp local path for processing
+const { filePath, cleanup } = await s3Driver.toLocalPath('exports', result.storagePath)
+try {
+  // process file at filePath...
+} finally {
+  await cleanup()
+}
+```
+
+### 10.3 Documentation for S3 Integration Setup
+
+The S3 integration appears in the Integration Marketplace under the **Storage** category. To configure:
+
+1. Navigate to `/backend/integrations`
+2. Find "S3-Compatible Storage" under Storage category
+3. Click "Configure" and provide credentials:
+   - **Access Key ID** — AWS IAM or compatible provider key
+   - **Secret Access Key** — corresponding secret
+   - **Region** — e.g., `eu-central-1`
+   - **Bucket Name** — target bucket
+   - **Custom Endpoint** — for MinIO, DigitalOcean Spaces (leave empty for AWS)
+   - **Force Path Style** — enable for MinIO
+
+4. **For standalone usage** (without attachments): use the API routes in §10.1 or the programmatic API in §10.2. No attachment partitions needed.
+
+5. **For attachments integration**: go to Attachments → Partitions → edit a partition → set Storage Driver to "S3" → save. New uploads to that partition will use S3.
 
 ---
 
@@ -390,7 +440,6 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 | `lib/drivers/localDriver.ts` | Local filesystem driver |
 | `lib/drivers/legacyPublicDriver.ts` | Legacy read-only driver |
 | `lib/drivers/s3Driver.ts` | S3-compatible driver |
-| `lib/drivers/databaseDriver.ts` | PostgreSQL blob driver |
 | `lib/drivers/driverFactory.ts` | Factory/registry with caching |
 | `lib/drivers/index.ts` | Barrel export |
 | `di.ts` | DI registration for `storageDriverFactory` |
@@ -399,7 +448,6 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 
 | File | Change |
 |------|--------|
-| `data/entities.ts` | Add `AttachmentBlob` entity |
 | `api/route.ts` | POST: use `driver.store()` + `toLocalPath()` for OCR/extraction. DELETE: use `driver.delete()` |
 | `api/file/[id]/route.ts` | Replace `resolveAttachmentAbsolutePath()` + `fs.readFile()` with `driver.read()` |
 | `api/image/[id]/[[...slug]]/route.ts` | Replace `fs.readFile()` with `driver.read()`, pass Buffer to `sharp()` |
@@ -442,16 +490,16 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 14. Update `lib/thumbnailCache.ts` to use dedicated cache directory
 15. Deprecate old functions in `lib/storage.ts`
 
-### Phase 3 — Add remote drivers
+### Phase 3 — Add S3 driver + standalone usage API
 
 16. Add `@aws-sdk/client-s3` dependency
 17. Create `lib/drivers/s3Driver.ts`
-18. Add `AttachmentBlob` entity to `data/entities.ts`
-19. Generate migration for `attachment_blobs` table (`yarn db:generate`)
-20. Create `lib/drivers/databaseDriver.ts`
-21. Register new drivers in `driverFactory.ts`
-22. Update `api/partitions/route.ts` schema + handlers
-23. Update `api/openapi.ts` with storage-related fields
+18. Register S3 driver in `driverFactory.ts`
+19. Update `api/partitions/route.ts` schema + handlers
+20. Update `api/openapi.ts` with storage-related fields
+21. Create `storage_s3` integration module with `integration.ts` and credentials
+22. Add standalone S3 API routes (see §10) for direct upload/download without attachments module
+23. Add documentation for standalone S3 usage patterns (see §10)
 
 ---
 
@@ -461,11 +509,9 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 |------|----------|---------------|------------|---------------|
 | Breaking existing local file paths during refactor | High | All attachment operations | Phase 1 & 2 are behavior-preserving. Local driver reuses exact same path logic from `storage.ts`. | Low — integration tests cover upload/download/delete flow |
 | S3 credentials misconfiguration | Medium | S3 driver uploads/downloads | Validate `credentialsEnvPrefix` resolves to non-empty env vars at driver construction time. Log clear error messages. | Medium — operator error is always possible |
-| Large files in PostgreSQL `bytea` degrade performance | Medium | Database driver | Document recommended max file size (~50 MB). Consider adding `maxFileSizeMb` to database driver config. | Low — operator's choice, documented limitation |
-| `toLocalPath()` temp files not cleaned up on crash | Low | S3/database drivers, OCR processing | Use `try/finally` pattern. Temp files in `os.tmpdir()` are cleaned by OS eventually. | Low |
+| `toLocalPath()` temp files not cleaned up on crash | Low | S3 driver, OCR processing | Use `try/finally` pattern. Temp files in `os.tmpdir()` are cleaned by OS eventually. | Low |
 | Thumbnail cache broken for S3/database partitions | Medium | Image resizing | Update `thumbnailCache.ts` to use dedicated cache dir independent of `resolvePartitionRoot()` | None — addressed in Phase 2 |
 | `configJson` needed at read/delete time but only on partition | Low | File download/delete routes | All existing routes already load the partition alongside the attachment. No additional query needed. | None |
-| EntityManager lifecycle for DatabaseStorageDriver in OCR queue | Medium | Background OCR processing | OCR queue already calls `em.fork()`. The forked em must be passed to the factory. | Low |
 
 ### Backward Compatibility
 
@@ -479,7 +525,7 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 | `resolvePartitionRoot` | Unchanged | Still used by thumbnail cache |
 | Event IDs | None | No event changes |
 | ACL features | None | No permission changes |
-| Database schema | Additive only | New `attachment_blobs` table; no column changes on existing tables |
+| Database schema | None | No schema changes; existing `storageDriver` + `configJson` columns already present |
 
 ---
 
@@ -492,11 +538,10 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 | Image resize with local driver | `GET /api/attachments/image/{id}` | Upload image, request thumbnail, verify 200 |
 | Delete with local driver | `DELETE /api/attachments` | Upload, delete, verify file removed |
 | Create partition with S3 config | `POST /api/attachments/partitions` | Create partition with `storageDriver: 's3'` and `configJson` |
-| Create partition with database config | `POST /api/attachments/partitions` | Create partition with `storageDriver: 'database'` |
 | Update partition storage driver | `PUT /api/attachments/partitions` | Change `storageDriver` on existing partition |
-| Upload with database driver | `POST /api/attachments` | Upload to database-backed partition, verify `attachment_blobs` row |
-| Download from database driver | `GET /api/attachments/file/{id}` | Download file stored in database |
-| Delete from database driver | `DELETE /api/attachments` | Delete database-stored attachment, verify blob removed |
+| Standalone S3 upload | `POST /api/storage-providers/s3/upload` | Upload file directly to S3 without attachments module |
+| Standalone S3 download | `GET /api/storage-providers/s3/download` | Download file from S3 by key |
+| Standalone S3 signed URL | `POST /api/storage-providers/s3/signed-url` | Get pre-signed URL for direct browser upload/download |
 | Legacy compat | `GET /api/attachments/file/{id}` | Existing `legacyPublic` driver attachments still accessible |
 | Library delete | `DELETE /api/attachments/library/{id}` | Delete via library endpoint using driver |
 | CLI delete | CLI `attachments delete --id X` | Delete via CLI using driver |
@@ -526,3 +571,4 @@ Upload, download, image, library, transfer, and delete APIs retain their existin
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-03-10 | Claude | Initial draft — merged from SPEC-045e storage section and SPEC-058 (PR #875) |
+| 2026-03-11 | Claude | Removed database storage driver (PostgreSQL bytea); kept local (BC default) + S3 only. Added standalone S3 usage API and documentation (§10) for direct file operations without attachments module. |
