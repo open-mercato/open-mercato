@@ -618,6 +618,48 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return variant?.id ?? null
   }
 
+  async function resolveExistingProductId(productExternalId: string, sku: string | null): Promise<string | null> {
+    const mappedId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_product', productExternalId, scope)
+    if (mappedId) {
+      const mappedProduct = await findOneWithDecryption(
+        em,
+        CatalogProduct,
+        {
+          id: mappedId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
+      if (mappedProduct) return mappedProduct.id
+    }
+
+    return lookupProductBySku(sku)
+  }
+
+  async function resolveExistingVariantId(variantExternalId: string, sku: string | null): Promise<string | null> {
+    const mappedId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_product_variant', variantExternalId, scope)
+    if (mappedId) {
+      const mappedVariant = await findOneWithDecryption(
+        em,
+        CatalogProductVariant,
+        {
+          id: mappedId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
+      if (mappedVariant) return mappedVariant.id
+    }
+
+    return lookupVariantBySku(sku)
+  }
+
   async function resolveCategoryId(code: string | null | undefined, locale: string): Promise<string | null> {
     if (!code) return null
     if (!categoryCache.has(code)) {
@@ -1814,8 +1856,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     ).filter((value): value is string => typeof value === 'string' && value.length > 0)
 
     const productExternalId = hierarchy.rootExternalId
-    const existingProductId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_product', productExternalId, scope)
-      ?? (await lookupProductBySku(product.parent ? null : resolvedSku))
+    const existingProductId = await resolveExistingProductId(
+      productExternalId,
+      product.parent ? null : resolvedSku,
+    )
 
     const productInput = {
       organizationId: scope.organizationId,
@@ -1864,8 +1908,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'catalog_product', localProductId, productExternalId, scope)
 
     const variantExternalId = product.parent ? product.uuid : `${product.uuid}:default`
-    const existingVariantId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_product_variant', variantExternalId, scope)
-      ?? (await lookupVariantBySku(resolvedSku))
+    const existingVariantId = await resolveExistingVariantId(variantExternalId, resolvedSku)
 
     const optionValues = hierarchy.axisCodes.length > 0
       ? Object.fromEntries(

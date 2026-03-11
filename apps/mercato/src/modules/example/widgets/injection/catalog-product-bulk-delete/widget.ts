@@ -1,5 +1,6 @@
 import type { InjectionBulkActionWidget } from '@open-mercato/shared/modules/widgets/injection'
-import { deleteCrud, fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { SortingState } from '@tanstack/react-table'
 
@@ -126,16 +127,30 @@ async function fetchFilteredProductIds(context: BulkActionContext): Promise<stri
   return Array.from(productIds)
 }
 
-async function deleteProducts(ids: string[], context: BulkActionContext): Promise<number> {
+async function startDeleteProductsJob(
+  ids: string[],
+  scope: 'selected' | 'filtered',
+  context: BulkActionContext,
+): Promise<string> {
   const translate = context.translate ?? ((_: string, fallback: string) => fallback)
-  let deleted = 0
-  for (const id of ids) {
-    await deleteCrud('catalog/products', id, {
-      errorMessage: translate('example.catalog.bulk.delete.error', 'Failed to delete products.'),
-    })
-    deleted += 1
+  const result = await apiCall<{ ok: boolean; progressJobId: string | null }>(
+    '/api/example/catalog-product-bulk-delete',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        confirm: true,
+        ids,
+        scope,
+      }),
+    },
+  )
+
+  if (!result.ok || !result.result?.progressJobId) {
+    throw new Error(translate('example.catalog.bulk.delete.error', 'Failed to delete products.'))
   }
-  return deleted
+
+  return result.result.progressJobId
 }
 
 const widget: InjectionBulkActionWidget = {
@@ -178,15 +193,9 @@ const widget: InjectionBulkActionWidget = {
           return { ok: false, message: undefined }
         }
 
-        const deleted = await deleteProducts(ids, context)
         return {
           ok: true,
-          affectedCount: deleted,
-          message: translate(
-            'example.catalog.bulk.deleteSelected.success',
-            'Deleted {count} selected products.',
-            { count: deleted },
-          ),
+          progressJobId: await startDeleteProductsJob(ids, 'selected', context),
         }
       },
     },
@@ -223,15 +232,9 @@ const widget: InjectionBulkActionWidget = {
           return { ok: false, message: undefined }
         }
 
-        const deleted = await deleteProducts(ids, context)
         return {
           ok: true,
-          affectedCount: deleted,
-          message: translate(
-            'example.catalog.bulk.deleteFiltered.success',
-            'Deleted {count} filtered products.',
-            { count: deleted },
-          ),
+          progressJobId: await startDeleteProductsJob(ids, 'filtered', context),
         }
       },
     },

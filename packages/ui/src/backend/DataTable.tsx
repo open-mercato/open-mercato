@@ -3,10 +3,11 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, FilterX, Trash2, type LucideIcon } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
+import { Progress } from '../primitives/progress'
 import { Spinner } from '../primitives/spinner'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
@@ -17,6 +18,7 @@ import { RowActions, type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { InjectionSpot } from './injection/InjectionSpot'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
+import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
@@ -41,11 +43,6 @@ import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widget
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 
 let refreshScheduled = false
-const BULK_ACTION_ICONS: Record<string, LucideIcon> = {
-  trash: Trash2,
-  'trash-2': Trash2,
-  'filter-x': FilterX,
-}
 
 function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
   if (refreshScheduled) return
@@ -113,11 +110,10 @@ function pickDefaultRowAction(node: React.ReactNode, preferredIds: string[]): Ro
   return resolveDefaultRowAction(items, preferredIds)
 }
 
-function resolveBulkActionIcon(action: InjectionBulkActionDefinition): LucideIcon | null {
-  if (typeof action.icon !== 'string') return null
-  const iconKey = action.icon.trim().toLowerCase()
-  if (!iconKey) return null
-  return BULK_ACTION_ICONS[iconKey] ?? null
+function readResultSummaryAffectedCount(summary: Record<string, unknown> | null | undefined): number | null {
+  if (!summary || typeof summary !== 'object') return null
+  const affectedCount = summary.affectedCount
+  return typeof affectedCount === 'number' && Number.isFinite(affectedCount) ? affectedCount : null
 }
 
 export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
@@ -213,6 +209,26 @@ type BulkActionExecuteResult = {
   ok: boolean
   message?: string
   affectedCount?: number
+  progressJobId?: string | null
+}
+
+type ProgressJobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+type ProgressJobDetail = {
+  id: string
+  status: ProgressJobStatus
+  progressPercent: number
+  processedCount: number
+  totalCount?: number | null
+  resultSummary?: Record<string, unknown> | null
+  errorMessage?: string | null
+}
+
+type BulkActionProgressState = {
+  actionId: string
+  label: string
+  jobId: string
+  job: ProgressJobDetail
 }
 
 function collectUniqueById<T extends { id: string }>(
@@ -1656,9 +1672,98 @@ export function DataTable<T>({
     if (!hasInjectedBulkActions) return []
     return table.getSelectedRowModel().rows.map((row) => row.original as T)
   }, [hasInjectedBulkActions, table, rowSelection])
+  const [bulkActionProgress, setBulkActionProgress] = React.useState<BulkActionProgressState | null>(null)
+  const bulkActionBusy = bulkActionProgress?.job.status === 'pending' || bulkActionProgress?.job.status === 'running'
+
+  React.useEffect(() => {
+    if (!bulkActionProgress?.jobId) return
+
+    let cancelled = false
+    let timeoutId: number | null = null
+    const jobId = bulkActionProgress.jobId
+    const actionLabel = bulkActionProgress.label
+
+    const pollProgressJob = async () => {
+      try {
+        const response = await apiCall<ProgressJobDetail>(`/api/progress/jobs/${jobId}`)
+        if (!response.ok || !response.result) {
+          throw new Error(t('ui.dataTable.bulkAction.progressLoadError', 'Failed to load bulk action progress.'))
+        }
+        if (cancelled) return
+
+        const job = response.result
+        setBulkActionProgress((current) => {
+          if (!current || current.jobId !== jobId) return current
+          return { ...current, job }
+        })
+
+        if (job.status === 'completed') {
+          setBulkActionProgress(null)
+          const affectedCount = readResultSummaryAffectedCount(job.resultSummary)
+          flash(
+            affectedCount != null
+              ? t('ui.dataTable.bulkAction.progressSuccessCount', '{action} completed. {count} items processed.', {
+                action: actionLabel,
+                count: affectedCount,
+              })
+              : t('ui.dataTable.bulkAction.success', 'Bulk action completed.'),
+            'success',
+          )
+          if (refreshButton?.onRefresh) {
+            refreshButton.onRefresh()
+          } else {
+            scheduleRouterRefresh(router)
+          }
+          return
+        }
+
+        if (job.status === 'failed') {
+          setBulkActionProgress(null)
+          flash(
+            job.errorMessage
+              ?? t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
+            'error',
+          )
+          return
+        }
+
+        if (job.status === 'cancelled') {
+          setBulkActionProgress(null)
+          flash(
+            t('ui.dataTable.bulkAction.cancelled', 'Bulk action was cancelled.'),
+            'warning',
+          )
+          return
+        }
+
+        timeoutId = window.setTimeout(() => {
+          void pollProgressJob()
+        }, 1500)
+      } catch (error) {
+        if (cancelled) return
+        setBulkActionProgress(null)
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('ui.dataTable.bulkAction.progressLoadError', 'Failed to load bulk action progress.'),
+          'error',
+        )
+      }
+    }
+
+    void pollProgressJob()
+
+    return () => {
+      cancelled = true
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [bulkActionProgress?.jobId, bulkActionProgress?.label, refreshButton, router, t])
 
   const runBulkAction = React.useCallback(
     async (action: InjectionBulkActionDefinition) => {
+      if (bulkActionBusy) return
       if (action.requiresSelection !== false && !selectedRows.length) return
       try {
         const result = await action.onExecute(selectedRows, {
@@ -1677,6 +1782,22 @@ export function DataTable<T>({
               ?? t('ui.dataTable.bulkAction.error', 'Bulk action failed.'),
             'error',
           )
+          return
+        }
+        if (normalized?.progressJobId) {
+          setRowSelection({})
+          setBulkActionProgress({
+            actionId: action.id,
+            label: t(action.label, action.label),
+            jobId: normalized.progressJobId,
+            job: {
+              id: normalized.progressJobId,
+              status: 'pending',
+              progressPercent: 0,
+              processedCount: 0,
+              totalCount: null,
+            },
+          })
           return
         }
         flash(
@@ -1699,7 +1820,7 @@ export function DataTable<T>({
         )
       }
     },
-    [confirm, extensionTableId, refreshButton, resolvedInjectionContext, router, selectedRows, t],
+    [bulkActionBusy, confirm, extensionTableId, refreshButton, resolvedInjectionContext, router, selectedRows, t],
   )
 
   const builtToolbar = React.useMemo(() => {
@@ -1746,7 +1867,7 @@ export function DataTable<T>({
       <div className="flex flex-wrap items-center gap-2">
         {injectedBulkActions.map((action) => {
           const label = t(action.label, action.label)
-          const Icon = resolveBulkActionIcon(action)
+          const iconNode = resolveInjectedIcon(action.icon, 'h-4 w-4 shrink-0')
           return (
             <Button
               key={action.id}
@@ -1755,18 +1876,18 @@ export function DataTable<T>({
               variant="outline"
               title={label}
               aria-label={label}
-              className={Icon ? 'px-2 sm:px-3' : undefined}
-              disabled={action.requiresSelection !== false && selectedRows.length === 0}
+              className={iconNode ? 'px-2 sm:px-3' : undefined}
+              disabled={bulkActionBusy || (action.requiresSelection !== false && selectedRows.length === 0)}
               onClick={() => void runBulkAction(action)}
             >
-              {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
-              <span className={Icon ? 'hidden sm:inline' : undefined}>{label}</span>
+              {iconNode}
+              <span className={iconNode ? 'hidden sm:inline' : undefined}>{label}</span>
             </Button>
           )
         })}
       </div>
     ) : null
-    return (
+    const filterBar = (
       <FilterBar
         searchValue={searchValue}
         onSearchChange={onSearchChange}
@@ -1783,6 +1904,26 @@ export function DataTable<T>({
         className={embedded ? 'min-h-[2.25rem]' : undefined}
       />
     )
+    if (!bulkActionBusy || !bulkActionProgress) return filterBar
+    return (
+      <div className="space-y-2">
+        {filterBar}
+        <div className="rounded-lg border p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div className="font-medium">{bulkActionProgress.label}</div>
+            <div className="text-muted-foreground">
+              {bulkActionProgress.job.totalCount && bulkActionProgress.job.totalCount > 0
+                ? t('ui.dataTable.bulkAction.progressCount', '{processed} / {total}', {
+                  processed: bulkActionProgress.job.processedCount,
+                  total: bulkActionProgress.job.totalCount,
+                })
+                : t('ui.dataTable.bulkAction.progressPreparing', 'Preparing...')}
+            </div>
+          </div>
+          <Progress value={bulkActionProgress.job.progressPercent} className="mt-3 h-2" />
+        </div>
+      </div>
+    )
   }, [
     toolbar,
     searchValue,
@@ -1795,6 +1936,8 @@ export function DataTable<T>({
     filterValues,
     onFiltersApply,
     onFiltersClear,
+    bulkActionBusy,
+    bulkActionProgress,
     canUsePerspectives,
     embedded,
     supportsCustomFieldFilterFieldsets,

@@ -15,11 +15,15 @@ jest.mock('next/navigation', () => ({
 
 const useInjectionDataWidgetsMock = jest.fn()
 const flashMock = jest.fn()
+const apiCallMock = jest.fn()
 jest.mock('../injection/useInjectionDataWidgets', () => ({
   useInjectionDataWidgets: (spotId: string) => useInjectionDataWidgetsMock(spotId),
 }))
 jest.mock('../FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
+}))
+jest.mock('../utils/apiCall', () => ({
+  apiCall: (...args: unknown[]) => apiCallMock(...args),
 }))
 jest.mock('../confirm-dialog', () => ({
   useConfirmDialog: () => ({
@@ -60,6 +64,7 @@ describe('DataTable extensions', () => {
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
     useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: false, error: null }))
     flashMock.mockReset()
+    apiCallMock.mockReset()
   })
 
   it('renders injected columns from data-table extension surface', () => {
@@ -204,6 +209,61 @@ describe('DataTable extensions', () => {
         }),
       )
       expect(flashMock).toHaveBeenCalledWith('Bulk action completed.', 'success')
+    } finally {
+      rendered.cleanupQueryClient()
+    }
+  })
+
+  it('tracks bulk action progress jobs and renders inline progress', async () => {
+    const onExecute = jest.fn(async () => ({ ok: true, progressJobId: 'job-1' }))
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      result: {
+        id: 'job-1',
+        status: 'running',
+        progressPercent: 50,
+        processedCount: 1,
+        totalCount: 2,
+      },
+    })
+
+    useInjectionDataWidgetsMock.mockImplementation((spotId: string) => {
+      if (spotId === 'data-table:customers.people:bulk-actions') {
+        return {
+          widgets: [
+            {
+              metadata: { id: 'test.bulk-actions' },
+              bulkActions: [
+                {
+                  id: 'bulk-delete-filtered',
+                  label: 'Delete all filtered',
+                  requiresSelection: false,
+                  onExecute,
+                },
+              ],
+            },
+          ],
+          isLoading: false,
+          error: null,
+        }
+      }
+      return { widgets: [], isLoading: false, error: null }
+    })
+
+    const rendered = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      injectionSpotId: 'data-table:customers.people',
+    })
+
+    try {
+      const button = screen.getByRole('button', { name: 'Delete all filtered' })
+      fireEvent.click(button)
+
+      await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith('/api/progress/jobs/job-1'))
+      await waitFor(() => expect(screen.getByText('1 / 2')).toBeInTheDocument())
+      expect(screen.getByRole('button', { name: 'Delete all filtered' })).toBeDisabled()
     } finally {
       rendered.cleanupQueryClient()
     }
