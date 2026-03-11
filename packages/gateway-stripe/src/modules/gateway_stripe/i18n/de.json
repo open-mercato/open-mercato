@@ -10,6 +10,12 @@
   "gateway_stripe.description": "Accept card payments, Apple Pay, Google Pay, and bank transfers via Stripe.",
   "gateway_stripe.feature.configure": "Configure Stripe settings",
   "gateway_stripe.feature.view": "View Stripe configuration",
+  "gateway_stripe.paymentLink.alreadyPaid": "Diese Zahlung wurde bereits abgeschlossen.",
+  "gateway_stripe.paymentLink.error": "Die Zahlung konnte nicht abgeschlossen werden.",
+  "gateway_stripe.paymentLink.submit": "Jetzt {{amount}} bezahlen",
+  "gateway_stripe.paymentLink.subtitle": "Bezahlen Sie sicher mit Stripe auf dieser Seite.",
+  "gateway_stripe.paymentLink.success": "Zahlung erfolgreich uebermittelt.",
+  "gateway_stripe.paymentLink.title": "Sichere Kartenzahlung",
   "gateway_stripe.tabs.settings": "Stripe settings",
   "gateway_stripe.title": "Stripe"
 }

@@ -10,6 +10,12 @@
   "gateway_stripe.description": "Akceptuj płatności kartą, Apple Pay, Google Pay i przelewy bankowe przez Stripe.",
   "gateway_stripe.feature.configure": "Konfiguracja ustawień Stripe",
   "gateway_stripe.feature.view": "Podgląd konfiguracji Stripe",
+  "gateway_stripe.paymentLink.alreadyPaid": "Ta płatność została już zakończona.",
+  "gateway_stripe.paymentLink.error": "Nie udało się dokończyć płatności.",
+  "gateway_stripe.paymentLink.submit": "Zapłać {{amount}}",
+  "gateway_stripe.paymentLink.subtitle": "Zapłać bezpiecznie przez Stripe na tej stronie.",
+  "gateway_stripe.paymentLink.success": "Płatność została pomyślnie wysłana.",
+  "gateway_stripe.paymentLink.title": "Bezpieczna płatność kartą",
   "gateway_stripe.tabs.settings": "Ustawienia Stripe",
   "gateway_stripe.title": "Stripe"
 }
