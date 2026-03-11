@@ -6,6 +6,7 @@ describe('akeneo mappings', () => {
     expect(mapping.entityType).toBe('products')
     expect(mapping.settings?.products?.fieldMap.title).toBe('name')
     expect(mapping.settings?.products?.reconciliation.deleteMissingMedia).toBe(true)
+    expect(mapping.settings?.products?.importAllChannels).toBe(true)
   })
 
   it('normalizes persisted mappings without dropping settings', () => {
@@ -17,6 +18,8 @@ describe('akeneo mappings', () => {
         products: {
           locale: 'pl_PL',
           channel: 'ecommerce',
+          channels: ['ecommerce', 'mobile'],
+          importAllChannels: false,
           fieldMap: {
             title: 'title_attr',
             subtitle: 'subtitle_attr',
@@ -50,6 +53,9 @@ describe('akeneo mappings', () => {
     })
     expect(mapping.fields[0]?.externalField).toBe('title_attr')
     expect(mapping.settings?.products?.locale).toBe('pl_PL')
+    expect(mapping.settings?.products?.channel).toBe('ecommerce')
+    expect(mapping.settings?.products?.channels).toEqual(['ecommerce', 'mobile'])
+    expect(mapping.settings?.products?.importAllChannels).toBe(false)
     expect(mapping.settings?.products?.customFieldMappings[0]?.fieldKey).toBe('akeneo_material')
     expect(mapping.settings?.products?.customFieldMappings[0]?.skip).toBe(true)
     expect(mapping.settings?.products?.priceMappings[0]?.localChannelCode).toBe('web')

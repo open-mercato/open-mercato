@@ -43,6 +43,7 @@ function formatJob(job: ProgressJob) {
     totalCount: job.totalCount,
     etaSeconds: job.etaSeconds,
     cancellable: job.cancellable,
+    meta: job.meta ?? null,
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
     errorMessage: job.errorMessage,

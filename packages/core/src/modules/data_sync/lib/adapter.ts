@@ -39,6 +39,8 @@ export interface ImportBatch {
   cursor: string
   hasMore: boolean
   totalEstimate?: number
+  processedCount?: number
+  message?: string
   batchIndex: number
 }
 

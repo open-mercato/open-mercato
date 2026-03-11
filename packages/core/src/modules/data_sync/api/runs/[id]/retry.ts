@@ -69,9 +69,14 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   const progressJob = await progressService.createJob(
     {
       jobType: `data_sync:${previous.direction}`,
-      name: `Retry data sync ${previous.integrationId}`,
+      name: `Retry data sync ${previous.integrationId} — ${previous.entityType}`,
       description: `${previous.entityType} ${previous.direction}`,
       cancellable: true,
+      meta: {
+        integrationId: previous.integrationId,
+        entityType: previous.entityType,
+        direction: previous.direction,
+      },
     },
     {
       tenantId: auth.tenantId,

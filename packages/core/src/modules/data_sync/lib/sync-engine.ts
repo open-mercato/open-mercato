@@ -291,7 +291,8 @@ export function createSyncEngine(deps: EngineDeps) {
           }
 
           const delta = applyImportCounters(batch)
-          processedCount += batch.items.length
+          const processedBatchCount = batch.processedCount ?? batch.items.length
+          processedCount += processedBatchCount
           totalCount = batch.totalEstimate ?? totalCount
 
           await syncRunService.updateCounts(
@@ -312,10 +313,13 @@ export function createSyncEngine(deps: EngineDeps) {
               integrationId: run.integrationId,
               runId: run.id,
               level: 'info',
-              message: `Processed import batch ${batch.batchIndex}`,
+              message: batch.message?.trim().length
+                ? batch.message.trim()
+                : `Processed import batch ${batch.batchIndex}`,
               payload: {
                 processedCount,
                 batchSize: batch.items.length,
+                processedBatchCount,
                 cursor: batch.cursor,
               },
             },

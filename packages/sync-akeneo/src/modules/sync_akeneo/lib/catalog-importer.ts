@@ -530,6 +530,21 @@ function collectValueScopes(layers: AkeneoValues[], attributeCode: string): Arra
   return scopes
 }
 
+function resolveImportedAkeneoChannels(settings: AkeneoProductMappingSettings): string[] {
+  return dedupeStrings([
+    ...(settings.channels ?? []),
+    settings.channel,
+  ])
+}
+
+function shouldImportAkeneoChannel(settings: AkeneoProductMappingSettings, akeneoChannel: string | null): boolean {
+  if (!akeneoChannel) return true
+  if (settings.importAllChannels) return true
+  const selectedChannels = resolveImportedAkeneoChannels(settings)
+  if (selectedChannels.length === 0) return true
+  return selectedChannels.includes(akeneoChannel)
+}
+
 export async function createAkeneoImporter(client: AkeneoClient, scope: ImportScope) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -1166,6 +1181,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     const fallbackChannelCode = await resolvePreferredLocalChannelCode()
 
     const mappings: AkeneoProductMappingSettings['priceMappings'] = []
+    const selectedChannels = resolveImportedAkeneoChannels(params.settings)
     for (const attributeCode of dedupeStrings(params.priceAttributeCodes)) {
       const priceKindCode = await resolveAutoPriceKindCode(attributeCode)
       if (!priceKindCode) continue
@@ -1175,8 +1191,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       )
       const effectiveScopes = scopes.length > 0
         ? scopes
-        : [params.settings.channel ?? (params.settings.createMissingChannels ? 'default' : null)]
+        : [
+            ...(selectedChannels.length > 0
+              ? selectedChannels
+              : [params.settings.channel ?? (params.settings.createMissingChannels ? 'default' : null)]),
+          ]
       for (const akeneoChannel of effectiveScopes) {
+        if (!shouldImportAkeneoChannel(params.settings, akeneoChannel)) continue
         const localChannelCode = await resolveAutoLocalChannelCode(
           akeneoChannel,
           fallbackChannelCode,
@@ -1451,6 +1472,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       const priceKind = await resolvePriceKind(priceMapping.priceKindCode)
       if (!channel || !priceKind) continue
       const akeneoChannel = priceMapping.akeneoChannel ?? params.settings.channel ?? null
+      if (!shouldImportAkeneoChannel(params.settings, akeneoChannel)) continue
       const rawPrices = readLayeredAkeneoValue(
         [params.hierarchy.leafValues, params.hierarchy.mergedValues],
         priceMapping.attributeCode,

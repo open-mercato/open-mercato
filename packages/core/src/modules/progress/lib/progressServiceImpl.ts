@@ -16,6 +16,7 @@ function buildJobPayload(job: ProgressJob): Record<string, unknown> {
     totalCount: job.totalCount ?? null,
     etaSeconds: job.etaSeconds ?? null,
     cancellable: job.cancellable,
+    meta: job.meta ?? null,
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
   }

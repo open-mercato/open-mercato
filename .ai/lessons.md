@@ -199,3 +199,23 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: For Akeneo media-file endpoints, preserve `/` path separators inside the media identifier and only encode each path segment individually. Treat these identifiers as route params, not as a single opaque slug.
 
 **Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/client.ts`, media download helpers, and any future Akeneo endpoint that accepts slash-delimited resource identifiers.
+
+## Sync progress must count source records, not emitted side-effect items
+
+**Context**: The Akeneo product adapter emits multiple import items per source product (for example product + default variant), but the sync engine was using `batch.items.length` as the user-facing processed count.
+
+**Problem**: Progress showed inflated numbers like 1800 processed for a 1320-product Akeneo catalog, which made the run look stuck or inconsistent even when it was just finishing reconciliation after the last real source page.
+
+**Rule**: When adapters emit derived records, they must report a separate source-level processed count, and the sync engine must use that value for progress. Batch/item counters may still track created/updated records separately, but user-facing progress should match the source system's entity count.
+
+**Applies to**: `packages/core/src/modules/data_sync/lib/adapter.ts`, `packages/core/src/modules/data_sync/lib/sync-engine.ts`, Akeneo import batches, and any future adapter that explodes one external record into multiple local writes.
+
+## Data-sync run detail should subscribe to its progress job, not just poll it
+
+**Context**: The global progress bar already reacted immediately to `progress.job.*` events, but the data-sync run detail page still depended on a 4-second polling loop.
+
+**Problem**: For fast or concurrent sync jobs, the run detail could look stale or inconsistent compared with the top bar, especially when multiple jobs from the same integration had generic names and users expected SSE-driven updates.
+
+**Rule**: Any page centered around a specific `ProgressJob` should subscribe to `progress.job.updated|started|completed|failed|cancelled` for that job ID and use polling only as a recovery/backfill path. Also include enough job metadata or naming detail to distinguish concurrent runs of the same integration.
+
+**Applies to**: `packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx`, progress payload serialization, and future job-specific run/detail pages.

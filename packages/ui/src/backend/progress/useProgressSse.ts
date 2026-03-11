@@ -70,6 +70,7 @@ export function useProgressSse(): UseProgressPollResult {
           jobType: payload.jobType ?? 'progress',
           name: payload.name ?? payload.jobType ?? 'Progress job',
           description: payload.description ?? null,
+          meta: (payload.meta && typeof payload.meta === 'object') ? payload.meta as Record<string, unknown> : null,
           status: (payload.status as ProgressJobDto['status']) ?? 'running',
           progressPercent: payload.progressPercent ?? 0,
           processedCount: payload.processedCount ?? 0,

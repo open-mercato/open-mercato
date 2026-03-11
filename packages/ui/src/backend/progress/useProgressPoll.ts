@@ -11,6 +11,7 @@ export type ProgressJobDto = {
   jobType: string
   name: string
   description?: string | null
+  meta?: Record<string, unknown> | null
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   progressPercent: number
   processedCount: number

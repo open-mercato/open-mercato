@@ -154,4 +154,116 @@ describe('data sync engine import item failures', () => {
       userId: 'user-1',
     }, undefined)
   })
+
+  it('tracks processed source records separately from emitted import items', async () => {
+    const adapter: DataSyncAdapter = {
+      providerKey: 'akeneo',
+      direction: 'import',
+      supportedEntities: ['products'],
+      getMapping: jest.fn(async () => ({
+        entityType: 'products',
+        fields: [],
+        matchStrategy: 'externalId',
+      })),
+      streamImport: async function* () {
+        yield {
+          items: [
+            {
+              externalId: 'product-1',
+              action: 'create',
+              data: { localProductId: 'prod-1' },
+            },
+            {
+              externalId: 'product-1:default',
+              action: 'create',
+              data: { localVariantId: 'variant-1' },
+            },
+          ],
+          processedCount: 1,
+          totalEstimate: 1320,
+          cursor: 'cursor-1',
+          hasMore: false,
+          batchIndex: 0,
+        }
+      },
+    }
+
+    mockGetIntegration.mockReturnValue({ providerKey: 'akeneo' })
+    mockGetDataSyncAdapter.mockReturnValue(adapter)
+
+    const syncRunService = {
+      getRun: jest.fn(async () => ({
+        id: 'run-2',
+        integrationId: 'sync_akeneo',
+        entityType: 'products',
+        direction: 'import',
+        status: 'pending',
+        cursor: null,
+        progressJobId: 'job-2',
+      })),
+      markStatus: jest
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'run-2',
+          integrationId: 'sync_akeneo',
+          entityType: 'products',
+          direction: 'import',
+          status: 'running',
+          progressJobId: 'job-2',
+        })
+        .mockResolvedValueOnce({
+          id: 'run-2',
+          integrationId: 'sync_akeneo',
+          entityType: 'products',
+          direction: 'import',
+          status: 'completed',
+          progressJobId: 'job-2',
+          createdCount: 2,
+          updatedCount: 0,
+          skippedCount: 0,
+          failedCount: 0,
+          batchesCompleted: 1,
+        }),
+      updateCounts: jest.fn(async () => undefined),
+      updateCursor: jest.fn(async () => undefined),
+    } as unknown as SyncRunService
+
+    const integrationCredentialsService = {
+      resolve: jest.fn(async () => ({ apiUrl: 'https://example.test' })),
+    } as unknown as CredentialsService
+
+    const integrationLogService = {
+      write: jest.fn(async () => undefined),
+    } as unknown as IntegrationLogService
+
+    const progressService = {
+      startJob: jest.fn(async () => undefined),
+      isCancellationRequested: jest.fn(async () => false),
+      updateProgress: jest.fn(async () => undefined),
+      completeJob: jest.fn(async () => undefined),
+    } as unknown as ProgressService
+
+    const engine = createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService,
+      integrationCredentialsService,
+      integrationLogService,
+      progressService,
+    })
+
+    await engine.runImport('run-2', 100, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+    })
+
+    expect((progressService as any).updateProgress).toHaveBeenCalledWith('job-2', {
+      processedCount: 1,
+      totalCount: 1320,
+    }, {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+    })
+  })
 })

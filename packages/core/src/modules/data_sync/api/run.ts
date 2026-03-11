@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   const progressJob = await progressService.createJob(
     {
       jobType: `data_sync:${parsed.data.direction}`,
-      name: `Data sync ${parsed.data.integrationId}`,
+      name: `Data sync ${parsed.data.integrationId} — ${parsed.data.entityType}`,
       description: `${parsed.data.entityType} ${parsed.data.direction}`,
       cancellable: true,
       meta: {

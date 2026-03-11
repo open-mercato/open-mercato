@@ -851,6 +851,10 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     () => (discovery?.channels ?? []).map((channel) => channel.code),
     [discovery],
   )
+  const selectedAkeneoChannelSet = React.useMemo(
+    () => new Set(state.productChannels),
+    [state.productChannels],
+  )
   const discoveredLocalChannelCodes = React.useMemo(
     () => (discovery?.localChannels ?? []).map((channel) => channel.code),
     [discovery],
@@ -930,6 +934,22 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   function openCustomFieldDialog() {
     setCustomFieldEditorRows(parseCustomFieldRows(state.customFieldMappings))
     setCustomFieldDialogOpen(true)
+  }
+
+  function toggleImportedAkeneoChannel(code: string, checked: boolean) {
+    setState((current) => {
+      const next = checked
+        ? Array.from(new Set([...current.productChannels, code]))
+        : current.productChannels.filter((entry) => entry !== code)
+      const nextPrimary = next.includes(current.productChannel)
+        ? current.productChannel
+        : next[0] ?? ''
+      return {
+        ...current,
+        productChannels: next,
+        productChannel: nextPrimary,
+      }
+    })
   }
 
   async function createMissingCustomFields(sourceRows?: CustomFieldRow[]) {
@@ -1242,16 +1262,77 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                 </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="akeneo-product-channel">{t('sync_akeneo.mapping.productChannel', 'Product channel')}</Label>
-                <Input
+                <Label htmlFor="akeneo-product-channel">{t('sync_akeneo.mapping.productChannel', 'Primary content channel')}</Label>
+                <select
                   id="akeneo-product-channel"
-                  list="akeneo-channels"
                   value={state.productChannel}
-                  onChange={(event) => setState((current) => ({ ...current, productChannel: event.target.value }))}
-                  disabled={isLoading || isSaving}
-                  placeholder={t('sync_akeneo.mapping.channelPlaceholder', 'Optional')}
-                />
+                  onChange={(event) => setState((current) => {
+                    const nextChannel = event.target.value
+                    return {
+                      ...current,
+                      productChannel: nextChannel,
+                      productChannels: current.importAllProductChannels || !nextChannel || current.productChannels.includes(nextChannel)
+                        ? current.productChannels
+                        : [...current.productChannels, nextChannel],
+                    }
+                  })}
+                  disabled={isLoading || isSaving || (discovery?.channels?.length ?? 0) === 0}
+                  className="h-10 w-full appearance-auto rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                >
+                  <option value="">{t('sync_akeneo.mapping.channelPlaceholder', 'Optional')}</option>
+                  {(discovery?.channels ?? []).map((channel) => (
+                    <option key={channel.code} value={channel.code}>
+                      {channel.code}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  {t('sync_akeneo.mapping.productChannel.help', 'This single Akeneo channel is used for base product content, custom fields, media, and variant labels when attributes are channel-scoped.')}
+                </p>
               </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border p-3">
+              <div className="space-y-1">
+                <Label>{t('sync_akeneo.mapping.importChannels', 'Imported Akeneo channels')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('sync_akeneo.mapping.importChannels.help', 'Choose which Akeneo channels should be imported for channel-scoped data like offers and prices. Locale stays single-select.')}
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={state.importAllProductChannels}
+                  onChange={(event) => setState((current) => ({
+                    ...current,
+                    importAllProductChannels: event.target.checked,
+                    productChannels: event.target.checked
+                      ? current.productChannels
+                      : (current.productChannels.length > 0
+                          ? current.productChannels
+                          : current.productChannel
+                            ? [current.productChannel]
+                            : []),
+                  }))}
+                  disabled={isLoading || isSaving}
+                />
+                <span>{t('sync_akeneo.mapping.importChannels.all', 'Import all Akeneo channels')}</span>
+              </label>
+              {!state.importAllProductChannels ? (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {(discovery?.channels ?? []).map((channel) => (
+                    <label key={channel.code} className="flex items-center gap-2 rounded border px-3 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedAkeneoChannelSet.has(channel.code)}
+                        onChange={(event) => toggleImportedAkeneoChannel(channel.code, event.target.checked)}
+                        disabled={isLoading || isSaving}
+                      />
+                      <span>{channel.code}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">

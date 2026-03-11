@@ -68,7 +68,7 @@ describe('akeneo adapter product import', () => {
       batches.push(batch)
     }
 
-    expect(batches).toHaveLength(1)
+    expect(batches).toHaveLength(2)
     expect(batches[0]?.items).toEqual([
       {
         externalId: 'product-1',
@@ -92,6 +92,12 @@ describe('akeneo adapter product import', () => {
         data: { localVariantId: 'local-variant-2' },
       },
     ])
+    expect(batches[0]?.processedCount).toBe(2)
+    expect(batches[1]).toEqual(expect.objectContaining({
+      items: [],
+      processedCount: 0,
+      message: 'Reconciling imported Akeneo products after the final batch',
+    }))
     expect(reconcileProducts).toHaveBeenCalled()
   })
 })

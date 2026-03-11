@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { RotateCcw, XCircle } from 'lucide-react'
 
 type SyncRunDetail = {
@@ -35,10 +36,21 @@ type SyncRunDetail = {
     processedCount: number
     totalCount: number | null
     etaSeconds: number | null
+    meta?: Record<string, unknown> | null
   } | null
   triggeredBy: string | null
   createdAt: string
   updatedAt: string
+}
+
+type ProgressEventPayload = {
+  jobId?: string
+  status?: string
+  progressPercent?: number
+  processedCount?: number
+  totalCount?: number | null
+  etaSeconds?: number | null
+  meta?: Record<string, unknown> | null
 }
 
 type LogEntry = {
@@ -161,6 +173,59 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     }, 4000)
     return () => clearInterval(interval)
   }, [run?.status, loadRun, loadLogs])
+
+  const handleProgressEvent = React.useCallback((payload: ProgressEventPayload) => {
+    const eventJobId = typeof payload.jobId === 'string' ? payload.jobId : null
+    if (!eventJobId) return
+
+    setRun((current) => {
+      if (!current?.progressJobId || current.progressJobId !== eventJobId) return current
+      return {
+        ...current,
+        status: (payload.status as SyncRunDetail['status']) ?? current.status,
+        progressJob: {
+          id: eventJobId,
+          status: payload.status ?? current.progressJob?.status ?? current.status,
+          progressPercent: payload.progressPercent ?? current.progressJob?.progressPercent ?? 0,
+          processedCount: payload.processedCount ?? current.progressJob?.processedCount ?? 0,
+          totalCount: payload.totalCount ?? current.progressJob?.totalCount ?? null,
+          etaSeconds: payload.etaSeconds ?? current.progressJob?.etaSeconds ?? null,
+          meta: payload.meta ?? current.progressJob?.meta ?? null,
+        },
+      }
+    })
+  }, [])
+
+  useAppEvent('progress.job.updated', (event) => {
+    handleProgressEvent(event.payload as ProgressEventPayload)
+  }, [handleProgressEvent])
+
+  useAppEvent('progress.job.started', (event) => {
+    handleProgressEvent(event.payload as ProgressEventPayload)
+  }, [handleProgressEvent])
+
+  useAppEvent('progress.job.completed', (event) => {
+    handleProgressEvent(event.payload as ProgressEventPayload)
+    void loadRun()
+    void loadLogs()
+  }, [handleProgressEvent, loadLogs, loadRun])
+
+  useAppEvent('progress.job.failed', (event) => {
+    handleProgressEvent(event.payload as ProgressEventPayload)
+    void loadRun()
+    void loadLogs()
+  }, [handleProgressEvent, loadLogs, loadRun])
+
+  useAppEvent('progress.job.cancelled', (event) => {
+    handleProgressEvent(event.payload as ProgressEventPayload)
+    void loadRun()
+    void loadLogs()
+  }, [handleProgressEvent, loadLogs, loadRun])
+
+  useAppEvent('om:bridge:reconnected', () => {
+    void loadRun()
+    void loadLogs()
+  }, [loadLogs, loadRun])
 
   const handleCancel = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()

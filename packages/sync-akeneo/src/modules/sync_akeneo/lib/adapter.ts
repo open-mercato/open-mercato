@@ -98,6 +98,7 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
           cursor: buildListResumeCursor(nextUrl),
           hasMore: Boolean(nextUrl),
           totalEstimate: page.totalEstimate ?? undefined,
+          processedCount: page.items.length,
           batchIndex,
         }
         batchIndex += 1
@@ -164,6 +165,7 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
           cursor: buildListResumeCursor(nextUrl),
           hasMore: Boolean(nextUrl),
           totalEstimate: page.totalEstimate ?? undefined,
+          processedCount: page.items.length,
           batchIndex,
         }
         batchIndex += 1
@@ -241,6 +243,7 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
         cursor: nextCursor,
         hasMore: Boolean(nextUrl),
         totalEstimate: page.totalEstimate ?? undefined,
+        processedCount: page.items.length,
         batchIndex,
       }
       batchIndex += 1
@@ -251,6 +254,19 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
     } while (nextUrl)
 
     if (safeFullSync) {
+      yield {
+        items: [],
+        cursor: buildProductResumeCursor({
+          updatedAfter: maxUpdatedAt ?? updatedAfter,
+          nextUrl: null,
+          maxUpdatedAt: null,
+        }),
+        hasMore: false,
+        totalEstimate: undefined,
+        processedCount: 0,
+        message: 'Reconciling imported Akeneo products after the final batch',
+        batchIndex,
+      }
       await importer.reconcileProducts(seenProductExternalIds, seenVariantExternalIds, reconciliation)
     }
   },
