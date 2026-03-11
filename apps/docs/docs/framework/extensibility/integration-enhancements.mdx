@@ -56,6 +56,13 @@ Start with: [Workflows extending](/framework/workflows/extending), [Scheduler](/
 
 Start with: [API extension guide](/framework/api/extending-api), [Queue workers](/framework/events/queue-workers)
 
+For the integrations marketplace specifically:
+
+- `GET /api/integrations` and `GET /api/integrations/:id` now support response enrichers targeting `integrations.integration`
+- `GET /api/integrations/logs` supports response enrichers targeting `integrations.log`
+- These read routes also execute API interceptors
+- Safety rule: marketplace read routes preserve built-in response fields and only allow additive fields from enrichers and `after` interceptors
+
 ## Integration extension widgets (UMES Phase L)
 
 Phase L adds first-class UI widgets and data primitives for building integration modules.
