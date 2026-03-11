@@ -5491,6 +5491,8 @@ __metadata:
     testcontainers: "npm:^11.12.0"
     ts-jest: "npm:^29.4.6"
     typescript: "npm:^5.9.3"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
   bin:
     mercato: ./bin/mercato
   languageName: unknown
@@ -5504,6 +5506,8 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
@@ -5527,6 +5531,8 @@ __metadata:
     jest-environment-jsdom: "npm:^30.2.0"
     semver: "npm:^7.6.3"
     ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
@@ -5541,6 +5547,8 @@ __metadata:
     jest: "npm:^30.2.0"
     openid-client: "npm:^6.3.3"
     ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
@@ -5559,11 +5567,14 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/gateway-stripe@workspace:packages/gateway-stripe"
   dependencies:
+    "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
     stripe: "npm:^17.0.0"
     ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
@@ -5575,6 +5586,8 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
@@ -5608,6 +5621,7 @@ __metadata:
     ts-jest: "npm:^29.4.6"
   peerDependencies:
     "@mikro-orm/core": ^6.6.2
+    "@open-mercato/shared": "workspace:*"
     bullmq: ^5.0.0
     ioredis: ^5.0.0
     zod: ">=3.23.0"
@@ -5673,6 +5687,7 @@ __metadata:
     recharts: "npm:^2.15.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
+    "@open-mercato/shared": "workspace:*"
     react: ">=18.0.0"
     react-dom: ">=18.0.0"
   languageName: unknown
