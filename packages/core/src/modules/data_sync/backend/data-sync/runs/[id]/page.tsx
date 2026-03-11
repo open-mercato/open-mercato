@@ -1,8 +1,8 @@
 "use client"
 import * as React from 'react'
-import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { RotateCcw, XCircle } from 'lucide-react'
 
 type SyncRunDetail = {
   id: string
@@ -45,6 +46,14 @@ type LogEntry = {
   level: 'info' | 'warn' | 'error'
   message: string
   createdAt: string
+}
+
+function formatEtaSeconds(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.ceil(seconds / 60)}m`
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.ceil((seconds % 3600) / 60)
+  return `${hours}h ${minutes}m`
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -183,55 +192,81 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
 
   const totalProcessed = run.createdCount + run.updatedCount + run.skippedCount + run.failedCount
   const progressPercent = run.progressJob?.progressPercent ?? (run.status === 'completed' ? 100 : 0)
+  const progressStatus = run.progressJob?.status ?? run.status
+  const processedCount = run.progressJob?.processedCount ?? totalProcessed
+  const hasProgressTotal = typeof run.progressJob?.totalCount === 'number' && run.progressJob.totalCount > 0
+  const etaLabel = run.progressJob?.etaSeconds && run.progressJob.etaSeconds > 0
+    ? formatEtaSeconds(run.progressJob.etaSeconds)
+    : null
 
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div>
-          <Link href="/backend/data-sync" className="text-sm text-muted-foreground hover:underline">
-            {t('data_sync.runs.detail.back')}
-          </Link>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">{run.integrationId} — {run.entityType}</h1>
-            <div className="flex gap-2 mt-2">
+        <FormHeader
+          mode="detail"
+          backHref="/backend/data-sync"
+          backLabel={t('data_sync.runs.detail.back')}
+          entityTypeLabel={t('data_sync.runs.detail.title')}
+          title={`${run.integrationId} — ${run.entityType}`}
+          statusBadge={(
+            <div className="mt-2 flex flex-wrap gap-2">
               <Badge variant="outline">{t(`data_sync.dashboard.direction.${run.direction}`)}</Badge>
               <Badge variant="secondary" className={STATUS_STYLES[run.status] ?? ''}>
                 {t(`data_sync.dashboard.status.${run.status}`)}
               </Badge>
-              {run.triggeredBy && <Badge variant="outline">{run.triggeredBy}</Badge>}
+              {run.triggeredBy ? <Badge variant="outline">{run.triggeredBy}</Badge> : null}
             </div>
-          </div>
-          <div className="flex gap-2">
-            {(run.status === 'running' || run.status === 'pending') && (
-              <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
-                {t('data_sync.runs.detail.cancel')}
-              </Button>
-            )}
-            {run.status === 'failed' && (
-              <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
-                {t('data_sync.runs.detail.retry')}
-              </Button>
-            )}
-          </div>
-        </div>
+          )}
+          actionsContent={(
+            <>
+              {(run.status === 'running' || run.status === 'pending') ? (
+                <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
+                  <XCircle className="mr-2 h-4 w-4" />
+                  {t('data_sync.runs.detail.cancel')}
+                </Button>
+              ) : null}
+              {run.status === 'failed' ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  {t('data_sync.runs.detail.retry')}
+                </Button>
+              ) : null}
+            </>
+          )}
+        />
 
-        {(run.status === 'running' || run.status === 'pending') && (
-          <Card>
-            <CardHeader>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
               <CardTitle>{t('data_sync.runs.detail.progress')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Progress value={progressPercent} className="h-3" />
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>{t('data_sync.runs.detail.progress.itemsProcessed', { count: totalProcessed })}</span>
-                <span>{t('data_sync.runs.detail.progress.batches', { count: run.batchesCompleted })}</span>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              <Badge variant="secondary" className={STATUS_STYLES[progressStatus] ?? ''}>
+                {t(`data_sync.dashboard.status.${progressStatus}`)}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-medium">{t('data_sync.runs.detail.progress.percent', { percent: progressPercent })}</span>
+              {etaLabel ? (
+                <span className="text-muted-foreground">
+                  {t('data_sync.runs.detail.progress.eta', { eta: etaLabel })}
+                </span>
+              ) : null}
+            </div>
+            <Progress value={progressPercent} className="h-3" />
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+              <span>
+                {hasProgressTotal
+                  ? t('data_sync.runs.detail.progress.itemsProcessedTotal', {
+                      processed: processedCount,
+                      total: run.progressJob?.totalCount ?? 0,
+                    })
+                  : t('data_sync.runs.detail.progress.itemsProcessed', { count: processedCount })}
+              </span>
+              <span>{t('data_sync.runs.detail.progress.batches', { count: run.batchesCompleted })}</span>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card>

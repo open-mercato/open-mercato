@@ -46,8 +46,8 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
     return
   }
 
-  const state = await integrationStateService.get(schedule.integrationId, job.payload.scope)
-  if (!(state?.isEnabled ?? false)) {
+  const integrationEnabled = await integrationStateService.isEnabled(schedule.integrationId, job.payload.scope)
+  if (!integrationEnabled) {
     return
   }
 

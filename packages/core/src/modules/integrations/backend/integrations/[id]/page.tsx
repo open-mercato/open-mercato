@@ -23,6 +23,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID, type CredentialFieldType, type IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Bell, ChevronDown, ChevronRight, CreditCard, HardDrive, MessageSquare, RefreshCw, Truck, Webhook, Zap } from 'lucide-react'
+import { IntegrationScheduleTab } from '../../../../data_sync/backend/components/IntegrationScheduleTab'
 import {
   buildIntegrationDetailInjectedTabs,
   filterIntegrationDetailWidgetsByKind,
@@ -31,7 +32,7 @@ import {
 } from '../detail-page-widgets'
 
 type CredentialField = IntegrationCredentialField
-type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs'
+type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
 type IntegrationDetailTab = BuiltInIntegrationDetailTab | string
 
 const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
@@ -55,6 +56,7 @@ type IntegrationDetail = {
     description?: string
     category?: string
     hub?: string
+    providerKey?: string | null
     bundleId?: string
     docsUrl?: string
     apiVersions?: ApiVersion[]
@@ -419,9 +421,17 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ),
     [detailWidgets, t],
   )
+  const hasDataSyncScheduleTab = Boolean(
+    detail?.integration.hub === 'data_sync'
+      && detail?.integration.providerKey
+      && detail.integration.providerKey.trim().length > 0,
+  )
   const customTabIds = React.useMemo(
-    () => injectedTabs.map((tab) => tab.id),
-    [injectedTabs],
+    () => [
+      ...(hasDataSyncScheduleTab ? ['data-sync-schedule'] : []),
+      ...injectedTabs.map((tab) => tab.id),
+    ],
+    [hasDataSyncScheduleTab, injectedTabs],
   )
   const runMutationWithContext = React.useCallback(
     async <T,>({
@@ -814,6 +824,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           <TabsList>
             <TabsTrigger value="credentials">{t('integrations.detail.tabs.credentials')}</TabsTrigger>
             {hasVersions ? <TabsTrigger value="version">{t('integrations.detail.tabs.version')}</TabsTrigger> : null}
+            {hasDataSyncScheduleTab ? <TabsTrigger value="data-sync-schedule">{t('data_sync.integrationTab.title', 'Sync schedules')}</TabsTrigger> : null}
             <TabsTrigger value="health">{t('integrations.detail.tabs.health')}</TabsTrigger>
             <TabsTrigger value="logs">{t('integrations.detail.tabs.logs')}</TabsTrigger>
             {injectedTabs.map((tab) => (
@@ -884,6 +895,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   })}
                 </CardContent>
               </Card>
+            </TabsContent>
+          ) : null}
+
+          {hasDataSyncScheduleTab ? (
+            <TabsContent value="data-sync-schedule" className="mt-0">
+              <IntegrationScheduleTab
+                integrationId={resolvedIntegration.id}
+                hasCredentials={detail.hasCredentials}
+                isEnabled={resolvedState.isEnabled}
+              />
             </TabsContent>
           ) : null}
 

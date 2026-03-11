@@ -139,6 +139,11 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
         integrationId: input.integrationId,
         entityType: input.entityType,
         direction: input.direction,
+        scheduleType: input.scheduleType,
+        scheduleValue: input.scheduleValue,
+        timezone: input.timezone,
+        fullSync: input.fullSync,
+        isEnabled: input.isEnabled,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       })

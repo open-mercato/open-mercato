@@ -11,12 +11,28 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Separator } from '@open-mercato/ui/primitives/separator'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  ArrowRightLeft,
+  Boxes,
+  CalendarClock,
+  CircleAlert,
+  Clock3,
+  Gauge,
+  Play,
+  PlugZap,
+  Repeat,
+  Settings2,
+  ShieldCheck,
+} from 'lucide-react'
 
 type SyncRunRow = {
   id: string
@@ -53,6 +69,33 @@ type SyncOptionsResponse = {
   items: SyncOption[]
 }
 
+type SyncScheduleRecord = {
+  id: string
+  integrationId: string
+  entityType: string
+  direction: 'import' | 'export'
+  scheduleType: 'cron' | 'interval'
+  scheduleValue: string
+  timezone: string
+  fullSync: boolean
+  isEnabled: boolean
+  lastRunAt: string | null
+}
+
+type SyncSchedulesResponse = {
+  items?: SyncScheduleRecord[]
+}
+
+type SyncScheduleEditorState = {
+  id?: string
+  scheduleType: 'cron' | 'interval'
+  scheduleValue: string
+  timezone: string
+  fullSync: boolean
+  isEnabled: boolean
+  lastRunAt: string | null
+}
+
 const STATUS_STYLES: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-800',
   running: 'bg-blue-100 text-blue-800',
@@ -60,6 +103,27 @@ const STATUS_STYLES: Record<string, string> = {
   failed: 'bg-red-100 text-red-800',
   cancelled: 'bg-yellow-100 text-yellow-800',
   paused: 'bg-orange-100 text-orange-800',
+}
+
+const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
+function formatEntityTypeLabel(entityType: string): string {
+  return entityType
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState {
+  const normalized = entityType.trim().toLowerCase()
+  const longerInterval = normalized === 'categories' || normalized === 'attributes'
+  return {
+    scheduleType: 'interval',
+    scheduleValue: longerInterval ? '6h' : '1h',
+    timezone: DEFAULT_TIMEZONE,
+    fullSync: normalized !== 'products',
+    isEnabled: true,
+    lastRunAt: null,
+  }
 }
 
 export default function SyncRunsDashboardPage() {
@@ -78,6 +142,10 @@ export default function SyncRunsDashboardPage() {
   const [selectedDirection, setSelectedDirection] = React.useState<'import' | 'export'>('import')
   const [batchSize, setBatchSize] = React.useState('100')
   const [fullSync, setFullSync] = React.useState(false)
+  const [scheduleEditor, setScheduleEditor] = React.useState<SyncScheduleEditorState>(() => buildDefaultScheduleState(''))
+  const [isLoadingSchedule, setIsLoadingSchedule] = React.useState(false)
+  const [isSavingSchedule, setIsSavingSchedule] = React.useState(false)
+  const [isDeletingSchedule, setIsDeletingSchedule] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
@@ -167,6 +235,62 @@ export default function SyncRunsDashboardPage() {
     ))
     setSelectedDirection(selectedIntegration.direction === 'export' ? 'export' : 'import')
   }, [selectedIntegration])
+
+  React.useEffect(() => {
+    if (!selectedIntegration || !selectedEntityType) {
+      setScheduleEditor(buildDefaultScheduleState(selectedEntityType))
+      return
+    }
+
+    const currentIntegration = selectedIntegration
+    let cancelled = false
+    async function loadSchedule() {
+      setIsLoadingSchedule(true)
+      const integrationId = currentIntegration.integrationId
+      const params = new URLSearchParams({
+        integrationId,
+        entityType: selectedEntityType,
+        direction: selectedDirection,
+        page: '1',
+        pageSize: '1',
+      })
+      const fallback: SyncSchedulesResponse = { items: [] }
+      const call = await apiCall<SyncSchedulesResponse>(`/api/data_sync/schedules?${params.toString()}`, undefined, { fallback })
+
+      if (cancelled) return
+
+      if (!call.ok) {
+        setScheduleEditor(buildDefaultScheduleState(selectedEntityType))
+        setIsLoadingSchedule(false)
+        return
+      }
+
+      const record = Array.isArray(call.result?.items) ? call.result?.items[0] : undefined
+      if (!record) {
+        setScheduleEditor(buildDefaultScheduleState(selectedEntityType))
+        setIsLoadingSchedule(false)
+        return
+      }
+
+      setScheduleEditor({
+        id: record.id,
+        scheduleType: record.scheduleType,
+        scheduleValue: record.scheduleValue,
+        timezone: record.timezone,
+        fullSync: record.fullSync,
+        isEnabled: record.isEnabled,
+        lastRunAt: record.lastRunAt,
+      })
+      setIsLoadingSchedule(false)
+    }
+
+    void loadSchedule()
+    return () => { cancelled = true }
+  }, [selectedDirection, selectedEntityType, selectedIntegration, scopeVersion])
+
+  const updateScheduleEditor = React.useCallback((changes: Partial<SyncScheduleEditorState>) => {
+    setScheduleEditor((current) => ({ ...current, ...changes }))
+  }, [])
 
   const handleCancel = React.useCallback(async (row: SyncRunRow) => {
     const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/cancel`, {
@@ -258,6 +382,103 @@ export default function SyncRunsDashboardPage() {
     }
   }, [batchSize, fullSync, router, runMutation, selectedDirection, selectedEntityType, selectedIntegration, t])
 
+  const handleSaveSchedule = React.useCallback(async () => {
+    if (!selectedIntegration || !selectedEntityType) return
+    if (scheduleEditor.scheduleValue.trim().length === 0) {
+      flash(t('data_sync.dashboard.schedule.invalidValue', 'Provide a schedule value before saving.'), 'error')
+      return
+    }
+
+    setIsSavingSchedule(true)
+    try {
+      const call = await runMutation({
+        operation: () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            integrationId: selectedIntegration.integrationId,
+            entityType: selectedEntityType,
+            direction: selectedDirection,
+            scheduleType: scheduleEditor.scheduleType,
+            scheduleValue: scheduleEditor.scheduleValue.trim(),
+            timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
+            fullSync: scheduleEditor.fullSync,
+            isEnabled: scheduleEditor.isEnabled,
+          }),
+        }, { fallback: null }),
+        mutationPayload: {
+          integrationId: selectedIntegration.integrationId,
+          entityType: selectedEntityType,
+          direction: selectedDirection,
+          scheduleType: scheduleEditor.scheduleType,
+          scheduleValue: scheduleEditor.scheduleValue.trim(),
+          timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
+          fullSync: scheduleEditor.fullSync,
+          isEnabled: scheduleEditor.isEnabled,
+        },
+        context: {
+          operation: 'update',
+          actionId: 'save-sync-schedule',
+          integrationId: selectedIntegration.integrationId,
+        },
+      })
+
+      if (!call.ok || !call.result) {
+        flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.schedule.error', 'Failed to save recurring schedule'), 'error')
+        return
+      }
+
+      setScheduleEditor({
+        id: call.result.id,
+        scheduleType: call.result.scheduleType,
+        scheduleValue: call.result.scheduleValue,
+        timezone: call.result.timezone,
+        fullSync: call.result.fullSync,
+        isEnabled: call.result.isEnabled,
+        lastRunAt: call.result.lastRunAt,
+      })
+      flash(t('data_sync.dashboard.schedule.success', 'Recurring schedule saved'), 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('data_sync.dashboard.schedule.error', 'Failed to save recurring schedule')
+      flash(message, 'error')
+    } finally {
+      setIsSavingSchedule(false)
+    }
+  }, [runMutation, scheduleEditor, selectedDirection, selectedEntityType, selectedIntegration, t])
+
+  const handleDeleteSchedule = React.useCallback(async () => {
+    if (!scheduleEditor.id) return
+
+    setIsDeletingSchedule(true)
+    try {
+      const call = await runMutation({
+        operation: () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleEditor.id as string)}`, {
+          method: 'DELETE',
+        }, { fallback: null }),
+        mutationPayload: {
+          scheduleId: scheduleEditor.id,
+        },
+        context: {
+          operation: 'delete',
+          actionId: 'delete-sync-schedule',
+        },
+      })
+
+      if (!call.ok) {
+        flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.schedule.deleteError', 'Failed to remove recurring schedule'), 'error')
+        return
+      }
+
+      setScheduleEditor(buildDefaultScheduleState(selectedEntityType))
+      flash(t('data_sync.dashboard.schedule.deleteSuccess', 'Recurring schedule removed'), 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('data_sync.dashboard.schedule.deleteError', 'Failed to remove recurring schedule')
+      flash(message, 'error')
+    } finally {
+      setIsDeletingSchedule(false)
+    }
+  }, [runMutation, scheduleEditor.id, selectedEntityType, t])
+
   const filters: FilterDef[] = [
     {
       id: 'status',
@@ -337,18 +558,77 @@ export default function SyncRunsDashboardPage() {
     && selectedIntegration.isEnabled
     && selectedIntegration.hasCredentials,
   )
+  const hasSavedSchedule = Boolean(scheduleEditor.id)
+  const selectedEntityLabel = selectedEntityType ? formatEntityTypeLabel(selectedEntityType) : t('data_sync.dashboard.columns.entityType')
 
   return (
     <Page>
       <PageBody className="space-y-6">
         <Card>
-          <CardHeader>
-            <CardTitle>{t('data_sync.dashboard.title')}</CardTitle>
+          <CardHeader className="space-y-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <Repeat className="size-4" />
+                  <span>{t('data_sync.dashboard.start.eyebrow', 'Run once or keep it recurring')}</span>
+                </div>
+                <div className="space-y-1">
+                  <CardTitle>{t('data_sync.dashboard.start.title', 'Start or schedule a sync')}</CardTitle>
+                  <p className="max-w-3xl text-sm text-muted-foreground">
+                    {t('data_sync.dashboard.start.description', 'Pick a sync target, launch an ad-hoc run, or save a recurring schedule for the same entity and direction from this page.')}
+                  </p>
+                </div>
+              </div>
+              {selectedIntegration ? (
+                <Button asChild variant="outline">
+                  <Link href={selectedIntegration.settingsPath}>
+                    <Settings2 className="mr-2 size-4" />
+                    {t('integrations.marketplace.configure')}
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+
+            {selectedIntegration ? (
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className="gap-1.5">
+                  <PlugZap className="size-3.5" />
+                  {selectedIntegration.title}
+                </Badge>
+                <Badge variant="outline" className="gap-1.5">
+                  <ArrowRightLeft className="size-3.5" />
+                  {t(`data_sync.dashboard.direction.${selectedDirection}`)}
+                </Badge>
+                <Badge variant={selectedIntegration.isEnabled ? 'secondary' : 'outline'} className="gap-1.5">
+                  <ShieldCheck className="size-3.5" />
+                  {selectedIntegration.isEnabled
+                    ? t('data_sync.dashboard.start.status.enabled', 'Integration enabled')
+                    : t('data_sync.dashboard.start.status.disabled', 'Integration disabled')}
+                </Badge>
+                <Badge variant={selectedIntegration.hasCredentials ? 'secondary' : 'outline'} className="gap-1.5">
+                  <PlugZap className="size-3.5" />
+                  {selectedIntegration.hasCredentials
+                    ? t('data_sync.dashboard.start.status.credentialsReady', 'Credentials ready')
+                    : t('data_sync.dashboard.start.status.credentialsMissing', 'Credentials missing')}
+                </Badge>
+                <Badge variant={scheduleEditor.isEnabled && hasSavedSchedule ? 'secondary' : 'outline'} className="gap-1.5">
+                  <CalendarClock className="size-3.5" />
+                  {hasSavedSchedule
+                    ? (scheduleEditor.isEnabled
+                      ? t('data_sync.dashboard.schedule.status.enabled', 'Recurring schedule active')
+                      : t('data_sync.dashboard.schedule.status.disabled', 'Recurring schedule paused'))
+                    : t('data_sync.dashboard.schedule.status.none', 'No recurring schedule')}
+                </Badge>
+              </div>
+            ) : null}
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 lg:grid-cols-5">
-              <div className="space-y-2 lg:col-span-2">
-                <label className="text-sm font-medium">{t('data_sync.dashboard.columns.integration')}</label>
+          <CardContent className="space-y-6">
+            <div className="grid gap-4 xl:grid-cols-3">
+              <div className="space-y-2 xl:col-span-1">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <PlugZap className="size-4 text-muted-foreground" />
+                  <span>{t('data_sync.dashboard.columns.integration')}</span>
+                </Label>
                 <select
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={selectedIntegrationId}
@@ -366,7 +646,10 @@ export default function SyncRunsDashboardPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t('data_sync.dashboard.columns.entityType')}</label>
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Boxes className="size-4 text-muted-foreground" />
+                  <span>{t('data_sync.dashboard.columns.entityType')}</span>
+                </Label>
                 <select
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={selectedEntityType}
@@ -375,13 +658,16 @@ export default function SyncRunsDashboardPage() {
                 >
                   {entityOptions.map((entityType) => (
                     <option key={entityType} value={entityType}>
-                      {entityType}
+                      {formatEntityTypeLabel(entityType)}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t('data_sync.dashboard.columns.direction')}</label>
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <ArrowRightLeft className="size-4 text-muted-foreground" />
+                  <span>{t('data_sync.dashboard.columns.direction')}</span>
+                </Label>
                 <select
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={selectedDirection}
@@ -394,55 +680,229 @@ export default function SyncRunsDashboardPage() {
                   ) : null}
                 </select>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{t('data_sync.dashboard.start.batchSize', 'Batch size')}</label>
-                <Input
-                  value={batchSize}
-                  onChange={(event) => setBatchSize(event.target.value)}
-                  inputMode="numeric"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={fullSync}
-                  onChange={(event) => setFullSync(event.target.checked)}
-                />
-                <span>{t('data_sync.dashboard.start.fullSync', 'Run as full sync')}</span>
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {selectedIntegration ? (
-                  <Button asChild variant="outline">
-                    <Link href={selectedIntegration.settingsPath}>
-                      {t('integrations.marketplace.configure')}
-                    </Link>
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  onClick={() => void handleStartSync()}
-                  disabled={!canStartSelectedIntegration}
-                >
-                  {t('data_sync.dashboard.start.submit', 'Start sync')}
-                </Button>
-              </div>
             </div>
 
             {selectedIntegration?.description ? (
               <p className="text-sm text-muted-foreground">{selectedIntegration.description}</p>
             ) : null}
 
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Play className="size-4 text-primary" />
+                      <h3 className="text-sm font-semibold">{t('data_sync.dashboard.start.runNowTitle', 'Run once now')}</h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {t('data_sync.dashboard.start.runNowDescription', 'Use this for the next immediate sync. Batch size and full-sync mode apply only to this manual run.')}
+                    </p>
+                  </div>
+                  <Badge variant="outline">{selectedEntityLabel}</Badge>
+                </div>
+
+                <Separator className="my-4" />
+
+                <div className="grid gap-4 sm:grid-cols-[minmax(0,180px)_1fr]">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <Gauge className="size-4 text-muted-foreground" />
+                      <span>{t('data_sync.dashboard.start.batchSize', 'Batch size')}</span>
+                    </Label>
+                    <Input
+                      value={batchSize}
+                      onChange={(event) => setBatchSize(event.target.value)}
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div className="rounded-lg border bg-background p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium">{t('data_sync.dashboard.start.fullSync', 'Run as full sync')}</Label>
+                        <p className="text-xs text-muted-foreground">
+                          {t('data_sync.dashboard.start.fullSyncHelp', 'Ignore the saved cursor and process the entire source again for this run.')}
+                        </p>
+                      </div>
+                      <Switch checked={fullSync} onCheckedChange={setFullSync} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    {t('data_sync.dashboard.start.runNowFootnote', 'Manual runs show progress immediately and land on the run detail page after launch.')}
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={() => void handleStartSync()}
+                    disabled={!canStartSelectedIntegration}
+                  >
+                    <Play className="mr-2 size-4" />
+                    {t('data_sync.dashboard.start.submit', 'Start sync')}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <CalendarClock className="size-4 text-primary" />
+                      <h3 className="text-sm font-semibold">{t('data_sync.dashboard.schedule.title', 'Recurring schedule')}</h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {t('data_sync.dashboard.schedule.description', 'Save a repeating schedule for the selected integration, entity, and direction without leaving this dashboard.')}
+                    </p>
+                  </div>
+                  <Badge variant="outline">
+                    {hasSavedSchedule
+                      ? (scheduleEditor.isEnabled
+                        ? t('data_sync.dashboard.schedule.status.shortEnabled', 'Scheduled')
+                        : t('data_sync.dashboard.schedule.status.shortDisabled', 'Paused'))
+                      : t('data_sync.dashboard.schedule.status.shortNone', 'One-time only')}
+                  </Badge>
+                </div>
+
+                <Separator className="my-4" />
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <Clock3 className="size-4 text-muted-foreground" />
+                      <span>{t('data_sync.dashboard.schedule.type', 'Schedule type')}</span>
+                    </Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={scheduleEditor.scheduleType}
+                      onChange={(event) => updateScheduleEditor({
+                        scheduleType: event.target.value === 'cron' ? 'cron' : 'interval',
+                      })}
+                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                    >
+                      <option value="interval">{t('data_sync.dashboard.schedule.interval', 'Interval')}</option>
+                      <option value="cron">{t('data_sync.dashboard.schedule.cron', 'Cron')}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <CalendarClock className="size-4 text-muted-foreground" />
+                      <span>
+                        {scheduleEditor.scheduleType === 'cron'
+                          ? t('data_sync.dashboard.schedule.cronValue', 'Cron expression')
+                          : t('data_sync.dashboard.schedule.intervalValue', 'Interval')}
+                      </span>
+                    </Label>
+                    <Input
+                      value={scheduleEditor.scheduleValue}
+                      onChange={(event) => updateScheduleEditor({ scheduleValue: event.target.value })}
+                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      placeholder={scheduleEditor.scheduleType === 'cron' ? '0 * * * *' : '1h'}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {scheduleEditor.scheduleType === 'cron'
+                        ? t('data_sync.dashboard.schedule.cronHelp', 'Example: `0 * * * *` runs at the start of every hour.')
+                        : t('data_sync.dashboard.schedule.intervalHelp', 'Example: `1h`, `6h`, or `24h` for repeating intervals.')}
+                    </p>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <Clock3 className="size-4 text-muted-foreground" />
+                      <span>{t('data_sync.dashboard.schedule.timezone', 'Timezone')}</span>
+                    </Label>
+                    <Input
+                      value={scheduleEditor.timezone}
+                      onChange={(event) => updateScheduleEditor({ timezone: event.target.value })}
+                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  <div className="rounded-lg border bg-background p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium">{t('data_sync.dashboard.schedule.fullSync', 'Run scheduled jobs as full sync')}</Label>
+                        <p className="text-xs text-muted-foreground">
+                          {t('data_sync.dashboard.schedule.fullSyncHelp', 'When enabled, every recurring run starts from the beginning instead of the saved cursor.')}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={scheduleEditor.fullSync}
+                        onCheckedChange={(checked) => updateScheduleEditor({ fullSync: checked })}
+                        disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-background p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium">{t('data_sync.dashboard.schedule.enabled', 'Schedule enabled')}</Label>
+                        <p className="text-xs text-muted-foreground">
+                          {t('data_sync.dashboard.schedule.enabledHelp', 'Pause the recurring job without deleting the schedule definition.')}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={scheduleEditor.isEnabled}
+                        onCheckedChange={(checked) => updateScheduleEditor({ isEnabled: checked })}
+                        disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <div>
+                      {hasSavedSchedule
+                        ? (scheduleEditor.lastRunAt
+                          ? t('data_sync.dashboard.schedule.lastRun', 'Last scheduled run: {value}', {
+                              value: new Date(scheduleEditor.lastRunAt).toLocaleString(),
+                            })
+                          : t('data_sync.dashboard.schedule.neverRun', 'Saved, but no scheduled execution has completed yet.'))
+                        : t('data_sync.dashboard.schedule.none', 'No recurring schedule saved for this target yet.')}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleDeleteSchedule()}
+                      disabled={!hasSavedSchedule || isDeletingSchedule}
+                    >
+                      {isDeletingSchedule
+                        ? t('data_sync.dashboard.schedule.deleting', 'Removing...')
+                        : t('data_sync.dashboard.schedule.delete', 'Remove schedule')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleSaveSchedule()}
+                      disabled={isSavingSchedule || !selectedIntegration || !selectedEntityType}
+                    >
+                      <CalendarClock className="mr-2 size-4" />
+                      {isSavingSchedule
+                        ? t('data_sync.dashboard.schedule.saving', 'Saving...')
+                        : t('data_sync.dashboard.schedule.save', 'Save recurring schedule')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {selectedIntegration && !selectedIntegration.isEnabled ? (
               <Notice compact variant="warning">
-                {t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}
+                <span className="inline-flex items-center gap-2">
+                  <CircleAlert className="size-4" />
+                  <span>{t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}</span>
+                </span>
               </Notice>
             ) : null}
             {selectedIntegration && !selectedIntegration.hasCredentials ? (
               <Notice compact variant="warning">
-                {t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}
+                <span className="inline-flex items-center gap-2">
+                  <CircleAlert className="size-4" />
+                  <span>{t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}</span>
+                </span>
               </Notice>
             ) : null}
           </CardContent>

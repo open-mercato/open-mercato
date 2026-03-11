@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     getAllIntegrations().map(async (integration) => {
       const [resolvedCredentials, state] = await Promise.all([
         credentialsService.resolve(integration.id, { organizationId: auth.orgId as string, tenantId: auth.tenantId as string }),
-        stateService.get(integration.id, { organizationId: auth.orgId as string, tenantId: auth.tenantId as string }),
+        stateService.resolveState(integration.id, { organizationId: auth.orgId as string, tenantId: auth.tenantId as string }),
       ])
 
       return {
@@ -60,8 +60,8 @@ export async function GET(req: Request) {
         company: integration.company ?? null,
         version: integration.version ?? null,
         hasCredentials: Boolean(resolvedCredentials),
-        isEnabled: state?.isEnabled ?? false,
-        apiVersion: state?.apiVersion ?? null,
+        isEnabled: state.isEnabled,
+        apiVersion: state.apiVersion,
       }
     }),
   )

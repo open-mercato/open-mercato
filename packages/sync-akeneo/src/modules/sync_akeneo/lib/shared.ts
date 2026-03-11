@@ -256,8 +256,37 @@ export function buildDefaultAkeneoMapping(entityType: AkeneoEntityType): AkeneoD
       variantName: 'name',
     },
     customFieldMappings: [],
-    priceMappings: [],
-    mediaMappings: [],
+    priceMappings: [
+      {
+        attributeCode: 'price',
+        priceKindCode: 'regular',
+        akeneoChannel: 'ecommerce',
+        localChannelCode: 'web',
+      },
+      {
+        attributeCode: 'sale_price',
+        priceKindCode: 'sale',
+        akeneoChannel: 'ecommerce',
+        localChannelCode: 'web',
+      },
+    ],
+    mediaMappings: [
+      {
+        attributeCode: 'main_image',
+        target: 'product',
+        kind: 'image',
+      },
+      {
+        attributeCode: 'packshot',
+        target: 'variant',
+        kind: 'image',
+      },
+      {
+        attributeCode: 'size_chart',
+        target: 'product',
+        kind: 'file',
+      },
+    ],
     syncAssociations: true,
     reconciliation: buildDefaultReconciliationSettings(),
   }

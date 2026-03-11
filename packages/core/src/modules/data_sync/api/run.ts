@@ -54,8 +54,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unsupported entity type for this integration' }, { status: 422 })
   }
 
-  const integrationState = await integrationStateService.get(parsed.data.integrationId, scope)
-  if (!(integrationState?.isEnabled ?? false)) {
+  const integrationEnabled = await integrationStateService.isEnabled(parsed.data.integrationId, scope)
+  if (!integrationEnabled) {
     return NextResponse.json({ error: 'Integration is disabled' }, { status: 409 })
   }
 

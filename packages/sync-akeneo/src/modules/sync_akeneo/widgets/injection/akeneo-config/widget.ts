@@ -1,7 +1,11 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import AkeneoConfigWidget from './widget.client'
 
-const widget: InjectionWidgetModule = {
+const widget: InjectionWidgetModule<{
+  state?: {
+    isEnabled?: boolean
+  } | null
+}> = {
   metadata: {
     id: 'sync_akeneo.injection.config',
     title: 'Akeneo Sync Settings',

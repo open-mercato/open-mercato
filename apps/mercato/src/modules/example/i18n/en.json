@@ -110,7 +110,7 @@
   "example.payments.stripe.form.submit": "Confirm test payment",
   "example.payments.stripe.form.testCard": "Use Stripe test card `4242 4242 4242 4242`, any future date, any CVC.",
   "example.payments.stripe.form.title": "Complete Stripe payment",
-  "example.payments.stripeNotConfigured": "Stripe not configured — set credentials in Integrations",
+  "example.payments.stripeUnavailable": "Stripe unavailable — enable the integration and save credentials in Integrations",
   "example.payments.success.action": "{action} successful: status = {status}",
   "example.payments.success.title": "Success",
   "example.payments.title": "Payment Gateway Demo",

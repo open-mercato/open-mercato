@@ -381,13 +381,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   function buildCommandContext(): CommandRuntimeContext {
     return {
       container,
-      auth: {
-        sub: 'sync-akeneo',
-        tenantId: scope.tenantId,
-        orgId: scope.organizationId,
-        userId: 'sync-akeneo',
-        roles: ['admin'],
-      },
+      auth: null,
       organizationScope: {
         selectedId: scope.organizationId,
         filterIds: [scope.organizationId],
@@ -538,7 +532,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       tenantId: scope.tenantId,
       name: labelFromLocalizedRecord(category.labels ?? null, locale, category.code),
       slug: slugifyAkeneoCode(category.code),
-      description: null,
+      description: undefined,
       parentId,
       isActive: true,
     }

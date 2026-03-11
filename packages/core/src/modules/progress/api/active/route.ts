@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressJob } from '../../data/entities'
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['progress.view'] },
+  GET: { requireAuth: true },
 }
 
 export const metadata = routeMetadata

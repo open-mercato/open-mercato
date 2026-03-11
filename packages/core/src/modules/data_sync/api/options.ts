@@ -35,7 +35,7 @@ export async function GET(req: Request) {
 
         const [credentials, state] = await Promise.all([
           credentialsService.resolve(integration.id, scope),
-          stateService.get(integration.id, scope),
+          stateService.resolveState(integration.id, scope),
         ])
 
         return {
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
           direction: adapter.direction,
           supportedEntities: adapter.supportedEntities,
           hasCredentials: Boolean(credentials),
-          isEnabled: state?.isEnabled ?? false,
+          isEnabled: state.isEnabled,
           settingsPath: `/backend/integrations/${encodeURIComponent(integration.id)}`,
         }
       }),
