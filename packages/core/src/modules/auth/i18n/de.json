@@ -1,4 +1,8 @@
 {
+  "auth.accessDenied.dashboard": "Zum Dashboard",
+  "auth.accessDenied.home": "Zur Startseite",
+  "auth.accessDenied.message": "Du hast keine Berechtigung, diese Seite anzuzeigen. Bitte wende dich an deinen Administrator.",
+  "auth.accessDenied.title": "Zugriff verweigert",
   "auth.acl.allowAllOrganizations": "Alle Organisationen zulassen",
   "auth.acl.organizationWarning": "Organisationseinschränkungen werden nur gespeichert, wenn mindestens eine Berechtigungsüberschreibung ausgewählt ist. Füge eine Berechtigung hinzu oder aktiviere einen Modul-Wildcard vor dem Speichern.",
   "auth.actions.contactSupport": "Support kontaktieren",

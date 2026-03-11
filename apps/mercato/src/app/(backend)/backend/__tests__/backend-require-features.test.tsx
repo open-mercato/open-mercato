@@ -64,6 +64,19 @@ jest.mock('next/navigation', () => ({
   notFound: () => notFound(),
 }))
 
+// Mock i18n translations used by renderAccessDenied
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_k: string, fallback: string) => fallback }),
+}))
+
+// Mock AccessDeniedMessage component
+jest.mock('@open-mercato/ui/backend/detail', () => ({
+  AccessDeniedMessage: (props: any) => React.createElement('div', { 'data-testid': 'access-denied' }, props.label),
+}))
+
+// Mock next/link
+jest.mock('next/link', () => (props: any) => React.createElement('a', { href: props.href }, props.children))
+
 type GetAuthFromCookies = typeof import('@open-mercato/shared/lib/auth/server')['getAuthFromCookies']
 
 async function setAuthMock(value: Awaited<ReturnType<GetAuthFromCookies>>) {
@@ -97,12 +110,32 @@ describe('Backend requireFeatures guard', () => {
     ).rejects.toThrow(/REDIRECT \/api\/auth\/session\/refresh/)
   })
 
-  it('redirects to login when RBAC denies required features', async () => {
+  it('renders access denied when RBAC denies required features', async () => {
     await setAuthMock({ sub: 'u1', tenantId: 't1', orgId: 'o1', roles: [] })
     mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
 
-    await expect(
-      BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
-    ).rejects.toThrow(/REDIRECT \/login\?requireFeature=/)
+    const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['entities', 'records'] }) })
+    expect(el).toBeTruthy()
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it('renders access denied when user lacks required roles', async () => {
+    await setAuthMock({ sub: 'u1', tenantId: 't1', orgId: 'o1', roles: ['employee'] })
+    const { findBackendMatch } = await import('@open-mercato/shared/modules/registry')
+    const mocked = findBackendMatch as jest.MockedFunction<typeof findBackendMatch>
+    mocked.mockReturnValueOnce({
+      route: {
+        requireAuth: true,
+        requireRoles: ['admin'],
+        requireFeatures: [],
+        title: 'Admin Only',
+        Component: () => React.createElement('div', null, 'Admin'),
+      },
+      params: {},
+    } as any)
+
+    const el = await BackendCatchAll({ params: Promise.resolve({ slug: ['admin', 'page'] }) })
+    expect(el).toBeTruthy()
+    expect(redirect).not.toHaveBeenCalled()
   })
 })
