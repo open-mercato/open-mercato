@@ -11,8 +11,12 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import type { Metadata } from 'next'
+import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 
 type Awaitable<T> = T | Promise<T>
+
+type BackendParams = { params: Awaitable<{ slug?: string[] }> }
 
 async function renderAccessDenied() {
   const { translate } = await resolveTranslations()
@@ -29,7 +33,21 @@ async function renderAccessDenied() {
   )
 }
 
-export default async function BackendCatchAll(props: { params: Awaitable<{ slug?: string[] }> }) {
+export async function generateMetadata(props: BackendParams): Promise<Metadata> {
+  const params = await props.params
+  const pathname = '/backend/' + (params.slug?.join('/') ?? '')
+  const match = findBackendMatch(modules, pathname)
+  if (!match) {
+    return {}
+  }
+
+  return resolveLocalizedTitleMetadata({
+    title: match.route.title,
+    titleKey: match.route.titleKey,
+  })
+}
+
+export default async function BackendCatchAll(props: BackendParams) {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
   const match = findBackendMatch(modules, pathname)

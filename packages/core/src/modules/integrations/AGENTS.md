@@ -119,6 +119,37 @@ Integration provider modules can leverage the full **Unified Module Extension Sy
 | **Notifications** | Emit in-app notifications on integration events | `notifications.ts`, `subscribers/` |
 | **DOM Event Bridge** | Push real-time events to browser (SSE) | Set `clientBroadcast: true` in event definitions |
 
+### Integration Detail Page Widget Spot
+
+Provider modules can opt into a provider-scoped integration detail extension surface directly from `integration.ts`:
+
+```typescript
+import { buildIntegrationDetailWidgetSpotId } from '@open-mercato/shared/modules/integrations/types'
+
+export const integration = {
+  id: 'gateway_example',
+  detailPage: {
+    widgetSpotId: buildIntegrationDetailWidgetSpotId('gateway_example'),
+  },
+} satisfies IntegrationDefinition
+```
+
+- Register React widgets for that spot in `widgets/injection-table.ts`
+- Use `placement.kind: 'tab'` to create additional detail tabs
+- Use `placement.kind: 'group'` for card-style panels and `placement.kind: 'stack'` for inline sections
+- Integration detail page writes run through `useGuardedMutation` with that same spot, so widget `onBeforeSave` / `onAfterSave` handlers apply to built-in credentials/state/version/health actions too
+- Backward compatibility: legacy `integrations.detail:tabs` still works as the fallback when `detailPage.widgetSpotId` is omitted
+
+### Marketplace API UMES Hooks
+
+The integrations marketplace read routes now support a safe subset of UMES:
+
+- `GET /api/integrations` and `GET /api/integrations/:id` support response enrichers targeting `integrations.integration`
+- `GET /api/integrations/logs` supports response enrichers targeting `integrations.log`
+- These read routes also execute API interceptors for their route IDs (`integrations`, `integrations/detail`, `integrations/logs`)
+- Safety rule: integrations read routes preserve built-in response keys and only accept additive fields from enrichers/interceptor-after hooks
+- Write routes (`credentials`, `state`, `version`) already support mutation guards and events; they are not yet wired into the generic API interceptor/enricher pipeline
+
 ### Key UMES Imports for Providers
 
 ```typescript

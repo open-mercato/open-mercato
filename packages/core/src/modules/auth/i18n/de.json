@@ -155,6 +155,7 @@
   "auth.users.widgets.mode.inherit": "Von Rollen übernehmen",
   "auth.users.widgets.mode.override": "Für diesen Benutzer überschreiben",
   "auth.usersRoles": "Benutzer und Rollen",
+  "backend.nav.externalSystems": "Externe Systeme",
   "backend.nav.settings": "Einstellungen",
   "backend.nav.settingsAdmin": "Administration",
   "profile.page.description": "Verwalte deine Kontoeinstellungen",

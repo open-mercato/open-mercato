@@ -155,6 +155,7 @@
   "auth.users.widgets.mode.inherit": "Dziedzicz z ról",
   "auth.users.widgets.mode.override": "Zastąp dla tego użytkownika",
   "auth.usersRoles": "Użytkownicy i role",
+  "backend.nav.externalSystems": "Systemy zewnetrzne",
   "backend.nav.settings": "Ustawienia",
   "backend.nav.settingsAdmin": "Administracja",
   "profile.page.description": "Zarządzaj ustawieniami konta",

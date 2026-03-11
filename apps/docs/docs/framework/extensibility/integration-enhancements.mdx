@@ -56,6 +56,13 @@ Start with: [Workflows extending](/framework/workflows/extending), [Scheduler](/
 
 Start with: [API extension guide](/framework/api/extending-api), [Queue workers](/framework/events/queue-workers)
 
+For the integrations marketplace specifically:
+
+- `GET /api/integrations` and `GET /api/integrations/:id` now support response enrichers targeting `integrations.integration`
+- `GET /api/integrations/logs` supports response enrichers targeting `integrations.log`
+- These read routes also execute API interceptors
+- Safety rule: marketplace read routes preserve built-in response fields and only allow additive fields from enrichers and `after` interceptors
+
 ## Integration extension widgets (UMES Phase L)
 
 Phase L adds first-class UI widgets and data primitives for building integration modules.
@@ -95,12 +102,20 @@ Widget: `packages/core/src/modules/integrations/widgets/injection/external-ids/w
 Register integration definitions at module bootstrap so the platform can discover metadata and build deep links.
 
 ```ts
-import { registerIntegration, getAllIntegrations, getIntegrationTitle } from '@open-mercato/shared/modules/integrations/types'
+import {
+  buildIntegrationDetailWidgetSpotId,
+  registerIntegration,
+  getAllIntegrations,
+  getIntegrationTitle,
+} from '@open-mercato/shared/modules/integrations/types'
 
 registerIntegration({
   id: 'sync_shopify',
   title: 'Shopify',
   icon: 'shopify',
+  detailPage: {
+    widgetSpotId: buildIntegrationDetailWidgetSpotId('sync_shopify'),
+  },
   buildExternalUrl: (externalId) => `https://admin.shopify.com/store/demo/products/${externalId}`,
 })
 
@@ -108,6 +123,42 @@ getAllIntegrations()              // returns all registered IntegrationDefinitio
 getIntegrationTitle('sync_shopify') // 'Shopify'
 getIntegrationTitle('unknown')      // 'unknown' (falls back to ID)
 ```
+
+### Provider-scoped integration detail widgets
+
+Integration providers can now extend their own marketplace detail pages directly from `integration.ts`.
+
+- Declare `detailPage.widgetSpotId` in the `IntegrationDefinition`
+- Map widgets to that spot in `widgets/injection-table.ts`
+- Use `placement.kind: 'tab'` for extra tabs, `placement.kind: 'group'` for card sections, and `placement.kind: 'stack'` for inline sections above the built-in tabs
+- Built-in detail actions (credentials save, state toggle, version change, health check) run through `useGuardedMutation` bound to the same spot, so widget `onBeforeSave` and `onAfterSave` hooks can participate in those flows
+
+```ts
+import { buildIntegrationDetailWidgetSpotId } from '@open-mercato/shared/modules/integrations/types'
+
+export const integration = {
+  id: 'gateway_example',
+  title: 'Example Gateway',
+  detailPage: {
+    widgetSpotId: buildIntegrationDetailWidgetSpotId('gateway_example'),
+  },
+}
+
+export const injectionTable = {
+  [buildIntegrationDetailWidgetSpotId('gateway_example')]: [
+    {
+      widgetId: 'gateway_example.injection.tools',
+      kind: 'tab',
+      groupLabel: 'gateway_example.tabs.tools',
+      priority: 100,
+    },
+  ],
+}
+```
+
+Backward compatibility:
+- If `detailPage.widgetSpotId` is omitted, the integrations page falls back to the legacy `integrations.detail:tabs` spot
+- Existing providers that inject into `integrations.detail:tabs` keep working, but new providers should prefer the provider-scoped spot to avoid collisions between unrelated integrations
 
 Start with: [Widget injection](/framework/widget-injection), [Data extensibility](/framework/database/data-extensibility)
 

@@ -1,0 +1,7 @@
+{
+  "shipping_carriers.action.createShipment": "Sendung erstellen",
+  "shipping_carriers.column.shippingStatus": "Versandstatus",
+  "shipping_carriers.column.trackingStatus": "Tracking-Status",
+  "shipping_carriers.feature.manage": "Versanddienstleister-Vorgaenge verwalten",
+  "shipping_carriers.feature.view": "Sendungen der Versanddienstleister anzeigen"
+}
