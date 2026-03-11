@@ -15,15 +15,11 @@ jest.mock('next/navigation', () => ({
 
 const useInjectionDataWidgetsMock = jest.fn()
 const flashMock = jest.fn()
-const apiCallMock = jest.fn()
 jest.mock('../injection/useInjectionDataWidgets', () => ({
   useInjectionDataWidgets: (spotId: string) => useInjectionDataWidgetsMock(spotId),
 }))
 jest.mock('../FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
-}))
-jest.mock('../utils/apiCall', () => ({
-  apiCall: (...args: unknown[]) => apiCallMock(...args),
 }))
 jest.mock('../confirm-dialog', () => ({
   useConfirmDialog: () => ({
@@ -64,7 +60,6 @@ describe('DataTable extensions', () => {
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
     useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: false, error: null }))
     flashMock.mockReset()
-    apiCallMock.mockReset()
   })
 
   it('renders injected columns from data-table extension surface', () => {
@@ -214,18 +209,8 @@ describe('DataTable extensions', () => {
     }
   })
 
-  it('tracks bulk action progress jobs and renders inline progress', async () => {
+  it('acknowledges bulk action progress jobs without local polling', async () => {
     const onExecute = jest.fn(async () => ({ ok: true, progressJobId: 'job-1' }))
-    apiCallMock.mockResolvedValue({
-      ok: true,
-      result: {
-        id: 'job-1',
-        status: 'running',
-        progressPercent: 50,
-        processedCount: 1,
-        totalCount: 2,
-      },
-    })
 
     useInjectionDataWidgetsMock.mockImplementation((spotId: string) => {
       if (spotId === 'data-table:customers.people:bulk-actions') {
@@ -261,9 +246,9 @@ describe('DataTable extensions', () => {
       fireEvent.click(button)
 
       await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1))
-      await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith('/api/progress/jobs/job-1'))
-      await waitFor(() => expect(screen.getByText('1 / 2')).toBeInTheDocument())
-      expect(screen.getByRole('button', { name: 'Delete all filtered' })).toBeDisabled()
+      expect(flashMock).toHaveBeenCalledWith('Bulk action started. Track progress in the top bar.', 'success')
+      expect(screen.queryByText('1 / 2')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Delete all filtered' })).toBeEnabled()
     } finally {
       rendered.cleanupQueryClient()
     }

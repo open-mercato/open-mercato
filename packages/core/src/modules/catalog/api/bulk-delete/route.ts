@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+import type { ProgressService } from '../../../progress/lib/progressService'
 import {
-  EXAMPLE_CATALOG_PRODUCT_BULK_DELETE_QUEUE,
-  getExampleQueue,
-} from '../../lib/catalogProductBulkDelete'
+  CATALOG_PRODUCT_BULK_DELETE_QUEUE,
+  getCatalogQueue,
+} from '../../lib/bulkDelete'
 
 const requestSchema = z.object({
   confirm: z.literal(true),
@@ -25,8 +25,8 @@ export const metadata = {
 }
 
 export const openApi = {
-  tags: ['Example'],
-  summary: 'Start bulk deleting catalog products from the example UMES widget',
+  tags: ['Catalog'],
+  summary: 'Start bulk deleting catalog products',
 }
 
 export async function POST(req: Request) {
@@ -54,15 +54,15 @@ export async function POST(req: Request) {
 
   const progressJob = await progressService.createJob(
     {
-      jobType: 'example.catalog.bulk_delete',
+      jobType: 'catalog.products.bulk_delete',
       name: parsed.data.scope === 'filtered'
-        ? 'Delete filtered catalog products'
-        : 'Delete selected catalog products',
+        ? 'Delete filtered products'
+        : 'Delete selected products',
       description: `${ids.length} catalog products queued for deletion`,
       totalCount: ids.length,
       cancellable: false,
       meta: {
-        source: 'example.catalog.bulk-delete',
+        source: 'catalog.bulk-delete',
         scope: parsed.data.scope,
       },
     },
@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     },
   )
 
-  const queue = getExampleQueue(EXAMPLE_CATALOG_PRODUCT_BULK_DELETE_QUEUE)
+  const queue = getCatalogQueue(CATALOG_PRODUCT_BULK_DELETE_QUEUE)
   await queue.enqueue({
     progressJobId: progressJob.id,
     ids,

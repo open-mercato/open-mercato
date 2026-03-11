@@ -32,9 +32,7 @@ function readRowId(row: unknown): string | null {
 }
 
 function buildListParams(context: BulkActionContext): Record<string, string> {
-  const params: Record<string, string> = {
-    pageSize: '100',
-  }
+  const params: Record<string, string> = { pageSize: '100' }
   const injectionContext = context.injectionContext
   const search = typeof injectionContext?.search === 'string' ? injectionContext.search.trim() : ''
   if (search) params.search = search
@@ -134,7 +132,7 @@ async function startDeleteProductsJob(
 ): Promise<string> {
   const translate = context.translate ?? ((_: string, fallback: string) => fallback)
   const result = await apiCall<{ ok: boolean; progressJobId: string | null }>(
-    '/api/example/catalog-product-bulk-delete',
+    '/api/catalog/bulk-delete',
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -147,7 +145,7 @@ async function startDeleteProductsJob(
   )
 
   if (!result.ok || !result.result?.progressJobId) {
-    throw new Error(translate('example.catalog.bulk.delete.error', 'Failed to delete products.'))
+    throw new Error(translate('catalog.bulkDelete.error', 'Failed to delete products.'))
   }
 
   return result.result.progressJobId
@@ -155,13 +153,13 @@ async function startDeleteProductsJob(
 
 const widget: InjectionBulkActionWidget = {
   metadata: {
-    id: 'example.injection.catalog-product-bulk-delete',
+    id: 'catalog.injection.product-bulk-delete',
     priority: 40,
   },
   bulkActions: [
     {
-      id: 'example.catalog.bulk.delete-selected',
-      label: 'example.catalog.bulk.deleteSelected.label',
+      id: 'catalog.products.bulk-delete-selected',
+      label: 'catalog.bulkDelete.selected.label',
       icon: 'trash-2',
       onExecute: async (selectedRows, rawContext) => {
         const context = (rawContext ?? {}) as BulkActionContext
@@ -173,18 +171,18 @@ const widget: InjectionBulkActionWidget = {
         if (ids.length === 0) {
           return {
             ok: false,
-            message: translate('example.catalog.bulk.delete.noneSelected', 'Select at least one product to delete.'),
+            message: translate('catalog.bulkDelete.noneSelected', 'Select at least one product to delete.'),
           }
         }
 
         const confirmed = await context.confirm?.({
-          title: translate('example.catalog.bulk.deleteSelected.confirmTitle', 'Delete selected products?'),
+          title: translate('catalog.bulkDelete.selected.confirmTitle', 'Delete selected products?'),
           text: translate(
-            'example.catalog.bulk.deleteSelected.confirmText',
+            'catalog.bulkDelete.selected.confirmText',
             'Delete {count} selected products? This cannot be undone.',
             { count: ids.length },
           ),
-          confirmText: translate('example.catalog.bulk.delete.confirm', 'Delete'),
+          confirmText: translate('catalog.bulkDelete.confirm', 'Delete'),
           cancelText: translate('common.cancel', 'Cancel'),
           variant: 'destructive',
         })
@@ -200,8 +198,8 @@ const widget: InjectionBulkActionWidget = {
       },
     },
     {
-      id: 'example.catalog.bulk.delete-filtered',
-      label: 'example.catalog.bulk.deleteFiltered.label',
+      id: 'catalog.products.bulk-delete-filtered',
+      label: 'catalog.bulkDelete.filtered.label',
       icon: 'filter-x',
       requiresSelection: false,
       onExecute: async (_selectedRows, rawContext) => {
@@ -212,18 +210,18 @@ const widget: InjectionBulkActionWidget = {
         if (ids.length === 0) {
           return {
             ok: false,
-            message: translate('example.catalog.bulk.delete.noneFiltered', 'No products match the current filters.'),
+            message: translate('catalog.bulkDelete.noneFiltered', 'No products match the current filters.'),
           }
         }
 
         const confirmed = await context.confirm?.({
-          title: translate('example.catalog.bulk.deleteFiltered.confirmTitle', 'Delete filtered products?'),
+          title: translate('catalog.bulkDelete.filtered.confirmTitle', 'Delete filtered products?'),
           text: translate(
-            'example.catalog.bulk.deleteFiltered.confirmText',
+            'catalog.bulkDelete.filtered.confirmText',
             'Delete {count} products matching the current filters? This cannot be undone.',
             { count: ids.length },
           ),
-          confirmText: translate('example.catalog.bulk.delete.confirm', 'Delete'),
+          confirmText: translate('catalog.bulkDelete.confirm', 'Delete'),
           cancelText: translate('common.cancel', 'Cancel'),
           variant: 'destructive',
         })
