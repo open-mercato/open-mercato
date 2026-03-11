@@ -6,7 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerDealLine } from '../../../../data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
@@ -137,18 +137,19 @@ export async function GET(request: Request, context: { params?: Record<string, u
     await checkFeature(container, auth, ['customers.deals.view'])
 
     const em = (container.resolve('em') as EntityManager)
-    const deal = await em.findOne(CustomerDeal, { id: parsedParams.data.id, deletedAt: null })
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    }
+    const deal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: parsedParams.data.id, deletedAt: null, tenantId: auth.tenantId, organizationId: auth.orgId },
+      {},
+      decryptionScope,
+    )
     if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
-    }
-
-    if (auth.tenantId && deal.tenantId && auth.tenantId !== deal.tenantId) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
-    }
-
-    const decryptionScope = {
-      tenantId: deal.tenantId ?? auth.tenantId ?? null,
-      organizationId: deal.organizationId ?? auth.orgId ?? null,
     }
 
     const lines = await findWithDecryption(
@@ -204,12 +205,18 @@ export async function POST(request: Request, context: { params?: Record<string, 
     await checkFeature(container, auth, ['customers.deals.manage'])
 
     const em = (container.resolve('em') as EntityManager)
-    const deal = await em.findOne(CustomerDeal, { id: parsedParams.data.id, deletedAt: null })
-    if (!deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
     }
-
-    if (auth.tenantId && deal.tenantId && auth.tenantId !== deal.tenantId) {
+    const deal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: parsedParams.data.id, deletedAt: null, tenantId: auth.tenantId, organizationId: auth.orgId },
+      {},
+      decryptionScope,
+    )
+    if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
     }
 
@@ -253,12 +260,18 @@ export async function PUT(request: Request, context: { params?: Record<string, u
     await checkFeature(container, auth, ['customers.deals.manage'])
 
     const em = (container.resolve('em') as EntityManager)
-    const deal = await em.findOne(CustomerDeal, { id: parsedParams.data.id, deletedAt: null })
-    if (!deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
     }
-
-    if (auth.tenantId && deal.tenantId && auth.tenantId !== deal.tenantId) {
+    const deal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: parsedParams.data.id, deletedAt: null, tenantId: auth.tenantId, organizationId: auth.orgId },
+      {},
+      decryptionScope,
+    )
+    if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
     }
 
@@ -302,12 +315,18 @@ export async function DELETE(request: Request, context: { params?: Record<string
     await checkFeature(container, auth, ['customers.deals.manage'])
 
     const em = (container.resolve('em') as EntityManager)
-    const deal = await em.findOne(CustomerDeal, { id: parsedParams.data.id, deletedAt: null })
-    if (!deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
     }
-
-    if (auth.tenantId && deal.tenantId && auth.tenantId !== deal.tenantId) {
+    const deal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: parsedParams.data.id, deletedAt: null, tenantId: auth.tenantId, organizationId: auth.orgId },
+      {},
+      decryptionScope,
+    )
+    if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
     }
 
@@ -341,9 +360,10 @@ export async function DELETE(request: Request, context: { params?: Record<string
 }
 
 export const metadata = {
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  requireAuth: true,
-  requireFeatures: ['customers.deals.view'],
+  GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['customers.deals.manage'] },
 }
 
 const lineItemSchema = z.object({

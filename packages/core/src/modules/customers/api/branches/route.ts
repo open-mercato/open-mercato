@@ -122,6 +122,7 @@ const crud = makeCrudRoute({
           const company = await findOneWithDecryption(em, CustomerEntity, {
             id: base.companyEntityId as string,
             deletedAt: null,
+            tenantId: ctx.auth?.tenantId,
           })
           if (company?.organizationId) {
             base.organizationId = company.organizationId

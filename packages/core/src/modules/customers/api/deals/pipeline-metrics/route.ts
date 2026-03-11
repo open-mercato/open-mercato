@@ -74,12 +74,16 @@ export async function GET(request: Request) {
   const em = (container.resolve('em') as EntityManager)
   const decryptionScope = { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null }
 
+  const stageFilter: Record<string, unknown> = {
+    pipelineId: query.pipelineId,
+  }
+  if (auth.tenantId) stageFilter.tenantId = auth.tenantId
+  if (auth.orgId) stageFilter.organizationId = auth.orgId
+
   const stages = await findWithDecryption(
     em,
     CustomerPipelineStage,
-    {
-      pipelineId: query.pipelineId,
-    },
+    stageFilter,
     { orderBy: { order: 'ASC' } },
     decryptionScope,
   )

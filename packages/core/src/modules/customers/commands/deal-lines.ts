@@ -129,7 +129,7 @@ function captureDealLineSnapshot(line: CustomerDealLine, deal: CustomerDeal): De
 }
 
 async function loadDealLineSnapshot(em: EntityManager, id: string): Promise<DealLineSnapshot | null> {
-  const line = await em.findOne(CustomerDealLine, { id }, { populate: ['deal'] })
+  const line = await em.findOne(CustomerDealLine, { id, deletedAt: null }, { populate: ['deal'] })
   if (!line) return null
   const deal = line.deal as CustomerDeal
   return captureDealLineSnapshot(line, deal)
@@ -630,6 +630,14 @@ const reorderDealLinesCommand: CommandHandler<DealLineReorderInput, { reordered:
 
     if (updated > 0) {
       await em.flush()
+
+      await emitCustomersEvent('customers.deal.line.reordered', {
+        dealId: deal.id,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        lineIds: parsed.lineIds,
+        updatedCount: updated,
+      })
     }
 
     return { reordered: updated }

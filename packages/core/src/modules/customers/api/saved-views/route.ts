@@ -115,14 +115,18 @@ export async function POST(request: Request) {
     const parsed = createSchema.parse(body)
 
     if (parsed.isShared) {
-      await checkFeature(container, auth, ['customers.saved-views.manage'])
+      await checkFeature(container, auth, ['customers.savedViews.manage'])
+    }
+
+    if (!auth.orgId || !auth.tenantId || !auth.sub) {
+      return NextResponse.json({ error: 'Missing required auth context (orgId, tenantId, or sub)' }, { status: 400 })
     }
 
     const em = (container.resolve('em') as EntityManager)
     const view = em.create(CustomerSavedView, {
-      organizationId: auth.orgId!,
-      tenantId: auth.tenantId!,
-      userId: auth.sub!,
+      organizationId: auth.orgId,
+      tenantId: auth.tenantId,
+      userId: auth.sub,
       entityType: parsed.entityType,
       name: parsed.name,
       filters: parsed.filters,
@@ -138,7 +142,9 @@ export async function POST(request: Request) {
       await em.nativeUpdate(
         CustomerSavedView,
         {
-          userId: auth.sub!,
+          userId: auth.sub,
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId,
           entityType: parsed.entityType,
           isDefault: true,
           id: { $ne: view.id },
@@ -174,7 +180,7 @@ export async function PUT(request: Request) {
     const parsed = updateSchema.parse(body)
 
     const em = (container.resolve('em') as EntityManager)
-    const view = await em.findOne(CustomerSavedView, { id: parsed.id, deletedAt: null })
+    const view = await em.findOne(CustomerSavedView, { id: parsed.id, tenantId: auth.tenantId, deletedAt: null })
     if (!view) {
       return NextResponse.json({ error: 'View not found' }, { status: 404 })
     }
@@ -184,7 +190,7 @@ export async function PUT(request: Request) {
     }
 
     if (view.isShared || parsed.isShared) {
-      await checkFeature(container, auth, ['customers.saved-views.manage'])
+      await checkFeature(container, auth, ['customers.savedViews.manage'])
     }
 
     if (parsed.name !== undefined) view.name = parsed.name
@@ -200,6 +206,8 @@ export async function PUT(request: Request) {
         CustomerSavedView,
         {
           userId: view.userId,
+          tenantId: auth.tenantId,
+          organizationId: view.organizationId,
           entityType: view.entityType,
           isDefault: true,
           id: { $ne: view.id },
@@ -232,7 +240,7 @@ export async function DELETE(request: Request) {
     const parsed = deleteSchema.parse(body)
 
     const em = (container.resolve('em') as EntityManager)
-    const view = await em.findOne(CustomerSavedView, { id: parsed.id, deletedAt: null })
+    const view = await em.findOne(CustomerSavedView, { id: parsed.id, tenantId: auth.tenantId, deletedAt: null })
     if (!view) {
       return NextResponse.json({ error: 'View not found' }, { status: 404 })
     }
@@ -241,7 +249,7 @@ export async function DELETE(request: Request) {
       if (!view.isShared) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 })
       }
-      await checkFeature(container, auth, ['customers.saved-views.manage'])
+      await checkFeature(container, auth, ['customers.savedViews.manage'])
     }
 
     view.deletedAt = new Date()

@@ -72,6 +72,13 @@ export function formatRelativeTime(isoDate: string): string {
   const then = new Date(isoDate).getTime()
   if (!Number.isFinite(then)) return isoDate
   const diffMs = now - then
+  if (diffMs < 0) {
+    const absDiffSec = Math.abs(diffMs) / 1000
+    if (absDiffSec < 60) return 'in <1m'
+    if (absDiffSec < 3600) return `in ${Math.round(absDiffSec / 60)}m`
+    if (absDiffSec < 86400) return `in ${Math.round(absDiffSec / 3600)}h`
+    return `in ${Math.round(absDiffSec / 86400)}d`
+  }
   const diffSec = Math.floor(diffMs / 1000)
   if (diffSec < 60) return 'just now'
   const diffMin = Math.floor(diffSec / 60)
@@ -99,6 +106,7 @@ export function formatFieldValue(value: unknown): string {
 }
 
 export function formatDuration(seconds: number): string {
+  if (seconds <= 0) return '< 1m'
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)

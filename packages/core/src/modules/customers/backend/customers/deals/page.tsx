@@ -319,7 +319,7 @@ export default function CustomersDealsPage() {
       if (!call.ok) return
       const items = Array.isArray(call.result?.items) ? call.result.items : []
       setSavedViews(items)
-    } catch {}
+    } catch (error) { console.warn('Failed to fetch saved views', error) }
   }, [])
 
   React.useEffect(() => {
@@ -1007,8 +1007,8 @@ export default function CustomersDealsPage() {
       }
     })
     const averageProbability = probabilityCount > 0 ? probabilitySum / probabilityCount : null
-    return { totalValue, averageProbability, dealCount: total }
-  }, [rows, total])
+    return { totalValue, averageProbability, dealCount: rows.length }
+  }, [rows])
 
   return (
     <Page>

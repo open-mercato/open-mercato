@@ -8,4 +8,8 @@ export class Migration20260307033117 extends Migration {
     this.addSql(`create index "customer_saved_views_user_idx" on "customer_saved_views" ("user_id", "entity_type");`);
   }
 
+  override async down(): Promise<void> {
+    this.addSql('drop table if exists "customer_saved_views" cascade;');
+  }
+
 }

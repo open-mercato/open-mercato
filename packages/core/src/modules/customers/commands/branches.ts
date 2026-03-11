@@ -116,7 +116,7 @@ const createBranchCommand: CommandHandler<BranchCreateInput, { branchId: string 
       name: parsed.name,
       branchType: parsed.branchType ?? null,
       specialization: parsed.specialization ?? null,
-      budget: toNumericString(parsed.budget),
+      budget: parsed.budget ?? null,
       headcount: parsed.headcount ?? null,
       responsiblePersonId: parsed.responsiblePersonId ?? null,
       isActive: parsed.isActive ?? true,
@@ -215,7 +215,7 @@ const updateBranchCommand: CommandHandler<BranchUpdateInput, { branchId: string 
     if (parsed.name !== undefined) branch.name = parsed.name
     if (parsed.branchType !== undefined) branch.branchType = parsed.branchType ?? null
     if (parsed.specialization !== undefined) branch.specialization = parsed.specialization ?? null
-    if (parsed.budget !== undefined) branch.budget = toNumericString(parsed.budget)
+    if (parsed.budget !== undefined) branch.budget = parsed.budget ?? null
     if (parsed.headcount !== undefined) branch.headcount = parsed.headcount ?? null
     if (parsed.responsiblePersonId !== undefined) branch.responsiblePersonId = parsed.responsiblePersonId ?? null
     if (parsed.isActive !== undefined) branch.isActive = parsed.isActive

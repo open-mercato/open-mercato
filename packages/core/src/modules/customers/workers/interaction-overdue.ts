@@ -14,19 +14,32 @@ type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
 }
 
-export default async function handle(_job: QueuedJob, ctx: HandlerContext): Promise<void> {
+interface OverdueJobPayload {
+  tenantId: string
+  organizationId: string
+}
+
+export default async function handle(job: QueuedJob, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
+  const payload = job.payload as OverdueJobPayload
+
+  if (!payload?.tenantId || !payload?.organizationId) {
+    console.warn('[interaction-overdue] Missing tenantId or organizationId in job payload, skipping')
+    return
+  }
 
   const activities = await findWithDecryption(
     em,
     CustomerActivity,
     {
+      organizationId: payload.organizationId,
+      tenantId: payload.tenantId,
       dueAt: { $lt: new Date(), $ne: null },
       isOverdue: false,
       occurredAt: null,
     },
     { limit: 100 },
-    {},
+    { tenantId: payload.tenantId, organizationId: payload.organizationId },
   )
 
   if (activities.length === 0) {

@@ -14,4 +14,9 @@ export class Migration20260307041758 extends Migration {
     this.addSql(`create index "customer_deal_mentions_user_idx" on "customer_deal_mentions" ("mentioned_user_id", "is_read");`);
   }
 
+  override async down(): Promise<void> {
+    this.addSql('drop table if exists "customer_deal_mentions" cascade;');
+    this.addSql('drop table if exists "customer_deal_emails" cascade;');
+  }
+
 }

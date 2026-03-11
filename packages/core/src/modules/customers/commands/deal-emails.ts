@@ -1,10 +1,15 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerDealEmail } from '../data/entities'
 import { dealEmailSendSchema } from '../data/validators'
 import { emitCustomersEvent } from '../events'
+import {
+  ensureOrganizationScope,
+  ensureTenantScope,
+} from './shared'
 import type { EmailProviderAdapter } from '../lib/email/adapter'
 import type { z } from 'zod'
 
@@ -16,6 +21,9 @@ const sendDealEmailHandler: CommandHandler<DealEmailSendInput, { emailId: string
 
   async execute(input, ctx) {
     const parsed = dealEmailSendSchema.parse(input)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const deal = await findOneWithDecryption(
@@ -25,22 +33,26 @@ const sendDealEmailHandler: CommandHandler<DealEmailSendInput, { emailId: string
         id: parsed.dealId,
         organizationId: parsed.organizationId,
         tenantId: parsed.tenantId,
+        deletedAt: null,
       },
       {},
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!deal) {
-      throw new Error('Deal not found')
+      throw new CrudHttpError(404, { error: 'Deal not found' })
     }
 
     let adapter: EmailProviderAdapter
     try {
       adapter = ctx.container.resolve('emailProviderAdapter') as EmailProviderAdapter
     } catch {
-      throw new Error('Email provider adapter is not configured. Please set up email integration in CRM settings.')
+      throw new CrudHttpError(422, { error: 'Email provider adapter is not configured. Please set up email integration in CRM settings.' })
     }
 
-    const senderEmail = String(ctx.auth?.email ?? 'noreply@open-mercato.local')
+    if (!ctx.auth?.email) {
+      throw new CrudHttpError(400, { error: 'Authenticated user email is required to send deal emails' })
+    }
+    const senderEmail = String(ctx.auth.email)
     const senderName: string | undefined = ctx.auth?.name ? String(ctx.auth.name) : undefined
 
     const sendResult = await adapter.send({

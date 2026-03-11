@@ -7,6 +7,7 @@ import { CustomerDeal } from '../../../../../data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 
 const paramsSchema = z.object({
@@ -60,12 +61,18 @@ export async function POST(request: Request, context: { params?: Record<string, 
     await checkFeature(container, auth, ['customers.deals.manage'])
 
     const em = (container.resolve('em') as EntityManager)
-    const deal = await em.findOne(CustomerDeal, { id: parsedParams.data.id, deletedAt: null })
-    if (!deal) {
-      return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
     }
-
-    if (auth.tenantId && deal.tenantId && auth.tenantId !== deal.tenantId) {
+    const deal = await findOneWithDecryption(
+      em,
+      CustomerDeal,
+      { id: parsedParams.data.id, deletedAt: null, tenantId: auth.tenantId, organizationId: auth.orgId },
+      {},
+      decryptionScope,
+    )
+    if (!deal) {
       return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
     }
 

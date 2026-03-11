@@ -55,7 +55,7 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         specialization: { dbColumn: 'specialization', type: 'text' },
         budget: { dbColumn: 'budget', type: 'numeric' },
         headcount: { dbColumn: 'headcount', type: 'numeric' },
-        isActive: { dbColumn: 'is_active', type: 'text' },
+        isActive: { dbColumn: 'is_active', type: 'boolean' },
         createdAt: { dbColumn: 'created_at', type: 'timestamp' },
       },
       labelResolvers: {

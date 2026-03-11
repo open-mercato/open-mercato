@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -81,8 +80,8 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       dueAt: 'due_at',
     },
-    buildFilters: async (query: any) => {
-      const filters: Record<string, any> = {}
+    buildFilters: async (query: z.infer<typeof listSchema>) => {
+      const filters: Record<string, unknown> = {}
       if (query.entityId) filters.entity_id = { $eq: query.entityId }
       if (query.dealId) filters.deal_id = { $eq: query.dealId }
       if (query.activityType) filters.activity_type = { $eq: query.activityType }
@@ -243,21 +242,21 @@ const crud = makeCrudRoute({
       })
       if (normalizedValues.size) {
         try {
-          const em = ctx.container.resolve('em') as any
+          const em = ctx.container.resolve('em') as EntityManager
           const normalizedList = Array.from(normalizedValues)
           const orgList = Array.from(organizationIds)
           const where: Record<string, unknown> = {
             kind: 'activity_type',
-            normalizedValue: { $in: normalizedList as any },
+            normalizedValue: { $in: normalizedList },
           }
           const andClauses: Record<string, unknown>[] = []
           if (tenantId) {
-            andClauses.push({ $or: [{ tenantId: tenantId as any }, { tenantId: null }] })
+            andClauses.push({ $or: [{ tenantId }, { tenantId: null }] })
           } else {
             andClauses.push({ tenantId: null })
           }
           if (orgList.length) {
-            andClauses.push({ $or: [{ organizationId: { $in: orgList as any } }, { organizationId: null }] })
+            andClauses.push({ $or: [{ organizationId: { $in: orgList } }, { organizationId: null }] })
           } else {
             andClauses.push({ organizationId: null })
           }
@@ -342,7 +341,7 @@ const crud = makeCrudRoute({
       )
       if (authorIds.length) {
         try {
-          const em = ctx.container.resolve('em') as any
+          const em = ctx.container.resolve('em') as EntityManager
           const users = await em.find(User, { id: { $in: authorIds } })
           const map = new Map<string, { name: string | null; email: string | null }>()
           users.forEach((user: User) => {
