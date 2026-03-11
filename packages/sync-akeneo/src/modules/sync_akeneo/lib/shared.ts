@@ -44,6 +44,15 @@ export type AkeneoMediaMapping = {
   kind: AkeneoMediaKind
 }
 
+export type AkeneoFieldsetMapping = {
+  sourceType: 'family' | 'familyVariant'
+  sourceCode: string
+  target: 'product' | 'variant'
+  fieldsetCode: string
+  fieldsetLabel: string
+  description?: string | null
+}
+
 export type AkeneoReconciliationSettings = {
   deactivateMissingCategories: boolean
   deactivateMissingProducts: boolean
@@ -61,6 +70,8 @@ export type AkeneoProductMappingSettings = {
   customFieldMappings: AkeneoCustomFieldMapping[]
   priceMappings: AkeneoPriceMapping[]
   mediaMappings: AkeneoMediaMapping[]
+  fieldsetMappings: AkeneoFieldsetMapping[]
+  createMissingChannels: boolean
   syncAssociations: boolean
   reconciliation: AkeneoReconciliationSettings
 }
@@ -287,6 +298,8 @@ export function buildDefaultAkeneoMapping(entityType: AkeneoEntityType): AkeneoD
         kind: 'file',
       },
     ],
+    fieldsetMappings: [],
+    createMissingChannels: true,
     syncAssociations: true,
     reconciliation: buildDefaultReconciliationSettings(),
   }
@@ -357,6 +370,12 @@ export function slugifyAkeneoCode(value: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 150)
+}
+
+export function buildAkeneoFieldsetCode(target: 'product' | 'variant', sourceCode: string | null): string | null {
+  if (!sourceCode) return null
+  const slug = slugifyAkeneoCode(`akeneo-${target}-${sourceCode}`).replace(/-/g, '_')
+  return slug.length > 0 ? slug.slice(0, 80) : null
 }
 
 export function safeRecord(value: unknown): Record<string, unknown> | null {
@@ -432,6 +451,34 @@ function normalizeMediaMappings(value: unknown): AkeneoMediaMapping[] {
     .filter((entry): entry is AkeneoMediaMapping => Boolean(entry))
 }
 
+function normalizeFieldsetMappings(value: unknown): AkeneoFieldsetMapping[] {
+  if (!Array.isArray(value)) return []
+  const normalized: AkeneoFieldsetMapping[] = []
+  for (const entry of value) {
+    if (!isRecord(entry)) continue
+    const sourceType = entry.sourceType === 'familyVariant'
+      ? 'familyVariant'
+      : entry.sourceType === 'family'
+        ? 'family'
+        : null
+    const sourceCode = readTrimmedString(entry.sourceCode)
+    const target = entry.target === 'variant' ? 'variant' : entry.target === 'product' ? 'product' : null
+    const fieldsetCode = readTrimmedString(entry.fieldsetCode)
+    const fieldsetLabel = readTrimmedString(entry.fieldsetLabel)
+    const description = readTrimmedString(entry.description)
+    if (!sourceType || !sourceCode || !target || !fieldsetCode || !fieldsetLabel) continue
+    normalized.push({
+      sourceType,
+      sourceCode,
+      target,
+      fieldsetCode,
+      fieldsetLabel,
+      description,
+    })
+  }
+  return normalized
+}
+
 function normalizeReconciliationSettings(value: unknown, fallback: AkeneoReconciliationSettings): AkeneoReconciliationSettings {
   if (!isRecord(value)) return fallback
   return {
@@ -488,6 +535,10 @@ function normalizeAkeneoSettings(
         customFieldMappings: normalizeCustomFieldMappings(productsRaw.customFieldMappings ?? fallbackProducts.customFieldMappings),
         priceMappings: normalizePriceMappings(productsRaw.priceMappings ?? fallbackProducts.priceMappings),
         mediaMappings: normalizeMediaMappings(productsRaw.mediaMappings ?? fallbackProducts.mediaMappings),
+        fieldsetMappings: normalizeFieldsetMappings(productsRaw.fieldsetMappings ?? fallbackProducts.fieldsetMappings),
+        createMissingChannels: typeof productsRaw.createMissingChannels === 'boolean'
+          ? productsRaw.createMissingChannels
+          : fallbackProducts.createMissingChannels,
         syncAssociations: typeof productsRaw.syncAssociations === 'boolean'
           ? productsRaw.syncAssociations
           : fallbackProducts.syncAssociations,

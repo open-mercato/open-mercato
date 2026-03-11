@@ -53,6 +53,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
     async startJob(jobId, ctx) {
       const job = await em.findOneOrFail(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      if (job.status === 'cancelled') {
+        return job
+      }
 
       job.status = 'running'
       job.startedAt = new Date()
@@ -71,6 +74,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
     async updateProgress(jobId, input, ctx) {
       const job = await em.findOneOrFail(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+        return job
+      }
 
       if (input.processedCount !== undefined) {
         job.processedCount = input.processedCount
@@ -109,6 +115,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
     async incrementProgress(jobId, delta, ctx) {
       const job = await em.findOneOrFail(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+        return job
+      }
 
       job.processedCount += delta
       job.heartbeatAt = new Date()
@@ -134,6 +143,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     async completeJob(jobId, input, ctx) {
       const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
       if (!job) throw new Error(`Job ${jobId} not found`)
+      if (job.status === 'cancelled') {
+        return job
+      }
 
       job.status = 'completed'
       job.finishedAt = new Date()
@@ -158,6 +170,9 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     async failJob(jobId, input, ctx) {
       const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
       if (!job) throw new Error(`Job ${jobId} not found`)
+      if (job.status === 'cancelled') {
+        return job
+      }
 
       job.status = 'failed'
       job.finishedAt = new Date()
@@ -191,6 +206,30 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         job.status = 'cancelled'
         job.finishedAt = new Date()
       }
+
+      await em.flush()
+
+      await eventBus.emit(PROGRESS_EVENTS.JOB_CANCELLED, {
+        ...buildJobPayload(job),
+        tenantId: ctx.tenantId,
+        organizationId: job.organizationId ?? null,
+      })
+
+      return job
+    },
+
+    async markCancelled(jobId, ctx) {
+      const job = await em.findOne(ProgressJob, { id: jobId, tenantId: ctx.tenantId })
+      if (!job) throw new Error(`Job ${jobId} not found`)
+      if (job.status === 'cancelled') {
+        return job
+      }
+
+      job.cancelRequestedAt = job.cancelRequestedAt ?? new Date()
+      job.cancelledByUserId = ctx.userId
+      job.status = 'cancelled'
+      job.finishedAt = job.finishedAt ?? new Date()
+      job.etaSeconds = 0
 
       await em.flush()
 

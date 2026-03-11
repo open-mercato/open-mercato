@@ -37,6 +37,75 @@ function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/g, '')
 }
 
+export function normalizeAkeneoDateTime(value: string | null | undefined): string | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null
+  const trimmed = value.trim()
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed
+  }
+
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+
+  const year = parsed.getUTCFullYear()
+  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getUTCDate()).padStart(2, '0')
+  const hours = String(parsed.getUTCHours()).padStart(2, '0')
+  const minutes = String(parsed.getUTCMinutes()).padStart(2, '0')
+  const seconds = String(parsed.getUTCSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
+export function sanitizeAkeneoProductNextUrl(nextUrl: string): string {
+  let url: URL
+  try {
+    url = new URL(nextUrl)
+  } catch {
+    return nextUrl
+  }
+
+  const rawSearch = url.searchParams.get('search')
+  if (!rawSearch) {
+    return url.toString()
+  }
+
+  try {
+    const parsed = JSON.parse(rawSearch) as Record<string, unknown>
+    const updatedFilters = Array.isArray(parsed.updated) ? parsed.updated : []
+    const sanitizedUpdated = updatedFilters
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null
+        const record = entry as Record<string, unknown>
+        const normalizedValue = normalizeAkeneoDateTime(
+          typeof record.value === 'string' ? record.value : null,
+        )
+        if (!normalizedValue) return null
+        return {
+          ...record,
+          value: normalizedValue,
+        }
+      })
+      .filter((entry) => entry !== null) as Record<string, unknown>[]
+
+    if (sanitizedUpdated.length === 0) {
+      delete parsed.updated
+    } else {
+      parsed.updated = sanitizedUpdated
+    }
+
+    if (Object.keys(parsed).length === 0) {
+      url.searchParams.delete('search')
+    } else {
+      url.searchParams.set('search', JSON.stringify(parsed))
+    }
+    return url.toString()
+  } catch {
+    return nextUrl
+  }
+}
+
 function coerceCredentials(credentials: Record<string, unknown>): AkeneoCredentialShape {
   const apiUrl = typeof credentials.apiUrl === 'string' ? credentials.apiUrl.trim() : ''
   const clientId = typeof credentials.clientId === 'string' ? credentials.clientId.trim() : ''
@@ -281,24 +350,33 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     updatedAfter?: string | null
   }): Promise<{ items: AkeneoProduct[]; nextUrl: string | null; totalEstimate: number | null }> {
     if (options.nextUrl) {
-      return readList<AkeneoProduct>(options.nextUrl)
+      const page = await readList<AkeneoProduct>(sanitizeAkeneoProductNextUrl(options.nextUrl))
+      return {
+        ...page,
+        nextUrl: page.nextUrl ? sanitizeAkeneoProductNextUrl(page.nextUrl) : null,
+      }
     }
     const params: Record<string, string | number | boolean | undefined | null> = {
       limit: Math.min(Math.max(options.batchSize, 1), 100),
       pagination_type: 'search_after',
       with_count: false,
     }
-    if (options.updatedAfter) {
+    const normalizedUpdatedAfter = normalizeAkeneoDateTime(options.updatedAfter)
+    if (normalizedUpdatedAfter) {
       params.search = JSON.stringify({
         updated: [
           {
             operator: '>',
-            value: options.updatedAfter,
+            value: normalizedUpdatedAfter,
           },
         ],
       })
     }
-    return readList<AkeneoProduct>('/api/rest/v1/products-uuid', params)
+    const page = await readList<AkeneoProduct>('/api/rest/v1/products-uuid', params)
+    return {
+      ...page,
+      nextUrl: page.nextUrl ? sanitizeAkeneoProductNextUrl(page.nextUrl) : null,
+    }
   }
 
   async function listCategories(nextUrl?: string | null, batchSize = 100): Promise<{ items: AkeneoCategory[]; nextUrl: string | null; totalEstimate: number | null }> {

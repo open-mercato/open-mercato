@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataMapping } from '@open-mercato/core/modules/data_sync/lib/adapter'
 import type { ExternalIdMappingService } from '@open-mercato/core/modules/data_sync/lib/id-mapping'
@@ -19,15 +19,20 @@ import {
   CatalogProductVariantRelation,
 } from '@open-mercato/core/modules/catalog/data/entities'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { CustomFieldDef, CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
+import { normalizeEntityFieldsetConfig, type CustomFieldsetDefinition } from '@open-mercato/core/modules/entities/lib/fieldsets'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { deletePartitionFile, storePartitionFile } from '@open-mercato/core/modules/attachments/lib/storage'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'
 import { mergeAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
+import { emitCatalogQueryIndexEvent } from '@open-mercato/core/modules/catalog/commands/shared'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
 import type { CustomFieldDefinition } from '@open-mercato/shared/modules/entities'
 import {
+  buildAkeneoFieldsetCode,
+  buildProductFieldMappings,
   dedupeStrings,
   labelFromLocalizedRecord,
   safeRecord,
@@ -38,12 +43,16 @@ import {
   type AkeneoDataMapping,
   type AkeneoFamily,
   type AkeneoFamilyVariant,
+  type AkeneoFieldsetMapping,
   type AkeneoProduct,
   type AkeneoProductMappingSettings,
   type AkeneoReconciliationSettings,
   type AkeneoValues,
+  buildDefaultAkeneoMapping,
 } from './shared'
 import type { AkeneoClient } from './client'
+import { inferAkeneoProductMapping } from './inference'
+import { normalizeMarkdownText } from './markdown'
 
 type ImportScope = {
   organizationId: string
@@ -106,6 +115,11 @@ type DesiredAsset = {
   recordId: string
   kind: 'image' | 'file'
   remote: MediaReference
+}
+
+type AkeneoFieldsetPlan = {
+  product: CustomFieldsetDefinition | null
+  variant: CustomFieldsetDefinition | null
 }
 
 const PRODUCT_ENTITY_ID = 'catalog:catalog_product'
@@ -350,9 +364,9 @@ function resolveCustomFieldValue(value: unknown, attribute: AkeneoAttribute, kin
   if (kind === 'boolean') return coerceBoolean(value)
   if (kind === 'integer') return coerceNumber(value) === null ? null : Math.trunc(Number(value))
   if (kind === 'float') return attribute.type === 'pim_catalog_metric' ? coerceMetricAmount(value) : coerceNumber(value)
-  if (kind === 'multiline') return coerceString(value)
+  if (kind === 'multiline') return normalizeMarkdownText(coerceString(value))
   if (kind === 'text') {
-    if (typeof value === 'string') return value.trim()
+    if (typeof value === 'string') return normalizeMarkdownText(value)
     if (typeof value === 'number' || typeof value === 'boolean') return String(value)
     return value ? JSON.stringify(value) : null
   }
@@ -371,6 +385,143 @@ function relationTypeFromAssociation(associationType: string): 'bundle' | 'group
   return normalized.includes('pack') || normalized.includes('bundle') ? 'bundle' : 'grouped'
 }
 
+function titleizeCode(value: string): string {
+  return value
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function findFieldsetMapping(
+  mappings: AkeneoFieldsetMapping[],
+  target: 'product' | 'variant',
+  sourceType: 'family' | 'familyVariant',
+  sourceCode: string | null,
+): AkeneoFieldsetMapping | null {
+  if (!sourceCode) return null
+  return mappings.find((entry) => (
+    entry.target === target
+    && entry.sourceType === sourceType
+    && entry.sourceCode === sourceCode
+  )) ?? null
+}
+
+function applyFieldsetOverride(
+  fallback: CustomFieldsetDefinition | null,
+  override: AkeneoFieldsetMapping | null,
+): CustomFieldsetDefinition | null {
+  if (!fallback || !override) return fallback
+  return {
+    ...fallback,
+    code: override.fieldsetCode,
+    label: override.fieldsetLabel,
+    description: override.description ?? fallback.description,
+  }
+}
+
+function collectFieldsetGroups(attributes: AkeneoAttribute[], locale: string): NonNullable<CustomFieldsetDefinition['groups']> | undefined {
+  const groups = dedupeStrings(attributes.map((attribute) => attribute.group))
+    .map((groupCode) => {
+      const attribute = attributes.find((entry) => entry.group === groupCode)
+      return {
+        code: normalizeFieldKey(groupCode),
+        title: attribute?.group_labels
+          ? labelFromLocalizedRecord(attribute.group_labels, locale, groupCode)
+          : titleizeCode(groupCode),
+      }
+    })
+    .filter((group) => group.code.length > 0)
+  return groups.length > 0 ? groups : undefined
+}
+
+function buildFieldsetPlan(params: {
+  family: AkeneoFamily | null
+  familyVariant: AkeneoFamilyVariant | null
+  productAttributes: AkeneoAttribute[]
+  variantAttributes: AkeneoAttribute[]
+  locale: string
+  fieldsetMappings: AkeneoFieldsetMapping[]
+}): AkeneoFieldsetPlan {
+  const productFallbackCode = buildAkeneoFieldsetCode('product', params.family?.code ?? null)
+  const variantFallbackCode = buildAkeneoFieldsetCode('variant', params.familyVariant?.code ?? params.family?.code ?? null)
+
+  const productFallback = productFallbackCode && params.productAttributes.length > 0
+    ? {
+        code: productFallbackCode,
+        label: labelFromLocalizedRecord(params.family?.labels ?? null, params.locale, params.family?.code ?? 'Akeneo product'),
+        description: params.family
+          ? `Akeneo family ${params.family.code}`
+          : 'Akeneo-imported product attributes',
+        groups: collectFieldsetGroups(params.productAttributes, params.locale),
+      }
+    : null
+  const variantFallback = variantFallbackCode && params.variantAttributes.length > 0
+    ? {
+        code: variantFallbackCode,
+        label: labelFromLocalizedRecord(
+          params.familyVariant?.labels ?? params.family?.labels ?? null,
+          params.locale,
+          params.familyVariant?.code ?? params.family?.code ?? 'Akeneo variant',
+        ),
+        description: params.familyVariant?.code
+          ? `Akeneo family variant ${params.familyVariant.code}`
+          : params.family?.code
+            ? `Akeneo variant attributes for family ${params.family.code}`
+            : 'Akeneo-imported variant attributes',
+        groups: collectFieldsetGroups(params.variantAttributes, params.locale),
+      }
+    : null
+
+  return {
+    product: applyFieldsetOverride(
+      productFallback,
+      findFieldsetMapping(params.fieldsetMappings, 'product', 'family', params.family?.code ?? null),
+    ),
+    variant: applyFieldsetOverride(
+      variantFallback,
+      findFieldsetMapping(params.fieldsetMappings, 'variant', 'familyVariant', params.familyVariant?.code ?? null)
+        ?? findFieldsetMapping(params.fieldsetMappings, 'variant', 'family', params.family?.code ?? null),
+    ),
+  }
+}
+
+function dedupeCustomFieldMappings(items: Array<{ attributeCode: string; fieldKey: string; target: 'product' | 'variant'; kind?: AkeneoCustomFieldKind | null }>) {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const key = `${item.target}:${item.attributeCode}:${item.fieldKey}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function dedupeMediaMappings(items: Array<{ attributeCode: string; target: 'product' | 'variant'; kind: 'image' | 'file' }>) {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const key = `${item.target}:${item.kind}:${item.attributeCode}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function collectValueScopes(layers: AkeneoValues[], attributeCode: string): Array<string | null> {
+  const seen = new Set<string>()
+  const scopes: Array<string | null> = []
+  for (const layer of layers) {
+    const entries = Array.isArray(layer?.[attributeCode]) ? layer[attributeCode] : []
+    for (const entry of entries) {
+      const scope = coerceString(entry?.scope)
+      const key = scope ?? '__null__'
+      if (seen.has(key)) continue
+      seen.add(key)
+      scopes.push(scope)
+    }
+  }
+  return scopes
+}
+
 export async function createAkeneoImporter(client: AkeneoClient, scope: ImportScope) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
@@ -382,6 +533,9 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   const channelCache = new Map<string, Promise<{ id: string; code: string } | null>>()
   const priceKindCache = new Map<string, Promise<{ id: string; code: string; displayMode: string } | null>>()
   const customFieldSyncCache = new Map<string, Promise<CustomFieldSyncItem[]>>()
+  const preferredChannelCodeCache = new Map<string, Promise<string | null>>()
+  const preferredPriceKindCodeCache = new Map<string, Promise<string | null>>()
+  const defaultProductSettings = buildDefaultAkeneoMapping('products').settings?.products
 
   function buildCommandContext(): CommandRuntimeContext {
     return {
@@ -396,6 +550,25 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       selectedOrganizationId: scope.organizationId,
       organizationIds: [scope.organizationId],
     }
+  }
+
+  async function emitAttachmentCrudChange(
+    action: 'created' | 'updated' | 'deleted',
+    attachment: Attachment,
+  ): Promise<void> {
+    await emitCrudSideEffects({
+      dataEngine,
+      action,
+      entity: attachment,
+      identifiers: {
+        id: attachment.id,
+        organizationId: attachment.organizationId ?? null,
+        tenantId: attachment.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
   }
 
   async function executeCommand<TResult>(commandId: string, input: Record<string, unknown>): Promise<TResult> {
@@ -478,11 +651,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return categoryCache.get(code) ?? null
   }
 
-  async function resolveChannel(code: string): Promise<{ id: string; code: string } | null> {
+  async function resolveChannel(code: string, options?: { createIfMissing?: boolean; label?: string | null }): Promise<{ id: string; code: string } | null> {
     const normalizedCode = code.trim().toLowerCase()
     if (!normalizedCode) return null
-    if (!channelCache.has(normalizedCode)) {
-      channelCache.set(normalizedCode, (async () => {
+    const cacheKey = `${normalizedCode}:${options?.createIfMissing ? 'create' : 'read'}:${options?.label ?? ''}`
+    if (!channelCache.has(cacheKey)) {
+      channelCache.set(cacheKey, (async () => {
         const channel = await em.findOne(SalesChannel, {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
@@ -490,10 +664,29 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           deletedAt: null,
           isActive: true,
         })
-        return channel ? { id: channel.id, code: channel.code ?? normalizedCode } : null
+        if (channel) {
+          return { id: channel.id, code: channel.code ?? normalizedCode }
+        }
+        if (!options?.createIfMissing) return null
+
+        const created = await executeCommand<{ channelId: string }>('sales.channels.create', {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          name: options.label?.trim() || titleizeCode(normalizedCode),
+          code: normalizedCode,
+          metadata: {
+            source: 'akeneo',
+            autoCreatedBy: 'sync_akeneo',
+          },
+          isActive: true,
+        })
+        return {
+          id: created.channelId,
+          code: normalizedCode,
+        }
       })())
     }
-    return channelCache.get(normalizedCode) ?? null
+    return channelCache.get(cacheKey) ?? null
   }
 
   async function resolvePriceKind(code: string): Promise<{ id: string; code: string; displayMode: string } | null> {
@@ -517,6 +710,83 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       })())
     }
     return priceKindCache.get(normalizedCode) ?? null
+  }
+
+  async function resolvePreferredLocalChannelCode(): Promise<string | null> {
+    const cacheKey = 'preferred'
+    if (!preferredChannelCodeCache.has(cacheKey)) {
+      preferredChannelCodeCache.set(cacheKey, (async () => {
+        const channels = await em.find(SalesChannel, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+          isActive: true,
+        }, {
+          orderBy: { createdAt: 'asc' },
+        })
+        const preferredCodes = ['web', 'online', 'ecommerce', 'default']
+        for (const preferredCode of preferredCodes) {
+          const match = channels.find((channel) => (channel.code ?? '').trim().toLowerCase() === preferredCode)
+          if (match?.code) return match.code
+        }
+        return channels.find((channel) => typeof channel.code === 'string' && channel.code.trim().length > 0)?.code ?? null
+      })())
+    }
+    return preferredChannelCodeCache.get(cacheKey) ?? null
+  }
+
+  async function resolvePreferredPriceKindCode(): Promise<string | null> {
+    const cacheKey = 'preferred'
+    if (!preferredPriceKindCodeCache.has(cacheKey)) {
+      preferredPriceKindCodeCache.set(cacheKey, (async () => {
+        const priceKinds = await em.find(CatalogPriceKind, {
+          tenantId: scope.tenantId,
+          deletedAt: null,
+          isActive: true,
+        }, {
+          orderBy: { createdAt: 'asc' },
+        })
+        const preferredCodes = ['regular', 'sale', 'base', 'default']
+        for (const preferredCode of preferredCodes) {
+          const match = priceKinds.find((priceKind) => priceKind.code.trim().toLowerCase() === preferredCode)
+          if (match) return match.code
+        }
+        return priceKinds[0]?.code ?? null
+      })())
+    }
+    return preferredPriceKindCodeCache.get(cacheKey) ?? null
+  }
+
+  async function ensureEntityFieldsetConfig(entityId: string, fieldset: CustomFieldsetDefinition | null): Promise<void> {
+    if (!fieldset) return
+    let config = await em.findOne(CustomFieldEntityConfig, {
+      entityId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    })
+    if (!config) {
+      config = em.create(CustomFieldEntityConfig, {
+        entityId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    }
+
+    const existing = normalizeEntityFieldsetConfig(config.configJson ?? {})
+    const remaining = existing.fieldsets.filter((entry) => entry.code !== fieldset.code)
+    config.configJson = {
+      fieldsets: [...remaining, fieldset],
+      singleFieldsetPerRecord: true,
+    }
+    config.isActive = true
+    config.deletedAt = null
+    config.updatedAt = new Date()
+    em.persist(config)
+    await em.flush()
   }
 
   async function upsertCategory(category: AkeneoCategory, locale: string): Promise<UpsertResult> {
@@ -594,10 +864,17 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     includeTextAttributes: boolean,
     includeNumericAttributes: boolean,
     locale: string,
+    attributeCodesOverride?: string[] | null,
   ): Promise<UpsertResult | null> {
-    const cacheKey = `${family.code}:${familyVariant?.code ?? 'family'}:${locale}:${includeTextAttributes}:${includeNumericAttributes}`
+    const requestedAttributeCodes = Array.isArray(attributeCodesOverride)
+      ? dedupeStrings(attributeCodesOverride)
+      : null
+    const cacheKey = `${family.code}:${familyVariant?.code ?? 'family'}:${locale}:${includeTextAttributes}:${includeNumericAttributes}:${requestedAttributeCodes ? requestedAttributeCodes.join('|') : 'all'}`
     if (!optionSchemaCache.has(cacheKey)) {
       optionSchemaCache.set(cacheKey, (async () => {
+        if (requestedAttributeCodes && requestedAttributeCodes.length === 0) {
+          return null
+        }
         const externalId = familyVariant?.code ?? family.code
         const schemaCode = slugifyAkeneoCode(`akeneo-${externalId}`)
         const mappedId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_option_schema', externalId, scope)
@@ -621,7 +898,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           ...(Array.isArray(set.attributes) ? set.attributes : []),
           ...(Array.isArray(set.axes) ? set.axes : []),
         ]) ?? []
-        const attributeCodes = dedupeStrings([...familyAttributes, ...familyVariantAttributes])
+        const attributeCodes = requestedAttributeCodes ?? dedupeStrings([...familyAttributes, ...familyVariantAttributes])
         const definitions: Record<string, unknown>[] = []
         const richAttributes: Record<string, unknown> = {}
         for (const code of attributeCodes) {
@@ -688,10 +965,18 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return optionSchemaCache.get(cacheKey) ?? null
   }
 
-  async function syncMappedCustomFields(mapping: AkeneoDataMapping, locale: string): Promise<CustomFieldSyncItem[]> {
+  async function syncMappedCustomFields(
+    mapping: AkeneoDataMapping,
+    locale: string,
+    fieldsetPlan?: AkeneoFieldsetPlan | null,
+  ): Promise<CustomFieldSyncItem[]> {
     const settings = mapping.settings?.products
     if (!settings || settings.customFieldMappings.length === 0) return []
-    const cacheKey = JSON.stringify(settings.customFieldMappings)
+    const cacheKey = JSON.stringify({
+      customFieldMappings: settings.customFieldMappings,
+      fieldsetPlan,
+      locale,
+    })
     if (!customFieldSyncCache.has(cacheKey)) {
       customFieldSyncCache.set(cacheKey, (async () => {
         const productFields: Array<CustomFieldDefinition & { sourceMetadata?: Record<string, unknown> }> = []
@@ -711,6 +996,9 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
             kind,
             label: labelFromLocalizedRecord(attribute.labels ?? null, locale, fieldMapping.fieldKey),
             description: `Akeneo attribute ${fieldMapping.attributeCode}`,
+            fieldset: fieldMapping.target === 'product'
+              ? fieldsetPlan?.product?.code
+              : fieldsetPlan?.variant?.code,
             multi: attribute.type === 'pim_catalog_multiselect' || attribute.type === 'akeneo_reference_entity_collection',
             options: options.map((option) => ({
               value: option.code,
@@ -718,6 +1006,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
             })),
             filterable: Boolean(attribute.useable_as_grid_filter),
             listVisible: false,
+            editor: kind === 'multiline' ? 'markdown' : undefined,
             validation: buildValidationRules(attribute),
             group: attribute.group ? {
               code: normalizeFieldKey(attribute.group),
@@ -759,6 +1048,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
           })
+          await Promise.all([
+            ensureEntityFieldsetConfig(PRODUCT_ENTITY_ID, fieldsetPlan?.product ?? null),
+            ensureEntityFieldsetConfig(VARIANT_ENTITY_ID, fieldsetPlan?.variant ?? null),
+          ])
         }
 
         return items
@@ -774,6 +1067,176 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     includeNumericAttributes: boolean,
   ): Promise<UpsertResult | null> {
     return ensureOptionSchemaForFamily(family, null, includeTextAttributes, includeNumericAttributes, locale)
+  }
+
+  async function resolveAutoLocalChannelCode(
+    akeneoChannel: string | null,
+    fallbackChannelCode: string | null,
+    createIfMissing: boolean,
+  ): Promise<string | null> {
+    if (akeneoChannel) {
+      const exact = await resolveChannel(akeneoChannel, {
+        createIfMissing,
+        label: titleizeCode(akeneoChannel),
+      })
+      if (exact) return exact.code
+
+      const aliases = akeneoChannel.trim().toLowerCase() === 'ecommerce'
+        ? ['web', 'online', 'default']
+        : akeneoChannel.trim().toLowerCase() === 'web'
+          ? ['ecommerce', 'online', 'default']
+          : []
+      for (const alias of aliases) {
+        const match = await resolveChannel(alias)
+        if (match) return match.code
+      }
+    }
+    return fallbackChannelCode
+  }
+
+  async function resolveAutoPriceKindCode(attributeCode: string): Promise<string | null> {
+    const normalizedCode = attributeCode.trim().toLowerCase()
+    const preferredCode = normalizedCode.includes('sale')
+      || normalizedCode.includes('promo')
+      || normalizedCode.includes('special')
+      || normalizedCode.includes('discount')
+      ? 'sale'
+      : 'regular'
+    const preferred = await resolvePriceKind(preferredCode)
+    if (preferred) return preferred.code
+    return resolvePreferredPriceKindCode()
+  }
+
+  async function buildAutomaticPriceMappings(params: {
+    hierarchy: ResolvedHierarchy
+    settings: AkeneoProductMappingSettings
+    priceAttributeCodes: string[]
+  }): Promise<AkeneoProductMappingSettings['priceMappings']> {
+    const fallbackChannelCode = await resolvePreferredLocalChannelCode()
+
+    const mappings: AkeneoProductMappingSettings['priceMappings'] = []
+    for (const attributeCode of dedupeStrings(params.priceAttributeCodes)) {
+      const priceKindCode = await resolveAutoPriceKindCode(attributeCode)
+      if (!priceKindCode) continue
+      const scopes = collectValueScopes(
+        [params.hierarchy.leafValues, params.hierarchy.mergedValues],
+        attributeCode,
+      )
+      const effectiveScopes = scopes.length > 0
+        ? scopes
+        : [params.settings.channel ?? (params.settings.createMissingChannels ? 'default' : null)]
+      for (const akeneoChannel of effectiveScopes) {
+        const localChannelCode = await resolveAutoLocalChannelCode(
+          akeneoChannel,
+          fallbackChannelCode,
+          params.settings.createMissingChannels,
+        )
+        if (!localChannelCode) continue
+        mappings.push({
+          attributeCode,
+          priceKindCode,
+          akeneoChannel,
+          localChannelCode,
+        })
+      }
+    }
+
+    const seen = new Set<string>()
+    return mappings.filter((mapping) => {
+      const key = `${mapping.attributeCode}:${mapping.priceKindCode}:${mapping.akeneoChannel ?? ''}:${mapping.localChannelCode}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
+  async function resolveProductSettings(params: {
+    mapping: AkeneoDataMapping
+    hierarchy: ResolvedHierarchy
+    family: AkeneoFamily | null
+    familyVariant: AkeneoFamilyVariant | null
+  }): Promise<{
+    settings: AkeneoProductMappingSettings
+    axisCodes: string[]
+    optionSchemaAttributeCodes: string[]
+    fieldsetPlan: AkeneoFieldsetPlan
+  }> {
+    if (!defaultProductSettings) {
+      throw new Error('Default Akeneo product mapping is not available')
+    }
+
+    const baseSettings = params.mapping.settings?.products ?? defaultProductSettings
+    const attributeCodes = dedupeStrings([
+      ...Object.keys(params.hierarchy.rootValues),
+      ...Object.keys(params.hierarchy.leafValues),
+      ...Object.keys(params.hierarchy.mergedValues),
+      ...(Array.isArray(params.family?.attributes) ? params.family.attributes : []),
+      ...(params.familyVariant?.variant_attribute_sets?.flatMap((set) => [
+        ...(Array.isArray(set.axes) ? set.axes : []),
+        ...(Array.isArray(set.attributes) ? set.attributes : []),
+      ]) ?? []),
+    ])
+    const attributes = (
+      await Promise.all(attributeCodes.map((code) => client.getAttribute(code)))
+    ).filter((attribute): attribute is AkeneoAttribute => Boolean(attribute))
+
+    const inferred = inferAkeneoProductMapping({
+      attributes,
+      family: params.family,
+      familyVariant: params.familyVariant,
+      fieldMap: baseSettings.fieldMap,
+      explicitCustomFieldMappings: baseSettings.customFieldMappings,
+      explicitMediaMappings: baseSettings.mediaMappings,
+    })
+
+    const priceMappings = baseSettings.priceMappings.length > 0
+      ? baseSettings.priceMappings
+      : await buildAutomaticPriceMappings({
+          hierarchy: params.hierarchy,
+          settings: baseSettings,
+          priceAttributeCodes: inferred.autoPriceAttributeCodes,
+        })
+
+    const explicitCustomAttributeCodes = new Set(baseSettings.customFieldMappings.map((entry) => entry.attributeCode))
+    const inferredCustomAttributeCodes = new Set(inferred.autoCustomFieldMappings.map((entry) => entry.attributeCode))
+    const productAttributes = attributes.filter((attribute) => {
+      if (!explicitCustomAttributeCodes.has(attribute.code) && !inferredCustomAttributeCodes.has(attribute.code)) return false
+      return params.familyVariant
+        ? !inferred.variantAttributeCodes.includes(attribute.code)
+        : true
+    })
+    const variantAttributes = attributes.filter((attribute) => {
+      if (!explicitCustomAttributeCodes.has(attribute.code) && !inferredCustomAttributeCodes.has(attribute.code)) return false
+      return inferred.variantAttributeCodes.includes(attribute.code)
+    })
+    const fieldsetPlan = buildFieldsetPlan({
+      family: params.family,
+      familyVariant: params.familyVariant,
+      productAttributes,
+      variantAttributes,
+      locale: baseSettings.locale,
+      fieldsetMappings: baseSettings.fieldsetMappings,
+    })
+
+    return {
+      settings: {
+        ...baseSettings,
+        fieldMap: inferred.fieldMap,
+        customFieldMappings: dedupeCustomFieldMappings([
+          ...baseSettings.customFieldMappings,
+          ...inferred.autoCustomFieldMappings,
+        ]),
+        mediaMappings: dedupeMediaMappings([
+          ...baseSettings.mediaMappings,
+          ...inferred.autoMediaMappings,
+        ]),
+        fieldsetMappings: baseSettings.fieldsetMappings,
+        priceMappings,
+      },
+      axisCodes: inferred.axisCodes,
+      optionSchemaAttributeCodes: inferred.optionSchemaAttributeCodes,
+      fieldsetPlan,
+    }
   }
 
   async function resolveProductHierarchy(product: AkeneoProduct): Promise<ResolvedHierarchy> {
@@ -834,11 +1297,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     product: AkeneoProduct
     localProductId: string
     localVariantId: string
+    fieldsetPlan?: AkeneoFieldsetPlan | null
   }): Promise<void> {
     const settings = params.mapping.settings?.products
     if (!settings || settings.customFieldMappings.length === 0) return
 
-    await syncMappedCustomFields(params.mapping, settings.locale)
+    await syncMappedCustomFields(params.mapping, settings.locale, params.fieldsetPlan)
 
     const productCustomFields: Record<string, unknown> = {}
     const variantCustomFields: Record<string, unknown> = {}
@@ -879,6 +1343,26 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         values: variantCustomFields,
       }),
     ])
+
+    if (Object.keys(productCustomFields).length > 0) {
+      await emitCatalogQueryIndexEvent(buildCommandContext(), {
+        entityType: PRODUCT_ENTITY_ID,
+        recordId: params.localProductId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        action: 'updated',
+      })
+    }
+
+    if (Object.keys(variantCustomFields).length > 0) {
+      await emitCatalogQueryIndexEvent(buildCommandContext(), {
+        entityType: VARIANT_ENTITY_ID,
+        recordId: params.localVariantId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        action: 'updated',
+      })
+    }
   }
 
   async function upsertOffersAndPrices(params: {
@@ -893,7 +1377,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }): Promise<void> {
     const desiredOffers = new Map<string, DesiredOffer>()
     for (const priceMapping of params.settings.priceMappings) {
-      const channel = await resolveChannel(priceMapping.localChannelCode)
+      const channel = await resolveChannel(priceMapping.localChannelCode, {
+        createIfMissing: params.settings.createMissingChannels,
+        label: titleizeCode(priceMapping.localChannelCode),
+      })
       const priceKind = await resolvePriceKind(priceMapping.priceKindCode)
       if (!channel || !priceKind) continue
       const akeneoChannel = priceMapping.akeneoChannel ?? params.settings.channel ?? null
@@ -913,12 +1400,17 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         params.settings.locale,
         akeneoChannel,
       )) ?? params.resolvedProductTitle
-      const description = clampString(coerceString(readLayeredValue(
-        [params.hierarchy.rootValues, params.hierarchy.mergedValues],
-        params.settings.fieldMap.description,
-        params.settings.locale,
-        akeneoChannel,
-      )) ?? params.resolvedProductDescription, 4000)
+      const description = clampString(
+        normalizeMarkdownText(
+          coerceString(readLayeredValue(
+            [params.hierarchy.rootValues, params.hierarchy.mergedValues],
+            params.settings.fieldMap.description,
+            params.settings.locale,
+            akeneoChannel,
+          )) ?? params.resolvedProductDescription,
+        ),
+        4000,
+      )
       const bucket = existingOffer ?? {
         externalId: offerExternalId,
         channelCode: channel.code,
@@ -1098,6 +1590,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       remoteCode: asset.remote.codeOrUrl,
     }
     await em.flush()
+    await emitAttachmentCrudChange('created', attachment)
     await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'attachment', attachment.id, asset.externalId, scope)
     return attachment.id
   }
@@ -1134,6 +1627,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       if (!shouldDelete || desiredExternalIds.has(externalId)) continue
       await deletePartitionFile(attachment.partitionCode, attachment.storagePath, attachment.storageDriver)
       await em.removeAndFlush(attachment)
+      await emitAttachmentCrudChange('deleted', attachment)
     }
 
     return {
@@ -1259,36 +1753,44 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }
 
   async function upsertProduct(product: AkeneoProduct, mapping: AkeneoDataMapping): Promise<Array<{ externalId: string; action: 'create' | 'update' | 'skip'; data: Record<string, unknown> }>> {
-    const settings = mapping.settings?.products as AkeneoProductMappingSettings | undefined
-    const locale = settings?.locale ?? 'en_US'
-    const channel = settings?.channel ?? null
     const family = product.family ? await client.getFamily(product.family) : null
     const hierarchy = await resolveProductHierarchy(product)
     const resolvedFamily = hierarchy.family ? await client.getFamily(hierarchy.family) : family
     const resolvedFamilyVariant = hierarchy.family && hierarchy.familyVariantCode
       ? await client.getFamilyVariant(hierarchy.family, hierarchy.familyVariantCode)
       : null
-    hierarchy.axisCodes = dedupeStrings(resolvedFamilyVariant?.variant_attribute_sets?.flatMap((set) => set.axes ?? []) ?? [])
+    const resolvedProductSettings = await resolveProductSettings({
+      mapping,
+      hierarchy,
+      family: resolvedFamily,
+      familyVariant: resolvedFamilyVariant,
+    })
+    const settings = resolvedProductSettings.settings
+    const locale = settings.locale
+    const channel = settings.channel ?? null
+    hierarchy.axisCodes = resolvedProductSettings.axisCodes
+    const productFieldsetCode = resolvedProductSettings.fieldsetPlan.product?.code ?? null
+    const variantFieldsetCode = resolvedProductSettings.fieldsetPlan.variant?.code ?? null
 
     let optionSchemaId: string | null = null
-    if (resolvedFamily) {
+    if (resolvedFamily && hierarchy.axisCodes.length > 0) {
       optionSchemaId = (await ensureOptionSchemaForFamily(
         resolvedFamily,
         resolvedFamilyVariant ?? null,
         true,
         true,
         locale,
+        resolvedProductSettings.optionSchemaAttributeCodes,
       ))?.localId ?? null
     }
-
-    const fieldMap = settings?.fieldMap ?? {
-      title: 'name',
-      subtitle: 'subtitle',
-      description: 'description',
-      sku: 'sku',
-      barcode: 'ean',
-      weight: 'weight',
-      variantName: 'name',
+    const fieldMap = settings.fieldMap
+    const derivedMapping: AkeneoDataMapping = {
+      ...mapping,
+      fields: buildProductFieldMappings(settings),
+      settings: {
+        ...(mapping.settings ?? {}),
+        products: settings,
+      },
     }
 
     const resolvedTitle = coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.title, locale, channel))
@@ -1296,7 +1798,9 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       ?? hierarchy.rootExternalId
     const resolvedSubtitle = coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.subtitle, locale, channel))
     const resolvedDescription = clampString(
-      coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.description, locale, channel)),
+      normalizeMarkdownText(
+        coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.description, locale, channel)),
+      ),
       4000,
     )
     const resolvedSku = coerceString(readLayeredValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.sku, locale, channel))
@@ -1337,6 +1841,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         quantifiedAssociations: product.quantified_associations ?? {},
         updatedAt: product.updated ?? null,
       },
+      customFieldsetCode: productFieldsetCode,
     }
 
     let localProductId: string
@@ -1413,6 +1918,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         quantifiedAssociations: product.quantified_associations ?? {},
         updatedAt: product.updated ?? null,
       },
+      customFieldsetCode: variantFieldsetCode,
     }
 
     let localVariantId: string
@@ -1434,82 +1940,81 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
     await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'catalog_product_variant', localVariantId, variantExternalId, scope)
 
-    if (settings) {
-      await applyCustomFieldMappings({
-        mapping,
-        hierarchy,
-        product,
-        localProductId,
-        localVariantId,
-      })
-      await upsertOffersAndPrices({
-        mapping,
-        settings,
-        hierarchy,
-        localProductId,
-        localVariantId,
-        resolvedProductTitle: resolvedTitle,
-        resolvedProductDescription: resolvedDescription,
-        variantExternalId,
-      })
+    await applyCustomFieldMappings({
+      mapping: derivedMapping,
+      hierarchy,
+      product,
+      localProductId,
+      localVariantId,
+      fieldsetPlan: resolvedProductSettings.fieldsetPlan,
+    })
+    await upsertOffersAndPrices({
+      mapping: derivedMapping,
+      settings,
+      hierarchy,
+      localProductId,
+      localVariantId,
+      resolvedProductTitle: resolvedTitle,
+      resolvedProductDescription: resolvedDescription,
+      variantExternalId,
+    })
 
-      const desiredAssets: DesiredAsset[] = []
-      for (const mediaMapping of settings.mediaMappings) {
-        const sourceLayers = mediaMapping.target === 'product'
-          ? [hierarchy.rootValues, hierarchy.mergedValues]
-          : [hierarchy.leafValues, hierarchy.mergedValues]
-        const rawValue = readLayeredValue(sourceLayers, mediaMapping.attributeCode, locale, channel)
-        const refs = collectMediaReferences(rawValue)
-        refs.forEach((ref, index) => {
-          desiredAssets.push({
-            externalId: `${mediaMapping.target}:${mediaMapping.kind}:${mediaMapping.attributeCode}:${ref.codeOrUrl}:${index}`,
-            entityId: mediaMapping.target === 'product' ? PRODUCT_ENTITY_ID : VARIANT_ENTITY_ID,
-            recordId: mediaMapping.target === 'product' ? localProductId : localVariantId,
-            kind: mediaMapping.kind,
-            remote: ref,
-          })
+    const desiredAssets: DesiredAsset[] = []
+    for (const mediaMapping of settings.mediaMappings) {
+      const sourceLayers = mediaMapping.target === 'product'
+        ? [hierarchy.rootValues, hierarchy.mergedValues]
+        : [hierarchy.leafValues, hierarchy.mergedValues]
+      const rawValue = readLayeredValue(sourceLayers, mediaMapping.attributeCode, locale, channel)
+      const refs = collectMediaReferences(rawValue)
+      refs.forEach((ref, index) => {
+        desiredAssets.push({
+          externalId: `${mediaMapping.target}:${mediaMapping.kind}:${mediaMapping.attributeCode}:${ref.codeOrUrl}:${index}`,
+          entityId: mediaMapping.target === 'product' ? PRODUCT_ENTITY_ID : VARIANT_ENTITY_ID,
+          recordId: mediaMapping.target === 'product' ? localProductId : localVariantId,
+          kind: mediaMapping.kind,
+          remote: ref,
         })
-      }
-
-      const assetsByTarget = new Map<string, DesiredAsset[]>()
-      for (const asset of desiredAssets) {
-        const key = `${asset.entityId}:${asset.recordId}`
-        const bucket = assetsByTarget.get(key) ?? []
-        bucket.push(asset)
-        assetsByTarget.set(key, bucket)
-      }
-
-      for (const assets of assetsByTarget.values()) {
-        const firstAsset = assets[0]
-        if (!firstAsset) continue
-        const hero = await reconcileAttachments({
-          entityId: firstAsset.entityId,
-          recordId: firstAsset.recordId,
-          desiredAssets: assets,
-          reconciliation: settings.reconciliation,
-        })
-        if (firstAsset.entityId === PRODUCT_ENTITY_ID) {
-          await executeCommand('catalog.products.update', {
-            id: localProductId,
-            defaultMediaId: hero.heroAttachmentId,
-            defaultMediaUrl: hero.heroAttachmentUrl,
-          })
-        } else {
-          await executeCommand('catalog.variants.update', {
-            id: localVariantId,
-            defaultMediaId: hero.heroAttachmentId,
-            defaultMediaUrl: hero.heroAttachmentUrl,
-          })
-        }
-      }
-
-      await syncAssociations({
-        product,
-        localVariantId,
-        localProductId,
-        settings,
       })
     }
+
+    const assetsByTarget = new Map<string, DesiredAsset[]>()
+    for (const asset of desiredAssets) {
+      const key = `${asset.entityId}:${asset.recordId}`
+      const bucket = assetsByTarget.get(key) ?? []
+      bucket.push(asset)
+      assetsByTarget.set(key, bucket)
+    }
+
+    for (const assets of assetsByTarget.values()) {
+      const firstAsset = assets[0]
+      if (!firstAsset) continue
+      const hero = await reconcileAttachments({
+        entityId: firstAsset.entityId,
+        recordId: firstAsset.recordId,
+        desiredAssets: assets,
+        reconciliation: settings.reconciliation,
+      })
+      if (firstAsset.entityId === PRODUCT_ENTITY_ID) {
+        await executeCommand('catalog.products.update', {
+          id: localProductId,
+          defaultMediaId: hero.heroAttachmentId,
+          defaultMediaUrl: hero.heroAttachmentUrl,
+        })
+      } else {
+        await executeCommand('catalog.variants.update', {
+          id: localVariantId,
+          defaultMediaId: hero.heroAttachmentId,
+          defaultMediaUrl: hero.heroAttachmentUrl,
+        })
+      }
+    }
+
+    await syncAssociations({
+      product,
+      localVariantId,
+      localProductId,
+      settings,
+    })
 
     return [
       {

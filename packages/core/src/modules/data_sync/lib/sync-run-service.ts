@@ -88,6 +88,10 @@ export function createSyncRunService(em: EntityManager) {
     async markStatus(runId: string, status: SyncRun['status'], scope: SyncScope, error?: string): Promise<SyncRun | null> {
       const row = await this.getRun(runId, scope)
       if (!row) return null
+      const isTerminal = row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled'
+      if (isTerminal && row.status !== status) {
+        return row
+      }
       row.status = status
       if (error !== undefined) row.lastError = error
       await em.flush()

@@ -18,7 +18,8 @@ import {
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { PencilLine, Plus, RefreshCw, Save, Sparkles, Trash2, Wand2, X } from 'lucide-react'
-import { buildDefaultAkeneoMapping, buildProductFieldMappings, normalizeAkeneoMapping, type AkeneoReconciliationSettings } from '../../../lib/shared'
+import { buildAkeneoFieldsetCode, buildDefaultAkeneoMapping, buildProductFieldMappings, normalizeAkeneoMapping, type AkeneoReconciliationSettings } from '../../../lib/shared'
+import { inferAkeneoProductMapping } from '../../../lib/inference'
 import type { AkeneoDiscoveryResponse } from '../../../data/validators'
 
 type MappingRecordResponse = {
@@ -56,6 +57,15 @@ type MediaMappingRow = {
   kind: 'image' | 'file'
 }
 
+type FieldsetMappingRow = {
+  sourceType: 'family' | 'familyVariant'
+  sourceCode: string
+  target: 'product' | 'variant'
+  fieldsetCode: string
+  fieldsetLabel: string
+  description: string
+}
+
 type AkeneoWidgetContext = {
   state?: {
     isEnabled?: boolean
@@ -72,6 +82,8 @@ type FormState = {
   customFieldMappings: string
   priceMappings: string
   mediaMappings: string
+  fieldsetMappings: string
+  createMissingChannels: boolean
   syncAssociations: boolean
   reconciliation: AkeneoReconciliationSettings
   fieldMap: {
@@ -127,6 +139,17 @@ function buildInitialState(): FormState {
         kind: entry.kind,
       })),
     ),
+    fieldsetMappings: serializeFieldsetMappingRows(
+      (productSettings?.fieldsetMappings ?? []).map((entry) => ({
+        sourceType: entry.sourceType,
+        sourceCode: entry.sourceCode,
+        target: entry.target,
+        fieldsetCode: entry.fieldsetCode,
+        fieldsetLabel: entry.fieldsetLabel,
+        description: entry.description ?? '',
+      })),
+    ),
+    createMissingChannels: productSettings?.createMissingChannels ?? true,
     syncAssociations: productSettings?.syncAssociations ?? true,
     reconciliation: productSettings?.reconciliation ?? {
       deactivateMissingCategories: true,
@@ -175,6 +198,10 @@ function mergeMappingsIntoState(
     mediaMappings: (normalizedProducts.settings?.products?.mediaMappings ?? [])
       .map((entry) => `${entry.attributeCode},${entry.target},${entry.kind}`)
       .join('\n'),
+    fieldsetMappings: (normalizedProducts.settings?.products?.fieldsetMappings ?? [])
+      .map((entry) => `${entry.sourceType},${entry.sourceCode},${entry.target},${entry.fieldsetCode},${entry.fieldsetLabel}${entry.description ? `,${entry.description}` : ''}`)
+      .join('\n'),
+    createMissingChannels: normalizedProducts.settings?.products?.createMissingChannels ?? state.createMissingChannels,
     syncAssociations: normalizedProducts.settings?.products?.syncAssociations ?? state.syncAssociations,
     reconciliation: normalizedProducts.settings?.products?.reconciliation ?? state.reconciliation,
     fieldMap: {
@@ -262,6 +289,33 @@ function serializeMediaMappingRows(rows: MediaMappingRow[]): string {
     .join('\n')
 }
 
+function parseFieldsetMappingRows(value: string): FieldsetMappingRow[] {
+  return parseRows(value)
+    .map(([sourceType, sourceCode, target, fieldsetCode, fieldsetLabel, ...descriptionParts]): FieldsetMappingRow => ({
+      sourceType: sourceType === 'familyVariant' ? 'familyVariant' : 'family',
+      sourceCode: sourceCode ?? '',
+      target: target === 'variant' ? 'variant' : 'product',
+      fieldsetCode: fieldsetCode ?? '',
+      fieldsetLabel: fieldsetLabel ?? '',
+      description: descriptionParts.join(','),
+    }))
+    .filter((row) => row.sourceCode.trim().length > 0 || row.fieldsetCode.trim().length > 0 || row.fieldsetLabel.trim().length > 0)
+}
+
+function serializeFieldsetMappingRows(rows: FieldsetMappingRow[]): string {
+  return rows
+    .filter((row) => row.sourceCode.trim().length > 0 && row.fieldsetCode.trim().length > 0 && row.fieldsetLabel.trim().length > 0)
+    .map((row) => [
+      row.sourceType,
+      row.sourceCode.trim(),
+      row.target,
+      row.fieldsetCode.trim(),
+      row.fieldsetLabel.trim(),
+      row.description.trim(),
+    ].filter((cell, index) => index < 5 || cell.length > 0).join(','))
+    .join('\n')
+}
+
 function normalizeFieldKey(value: string): string {
   return value
     .trim()
@@ -287,6 +341,127 @@ function inferCustomFieldKind(attributeType: string): CustomFieldRow['kind'] {
   return 'text'
 }
 
+function inferPriceKindCode(attributeCode: string): string {
+  const normalized = attributeCode.trim().toLowerCase()
+  return normalized.includes('sale')
+    || normalized.includes('promo')
+    || normalized.includes('special')
+    || normalized.includes('discount')
+    ? 'sale'
+    : 'regular'
+}
+
+function buildDiscoveredFieldsetMappings(discovery: AkeneoDiscoveryResponse): FieldsetMappingRow[] {
+  return (discovery.families ?? []).flatMap((family) => {
+    const productFieldsetCode = buildAkeneoFieldsetCode('product', family.code)
+    const variantFieldsetCode = buildAkeneoFieldsetCode('variant', family.code)
+    const productRow: FieldsetMappingRow[] = productFieldsetCode ? [{
+      sourceType: 'family',
+      sourceCode: family.code,
+      target: 'product',
+      fieldsetCode: productFieldsetCode,
+      fieldsetLabel: family.label || family.code,
+      description: `Akeneo family ${family.code}`,
+    }] : []
+    const variantRow: FieldsetMappingRow[] = variantFieldsetCode ? [{
+      sourceType: 'family',
+      sourceCode: family.code,
+      target: 'variant',
+      fieldsetCode: variantFieldsetCode,
+      fieldsetLabel: family.label || family.code,
+      description: `Akeneo variant attributes for family ${family.code}`,
+    }] : []
+    return [...productRow, ...variantRow]
+  })
+}
+
+function applyDiscoveryDefaults(
+  state: FormState,
+  discovery: AkeneoDiscoveryResponse | null,
+  options?: { overwriteMappings?: boolean },
+): FormState {
+  if (!discovery?.ok) return state
+
+  const inferred = inferAkeneoProductMapping({
+    attributes: (discovery.attributes ?? []).map((attribute) => ({
+      code: attribute.code,
+      type: attribute.type,
+      labels: attribute.label ? { inferred: attribute.label } : undefined,
+      localizable: attribute.localizable,
+      scopable: attribute.scopable,
+      group: attribute.group,
+      metric_family: attribute.metricFamily,
+    })),
+    family: null,
+    familyVariant: null,
+    fieldMap: state.fieldMap,
+    explicitCustomFieldMappings: parseCustomFieldRows(state.customFieldMappings).map((row) => ({
+      attributeCode: row.attributeCode.trim(),
+      target: row.target,
+      fieldKey: row.fieldKey.trim(),
+      kind: row.kind || null,
+    })),
+    explicitMediaMappings: parseMediaMappingRows(state.mediaMappings).map((row) => ({
+      attributeCode: row.attributeCode.trim(),
+      target: row.target,
+      kind: row.kind,
+    })),
+  })
+
+  const hasCustomFields = parseCustomFieldRows(state.customFieldMappings).length > 0
+  const hasMediaMappings = parseMediaMappingRows(state.mediaMappings).length > 0
+  const hasPriceMappings = parsePriceMappingRows(state.priceMappings).some((row) => row.attributeCode.trim().length > 0)
+  const hasFieldsetMappings = parseFieldsetMappingRows(state.fieldsetMappings).length > 0
+  const overwriteMappings = options?.overwriteMappings === true
+  const preferredLocalChannel = discovery.localChannels.find((channel) => ['web', 'online', 'ecommerce', 'default'].includes(channel.code.trim().toLowerCase()))
+    ?? discovery.localChannels[0]
+    ?? null
+  const preferredAkeneoChannel = discovery.channels[0]?.code ?? ''
+  const preferredLocale = discovery.locales.find((locale) => locale.enabled)?.code
+    ?? discovery.locales[0]?.code
+    ?? state.productLocale
+
+  return {
+    ...state,
+    productLocale: overwriteMappings || state.productLocale === 'en_US' ? preferredLocale : state.productLocale,
+    categoryLocale: overwriteMappings || state.categoryLocale === 'en_US' ? preferredLocale : state.categoryLocale,
+    productChannel: overwriteMappings ? preferredAkeneoChannel : (state.productChannel || preferredAkeneoChannel),
+    fieldMap: inferred.fieldMap,
+    customFieldMappings: !overwriteMappings && hasCustomFields
+      ? state.customFieldMappings
+      : serializeCustomFieldRows(
+          inferred.autoCustomFieldMappings.map((mapping) => ({
+            attributeCode: mapping.attributeCode,
+            target: mapping.target,
+            fieldKey: mapping.fieldKey,
+            kind: mapping.kind ?? '',
+          })),
+        ),
+    mediaMappings: !overwriteMappings && hasMediaMappings
+      ? state.mediaMappings
+      : serializeMediaMappingRows(
+          inferred.autoMediaMappings.map((mapping) => ({
+            attributeCode: mapping.attributeCode,
+            target: mapping.target,
+            kind: mapping.kind,
+          })),
+        ),
+    fieldsetMappings: !overwriteMappings && hasFieldsetMappings
+      ? state.fieldsetMappings
+      : serializeFieldsetMappingRows(buildDiscoveredFieldsetMappings(discovery)),
+    priceMappings: (!overwriteMappings && hasPriceMappings) || !preferredLocalChannel
+      ? state.priceMappings
+      : serializePriceMappingRows(
+          inferred.autoPriceAttributeCodes.map((attributeCode) => ({
+            attributeCode,
+            priceKindCode: inferPriceKindCode(attributeCode),
+            akeneoChannel: preferredAkeneoChannel,
+            localChannelCode: preferredLocalChannel.code,
+          })),
+        ),
+  }
+}
+
 export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps<AkeneoWidgetContext>) {
   const t = useT()
   const [state, setState] = React.useState<FormState>(() => buildInitialState())
@@ -297,6 +472,153 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   const [isCreatingCustomFields, setIsCreatingCustomFields] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
+
+  const buildMappingPayloads = React.useCallback((currentState: FormState) => {
+    const customFieldMappings = parseRows(currentState.customFieldMappings)
+      .map(([attributeCode, target, fieldKey, kind]) => {
+        const normalizedTarget = target === 'variant' ? 'variant' : target === 'product' ? 'product' : null
+        const normalizedKind = kind === 'text'
+          || kind === 'multiline'
+          || kind === 'integer'
+          || kind === 'float'
+          || kind === 'boolean'
+          || kind === 'select'
+          ? kind
+          : null
+        if (!attributeCode || !fieldKey || !normalizedTarget) return null
+        return {
+          attributeCode,
+          target: normalizedTarget,
+          fieldKey,
+          kind: normalizedKind,
+        } as const
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    const priceMappings = parseRows(currentState.priceMappings)
+      .map(([attributeCode, priceKindCode, akeneoChannel, localChannelCode]) => {
+        if (!attributeCode || !priceKindCode || !localChannelCode) return null
+        return {
+          attributeCode,
+          priceKindCode,
+          akeneoChannel: akeneoChannel || null,
+          localChannelCode,
+        } as const
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    const mediaMappings = parseRows(currentState.mediaMappings)
+      .map(([attributeCode, target, kind]) => {
+        const normalizedTarget = target === 'variant' ? 'variant' : target === 'product' ? 'product' : null
+        const normalizedKind = kind === 'image' ? 'image' : kind === 'file' ? 'file' : null
+        if (!attributeCode || !normalizedTarget || !normalizedKind) return null
+        return {
+          attributeCode,
+          target: normalizedTarget,
+          kind: normalizedKind,
+        } as const
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    const fieldsetMappings = parseFieldsetMappingRows(currentState.fieldsetMappings)
+      .map((row) => {
+        if (!row.sourceCode || !row.fieldsetCode || !row.fieldsetLabel) return null
+        return {
+          sourceType: row.sourceType,
+          sourceCode: row.sourceCode.trim(),
+          target: row.target,
+          fieldsetCode: row.fieldsetCode.trim(),
+          fieldsetLabel: row.fieldsetLabel.trim(),
+          description: row.description.trim() || null,
+        } as const
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+
+    const productsMapping = {
+      ...buildDefaultAkeneoMapping('products'),
+      settings: {
+        products: {
+          locale: currentState.productLocale,
+          channel: currentState.productChannel || null,
+          fieldMap: { ...currentState.fieldMap },
+          customFieldMappings,
+          priceMappings,
+          mediaMappings,
+          fieldsetMappings,
+          createMissingChannels: currentState.createMissingChannels,
+          syncAssociations: currentState.syncAssociations,
+          reconciliation: { ...currentState.reconciliation },
+        },
+      },
+    }
+    productsMapping.fields = buildProductFieldMappings(productsMapping.settings.products)
+
+    const categoriesMapping = {
+      ...buildDefaultAkeneoMapping('categories'),
+      settings: {
+        categories: {
+          locale: currentState.categoryLocale,
+        },
+      },
+    }
+
+    const attributesMapping = {
+      ...buildDefaultAkeneoMapping('attributes'),
+      settings: {
+        attributes: {
+          includeTextAttributes: currentState.includeTextAttributes,
+          includeNumericAttributes: currentState.includeNumericAttributes,
+          familyCodeFilter: currentState.familyCodeFilter
+            .split(',')
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0),
+        },
+      },
+    }
+
+    return { productsMapping, categoriesMapping, attributesMapping }
+  }, [])
+
+  const persistMappings = React.useCallback(async (
+    currentState: FormState,
+    options?: { successMessage?: string | null },
+  ) => {
+    const { productsMapping, categoriesMapping, attributesMapping } = buildMappingPayloads(currentState)
+    const saves = await Promise.all([
+      apiCall('/api/data_sync/mappings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          integrationId: 'sync_akeneo',
+          entityType: 'products',
+          mapping: productsMapping,
+        }),
+      }),
+      apiCall('/api/data_sync/mappings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          integrationId: 'sync_akeneo',
+          entityType: 'categories',
+          mapping: categoriesMapping,
+        }),
+      }),
+      apiCall('/api/data_sync/mappings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          integrationId: 'sync_akeneo',
+          entityType: 'attributes',
+          mapping: attributesMapping,
+        }),
+      }),
+    ])
+
+    if (saves.some((result) => !result.ok)) {
+      throw new Error('Failed to save one or more Akeneo mapping records')
+    }
+
+    if (options?.successMessage) {
+      flash(options.successMessage, 'success')
+    }
+  }, [buildMappingPayloads])
 
   const load = React.useCallback(async (refresh = false) => {
     setIsLoading(true)
@@ -309,12 +631,23 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
         apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields'),
       ])
 
-      const nextState = mergeMappingsIntoState(
+      let nextState = mergeMappingsIntoState(
         buildInitialState(),
         productsCall.result?.items?.[0]?.mapping,
         categoriesCall.result?.items?.[0]?.mapping,
         attributesCall.result?.items?.[0]?.mapping,
       )
+      nextState = applyDiscoveryDefaults(nextState, discoveryCall.result ?? null)
+
+      const hasSavedMappings = Boolean(productsCall.result?.items?.[0] || categoriesCall.result?.items?.[0] || attributesCall.result?.items?.[0])
+      if (!hasSavedMappings && discoveryCall.result?.ok) {
+        try {
+          await persistMappings(nextState)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to save discovered Akeneo mappings'
+          flash(message, 'error')
+        }
+      }
 
       setState(nextState)
       setDiscovery(discoveryCall.result ?? null)
@@ -325,7 +658,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [persistMappings])
 
   React.useEffect(() => {
     void load(false)
@@ -346,6 +679,10 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   const mediaMappingRows = React.useMemo(
     () => parseMediaMappingRows(state.mediaMappings),
     [state.mediaMappings],
+  )
+  const fieldsetMappingRows = React.useMemo(
+    () => parseFieldsetMappingRows(state.fieldsetMappings),
+    [state.fieldsetMappings],
   )
   const productFieldKeys = React.useMemo(
     () => new Set(customFieldStatus?.productKeys ?? []),
@@ -406,6 +743,15 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
             })),
             priceMappings: [],
             mediaMappings: [],
+            fieldsetMappings: parseFieldsetMappingRows(state.fieldsetMappings).map((row) => ({
+              sourceType: row.sourceType,
+              sourceCode: row.sourceCode.trim(),
+              target: row.target,
+              fieldsetCode: row.fieldsetCode.trim(),
+              fieldsetLabel: row.fieldsetLabel.trim(),
+              description: row.description.trim() || null,
+            })),
+            createMissingChannels: state.createMissingChannels,
             syncAssociations: state.syncAssociations,
             reconciliation: { ...state.reconciliation },
           },
@@ -455,127 +801,48 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     }))
   }
 
+  function updateFieldsetMappingRows(nextRows: FieldsetMappingRow[]) {
+    setState((current) => ({
+      ...current,
+      fieldsetMappings: serializeFieldsetMappingRows(nextRows),
+    }))
+  }
+
+  async function rediscoverAndOverwriteMappings() {
+    setIsSaving(true)
+    try {
+      const discoveryCall = await apiCall<AkeneoDiscoveryResponse>('/api/sync_akeneo/discovery?refresh=true')
+      const discovered = discoveryCall.result ?? null
+      if (!discovered?.ok) {
+        throw new Error(discovered?.message ?? 'Failed to load Akeneo discovery metadata')
+      }
+
+      const nextState = applyDiscoveryDefaults({
+        ...state,
+      }, discovered, { overwriteMappings: true })
+
+      await persistMappings(nextState, {
+        successMessage: t('sync_akeneo.discovery.rediscovered', 'Akeneo mappings rediscovered and saved.'),
+      })
+
+      setState(nextState)
+      setDiscovery(discovered)
+      const customFieldsCall = await apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields')
+      setCustomFieldStatus(customFieldsCall.result ?? null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to rediscover Akeneo mappings'
+      flash(message, 'error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   async function saveMappings() {
     setIsSaving(true)
     try {
-      const customFieldMappings = parseRows(state.customFieldMappings)
-        .map(([attributeCode, target, fieldKey, kind]) => {
-          const normalizedTarget = target === 'variant' ? 'variant' : target === 'product' ? 'product' : null
-          const normalizedKind = kind === 'text'
-            || kind === 'multiline'
-            || kind === 'integer'
-            || kind === 'float'
-            || kind === 'boolean'
-            || kind === 'select'
-            ? kind
-            : null
-          if (!attributeCode || !fieldKey || !normalizedTarget) return null
-          return {
-            attributeCode,
-            target: normalizedTarget,
-            fieldKey,
-            kind: normalizedKind,
-          } as const
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      const priceMappings = parseRows(state.priceMappings)
-        .map(([attributeCode, priceKindCode, akeneoChannel, localChannelCode]) => {
-          if (!attributeCode || !priceKindCode || !localChannelCode) return null
-          return {
-            attributeCode,
-            priceKindCode,
-            akeneoChannel: akeneoChannel || null,
-            localChannelCode,
-          } as const
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      const mediaMappings = parseRows(state.mediaMappings)
-        .map(([attributeCode, target, kind]) => {
-          const normalizedTarget = target === 'variant' ? 'variant' : target === 'product' ? 'product' : null
-          const normalizedKind = kind === 'image' ? 'image' : kind === 'file' ? 'file' : null
-          if (!attributeCode || !normalizedTarget || !normalizedKind) return null
-          return {
-            attributeCode,
-            target: normalizedTarget,
-            kind: normalizedKind,
-          } as const
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      const productsMapping = {
-        ...buildDefaultAkeneoMapping('products'),
-        settings: {
-          products: {
-            locale: state.productLocale,
-            channel: state.productChannel || null,
-            fieldMap: { ...state.fieldMap },
-            customFieldMappings,
-            priceMappings,
-            mediaMappings,
-            syncAssociations: state.syncAssociations,
-            reconciliation: { ...state.reconciliation },
-          },
-        },
-      }
-      productsMapping.fields = buildProductFieldMappings(productsMapping.settings.products)
-
-      const categoriesMapping = {
-        ...buildDefaultAkeneoMapping('categories'),
-        settings: {
-          categories: {
-            locale: state.categoryLocale,
-          },
-        },
-      }
-
-      const attributesMapping = {
-        ...buildDefaultAkeneoMapping('attributes'),
-        settings: {
-          attributes: {
-            includeTextAttributes: state.includeTextAttributes,
-            includeNumericAttributes: state.includeNumericAttributes,
-            familyCodeFilter: state.familyCodeFilter
-              .split(',')
-              .map((value) => value.trim())
-              .filter((value) => value.length > 0),
-          },
-        },
-      }
-
-      const saves = await Promise.all([
-        apiCall('/api/data_sync/mappings', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: 'sync_akeneo',
-            entityType: 'products',
-            mapping: productsMapping,
-          }),
-        }),
-        apiCall('/api/data_sync/mappings', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: 'sync_akeneo',
-            entityType: 'categories',
-            mapping: categoriesMapping,
-          }),
-        }),
-        apiCall('/api/data_sync/mappings', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: 'sync_akeneo',
-            entityType: 'attributes',
-            mapping: attributesMapping,
-          }),
-        }),
-      ])
-
-      if (saves.some((result) => !result.ok)) {
-        throw new Error('Failed to save one or more Akeneo mapping records')
-      }
-
-      flash(t('sync_akeneo.saved', 'Akeneo sync settings saved.'), 'success')
+      await persistMappings(state, {
+        successMessage: t('sync_akeneo.saved', 'Akeneo sync settings saved.'),
+      })
       await load(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save Akeneo mapping'
@@ -637,13 +904,19 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
           <div>
             <h3 className="text-sm font-semibold">{t('sync_akeneo.mapping.heading', 'Field mapping')}</h3>
             <p className="text-sm text-muted-foreground">
-              {t('sync_akeneo.mapping.help', 'Map Akeneo attribute codes to structured catalog fields, optional custom fields, price channels, and media imports.')}
+              {t('sync_akeneo.mapping.help', 'Mappings are discovered automatically from the saved Akeneo credentials. You can review and override field, fieldset, price, channel, and media behavior here.')}
             </p>
           </div>
-          <Button type="button" variant="outline" onClick={() => void load(true)} disabled={isLoading || isSaving}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            {t('sync_akeneo.mapping.refresh', 'Refresh fields')}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => void load(true)} disabled={isLoading || isSaving}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              {t('sync_akeneo.mapping.refresh', 'Refresh fields')}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void rediscoverAndOverwriteMappings()} disabled={isLoading || isSaving}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              {t('sync_akeneo.mapping.rediscover', 'Rediscover and overwrite')}
+            </Button>
+          </div>
         </div>
 
         {discovery?.message ? (
@@ -1005,6 +1278,160 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                   </table>
                 </div>
               </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>{t('sync_akeneo.mapping.fieldsets', 'Family to fieldset mappings')}</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => updateFieldsetMappingRows([
+                      ...fieldsetMappingRows,
+                      {
+                        sourceType: 'family',
+                        sourceCode: '',
+                        target: 'product',
+                        fieldsetCode: '',
+                        fieldsetLabel: '',
+                        description: '',
+                      },
+                    ])}
+                    disabled={isLoading || isSaving}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    {t('sync_akeneo.mapping.addRow', 'Add row')}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('sync_akeneo.mapping.fieldsets.help', 'Discovered Akeneo families become Open Mercato fieldsets automatically. Adjust the fieldset code, label, or description here, and add manual family-variant rows when a specific Akeneo family variant should use a different variant fieldset.')}
+                </p>
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="w-full min-w-[1100px] text-sm">
+                    <thead className="bg-muted/50 text-left">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.sourceType', 'Source type')}</th>
+                        <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.sourceCode', 'Akeneo code')}</th>
+                        <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.target', 'Target')}</th>
+                        <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.fieldsetCode', 'Fieldset code')}</th>
+                        <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.fieldsetLabel', 'Fieldset label')}</th>
+                        <th className="px-3 py-2 font-medium">{t('sync_akeneo.mapping.fieldsetDescription', 'Description')}</th>
+                        <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.actions', 'Actions')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fieldsetMappingRows.length > 0 ? fieldsetMappingRows.map((row, index) => (
+                        <tr key={`fieldset-mapping-${index}`} className="border-t">
+                          <td className="px-3 py-2">
+                            <select
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              value={row.sourceType}
+                              onChange={(event) => {
+                                const nextRows = [...fieldsetMappingRows]
+                                nextRows[index] = {
+                                  ...row,
+                                  sourceType: event.target.value === 'familyVariant' ? 'familyVariant' : 'family',
+                                }
+                                updateFieldsetMappingRows(nextRows)
+                              }}
+                              disabled={isLoading || isSaving}
+                            >
+                              <option value="family">{t('sync_akeneo.mapping.sourceType.family', 'Family')}</option>
+                              <option value="familyVariant">{t('sync_akeneo.mapping.sourceType.familyVariant', 'Family variant')}</option>
+                            </select>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input
+                              value={row.sourceCode}
+                              onChange={(event) => {
+                                const nextRows = [...fieldsetMappingRows]
+                                const sourceCode = event.target.value
+                                nextRows[index] = {
+                                  ...row,
+                                  sourceCode,
+                                  fieldsetCode: row.fieldsetCode || buildAkeneoFieldsetCode(row.target, sourceCode) || '',
+                                }
+                                updateFieldsetMappingRows(nextRows)
+                              }}
+                              disabled={isLoading || isSaving}
+                              list={row.sourceType === 'family' ? 'akeneo-families' : undefined}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <select
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              value={row.target}
+                              onChange={(event) => {
+                                const nextRows = [...fieldsetMappingRows]
+                                const target = event.target.value === 'variant' ? 'variant' : 'product'
+                                nextRows[index] = {
+                                  ...row,
+                                  target,
+                                  fieldsetCode: buildAkeneoFieldsetCode(target, row.sourceCode) || row.fieldsetCode,
+                                }
+                                updateFieldsetMappingRows(nextRows)
+                              }}
+                              disabled={isLoading || isSaving}
+                            >
+                              <option value="product">{t('sync_akeneo.customFields.targets.product', 'Product')}</option>
+                              <option value="variant">{t('sync_akeneo.customFields.targets.variant', 'Variant')}</option>
+                            </select>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input
+                              value={row.fieldsetCode}
+                              onChange={(event) => {
+                                const nextRows = [...fieldsetMappingRows]
+                                nextRows[index] = { ...row, fieldsetCode: normalizeFieldKey(event.target.value) }
+                                updateFieldsetMappingRows(nextRows)
+                              }}
+                              disabled={isLoading || isSaving}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input
+                              value={row.fieldsetLabel}
+                              onChange={(event) => {
+                                const nextRows = [...fieldsetMappingRows]
+                                nextRows[index] = { ...row, fieldsetLabel: event.target.value }
+                                updateFieldsetMappingRows(nextRows)
+                              }}
+                              disabled={isLoading || isSaving}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <Input
+                              value={row.description}
+                              onChange={(event) => {
+                                const nextRows = [...fieldsetMappingRows]
+                                nextRows[index] = { ...row, description: event.target.value }
+                                updateFieldsetMappingRows(nextRows)
+                              }}
+                              disabled={isLoading || isSaving}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => updateFieldsetMappingRows(fieldsetMappingRows.filter((_, rowIndex) => rowIndex !== index))}
+                              disabled={isLoading || isSaving}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              {t('sync_akeneo.customFields.actions.remove', 'Remove')}
+                            </Button>
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={7} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                            {t('sync_akeneo.mapping.emptyFieldsets', 'No family fieldset mappings discovered yet. Save credentials and use rediscovery to generate them.')}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -1025,6 +1452,15 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                   disabled={isLoading || isSaving}
                 />
                 <span>{t('sync_akeneo.mapping.includeNumeric', 'Include numeric and metric attributes in generated family schemas')}</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={state.createMissingChannels}
+                  onChange={(event) => setState((current) => ({ ...current, createMissingChannels: event.target.checked }))}
+                  disabled={isLoading || isSaving}
+                />
+                <span>{t('sync_akeneo.mapping.createMissingChannels', 'Create missing Open Mercato sales channels from Akeneo scopes by default')}</span>
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -1173,6 +1609,11 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
         <datalist id="akeneo-channels">
           {(discovery?.channels ?? []).map((channel) => (
             <option key={channel.code} value={channel.code} />
+          ))}
+        </datalist>
+        <datalist id="akeneo-families">
+          {(discovery?.families ?? []).map((family) => (
+            <option key={family.code} value={family.code} />
           ))}
         </datalist>
       </div>

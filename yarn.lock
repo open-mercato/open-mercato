@@ -5685,6 +5685,7 @@ __metadata:
     esbuild: "npm:^0.25.0"
     glob: "npm:^13.0.6"
     jest: "npm:^30.2.0"
+    node-html-markdown: "npm:^2.0.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
     "@mikro-orm/postgresql": ^6.6.2
@@ -15376,7 +15377,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"he@npm:^1.2.0":
+"he@npm:1.2.0, he@npm:^1.2.0":
   version: 1.2.0
   resolution: "he@npm:1.2.0"
   bin:
@@ -19618,6 +19619,25 @@ __metadata:
   bin:
     node-gyp: bin/node-gyp.js
   checksum: 10/d93079236cef1dd7fa4df683708d8708ad255c55865f6656664c8959e4d3963d908ac48e8f9f341705432e979dbbf502a40d68d65a17fe35956a5a05ba6c1cb4
+  languageName: node
+  linkType: hard
+
+"node-html-markdown@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "node-html-markdown@npm:2.0.0"
+  dependencies:
+    node-html-parser: "npm:^6.1.13"
+  checksum: 10/b914aa9b815e90a4c009e5bbcef36819ae55d633c52650a566836f0e8cb41238b1d6f6e2d446495087b3fb06207c05726bc6b07c24feaefe29f744078a21fb0e
+  languageName: node
+  linkType: hard
+
+"node-html-parser@npm:^6.1.13":
+  version: 6.1.13
+  resolution: "node-html-parser@npm:6.1.13"
+  dependencies:
+    css-select: "npm:^5.1.0"
+    he: "npm:1.2.0"
+  checksum: 10/f5ebc5cea22e819e7b726b483e12241039ebdeac6eba198ebdb55a0921536798c1acd9c6f543e82f77542dc44fb2230f55891b1baae218c17969dd08f7295d14
   languageName: node
   linkType: hard
 

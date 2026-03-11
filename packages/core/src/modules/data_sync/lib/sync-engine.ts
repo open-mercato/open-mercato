@@ -130,6 +130,15 @@ export function createSyncEngine(deps: EngineDeps) {
             userId: scope.userId,
           },
         )
+      } else if (status === 'cancelled') {
+        await progressService.markCancelled(
+          run.progressJobId,
+          {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          },
+        )
       }
     }
 
@@ -175,6 +184,16 @@ export function createSyncEngine(deps: EngineDeps) {
         console.warn(`[data-sync] Skipping stale import job for missing run ${runId}`)
         return
       }
+      if (run.status === 'cancelled') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
 
       const providerKey = resolveProviderKey(run.integrationId)
       const adapter = getDataSyncAdapter(providerKey)
@@ -187,7 +206,17 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`Integration ${run.integrationId} is missing credentials`)
       }
 
-      await syncRunService.markStatus(run.id, 'running', scope)
+      const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
+      if (!activeRun || activeRun.status !== 'running') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
       await emitDataSyncEvent('data_sync.run.started', {
         runId: run.id,
         integrationId: run.integrationId,
@@ -278,6 +307,16 @@ export function createSyncEngine(deps: EngineDeps) {
         console.warn(`[data-sync] Skipping stale export job for missing run ${runId}`)
         return
       }
+      if (run.status === 'cancelled') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
 
       const providerKey = resolveProviderKey(run.integrationId)
       const adapter = getDataSyncAdapter(providerKey)
@@ -290,7 +329,17 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`Integration ${run.integrationId} is missing credentials`)
       }
 
-      await syncRunService.markStatus(run.id, 'running', scope)
+      const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
+      if (!activeRun || activeRun.status !== 'running') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
       await emitDataSyncEvent('data_sync.run.started', {
         runId: run.id,
         integrationId: run.integrationId,
