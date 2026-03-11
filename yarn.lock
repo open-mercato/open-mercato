@@ -5568,13 +5568,18 @@ __metadata:
   resolution: "@open-mercato/gateway-stripe@workspace:packages/gateway-stripe"
   dependencies:
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
+    esbuild: "npm:^0.25.2"
+    glob: "npm:^11.0.3"
     jest: "npm:^30.2.0"
     stripe: "npm:^17.0.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
+    "@mikro-orm/postgresql": ^6.5.9
     "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
   languageName: unknown
   linkType: soft
 
@@ -13255,7 +13260,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"esbuild@npm:^0.25.0":
+"esbuild@npm:^0.25.0, esbuild@npm:^0.25.2":
   version: 0.25.12
   resolution: "esbuild@npm:0.25.12"
   dependencies:
@@ -14808,7 +14813,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"glob@npm:^11.0.0":
+"glob@npm:^11.0.0, glob@npm:^11.0.3":
   version: 11.1.0
   resolution: "glob@npm:11.1.0"
   dependencies:
