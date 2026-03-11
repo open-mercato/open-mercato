@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, FilterX, Trash2, type LucideIcon } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -41,6 +41,12 @@ import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widget
 import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 
 let refreshScheduled = false
+const BULK_ACTION_ICONS: Record<string, LucideIcon> = {
+  trash: Trash2,
+  'trash-2': Trash2,
+  'filter-x': FilterX,
+}
+
 function scheduleRouterRefresh(router: ReturnType<typeof useRouter>) {
   if (refreshScheduled) return
   refreshScheduled = true
@@ -105,6 +111,13 @@ function pickDefaultRowAction(node: React.ReactNode, preferredIds: string[]): Ro
   const items = (node.props as { items?: RowActionItem[] }).items
   if (!Array.isArray(items)) return null
   return resolveDefaultRowAction(items, preferredIds)
+}
+
+function resolveBulkActionIcon(action: InjectionBulkActionDefinition): LucideIcon | null {
+  if (typeof action.icon !== 'string') return null
+  const iconKey = action.icon.trim().toLowerCase()
+  if (!iconKey) return null
+  return BULK_ACTION_ICONS[iconKey] ?? null
 }
 
 export type DataTableExportFormat = 'csv' | 'json' | 'xml' | 'markdown'
@@ -1729,7 +1742,31 @@ export function DataTable<T>({
         )
         : null
     const leadingItems = perspectiveButton ? <div className="flex items-center gap-2">{perspectiveButton}</div> : null
-    const filterBar = (
+    const trailingItems = hasBulkButtons ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {injectedBulkActions.map((action) => {
+          const label = t(action.label, action.label)
+          const Icon = resolveBulkActionIcon(action)
+          return (
+            <Button
+              key={action.id}
+              type="button"
+              size="sm"
+              variant="outline"
+              title={label}
+              aria-label={label}
+              className={Icon ? 'px-2 sm:px-3' : undefined}
+              disabled={action.requiresSelection !== false && selectedRows.length === 0}
+              onClick={() => void runBulkAction(action)}
+            >
+              {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
+              <span className={Icon ? 'hidden sm:inline' : undefined}>{label}</span>
+            </Button>
+          )
+        })}
+      </div>
+    ) : null
+    return (
       <FilterBar
         searchValue={searchValue}
         onSearchChange={onSearchChange}
@@ -1740,30 +1777,11 @@ export function DataTable<T>({
         onApply={onFiltersApply}
         onClear={onFiltersClear}
         leadingItems={leadingItems}
+        trailingItems={trailingItems}
         filtersExtraContent={fieldsetSelector}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
       />
-    )
-    if (!hasBulkButtons) return filterBar
-    return (
-      <div className="space-y-2">
-        {filterBar}
-        <div className="flex flex-wrap items-center gap-2">
-          {injectedBulkActions.map((action) => (
-            <Button
-              key={action.id}
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={action.requiresSelection !== false && selectedRows.length === 0}
-              onClick={() => void runBulkAction(action)}
-            >
-              {t(action.label, action.label)}
-            </Button>
-          ))}
-        </div>
-      </div>
     )
   }, [
     toolbar,

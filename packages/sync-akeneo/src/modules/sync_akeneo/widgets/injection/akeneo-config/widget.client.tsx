@@ -7,7 +7,9 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Progress } from '@open-mercato/ui/primitives/progress'
 import {
   Dialog,
   DialogContent,
@@ -18,7 +20,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { PencilLine, Plus, RefreshCw, Save, Sparkles, Trash2, Wand2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, PencilLine, Plus, RefreshCw, Save, Sparkles, Trash2, Wand2, X } from 'lucide-react'
 import { buildAkeneoFieldsetCode, buildDefaultAkeneoMapping, buildProductFieldMappings, dedupeStrings, normalizeAkeneoMapping, type AkeneoReconciliationSettings } from '../../../lib/shared'
 import { inferAkeneoProductMapping } from '../../../lib/inference'
 import type { AkeneoDiscoveryResponse } from '../../../data/validators'
@@ -40,8 +42,18 @@ type CustomFieldStatusResponse = {
 
 type DeleteImportedProductsResponse = {
   ok: boolean
-  deletedProductCount: number
+  progressJobId: string | null
   message: string
+}
+
+type DeleteImportedProductsJobResponse = {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progressPercent: number
+  processedCount: number
+  totalCount?: number | null
+  resultSummary?: Record<string, unknown> | null
+  errorMessage?: string | null
 }
 
 type CustomFieldRow = {
@@ -102,6 +114,14 @@ type FormState = {
     weight: string
     variantName: string
   }
+}
+
+function readDeleteImportedProductsSummaryMessage(summary: Record<string, unknown> | null | undefined): string | null {
+  if (!summary || typeof summary !== 'object') return null
+  const message = summary.message
+  if (typeof message !== 'string') return null
+  const trimmed = message.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 const PRODUCT_FIELD_KEYS: Array<{
@@ -485,7 +505,9 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   const [isCreatingCustomFields, setIsCreatingCustomFields] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
-  const [isDeletingImportedProducts, setIsDeletingImportedProducts] = React.useState(false)
+  const [isStartingDeleteImportedProducts, setIsStartingDeleteImportedProducts] = React.useState(false)
+  const [deleteImportedProductsJobId, setDeleteImportedProductsJobId] = React.useState<string | null>(null)
+  const [deleteImportedProductsJob, setDeleteImportedProductsJob] = React.useState<DeleteImportedProductsJobResponse | null>(null)
 
   const buildMappingPayloads = React.useCallback((currentState: FormState) => {
     const customFieldMappings = parseRows(currentState.customFieldMappings)
@@ -678,6 +700,82 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     void load(false)
   }, [load])
 
+  React.useEffect(() => {
+    if (!deleteImportedProductsJobId) return
+
+    let cancelled = false
+    let timeoutId: number | null = null
+
+    const pollDeleteImportedProductsJob = async () => {
+      try {
+        const result = await apiCall<DeleteImportedProductsJobResponse>(`/api/progress/jobs/${deleteImportedProductsJobId}`)
+        if (!result.ok || !result.result) {
+          throw new Error('Failed to load imported-product deletion progress')
+        }
+        if (cancelled) return
+
+        const job = result.result
+        setDeleteImportedProductsJob(job)
+
+        if (job.status === 'completed') {
+          setDeleteImportedProductsJobId(null)
+          setDeleteImportedProductsJob(null)
+          flash(
+            readDeleteImportedProductsSummaryMessage(job.resultSummary)
+              ?? t('sync_akeneo.deleteImportedProducts.completed', 'Imported Akeneo product deletion completed.'),
+            'success',
+          )
+          void load(false)
+          return
+        }
+
+        if (job.status === 'failed') {
+          setDeleteImportedProductsJobId(null)
+          setDeleteImportedProductsJob(null)
+          flash(
+            job.errorMessage
+              ?? t('sync_akeneo.deleteImportedProducts.failed', 'Imported Akeneo product deletion failed.'),
+            'error',
+          )
+          return
+        }
+
+        if (job.status === 'cancelled') {
+          setDeleteImportedProductsJobId(null)
+          setDeleteImportedProductsJob(null)
+          flash(
+            t('sync_akeneo.deleteImportedProducts.cancelled', 'Imported Akeneo product deletion was cancelled.'),
+            'warning',
+          )
+          return
+        }
+
+        timeoutId = window.setTimeout(() => {
+          void pollDeleteImportedProductsJob()
+        }, 1500)
+      } catch (error) {
+        if (cancelled) return
+        setDeleteImportedProductsJobId(null)
+        setDeleteImportedProductsJob(null)
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('sync_akeneo.deleteImportedProducts.progressError', 'Failed to load imported-product deletion progress.'),
+          'error',
+        )
+      }
+    }
+
+    void pollDeleteImportedProductsJob()
+
+    return () => {
+      cancelled = true
+      if (timeoutId) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [deleteImportedProductsJobId, load, t])
+
   const attributeCodes = React.useMemo(
     () => (discovery?.attributes ?? []).map((attribute) => attribute.code).sort(),
     [discovery],
@@ -706,6 +804,9 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     () => (discovery?.localChannels ?? []).map((channel) => channel.code),
     [discovery],
   )
+  const deleteImportedProductsBusy = isStartingDeleteImportedProducts
+    || deleteImportedProductsJob?.status === 'pending'
+    || deleteImportedProductsJob?.status === 'running'
   const discoveredPriceKindCodes = React.useMemo(
     () => (discovery?.priceKinds ?? []).map((priceKind) => priceKind.code),
     [discovery],
@@ -744,6 +845,21 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     }).length,
     [customFieldEditorRows, productFieldKeys, variantFieldKeys],
   )
+  const renderCustomFieldStatusBadge = React.useCallback((exists: boolean) => (
+    <Badge
+      variant="outline"
+      className={exists
+        ? 'inline-flex items-center gap-1.5 border-emerald-200 bg-emerald-50 text-emerald-700'
+        : 'inline-flex items-center gap-1.5 border-amber-200 bg-amber-50 text-amber-700'}
+    >
+      {exists ? <CheckCircle2 className="size-3.5" /> : <AlertCircle className="size-3.5" />}
+      <span>
+        {exists
+          ? t('sync_akeneo.customFields.status.ready', 'Exists')
+          : t('sync_akeneo.customFields.status.missing', 'Missing')}
+      </span>
+    </Badge>
+  ), [t])
 
   function openCustomFieldDialog() {
     setCustomFieldEditorRows(parseCustomFieldRows(state.customFieldMappings))
@@ -886,7 +1002,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     })
     if (!confirmed) return
 
-    setIsDeletingImportedProducts(true)
+    setIsStartingDeleteImportedProducts(true)
     try {
       const result = await apiCall<DeleteImportedProductsResponse>('/api/sync_akeneo/delete-products', {
         method: 'POST',
@@ -896,13 +1012,26 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
       if (!result.ok || !result.result) {
         throw new Error('Failed to delete imported Akeneo products')
       }
-      flash(result.result.message, 'success')
-      await load(false)
+
+      if (!result.result.progressJobId) {
+        flash(result.result.message, 'success')
+        await load(false)
+        return
+      }
+
+      setDeleteImportedProductsJob({
+        id: result.result.progressJobId,
+        status: 'pending',
+        progressPercent: 0,
+        processedCount: 0,
+        totalCount: null,
+      })
+      setDeleteImportedProductsJobId(result.result.progressJobId)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete imported Akeneo products'
       flash(message, 'error')
     } finally {
-      setIsDeletingImportedProducts(false)
+      setIsStartingDeleteImportedProducts(false)
     }
   }
 
@@ -962,18 +1091,53 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => void refreshDiscoveredMappings()} disabled={isLoading || isSaving || isDeletingImportedProducts}>
+            <Button type="button" variant="outline" onClick={() => void refreshDiscoveredMappings()} disabled={isLoading || isSaving || deleteImportedProductsBusy}>
               <RefreshCw className="mr-2 h-4 w-4" />
               {t('sync_akeneo.mapping.refresh', 'Refresh discovery')}
             </Button>
-            <Button type="button" variant="destructive" onClick={() => void deleteImportedProducts()} disabled={isLoading || isSaving || isDeletingImportedProducts}>
+            <Button type="button" variant="destructive" onClick={() => void deleteImportedProducts()} disabled={isLoading || isSaving || deleteImportedProductsBusy}>
               <Trash2 className="mr-2 h-4 w-4" />
-              {isDeletingImportedProducts
-                ? t('sync_akeneo.deleteImportedProducts.deleting', 'Deleting...')
+              {deleteImportedProductsBusy
+                ? t('sync_akeneo.deleteImportedProducts.inProgress', 'Deletion in progress...')
                 : t('sync_akeneo.deleteImportedProducts.action', 'Force delete all imported products')}
             </Button>
           </div>
         </div>
+
+        {deleteImportedProductsBusy && deleteImportedProductsJob ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <div className="font-medium">
+                {t('sync_akeneo.deleteImportedProducts.progressTitle', 'Deleting imported Akeneo products')}
+              </div>
+              <Badge variant="outline">
+                {deleteImportedProductsJob.totalCount && deleteImportedProductsJob.totalCount > 0
+                  ? t(
+                    'sync_akeneo.deleteImportedProducts.progressCount',
+                    '{processed} / {total}',
+                    {
+                      processed: deleteImportedProductsJob.processedCount,
+                      total: deleteImportedProductsJob.totalCount,
+                    },
+                  )
+                  : t('sync_akeneo.deleteImportedProducts.preparing', 'Preparing...')}
+              </Badge>
+            </div>
+            {deleteImportedProductsJob.totalCount && deleteImportedProductsJob.totalCount > 0 ? (
+              <Progress value={deleteImportedProductsJob.progressPercent} className="mt-3 h-2" />
+            ) : (
+              <div className="mt-3 h-2 rounded-full bg-secondary" />
+            )}
+            <p className="mt-2 text-xs text-muted-foreground">
+              {deleteImportedProductsJob.status === 'pending'
+                ? t('sync_akeneo.deleteImportedProducts.pending', 'The deletion job is being prepared.')
+                : t(
+                  'sync_akeneo.deleteImportedProducts.running',
+                  'The imported product cleanup is running in the background. Progress also appears in the global progress bar.',
+                )}
+            </p>
+          </div>
+        ) : null}
 
         {discovery?.message ? (
           <Notice compact variant={discovery.ok ? 'info' : 'warning'}>
@@ -1071,13 +1235,19 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                       {isCreatingCustomFields ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                       {isCreatingCustomFields
                         ? t('sync_akeneo.mapping.customFields.creating', 'Creating...')
-                        : t('sync_akeneo.mapping.customFields.createMissing', 'Create missing fields')}
+                        : t('sync_akeneo.mapping.customFields.createMissing', 'Pre-create missing fields')}
                     </Button>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind]. After valid Akeneo credentials are saved, Open Mercato discovers mappings automatically: variant axes stay as product options, and other relevant Akeneo attributes are auto-mapped as custom fields unless you override them here. The importer creates or updates Open Mercato custom field definitions and stores Akeneo metadata, validation rules, and groups on those fields.')}
+                  {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind]. After valid Akeneo credentials are saved, Open Mercato discovers mappings automatically: variant axes stay as product options, and other relevant Akeneo attributes are auto-mapped as custom fields unless you override them here. Product imports create or update missing Open Mercato custom field definitions automatically and store the Akeneo metadata, validation rules, and groups on those fields.')}
                 </p>
+                <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-800">
+                  <Sparkles className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    {t('sync_akeneo.mapping.customFields.autoCreate', 'Running the Akeneo product import also creates any missing mapped fields automatically. Use the manual action only when you want to provision them before the first import.')}
+                  </span>
+                </div>
                 {customFieldRows.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border">
                     <table className="w-full min-w-[760px] text-sm">
@@ -1102,11 +1272,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                               <td className="px-3 py-2">{row.fieldKey}</td>
                               <td className="px-3 py-2 text-muted-foreground">{row.kind || t('sync_akeneo.customFields.kinds.auto', 'Auto')}</td>
                               <td className="px-3 py-2">
-                                <span className={`rounded-full px-2 py-1 text-[11px] ${exists ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                                  {exists
-                                    ? t('sync_akeneo.customFields.status.ready', 'Exists')
-                                    : t('sync_akeneo.customFields.status.missing', 'Missing')}
-                                </span>
+                                {renderCustomFieldStatusBadge(exists)}
                               </td>
                             </tr>
                           )
@@ -1802,11 +1968,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                           </select>
                         </td>
                         <td className="px-3 py-2">
-                          <span className={`rounded border px-2 py-1 text-xs ${exists ? '' : 'border-amber-300 text-amber-700'}`}>
-                            {exists
-                              ? t('sync_akeneo.customFields.status.ready', 'Exists')
-                              : t('sync_akeneo.customFields.status.missing', 'Missing')}
-                          </span>
+                          {renderCustomFieldStatusBadge(exists)}
                         </td>
                         <td className="px-3 py-2">
                           <Button
@@ -1857,7 +2019,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                 {isCreatingCustomFields ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                 {isCreatingCustomFields
                   ? t('sync_akeneo.customFields.actions.creating', 'Creating...')
-                  : t('sync_akeneo.customFields.actions.createMissing', 'Create missing fields now')}
+                  : t('sync_akeneo.customFields.actions.createMissing', 'Pre-create missing fields now')}
               </Button>
             </div>
 

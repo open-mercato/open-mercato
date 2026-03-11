@@ -147,6 +147,7 @@ const widget: InjectionBulkActionWidget = {
     {
       id: 'example.catalog.bulk.delete-selected',
       label: 'example.catalog.bulk.deleteSelected.label',
+      icon: 'trash-2',
       onExecute: async (selectedRows, rawContext) => {
         const context = (rawContext ?? {}) as BulkActionContext
         const translate = context.translate ?? ((_: string, fallback: string) => fallback)
@@ -192,6 +193,7 @@ const widget: InjectionBulkActionWidget = {
     {
       id: 'example.catalog.bulk.delete-filtered',
       label: 'example.catalog.bulk.deleteFiltered.label',
+      icon: 'filter-x',
       requiresSelection: false,
       onExecute: async (_selectedRows, rawContext) => {
         const context = (rawContext ?? {}) as BulkActionContext

@@ -3,9 +3,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { SyncCursor } from '@open-mercato/core/modules/data_sync/data/entities'
-import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+import { getSyncQueue } from '@open-mercato/core/modules/data_sync/lib/queue'
+import {
+  AKENEO_DELETE_IMPORTED_PRODUCTS_QUEUE,
+  findAkeneoImportedProductIds,
+} from '../../lib/delete-imported-products'
 
 const requestSchema = z.object({
   confirm: z.literal(true),
@@ -13,17 +16,9 @@ const requestSchema = z.object({
 
 const responseSchema = z.object({
   ok: z.boolean(),
-  deletedProductCount: z.number().int().nonnegative(),
+  progressJobId: z.string().uuid().nullable(),
   message: z.string(),
 })
-
-const PRODUCT_MAPPING_ENTITY_TYPES = [
-  'catalog_product',
-  'catalog_product_variant',
-  'catalog_offer',
-  'catalog_product_price',
-  'attachment',
-] as const
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
@@ -31,22 +26,7 @@ export const metadata = {
 
 export const openApi = {
   tags: ['Akeneo'],
-  summary: 'Delete all Akeneo-imported products for the current organization',
-}
-
-function buildCommandContext(scope: { organizationId: string; tenantId: string }, container: Awaited<ReturnType<typeof createRequestContainer>>): CommandRuntimeContext {
-  return {
-    container,
-    auth: null,
-    organizationScope: {
-      selectedId: scope.organizationId,
-      filterIds: [scope.organizationId],
-      allowedIds: [scope.organizationId],
-      tenantId: scope.tenantId,
-    },
-    selectedOrganizationId: scope.organizationId,
-    organizationIds: [scope.organizationId],
-  }
+  summary: 'Start deleting all Akeneo-imported products for the current organization',
 }
 
 export async function POST(req: Request) {
@@ -54,7 +34,7 @@ export async function POST(req: Request) {
   if (!auth?.tenantId || !auth.orgId) {
     return NextResponse.json(responseSchema.parse({
       ok: false,
-      deletedProductCount: 0,
+      progressJobId: null,
       message: 'Unauthorized',
     }), { status: 401 })
   }
@@ -63,77 +43,57 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json(responseSchema.parse({
       ok: false,
-      deletedProductCount: 0,
+      progressJobId: null,
       message: 'Invalid payload',
     }), { status: 400 })
   }
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const commandBus = container.resolve('commandBus') as CommandBus
+  const progressService = container.resolve('progressService') as ProgressService
   const scope = {
     organizationId: auth.orgId,
     tenantId: auth.tenantId,
+    userId: auth.sub,
   }
 
-  const productMappings = await em.find(SyncExternalIdMapping, {
-    integrationId: 'sync_akeneo',
-    internalEntityType: 'catalog_product',
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  }, {
-    fields: ['internalEntityId', 'createdAt'],
-    orderBy: { createdAt: 'asc' },
-  })
-
-  const productIds = Array.from(new Set(
-    (productMappings as Array<{ internalEntityId: string }>).map((entry) => entry.internalEntityId),
-  ))
-
+  const productIds = await findAkeneoImportedProductIds(em, scope)
   if (productIds.length === 0) {
     return NextResponse.json(responseSchema.parse({
       ok: true,
-      deletedProductCount: 0,
+      progressJobId: null,
       message: 'No Akeneo-imported products were found.',
     }))
   }
 
-  const commandCtx = buildCommandContext(scope, container)
-  let deletedProductCount = 0
+  const progressJob = await progressService.createJob(
+    {
+      jobType: 'sync_akeneo.delete_imported_products',
+      name: 'Delete imported Akeneo products',
+      description: `Deleting ${productIds.length} imported catalog products`,
+      totalCount: productIds.length,
+      cancellable: false,
+      meta: {
+        integrationId: 'sync_akeneo',
+        entityType: 'products',
+      },
+    },
+    {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      userId: auth.sub,
+    },
+  )
 
-  for (const productId of productIds) {
-    try {
-      await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.products.delete', {
-        input: { body: { id: productId } },
-        ctx: commandCtx,
-      })
-      deletedProductCount += 1
-    } catch {
-      continue
-    }
-  }
-
-  await em.nativeDelete(SyncExternalIdMapping, {
-    integrationId: 'sync_akeneo',
-    internalEntityType: { $in: [...PRODUCT_MAPPING_ENTITY_TYPES] },
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-  })
-
-  await em.nativeDelete(SyncCursor, {
-    integrationId: 'sync_akeneo',
-    entityType: 'products',
-    direction: 'import',
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
+  const queue = getSyncQueue(AKENEO_DELETE_IMPORTED_PRODUCTS_QUEUE)
+  await queue.enqueue({
+    progressJobId: progressJob.id,
+    scope,
   })
 
   return NextResponse.json(responseSchema.parse({
     ok: true,
-    deletedProductCount,
-    message: deletedProductCount === 1
-      ? 'Deleted 1 Akeneo-imported product.'
-      : `Deleted ${deletedProductCount} Akeneo-imported products.`,
-  }))
+    progressJobId: progressJob.id,
+    message: 'Started deleting Akeneo-imported products.',
+  }), { status: 202 })
 }
