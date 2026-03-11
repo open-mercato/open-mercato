@@ -381,36 +381,163 @@ GET /api/storage-providers/s3/list?prefix=exports/&maxKeys=100
 
 All routes require `storage_providers.manage` feature and use the configured S3 integration credentials.
 
-### 10.2 Programmatic Usage (Server-Side)
+### 10.2 StorageService (DI: `storageService`)
 
-Other modules can use the S3 driver directly via DI without going through the attachments module:
+A high-level service registered via DI that wraps the driver resolution and provides a clean API for any module. This is the **recommended way** to use storage from server-side code — it resolves credentials from the Integration Marketplace automatically and handles tenant scoping.
 
 ```typescript
-// In any module's API route or worker:
-const s3Driver = container.resolve<StorageDriver>('s3StorageDriver')
+// storage_providers/lib/storage-service.ts
 
-// Upload a generated report
-const result = await s3Driver.store({
-  partitionCode: 'exports',
-  orgId: scope.organizationId,
-  tenantId: scope.tenantId,
-  fileName: 'monthly-report-2026-03.pdf',
-  buffer: reportBuffer,
-})
+interface StorageService {
+  /**
+   * Upload a file to the configured storage provider.
+   * @param namespace — logical grouping (e.g., 'exports', 'reports', 'backups')
+   */
+  upload(input: {
+    namespace: string
+    fileName: string
+    buffer: Buffer
+    contentType?: string
+    scope: TenantScope
+  }): Promise<StorageResult>
 
-// Read it back
-const { buffer } = await s3Driver.read('exports', result.storagePath)
+  /** Download a file by its storage key */
+  download(input: {
+    key: string
+    scope: TenantScope
+  }): Promise<{ buffer: Buffer; contentType?: string }>
 
-// Get a temp local path for processing
-const { filePath, cleanup } = await s3Driver.toLocalPath('exports', result.storagePath)
-try {
-  // process file at filePath...
-} finally {
-  await cleanup()
+  /** Delete a file by its storage key */
+  delete(input: {
+    key: string
+    scope: TenantScope
+  }): Promise<void>
+
+  /** Get a pre-signed URL for direct browser upload or download */
+  getSignedUrl(input: {
+    key: string
+    operation: 'upload' | 'download'
+    expiresIn?: number  // seconds, default 3600
+    contentType?: string
+    scope: TenantScope
+  }): Promise<{ url: string; expiresAt: Date }>
+
+  /** List files by prefix */
+  list(input: {
+    prefix: string
+    maxKeys?: number
+    continuationToken?: string
+    scope: TenantScope
+  }): Promise<{
+    files: Array<{ key: string; size: number; lastModified: Date }>
+    truncated: boolean
+    nextContinuationToken?: string
+  }>
+
+  /** Get a temporary local file path (for CLI tools, OCR, etc.) */
+  toLocalPath(input: {
+    key: string
+    scope: TenantScope
+  }): Promise<{ filePath: string; cleanup: () => Promise<void> }>
+}
+
+interface StorageResult {
+  key: string           // Full storage key (namespace/tenant/timestamp_uuid_filename)
+  namespace: string
+  fileName: string
+  size: number
+  contentType?: string
 }
 ```
 
-### 10.3 Documentation for S3 Integration Setup
+**DI Registration** (`storage_providers/di.ts`):
+
+```typescript
+import { asFunction } from 'awilix'
+
+export function register(container: AppContainer) {
+  container.register({
+    storageService: asFunction(({ integrationCredentialsService, storageDriverFactory }) =>
+      createStorageService({ integrationCredentialsService, storageDriverFactory })
+    ).scoped(),
+  })
+}
+```
+
+### 10.3 Programmatic Usage Examples
+
+**Any module can inject `storageService` via DI and use it directly:**
+
+```typescript
+// In a data_sync export worker:
+export default async function handler(job: Job, { storageService, scope }: WorkerContext) {
+  const csvBuffer = await generateExportCsv(job.data)
+
+  const result = await storageService.upload({
+    namespace: 'exports',
+    fileName: `products-export-${Date.now()}.csv`,
+    buffer: csvBuffer,
+    contentType: 'text/csv',
+    scope,
+  })
+  // result.key = 'exports/org_xxx/tenant_yyy/1709123456_uuid_products-export.csv'
+
+  // Generate a download link for the user
+  const { url } = await storageService.getSignedUrl({
+    key: result.key,
+    operation: 'download',
+    expiresIn: 86400, // 24 hours
+    scope,
+  })
+
+  return { downloadUrl: url }
+}
+```
+
+```typescript
+// In an API route handler:
+export async function handler(req: NextRequest, ctx: RouteContext) {
+  const { storageService, scope } = ctx
+
+  // Upload a report
+  const result = await storageService.upload({
+    namespace: 'reports',
+    fileName: 'monthly-report-2026-03.pdf',
+    buffer: reportBuffer,
+    scope,
+  })
+
+  // Read it back
+  const { buffer } = await storageService.download({ key: result.key, scope })
+
+  // Get a temp local path for processing (e.g., pass to CLI tool)
+  const { filePath, cleanup } = await storageService.toLocalPath({ key: result.key, scope })
+  try {
+    await runExternalTool(filePath)
+  } finally {
+    await cleanup()
+  }
+
+  // List all reports
+  const listing = await storageService.list({
+    prefix: 'reports/',
+    maxKeys: 50,
+    scope,
+  })
+
+  // Delete old report
+  await storageService.delete({ key: 'reports/old-file.pdf', scope })
+}
+```
+
+**Low-level driver access** is also available for advanced use cases where the service abstraction is insufficient:
+
+```typescript
+// Direct driver resolution (advanced — prefer storageService above)
+const s3Driver = container.resolve<StorageDriver>('s3StorageDriver')
+```
+
+### 10.4 Documentation for S3 Integration Setup
 
 The S3 integration appears in the Integration Marketplace under the **Storage** category. To configure:
 
@@ -424,7 +551,7 @@ The S3 integration appears in the Integration Marketplace under the **Storage** 
    - **Custom Endpoint** — for MinIO, DigitalOcean Spaces (leave empty for AWS)
    - **Force Path Style** — enable for MinIO
 
-4. **For standalone usage** (without attachments): use the API routes in §10.1 or the programmatic API in §10.2. No attachment partitions needed.
+4. **For standalone usage** (without attachments): inject `storageService` from DI (§10.2–10.3) or use the REST API routes (§10.1). No attachment partitions needed.
 
 5. **For attachments integration**: go to Attachments → Partitions → edit a partition → set Storage Driver to "S3" → save. New uploads to that partition will use S3.
 
@@ -442,7 +569,8 @@ The S3 integration appears in the Integration Marketplace under the **Storage** 
 | `lib/drivers/s3Driver.ts` | S3-compatible driver |
 | `lib/drivers/driverFactory.ts` | Factory/registry with caching |
 | `lib/drivers/index.ts` | Barrel export |
-| `di.ts` | DI registration for `storageDriverFactory` |
+| `lib/storage-service.ts` | `StorageService` — high-level DI service for standalone storage (§10.2) |
+| `di.ts` | DI registration for `storageDriverFactory` + `storageService` |
 
 ### Modified Files
 
