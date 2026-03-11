@@ -13,7 +13,11 @@ export const metadata = {
   requireFeatures: ['security.admin.manage'],
   pageTitle: 'MFA enforcement',
   pageTitleKey: 'security.admin.enforcement.title',
+  pageGroup: 'Security',
+  pageGroupKey: 'settings.sections.security',
+  pageOrder: 1,
   icon: enforcementIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Security', labelKey: 'security.label' },
     { label: 'MFA enforcement', labelKey: 'security.admin.enforcement.title' },
