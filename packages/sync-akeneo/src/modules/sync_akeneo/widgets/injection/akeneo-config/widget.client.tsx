@@ -7,6 +7,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -18,6 +26,21 @@ type MappingRecordResponse = {
     id: string
     mapping: Record<string, unknown>
   }>
+}
+
+type CustomFieldStatusResponse = {
+  ok: boolean
+  productKeys: string[]
+  variantKeys: string[]
+  createdKeys?: string[]
+  message?: string
+}
+
+type CustomFieldRow = {
+  attributeCode: string
+  target: 'product' | 'variant'
+  fieldKey: string
+  kind: '' | 'text' | 'multiline' | 'integer' | 'float' | 'boolean' | 'select'
 }
 
 type FormState = {
@@ -142,21 +165,80 @@ function parseRows(value: string): string[][] {
     .map((row) => row.split(',').map((cell) => cell.trim()))
 }
 
+function parseCustomFieldRows(value: string): CustomFieldRow[] {
+  return parseRows(value)
+    .map(([attributeCode, target, fieldKey, kind]) => {
+      const normalizedTarget: CustomFieldRow['target'] = target === 'variant' ? 'variant' : 'product'
+      const normalizedKind: CustomFieldRow['kind'] = kind === 'text'
+        || kind === 'multiline'
+        || kind === 'integer'
+        || kind === 'float'
+        || kind === 'boolean'
+        || kind === 'select'
+        ? kind
+        : ''
+      return {
+        attributeCode,
+        target: normalizedTarget,
+        fieldKey,
+        kind: normalizedKind,
+      }
+    })
+    .filter((row) => row.attributeCode.length > 0 || row.fieldKey.length > 0)
+}
+
+function serializeCustomFieldRows(rows: CustomFieldRow[]): string {
+  return rows
+    .filter((row) => row.attributeCode.trim().length > 0 && row.fieldKey.trim().length > 0)
+    .map((row) => `${row.attributeCode.trim()},${row.target},${row.fieldKey.trim()}${row.kind ? `,${row.kind}` : ''}`)
+    .join('\n')
+}
+
+function normalizeFieldKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 100)
+}
+
+function inferCustomFieldKind(attributeType: string): CustomFieldRow['kind'] {
+  if (attributeType === 'pim_catalog_boolean') return 'boolean'
+  if (attributeType === 'pim_catalog_number') return 'float'
+  if (attributeType === 'pim_catalog_metric') return 'float'
+  if (attributeType === 'pim_catalog_textarea') return 'multiline'
+  if (
+    attributeType === 'pim_catalog_simpleselect'
+    || attributeType === 'pim_catalog_multiselect'
+    || attributeType === 'akeneo_reference_entity'
+    || attributeType === 'akeneo_reference_entity_collection'
+  ) {
+    return 'select'
+  }
+  return 'text'
+}
+
 export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps) {
   const t = useT()
   const [state, setState] = React.useState<FormState>(() => buildInitialState())
   const [discovery, setDiscovery] = React.useState<AkeneoDiscoveryResponse | null>(null)
+  const [customFieldStatus, setCustomFieldStatus] = React.useState<CustomFieldStatusResponse | null>(null)
+  const [customFieldDialogOpen, setCustomFieldDialogOpen] = React.useState(false)
+  const [customFieldEditorRows, setCustomFieldEditorRows] = React.useState<CustomFieldRow[]>([])
+  const [isCreatingCustomFields, setIsCreatingCustomFields] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
 
   const load = React.useCallback(async (refresh = false) => {
     setIsLoading(true)
     try {
-      const [discoveryCall, productsCall, categoriesCall, attributesCall] = await Promise.all([
+      const [discoveryCall, productsCall, categoriesCall, attributesCall, customFieldsCall] = await Promise.all([
         apiCall<AkeneoDiscoveryResponse>(`/api/sync_akeneo/discovery${refresh ? '?refresh=true' : ''}`),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=products&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=categories&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=attributes&page=1&pageSize=1'),
+        apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields'),
       ])
 
       const nextState = mergeMappingsIntoState(
@@ -168,6 +250,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
 
       setState(nextState)
       setDiscovery(discoveryCall.result ?? null)
+      setCustomFieldStatus(customFieldsCall.result ?? null)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load Akeneo configuration'
       flash(message, 'error')
@@ -184,6 +267,107 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     () => (discovery?.attributes ?? []).map((attribute) => attribute.code).sort(),
     [discovery],
   )
+  const customFieldRows = React.useMemo(
+    () => parseCustomFieldRows(state.customFieldMappings),
+    [state.customFieldMappings],
+  )
+  const productFieldKeys = React.useMemo(
+    () => new Set(customFieldStatus?.productKeys ?? []),
+    [customFieldStatus],
+  )
+  const variantFieldKeys = React.useMemo(
+    () => new Set(customFieldStatus?.variantKeys ?? []),
+    [customFieldStatus],
+  )
+  const missingCustomFieldCount = React.useMemo(
+    () => customFieldRows.filter((row) => {
+      if (!row.fieldKey.trim()) return false
+      return row.target === 'product'
+        ? !productFieldKeys.has(row.fieldKey.trim())
+        : !variantFieldKeys.has(row.fieldKey.trim())
+    }).length,
+    [customFieldRows, productFieldKeys, variantFieldKeys],
+  )
+  const mappedAttributeCodes = React.useMemo(
+    () => new Set(customFieldRows.map((row) => row.attributeCode).filter((value) => value.length > 0)),
+    [customFieldRows],
+  )
+  const editorMappedAttributeCodes = React.useMemo(
+    () => new Set(customFieldEditorRows.map((row) => row.attributeCode).filter((value) => value.length > 0)),
+    [customFieldEditorRows],
+  )
+  const suggestedCustomFieldAttributes = React.useMemo(
+    () => (discovery?.attributes ?? []).filter((attribute) => !editorMappedAttributeCodes.has(attribute.code)).slice(0, 24),
+    [discovery, editorMappedAttributeCodes],
+  )
+  const dialogMissingCustomFieldCount = React.useMemo(
+    () => customFieldEditorRows.filter((row) => {
+      if (!row.fieldKey.trim()) return false
+      return row.target === 'product'
+        ? !productFieldKeys.has(row.fieldKey.trim())
+        : !variantFieldKeys.has(row.fieldKey.trim())
+    }).length,
+    [customFieldEditorRows, productFieldKeys, variantFieldKeys],
+  )
+
+  function openCustomFieldDialog() {
+    setCustomFieldEditorRows(parseCustomFieldRows(state.customFieldMappings))
+    setCustomFieldDialogOpen(true)
+  }
+
+  async function createMissingCustomFields(sourceRows?: CustomFieldRow[]) {
+    setIsCreatingCustomFields(true)
+    try {
+      const customFieldMappings = (sourceRows ?? parseCustomFieldRows(state.customFieldMappings))
+      const currentProductsMapping = {
+        ...buildDefaultAkeneoMapping('products'),
+        settings: {
+          products: {
+            locale: state.productLocale,
+            channel: state.productChannel || null,
+            fieldMap: { ...state.fieldMap },
+            customFieldMappings: customFieldMappings.map((row) => ({
+              attributeCode: row.attributeCode.trim(),
+              target: row.target,
+              fieldKey: row.fieldKey.trim(),
+              kind: row.kind || null,
+            })),
+            priceMappings: [],
+            mediaMappings: [],
+            syncAssociations: state.syncAssociations,
+            reconciliation: { ...state.reconciliation },
+          },
+        },
+      }
+      currentProductsMapping.fields = buildProductFieldMappings(currentProductsMapping.settings.products)
+      const result = await apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mapping: currentProductsMapping,
+        }),
+      })
+      setCustomFieldStatus(result.result ?? null)
+      flash(
+        result.result?.message
+          ?? t('sync_akeneo.customFields.created', 'Akeneo-backed custom fields created.'),
+        'success',
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create custom fields'
+      flash(message, 'error')
+    } finally {
+      setIsCreatingCustomFields(false)
+    }
+  }
+
+  function applyCustomFieldEditor() {
+    setState((current) => ({
+      ...current,
+      customFieldMappings: serializeCustomFieldRows(customFieldEditorRows),
+    }))
+    setCustomFieldDialogOpen(false)
+  }
 
   async function saveMappings() {
     setIsSaving(true)
@@ -456,7 +640,19 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
 
             <div className="grid gap-4">
               <div className="space-y-2">
-                <Label htmlFor="akeneo-custom-fields">{t('sync_akeneo.mapping.customFields', 'Custom field mappings')}</Label>
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="akeneo-custom-fields">{t('sync_akeneo.mapping.customFields', 'Custom field mappings')}</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" onClick={() => openCustomFieldDialog()} disabled={isLoading || isSaving}>
+                      {t('sync_akeneo.mapping.customFields.editor', 'Open editor')}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => void createMissingCustomFields()} disabled={isLoading || isSaving || isCreatingCustomFields || customFieldRows.length === 0}>
+                      {isCreatingCustomFields
+                        ? t('sync_akeneo.mapping.customFields.creating', 'Creating...')
+                        : t('sync_akeneo.mapping.customFields.createMissing', 'Create missing fields')}
+                    </Button>
+                  </div>
+                </div>
                 <Textarea
                   id="akeneo-custom-fields"
                   value={state.customFieldMappings}
@@ -468,6 +664,18 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                 <p className="text-xs text-muted-foreground">
                   {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind]. The importer creates or updates Open Mercato custom field definitions and stores Akeneo metadata, validation rules, and groups on those fields.')}
                 </p>
+                {customFieldRows.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="rounded border px-2 py-1">
+                      {t('sync_akeneo.mapping.customFields.total', `${customFieldRows.length} mapped`)}
+                    </span>
+                    <span className={`rounded border px-2 py-1 ${missingCustomFieldCount > 0 ? 'border-amber-300 text-amber-700' : ''}`}>
+                      {missingCustomFieldCount > 0
+                        ? t('sync_akeneo.mapping.customFields.missing', `${missingCustomFieldCount} missing locally`)
+                        : t('sync_akeneo.mapping.customFields.ready', 'All mapped fields already exist')}
+                    </span>
+                  </div>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="akeneo-prices">{t('sync_akeneo.mapping.prices', 'Price and offer mappings')}</Label>
@@ -667,6 +875,222 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
           ))}
         </datalist>
       </div>
+
+      <Dialog open={customFieldDialogOpen} onOpenChange={setCustomFieldDialogOpen}>
+        <DialogContent
+          className="sm:max-w-5xl"
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              applyCustomFieldEditor()
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t('sync_akeneo.customFields.dialog.title', 'Akeneo custom field editor')}</DialogTitle>
+            <DialogDescription>
+              {t('sync_akeneo.customFields.dialog.description', 'Edit structured custom-field mappings, review which local field definitions already exist, and generate missing ones immediately.')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded border px-2 py-1 text-xs">
+                {t('sync_akeneo.customFields.dialog.summary.total', `${customFieldEditorRows.length} mapping rows`)}
+              </span>
+              <span className={`rounded border px-2 py-1 text-xs ${dialogMissingCustomFieldCount > 0 ? 'border-amber-300 text-amber-700' : ''}`}>
+                {dialogMissingCustomFieldCount > 0
+                  ? t('sync_akeneo.customFields.dialog.summary.missing', `${dialogMissingCustomFieldCount} rows missing local fields`)
+                  : t('sync_akeneo.customFields.dialog.summary.ready', 'Everything in this mapping already exists locally')}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full min-w-[780px] text-sm">
+                <thead className="bg-muted/50 text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.attribute', 'Akeneo attribute')}</th>
+                    <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.target', 'Target')}</th>
+                    <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.key', 'Field key')}</th>
+                    <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.kind', 'Kind')}</th>
+                    <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.status', 'Status')}</th>
+                    <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.actions', 'Actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customFieldEditorRows.length > 0 ? customFieldEditorRows.map((row, index) => {
+                    const exists = row.target === 'product'
+                      ? productFieldKeys.has(row.fieldKey.trim())
+                      : variantFieldKeys.has(row.fieldKey.trim())
+                    return (
+                      <tr key={`${row.attributeCode}:${row.fieldKey}:${index}`} className="border-t">
+                        <td className="px-3 py-2">
+                          <Input
+                            list="akeneo-attributes"
+                            value={row.attributeCode}
+                            onChange={(event) => {
+                              const nextRows = [...customFieldEditorRows]
+                              nextRows[index] = { ...row, attributeCode: event.target.value }
+                              setCustomFieldEditorRows(nextRows)
+                            }}
+                            disabled={isLoading || isSaving || isCreatingCustomFields}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2"
+                            value={row.target}
+                            onChange={(event) => {
+                              const nextRows = [...customFieldEditorRows]
+                              nextRows[index] = { ...row, target: event.target.value === 'variant' ? 'variant' : 'product' }
+                              setCustomFieldEditorRows(nextRows)
+                            }}
+                            disabled={isLoading || isSaving || isCreatingCustomFields}
+                          >
+                            <option value="product">{t('sync_akeneo.customFields.targets.product', 'Product')}</option>
+                            <option value="variant">{t('sync_akeneo.customFields.targets.variant', 'Variant')}</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Input
+                            value={row.fieldKey}
+                            onChange={(event) => {
+                              const nextRows = [...customFieldEditorRows]
+                              nextRows[index] = { ...row, fieldKey: normalizeFieldKey(event.target.value) }
+                              setCustomFieldEditorRows(nextRows)
+                            }}
+                            disabled={isLoading || isSaving || isCreatingCustomFields}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2"
+                            value={row.kind}
+                            onChange={(event) => {
+                              const nextRows = [...customFieldEditorRows]
+                              nextRows[index] = {
+                                ...row,
+                                kind: event.target.value === ''
+                                  ? ''
+                                  : event.target.value as CustomFieldRow['kind'],
+                              }
+                              setCustomFieldEditorRows(nextRows)
+                            }}
+                            disabled={isLoading || isSaving || isCreatingCustomFields}
+                          >
+                            <option value="">{t('sync_akeneo.customFields.kinds.auto', 'Auto')}</option>
+                            <option value="text">text</option>
+                            <option value="multiline">multiline</option>
+                            <option value="integer">integer</option>
+                            <option value="float">float</option>
+                            <option value="boolean">boolean</option>
+                            <option value="select">select</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`rounded border px-2 py-1 text-xs ${exists ? '' : 'border-amber-300 text-amber-700'}`}>
+                            {exists
+                              ? t('sync_akeneo.customFields.status.ready', 'Exists')
+                              : t('sync_akeneo.customFields.status.missing', 'Missing')}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => {
+                              const nextRows = customFieldEditorRows.filter((_, rowIndex) => rowIndex !== index)
+                              setCustomFieldEditorRows(nextRows)
+                            }}
+                            disabled={isLoading || isSaving || isCreatingCustomFields}
+                          >
+                            {t('sync_akeneo.customFields.actions.remove', 'Remove')}
+                          </Button>
+                        </td>
+                      </tr>
+                    )
+                  }) : (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                        {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are mapped yet. Use the suggestions below or add a row manually.')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+                  <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCustomFieldEditorRows([
+                  ...customFieldEditorRows,
+                  { attributeCode: '', target: 'product', fieldKey: '', kind: '' },
+                ])}
+                disabled={isLoading || isSaving || isCreatingCustomFields}
+              >
+                {t('sync_akeneo.customFields.actions.add', 'Add row')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void createMissingCustomFields(customFieldEditorRows)}
+                disabled={isLoading || isSaving || isCreatingCustomFields || customFieldEditorRows.length === 0}
+              >
+                {isCreatingCustomFields
+                  ? t('sync_akeneo.customFields.actions.creating', 'Creating...')
+                  : t('sync_akeneo.customFields.actions.createMissing', 'Create missing fields now')}
+              </Button>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="mb-3">
+                <h4 className="text-sm font-medium">{t('sync_akeneo.customFields.suggestions.title', 'Suggested Akeneo attributes')}</h4>
+                <p className="text-xs text-muted-foreground">
+                  {t('sync_akeneo.customFields.suggestions.help', 'Quick-add discovered attributes that are not yet part of the Akeneo custom-field mapping.')}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {suggestedCustomFieldAttributes.map((attribute) => (
+                  <Button
+                    key={attribute.code}
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setCustomFieldEditorRows([
+                        ...customFieldEditorRows,
+                        {
+                          attributeCode: attribute.code,
+                          target: 'product',
+                          fieldKey: normalizeFieldKey(`akeneo_${attribute.code}`),
+                          kind: inferCustomFieldKind(attribute.type),
+                        },
+                      ])
+                    }}
+                    disabled={isLoading || isSaving || isCreatingCustomFields}
+                  >
+                    {attribute.code}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => applyCustomFieldEditor()}
+              disabled={isCreatingCustomFields}
+            >
+              {t('sync_akeneo.customFields.dialog.apply', 'Apply')}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setCustomFieldDialogOpen(false)} disabled={isCreatingCustomFields}>
+              {t('sync_akeneo.customFields.dialog.close', 'Close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
