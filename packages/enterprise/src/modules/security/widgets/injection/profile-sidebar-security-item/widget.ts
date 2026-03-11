@@ -1,4 +1,3 @@
-import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
 import type { InjectionMenuItemWidget } from '@open-mercato/shared/modules/widgets/injection'
 
 const widgetModule: InjectionMenuItemWidget = {
@@ -17,7 +16,6 @@ const widgetModule: InjectionMenuItemWidget = {
       href: '/backend/profile/security',
       features: ['security.profile.view'],
       groupId: 'account',
-      placement: { position: InjectionPosition.After, relativeTo: 'change-password' },
     },
   ],
 }

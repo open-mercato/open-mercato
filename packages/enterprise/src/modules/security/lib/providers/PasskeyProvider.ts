@@ -5,16 +5,18 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from '@simplewebauthn/server'
+import type { AuthenticatorTransportFuture } from '@simplewebauthn/types'
 import { z } from 'zod'
 import type {
   MfaMethodRecord,
+  MfaProviderConfirmResult,
   MfaProviderInterface,
   MfaProviderUser,
   MfaVerifyContext,
 } from '../mfa-provider-interface'
+import type { SecurityModuleConfig } from '../security-config'
+import { readSecurityModuleConfig, readSecuritySetupTokenSecret } from '../security-config'
 
-const SETUP_TTL_MS = 10 * 60 * 1000
-const CHALLENGE_TTL_MS = 5 * 60 * 1000
 const SETUP_TOKEN_VERSION = 'v1'
 
 const setupPayloadSchema = z.object({
@@ -72,6 +74,16 @@ const verifyContextSchema = z.object({
   }),
 })
 
+const AUTHENTICATOR_TRANSPORTS: AuthenticatorTransportFuture[] = [
+  'ble',
+  'cable',
+  'hybrid',
+  'internal',
+  'nfc',
+  'smart-card',
+  'usb',
+]
+
 export class PasskeyProvider implements MfaProviderInterface {
   readonly type = 'passkey'
   readonly label = 'Passkey'
@@ -79,6 +91,11 @@ export class PasskeyProvider implements MfaProviderInterface {
   readonly allowMultiple = true
   readonly setupSchema = setupPayloadSchema
   readonly verifySchema = verifyPayloadSchema
+
+  constructor(
+    private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
+    private readonly setupTokenSecret: string = readSecuritySetupTokenSecret(),
+  ) {}
 
   resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
     const parsed = setupPayloadSchema.parse(payload ?? {})
@@ -101,7 +118,7 @@ export class PasskeyProvider implements MfaProviderInterface {
       userID: this.toWebAuthnUserId(userId),
       userName,
       userDisplayName,
-      timeout: SETUP_TTL_MS,
+      timeout: this.securityConfig.webauthn.setupTtlMs,
       attestationType: 'none',
       authenticatorSelection: {
         residentKey: 'required',
@@ -130,13 +147,13 @@ export class PasskeyProvider implements MfaProviderInterface {
     userId: string,
     setupId: string,
     payload: unknown,
-  ): Promise<{ metadata: Record<string, unknown> }> {
+  ): Promise<MfaProviderConfirmResult> {
     const parsed = setupConfirmationPayloadSchema.parse(payload)
     const pending = this.readSetupToken(setupId)
     if (!pending || pending.version !== SETUP_TOKEN_VERSION || pending.userId !== userId) {
       throw new Error('Passkey setup session not found')
     }
-    if (Date.now() - pending.createdAt > SETUP_TTL_MS) {
+    if (Date.now() - pending.createdAt > this.securityConfig.webauthn.setupTtlMs) {
       throw new Error('Passkey setup session expired')
     }
 
@@ -217,10 +234,9 @@ export class PasskeyProvider implements MfaProviderInterface {
     const options = await generateAuthenticationOptions({
       rpID: this.getRpId(),
       userVerification: 'preferred',
-      timeout: CHALLENGE_TTL_MS,
+      timeout: this.securityConfig.webauthn.challengeTtlMs,
       allowCredentials: [{
         id: credentialId,
-        type: 'public-key',
         transports: this.normalizeTransports(metadata.transports),
       }],
     })
@@ -256,7 +272,7 @@ export class PasskeyProvider implements MfaProviderInterface {
       return false
     }
     const pending = parsedContext.data.challenge
-    if (Date.now() - pending.createdAt > CHALLENGE_TTL_MS) {
+    if (Date.now() - pending.createdAt > this.securityConfig.webauthn.challengeTtlMs) {
       return false
     }
 
@@ -315,9 +331,11 @@ export class PasskeyProvider implements MfaProviderInterface {
     return true
   }
 
-  private normalizeTransports(raw: unknown): string[] {
+  private normalizeTransports(raw: unknown): AuthenticatorTransportFuture[] {
     if (!Array.isArray(raw)) return []
-    return raw.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    return raw.filter((value: unknown): value is AuthenticatorTransportFuture =>
+      typeof value === 'string' && AUTHENTICATOR_TRANSPORTS.includes(value as AuthenticatorTransportFuture),
+    )
   }
 
   private bytesToBase64Url(value: Uint8Array): string {
@@ -362,43 +380,19 @@ export class PasskeyProvider implements MfaProviderInterface {
   }
 
   private getSetupTokenSecret(): string {
-    return process.env.JWT_SECRET || process.env.AUTH_SECRET || 'open-mercato-passkey-setup'
+    return this.setupTokenSecret
   }
 
   private getRpName(): string {
-    return process.env.SECURITY_WEBAUTHN_RP_NAME || 'Open Mercato'
+    return this.securityConfig.webauthn.rpName
   }
 
   private getRpId(): string {
-    return process.env.SECURITY_WEBAUTHN_RP_ID || 'localhost'
+    return this.securityConfig.webauthn.rpId
   }
 
   private getExpectedOrigins(): string[] {
-    const fromList = (process.env.SECURITY_WEBAUTHN_ORIGINS || '')
-      .split(',')
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0)
-
-    const singletons = [
-      process.env.SECURITY_WEBAUTHN_ORIGIN,
-      process.env.APP_URL,
-      process.env.NEXT_PUBLIC_APP_URL,
-    ]
-      .filter((value): value is string => typeof value === 'string')
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0)
-
-    const origins = [...new Set([...fromList, ...singletons])]
-    if (origins.length > 0) {
-      return origins
-    }
-
-    const rpId = this.getRpId()
-    if (rpId === 'localhost') {
-      return ['http://localhost:3000']
-    }
-
-    return [`https://${rpId}`]
+    return [...this.securityConfig.webauthn.expectedOrigins]
   }
 
   private toWebAuthnUserId(userId: string): Uint8Array {

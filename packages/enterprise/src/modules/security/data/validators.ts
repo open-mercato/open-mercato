@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { ChallengeMethod, EnforcementScope, SudoTargetType } from './entities'
+import { readSecurityModuleConfig } from '../lib/security-config'
 
 const passwordSchema = buildPasswordSchema()
+const securityConfig = readSecurityModuleConfig()
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -56,7 +58,11 @@ export const sudoConfigSchema = z.object({
   targetType: z.nativeEnum(SudoTargetType),
   targetIdentifier: z.string().min(1),
   isEnabled: z.boolean().default(true),
-  ttlSeconds: z.coerce.number().int().min(30).max(1800).default(300),
+  ttlSeconds: z.coerce.number()
+    .int()
+    .min(securityConfig.sudo.minTtlSeconds)
+    .max(securityConfig.sudo.maxTtlSeconds)
+    .default(securityConfig.sudo.defaultTtlSeconds),
   challengeMethod: z.nativeEnum(ChallengeMethod).default(ChallengeMethod.AUTO),
 })
 

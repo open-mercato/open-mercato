@@ -31,6 +31,7 @@ describe('security auth/login api interceptor', () => {
 
   beforeEach(() => {
     process.env.JWT_SECRET = 'test-secret'
+    delete process.env.SECURITY_MFA_EMERGENCY_BYPASS
     jest.clearAllMocks()
   })
 
@@ -106,5 +107,25 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({})
+  })
+
+  test('skips MFA challenge injection when emergency bypass is enabled', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    process.env.SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+    const createChallenge = jest.fn(async () => ({
+      challengeId: 'challenge-1',
+      availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
+    })) as CreateChallengeMock
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+      buildContext(createChallenge),
+    )
+
+    expect(result).toEqual({})
+    expect(createChallenge).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,9 @@
 {
+  "auth": {
+    "changePassword": {
+      "title": "Security & MFA"
+    }
+  },
   "security": {
     "label": "Security",
     "profile": {
@@ -19,7 +24,8 @@
             "confirmRequired": "Please confirm the new password.",
             "passwordPolicy": "Password does not meet the requirements.",
             "passwordMismatch": "Passwords do not match.",
-            "save": "Failed to update password."
+            "save": "Failed to update password.",
+            "useSecurityPage": "Password changes must be made from the Security & MFA page."
           }
         }
       },
@@ -497,6 +503,11 @@
           }
         }
       }
+    }
+  },
+  "ui": {
+    "profileMenu": {
+      "changePassword": "Security & MFA"
     }
   }
 }

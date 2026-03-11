@@ -24,6 +24,10 @@ function buildArgs(overrides?: Partial<ResolveArgs>): ResolveArgs {
 }
 
 describe('resolveMfaEnrollmentRedirect', () => {
+  beforeEach(() => {
+    delete process.env.SECURITY_MFA_EMERGENCY_BYPASS
+  })
+
   test('returns redirect for enforced non-compliant user', async () => {
     const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
     expect(redirect).toBe(
@@ -80,5 +84,13 @@ describe('resolveMfaEnrollmentRedirect', () => {
       }),
     )
     expect(redirect).toContain('overdue=1')
+  })
+
+  test('returns null when MFA emergency bypass is enabled', async () => {
+    process.env.SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+
+    const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
+
+    expect(redirect).toBeNull()
   })
 })

@@ -4,7 +4,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { sudoConfigUpdateSchema } from '../../../../data/validators'
 import { requireSudo } from '../../../../lib/sudo-middleware'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
-import { mapSudoError, resolveSudoContext } from '../../_shared'
+import { mapSudoError, resolveSudoContext, toSudoConfigResponse } from '../../_shared'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -14,7 +14,23 @@ const okResponseSchema = z.object({
   ok: z.literal(true),
 })
 
+const sudoConfigItemSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid().nullable(),
+  organizationId: z.string().uuid().nullable(),
+  targetType: z.string(),
+  targetIdentifier: z.string(),
+  isEnabled: z.boolean(),
+  isDeveloperDefault: z.boolean(),
+  ttlSeconds: z.number().int(),
+  challengeMethod: z.string(),
+  configuredBy: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
 export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['security.sudo.view'] },
   PUT: { requireAuth: true, requireFeatures: ['security.sudo.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['security.sudo.manage'] },
 }
@@ -28,6 +44,26 @@ async function readParams(ctx?: RouteContext) {
   return paramsSchema.safeParse({
     id: typeof raw?.id === 'string' ? raw.id : undefined,
   })
+}
+
+export async function GET(req: Request, ctx?: RouteContext) {
+  const context = await resolveSudoContext(req)
+  if (context instanceof NextResponse) return context
+
+  const parsedParams = await readParams(ctx)
+  if (!parsedParams.success) {
+    return NextResponse.json({ error: 'Invalid route parameters', issues: parsedParams.error.issues }, { status: 400 })
+  }
+
+  try {
+    const config = await context.sudoChallengeService.getConfigById(parsedParams.data.id)
+    if (!config) {
+      return NextResponse.json({ error: 'Sudo config not found' }, { status: 404 })
+    }
+    return NextResponse.json(toSudoConfigResponse(config))
+  } catch (error) {
+    return mapSudoError(error)
+  }
 }
 
 export async function PUT(req: Request, ctx?: RouteContext) {
@@ -92,6 +128,17 @@ export async function DELETE(req: Request, ctx?: RouteContext) {
 export const openApi = buildSecurityOpenApi({
   summary: 'Sudo config item routes',
   methods: {
+    GET: {
+      summary: 'Get sudo config',
+      responses: [
+        { status: 200, description: 'Sudo config', schema: sudoConfigItemSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid route parameters', schema: securityErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
+        { status: 404, description: 'Sudo config not found', schema: securityErrorSchema },
+      ],
+    },
     PUT: {
       summary: 'Update sudo config',
       requestBody: {

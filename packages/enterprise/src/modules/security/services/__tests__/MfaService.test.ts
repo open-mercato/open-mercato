@@ -3,6 +3,10 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
 import type { MfaProviderInterface } from '../../lib/mfa-provider-interface'
+import {
+  defaultSecurityModuleConfig,
+  type SecurityModuleConfig,
+} from '../../lib/security-config'
 import { MfaService } from '../MfaService'
 
 jest.mock('../../events', () => ({
@@ -46,9 +50,9 @@ function createProvider(overrides?: Partial<MfaProviderInterface>): MfaProviderI
     })),
     confirmSetup: jest.fn(async () => ({
       metadata: {
-        secret: 'SECRET',
         label: 'Phone Authenticator',
       },
+      secret: 'SECRET',
     })),
     prepareChallenge: jest.fn(async () => ({})),
     verify: jest.fn(async () => true),
@@ -56,7 +60,9 @@ function createProvider(overrides?: Partial<MfaProviderInterface>): MfaProviderI
   }
 }
 
-function createServiceContext() {
+function createServiceContext(
+  securityConfig: SecurityModuleConfig = defaultSecurityModuleConfig,
+) {
   const methods: MockMethod[] = []
   const recoveryCodes: Array<{ userId: string; codeHash: string; isUsed: boolean; usedAt?: Date | null; createdAt: Date }> = []
   const enforcementPolicies: Array<{ scope: string; tenantId?: string | null; organizationId?: string | null; isEnforced: boolean; allowedMethods?: string[] | null; deletedAt?: Date | null }> = []
@@ -148,7 +154,7 @@ function createServiceContext() {
   const provider = createProvider()
   registry.register(provider)
 
-  const service = new MfaService(em as unknown as EntityManager, registry)
+  const service = new MfaService(em as unknown as EntityManager, registry, securityConfig)
   return { service, em, registry, provider, methods, recoveryCodes, enforcementPolicies }
 }
 
@@ -185,7 +191,8 @@ describe('MfaService', () => {
     await service.confirmMethod('user-1', 'setup-1', { code: '123456' })
 
     expect(methods[0].isActive).toBe(true)
-    expect(methods[0].secret).toBeNull()
+    expect(methods[0].secret).toBe('SECRET')
+    expect(methods[0].providerMetadata).toEqual({ label: 'Phone Authenticator' })
     expect(generateSpy).toHaveBeenCalledWith('user-1')
     expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.enrolled', expect.objectContaining({
       userId: 'user-1',
@@ -220,6 +227,43 @@ describe('MfaService', () => {
     })
 
     await expect(service.setupMethod('user-1', 'otp_email', {})).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 409,
+      message: "MFA provider 'otp_email' is already configured",
+    })
+  })
+
+  test('confirmMethod rejects duplicate confirmation for a single-instance provider', async () => {
+    const { service, registry, methods } = createServiceContext()
+    registry.register(createProvider({
+      type: 'otp_email',
+      allowMultiple: false,
+      setup: jest.fn(async () => ({
+        setupId: 'setup-otp-1',
+        clientData: { email: 'user@example.com' },
+      })),
+      confirmSetup: jest.fn(async () => ({
+        metadata: { email: 'user@example.com' },
+      })),
+    }))
+
+    await service.setupMethod('user-1', 'otp_email', {})
+    methods.push({
+      id: 'method-existing',
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      type: 'otp_email',
+      label: 'Primary email',
+      secret: null,
+      providerMetadata: { email: 'user@example.com' },
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    })
+
+    await expect(service.confirmMethod('user-1', 'setup-otp-1', {})).rejects.toMatchObject({
       name: 'MfaServiceError',
       statusCode: 409,
       message: "MFA provider 'otp_email' is already configured",
@@ -283,6 +327,21 @@ describe('MfaService', () => {
       userId: 'user-1',
       total: 10,
     })
+  })
+
+  test('generateRecoveryCodes respects the configured recovery code count', async () => {
+    const { service, recoveryCodes } = createServiceContext({
+      ...defaultSecurityModuleConfig,
+      recoveryCodes: {
+        ...defaultSecurityModuleConfig.recoveryCodes,
+        count: 3,
+      },
+    })
+
+    const plaintextCodes = await service.generateRecoveryCodes('user-1')
+
+    expect(plaintextCodes).toHaveLength(3)
+    expect(recoveryCodes).toHaveLength(3)
   })
 
   test('verifyRecoveryCode accepts normalized lowercase and hyphenated input', async () => {

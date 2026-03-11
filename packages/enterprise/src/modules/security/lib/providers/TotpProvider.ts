@@ -1,18 +1,19 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
+import { Secret, TOTP } from 'otpauth'
 import QRCode from 'qrcode'
 import { z } from 'zod'
 import type {
   MfaMethodRecord,
+  MfaProviderConfirmResult,
   MfaProviderInterface,
   MfaProviderUser,
   MfaVerifyContext,
 } from '../mfa-provider-interface'
+import type { SecurityModuleConfig } from '../security-config'
+import { readSecurityModuleConfig, readSecuritySetupTokenSecret } from '../security-config'
 
-const TOTP_PERIOD_SECONDS = 30
-const TOTP_DIGITS = 6
-const TOTP_WINDOW = 1
-const SETUP_TTL_MS = 10 * 60 * 1000
-const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+const TOTP_ALGORITHM = 'SHA1'
+const TOTP_SECRET_SIZE_BYTES = 20
 
 const setupPayloadSchema = z.object({
   issuer: z.string().min(1).max(100).optional(),
@@ -39,22 +40,24 @@ export class TotpProvider implements MfaProviderInterface {
   readonly type = 'totp'
   readonly label = 'Authenticator App'
   readonly icon = 'Smartphone'
-  readonly allowMultiple = true
+  readonly allowMultiple = false
   readonly setupSchema = setupPayloadSchema
   readonly verifySchema = confirmPayloadSchema
 
   private readonly pendingSetups = new Map<string, PendingSetup>()
 
+  constructor(
+    private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
+    private readonly setupTokenSecret: string = readSecuritySetupTokenSecret(),
+  ) {}
+
   resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
     const parsed = setupPayloadSchema.parse(payload ?? {})
-    if (parsed.label) {
-      return parsed
-    }
-
     const email = typeof user.email === 'string' ? user.email.trim() : ''
+
     return {
       ...parsed,
-      ...(email.length > 0 ? { label: email } : {}),
+      ...(parsed.label || email.length === 0 ? {} : { label: email }),
     }
   }
 
@@ -63,7 +66,7 @@ export class TotpProvider implements MfaProviderInterface {
     const secret = this.generateSecret()
     const setupId = this.createSetupToken(userId, secret, Date.now())
     const label = parsed.label ?? userId
-    const issuer = parsed.issuer ?? 'Open Mercato'
+    const issuer = parsed.issuer ?? this.securityConfig.totp.issuer
     const uri = this.buildOtpAuthUri(secret, issuer, label)
     const qrDataUrl = await QRCode.toDataURL(uri, {
       errorCorrectionLevel: 'M',
@@ -94,13 +97,13 @@ export class TotpProvider implements MfaProviderInterface {
     userId: string,
     setupId: string,
     payload: unknown,
-  ): Promise<{ metadata: Record<string, unknown> }> {
+  ): Promise<MfaProviderConfirmResult> {
     const parsed = confirmPayloadSchema.parse(payload)
     const setup = this.resolveSetup(setupId)
     if (!setup || setup.userId !== userId) {
       throw new Error('TOTP setup session not found')
     }
-    if (Date.now() - setup.createdAt > SETUP_TTL_MS) {
+    if (Date.now() - setup.createdAt > this.securityConfig.totp.setupTtlMs) {
       this.pendingSetups.delete(setupId)
       throw new Error('TOTP setup session expired')
     }
@@ -110,12 +113,8 @@ export class TotpProvider implements MfaProviderInterface {
     }
     this.pendingSetups.delete(setupId)
     return {
-      metadata: {
-        secret: setup.secret,
-        algorithm: 'SHA1',
-        digits: TOTP_DIGITS,
-        period: TOTP_PERIOD_SECONDS,
-      },
+      metadata: {},
+      secret: setup.secret,
     }
   }
 
@@ -131,101 +130,47 @@ export class TotpProvider implements MfaProviderInterface {
   ): Promise<boolean> {
     const parsed = confirmPayloadSchema.parse(payload)
     if (method.userId !== userId) return false
-    const secretValue = method.providerMetadata?.secret
-    if (typeof secretValue !== 'string' || secretValue.length === 0) return false
+    const secretValue = this.readStoredSecret(method)
+    if (!secretValue) return false
     return this.verifyTotpCode(secretValue, parsed.code)
   }
 
   private generateSecret(): string {
-    return this.encodeBase32(randomBytes(20))
+    return new Secret({ size: TOTP_SECRET_SIZE_BYTES }).base32
   }
 
   private buildOtpAuthUri(secret: string, issuer: string, label: string): string {
-    const encodedIssuer = encodeURIComponent(issuer)
-    const encodedLabel = encodeURIComponent(label)
-    return `otpauth://totp/${encodedIssuer}:${encodedLabel}?secret=${encodeURIComponent(secret)}&issuer=${encodedIssuer}&period=${TOTP_PERIOD_SECONDS}&digits=${TOTP_DIGITS}`
+    return new TOTP({
+      issuer,
+      label,
+      secret: this.parseSecret(secret),
+      algorithm: TOTP_ALGORITHM,
+      digits: this.securityConfig.totp.digits,
+      period: this.securityConfig.totp.periodSeconds,
+    }).toString()
   }
 
   private verifyTotpCode(secret: string, code: string): boolean {
-    const now = Math.floor(Date.now() / 1000)
-    const input = Buffer.from(code.padStart(TOTP_DIGITS, '0'))
-    for (let offset = -TOTP_WINDOW; offset <= TOTP_WINDOW; offset += 1) {
-      const counter = Math.floor((now + offset * TOTP_PERIOD_SECONDS) / TOTP_PERIOD_SECONDS)
-      const expected = Buffer.from(this.generateCodeForCounter(secret, counter))
-      if (input.length === expected.length && timingSafeEqual(input, expected)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  private generateCodeForCounter(secret: string, counter: number): string {
-    const key = this.decodeTotpSecret(secret)
-    const counterBuffer = Buffer.alloc(8)
-    counterBuffer.writeBigUInt64BE(BigInt(counter))
-    const digest = createHmac('sha1', key).update(counterBuffer).digest()
-    const offset = digest[digest.length - 1] & 0x0f
-    const binary =
-      ((digest[offset] & 0x7f) << 24) |
-      ((digest[offset + 1] & 0xff) << 16) |
-      ((digest[offset + 2] & 0xff) << 8) |
-      (digest[offset + 3] & 0xff)
-    const otp = binary % 10 ** TOTP_DIGITS
-    return String(otp).padStart(TOTP_DIGITS, '0')
-  }
-
-  private decodeTotpSecret(secret: string): Buffer {
-    const normalized = secret.trim().replaceAll(' ', '').replaceAll('-', '').toUpperCase()
     try {
-      return this.decodeBase32(normalized)
+      const totp = new TOTP({
+        secret: this.parseSecret(secret),
+        algorithm: TOTP_ALGORITHM,
+        digits: this.securityConfig.totp.digits,
+        period: this.securityConfig.totp.periodSeconds,
+      })
+      return totp.validate({
+        token: code,
+        timestamp: Date.now(),
+        window: this.securityConfig.totp.window,
+      }) !== null
     } catch {
-      return Buffer.from(secret, 'base64')
+      return false
     }
-  }
-
-  private encodeBase32(input: Buffer): string {
-    let bits = 0
-    let value = 0
-    let output = ''
-    for (const byte of input) {
-      value = (value << 8) | byte
-      bits += 8
-      while (bits >= 5) {
-        output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31]
-        bits -= 5
-      }
-    }
-    if (bits > 0) {
-      output += BASE32_ALPHABET[(value << (5 - bits)) & 31]
-    }
-    return output
-  }
-
-  private decodeBase32(input: string): Buffer {
-    if (input.length === 0) {
-      throw new Error('Invalid empty base32 input')
-    }
-    let bits = 0
-    let value = 0
-    const bytes: number[] = []
-    for (const char of input) {
-      const index = BASE32_ALPHABET.indexOf(char)
-      if (index === -1) {
-        throw new Error('Invalid base32 character')
-      }
-      value = (value << 5) | index
-      bits += 5
-      if (bits >= 8) {
-        bytes.push((value >>> (bits - 8)) & 0xff)
-        bits -= 8
-      }
-    }
-    return Buffer.from(bytes)
   }
 
   private cleanupExpiredSetups(now: number): void {
     for (const [setupId, setup] of this.pendingSetups.entries()) {
-      if (now - setup.createdAt > SETUP_TTL_MS) {
+      if (now - setup.createdAt > this.securityConfig.totp.setupTtlMs) {
         this.pendingSetups.delete(setupId)
       }
     }
@@ -263,8 +208,8 @@ export class TotpProvider implements MfaProviderInterface {
       .update(encodedPayload)
       .digest('base64url')
 
-    const expectedBuffer = Buffer.from(expectedSignature)
-    const signatureBuffer = Buffer.from(signature)
+    const expectedBuffer = Buffer.from(expectedSignature, 'base64url')
+    const signatureBuffer = Buffer.from(signature, 'base64url')
     if (
       expectedBuffer.length !== signatureBuffer.length ||
       !timingSafeEqual(expectedBuffer, signatureBuffer)
@@ -291,13 +236,35 @@ export class TotpProvider implements MfaProviderInterface {
     }
   }
 
+  private readStoredSecret(method: MfaMethodRecord): string | null {
+    const currentSecret = typeof method.secret === 'string'
+      ? method.secret.trim()
+      : ''
+    if (currentSecret.length > 0) {
+      return currentSecret
+    }
+
+    const legacySecret = method.providerMetadata?.secret
+    if (typeof legacySecret === 'string') {
+      const normalized = legacySecret.trim()
+      if (normalized.length > 0) {
+        return normalized
+      }
+    }
+
+    return null
+  }
+
+  private parseSecret(secret: string): Secret {
+    const normalized = secret.trim().replaceAll(' ', '').replaceAll('-', '').toUpperCase()
+    if (normalized.length === 0) {
+      throw new Error('Invalid empty TOTP secret')
+    }
+    return Secret.fromBase32(normalized)
+  }
+
   private getSetupTokenSecret(): string {
-    return (
-      process.env.SECURITY_MFA_SETUP_SECRET ??
-      process.env.AUTH_JWT_SECRET ??
-      process.env.JWT_SECRET ??
-      'open-mercato-security-mfa-setup'
-    )
+    return this.setupTokenSecret
   }
 }
 

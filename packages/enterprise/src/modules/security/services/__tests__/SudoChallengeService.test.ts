@@ -2,6 +2,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChallengeMethod, SudoTargetType } from '../../data/entities'
 import { registerSecuritySudoTargetEntries } from '../../lib/module-security-registry'
+import {
+  defaultSecurityModuleConfig,
+  type SecurityModuleConfig,
+} from '../../lib/security-config'
 import { SudoChallengeService } from '../SudoChallengeService'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -36,7 +40,9 @@ type SessionRecord = {
 
 const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
-function createServiceContext() {
+function createServiceContext(
+  securityConfig: SecurityModuleConfig = defaultSecurityModuleConfig,
+) {
   const configs: ConfigRecord[] = []
   const sessions: SessionRecord[] = []
 
@@ -132,6 +138,7 @@ function createServiceContext() {
     passwordService as never,
     mfaService as never,
     mfaVerificationService as never,
+    securityConfig,
   )
 
   return { service, configs, sessions, passwordService, mfaService, mfaVerificationService }
@@ -216,5 +223,25 @@ describe('SudoChallengeService', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })).resolves.toBe(true)
+  })
+
+  test('falls back to password when MFA emergency bypass is enabled', async () => {
+    const { service, mfaService, mfaVerificationService } = createServiceContext({
+      ...defaultSecurityModuleConfig,
+      mfa: {
+        ...defaultSecurityModuleConfig.mfa,
+        emergencyBypass: true,
+      },
+    })
+    mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
+
+    const result = await service.initiate('user-1', 'security.sudo.manage', {
+      targetType: SudoTargetType.FEATURE,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(result.method).toBe('password')
+    expect(mfaVerificationService.createChallenge).not.toHaveBeenCalled()
   })
 })

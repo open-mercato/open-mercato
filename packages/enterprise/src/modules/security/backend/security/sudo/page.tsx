@@ -1,11 +1,11 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -14,7 +14,6 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ChallengeMethod, SudoTargetType } from '../../../data/constants'
-import SudoConfigForm, { type SudoConfigFormValues } from '../../../components/SudoConfigForm'
 import { SudoProvider } from '../../../components/SudoProvider'
 import { useSudoChallenge } from '../../../components/hooks/useSudoChallenge'
 
@@ -48,8 +47,6 @@ function SecuritySudoPageInner() {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [rows, setRows] = React.useState<SudoConfigRow[]>([])
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [editingRow, setEditingRow] = React.useState<SudoConfigRow | null>(null)
   const [saving, setSaving] = React.useState(false)
 
   const runMutationWithContext = React.useCallback(
@@ -89,60 +86,6 @@ function SecuritySudoPageInner() {
     }
     return sudoToken
   }, [requireSudo, t])
-
-  const handleSubmit = React.useCallback(async (values: SudoConfigFormValues) => {
-    const sudoToken = await requestToken()
-    if (!sudoToken) return
-
-    setSaving(true)
-    try {
-      const payload = {
-        tenantId: values.tenantId.trim() || null,
-        organizationId: values.organizationId.trim() || null,
-        targetType: values.targetType,
-        targetIdentifier: values.targetIdentifier.trim(),
-        isEnabled: values.isEnabled,
-        ttlSeconds: values.ttlSeconds,
-        challengeMethod: values.challengeMethod,
-      }
-      if (editingRow) {
-        await runMutationWithContext(
-          () =>
-            apiCallOrThrow(`/api/security/sudo/configs/${encodeURIComponent(editingRow.id)}`, {
-              method: 'PUT',
-              headers: {
-                'content-type': 'application/json',
-                'x-sudo-token': sudoToken,
-              },
-              body: JSON.stringify(payload),
-            }),
-          payload,
-        )
-        flash(t('security.admin.sudo.flash.updated', 'Sudo configuration updated.'), 'success')
-      } else {
-        await runMutationWithContext(
-          () =>
-            apiCallOrThrow('/api/security/sudo/configs', {
-              method: 'POST',
-              headers: {
-                'content-type': 'application/json',
-                'x-sudo-token': sudoToken,
-              },
-              body: JSON.stringify(payload),
-            }),
-          payload,
-        )
-        flash(t('security.admin.sudo.flash.created', 'Sudo configuration created.'), 'success')
-      }
-      setDialogOpen(false)
-      setEditingRow(null)
-      await loadRows()
-    } catch {
-      flash(t('security.admin.sudo.flash.saveError', 'Failed to save sudo configuration.'), 'error')
-    } finally {
-      setSaving(false)
-    }
-  }, [editingRow, loadRows, requestToken, runMutationWithContext, t])
 
   const handleDelete = React.useCallback(async (row: SudoConfigRow) => {
     const accepted = await confirm({
@@ -227,16 +170,14 @@ function SecuritySudoPageInner() {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <IconButton
-            type="button"
+            asChild
             variant="ghost"
             size="sm"
             aria-label={t('ui.actions.edit', 'Edit')}
-            onClick={() => {
-              setEditingRow(row.original)
-              setDialogOpen(true)
-            }}
           >
-            <Pencil className="size-4" />
+            <Link href={`/backend/security/sudo/${row.original.id}/edit`}>
+              <Pencil className="size-4" />
+            </Link>
           </IconButton>
           <IconButton
             type="button"
@@ -278,52 +219,20 @@ function SecuritySudoPageInner() {
           data={rows}
           actions={(
             <Button
-              type="button"
+              asChild
               variant="outline"
               size="sm"
-              onClick={() => {
-                setEditingRow(null)
-                setDialogOpen(true)
-              }}
             >
-              <Plus className="mr-2 size-4" />
-              {t('security.admin.sudo.actions.add', 'Add rule')}
+              <Link href="/backend/security/sudo/create">
+                <Plus className="mr-2 size-4" />
+                {t('security.admin.sudo.actions.add', 'Add rule')}
+              </Link>
             </Button>
           )}
           perspective={{ tableId: 'security.sudo.list' }}
           isLoading={loading}
           error={error ? <span>{error}</span> : null}
         />
-
-        <Dialog open={dialogOpen} onOpenChange={(nextOpen) => {
-          setDialogOpen(nextOpen)
-          if (!nextOpen) {
-            setEditingRow(null)
-          }
-        }}>
-          <DialogContent className="sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>
-                {editingRow
-                  ? t('security.admin.sudo.dialog.edit', 'Edit sudo rule')
-                  : t('security.admin.sudo.dialog.create', 'Create sudo rule')}
-              </DialogTitle>
-            </DialogHeader>
-            <SudoConfigForm
-              value={editingRow ? {
-                ...editingRow,
-                tenantId: editingRow.tenantId ?? '',
-                organizationId: editingRow.organizationId ?? '',
-              } : undefined}
-              submitting={saving}
-              onSubmit={handleSubmit}
-              onCancel={() => {
-                setDialogOpen(false)
-                setEditingRow(null)
-              }}
-            />
-          </DialogContent>
-        </Dialog>
 
         {ConfirmDialogElement}
       </PageBody>

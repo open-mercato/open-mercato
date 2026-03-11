@@ -1,11 +1,17 @@
 'use client'
 
-import * as React from 'react'
 import { z } from 'zod'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { ChallengeMethod, SudoTargetType } from '../data/constants'
+import { defaultSecurityModuleConfig } from '../lib/security-config'
+
+type TranslateFn = ReturnType<typeof useT>
+
+type SudoFormConfig = {
+  defaultTtlSeconds?: number
+  maxTtlSeconds?: number
+}
 
 export type SudoConfigFormValues = {
   id?: string
@@ -18,39 +24,33 @@ export type SudoConfigFormValues = {
   challengeMethod: ChallengeMethod
 }
 
-type SudoConfigFormProps = {
-  value?: Partial<SudoConfigFormValues> | null
-  submitting: boolean
-  onSubmit: (value: SudoConfigFormValues) => Promise<void> | void
-  onCancel: () => void
-}
-
-export default function SudoConfigForm({
-  value,
-  submitting,
-  onSubmit,
-  onCancel,
-}: SudoConfigFormProps) {
-  const t = useT()
-
-  const initialValues = React.useMemo<SudoConfigFormValues>(() => ({
+export function buildSudoConfigInitialValues(
+  value?: Partial<SudoConfigFormValues> | null,
+  config?: SudoFormConfig,
+): SudoConfigFormValues {
+  return {
     id: value?.id,
     tenantId: value?.tenantId ?? '',
     organizationId: value?.organizationId ?? '',
     targetType: value?.targetType ?? SudoTargetType.FEATURE,
     targetIdentifier: value?.targetIdentifier ?? '',
     isEnabled: value?.isEnabled ?? true,
-    ttlSeconds: value?.ttlSeconds ?? 300,
+    ttlSeconds: value?.ttlSeconds ?? config?.defaultTtlSeconds ?? defaultSecurityModuleConfig.sudo.defaultTtlSeconds,
     challengeMethod: value?.challengeMethod ?? ChallengeMethod.AUTO,
-  }), [value])
+  }
+}
 
-  const schema = React.useMemo(() => z.object({
+export function createSudoConfigFormSchema(t: TranslateFn, config?: SudoFormConfig) {
+  return z.object({
     tenantId: z.string().default(''),
     organizationId: z.string().default(''),
     targetType: z.nativeEnum(SudoTargetType),
-    targetIdentifier: z.string().min(1),
+    targetIdentifier: z.string().trim().min(1),
     isEnabled: z.boolean().default(true),
-    ttlSeconds: z.coerce.number().int().min(30).max(1800),
+    ttlSeconds: z.coerce.number()
+      .int()
+      .min(defaultSecurityModuleConfig.sudo.minTtlSeconds)
+      .max(config?.maxTtlSeconds ?? defaultSecurityModuleConfig.sudo.maxTtlSeconds),
     challengeMethod: z.nativeEnum(ChallengeMethod),
   }).superRefine((values, context) => {
     if (values.organizationId.trim().length > 0 && values.tenantId.trim().length === 0) {
@@ -60,14 +60,21 @@ export default function SudoConfigForm({
         message: t('security.admin.sudo.form.errors.tenantRequired', 'Tenant is required when organization is set.'),
       })
     }
-  }), [t])
+  })
+}
 
-  const fields = React.useMemo<CrudField[]>(() => [
+export function createSudoConfigFormFields(
+  t: TranslateFn,
+  options?: { disabled?: boolean },
+): CrudField[] {
+  const disabled = options?.disabled ?? false
+
+  return [
     {
       id: 'targetType',
       label: t('security.admin.sudo.form.targetType', 'Target type'),
       type: 'select',
-      disabled: submitting,
+      disabled,
       options: [
         { value: SudoTargetType.FEATURE, label: t('security.admin.sudo.targetType.feature', 'Feature') },
         { value: SudoTargetType.ROUTE, label: t('security.admin.sudo.targetType.route', 'Route') },
@@ -81,36 +88,34 @@ export default function SudoConfigForm({
       type: 'text',
       placeholder: t('security.admin.sudo.form.targetIdentifierPlaceholder', 'security.sudo.manage'),
       required: true,
-      disabled: submitting,
+      disabled,
     },
     {
       id: 'tenantId',
       label: t('security.admin.sudo.form.tenantId', 'Tenant ID'),
       type: 'text',
       placeholder: t('security.admin.sudo.form.tenantIdPlaceholder', 'Optional tenant scope'),
-      disabled: submitting,
+      disabled,
     },
     {
       id: 'organizationId',
       label: t('security.admin.sudo.form.organizationId', 'Organization ID'),
       type: 'text',
       placeholder: t('security.admin.sudo.form.organizationIdPlaceholder', 'Optional organization scope'),
-      disabled: submitting,
+      disabled,
     },
     {
       id: 'ttlSeconds',
       label: t('security.admin.sudo.form.ttlSeconds', 'Token TTL (seconds)'),
       type: 'number',
-      min: 30,
-      max: 1800,
       required: true,
-      disabled: submitting,
+      disabled,
     },
     {
       id: 'challengeMethod',
       label: t('security.admin.sudo.form.challengeMethod', 'Challenge method'),
       type: 'select',
-      disabled: submitting,
+      disabled,
       options: [
         { value: ChallengeMethod.AUTO, label: t('security.admin.sudo.challengeMethod.auto', 'Auto') },
         { value: ChallengeMethod.PASSWORD, label: t('security.admin.sudo.challengeMethod.password', 'Password') },
@@ -121,38 +126,22 @@ export default function SudoConfigForm({
       id: 'isEnabled',
       label: t('security.admin.sudo.form.isEnabled', 'Enabled'),
       type: 'checkbox',
-      disabled: submitting,
+      disabled,
     },
-  ], [submitting, t])
+  ]
+}
 
-  return (
-    <CrudForm<SudoConfigFormValues>
-      embedded
-      title={t('security.admin.sudo.form.title', 'Sudo rule')}
-      initialValues={initialValues}
-      fields={fields}
-      submitLabel={t('ui.actions.save', 'Save')}
-      extraActions={(
-        <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
-          {t('ui.actions.cancel', 'Cancel')}
-        </Button>
-      )}
-      onSubmit={async (values) => {
-        const parsed = schema.parse({
-          ...values,
-          ttlSeconds: Number(values.ttlSeconds),
-        })
-        await onSubmit({
-          id: initialValues.id,
-          tenantId: parsed.tenantId,
-          organizationId: parsed.organizationId,
-          targetType: parsed.targetType,
-          targetIdentifier: parsed.targetIdentifier,
-          isEnabled: parsed.isEnabled,
-          ttlSeconds: parsed.ttlSeconds,
-          challengeMethod: parsed.challengeMethod,
-        })
-      }}
-    />
-  )
+export function buildSudoConfigPayload(values: SudoConfigFormValues) {
+  const tenantId = values.tenantId.trim()
+  const organizationId = values.organizationId.trim()
+
+  return {
+    tenantId: tenantId || null,
+    organizationId: organizationId || null,
+    targetType: values.targetType,
+    targetIdentifier: values.targetIdentifier.trim(),
+    isEnabled: values.isEnabled,
+    ttlSeconds: values.ttlSeconds,
+    challengeMethod: values.challengeMethod,
+  }
 }

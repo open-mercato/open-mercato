@@ -34,6 +34,16 @@ type UserCompliance = {
   enforced: boolean
 }
 
+export function isEnforcementDeadlineOverdue(
+  deadline?: Date | null,
+  now = Date.now(),
+): boolean {
+  if (!(deadline instanceof Date)) return false
+  const deadlineTime = deadline.getTime()
+  if (Number.isNaN(deadlineTime)) return false
+  return deadlineTime <= now
+}
+
 export class MfaEnforcementServiceError extends Error {
   constructor(
     message: string,
@@ -99,8 +109,7 @@ export class MfaEnforcementService {
     const unenrolled = Math.max(0, total - enrolled)
 
     const now = Date.now()
-    const deadline = policy?.enforcementDeadline?.getTime()
-    const overdue = deadline && deadline <= now ? unenrolled : 0
+    const overdue = isEnforcementDeadlineOverdue(policy?.enforcementDeadline, now) ? unenrolled : 0
     const pending = Math.max(0, unenrolled - overdue)
 
     return {
@@ -238,12 +247,7 @@ export class MfaEnforcementService {
   }
 
   async checkUserCompliance(userId: string): Promise<UserCompliance> {
-    const user = await this.findUserById(userId)
-    if (!user?.tenantId) {
-      throw new MfaEnforcementServiceError('User not found', 404)
-    }
-
-    const policy = await this.resolveEffectivePolicy(user.tenantId, user.organizationId ?? undefined)
+    const policy = await this.getEffectivePolicyForUser(userId)
     if (!policy || !policy.isEnforced) {
       return { compliant: true, enforced: false }
     }
@@ -261,6 +265,15 @@ export class MfaEnforcementService {
       enforced: true,
       deadline: policy.enforcementDeadline ?? undefined,
     }
+  }
+
+  async getEffectivePolicyForUser(userId: string): Promise<MfaEnforcementPolicy | null> {
+    const user = await this.findUserById(userId)
+    if (!user?.tenantId) {
+      throw new MfaEnforcementServiceError('User not found', 404)
+    }
+
+    return this.resolveEffectivePolicy(user.tenantId, user.organizationId ?? undefined)
   }
 
   private async resolveEffectivePolicy(

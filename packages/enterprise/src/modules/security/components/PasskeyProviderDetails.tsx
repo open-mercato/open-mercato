@@ -12,6 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import type { MfaMethod } from '../types'
+import MfaConfiguredBadge from './mfa-provider-list-items/MfaConfiguredBadge'
 
 type RegisterOptionsResponse = {
   setupId: string
@@ -63,7 +64,6 @@ export default function PasskeyProviderDetails({
   const t = useT()
   const [label, setLabel] = React.useState('')
   const [loading, setLoading] = React.useState(false)
-  const [showMethods, setShowMethods] = React.useState(true)
 
   const handleAddPasskey = React.useCallback(async () => {
     if (!browserSupportsWebAuthn()) {
@@ -133,9 +133,7 @@ export default function PasskeyProviderDetails({
               {t('security.profile.mfa.passkey.title', 'Security keys')}
             </h2>
             {configuredCount > 0 ? (
-              <Badge className="bg-emerald-700/20 text-emerald-300 hover:bg-emerald-700/20">
-                {t('security.profile.mfa.providers.totp.configured', 'Configured')}
-              </Badge>
+              <MfaConfiguredBadge label={t('security.profile.mfa.providers.totp.configured', 'Configured')} />
             ) : null}
             <Badge variant="outline" className="border-slate-700 bg-slate-900 text-slate-200">
               {keysLabel}
@@ -148,22 +146,9 @@ export default function PasskeyProviderDetails({
             )}
           </p>
         </div>
-        {configuredCount > 0 ? (
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-auto px-2 py-1 text-xs text-slate-300 hover:bg-transparent hover:text-slate-100"
-            onClick={() => setShowMethods((current) => !current)}
-          >
-            {showMethods ? <EyeOff className="mr-1 size-3" aria-hidden /> : <Eye className="mr-1 size-3" aria-hidden />}
-            {showMethods
-              ? t('ui.actions.hide', 'Hide')
-              : t('ui.actions.show', 'Show')}
-          </Button>
-        ) : null}
       </div>
 
-      {configuredCount > 0 && showMethods ? (
+      {configuredCount > 0 ? (
         <div className="space-y-2">
           {methods.map((method) => (
             <article

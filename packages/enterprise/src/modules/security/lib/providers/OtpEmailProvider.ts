@@ -10,10 +10,8 @@ import type {
 } from '../mfa-provider-interface'
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from '../otp'
 import OtpCodeEmail from '../../emails/otp-code'
-
-const SETUP_TTL_MS = 10 * 60 * 1000
-const CHALLENGE_TTL_MS = 10 * 60 * 1000
-const CHALLENGE_TTL_MINUTES = CHALLENGE_TTL_MS / (60 * 1000)
+import type { SecurityModuleConfig } from '../security-config'
+import { readSecurityModuleConfig } from '../security-config'
 
 const setupPayloadSchema = z.object({
   email: z.string().email().optional(),
@@ -59,6 +57,10 @@ export class OtpEmailProvider implements MfaProviderInterface {
 
   private readonly pendingSetups = new Map<string, PendingSetup>()
   private readonly pendingChallenges = new Map<string, PendingOtpChallenge>()
+
+  constructor(
+    private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
+  ) {}
 
   resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
     const parsed = setupPayloadSchema.partial().parse(payload ?? {})
@@ -107,7 +109,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
     if (!pending || pending.userId !== userId) {
       throw new Error('Email OTP setup session not found')
     }
-    if (Date.now() - pending.createdAt > SETUP_TTL_MS) {
+    if (Date.now() - pending.createdAt > this.securityConfig.otpEmail.setupTtlMs) {
       this.pendingSetups.delete(setupId)
       throw new Error('Email OTP setup session expired')
     }
@@ -132,6 +134,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
     const codeHash = await hashOtpCode(code)
     const now = Date.now()
     this.cleanupExpiredChallenges(now)
+    const challengeTtlMs = this.securityConfig.otpEmail.challengeTtlMs
     const challenge: OtpVerifyChallenge = {
       userId,
       methodId: method.id,
@@ -147,10 +150,10 @@ export class OtpEmailProvider implements MfaProviderInterface {
 
     await sendEmail({
       to: email,
-      subject: 'Your Open Mercato verification code',
+      subject: this.securityConfig.otpEmail.subject,
       react: OtpCodeEmail({
         code,
-        expiresInMinutes: CHALLENGE_TTL_MINUTES,
+        expiresInMinutes: Math.max(1, Math.ceil(challengeTtlMs / (60 * 1000))),
       }),
     })
 
@@ -160,7 +163,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
         channel: 'email',
         emailHint: this.maskEmail(email),
         ...(exposeCode ? { code } : {}),
-        expiresAt: new Date(now + CHALLENGE_TTL_MS).toISOString(),
+        expiresAt: new Date(now + challengeTtlMs).toISOString(),
       },
       verifyContext: {
         challenge,
@@ -179,7 +182,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
     const challenge = this.readChallengeContext(context, userId, method.id)
       ?? this.pendingChallenges.get(method.id)
     if (!challenge || challenge.userId !== userId) return false
-    if (Date.now() - challenge.createdAt > CHALLENGE_TTL_MS) {
+    if (Date.now() - challenge.createdAt > this.securityConfig.otpEmail.challengeTtlMs) {
       this.pendingChallenges.delete(method.id)
       return false
     }
@@ -192,7 +195,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
 
   private cleanupExpiredSetups(now: number): void {
     for (const [setupId, setup] of this.pendingSetups.entries()) {
-      if (now - setup.createdAt > SETUP_TTL_MS) {
+      if (now - setup.createdAt > this.securityConfig.otpEmail.setupTtlMs) {
         this.pendingSetups.delete(setupId)
       }
     }
@@ -200,7 +203,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
 
   private cleanupExpiredChallenges(now: number): void {
     for (const [methodId, challenge] of this.pendingChallenges.entries()) {
-      if (now - challenge.createdAt > CHALLENGE_TTL_MS) {
+      if (now - challenge.createdAt > this.securityConfig.otpEmail.challengeTtlMs) {
         this.pendingChallenges.delete(methodId)
       }
     }

@@ -10,6 +10,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import type { MfaMethod } from '../types'
+import MfaConfiguredBadge from './mfa-provider-list-items/MfaConfiguredBadge'
 
 type OtpEmailProviderDetailsProps = {
   methods?: MfaMethod[]
@@ -96,9 +97,7 @@ export default function OtpEmailProviderDetails({
               {t('security.profile.mfa.providers.otpEmail.title', 'Email OTP')}
             </h2>
             {configuredMethod ? (
-              <Badge className="bg-emerald-700/20 text-emerald-300 hover:bg-emerald-700/20">
-                {t('security.profile.mfa.providers.totp.configured', 'Configured')}
-              </Badge>
+                <MfaConfiguredBadge label={t('security.profile.mfa.providers.totp.configured', 'Configured')} />
             ) : null}
           </div>
           <p className="text-sm text-slate-300">

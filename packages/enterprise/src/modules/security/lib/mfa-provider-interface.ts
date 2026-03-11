@@ -5,7 +5,13 @@ export type MfaMethodRecord = {
   id: string
   type: string
   userId: string
+  secret?: string | null
   providerMetadata?: Record<string, unknown> | null
+}
+
+export type MfaProviderConfirmResult = {
+  metadata: Record<string, unknown>
+  secret?: string | null
 }
 
 export type MfaVerifyContext = {
@@ -42,7 +48,7 @@ export interface MfaProviderInterface {
 
   resolveSetupPayload?(user: MfaProviderUser, payload: unknown): Promise<unknown> | unknown
   setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }>
-  confirmSetup(userId: string, setupId: string, payload: unknown): Promise<{ metadata: Record<string, unknown> }>
+  confirmSetup(userId: string, setupId: string, payload: unknown): Promise<MfaProviderConfirmResult>
   prepareChallenge(
     userId: string,
     method: MfaMethodRecord,

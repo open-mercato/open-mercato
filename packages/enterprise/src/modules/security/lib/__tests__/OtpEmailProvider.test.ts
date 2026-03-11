@@ -1,5 +1,6 @@
 import { OtpEmailProvider } from '../providers/OtpEmailProvider'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { defaultSecurityModuleConfig } from '../security-config'
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({
   sendEmail: jest.fn().mockResolvedValue(undefined),
@@ -96,5 +97,29 @@ describe('OtpEmailProvider', () => {
       'Email OTP method is missing a destination email address',
     )
     expect(mockedSendEmail).not.toHaveBeenCalled()
+  })
+
+  test('uses the configured subject for OTP emails', async () => {
+    const provider = new OtpEmailProvider({
+      ...defaultSecurityModuleConfig,
+      otpEmail: {
+        ...defaultSecurityModuleConfig.otpEmail,
+        subject: 'Acme verification code',
+      },
+    })
+    const method = {
+      id: 'method-1',
+      userId: 'user-1',
+      type: 'otp_email',
+      providerMetadata: {
+        email: 'user@example.com',
+      },
+    }
+
+    await provider.prepareChallenge('user-1', method)
+
+    expect(mockedSendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      subject: 'Acme verification code',
+    }))
   })
 })

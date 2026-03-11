@@ -3,8 +3,8 @@
 import * as React from 'react'
 import { Smartphone } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import type { ProviderListComponentProps } from '../mfa-ui-registry'
+import MfaConfiguredBadge from './MfaConfiguredBadge'
 import MfaProviderListRow from './MfaProviderListRow'
 
 export default function TotpProviderListItem({
@@ -23,9 +23,7 @@ export default function TotpProviderListItem({
       )}
       icon={<Smartphone className="size-4" />}
       badge={configuredCount > 0 ? (
-        <Badge className="bg-emerald-700/20 text-emerald-300 hover:bg-emerald-700/20">
-          {t('security.profile.mfa.providers.totp.configured', 'Configured')}
-        </Badge>
+        <MfaConfiguredBadge label={t('security.profile.mfa.providers.totp.configured', 'Configured')} />
       ) : undefined}
       onClick={onClick}
     />
