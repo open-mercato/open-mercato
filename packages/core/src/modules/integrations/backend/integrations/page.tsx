@@ -3,7 +3,6 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -13,7 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FilterBar, type FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Bell, CreditCard, HardDrive, LayoutGrid, MessageSquare, RefreshCw, Truck, Webhook } from 'lucide-react'
+import { Bell, Cog, CreditCard, HardDrive, LayoutGrid, MessageSquare, RefreshCw, Search, Truck, Webhook } from 'lucide-react'
 import {
   buildIntegrationMarketplaceFilterDefs,
   getIntegrationMarketplaceCategory,
@@ -28,6 +27,9 @@ type IntegrationItem = {
   category?: string
   icon?: string
   bundleId?: string
+  author?: string
+  company?: string
+  version?: string
   isEnabled: boolean
   hasCredentials: boolean
 }
@@ -55,11 +57,6 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   notification: Bell,
   storage: HardDrive,
   webhook: Webhook,
-}
-
-function categoryBadgeVariant(category: string | undefined): 'default' | 'secondary' | 'outline' {
-  if (!category) return 'outline'
-  return 'secondary'
 }
 
 export default function IntegrationsMarketplacePage() {
@@ -144,6 +141,13 @@ export default function IntegrationsMarketplacePage() {
     return { bundles, standalone }
   }, [data, search, selectedCategory])
 
+  const renderCategoryIcon = React.useCallback((category: string | undefined, className: string) => {
+    if (!category) return null
+    const Icon = CATEGORY_ICONS[category]
+    if (!Icon) return null
+    return <Icon className={className} />
+  }, [])
+
   if (isLoading) {
     return (
       <Page>
@@ -160,12 +164,21 @@ export default function IntegrationsMarketplacePage() {
     <Page>
       <PageBody className="space-y-6">
         <section className="space-y-6 rounded-lg border bg-background p-6">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
+          <header className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
               <h2 className="text-lg font-semibold">{t('integrations.marketplace.title')}</h2>
               <p className="text-sm text-muted-foreground">
                 {t('integrations.marketplace.description')}
               </p>
+            </div>
+            <div className="relative w-64 shrink-0 hidden lg:block">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder={t('integrations.marketplace.search')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8"
+              />
             </div>
           </header>
 
@@ -182,32 +195,22 @@ export default function IntegrationsMarketplacePage() {
             />
           </div>
 
-          <div className="hidden lg:flex lg:flex-col gap-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <Input
-                placeholder={t('integrations.marketplace.search')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="max-w-sm"
-              />
-              <div className="flex flex-wrap gap-1.5">
-                {INTEGRATION_MARKETPLACE_CATEGORIES.map((category) => {
-                  const Icon = CATEGORY_ICONS[category]
-                  return (
-                    <Button
-                      key={category}
-                      type="button"
-                      variant={selectedCategory === category ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setFilterValues(normalizeIntegrationMarketplaceFilterValues({ category }))}
-                    >
-                      {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
-                      {t(`integrations.marketplace.categories.${category}`)}
-                    </Button>
-                  )
-                })}
-              </div>
-            </div>
+          <div className="hidden lg:flex flex-wrap gap-1.5">
+            {INTEGRATION_MARKETPLACE_CATEGORIES.map((category) => {
+              const Icon = CATEGORY_ICONS[category]
+              return (
+                <Button
+                  key={category}
+                  type="button"
+                  variant={selectedCategory === category ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilterValues(normalizeIntegrationMarketplaceFilterValues({ category }))}
+                >
+                  {Icon ? <Icon className="mr-1.5 h-3.5 w-3.5" /> : null}
+                  {t(`integrations.marketplace.categories.${category}`)}
+                </Button>
+              )
+            })}
           </div>
 
           {filteredItems.bundles.map((bundle) => (
@@ -225,6 +228,7 @@ export default function IntegrationsMarketplacePage() {
                   </div>
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/backend/integrations/bundle/${encodeURIComponent(bundle.id)}`}>
+                      <Cog className="mr-1.5 h-4 w-4" />
                       {t('integrations.marketplace.configure')}
                     </Link>
                   </Button>
@@ -237,18 +241,21 @@ export default function IntegrationsMarketplacePage() {
                       key={item.id}
                       className="flex items-center justify-between rounded-lg border p-3"
                     >
-                      <div className="min-w-0">
-                        <Link
-                          href={`/backend/integrations/${encodeURIComponent(item.id)}`}
-                          className="text-sm font-medium hover:underline"
-                        >
-                          {item.title}
-                        </Link>
-                        {item.category && (
-                          <Badge variant={categoryBadgeVariant(item.category)} className="ml-2 text-xs">
-                            {item.category}
-                          </Badge>
-                        )}
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          {renderCategoryIcon(item.category, 'h-4 w-4 text-muted-foreground')}
+                          <Link
+                            href={`/backend/integrations/${encodeURIComponent(item.id)}`}
+                            className="truncate text-sm font-medium hover:underline"
+                          >
+                            {item.title}
+                          </Link>
+                        </div>
+                        {(item.company || item.author || item.version) ? (
+                          <p className="text-xs text-muted-foreground">
+                            {[item.company || item.author, item.version ? `v${item.version}` : null].filter(Boolean).join(' · ')}
+                          </p>
+                        ) : null}
                       </div>
                       <Switch
                         checked={item.isEnabled}
@@ -268,27 +275,31 @@ export default function IntegrationsMarketplacePage() {
                 <Card key={item.id} className="flex flex-col">
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">{item.title}</CardTitle>
+                      <div className="flex items-center gap-2">
+                        {renderCategoryIcon(item.category, 'h-4 w-4 text-muted-foreground')}
+                        <CardTitle className="text-base">{item.title}</CardTitle>
+                      </div>
                       <Switch
                         checked={item.isEnabled}
                         disabled={togglingIds.has(item.id)}
                         onCheckedChange={(checked) => void handleToggle(item.id, checked)}
                       />
                     </div>
-                    {item.category && (
-                      <Badge variant={categoryBadgeVariant(item.category)} className="w-fit text-xs">
-                        {item.category}
-                      </Badge>
-                    )}
                   </CardHeader>
-                  <CardContent className="flex-1">
+                  <CardContent className="flex-1 space-y-2">
                     {item.description && (
                       <p className="text-muted-foreground text-sm">{item.description}</p>
+                    )}
+                    {(item.company || item.author || item.version) && (
+                      <p className="text-muted-foreground text-xs">
+                        {[item.company || item.author, item.version ? `v${item.version}` : null].filter(Boolean).join(' · ')}
+                      </p>
                     )}
                   </CardContent>
                   <div className="px-6 pb-4">
                     <Button asChild variant="outline" size="sm" className="w-full">
                       <Link href={`/backend/integrations/${encodeURIComponent(item.id)}`}>
+                        <Cog className="mr-1.5 h-4 w-4" />
                         {t('integrations.marketplace.configure')}
                       </Link>
                     </Button>

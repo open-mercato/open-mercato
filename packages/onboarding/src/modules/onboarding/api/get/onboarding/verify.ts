@@ -15,6 +15,7 @@ import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
+  path: '/onboarding/onboarding/verify',
   GET: {
     requireAuth: false,
   },

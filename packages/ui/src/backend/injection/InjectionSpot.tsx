@@ -42,6 +42,8 @@ type LoadedWidget = {
   placement?: LoadedInjectionWidget['placement']
 }
 
+export type LoadedInjectionSpotWidget = LoadedWidget
+
 function injectSharedStateIntoContext<TContext>(context: TContext, moduleId: string): TContext {
   const sharedState = getWidgetSharedState(moduleId)
   if (typeof context === 'object' && context !== null && !Array.isArray(context)) {

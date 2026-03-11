@@ -15,6 +15,7 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 export const metadata = {
+  path: '/onboarding/onboarding',
   POST: {
     requireAuth: false,
   },

@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -62,10 +62,28 @@ const LOG_LEVEL_STYLES: Record<string, string> = {
   error: 'bg-red-100 text-red-800',
 }
 
-export default function SyncRunDetailPage() {
-  const params = useParams<{ id: string }>()
+type SyncRunDetailPageProps = {
+  params?: {
+    id?: string | string[]
+  }
+}
+
+function resolveRouteId(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+function resolvePathnameId(pathname: string): string | undefined {
+  const parts = pathname.split('/').filter(Boolean)
+  const runId = parts.at(-1)
+  if (!runId || runId === 'runs' || runId === 'data-sync') return undefined
+  return decodeURIComponent(runId)
+}
+
+export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
+  const pathname = usePathname()
   const router = useRouter()
-  const runId = params.id
+  const runId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
   const t = useT()
 
   const [run, setRun] = React.useState<SyncRunDetail | null>(null)
@@ -74,9 +92,23 @@ export default function SyncRunDetailPage() {
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
 
+  const resolveCurrentRunId = React.useCallback(() => {
+    return runId ?? (
+      typeof window !== 'undefined'
+        ? resolvePathnameId(window.location.pathname)
+        : undefined
+    )
+  }, [runId])
+
   const loadRun = React.useCallback(async () => {
+    const currentRunId = resolveCurrentRunId()
+    if (!currentRunId) {
+      setError(t('data_sync.runs.detail.loadError'))
+      setIsLoading(false)
+      return
+    }
     const call = await apiCall<SyncRunDetail>(
-      `/api/data_sync/runs/${encodeURIComponent(runId)}`,
+      `/api/data_sync/runs/${encodeURIComponent(currentRunId)}`,
       undefined,
       { fallback: null },
     )
@@ -87,11 +119,13 @@ export default function SyncRunDetailPage() {
     }
     setRun(call.result)
     setIsLoading(false)
-  }, [runId, t])
+  }, [resolveCurrentRunId, t])
 
   const loadLogs = React.useCallback(async () => {
+    const currentRunId = resolveCurrentRunId()
+    if (!currentRunId) return
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ runId, pageSize: '50' })
+    const params = new URLSearchParams({ runId: currentRunId, pageSize: '50' })
     const call = await apiCall<{ items: LogEntry[] }>(
       `/api/integrations/logs?${params.toString()}`,
       undefined,
@@ -101,7 +135,7 @@ export default function SyncRunDetailPage() {
       setLogs(call.result.items)
     }
     setIsLoadingLogs(false)
-  }, [runId])
+  }, [resolveCurrentRunId])
 
   React.useEffect(() => {
     void loadRun()
@@ -115,7 +149,9 @@ export default function SyncRunDetailPage() {
   }, [run?.status, loadRun])
 
   const handleCancel = React.useCallback(async () => {
-    const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(runId)}/cancel`, {
+    const currentRunId = resolveCurrentRunId()
+    if (!currentRunId) return
+    const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
       method: 'POST',
     }, { fallback: null })
     if (call.ok) {
@@ -124,10 +160,12 @@ export default function SyncRunDetailPage() {
     } else {
       flash(t('data_sync.runs.detail.cancelError'), 'error')
     }
-  }, [runId, t, loadRun])
+  }, [resolveCurrentRunId, t, loadRun])
 
   const handleRetry = React.useCallback(async () => {
-    const call = await apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(runId)}/retry`, {
+    const currentRunId = resolveCurrentRunId()
+    if (!currentRunId) return
+    const call = await apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fromBeginning: false }),
@@ -138,7 +176,7 @@ export default function SyncRunDetailPage() {
     } else {
       flash(t('data_sync.runs.detail.retryError'), 'error')
     }
-  }, [router, runId, t])
+  }, [resolveCurrentRunId, router, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>

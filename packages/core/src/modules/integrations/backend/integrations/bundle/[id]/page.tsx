@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -50,9 +50,27 @@ type BundleDetail = {
   hasCredentials: boolean
 }
 
-export default function BundleConfigPage() {
-  const params = useParams<{ id: string }>()
-  const bundleId = params.id
+type BundleConfigPageProps = {
+  params?: {
+    id?: string | string[]
+  }
+}
+
+function resolveRouteId(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+function resolvePathnameId(pathname: string): string | undefined {
+  const parts = pathname.split('/').filter(Boolean)
+  const bundleId = parts.at(-1)
+  if (!bundleId || bundleId === 'bundle' || bundleId === 'integrations') return undefined
+  return decodeURIComponent(bundleId)
+}
+
+export default function BundleConfigPage({ params }: BundleConfigPageProps) {
+  const pathname = usePathname()
+  const bundleId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
   const t = useT()
 
   const [detail, setDetail] = React.useState<BundleDetail | null>(null)
@@ -62,11 +80,25 @@ export default function BundleConfigPage() {
   const [isSavingCreds, setIsSavingCreds] = React.useState(false)
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
 
+  const resolveCurrentBundleId = React.useCallback(() => {
+    return bundleId ?? (
+      typeof window !== 'undefined'
+        ? resolvePathnameId(window.location.pathname)
+        : undefined
+    )
+  }, [bundleId])
+
   const load = React.useCallback(async () => {
+    const currentBundleId = resolveCurrentBundleId()
+    if (!currentBundleId) {
+      setError(t('integrations.detail.loadError'))
+      setIsLoading(false)
+      return
+    }
     setIsLoading(true)
     setError(null)
     const call = await apiCall<BundleDetail>(
-      `/api/integrations/${encodeURIComponent(bundleId)}`,
+      `/api/integrations/${encodeURIComponent(currentBundleId)}`,
       undefined,
       { fallback: null },
     )
@@ -78,7 +110,7 @@ export default function BundleConfigPage() {
     setDetail(call.result)
 
     const credCall = await apiCall<{ credentials: Record<string, unknown> }>(
-      `/api/integrations/${encodeURIComponent(bundleId)}/credentials`,
+      `/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`,
       undefined,
       { fallback: null },
     )
@@ -86,13 +118,15 @@ export default function BundleConfigPage() {
       setCredValues(credCall.result.credentials)
     }
     setIsLoading(false)
-  }, [bundleId, t])
+  }, [resolveCurrentBundleId, t])
 
   React.useEffect(() => { void load() }, [load])
 
   const handleSaveCredentials = React.useCallback(async () => {
+    const currentBundleId = resolveCurrentBundleId()
+    if (!currentBundleId) return
     setIsSavingCreds(true)
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(bundleId)}/credentials`, {
+    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ credentials: credValues }),
@@ -103,7 +137,7 @@ export default function BundleConfigPage() {
       flash(t('integrations.detail.credentials.saveError'), 'error')
     }
     setIsSavingCreds(false)
-  }, [bundleId, credValues, t])
+  }, [resolveCurrentBundleId, credValues, t])
 
   const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))

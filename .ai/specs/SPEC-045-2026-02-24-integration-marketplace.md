@@ -77,9 +77,9 @@ See [SPEC-045a §1.2](./SPEC-045a-foundation.md#12-integration-bundles) for the 
 | `shipping` | `shipping_carriers` | `ShippingAdapter` | 3 | DHL, UPS, InPost |
 | `communication` | `communication_channels` | `ChannelAdapter` | 4 | WhatsApp, Twilio |
 | `notification` | `notification_providers` | `NotificationTransportAdapter` | 4 | SendGrid, Mailgun |
-| `storage` | `storage_providers` | `StorageAdapter` | 5 | S3, MinIO, local |
+| `storage` | `storage_providers` | `StorageAdapter` | 5a | S3, MinIO, local | See [SPEC-045i](./SPEC-045i-storage-hub.md) |
 | `data_sync` | `data_sync` | `DataSyncAdapter` | 2 | MedusaJS, CSV, Shopify |
-| `webhook` | `webhook_endpoints` | `WebhookEndpointAdapter` | 5 | Custom, Zapier | See [SPEC-057](./SPEC-057-2026-03-04-webhooks-module.md) |
+| `webhook` | `webhook_endpoints` | `WebhookEndpointAdapter` | 5b | Custom, Zapier | See [SPEC-057](./SPEC-057-2026-03-04-webhooks-module.md) |
 
 ### Future Categories (Not in Scope)
 
@@ -100,7 +100,8 @@ The full spec is split into focused phase documents:
 | **2** | [SPEC-045b — Data Sync Hub](./SPEC-045b-data-sync-hub.md) | `data_sync` hub with delta-based streaming, queue processing, resumable imports, progress tracking, error logging. MedusaJS bundle as reference implementation |
 | **3** | [SPEC-045c — Payment & Shipping Hubs](./SPEC-045c-payment-shipping-hubs.md) | Align SPEC-044 with marketplace + build `shipping_carriers` hub |
 | **4** | [SPEC-045d — Communication & Notification Hubs](./SPEC-045d-communication-notification-hubs.md) | `communication_channels` hub (align PR #674) + `notification_providers` hub |
-| **5** | [SPEC-045e — Storage & Webhook Hubs](./SPEC-045e-storage-webhook-hubs.md) | `storage_providers` hub + `webhook_endpoints` hub |
+| **5a** | [SPEC-045i — Storage Providers Hub](./SPEC-045i-storage-hub.md) | `storage_providers` hub with pluggable drivers (local, S3, database) |
+| **5b** | [SPEC-045e — Webhook Endpoints Hub](./SPEC-045e-webhook-hub.md) | `webhook_endpoints` hub (delegates to [SPEC-057](./SPEC-057-2026-03-04-webhooks-module.md)) |
 | **6** | [SPEC-045f — Health Monitoring](./SPEC-045f-health-monitoring.md) | Scheduled health checks, marketplace search/filtering, usage analytics |
 
 ### Provider-Specific Specifications
@@ -328,3 +329,4 @@ This spec family introduces new infrastructure while preserving existing contrac
 | 2026-02-24 | Updated SPEC-045b to use progress module (SPEC-004 / PR #645): `SyncRun` delegates progress tracking to `ProgressJob` via `progressJobId`, sync engine uses `ProgressService` for percent/ETA/heartbeat/stale detection, progress visible in `ProgressTopBar` automatically |
 | 2026-02-24 | Updated SPEC-045b scheduler integration: replaced custom `sync-scheduler.ts` polling worker with proper `packages/scheduler` integration via `schedulerService.register()`. Added detailed execution flow, overlap prevention, two-strategy architecture (local/async), DI registration, and 16 scheduler integration tests |
 | 2026-03-04 | Added explicit "Migration & Backward Compatibility" section with bridge rules for type evolution, payment credential migration, canonical external ID mapping ownership, and generated contract stability |
+| 2026-03-10 | Split Phase 5 into 5a (SPEC-045i — Storage Providers Hub, merged with SPEC-058) and 5b (SPEC-045e — Webhook Endpoints Hub). Old combined SPEC-045e removed. |

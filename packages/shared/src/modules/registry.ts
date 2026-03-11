@@ -256,8 +256,10 @@ export function findApi(modules: Module[], method: HttpMethod, pathname: string)
         if (params && handler) return { handler, params, requireAuth: a.requireAuth, requireRoles: (a as any).requireRoles, metadata: (a as any).metadata }
       } else {
         const al = a as ModuleApiLegacy
-        if (al.method === method && al.path === pathname) {
-          return { handler: al.handler, params: {}, metadata: al.metadata }
+        if (al.method !== method) continue
+        const params = matchPattern(al.path, pathname)
+        if (params) {
+          return { handler: al.handler, params, metadata: al.metadata }
         }
       }
     }

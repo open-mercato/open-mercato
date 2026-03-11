@@ -1,0 +1,126 @@
+---
+title: Shipping Carriers
+description: Build and register shipping carrier adapters with rate calculation, label generation, tracking, and webhook-based status updates.
+---
+
+# Shipping Carriers
+
+The `shipping_carriers` module provides a provider-agnostic hub for shipment management. Each carrier (InPost, DPD, FedEx, etc.) is a separate package implementing the `ShippingAdapter` interface.
+
+## Architecture
+
+Mirrors the payment gateway pattern:
+
+- **Core module** (`packages/core/src/modules/shipping_carriers/`) — adapter contract, status machine, webhook routing, `CarrierShipment` entity, API endpoints.
+- **Carrier packages** (`packages/carrier-<provider>/`) — each carrier implements `ShippingAdapter` and registers via the adapter registry.
+
+## ShippingAdapter interface
+
+```ts
+import type { ShippingAdapter } from 'packages/core/src/modules/shipping_carriers/lib/adapter'
+
+const myCarrier: ShippingAdapter = {
+  providerKey: 'my_carrier',
+
+  async calculateRates(input) {
+    // Return available shipping rates
+    return [
+      { serviceCode: 'standard', serviceName: 'Standard', amount: 9.99, currencyCode: 'USD', estimatedDays: 5 },
+      { serviceCode: 'express', serviceName: 'Express', amount: 19.99, currencyCode: 'USD', estimatedDays: 2 },
+    ]
+  },
+
+  async createShipment(input) {
+    // Generate label and tracking number
+    return { shipmentId: '...', trackingNumber: '...', labelUrl: '...' }
+  },
+
+  async getTracking(input) {
+    // Fetch tracking status and events
+    return { trackingNumber: '...', status: 'in_transit', events: [] }
+  },
+
+  async cancelShipment(input) {
+    return { status: 'cancelled' }
+  },
+
+  async verifyWebhook(input) {
+    return { eventType: 'tracking.updated', eventId: '...', idempotencyKey: '...', data: {}, timestamp: new Date() }
+  },
+
+  mapStatus(carrierStatus) {
+    return 'in_transit'
+  },
+}
+```
+
+## Unified shipment status
+
+| Status | Meaning |
+|--------|---------|
+| `label_created` | Label generated, not yet picked up |
+| `picked_up` | Carrier has collected the package |
+| `in_transit` | Package is moving through carrier network |
+| `out_for_delivery` | Final delivery attempt in progress |
+| `delivered` | Successfully delivered |
+| `failed_delivery` | Delivery attempt failed |
+| `returned` | Package returned to sender |
+| `cancelled` | Shipment cancelled before pickup |
+
+Status transitions are monotonic — terminal statuses (`delivered`, `returned`, `cancelled`) cannot regress.
+
+## Registering adapters
+
+```ts
+import { registerShippingAdapter } from 'packages/core/src/modules/shipping_carriers/lib/adapter-registry'
+import { registerShippingWebhookHandler } from 'packages/core/src/modules/shipping_carriers/lib/adapter-registry'
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated() {
+    registerShippingAdapter(myCarrierAdapter)
+    registerShippingWebhookHandler('my_carrier', verifyMyCarrierWebhook, { queue: 'my-carrier-webhook' })
+  },
+}
+```
+
+## Webhook processing
+
+Same async pattern as payment gateways:
+
+1. Carrier sends `POST /api/shipping_carriers/webhook/{provider}`.
+2. Signature verified, `ShippingWebhookEvent` constructed.
+3. Event enqueued to carrier-specific worker queue.
+4. Worker updates `CarrierShipment` status and emits domain events.
+
+## Core service methods
+
+The `ShippingCarrierService` (resolved via DI as `shippingCarrierService`) provides:
+
+| Method | Purpose |
+|--------|---------|
+| `calculateRates(input)` | Get available rates from a carrier |
+| `createShipment(input)` | Create shipment, generate label, persist `CarrierShipment` |
+| `getTracking(input)` | Fetch tracking info and update stored status |
+| `cancelShipment(input)` | Cancel shipment and update status |
+
+## Events
+
+- `shipping_carriers.shipment.created` — new shipment created
+- `shipping_carriers.shipment.status_changed` — tracking status updated
+- `shipping_carriers.shipment.delivered` — package delivered
+- `shipping_carriers.shipment.cancelled` — shipment cancelled
+- `shipping_carriers.webhook.received` — webhook processed
+- `shipping_carriers.webhook.failed` — webhook verification failed
+
+## Mock adapter
+
+A mock shipping adapter is included in the example module for development:
+
+```ts
+import { registerShippingAdapter } from 'packages/core/src/modules/shipping_carriers/lib/adapter-registry'
+import { mockShippingAdapter } from './lib/mock-shipping-adapter'
+
+registerShippingAdapter(mockShippingAdapter)
+```
+
+The mock adapter uses in-memory storage with fixed rates and simulated tracking events.

@@ -18,7 +18,11 @@ Open Mercato now includes a shared foundation for integration metadata (`integra
 Provider modules declare their integration metadata in `integration.ts`:
 
 ```ts
-import type { IntegrationBundle, IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+import {
+  buildIntegrationDetailWidgetSpotId,
+  type IntegrationBundle,
+  type IntegrationDefinition,
+} from '@open-mercato/shared/modules/integrations/types'
 
 export const bundle: IntegrationBundle = {
   id: 'my_provider',
@@ -40,6 +44,9 @@ export const integrations: IntegrationDefinition[] = [
     hub: 'data_sync',
     providerKey: 'my_provider_products',
     bundleId: 'my_provider',
+    detailPage: {
+      widgetSpotId: buildIntegrationDetailWidgetSpotId('my_provider_products'),
+    },
     credentials: { fields: [] },
   },
 ]
@@ -48,6 +55,45 @@ export const integrations: IntegrationDefinition[] = [
 export const integration = integrations[0]
 export const bundles: IntegrationBundle[] = [bundle]
 ```
+
+## Integration detail page extensions
+
+Provider modules can add custom tools to their own integration detail pages.
+
+- Declare `detailPage.widgetSpotId` in `integration.ts`
+- Register widgets for that spot in `widgets/injection-table.ts`
+- The integrations detail page renders those widgets according to `placement.kind`
+
+```ts
+import { buildIntegrationDetailWidgetSpotId } from '@open-mercato/shared/modules/integrations/types'
+
+export const injectionTable = {
+  [buildIntegrationDetailWidgetSpotId('my_provider_products')]: [
+    {
+      widgetId: 'my_provider_products.injection.tools',
+      kind: 'tab',
+      groupLabel: 'my_provider_products.tabs.tools',
+      priority: 100,
+    },
+    {
+      widgetId: 'my_provider_products.injection.summary',
+      kind: 'group',
+      groupLabel: 'my_provider_products.groups.summary',
+      priority: 80,
+    },
+  ],
+}
+```
+
+Rendering semantics:
+
+- `kind: 'tab'` adds an extra tab next to Credentials, Version, Health, and Logs
+- `kind: 'group'` renders a card section above the tabs
+- `kind: 'stack'` renders an inline section above the grouped cards/tabs
+
+Compatibility note:
+- Existing providers that still use the legacy `integrations.detail:tabs` spot continue to work
+- New providers should prefer `detailPage.widgetSpotId` so their widgets are isolated to their own integration page
 
 ## Register data sync adapters
 
