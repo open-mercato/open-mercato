@@ -1,4 +1,4 @@
-import { readLayeredAkeneoValue, readPreferredAkeneoValue } from '../lib/catalog-importer'
+import { normalizeAkeneoSelectValue, readLayeredAkeneoValue, readPreferredAkeneoValue } from '../lib/catalog-importer'
 
 describe('akeneo catalog importer value resolution', () => {
   it('does not fall back to a different locale when a base locale is selected', () => {
@@ -69,5 +69,29 @@ describe('akeneo catalog importer value resolution', () => {
     )
 
     expect(value).toBe('English')
+  })
+
+  it('maps Akeneo select codes to the localized option labels stored by OM variants', () => {
+    const value = normalizeAkeneoSelectValue(
+      'large',
+      new Map([
+        ['small', 'Small'],
+        ['large', 'Large'],
+      ]),
+    )
+
+    expect(value).toBe('Large')
+  })
+
+  it('joins multi-value Akeneo selections after label normalization', () => {
+    const value = normalizeAkeneoSelectValue(
+      ['red', 'blue'],
+      new Map([
+        ['red', 'Red'],
+        ['blue', 'Blue'],
+      ]),
+    )
+
+    expect(value).toBe('Red, Blue')
   })
 })

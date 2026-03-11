@@ -185,6 +185,22 @@ function coerceString(value: unknown): string | null {
   return null
 }
 
+export function normalizeAkeneoSelectValue(
+  value: unknown,
+  optionLabels: Map<string, string>,
+): string | null {
+  if (Array.isArray(value)) {
+    const labels = value
+      .map((entry) => normalizeAkeneoSelectValue(entry, optionLabels))
+      .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    return labels.length > 0 ? labels.join(', ') : null
+  }
+
+  const raw = coerceString(value)
+  if (!raw) return null
+  return optionLabels.get(raw) ?? raw
+}
+
 function clampString(value: string | null, maxLength: number): string | null {
   if (!value) return null
   return value.length > maxLength ? value.slice(0, maxLength).trim() : value
@@ -558,6 +574,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   const customFieldSyncCache = new Map<string, Promise<CustomFieldSyncItem[]>>()
   const preferredChannelCodeCache = new Map<string, Promise<string | null>>()
   const preferredPriceKindCodeCache = new Map<string, Promise<string | null>>()
+  const attributeOptionLabelCache = new Map<string, Promise<Map<string, string>>>()
   const defaultProductSettings = buildDefaultAkeneoMapping('products').settings?.products
 
   function buildCommandContext(): CommandRuntimeContext {
@@ -921,6 +938,22 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
 
     return definition
+  }
+
+  async function getAttributeOptionLabels(attributeCode: string, locale: string): Promise<Map<string, string>> {
+    const cacheKey = `${attributeCode}:${locale}`
+    if (!attributeOptionLabelCache.has(cacheKey)) {
+      attributeOptionLabelCache.set(cacheKey, (async () => {
+        const options = await client.listAttributeOptions(attributeCode).catch(() => [])
+        return new Map(
+          options.map((option) => [
+            option.code,
+            labelFromLocalizedRecord(option.labels ?? null, locale, option.code),
+          ]),
+        )
+      })())
+    }
+    return attributeOptionLabelCache.get(cacheKey) ?? new Map<string, string>()
   }
 
   async function ensureOptionSchemaForFamily(
@@ -1957,19 +1990,21 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     const variantExternalId = product.parent ? product.uuid : `${product.uuid}:default`
     const existingVariantId = await resolveExistingVariantId(variantExternalId, resolvedSku)
 
-    const optionValues = hierarchy.axisCodes.length > 0
-      ? Object.fromEntries(
-          hierarchy.axisCodes
-            .map((axis) => {
-              const value = readLayeredAkeneoValue([hierarchy.leafValues, hierarchy.mergedValues], axis, locale, channel)
-              const normalized = Array.isArray(value)
-                ? value.map((entry) => coerceString(entry)).filter((entry): entry is string => Boolean(entry)).join(', ')
-                : coerceString(value)
-              return [slugifyAkeneoCode(axis), normalized]
-            })
-            .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0),
-        )
-      : undefined
+    const optionValues =
+      hierarchy.axisCodes.length > 0
+        ? await (async () => {
+            const values: Record<string, string> = {}
+            for (const axis of hierarchy.axisCodes) {
+              const rawValue = readLayeredAkeneoValue([hierarchy.leafValues, hierarchy.mergedValues], axis, locale, channel)
+              const optionLabels = await getAttributeOptionLabels(axis, locale)
+              const normalizedValue = normalizeAkeneoSelectValue(rawValue, optionLabels)
+              if (normalizedValue) {
+                values[slugifyAkeneoCode(axis)] = normalizedValue
+              }
+            }
+            return Object.keys(values).length > 0 ? values : undefined
+          })()
+        : undefined
 
     const existingDefaultVariant = await findOneWithDecryption(
       em,
