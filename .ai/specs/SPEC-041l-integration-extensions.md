@@ -258,7 +258,51 @@ export default {
 
 ---
 
-### 3. External ID Mapping Display Pattern
+### 3. Provider-Scoped Integration Detail Widget Spot
+
+Integration providers can expose custom React tools directly on their own integration detail pages by declaring `detailPage.widgetSpotId` in `IntegrationDefinition`.
+
+Implementation contract:
+- The integrations detail page resolves `detailPage.widgetSpotId` first and falls back to the legacy `integrations.detail:tabs` spot for backward compatibility.
+- Widgets registered on that spot use normal UMES placement semantics:
+  - `placement.kind: 'tab'` creates additional tabs on the integration detail page
+  - `placement.kind: 'group'` renders a grouped card section
+  - `placement.kind: 'stack'` renders an inline section above the tabs
+- Built-in integration detail mutations (credentials save, enable/disable, version change, health check) run through `useGuardedMutation` bound to the same spot, so widget `onBeforeSave` / `onAfterSave` hooks can participate without bespoke page wiring.
+
+Example:
+
+```typescript
+import {
+  buildIntegrationDetailWidgetSpotId,
+  type IntegrationDefinition,
+} from '@open-mercato/shared/modules/integrations/types'
+
+export const integration = {
+  id: 'gateway_example',
+  title: 'Example Gateway',
+  detailPage: {
+    widgetSpotId: buildIntegrationDetailWidgetSpotId('gateway_example'),
+  },
+} satisfies IntegrationDefinition
+```
+
+```typescript
+export const injectionTable = {
+  [buildIntegrationDetailWidgetSpotId('gateway_example')]: [
+    {
+      widgetId: 'gateway_example.injection.tools',
+      kind: 'tab',
+      groupLabel: 'gateway_example.tabs.tools',
+      priority: 100,
+    },
+  ],
+}
+```
+
+---
+
+### 4. External ID Mapping Display Pattern
 
 Every integration maps external IDs (Shopify customer ID, HubSpot contact ID, Stripe customer ID) to internal entity IDs. SPEC-045b defines `SyncExternalIdMapping` for storage. This section standardizes how external ID mappings are **displayed** in entity detail pages via UMES.
 

@@ -17,23 +17,6 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
-function readSessionIdHint(payload: Record<string, unknown> | null): string | null {
-  if (!payload) return null
-  const data = payload.data
-  if (data && typeof data === 'object') {
-    const nestedObject = (data as Record<string, unknown>).object
-    if (nestedObject && typeof nestedObject === 'object') {
-      const nestedId = (nestedObject as Record<string, unknown>).id
-      if (typeof nestedId === 'string' && nestedId.trim().length > 0) return nestedId.trim()
-      const nestedPaymentIntent = (nestedObject as Record<string, unknown>).payment_intent
-      if (typeof nestedPaymentIntent === 'string' && nestedPaymentIntent.trim().length > 0) return nestedPaymentIntent.trim()
-    }
-  }
-  const id = payload.id
-  if (typeof id === 'string' && id.trim().length > 0) return id.trim()
-  return null
-}
-
 function readScopeFromEventData(data: Record<string, unknown>): { organizationId: string; tenantId: string } | null {
   const metadata = data.metadata
   if (!metadata || typeof metadata !== 'object') return null
@@ -70,7 +53,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')
   const payload = await readJsonSafe<Record<string, unknown>>(rawBody)
-  const sessionIdHint = readSessionIdHint(payload)
+  const sessionIdHint = registration.readSessionIdHint?.(payload) ?? null
 
   try {
     const candidates = sessionIdHint

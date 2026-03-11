@@ -1,5 +1,7 @@
-import type { IntegrationBundle, IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+import { buildIntegrationDetailWidgetSpotId, type IntegrationBundle, type IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
 import { stripeWebhookSetupGuide } from './webhook-guide'
+
+export const gatewayStripeDetailWidgetSpotId = buildIntegrationDetailWidgetSpotId('gateway_stripe')
 
 export const integration: IntegrationDefinition = {
   id: 'gateway_stripe',
@@ -16,6 +18,9 @@ export const integration: IntegrationDefinition = {
   company: 'Open Mercato',
   license: 'MIT',
   tags: ['cards', 'apple-pay', 'google-pay', 'bank-transfer', 'checkout'],
+  detailPage: {
+    widgetSpotId: gatewayStripeDetailWidgetSpotId,
+  },
   apiVersions: [
     {
       id: '2025-02-24.acacia',

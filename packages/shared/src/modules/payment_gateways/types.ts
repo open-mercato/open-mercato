@@ -144,6 +144,7 @@ export interface WebhookEvent {
 export interface WebhookHandlerRegistration {
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>
   queue?: string
+  readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
 }
 
 // ── Adapter Registry Options ────────────────────────────────────────────────
@@ -224,10 +225,17 @@ export function clearGatewayAdapters(): void {
 export function registerWebhookHandler(
   providerKey: string,
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>,
-  options?: { queue?: string },
+  options?: {
+    queue?: string
+    readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+  },
 ): () => void {
   const webhookHandlerRegistry = getWebhookHandlerRegistry()
-  webhookHandlerRegistry.set(providerKey, { handler, queue: options?.queue })
+  webhookHandlerRegistry.set(providerKey, {
+    handler,
+    queue: options?.queue,
+    readSessionIdHint: options?.readSessionIdHint,
+  })
   return () => {
     webhookHandlerRegistry.delete(providerKey)
   }

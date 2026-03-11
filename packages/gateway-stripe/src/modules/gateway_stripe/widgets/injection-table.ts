@@ -1,7 +1,8 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+import { gatewayStripeDetailWidgetSpotId } from '../integration'
 
 export const injectionTable: ModuleInjectionTable = {
-  'integrations.detail:tabs': [
+  [gatewayStripeDetailWidgetSpotId]: [
     {
       widgetId: 'gateway_stripe.injection.config',
       kind: 'tab',

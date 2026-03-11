@@ -75,7 +75,11 @@ export class GatewayTransaction {
 }
 
 @Entity({ tableName: 'gateway_webhook_events' })
-@Index({ properties: ['idempotencyKey', 'providerKey', 'organizationId'] })
+@Index({
+  name: 'gateway_webhook_events_idempotency_unique',
+  properties: ['idempotencyKey', 'providerKey', 'organizationId', 'tenantId'],
+  options: { unique: true },
+})
 export class WebhookProcessedEvent {
   [OptionalProps]?: 'processedAt'
 

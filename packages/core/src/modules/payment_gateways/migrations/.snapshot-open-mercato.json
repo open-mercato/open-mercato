@@ -341,16 +341,17 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "gateway_webhook_events_idempotency_key_provider_ke_838b7_index",
+          "keyName": "gateway_webhook_events_idempotency_unique",
           "columnNames": [
             "idempotency_key",
             "provider_key",
-            "organization_id"
+            "organization_id",
+            "tenant_id"
           ],
           "composite": true,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": true
         },
         {
           "keyName": "gateway_webhook_events_pkey",

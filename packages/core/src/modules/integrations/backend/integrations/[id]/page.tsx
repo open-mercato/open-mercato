@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { WebhookSetupGuide } from '@open-mercato/ui/backend/WebhookSetupGuide'
+import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -18,12 +20,19 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
+import { LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID, type CredentialFieldType, type IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Bell, ChevronDown, ChevronRight, CreditCard, HardDrive, MessageSquare, RefreshCw, Truck, Webhook, Zap } from 'lucide-react'
+import {
+  buildIntegrationDetailInjectedTabs,
+  filterIntegrationDetailWidgetsByKind,
+  resolveIntegrationDetailWidgetSpotId,
+  resolveRequestedIntegrationDetailTab,
+} from '../detail-page-widgets'
 
 type CredentialField = IntegrationCredentialField
-type IntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs'
+type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs'
+type IntegrationDetailTab = BuiltInIntegrationDetailTab | string
 
 const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
 
@@ -49,6 +58,9 @@ type IntegrationDetail = {
     bundleId?: string
     docsUrl?: string
     apiVersions?: ApiVersion[]
+    detailPage?: {
+      widgetSpotId?: string
+    }
     credentials?: { fields: CredentialField[] }
   }
   bundle?: { id: string; title: string; credentials?: { fields: CredentialField[] } }
@@ -119,12 +131,6 @@ function resolvePathnameId(pathname: string): string | undefined {
   const integrationId = parts.at(-1)
   if (!integrationId || integrationId === 'integrations' || integrationId === 'bundle') return undefined
   return decodeURIComponent(integrationId)
-}
-
-function resolveRequestedTab(value: string | null | undefined, hasVersions: boolean): IntegrationDetailTab {
-  if (value === 'health' || value === 'logs') return value
-  if (value === 'version' && hasVersions) return 'version'
-  return 'credentials'
 }
 
 function buildCredentialFields(credFields: CredentialField[]): CrudField[] {
@@ -340,6 +346,111 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     setIsLoadingLogs(false)
   }, [logLevel, resolveCurrentIntegrationId])
 
+  const detailWidgetSpotId = React.useMemo(
+    () => resolveIntegrationDetailWidgetSpotId(detail?.integration ?? null, LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID),
+    [detail?.integration],
+  )
+  const mutationContextId = React.useMemo(
+    () => `integrations.detail:${integrationId ?? 'unknown'}`,
+    [integrationId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: mutationContextId,
+    spotId: detailWidgetSpotId,
+  })
+  const refreshDetail = React.useCallback(async () => {
+    await loadDetail()
+    await loadCredentials()
+  }, [loadCredentials, loadDetail])
+  const refreshLogs = React.useCallback(async () => {
+    await loadLogs()
+  }, [loadLogs])
+  const injectionContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      integrationDetailWidgetSpotId: detailWidgetSpotId,
+      resourceKind: 'integrations.integration',
+      resourceId: integrationId ?? detail?.integration.id,
+      integrationId: integrationId ?? detail?.integration.id,
+      integration: detail?.integration ?? null,
+      detail,
+      state: detail?.state ?? null,
+      credentialValues: credValues,
+      latestHealthResult,
+      activeTab,
+      setActiveTab,
+      refreshDetail,
+      refreshLogs,
+      retryLastMutation,
+    }),
+    [
+      activeTab,
+      credValues,
+      detail,
+      detailWidgetSpotId,
+      integrationId,
+      latestHealthResult,
+      mutationContextId,
+      refreshDetail,
+      refreshLogs,
+      retryLastMutation,
+    ],
+  )
+  const { widgets: detailWidgets } = useInjectionWidgets(detailWidgetSpotId, {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+  const stackedDetailWidgets = React.useMemo(
+    () => filterIntegrationDetailWidgetsByKind(detailWidgets, 'stack'),
+    [detailWidgets],
+  )
+  const groupedDetailWidgets = React.useMemo(
+    () => filterIntegrationDetailWidgetsByKind(detailWidgets, 'group'),
+    [detailWidgets],
+  )
+  const injectedTabs = React.useMemo(
+    () => buildIntegrationDetailInjectedTabs(
+      detailWidgets,
+      (widget) => (
+        widget.placement?.groupLabel
+          ? t(widget.placement.groupLabel, widget.module.metadata.title ?? widget.widgetId)
+          : (widget.module.metadata.title ?? widget.widgetId)
+      ),
+    ),
+    [detailWidgets, t],
+  )
+  const customTabIds = React.useMemo(
+    () => injectedTabs.map((tab) => tab.id),
+    [injectedTabs],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>({
+      operation,
+      mutationPayload,
+      actionId,
+      tabId,
+      operationType = 'update',
+    }: {
+      operation: () => Promise<T>
+      mutationPayload?: Record<string, unknown>
+      actionId: string
+      tabId?: string
+      operationType?: 'create' | 'update' | 'delete'
+    }): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: {
+          ...injectionContext,
+          operation: operationType,
+          actionId,
+          activeTab: tabId ?? activeTab,
+        },
+      })
+    },
+    [activeTab, injectionContext, runMutation],
+  )
+
   React.useEffect(() => { void loadDetail() }, [loadDetail])
   React.useEffect(() => { void loadCredentials() }, [loadCredentials])
   React.useEffect(() => { void loadLogs() }, [loadLogs])
@@ -351,30 +462,44 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
     setIsTogglingState(true)
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isEnabled: enabled }),
-    }, { fallback: null })
-    if (call.ok) {
-      setDetail((prev) => prev ? { ...prev, state: { ...prev.state, isEnabled: enabled } } : prev)
-      flash(t('integrations.detail.stateUpdated'), 'success')
-    } else {
+    try {
+      const call = await runMutationWithContext({
+        actionId: 'toggle-state',
+        mutationPayload: { integrationId: currentIntegrationId, isEnabled: enabled },
+        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isEnabled: enabled }),
+        }, { fallback: null }),
+      })
+      if (call.ok) {
+        setDetail((prev) => prev ? { ...prev, state: { ...prev.state, isEnabled: enabled } } : prev)
+        flash(t('integrations.detail.stateUpdated'), 'success')
+      } else {
+        flash(t('integrations.detail.stateError'), 'error')
+      }
+    } catch {
       flash(t('integrations.detail.stateError'), 'error')
+    } finally {
+      setIsTogglingState(false)
     }
-    setIsTogglingState(false)
-  }, [resolveCurrentIntegrationId, t])
+  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleSaveCredentials = React.useCallback(async (values: Record<string, unknown>) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
     setIsSavingCredentials(true)
     try {
-      const call = await apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentials: values }),
-      }, { fallback: null })
+      const call = await runMutationWithContext({
+        actionId: 'save-credentials',
+        tabId: 'credentials',
+        mutationPayload: { integrationId: currentIntegrationId, credentials: values },
+        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentials: values }),
+        }, { fallback: null }),
+      })
 
       if (call.ok) {
         setCredValues(values)
@@ -395,50 +520,69 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsSavingCredentials(false)
     }
-  }, [resolveCurrentIntegrationId, t])
+  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleVersionChange = React.useCallback(async (version: string) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
-    const call = await apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiVersion: version }),
-    }, { fallback: null })
-    if (call.ok) {
-      setDetail((prev) => prev ? { ...prev, state: { ...prev.state, apiVersion: version } } : prev)
-      flash(t('integrations.detail.version.saved'), 'success')
-    } else {
+    try {
+      const call = await runMutationWithContext({
+        actionId: 'change-version',
+        tabId: 'version',
+        mutationPayload: { integrationId: currentIntegrationId, apiVersion: version },
+        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiVersion: version }),
+        }, { fallback: null }),
+      })
+      if (call.ok) {
+        setDetail((prev) => prev ? { ...prev, state: { ...prev.state, apiVersion: version } } : prev)
+        flash(t('integrations.detail.version.saved'), 'success')
+      } else {
+        flash(t('integrations.detail.version.saveError'), 'error')
+      }
+    } catch {
       flash(t('integrations.detail.version.saveError'), 'error')
     }
-  }, [resolveCurrentIntegrationId, t])
+  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleHealthCheck = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
     setIsCheckingHealth(true)
-    const call = await apiCall<HealthCheckResponse>(
-      `/api/integrations/${encodeURIComponent(currentIntegrationId)}/health`,
-      { method: 'POST' },
-      { fallback: null },
-    )
-    const result = call.result
-    if (call.ok && result) {
-      setLatestHealthResult(result)
-      setDetail((prev) => prev ? {
-        ...prev,
-        state: {
-          ...prev.state,
-          lastHealthStatus: result.status,
-          lastHealthCheckedAt: result.checkedAt,
-        },
-      } : prev)
-      void loadLogs()
-    } else {
+    try {
+      const call = await runMutationWithContext({
+        actionId: 'run-health-check',
+        tabId: 'health',
+        mutationPayload: { integrationId: currentIntegrationId },
+        operation: () => apiCall<HealthCheckResponse>(
+          `/api/integrations/${encodeURIComponent(currentIntegrationId)}/health`,
+          { method: 'POST' },
+          { fallback: null },
+        ),
+      })
+      const result = call.result
+      if (call.ok && result) {
+        setLatestHealthResult(result)
+        setDetail((prev) => prev ? {
+          ...prev,
+          state: {
+            ...prev.state,
+            lastHealthStatus: result.status,
+            lastHealthCheckedAt: result.checkedAt,
+          },
+        } : prev)
+        void refreshLogs()
+      } else {
+        flash(t('integrations.detail.health.checkError'), 'error')
+      }
+    } catch {
       flash(t('integrations.detail.health.checkError'), 'error')
+    } finally {
+      setIsCheckingHealth(false)
     }
-    setIsCheckingHealth(false)
-  }, [loadLogs, resolveCurrentIntegrationId, t])
+  }, [refreshLogs, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const hasVersions = Boolean(detail?.integration.apiVersions?.length)
   const integration = detail?.integration ?? null
@@ -541,17 +685,17 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     : null
 
   React.useEffect(() => {
-    setActiveTab(resolveRequestedTab(searchParams?.get('tab'), hasVersions))
-  }, [hasVersions, searchParams])
+    setActiveTab(resolveRequestedIntegrationDetailTab(searchParams?.get('tab'), hasVersions, customTabIds))
+  }, [customTabIds, hasVersions, searchParams])
 
   const handleTabChange = React.useCallback((nextValue: string) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
-    const nextTab = resolveRequestedTab(nextValue, hasVersions)
+    const nextTab = resolveRequestedIntegrationDetailTab(nextValue, hasVersions, customTabIds)
     setActiveTab(nextTab)
     if (!currentIntegrationId) return
     const basePath = `/backend/integrations/${encodeURIComponent(currentIntegrationId)}`
     router.replace(nextTab === 'credentials' ? basePath : `${basePath}?tab=${encodeURIComponent(nextTab)}`)
-  }, [hasVersions, resolveCurrentIntegrationId, router])
+  }, [customTabIds, hasVersions, resolveCurrentIntegrationId, router])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
   if (error || !detail) return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
@@ -623,12 +767,58 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           </div>
         </section>
 
+        {stackedDetailWidgets.length > 0 ? (
+          <section className="space-y-4">
+            <InjectionSpot
+              spotId={detailWidgetSpotId}
+              context={injectionContext}
+              data={detail}
+              onDataChange={(next) => setDetail(next as IntegrationDetail)}
+              widgetsOverride={stackedDetailWidgets}
+            />
+          </section>
+        ) : null}
+
+        {groupedDetailWidgets.length > 0 ? (
+          <section className="grid gap-4 lg:grid-cols-2">
+            {groupedDetailWidgets.map((widget) => (
+              <Card
+                key={widget.widgetId}
+                className={widget.placement?.column === 2 ? 'lg:col-start-2' : undefined}
+              >
+                <CardHeader>
+                  <CardTitle>
+                    {widget.placement?.groupLabel
+                      ? t(widget.placement.groupLabel, widget.module.metadata.title)
+                      : widget.module.metadata.title}
+                  </CardTitle>
+                  {widget.placement?.groupDescription ? (
+                    <p className="text-sm text-muted-foreground">
+                      {widget.placement.groupDescription}
+                    </p>
+                  ) : null}
+                </CardHeader>
+                <CardContent>
+                  <widget.module.Widget
+                    context={injectionContext}
+                    data={detail}
+                    onDataChange={(next) => setDetail(next as IntegrationDetail)}
+                  />
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+        ) : null}
+
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
           <TabsList>
             <TabsTrigger value="credentials">{t('integrations.detail.tabs.credentials')}</TabsTrigger>
             {hasVersions ? <TabsTrigger value="version">{t('integrations.detail.tabs.version')}</TabsTrigger> : null}
             <TabsTrigger value="health">{t('integrations.detail.tabs.health')}</TabsTrigger>
             <TabsTrigger value="logs">{t('integrations.detail.tabs.logs')}</TabsTrigger>
+            {injectedTabs.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="credentials" className="mt-0">
@@ -921,6 +1111,18 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               </div>
             )}
           </TabsContent>
+
+          {injectedTabs.map((tab) => (
+            <TabsContent key={tab.id} value={tab.id} className="mt-0 space-y-4">
+              <InjectionSpot
+                spotId={detailWidgetSpotId}
+                context={injectionContext}
+                data={detail}
+                onDataChange={(next) => setDetail(next as IntegrationDetail)}
+                widgetsOverride={tab.widgets}
+              />
+            </TabsContent>
+          ))}
         </Tabs>
       </PageBody>
     </Page>

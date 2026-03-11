@@ -4,7 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CarrierShipment } from '../data/entities'
 import { emitShippingEvent } from '../events'
 import { getShippingAdapter } from '../lib/adapter-registry'
-import { syncShipmentStatus, TERMINAL_SHIPPING_STATUSES } from '../lib/status-sync'
+import { getTerminalShippingEvent, syncShipmentStatus, TERMINAL_SHIPPING_STATUSES } from '../lib/status-sync'
 
 type WebhookJobPayload = {
   providerKey: string
@@ -72,9 +72,8 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
   }
   await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload)
   if (TERMINAL_SHIPPING_STATUSES.has(unifiedStatus)) {
-    const terminalEvent = unifiedStatus === 'delivered'
-      ? 'shipping_carriers.shipment.delivered' as const
-      : 'shipping_carriers.shipment.cancelled' as const
+    const terminalEvent = getTerminalShippingEvent(unifiedStatus)
+    if (!terminalEvent) return
     await emitShippingEvent(terminalEvent, eventPayload)
   }
 }

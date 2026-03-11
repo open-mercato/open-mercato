@@ -9,7 +9,7 @@ export class Migration20260305122155 extends Migration {
     this.addSql(`create index "gateway_transactions_payment_id_organization_id_tenant_id_index" on "gateway_transactions" ("payment_id", "organization_id", "tenant_id");`);
 
     this.addSql(`create table "gateway_webhook_events" ("id" uuid not null default gen_random_uuid(), "provider_key" text not null, "idempotency_key" text not null, "event_type" text not null, "organization_id" uuid not null, "tenant_id" uuid not null, "processed_at" timestamptz not null, constraint "gateway_webhook_events_pkey" primary key ("id"));`);
-    this.addSql(`create index "gateway_webhook_events_idempotency_key_provider_ke_838b7_index" on "gateway_webhook_events" ("idempotency_key", "provider_key", "organization_id");`);
+    this.addSql(`create unique index "gateway_webhook_events_idempotency_unique" on "gateway_webhook_events" ("idempotency_key", "provider_key", "organization_id", "tenant_id");`);
   }
 
   override async down(): Promise<void> {

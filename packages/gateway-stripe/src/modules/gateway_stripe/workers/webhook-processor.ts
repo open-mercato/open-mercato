@@ -3,7 +3,7 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { WebhookEvent } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
-import { checkWebhookIdempotency, markWebhookProcessed } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
+import { claimWebhookProcessing, releaseWebhookClaim } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
 import { mapWebhookEventToStatus, mapStripeStatus } from '../lib/status-map'
 
 type WebhookJobPayload = {
@@ -70,8 +70,8 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
 
     const transactionScope = { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
     const log = integrationLogService.scoped('gateway_stripe', transactionScope)
-    const duplicate = await checkWebhookIdempotency(em, event.idempotencyKey, 'stripe', transactionScope.organizationId)
-    if (duplicate) {
+    const claimed = await claimWebhookProcessing(em, event.idempotencyKey, 'stripe', transactionScope, event.eventType)
+    if (!claimed) {
       await log.info('Duplicate Stripe webhook skipped', {
         eventType: event.eventType,
         idempotencyKey: event.idempotencyKey,
@@ -92,7 +92,6 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       }, transactionScope)
     }
 
-    await markWebhookProcessed(em, event.idempotencyKey, 'stripe', event.eventType, transactionScope)
     await log.info('Stripe webhook processed', {
       eventType: event.eventType,
       transactionId: transaction.id,
@@ -101,6 +100,7 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Stripe webhook processing failed'
     if (scope) {
+      await releaseWebhookClaim(em, event.idempotencyKey, 'stripe', scope)
       await integrationLogService.write({
         integrationId: 'gateway_stripe',
         level: 'error',

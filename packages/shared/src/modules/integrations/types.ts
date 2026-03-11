@@ -131,6 +131,15 @@ export interface IntegrationBundle {
   healthCheck?: IntegrationHealthCheckConfig
 }
 
+export interface IntegrationDetailPageConfig {
+  /**
+   * UMES widget spot rendered on the integration detail page.
+   * Widgets registered here can render inline blocks, grouped panels,
+   * or additional tabs via `placement.kind`.
+   */
+  widgetSpotId?: string
+}
+
 export interface IntegrationDefinition {
   id: string
   title: string
@@ -149,6 +158,7 @@ export interface IntegrationDefinition {
   company?: string
   license?: string
   tags?: string[]
+  detailPage?: IntegrationDetailPageConfig
   credentials?: IntegrationCredentialsSchema
   healthCheck?: IntegrationHealthCheckConfig
 }
@@ -226,4 +236,10 @@ export function resolveIntegrationCredentialsSchema(integrationId: string): Inte
 
 export function getIntegrationTitle(integrationId: string): string {
   return integrationRegistry.get(integrationId)?.title ?? integrationId
+}
+
+export const LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID = 'integrations.detail:tabs'
+
+export function buildIntegrationDetailWidgetSpotId(integrationId: string): string {
+  return `integrations.detail:${integrationId}`
 }

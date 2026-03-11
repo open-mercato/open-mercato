@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getGatewayAdapter, type WebhookEvent } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import type { PaymentGatewayService } from './gateway-service'
-import { checkWebhookIdempotency, markWebhookProcessed } from './webhook-utils'
+import { claimWebhookProcessing, releaseWebhookClaim } from './webhook-utils'
 
 export type PaymentGatewayWebhookJobPayload = {
   providerKey: string
@@ -84,8 +84,8 @@ export async function processPaymentGatewayWebhookJob(
   if (!transaction) return
 
   const scope = { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
-  const duplicate = await checkWebhookIdempotency(em, event.idempotencyKey, providerKey, scope.organizationId)
-  if (duplicate) {
+  const claimed = await claimWebhookProcessing(em, event.idempotencyKey, providerKey, scope, event.eventType)
+  if (!claimed) {
     await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Duplicate payment gateway webhook skipped', {
       eventType: event.eventType,
       idempotencyKey: event.idempotencyKey,
@@ -93,37 +93,41 @@ export async function processPaymentGatewayWebhookJob(
     return
   }
 
-  const adapter = getGatewayAdapter(providerKey)
-  if (!adapter) {
-    await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'warn', 'Missing payment gateway adapter for webhook event', {
-      providerKey,
+  try {
+    const adapter = getGatewayAdapter(providerKey)
+    if (!adapter) {
+      await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'warn', 'Missing payment gateway adapter for webhook event', {
+        providerKey,
+        eventType: event.eventType,
+      })
+      return
+    }
+
+    const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
+    const unifiedStatus = adapter.mapStatus(providerStatus, event.eventType)
+    await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook received', {
       eventType: event.eventType,
+      providerStatus,
+      unifiedStatus,
     })
-    return
-  }
 
-  const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
-  const unifiedStatus = adapter.mapStatus(providerStatus, event.eventType)
-  await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook received', {
-    eventType: event.eventType,
-    providerStatus,
-    unifiedStatus,
-  })
+    await paymentGatewayService.syncTransactionStatus(transaction.id, {
+      unifiedStatus,
+      providerStatus: event.eventType,
+      providerData: event.data,
+      webhookEvent: {
+        eventType: event.eventType,
+        idempotencyKey: event.idempotencyKey,
+        processed: true,
+      },
+    }, scope)
 
-  await paymentGatewayService.syncTransactionStatus(transaction.id, {
-    unifiedStatus,
-    providerStatus: event.eventType,
-    providerData: event.data,
-    webhookEvent: {
+    await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook processed', {
       eventType: event.eventType,
-      idempotencyKey: event.idempotencyKey,
-      processed: true,
-    },
-  }, scope)
-
-  await markWebhookProcessed(em, event.idempotencyKey, providerKey, event.eventType, scope)
-  await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook processed', {
-    eventType: event.eventType,
-    unifiedStatus,
-  })
+      unifiedStatus,
+    })
+  } catch (error: unknown) {
+    await releaseWebhookClaim(em, event.idempotencyKey, providerKey, scope)
+    throw error
+  }
 }
