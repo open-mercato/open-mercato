@@ -347,6 +347,16 @@ docker compose -f docker-compose.preview.yaml down
 > **Attention:** This type of deployment is ephemeral and intended for testing purposes only. After stopping the containers, all data will be lost. Do not use this setup in production.
 
 
+### Deploy on Railway
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/TKvo95)
+
+One-click deployment on [Railway](https://railway.com) with PostgreSQL (pgvector), Redis, and Meilisearch provisioned automatically.
+
+> **Note:** Open Mercato requires at least **2 GB of memory**. The Railway **Hobby plan** (or higher) is required — the free tier is not sufficient.
+
+See the [Railway deployment guide](https://docs.openmercato.com/installation/railway) for environment variables, first-boot setup, and custom domain configuration.
+
 ### VPS Deployment
 
 [![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
