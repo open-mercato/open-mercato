@@ -1,4 +1,8 @@
 {
+  "auth.accessDenied.dashboard": "Ir al panel",
+  "auth.accessDenied.home": "Ir al inicio",
+  "auth.accessDenied.message": "No tienes permiso para ver esta página. Por favor, contacta con tu administrador.",
+  "auth.accessDenied.title": "Acceso denegado",
   "auth.acl.allowAllOrganizations": "Permitir todas las organizaciones",
   "auth.acl.organizationWarning": "Las restricciones de organización se guardan solo cuando se selecciona al menos una anulación de función. Agrega una función o habilita un comodín de módulo antes de guardar.",
   "auth.actions.contactSupport": "Contactar soporte",

@@ -548,6 +548,7 @@
   "startPage.chooseRole.title": "Wählen Sie Ihre Rolle",
   "startPage.defaultPassword.description1": "Das Standard-Passwort für alle Demo-Konten ist",
   "startPage.defaultPassword.description2": "Um Passwörter zu ändern, verwenden Sie den CLI-Befehl:",
+  "startPage.defaultPassword.description3": "Die E-Mail-Adressen der Demo-Konten werden während yarn initialize in der Terminalausgabe angezeigt.",
   "startPage.defaultPassword.title": "Standard-Passwort",
   "startPage.onboarding.cta": "Onboarding starten",
   "startPage.onboarding.description": "Erstellen Sie in wenigen Minuten einen Mandanten, eine Organisation und ein Administrator-Konto. Wir verifizieren Ihre E-Mail und liefern eine vorkonfigurierte Umgebung, damit Sie Open Mercato mit echten Daten erkunden können.",

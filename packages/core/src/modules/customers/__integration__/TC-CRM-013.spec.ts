@@ -18,11 +18,12 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
 
     const companyName = `QA TC-CRM-013 Co ${Date.now()}`;
     const dealTitle = `QA TC-CRM-013 Deal ${Date.now()}`;
+    const pipelineName = `QA TC-CRM-013 Pipeline ${Date.now()}`;
 
     try {
       token = await getAuthToken(request);
       companyId = await createCompanyFixture(request, token, companyName);
-      pipelineId = await createPipelineFixture(request, token, { name: `QA TC-CRM-013 Pipeline ${Date.now()}` });
+      pipelineId = await createPipelineFixture(request, token, { name: pipelineName });
       opportunityStageId = await createPipelineStageFixture(request, token, { pipelineId, label: 'Opportunity', order: 0 });
       winStageId = await createPipelineStageFixture(request, token, { pipelineId, label: 'Win', order: 1 });
       dealId = await createDealFixture(request, token, {
@@ -57,7 +58,10 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       await page.goto('/backend/customers/deals');
       await expect(page.getByRole('heading', { name: 'Deals' })).toBeVisible();
       await page.getByRole('textbox', { name: /Search deals/i }).fill(dealTitle);
-      await expect(page.locator('tr').filter({ hasText: dealTitle }).first()).toBeVisible();
+      const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
+      await expect(dealRow).toBeVisible();
+      await expect(dealRow).toContainText('Opportunity');
+      await expect.poll(async () => (await dealRow.textContent()) ?? '').toContain(pipelineName);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

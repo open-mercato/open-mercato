@@ -145,6 +145,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
               <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">secret</code>.
               {' '}{t('startPage.defaultPassword.description2', 'To change passwords, use the CLI command:')}{' '}
               <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
+              <span className="mt-2 block">{t('startPage.defaultPassword.description3', 'Demo account emails are printed in the terminal output during yarn initialize.')}</span>
             </p>
           </div>
         </div>

@@ -1,4 +1,8 @@
 {
+  "auth.accessDenied.dashboard": "Go to Dashboard",
+  "auth.accessDenied.home": "Go to Home",
+  "auth.accessDenied.message": "You do not have permission to view this page. Please contact your administrator.",
+  "auth.accessDenied.title": "Access Denied",
   "auth.acl.allowAllOrganizations": "Allow all organizations",
   "auth.acl.organizationWarning": "Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.",
   "auth.actions.contactSupport": "Contact Support",

@@ -1,4 +1,8 @@
 {
+  "auth.accessDenied.dashboard": "Przejdź do panelu",
+  "auth.accessDenied.home": "Przejdź na stronę główną",
+  "auth.accessDenied.message": "Nie masz uprawnień do wyświetlenia tej strony. Skontaktuj się z administratorem.",
+  "auth.accessDenied.title": "Brak dostępu",
   "auth.acl.allowAllOrganizations": "Zezwól na wszystkie organizacje",
   "auth.acl.organizationWarning": "Ograniczenia organizacyjne są zapisywane tylko wtedy, gdy wybrano co najmniej jedno nadpisanie uprawnień. Dodaj uprawnienie lub włącz wildcard modułu przed zapisaniem.",
   "auth.actions.contactSupport": "Skontaktuj się z pomocą",
