@@ -1,0 +1,7 @@
+{
+  "sync_akeneo.description": "Import Akeneo product catalogs, family-driven attributes, and products into Open Mercato with resilient batch sync.",
+  "sync_akeneo.feature.configure": "Configure Akeneo sync settings",
+  "sync_akeneo.feature.view": "View Akeneo sync configuration",
+  "sync_akeneo.tabs.settings": "Akeneo sync settings",
+  "sync_akeneo.title": "Akeneo PIM"
+}
