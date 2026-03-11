@@ -4,7 +4,9 @@ export type EnforcementPolicyDto = {
   id: string
   scope: 'platform' | 'tenant' | 'organisation'
   tenantId: string | null
+  tenantName?: string | null
   organizationId: string | null
+  organizationName?: string | null
   isEnforced: boolean
   allowedMethods: string[] | null
   enforcementDeadline: string | null

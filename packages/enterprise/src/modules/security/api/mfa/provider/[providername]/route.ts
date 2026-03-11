@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
+import { securityApiError } from '../../../i18n'
 import { mapMfaError, readJsonRecord, readString, resolveMfaRequestContext } from '../../_shared'
 
 const paramsSchema = z.object({
@@ -36,7 +37,7 @@ export async function POST(req: Request, context: { params: Promise<{ providerna
   const params = await context.params
   const providerType = readString(params.providername)
   if (!providerType) {
-    return NextResponse.json({ error: 'Invalid provider type.' }, { status: 400 })
+    return securityApiError(400, 'Invalid provider type.')
   }
 
   try {
@@ -52,7 +53,7 @@ export async function POST(req: Request, context: { params: Promise<{ providerna
       clientData: setup.clientData,
     })
   } catch (error) {
-    return mapMfaError(error)
+    return await mapMfaError(error)
   }
 }
 
@@ -64,12 +65,12 @@ export async function PUT(req: Request, context: { params: Promise<{ providernam
   const params = await context.params
   const providerType = readString(params.providername)
   if (!providerType) {
-    return NextResponse.json({ error: 'Invalid provider type.' }, { status: 400 })
+    return securityApiError(400, 'Invalid provider type.')
   }
 
   const setupId = readString(body.setupId)
   if (!setupId) {
-    return NextResponse.json({ error: 'setupId is required.' }, { status: 400 })
+    return securityApiError(400, 'setupId is required.')
   }
 
   const payload = body.payload && typeof body.payload === 'object'
@@ -88,7 +89,7 @@ export async function PUT(req: Request, context: { params: Promise<{ providernam
       ...(result.recoveryCodes ? { recoveryCodes: result.recoveryCodes } : {}),
     })
   } catch (error) {
-    return mapMfaError(error)
+    return await mapMfaError(error)
   }
 }
 

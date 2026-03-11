@@ -93,6 +93,47 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     expect(orgPolicy.status).toBe(201)
     policyIds.push(orgPolicy.body.id)
 
+    const tenantsResponse = await fetchJson<{ items: Array<{ id: string; name: string }> }>(
+      request,
+      'GET',
+      `/api/directory/tenants?id=${tenantId}`,
+      { token: adminToken },
+    )
+    expect(tenantsResponse.status).toBe(200)
+    const tenantName = tenantsResponse.body.items[0]?.name
+    expect(tenantName).toBeTruthy()
+
+    const organizationsResponse = await fetchJson<{ items: Array<{ id: string; name: string }> }>(
+      request,
+      'GET',
+      `/api/directory/organizations?view=manage&ids=${organizationId}&tenantId=${tenantId}`,
+      { token: adminToken },
+    )
+    expect(organizationsResponse.status).toBe(200)
+    const organizationName = organizationsResponse.body.items[0]?.name
+    expect(organizationName).toBeTruthy()
+
+    const enforcementListResponse = await fetchJson<{
+      items: Array<{
+        id: string
+        tenantId: string | null
+        tenantName: string | null
+        organizationId: string | null
+        organizationName: string | null
+      }>
+    }>(
+      request,
+      'GET',
+      '/api/security/enforcement',
+      { token: adminToken },
+    )
+    expect(enforcementListResponse.status).toBe(200)
+    const listedOrgPolicy = enforcementListResponse.body.items.find((item) => item.id === orgPolicy.body.id)
+    expect(listedOrgPolicy?.tenantId).toBe(tenantId)
+    expect(listedOrgPolicy?.tenantName).toBe(tenantName)
+    expect(listedOrgPolicy?.organizationId).toBe(organizationId)
+    expect(listedOrgPolicy?.organizationName).toBe(organizationName)
+
     const enrolledUser = await createUserFixture(request, adminToken)
     const overdueUser = await createUserFixture(request, adminToken)
     userIds.push(enrolledUser.id, overdueUser.id)

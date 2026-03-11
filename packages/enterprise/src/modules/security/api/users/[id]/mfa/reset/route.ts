@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../../openapi'
+import { securityApiError } from '../../../../i18n'
 import { mapSecurityUsersError, resolveSecurityUsersContext } from '../../../_shared'
 import { requireSudo } from '../../../../../lib/sudo-middleware'
 
@@ -27,7 +28,7 @@ export async function POST(req: Request, routeContext: { params: Promise<{ id: s
 
   const parsedParams = paramsSchema.safeParse(await routeContext.params)
   if (!parsedParams.success) {
-    return NextResponse.json({ error: 'Invalid user id.', issues: parsedParams.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid user id.', { issues: parsedParams.error.issues })
   }
 
   let rawBody: unknown
@@ -39,7 +40,7 @@ export async function POST(req: Request, routeContext: { params: Promise<{ id: s
 
   const parsedBody = bodySchema.safeParse(rawBody)
   if (!parsedBody.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsedBody.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsedBody.error.issues })
   }
 
   try {
@@ -54,7 +55,7 @@ export async function POST(req: Request, routeContext: { params: Promise<{ id: s
     })
     return NextResponse.json(result)
   } catch (error) {
-    return mapSecurityUsersError(error)
+    return await mapSecurityUsersError(error)
   }
 }
 

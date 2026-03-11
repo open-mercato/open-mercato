@@ -21,8 +21,27 @@ const PAGE_SIZE = 20
 
 function buildTargetLabel(policy: EnforcementPolicyDto, allTenantsLabel: string): string {
   if (policy.scope === 'platform') return allTenantsLabel
-  if (policy.scope === 'tenant') return policy.tenantId ?? '-'
-  return `${policy.tenantId ?? '-'} / ${policy.organizationId ?? '-'}`
+  if (policy.scope === 'tenant') return policy.tenantName ?? policy.tenantId ?? '-'
+  return `${policy.tenantName ?? policy.tenantId ?? '-'} / ${policy.organizationName ?? policy.organizationId ?? '-'}`
+}
+
+function renderTargetLabel(policy: EnforcementPolicyDto, allTenantsLabel: string) {
+  if (policy.scope === 'platform') {
+    return <span>{allTenantsLabel}</span>
+  }
+
+  const tenantLabel = policy.tenantName ?? policy.tenantId ?? '-'
+  if (policy.scope === 'tenant') {
+    return <span className="whitespace-normal break-words">{tenantLabel}</span>
+  }
+
+  const organizationLabel = policy.organizationName ?? policy.organizationId ?? '-'
+  return (
+    <div className="space-y-1 whitespace-normal break-words">
+      <div>{tenantLabel}</div>
+      <div className="text-muted-foreground">{organizationLabel}</div>
+    </div>
+  )
 }
 
 export default function SecurityEnforcementPage() {
@@ -90,7 +109,9 @@ export default function SecurityEnforcementPage() {
       const searchableChunks = [
         policy.scope,
         policy.tenantId ?? '',
+        policy.tenantName ?? '',
         policy.organizationId ?? '',
+        policy.organizationName ?? '',
         policy.allowedMethods?.join(',') ?? '',
         buildTargetLabel(policy, t('security.admin.enforcement.target.platform', 'All tenants')),
       ]
@@ -145,12 +166,10 @@ export default function SecurityEnforcementPage() {
     {
       id: 'target',
       header: t('security.admin.enforcement.list.target', 'Target'),
-      cell: ({ row }) => {
-        return buildTargetLabel(
-          row.original,
-          t('security.admin.enforcement.target.platform', 'All tenants'),
-        )
-      },
+      cell: ({ row }) => renderTargetLabel(
+        row.original,
+        t('security.admin.enforcement.target.platform', 'All tenants'),
+      ),
     },
     {
       id: 'deadline',

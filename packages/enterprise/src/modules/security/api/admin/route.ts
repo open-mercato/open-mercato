@@ -1,12 +1,12 @@
-import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { securityApiError } from '../i18n'
 
 export async function GET() {
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 })
+  return securityApiError(501, 'Not implemented')
 }
 
 export async function POST() {
-  return NextResponse.json({ error: 'Not implemented' }, { status: 501 })
+  return securityApiError(501, 'Not implemented')
 }
 
 export const openApi: OpenApiRouteDoc = {

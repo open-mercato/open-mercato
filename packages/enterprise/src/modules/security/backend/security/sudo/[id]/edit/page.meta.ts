@@ -1,10 +1,10 @@
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['security.sudo.manage'],
-  pageTitle: 'Edit Sudo Rule',
+  pageTitleKey: 'security.admin.sudo.form.title.edit',
   breadcrumb: [
-    { label: 'Security', href: '/backend/security' },
-    { label: 'Sudo protection', href: '/backend/security/sudo' },
-    { label: 'Edit' },
+    { labelKey: 'nav.primary.security', href: '/backend/security' },
+    { labelKey: 'security.admin.sudo.title', href: '/backend/security/sudo' },
+    { labelKey: 'ui.actions.edit' },
   ],
 }

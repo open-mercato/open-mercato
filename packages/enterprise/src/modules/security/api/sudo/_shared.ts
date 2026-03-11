@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { SudoChallengeConfig } from '../../data/entities'
 import type { SudoChallengeService, SudoChallengeServiceError } from '../../services/SudoChallengeService'
 import { isSudoRequiredError } from '../../lib/sudo-middleware'
+import { localizeSecurityApiBody, securityApiError } from '../i18n'
 
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type Auth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -37,7 +38,7 @@ export function toSudoConfigResponse(config: SudoChallengeConfig) {
 export async function resolveSudoContext(req: Request): Promise<SudoRequestContext | NextResponse> {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return securityApiError(401, 'Unauthorized')
   }
 
   const container = await createRequestContainer()
@@ -56,18 +57,18 @@ export async function resolveSudoContext(req: Request): Promise<SudoRequestConte
   }
 }
 
-export function mapSudoError(error: unknown): NextResponse {
+export async function mapSudoError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
-    return NextResponse.json(error.body, { status: error.status })
+    return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
   }
   if (isSudoRequiredError(error)) {
-    return NextResponse.json(error.body, { status: error.statusCode })
+    return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.statusCode })
   }
   if (isSudoChallengeServiceError(error)) {
-    return NextResponse.json({ error: error.message }, { status: error.statusCode })
+    return securityApiError(error.statusCode, error.message)
   }
   console.error('security.sudo.route failure', error)
-  return NextResponse.json({ error: 'Failed to process sudo request.' }, { status: 500 })
+  return securityApiError(500, 'Failed to process sudo request.')
 }
 
 function isSudoChallengeServiceError(error: unknown): error is SudoChallengeServiceError {

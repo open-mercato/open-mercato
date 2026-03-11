@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { issueVerifiedMfaToken, mapMfaError, readJsonRecord, readString, resolveMfaRequestContext, setAuthCookie } from '../_shared'
 
 const requestSchema = z.object({
@@ -22,19 +23,19 @@ export async function POST(req: Request) {
   if (context instanceof NextResponse) return context
 
   if (context.auth.mfa_pending !== true) {
-    return NextResponse.json({ error: 'MFA pending token is required.' }, { status: 403 })
+    return securityApiError(403, 'MFA pending token is required.')
   }
 
   const body = await readJsonRecord(req)
   const code = readString(body.code)
   if (!code) {
-    return NextResponse.json({ error: 'code is required.' }, { status: 400 })
+    return securityApiError(400, 'code is required.')
   }
 
   try {
     const verified = await context.mfaVerificationService.verifyRecoveryCode(context.auth.sub, code)
     if (!verified) {
-      return NextResponse.json({ error: 'Invalid recovery code.' }, { status: 401 })
+      return securityApiError(401, 'Invalid recovery code.')
     }
 
     const methods = await context.mfaService.getUserMethods(context.auth.sub)
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
     setAuthCookie(response, token)
     return response
   } catch (error) {
-    return mapMfaError(error)
+    return await mapMfaError(error)
   }
 }
 

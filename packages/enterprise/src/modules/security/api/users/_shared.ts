@@ -3,7 +3,9 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { isSudoRequiredError } from '../../lib/sudo-middleware'
 import type { MfaAdminService, MfaAdminServiceError } from '../../services/MfaAdminService'
+import { localizeSecurityApiBody, securityApiError } from '../i18n'
 
 type RequestContainer = Awaited<ReturnType<typeof createRequestContainer>>
 type Auth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -20,7 +22,7 @@ export async function resolveSecurityUsersContext(
 ): Promise<SecurityUsersRequestContext | NextResponse> {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return securityApiError(401, 'Unauthorized')
   }
 
   const container = await createRequestContainer()
@@ -39,16 +41,19 @@ export async function resolveSecurityUsersContext(
   }
 }
 
-export function mapSecurityUsersError(error: unknown): NextResponse {
+export async function mapSecurityUsersError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
-    return NextResponse.json(error.body, { status: error.status })
+    return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+  }
+  if (isSudoRequiredError(error)) {
+    return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.statusCode })
   }
   if (isMfaAdminServiceError(error)) {
-    return NextResponse.json({ error: error.message }, { status: error.statusCode })
+    return securityApiError(error.statusCode, error.message)
   }
 
   console.error('security.users.route failure', error)
-  return NextResponse.json({ error: 'Failed to process user security request.' }, { status: 500 })
+  return securityApiError(500, 'Failed to process user security request.')
 }
 
 function isMfaAdminServiceError(error: unknown): error is MfaAdminServiceError {

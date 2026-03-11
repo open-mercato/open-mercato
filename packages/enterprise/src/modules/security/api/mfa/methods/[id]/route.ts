@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
+import { securityApiError } from '../../../i18n'
 import { mapMfaError, readUuidParam, resolveMfaRequestContext } from '../../_shared'
 
 const okResponseSchema = z.object({
@@ -23,7 +24,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   const params = await context.params
   const methodId = readUuidParam(params.id)
   if (!methodId) {
-    return NextResponse.json({ error: 'Invalid method id.' }, { status: 400 })
+    return securityApiError(400, 'Invalid method id.')
   }
 
   try {
@@ -34,7 +35,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
     })
     return NextResponse.json(result)
   } catch (error) {
-    return mapMfaError(error)
+    return await mapMfaError(error)
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
+import { securityApiError } from '../../../i18n'
 import { mapSecurityUsersError, resolveSecurityUsersContext } from '../../_shared'
 
 const querySchema = z.object({
@@ -33,19 +34,19 @@ export async function GET(req: Request) {
     tenantId: url.searchParams.get('tenantId') ?? undefined,
   })
   if (!parsedQuery.success) {
-    return NextResponse.json({ error: 'Invalid query parameters', issues: parsedQuery.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid query parameters', { issues: parsedQuery.error.issues })
   }
 
   const tenantId = parsedQuery.data.tenantId ?? context.auth.tenantId ?? null
   if (!tenantId) {
-    return NextResponse.json({ error: 'Tenant context is required.' }, { status: 400 })
+    return securityApiError(400, 'Tenant context is required.')
   }
 
   try {
     const items = await context.mfaAdminService.bulkComplianceCheck(tenantId)
     return NextResponse.json({ items })
   } catch (error) {
-    return mapSecurityUsersError(error)
+    return await mapSecurityUsersError(error)
   }
 }
 

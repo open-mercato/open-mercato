@@ -106,7 +106,7 @@ export default function SudoChallengeModal({
         setError(
           readErrorMessage(
             err,
-            t('security.sudo.challenge.errors.prepare', 'Failed to prepare sudo challenge.'),
+            t('security.admin.sudo.challenge.errors.prepare', 'Failed to prepare sudo challenge.'),
           ),
         )
       })
@@ -146,7 +146,7 @@ export default function SudoChallengeModal({
       setError(
         readErrorMessage(
           err,
-          t('security.sudo.challenge.errors.verify', 'Failed to verify sudo challenge.'),
+          t('security.admin.sudo.challenge.errors.verify', 'Failed to verify sudo challenge.'),
         ),
       )
     } finally {
@@ -164,7 +164,7 @@ export default function SudoChallengeModal({
       setError(
         readErrorMessage(
           err,
-          t('security.sudo.challenge.errors.verify', 'Failed to verify sudo challenge.'),
+          t('security.admin.sudo.challenge.errors.verify', 'Failed to verify sudo challenge.'),
         ),
       )
     } finally {
@@ -190,7 +190,7 @@ export default function SudoChallengeModal({
       setError(
         readErrorMessage(
           err,
-          t('security.sudo.challenge.errors.prepare', 'Failed to prepare sudo challenge.'),
+          t('security.admin.sudo.challenge.errors.prepare', 'Failed to prepare sudo challenge.'),
         ),
       )
     } finally {
@@ -222,10 +222,10 @@ export default function SudoChallengeModal({
       }}
       >
         <DialogHeader>
-          <DialogTitle>{t('security.sudo.challenge.title', 'Confirm sensitive action')}</DialogTitle>
+          <DialogTitle>{t('security.admin.sudo.challenge.title', 'Confirm sensitive action')}</DialogTitle>
           <DialogDescription>
             {t(
-              'security.sudo.challenge.description',
+              'security.admin.sudo.challenge.description',
               'Re-authenticate to continue with this protected action.',
             )}
           </DialogDescription>
@@ -235,7 +235,7 @@ export default function SudoChallengeModal({
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="sudo-password">
-                {t('security.sudo.challenge.password.label', 'Password')}
+                {t('security.admin.sudo.challenge.password.label', 'Password')}
               </label>
               <Input
                 id="sudo-password"
@@ -243,7 +243,7 @@ export default function SudoChallengeModal({
                 value={password}
                 autoFocus
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder={t('security.sudo.challenge.password.placeholder', 'Enter your password')}
+                placeholder={t('security.admin.sudo.challenge.password.placeholder', 'Enter your password')}
               />
             </div>
 
@@ -256,7 +256,7 @@ export default function SudoChallengeModal({
                 onClick={() => void handlePasswordVerify()}
                 disabled={loading || password.trim().length === 0}
               >
-                {t('security.sudo.challenge.actions.verify', 'Verify')}
+                {t('security.admin.sudo.challenge.actions.verify', 'Verify')}
               </Button>
               <div className="flex justify-center">
                 <Button type="button" variant="outline" className="min-w-28" onClick={handleClose} disabled={loading}>
@@ -273,7 +273,7 @@ export default function SudoChallengeModal({
               onVerify={handleMfaVerify}
               onPrepare={handlePrepare}
               onResend={handlePrepare}
-              submitLabel={t('security.sudo.challenge.actions.verify', 'Verify')}
+              submitLabel={t('security.admin.sudo.challenge.actions.verify', 'Verify')}
             />
 
             {alternativeMethods.length > 0 ? (
@@ -284,7 +284,7 @@ export default function SudoChallengeModal({
                   className="w-full justify-center"
                   onClick={() => setShowMoreOptions((current) => !current)}
                 >
-                  {t('security.sudo.challenge.actions.moreOptions', 'Use another method')}
+                  {t('security.admin.sudo.challenge.actions.moreOptions', 'Use another method')}
                   {showMoreOptions ? <ChevronUp className="ml-2 size-4" /> : <ChevronDown className="ml-2 size-4" />}
                 </Button>
                 {showMoreOptions ? (
@@ -294,7 +294,7 @@ export default function SudoChallengeModal({
                         key={`${challenge.sessionId}:${method.type}`}
                         type="button"
                         variant="outline"
-                        className="w-full justify-start"
+                        className="w-full justify-center"
                         onClick={() => {
                           setSelectedMethod(method.type)
                           setError(null)
@@ -315,7 +315,7 @@ export default function SudoChallengeModal({
         ) : (
           <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <AlertTriangle className="size-4" />
-            <span>{t('security.sudo.challenge.noMethods', 'No sudo authentication methods are available.')}</span>
+            <span>{t('security.admin.sudo.challenge.noMethods', 'No sudo authentication methods are available.')}</span>
           </div>
         )}
       </DialogContent>

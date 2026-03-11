@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../../openapi'
+import { securityApiError } from '../../../../i18n'
 import { mapSecurityUsersError, resolveSecurityUsersContext } from '../../../_shared'
 
 const paramsSchema = z.object({
@@ -30,7 +31,7 @@ export async function GET(req: Request, routeContext: { params: Promise<{ id: st
 
   const parsedParams = paramsSchema.safeParse(await routeContext.params)
   if (!parsedParams.success) {
-    return NextResponse.json({ error: 'Invalid user id.', issues: parsedParams.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid user id.', { issues: parsedParams.error.issues })
   }
 
   try {
@@ -43,7 +44,7 @@ export async function GET(req: Request, routeContext: { params: Promise<{ id: st
       })),
     })
   } catch (error) {
-    return mapSecurityUsersError(error)
+    return await mapSecurityUsersError(error)
   }
 }
 
