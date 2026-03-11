@@ -7,7 +7,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Badge, type BadgeProps } from '@open-mercato/ui/primitives/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -106,6 +106,46 @@ const STATUS_STYLES: Record<string, string> = {
 }
 
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
+type SummaryBadgeStyle = {
+  variant: BadgeProps['variant']
+  className?: string
+}
+
+function getSummaryBadgeStyle(kind: 'enabled' | 'disabled' | 'ready' | 'missing' | 'scheduled' | 'paused' | 'none'): SummaryBadgeStyle {
+  if (kind === 'enabled' || kind === 'ready') {
+    return {
+      variant: 'outline',
+      className: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-200',
+    }
+  }
+
+  if (kind === 'disabled' || kind === 'missing') {
+    return {
+      variant: 'outline',
+      className: 'border-red-500/30 bg-red-500/15 text-red-200',
+    }
+  }
+
+  if (kind === 'paused') {
+    return {
+      variant: 'outline',
+      className: 'border-amber-500/30 bg-amber-500/15 text-amber-200',
+    }
+  }
+
+  if (kind === 'scheduled') {
+    return {
+      variant: 'outline',
+      className: 'border-sky-500/30 bg-sky-500/15 text-sky-200',
+    }
+  }
+
+  return {
+    variant: 'outline',
+    className: 'border-muted-foreground/20 bg-muted/40 text-muted-foreground',
+  }
+}
 
 function formatEntityTypeLabel(entityType: string): string {
   return entityType
@@ -560,6 +600,13 @@ export default function SyncRunsDashboardPage() {
   )
   const hasSavedSchedule = Boolean(scheduleEditor.id)
   const selectedEntityLabel = selectedEntityType ? formatEntityTypeLabel(selectedEntityType) : t('data_sync.dashboard.columns.entityType')
+  const integrationStateBadge = getSummaryBadgeStyle(selectedIntegration?.isEnabled ? 'enabled' : 'disabled')
+  const credentialsBadge = getSummaryBadgeStyle(selectedIntegration?.hasCredentials ? 'ready' : 'missing')
+  const scheduleBadge = getSummaryBadgeStyle(
+    hasSavedSchedule
+      ? (scheduleEditor.isEnabled ? 'scheduled' : 'paused')
+      : 'none',
+  )
 
   return (
     <Page>
@@ -599,19 +646,19 @@ export default function SyncRunsDashboardPage() {
                   <ArrowRightLeft className="size-3.5" />
                   {t(`data_sync.dashboard.direction.${selectedDirection}`)}
                 </Badge>
-                <Badge variant={selectedIntegration.isEnabled ? 'secondary' : 'outline'} className="gap-1.5">
+                <Badge variant={integrationStateBadge.variant} className={`gap-1.5 ${integrationStateBadge.className ?? ''}`}>
                   <ShieldCheck className="size-3.5" />
                   {selectedIntegration.isEnabled
                     ? t('data_sync.dashboard.start.status.enabled', 'Integration enabled')
                     : t('data_sync.dashboard.start.status.disabled', 'Integration disabled')}
                 </Badge>
-                <Badge variant={selectedIntegration.hasCredentials ? 'secondary' : 'outline'} className="gap-1.5">
+                <Badge variant={credentialsBadge.variant} className={`gap-1.5 ${credentialsBadge.className ?? ''}`}>
                   <PlugZap className="size-3.5" />
                   {selectedIntegration.hasCredentials
                     ? t('data_sync.dashboard.start.status.credentialsReady', 'Credentials ready')
                     : t('data_sync.dashboard.start.status.credentialsMissing', 'Credentials missing')}
                 </Badge>
-                <Badge variant={scheduleEditor.isEnabled && hasSavedSchedule ? 'secondary' : 'outline'} className="gap-1.5">
+                <Badge variant={scheduleBadge.variant} className={`gap-1.5 ${scheduleBadge.className ?? ''}`}>
                   <CalendarClock className="size-3.5" />
                   {hasSavedSchedule
                     ? (scheduleEditor.isEnabled

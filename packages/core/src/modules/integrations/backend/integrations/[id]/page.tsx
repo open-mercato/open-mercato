@@ -23,7 +23,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID, type CredentialFieldType, type IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Bell, ChevronDown, ChevronRight, CreditCard, HardDrive, MessageSquare, RefreshCw, Truck, Webhook, Zap } from 'lucide-react'
-import { IntegrationScheduleTab } from '../../../../data_sync/backend/components/IntegrationScheduleTab'
+import { IntegrationScheduleTab } from '../../../../data_sync/components/IntegrationScheduleTab'
 import {
   buildIntegrationDetailInjectedTabs,
   filterIntegrationDetailWidgetsByKind,

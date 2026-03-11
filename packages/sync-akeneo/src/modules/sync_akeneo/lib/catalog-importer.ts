@@ -163,6 +163,11 @@ function coerceString(value: unknown): string | null {
   return null
 }
 
+function clampString(value: string | null, maxLength: number): string | null {
+  if (!value) return null
+  return value.length > maxLength ? value.slice(0, maxLength).trim() : value
+}
+
 function coerceMetricAmount(value: unknown): number | null {
   const record = safeRecord(value)
   const amount = record?.amount
@@ -394,11 +399,16 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }
 
   async function executeCommand<TResult>(commandId: string, input: Record<string, unknown>): Promise<TResult> {
-    const executed = await commandBus.execute<Record<string, unknown>, TResult>(commandId, {
-      input,
-      ctx: buildCommandContext(),
-    })
-    return executed.result
+    try {
+      const executed = await commandBus.execute<Record<string, unknown>, TResult>(commandId, {
+        input,
+        ctx: buildCommandContext(),
+      })
+      return executed.result
+    } catch (error) {
+      const message = error instanceof Error ? error.message : JSON.stringify(error)
+      throw new Error(`${commandId} failed: ${message}`)
+    }
   }
 
   async function lookupProductBySku(sku: string | null): Promise<string | null> {
@@ -903,12 +913,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         params.settings.locale,
         akeneoChannel,
       )) ?? params.resolvedProductTitle
-      const description = coerceString(readLayeredValue(
+      const description = clampString(coerceString(readLayeredValue(
         [params.hierarchy.rootValues, params.hierarchy.mergedValues],
         params.settings.fieldMap.description,
         params.settings.locale,
         akeneoChannel,
-      )) ?? params.resolvedProductDescription
+      )) ?? params.resolvedProductDescription, 4000)
       const bucket = existingOffer ?? {
         externalId: offerExternalId,
         channelCode: channel.code,
@@ -1285,7 +1295,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       ?? coerceString(product.identifier)
       ?? hierarchy.rootExternalId
     const resolvedSubtitle = coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.subtitle, locale, channel))
-    const resolvedDescription = coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.description, locale, channel))
+    const resolvedDescription = clampString(
+      coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.description, locale, channel)),
+      4000,
+    )
     const resolvedSku = coerceString(readLayeredValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.sku, locale, channel))
       ?? coerceString(product.identifier)
       ?? product.uuid
@@ -1306,7 +1319,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       title: resolvedTitle,
       subtitle: resolvedSubtitle ?? undefined,
       description: resolvedDescription ?? undefined,
-      sku: product.parent ? null : resolvedSku,
+      sku: product.parent ? undefined : resolvedSku,
       productType: product.parent ? 'configurable' : 'simple',
       optionSchemaId,
       isConfigurable: Boolean(product.parent),
