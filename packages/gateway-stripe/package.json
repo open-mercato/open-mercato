@@ -61,6 +61,7 @@
     }
   },
   "dependencies": {
+    "@open-mercato/core": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "stripe": "^17.0.0"
   },
