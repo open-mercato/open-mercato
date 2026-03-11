@@ -14,7 +14,11 @@ export const metadata = {
   requireFeatures: ['security.sudo.view'],
   pageTitle: 'Sudo protection',
   pageTitleKey: 'security.admin.sudo.title',
+  pageGroup: 'Security',
+  pageGroupKey: 'settings.sections.security',
+  pageOrder: 1,
   icon: sudoIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Security', labelKey: 'security.label' },
     { label: 'Sudo protection', labelKey: 'security.admin.sudo.title' },

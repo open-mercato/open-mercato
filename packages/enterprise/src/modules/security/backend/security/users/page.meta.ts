@@ -14,7 +14,11 @@ export const metadata = {
   requireFeatures: ['security.admin.manage'],
   pageTitle: 'User security management',
   pageTitleKey: 'security.admin.users.title',
+  pageOrder: 1,
   icon: usersIcon,
+  pageGroup: 'Security',
+  pageGroupKey: 'settings.sections.security',
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Security', labelKey: 'security.label' },
     { label: 'User security management', labelKey: 'security.admin.users.title' },
