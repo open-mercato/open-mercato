@@ -1,0 +1,56 @@
+---
+title: MFA for Admins
+description: "Multi-factor authentication from the administrative perspective: enforcement, rollout, compliance, and reset operations."
+---
+
+For administrators, MFA is not only a user feature. It is a policy tool for reducing account takeover risk across the organization.
+
+## Enforcement policies
+
+Enforcement policies control whether MFA is required and which methods are acceptable. They are managed from **Security → Enforcement** (`/backend/security/enforcement`).
+
+![Enforcement policies list](/screenshots/open-mercato-security-enforcement-list.png)
+
+Each policy defines:
+
+| Field | Description |
+| --- | --- |
+| **Scope** | The level at which the policy applies: `platform`, `tenant`, or `organisation` |
+| **Target** | The specific tenant or organisation the rule targets (platform scope applies to all tenants) |
+| **Enforcement** | Whether MFA is currently required (`Enforced`) or the policy is inactive (`Disabled`) |
+| **Allowed methods** | Optionally restrict which MFA methods count as valid (e.g. only passkey and TOTP). When empty, all configured methods are accepted |
+| **Deadline** | An optional date after which unenrolled users are blocked from continuing. Before the deadline passes, they are warned but not blocked |
+
+Policies can be filtered by scope and status, and searched by target identifiers or allowed methods.
+
+### Creating and editing a policy
+
+Click **Create new policy** or an existing row to open the policy form. The same form is used for creating and editing.
+
+![Enforcement policy form](/screenshots/open-mercato-security-enforcement-edit.png)
+
+### Rollout approach
+
+The most practical rollout usually happens in stages:
+
+1. Create a policy in `Disabled` state to prepare configuration without affecting users.
+2. Encourage users to enroll and save recovery codes.
+3. Narrow the list of allowed methods if needed.
+4. Set an enforcement deadline to give users advance notice.
+5. Flip the policy to `Enforced` once adoption is high enough.
+
+## User MFA compliance
+
+From **Security → Users** (`/backend/security/users`), administrators can review the MFA status of every user — whether they are enrolled, how many methods are configured, how many recovery codes remain, and whether they are compliant with the active enforcement policy.
+
+## Resetting user MFA
+
+When a user loses access to their MFA device or recovery codes, an administrator can reset their MFA from the user detail page (`/backend/security/users/[id]`). The reset removes all enrolled methods for that user.
+
+Because a reset temporarily lowers the protection on the account until the user re-enrolls, the action is protected by a **sudo challenge** — the administrator must re-authenticate before the reset is accepted. A reset reason is required and recorded for audit purposes.
+
+![User MFA reset form](/screenshots/open-mercato-security-enforcement-edit.png)
+
+## Next step
+
+If your organization needs a custom MFA method beyond the built-in options, see [Extending MFA providers](./extending-mfa-providers).
