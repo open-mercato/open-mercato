@@ -5,6 +5,7 @@ import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
+  path: '/payment_gateways/status',
   GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },
 }
 
@@ -24,18 +25,13 @@ export async function GET(req: Request) {
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
 
   try {
-    const transaction = await service.findTransaction(transactionId)
+    const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+    const transaction = await service.findTransaction(transactionId, scope)
     if (!transaction) {
       return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
     }
-    if (transaction.organizationId !== auth.orgId) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-    }
 
-    const status = await service.getPaymentStatus(transactionId, {
-      organizationId: auth.orgId as string,
-      tenantId: auth.tenantId,
-    })
+    const status = await service.getPaymentStatus(transactionId, scope)
 
     return NextResponse.json({
       transactionId: transaction.id,
@@ -48,7 +44,6 @@ export async function GET(req: Request) {
       amountReceived: status.amountReceived,
       currencyCode: status.currencyCode,
       redirectUrl: transaction.redirectUrl,
-      clientSecret: transaction.clientSecret,
       createdAt: transaction.createdAt.toISOString(),
       updatedAt: transaction.updatedAt.toISOString(),
     })

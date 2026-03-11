@@ -1,0 +1,7 @@
+{
+  "shipping_carriers.feature.view": "Podglad przesylek przewoznikow",
+  "shipping_carriers.feature.manage": "Zarzadzanie operacjami przewoznikow",
+  "shipping_carriers.column.trackingStatus": "Status sledzenia",
+  "shipping_carriers.column.shippingStatus": "Status wysylki",
+  "shipping_carriers.action.createShipment": "Utworz przesylke"
+}

@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import { GatewayTransaction } from '../../../data/entities'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
+  path: '/payment_gateways/transactions/[id]',
   GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },
 }
 
@@ -34,47 +37,37 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const { resolve } = await createRequestContainer()
+  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
   const em = resolve('em') as EntityManager
-  const transaction = await em.findOne(GatewayTransaction, {
-    id: transactionId,
-    organizationId: auth.orgId,
-    tenantId: auth.tenantId,
-  })
+  const integrationLogService = resolve('integrationLogService') as IntegrationLogService
+  const transaction = await findOneWithDecryption(
+    em,
+    GatewayTransaction,
+    {
+      id: transactionId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
 
   if (!transaction) {
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
   }
 
   const integrationId = `gateway_${transaction.providerKey}`
-  const knex = (em as unknown as { getConnection: () => { getKnex: () => any } }).getConnection().getKnex()
-  const logRows = await knex('integration_logs')
-    .select([
-      'id',
-      'integration_id as integrationId',
-      'run_id as runId',
-      'scope_entity_type as scopeEntityType',
-      'scope_entity_id as scopeEntityId',
-      'level',
-      'message',
-      'code',
-      'payload',
-      'created_at as createdAt',
-    ])
-    .where({
-      organization_id: auth.orgId,
-      tenant_id: auth.tenantId,
-      integration_id: integrationId,
-    })
-    .andWhere((builder: any) => {
-      builder
-        .where({
-          scope_entity_type: 'payment_transaction',
-          scope_entity_id: transactionId,
-        })
-        .orWhereRaw(`payload->>'transactionId' = ?`, [transactionId])
-    })
-    .orderBy('created_at', 'desc')
-    .limit(100)
+  const { items: logRows } = await integrationLogService.query(
+    {
+      integrationId,
+      entityType: 'payment_transaction',
+      entityId: transactionId,
+      page: 1,
+      pageSize: 100,
+    },
+    scope,
+  )
 
   return NextResponse.json({
     transaction: {
@@ -97,7 +90,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       createdAt: toIsoString(transaction.createdAt),
       updatedAt: toIsoString(transaction.updatedAt),
     },
-    logs: logRows.map((row: Record<string, unknown>) => ({
+    logs: logRows.map((row) => ({
       id: row.id,
       integrationId: row.integrationId,
       runId: row.runId ?? null,

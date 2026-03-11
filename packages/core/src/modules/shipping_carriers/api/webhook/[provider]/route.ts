@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
+import { CarrierShipment } from '../../../data/entities'
 import { getShippingAdapter } from '../../../lib/adapter-registry'
 import type { ShippingCarrierService } from '../../../lib/shipping-service'
 import { getShippingCarrierQueue } from '../../../lib/queue'
@@ -9,15 +13,6 @@ import { shippingCarriersTag } from '../../openapi'
 export const metadata = {
   path: '/shipping-carriers/webhook/[provider]',
   POST: { requireAuth: false },
-}
-
-function readJsonSafe(rawBody: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(rawBody)
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null
-  } catch {
-    return null
-  }
 }
 
 function readCarrierShipmentId(payload: Record<string, unknown> | null): string | null {
@@ -48,23 +43,63 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
   const container = await createRequestContainer()
   const service = container.resolve('shippingCarrierService') as ShippingCarrierService
+  const em = container.resolve('em') as EntityManager
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getShippingCarrierQueue('shipping-carriers-webhook')
-  const payload = readJsonSafe(rawBody)
+  const payload = await readJsonSafe<Record<string, unknown>>(rawBody)
   const carrierShipmentId = readCarrierShipmentId(payload)
 
   try {
-    const shipment = carrierShipmentId
-      ? await service.findShipmentByCarrierId(providerKey, carrierShipmentId, '')
-      : null
+    const candidates = carrierShipmentId
+      ? await findWithDecryption(
+        em,
+        CarrierShipment,
+        {
+          providerKey,
+          carrierShipmentId,
+          deletedAt: null,
+        },
+        { limit: 10, orderBy: { createdAt: 'desc' } },
+      )
+      : []
+
+    let shipment = null as CarrierShipment | null
+    let matchedScope = null as { organizationId: string; tenantId: string } | null
+    let event = null as Awaited<ReturnType<typeof adapter.verifyWebhook>> | null
+    let lastVerificationError: unknown = null
+
+    for (const candidate of candidates) {
+      const candidateScope = { organizationId: candidate.organizationId, tenantId: candidate.tenantId }
+      const credentials = await integrationCredentialsService.resolve(`carrier_${providerKey}`, candidateScope) ?? {}
+      try {
+        event = await adapter.verifyWebhook({ rawBody, headers, credentials })
+        shipment = candidate
+        matchedScope = candidateScope
+        break
+      } catch (error: unknown) {
+        lastVerificationError = error
+      }
+    }
+
+    if (!event) {
+      try {
+        event = await adapter.verifyWebhook({ rawBody, headers, credentials: {} })
+      } catch (error: unknown) {
+        throw lastVerificationError ?? error
+      }
+    }
+    if (!event) {
+      throw new Error('Webhook verification failed')
+    }
+
+    if (!shipment && carrierShipmentId && matchedScope) {
+      shipment = await service.findShipmentByCarrierId(providerKey, carrierShipmentId, matchedScope)
+    }
+
     const scope = shipment
       ? { organizationId: shipment.organizationId, tenantId: shipment.tenantId }
-      : null
-    const credentials = scope
-      ? await integrationCredentialsService.resolve(`carrier_${providerKey}`, scope) ?? {}
-      : {}
+      : matchedScope
 
-    const event = await adapter.verifyWebhook({ rawBody, headers, credentials })
     await queue.enqueue({
       name: 'shipping-carrier-webhook',
       payload: {

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CarrierShipment } from '../data/entities'
 import { emitShippingEvent } from '../events'
 import { getShippingAdapter } from '../lib/adapter-registry'
@@ -12,6 +13,10 @@ type WebhookJobPayload = {
     data: Record<string, unknown>
   }
   shipmentId?: string | null
+  scope?: {
+    organizationId: string
+    tenantId: string
+  } | null
 }
 
 type HandlerContext = JobContext & {
@@ -29,8 +34,19 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
   const adapter = getShippingAdapter(job.payload.providerKey)
   if (!adapter) return
 
-  const shipment = job.payload.shipmentId
-    ? await em.findOne(CarrierShipment, { id: job.payload.shipmentId })
+  const shipment = job.payload.shipmentId && job.payload.scope
+    ? await findOneWithDecryption(
+      em,
+      CarrierShipment,
+      {
+        id: job.payload.shipmentId,
+        organizationId: job.payload.scope.organizationId,
+        tenantId: job.payload.scope.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      job.payload.scope,
+    )
     : null
   if (!shipment) return
 

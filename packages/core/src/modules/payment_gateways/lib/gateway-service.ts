@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -40,6 +41,35 @@ export interface CreatePaymentSessionInput {
 
 export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   const { em, integrationCredentialsService, integrationLogService } = deps
+
+  async function findTransactionOrThrow(
+    transactionId: string,
+    scope: { organizationId: string; tenantId: string },
+  ): Promise<GatewayTransaction> {
+    const transaction = await findOneWithDecryption(
+      em,
+      GatewayTransaction,
+      {
+        id: transactionId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      scope,
+    )
+    if (!transaction) {
+      throw new Error('Transaction not found')
+    }
+    return transaction
+  }
+
+  function readProviderSessionId(transaction: GatewayTransaction): string {
+    if (typeof transaction.providerSessionId === 'string' && transaction.providerSessionId.trim().length > 0) {
+      return transaction.providerSessionId
+    }
+    throw new Error('Transaction is missing provider session id')
+  }
 
   async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown>) {
     type PaymentGatewayEventId = Parameters<typeof emitPaymentGatewayEvent>[0]
@@ -122,7 +152,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         providerSessionId: session.sessionId,
         unifiedStatus: session.status,
         redirectUrl: session.redirectUrl ?? null,
-        clientSecret: session.clientSecret ?? null,
+        clientSecret: null,
         amount: String(input.amount),
         currencyCode: input.currencyCode,
         gatewayMetadata: session.providerData ?? null,
@@ -156,19 +186,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       return { transaction, session }
     },
 
-    async capturePayment(transactionId: string, amount?: number, scope?: { organizationId: string; tenantId: string }): Promise<CaptureResult> {
-      const transaction = await em.findOneOrFail(GatewayTransaction, { id: transactionId })
-      if (scope && transaction.organizationId !== scope.organizationId) {
-        throw new Error('Access denied: cross-tenant operation')
-      }
-
+    async capturePayment(transactionId: string, amount: number | undefined, scope: { organizationId: string; tenantId: string }): Promise<CaptureResult> {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
       const { adapter, credentials } = await resolveAdapterAndCredentials(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
       )
 
       const result = await adapter.capture({
-        sessionId: transaction.providerSessionId!,
+        sessionId: readProviderSessionId(transaction),
         amount,
         credentials,
       })
@@ -199,19 +225,20 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       return result
     },
 
-    async refundPayment(transactionId: string, amount?: number, reason?: string, scope?: { organizationId: string; tenantId: string }): Promise<RefundResult> {
-      const transaction = await em.findOneOrFail(GatewayTransaction, { id: transactionId })
-      if (scope && transaction.organizationId !== scope.organizationId) {
-        throw new Error('Access denied: cross-tenant operation')
-      }
-
+    async refundPayment(
+      transactionId: string,
+      amount: number | undefined,
+      reason: string | undefined,
+      scope: { organizationId: string; tenantId: string },
+    ): Promise<RefundResult> {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
       const { adapter, credentials } = await resolveAdapterAndCredentials(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
       )
 
       const result = await adapter.refund({
-        sessionId: transaction.providerSessionId!,
+        sessionId: readProviderSessionId(transaction),
         amount,
         reason,
         credentials,
@@ -245,19 +272,19 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       return result
     },
 
-    async cancelPayment(transactionId: string, reason?: string, scope?: { organizationId: string; tenantId: string }): Promise<CancelResult> {
-      const transaction = await em.findOneOrFail(GatewayTransaction, { id: transactionId })
-      if (scope && transaction.organizationId !== scope.organizationId) {
-        throw new Error('Access denied: cross-tenant operation')
-      }
-
+    async cancelPayment(
+      transactionId: string,
+      reason: string | undefined,
+      scope: { organizationId: string; tenantId: string },
+    ): Promise<CancelResult> {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
       const { adapter, credentials } = await resolveAdapterAndCredentials(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
       )
 
       const result = await adapter.cancel({
-        sessionId: transaction.providerSessionId!,
+        sessionId: readProviderSessionId(transaction),
         reason,
         credentials,
       })
@@ -286,19 +313,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       return result
     },
 
-    async getPaymentStatus(transactionId: string, scope?: { organizationId: string; tenantId: string }): Promise<GatewayPaymentStatus> {
-      const transaction = await em.findOneOrFail(GatewayTransaction, { id: transactionId })
-      if (scope && transaction.organizationId !== scope.organizationId) {
-        throw new Error('Access denied: cross-tenant operation')
-      }
-
+    async getPaymentStatus(transactionId: string, scope: { organizationId: string; tenantId: string }): Promise<GatewayPaymentStatus> {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
       const { adapter, credentials } = await resolveAdapterAndCredentials(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
       )
 
       const status = await adapter.getStatus({
-        sessionId: transaction.providerSessionId!,
+        sessionId: readProviderSessionId(transaction),
         credentials,
       })
 
@@ -343,8 +366,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         processed: boolean
         receivedAt?: string
       }
-    }): Promise<void> {
-      const transaction = await em.findOneOrFail(GatewayTransaction, { id: transactionId })
+    }, scope: { organizationId: string; tenantId: string }): Promise<void> {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
       const currentStatus = transaction.unifiedStatus as UnifiedPaymentStatus
       const canTransition = isValidTransition(currentStatus, update.unifiedStatus)
       const shouldApplyStatus = canTransition && update.unifiedStatus !== currentStatus
@@ -397,15 +420,39 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       )
     },
 
-    async findTransaction(id: string): Promise<GatewayTransaction | null> {
-      return em.findOne(GatewayTransaction, { id })
+    async findTransaction(id: string, scope: { organizationId: string; tenantId: string }): Promise<GatewayTransaction | null> {
+      return findOneWithDecryption(
+        em,
+        GatewayTransaction,
+        {
+          id,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
     },
 
-    async findTransactionBySessionId(providerSessionId: string, providerKey?: string): Promise<GatewayTransaction | null> {
-      return em.findOne(GatewayTransaction, {
-        providerSessionId,
-        ...(providerKey ? { providerKey } : {}),
-      })
+    async findTransactionBySessionId(
+      providerSessionId: string,
+      scope: { organizationId: string; tenantId: string },
+      providerKey?: string,
+    ): Promise<GatewayTransaction | null> {
+      return findOneWithDecryption(
+        em,
+        GatewayTransaction,
+        {
+          providerSessionId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+          ...(providerKey ? { providerKey } : {}),
+        },
+        undefined,
+        scope,
+      )
     },
 
     async listTransactionsForStatusPolling(scope?: {
@@ -416,15 +463,22 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     }): Promise<GatewayTransaction[]> {
       const where: Record<string, unknown> = {
         unifiedStatus: { $in: ['pending', 'authorized', 'partially_captured'] },
+        deletedAt: null,
       }
       if (scope?.organizationId) where.organizationId = scope.organizationId
       if (scope?.tenantId) where.tenantId = scope.tenantId
       if (scope?.providerKey) where.providerKey = scope.providerKey
 
-      return em.find(GatewayTransaction, where, {
-        orderBy: { updatedAt: 'asc' },
-        limit: scope?.limit ?? 100,
-      })
+      return findWithDecryption(
+        em,
+        GatewayTransaction,
+        where,
+        {
+          orderBy: { updatedAt: 'asc' },
+          limit: scope?.limit ?? 100,
+        },
+        scope,
+      )
     },
   }
 }

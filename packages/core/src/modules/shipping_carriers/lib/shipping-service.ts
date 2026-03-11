@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import { CarrierShipment } from '../data/entities'
 import { emitShippingEvent } from '../events'
@@ -9,6 +10,28 @@ export function createShippingCarrierService(deps: {
   integrationCredentialsService: CredentialsService
 }) {
   const { em, integrationCredentialsService } = deps
+
+  async function findShipmentOrThrow(
+    shipmentId: string,
+    scope: { organizationId: string; tenantId: string },
+  ): Promise<CarrierShipment> {
+    const shipment = await findOneWithDecryption(
+      em,
+      CarrierShipment,
+      {
+        id: shipmentId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      scope,
+    )
+    if (!shipment) {
+      throw new Error('Shipment not found')
+    }
+    return shipment
+  }
 
   async function resolveAdapter(providerKey: string, scope: { organizationId: string; tenantId: string }) {
     const adapter = getShippingAdapter(providerKey)
@@ -97,11 +120,21 @@ export function createShippingCarrierService(deps: {
         tenantId: input.tenantId,
       })
       const shipment = input.shipmentId
-        ? await em.findOne(CarrierShipment, {
-          id: input.shipmentId,
-          organizationId: input.organizationId,
-          tenantId: input.tenantId,
-        })
+        ? await findOneWithDecryption(
+          em,
+          CarrierShipment,
+          {
+            id: input.shipmentId,
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            deletedAt: null,
+          },
+          undefined,
+          {
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+          },
+        )
         : null
       const tracking = await adapter.getTracking({
         shipmentId: shipment?.carrierShipmentId ?? input.shipmentId,
@@ -124,11 +157,8 @@ export function createShippingCarrierService(deps: {
       organizationId: string
       tenantId: string
     }) {
-      const shipment = await em.findOneOrFail(CarrierShipment, {
-        id: input.shipmentId,
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-      })
+      const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      const shipment = await findShipmentOrThrow(input.shipmentId, scope)
       const { adapter, credentials } = await resolveAdapter(input.providerKey, {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
@@ -149,12 +179,24 @@ export function createShippingCarrierService(deps: {
       return result
     },
 
-    async findShipmentByCarrierId(providerKey: string, carrierShipmentId: string, organizationId?: string) {
-      return em.findOne(CarrierShipment, {
-        providerKey,
-        carrierShipmentId,
-        ...(organizationId ? { organizationId } : {}),
-      })
+    async findShipmentByCarrierId(
+      providerKey: string,
+      carrierShipmentId: string,
+      scope: { organizationId: string; tenantId: string },
+    ) {
+      return findOneWithDecryption(
+        em,
+        CarrierShipment,
+        {
+          providerKey,
+          carrierShipmentId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
     },
   }
 }

@@ -10,6 +10,10 @@ type WebhookJobPayload = {
   providerKey: string
   event: WebhookEvent
   transactionId?: string | null
+  scope?: {
+    organizationId: string
+    tenantId: string
+  } | null
 }
 
 type HandlerContext = JobContext & {
@@ -30,50 +34,90 @@ function readSessionIdFromEvent(event: WebhookEvent): string | null {
   return null
 }
 
+function readScopeFromEvent(event: WebhookEvent): { organizationId: string; tenantId: string } | null {
+  const metadata = event.data.metadata
+  if (!metadata || typeof metadata !== 'object') return null
+
+  const metadataRecord = metadata as Record<string, unknown>
+  const organizationId = typeof metadataRecord.organizationId === 'string'
+    ? metadataRecord.organizationId.trim()
+    : ''
+  const tenantId = typeof metadataRecord.tenantId === 'string'
+    ? metadataRecord.tenantId.trim()
+    : ''
+
+  if (!organizationId || !tenantId) return null
+  return { organizationId, tenantId }
+}
+
 export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
   const paymentGatewayService = ctx.resolve<PaymentGatewayService>('paymentGatewayService')
   const integrationLogService = ctx.resolve<IntegrationLogService>('integrationLogService')
   const event = job.payload.event
+  const scope = job.payload.scope ?? readScopeFromEvent(event)
 
-  let transaction = job.payload.transactionId
-    ? await paymentGatewayService.findTransaction(job.payload.transactionId)
-    : null
-  if (!transaction) {
-    const sessionId = readSessionIdFromEvent(event)
-    if (!sessionId) return
-    transaction = await paymentGatewayService.findTransactionBySessionId(sessionId, 'stripe')
-  }
-  if (!transaction) return
+  try {
+    let transaction = job.payload.transactionId && scope
+      ? await paymentGatewayService.findTransaction(job.payload.transactionId, scope)
+      : null
+    if (!transaction) {
+      const sessionId = readSessionIdFromEvent(event)
+      if (!sessionId || !scope) return
+      transaction = await paymentGatewayService.findTransactionBySessionId(sessionId, scope, 'stripe')
+    }
+    if (!transaction) return
 
-  const scope = { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
-  const log = integrationLogService.scoped('gateway_stripe', scope)
-  const duplicate = await checkWebhookIdempotency(em, event.idempotencyKey, 'stripe', scope.organizationId)
-  if (duplicate) {
-    await log.info('Duplicate Stripe webhook skipped', {
+    const transactionScope = { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
+    const log = integrationLogService.scoped('gateway_stripe', transactionScope)
+    const duplicate = await checkWebhookIdempotency(em, event.idempotencyKey, 'stripe', transactionScope.organizationId)
+    if (duplicate) {
+      await log.info('Duplicate Stripe webhook skipped', {
+        eventType: event.eventType,
+        idempotencyKey: event.idempotencyKey,
+        transactionId: transaction.id,
+      })
+      return
+    }
+
+    const eventStatus = mapWebhookEventToStatus(event.eventType)
+    const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
+    const unifiedStatus = eventStatus ?? mapStripeStatus(providerStatus)
+
+    if (unifiedStatus !== 'unknown') {
+      await paymentGatewayService.syncTransactionStatus(transaction.id, {
+        unifiedStatus,
+        providerStatus: event.eventType,
+        providerData: event.data,
+      }, transactionScope)
+    }
+
+    await markWebhookProcessed(em, event.idempotencyKey, 'stripe', event.eventType, transactionScope)
+    await log.info('Stripe webhook processed', {
       eventType: event.eventType,
-      idempotencyKey: event.idempotencyKey,
       transactionId: transaction.id,
-    })
-    return
-  }
-
-  const eventStatus = mapWebhookEventToStatus(event.eventType)
-  const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
-  const unifiedStatus = eventStatus ?? mapStripeStatus(providerStatus)
-
-  if (unifiedStatus !== 'unknown') {
-    await paymentGatewayService.syncTransactionStatus(transaction.id, {
       unifiedStatus,
-      providerStatus: event.eventType,
-      providerData: event.data,
     })
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Stripe webhook processing failed'
+    if (scope) {
+      await integrationLogService.write({
+        integrationId: 'gateway_stripe',
+        level: 'error',
+        message: 'Stripe webhook processing failed',
+        code: 'stripe_webhook_processing_failed',
+        payload: {
+          error: message,
+          eventType: event.eventType,
+          transactionId: job.payload.transactionId ?? null,
+        },
+      }, scope)
+    } else {
+      console.error('[gateway-stripe:webhook-processor]', message, {
+        eventType: event.eventType,
+        transactionId: job.payload.transactionId ?? null,
+      })
+    }
+    throw error
   }
-
-  await markWebhookProcessed(em, event.idempotencyKey, 'stripe', event.eventType, scope)
-  await log.info('Stripe webhook processed', {
-    eventType: event.eventType,
-    transactionId: transaction.id,
-    unifiedStatus,
-  })
 }

@@ -36,6 +36,9 @@ export const trackingQuerySchema = z.object({
   providerKey: z.string().min(1),
   shipmentId: z.string().uuid().optional(),
   trackingNumber: z.string().min(1).optional(),
+}).refine((value) => Boolean(value.shipmentId || value.trackingNumber), {
+  message: 'shipmentId or trackingNumber is required',
+  path: ['shipmentId'],
 })
 
 export const cancelShipmentSchema = z.object({

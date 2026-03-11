@@ -15,7 +15,7 @@ import type {
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { resolveStripeClient } from '../client'
-import { mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
+import { mapRefundReason, mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
 import { toCents, fromCents, buildStripeMetadata } from '../shared'
 import { verifyStripeWebhook } from '../webhook-handler'
 
@@ -28,7 +28,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: toCents(input.amount),
+      amount: toCents(input.amount, input.currencyCode),
       currency: input.currencyCode.toLowerCase(),
       capture_method: input.captureMethod ?? 'automatic',
       metadata: buildStripeMetadata({
@@ -56,31 +56,42 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
 
   async capture(input: CaptureInput): Promise<CaptureResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const paymentIntent = input.amount
+      ? await stripe.paymentIntents.retrieve(input.sessionId)
+      : null
 
     const captured = await stripe.paymentIntents.capture(input.sessionId, {
-      amount_to_capture: input.amount ? toCents(input.amount) : undefined,
+      amount_to_capture: input.amount && paymentIntent
+        ? toCents(input.amount, paymentIntent.currency)
+        : undefined,
     })
 
     return {
       status: mapStripeStatus(captured.status),
-      capturedAmount: fromCents(captured.amount_received),
+      capturedAmount: fromCents(captured.amount_received, captured.currency),
       providerData: { chargeId: captured.latest_charge },
     }
   },
 
   async refund(input: RefundInput): Promise<RefundResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const paymentIntent = input.amount
+      ? await stripe.paymentIntents.retrieve(input.sessionId)
+      : null
 
     const refund = await stripe.refunds.create({
       payment_intent: input.sessionId,
-      amount: input.amount ? toCents(input.amount) : undefined,
+      amount: input.amount && paymentIntent
+        ? toCents(input.amount, paymentIntent.currency)
+        : undefined,
+      reason: mapRefundReason(input.reason),
       metadata: input.metadata as Record<string, string> | undefined,
     })
 
     return {
       refundId: refund.id,
       status: refund.status === 'succeeded' ? 'refunded' : 'pending',
-      refundedAmount: fromCents(refund.amount),
+      refundedAmount: fromCents(refund.amount, refund.currency),
     }
   },
 
@@ -102,8 +113,8 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
     const pi = await stripe.paymentIntents.retrieve(input.sessionId)
     return {
       status: mapStripeStatus(pi.status),
-      amount: fromCents(pi.amount),
-      amountReceived: fromCents(pi.amount_received),
+      amount: fromCents(pi.amount, pi.currency),
+      amountReceived: fromCents(pi.amount_received, pi.currency),
       currencyCode: pi.currency.toUpperCase(),
     }
   },

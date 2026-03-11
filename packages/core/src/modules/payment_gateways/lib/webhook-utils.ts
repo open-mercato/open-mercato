@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WebhookProcessedEvent } from '../data/entities'
 
 export async function checkWebhookIdempotency(
@@ -7,11 +8,17 @@ export async function checkWebhookIdempotency(
   providerKey: string,
   organizationId: string,
 ): Promise<boolean> {
-  const existing = await em.findOne(WebhookProcessedEvent, {
-    idempotencyKey,
-    providerKey,
-    organizationId,
-  })
+  const existing = await findOneWithDecryption(
+    em,
+    WebhookProcessedEvent,
+    {
+      idempotencyKey,
+      providerKey,
+      organizationId,
+    },
+    undefined,
+    { organizationId },
+  )
   return !!existing
 }
 

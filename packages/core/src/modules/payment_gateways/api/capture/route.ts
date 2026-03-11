@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { captureSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
+  path: '/payment_gateways/capture',
   POST: { requireAuth: true, requireFeatures: ['payment_gateways.capture'] },
 }
 
@@ -15,7 +17,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const payload = await req.json().catch(() => null)
+  const payload = await readJsonSafe<unknown>(req)
   const parsed = captureSchema.safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })

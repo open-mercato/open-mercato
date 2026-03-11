@@ -1,25 +1,20 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import type { PaymentGatewayService } from '../../../lib/gateway-service'
 import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
+import { GatewayTransaction } from '../../../data/entities'
 import { getPaymentGatewayQueue } from '../../../lib/queue'
 import { processPaymentGatewayWebhookJob } from '../../../lib/webhook-processor'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
+  path: '/payment_gateways/webhook/[provider]',
   POST: { requireAuth: false },
-}
-
-function readJsonSafe(rawBody: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(rawBody)
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null
-  } catch {
-    return null
-  }
 }
 
 function readSessionIdHint(payload: Record<string, unknown> | null): string | null {
@@ -39,6 +34,22 @@ function readSessionIdHint(payload: Record<string, unknown> | null): string | nu
   return null
 }
 
+function readScopeFromEventData(data: Record<string, unknown>): { organizationId: string; tenantId: string } | null {
+  const metadata = data.metadata
+  if (!metadata || typeof metadata !== 'object') return null
+
+  const metadataRecord = metadata as Record<string, unknown>
+  const organizationId = typeof metadataRecord.organizationId === 'string'
+    ? metadataRecord.organizationId.trim()
+    : ''
+  const tenantId = typeof metadataRecord.tenantId === 'string'
+    ? metadataRecord.tenantId.trim()
+    : ''
+
+  if (!organizationId || !tenantId) return null
+  return { organizationId, tenantId }
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> | { provider: string } }) {
   const resolvedParams = await params
   const providerKey = resolvedParams.provider
@@ -55,27 +66,68 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   })
 
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
+  const em = container.resolve('em') as EntityManager
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')
-  const payload = readJsonSafe(rawBody)
+  const payload = await readJsonSafe<Record<string, unknown>>(rawBody)
   const sessionIdHint = readSessionIdHint(payload)
 
   try {
-    const transaction = sessionIdHint
-      ? await service.findTransactionBySessionId(sessionIdHint, providerKey)
-      : null
+    const candidates = sessionIdHint
+      ? await findWithDecryption(
+        em,
+        GatewayTransaction,
+        {
+          providerKey,
+          providerSessionId: sessionIdHint,
+          deletedAt: null,
+        },
+        { limit: 10, orderBy: { createdAt: 'desc' } },
+      )
+      : []
+
+    let transaction = null as GatewayTransaction | null
+    let matchedScope = null as { organizationId: string; tenantId: string } | null
+    let event = null as Awaited<ReturnType<typeof registration.handler>> | null
+    let lastVerificationError: unknown = null
+
+    for (const candidate of candidates) {
+      const candidateScope = { organizationId: candidate.organizationId, tenantId: candidate.tenantId }
+      const credentials = await integrationCredentialsService.resolve(`gateway_${providerKey}`, candidateScope) ?? {}
+      try {
+        event = await registration.handler({ rawBody, headers, credentials })
+        transaction = candidate
+        matchedScope = candidateScope
+        break
+      } catch (error: unknown) {
+        lastVerificationError = error
+      }
+    }
+
+    if (!event) {
+      try {
+        event = await registration.handler({ rawBody, headers, credentials: {} })
+      } catch (error: unknown) {
+        throw lastVerificationError ?? error
+      }
+    }
+    if (!event) {
+      throw new Error('Webhook verification failed')
+    }
+
+    if (!transaction && sessionIdHint) {
+      const derivedScope = readScopeFromEventData(event.data)
+      if (derivedScope) {
+        transaction = await service.findTransactionBySessionId(sessionIdHint, derivedScope, providerKey)
+        matchedScope = transaction
+          ? { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
+          : derivedScope
+      }
+    }
+
     const scope = transaction
       ? { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
-      : null
-    const credentials = scope
-      ? await integrationCredentialsService.resolve(`gateway_${providerKey}`, scope) ?? {}
-      : {}
-
-    const event = await registration.handler({
-      rawBody,
-      headers,
-      credentials,
-    })
+      : matchedScope ?? readScopeFromEventData(event.data)
 
     const jobPayload = {
       providerKey,

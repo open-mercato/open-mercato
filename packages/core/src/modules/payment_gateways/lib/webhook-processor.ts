@@ -28,6 +28,22 @@ function readSessionIdFromEvent(event: WebhookEvent): string | null {
   return null
 }
 
+function readScopeFromEvent(event: WebhookEvent): { organizationId: string; tenantId: string } | null {
+  const metadata = event.data.metadata
+  if (!metadata || typeof metadata !== 'object') return null
+
+  const metadataRecord = metadata as Record<string, unknown>
+  const organizationId = typeof metadataRecord.organizationId === 'string'
+    ? metadataRecord.organizationId.trim()
+    : ''
+  const tenantId = typeof metadataRecord.tenantId === 'string'
+    ? metadataRecord.tenantId.trim()
+    : ''
+
+  if (!organizationId || !tenantId) return null
+  return { organizationId, tenantId }
+}
+
 async function writeTransactionLog(
   integrationLogService: IntegrationLogService,
   providerKey: string,
@@ -53,15 +69,16 @@ export async function processPaymentGatewayWebhookJob(
 ): Promise<void> {
   const { em, paymentGatewayService, integrationLogService } = deps
   const { providerKey, event } = payload
+  const scopedPayload = payload.scope ?? readScopeFromEvent(event)
 
-  let transaction = payload.transactionId
-    ? await paymentGatewayService.findTransaction(payload.transactionId)
+  let transaction = payload.transactionId && scopedPayload
+    ? await paymentGatewayService.findTransaction(payload.transactionId, scopedPayload)
     : null
 
   if (!transaction) {
     const sessionId = readSessionIdFromEvent(event)
-    if (sessionId) {
-      transaction = await paymentGatewayService.findTransactionBySessionId(sessionId, providerKey)
+    if (sessionId && scopedPayload) {
+      transaction = await paymentGatewayService.findTransactionBySessionId(sessionId, scopedPayload, providerKey)
     }
   }
   if (!transaction) return
@@ -102,7 +119,7 @@ export async function processPaymentGatewayWebhookJob(
       idempotencyKey: event.idempotencyKey,
       processed: true,
     },
-  })
+  }, scope)
 
   await markWebhookProcessed(em, event.idempotencyKey, providerKey, event.eventType, scope)
   await writeTransactionLog(integrationLogService, providerKey, scope, transaction.id, 'info', 'Payment gateway webhook processed', {
