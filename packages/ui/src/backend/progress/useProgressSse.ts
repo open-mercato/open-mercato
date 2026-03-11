@@ -5,6 +5,8 @@ import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injec
 import { useAppEvent } from '../injection/useAppEvent'
 import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
 
+const ACTIVE_POLL_INTERVAL_MS = 2000
+
 function upsertJob(list: ProgressJobDto[], job: ProgressJobDto): ProgressJobDto[] {
   const next = [job, ...list.filter((item) => item.id !== job.id)]
   return next.sort(
@@ -44,6 +46,14 @@ export function useProgressSse(): UseProgressPollResult {
   React.useEffect(() => {
     void fetchJobs()
   }, [fetchJobs])
+
+  React.useEffect(() => {
+    if (activeJobs.length === 0) return
+    const interval = window.setInterval(() => {
+      void fetchJobs()
+    }, ACTIVE_POLL_INTERVAL_MS)
+    return () => window.clearInterval(interval)
+  }, [activeJobs.length, fetchJobs])
 
   useAppEvent(
     'progress.job.updated',

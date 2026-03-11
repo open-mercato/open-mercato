@@ -159,3 +159,43 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: For custom APIs, prefer the standard `api/<segment>/route.ts` layout. If the public URL must differ from the generator default, declare one canonical `metadata.path` override on the route instead of alias lists or app-route special cases.
 
 **Applies to**: Module API routes, generator path mapping, and any future public endpoint refactors.
+
+## Do not diagnose unknown-total progress as broken SSE
+
+**Context**: Data sync jobs were emitting `progress.job.updated` correctly through the same SSE bridge used by the working example page, but the top bar and run detail still looked frozen at `0%`.
+
+**Problem**: Product imports often do not know `totalCount` up front. `ProgressService.updateProgress()` therefore kept `progressPercent` at `0`, so the UI rendered a static 0% bar even while `processedCount` was increasing in real time.
+
+**Rule**: When a long-running job has no reliable total, treat it as **indeterminate progress** in the UI. Keep SSE/poll updates for `processedCount`, avoid showing `0% complete`, and preserve any available `totalEstimate` instead of discarding it in adapters.
+
+**Applies to**: `packages/core/src/modules/data_sync/lib/sync-engine.ts`, provider adapters such as `packages/sync-akeneo/src/modules/sync_akeneo/lib/adapter.ts`, and any UI using `ProgressTopBar` or run-detail progress bars.
+
+## Worker-emitted progress needs polling fallback even when SSE exists
+
+**Context**: Example-page progress SSE worked, but bulk product operations and data sync progress in the top bar did not update live.
+
+**Problem**: The DOM Event Bridge tap in `packages/events/src/modules/events/api/stream/route.ts` is process-local. Queue workers emit `progress.job.updated` in a different process, so those events do not reach the browser through SSE even though the `ProgressJob` database row updates correctly.
+
+**Rule**: For progress UIs, use **SSE for immediacy** and **polling while active jobs exist** as the correctness path. Do not assume worker-emitted progress events will reach the browser unless the event bus is explicitly cross-process bridged for broadcast traffic.
+
+**Applies to**: `packages/ui/src/backend/progress/useProgressSse.ts`, all worker-driven progress jobs (data sync, bulk delete, reindex, similar queue jobs), and any future SSE-based progress UI.
+
+## Akeneo base-field imports must not fall back across locales or channels
+
+**Context**: Akeneo product values were being resolved with a score-based matcher that could still pick a different locale or scope when the selected locale/channel did not exist.
+
+**Problem**: German or other scoped Akeneo content leaked into the tenant's base Open Mercato fields, so a single-locale import silently mixed languages and channel variants instead of leaving the field empty.
+
+**Rule**: When importing into non-translation Open Mercato fields, only accept the explicitly selected Akeneo locale/channel plus Akeneo's unlocalized or unscoped fallback entries. Never fall back to a different locale or channel just to fill a value.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts`, future translation import work, and any adapter that flattens layered external localized values into base fields.
+
+## Akeneo media identifiers can be slash-delimited path params
+
+**Context**: Akeneo media values looked like file paths (`6/7/7/...jpg`). The importer treated them as opaque codes and URL-encoded the entire string before calling `/api/rest/v1/media-files/{code}`.
+
+**Problem**: Encoding the whole identifier as one segment changed the path semantics and caused false `media file ... was not found` failures, which then prevented attachments from being created and assigned.
+
+**Rule**: For Akeneo media-file endpoints, preserve `/` path separators inside the media identifier and only encode each path segment individually. Treat these identifiers as route params, not as a single opaque slug.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/client.ts`, media download helpers, and any future Akeneo endpoint that accepts slash-delimited resource identifiers.

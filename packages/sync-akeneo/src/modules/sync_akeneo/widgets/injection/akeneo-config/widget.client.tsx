@@ -95,6 +95,8 @@ type AkeneoWidgetContext = {
 type FormState = {
   productLocale: string
   productChannel: string
+  productChannels: string[]
+  importAllProductChannels: boolean
   categoryLocale: string
   includeTextAttributes: boolean
   includeNumericAttributes: boolean
@@ -147,6 +149,8 @@ function buildInitialState(): FormState {
   return {
     productLocale: productSettings?.locale ?? 'en_US',
     productChannel: productSettings?.channel ?? '',
+    productChannels: productSettings?.channels ?? [],
+    importAllProductChannels: productSettings?.importAllChannels ?? true,
     categoryLocale: categories.settings?.categories?.locale ?? 'en_US',
     includeTextAttributes: attributes.settings?.attributes?.includeTextAttributes ?? true,
     includeNumericAttributes: attributes.settings?.attributes?.includeNumericAttributes ?? true,
@@ -213,6 +217,8 @@ function mergeMappingsIntoState(
     ...state,
     productLocale: normalizedProducts.settings?.products?.locale ?? state.productLocale,
     productChannel: normalizedProducts.settings?.products?.channel ?? '',
+    productChannels: normalizedProducts.settings?.products?.channels ?? state.productChannels,
+    importAllProductChannels: normalizedProducts.settings?.products?.importAllChannels ?? state.importAllProductChannels,
     categoryLocale: normalizedCategories.settings?.categories?.locale ?? state.categoryLocale,
     includeTextAttributes: normalizedAttributes.settings?.attributes?.includeTextAttributes ?? state.includeTextAttributes,
     includeNumericAttributes: normalizedAttributes.settings?.attributes?.includeNumericAttributes ?? state.includeNumericAttributes,
@@ -504,6 +510,8 @@ function applyDiscoveryDefaults(
     productLocale: state.productLocale === 'en_US' ? preferredLocale : state.productLocale,
     categoryLocale: state.categoryLocale === 'en_US' ? preferredLocale : state.categoryLocale,
     productChannel: state.productChannel || preferredAkeneoChannel,
+    productChannels: state.productChannels.length > 0 ? state.productChannels : (preferredAkeneoChannel ? [preferredAkeneoChannel] : []),
+    importAllProductChannels: state.importAllProductChannels,
     fieldMap: inferred.fieldMap,
     customFieldMappings: serializeCustomFieldRows(
       mergeCustomFieldRows(currentCustomFieldRows, discoveredCustomFieldRows),
@@ -614,6 +622,8 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
         products: {
           locale: currentState.productLocale,
           channel: currentState.productChannel || null,
+          channels: currentState.importAllProductChannels ? [] : currentState.productChannels,
+          importAllChannels: currentState.importAllProductChannels,
           fieldMap: { ...currentState.fieldMap },
           customFieldMappings,
           priceMappings,
@@ -937,6 +947,8 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
           products: {
             locale: state.productLocale,
             channel: state.productChannel || null,
+            channels: state.importAllProductChannels ? [] : state.productChannels,
+            importAllChannels: state.importAllProductChannels,
             fieldMap: { ...state.fieldMap },
             customFieldMappings: customFieldMappings.map((row) => ({
               attributeCode: row.attributeCode.trim(),
@@ -1212,13 +1224,22 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="akeneo-product-locale">{t('sync_akeneo.mapping.productLocale', 'Product locale')}</Label>
-                <Input
+                <select
                   id="akeneo-product-locale"
-                  list="akeneo-locales"
                   value={state.productLocale}
                   onChange={(event) => setState((current) => ({ ...current, productLocale: event.target.value }))}
-                  disabled={isLoading || isSaving}
-                />
+                  disabled={isLoading || isSaving || (discovery?.locales?.length ?? 0) === 0}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                >
+                  {(discovery?.locales ?? []).map((locale) => (
+                    <option key={locale.code} value={locale.code}>
+                      {locale.code}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  {t('sync_akeneo.mapping.productLocale.help', 'Only this Akeneo locale is imported into the base Open Mercato fields for now. Other locales are ignored until translation import is added.')}
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="akeneo-product-channel">{t('sync_akeneo.mapping.productChannel', 'Product channel')}</Label>
@@ -1261,13 +1282,19 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="akeneo-category-locale">{t('sync_akeneo.mapping.categoryLocale', 'Category label locale')}</Label>
-                <Input
+                <select
                   id="akeneo-category-locale"
-                  list="akeneo-locales"
                   value={state.categoryLocale}
                   onChange={(event) => setState((current) => ({ ...current, categoryLocale: event.target.value }))}
-                  disabled={isLoading || isSaving}
-                />
+                  disabled={isLoading || isSaving || (discovery?.locales?.length ?? 0) === 0}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                >
+                  {(discovery?.locales ?? []).map((locale) => (
+                    <option key={locale.code} value={locale.code}>
+                      {locale.code}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="akeneo-family-filter">{t('sync_akeneo.mapping.familyFilter', 'Attribute sync family filter')}</Label>

@@ -46,6 +46,7 @@ type LogEntry = {
   level: 'info' | 'warn' | 'error'
   message: string
   createdAt: string
+  payload?: Record<string, unknown> | null
 }
 
 function formatEtaSeconds(seconds: number): string {
@@ -100,6 +101,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [error, setError] = React.useState<string | null>(null)
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
+  const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
 
   const resolveCurrentRunId = React.useCallback(() => {
     return runId ?? (
@@ -153,9 +155,12 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
 
   React.useEffect(() => {
     if (!run || (run.status !== 'running' && run.status !== 'pending')) return
-    const interval = setInterval(() => { void loadRun() }, 4000)
+    const interval = setInterval(() => {
+      void loadRun()
+      void loadLogs()
+    }, 4000)
     return () => clearInterval(interval)
-  }, [run?.status, loadRun])
+  }, [run?.status, loadRun, loadLogs])
 
   const handleCancel = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
@@ -246,14 +251,25 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="font-medium">{t('data_sync.runs.detail.progress.percent', { percent: progressPercent })}</span>
+              <span className="font-medium">
+                {hasProgressTotal
+                  ? t('data_sync.runs.detail.progress.percent', { percent: progressPercent })
+                  : t('data_sync.runs.detail.progress.itemsProcessed', { count: processedCount })}
+              </span>
               {etaLabel ? (
                 <span className="text-muted-foreground">
                   {t('data_sync.runs.detail.progress.eta', { eta: etaLabel })}
                 </span>
               ) : null}
             </div>
-            <Progress value={progressPercent} className="h-3" />
+            {hasProgressTotal ? (
+              <Progress value={progressPercent} className="h-3" />
+            ) : (
+              <div className="relative h-3 w-full overflow-hidden rounded-full bg-secondary">
+                <div className="absolute inset-y-0 left-0 w-1/2 animate-pulse rounded-full bg-primary/80" />
+                <div className="absolute inset-y-0 right-0 w-1/3 rounded-full bg-primary/40" />
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
               <span>
                 {hasProgressTotal
@@ -327,17 +343,36 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   </thead>
                   <tbody>
                     {logs.map((log) => (
-                      <tr key={log.id} className="border-b last:border-0">
-                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                          {new Date(log.createdAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2">
-                          <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
-                            {log.level}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-2">{log.message}</td>
-                      </tr>
+                      <React.Fragment key={log.id}>
+                        <tr className="border-b last:border-0">
+                          <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                            {new Date(log.createdAt).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2">
+                            <Badge variant="secondary" className={LOG_LEVEL_STYLES[log.level] ?? ''}>
+                              {log.level}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-2">
+                            <button
+                              type="button"
+                              className="w-full text-left"
+                              onClick={() => setExpandedLogId((current) => current === log.id ? null : log.id)}
+                            >
+                              {log.message}
+                            </button>
+                          </td>
+                        </tr>
+                        {expandedLogId === log.id && log.payload ? (
+                          <tr className="border-b bg-muted/20 last:border-0">
+                            <td colSpan={3} className="px-4 py-4">
+                              <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border bg-card p-3 text-xs">
+                                {JSON.stringify(log.payload, null, 2)}
+                              </pre>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

@@ -58,6 +58,13 @@ export function normalizeAkeneoDateTime(value: string | null | undefined): strin
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
+export function encodeAkeneoPathParam(value: string): string {
+  return value
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}
+
 export function sanitizeAkeneoProductNextUrl(nextUrl: string): string {
   let url: URL
   try {
@@ -501,7 +508,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
 
   async function getMediaFile(code: string): Promise<AkeneoMediaFile | null> {
     if (!mediaFileCache.has(code)) {
-      mediaFileCache.set(code, request<AkeneoMediaFile>(`/api/rest/v1/media-files/${encodeURIComponent(code)}`).catch(() => null))
+      mediaFileCache.set(code, request<AkeneoMediaFile>(`/api/rest/v1/media-files/${encodeAkeneoPathParam(code)}`).catch(() => null))
     }
     return mediaFileCache.get(code) ?? null
   }
@@ -527,7 +534,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
       throw new Error(`Akeneo media file ${codeOrUrl} was not found`)
     }
     const downloadHref = mediaFile._links?.download?.href
-    const binary = await requestBinary(downloadHref || `/api/rest/v1/media-files/${encodeURIComponent(codeOrUrl)}/download`)
+    const binary = await requestBinary(downloadHref || `/api/rest/v1/media-files/${encodeAkeneoPathParam(codeOrUrl)}/download`)
     return {
       ...binary,
       fileName: typeof mediaFile.original_filename === 'string' && mediaFile.original_filename.trim().length > 0

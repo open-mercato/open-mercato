@@ -67,6 +67,8 @@ export type AkeneoReconciliationSettings = {
 export type AkeneoProductMappingSettings = {
   locale: string
   channel: string | null
+  channels: string[]
+  importAllChannels: boolean
   fieldMap: Record<AkeneoProductFieldKey, string>
   customFieldMappings: AkeneoCustomFieldMapping[]
   priceMappings: AkeneoPriceMapping[]
@@ -258,6 +260,8 @@ export function buildDefaultAkeneoMapping(entityType: AkeneoEntityType): AkeneoD
   const defaultProducts: AkeneoProductMappingSettings = {
     locale: 'en_US',
     channel: null,
+    channels: [],
+    importAllChannels: true,
     fieldMap: {
       title: 'name',
       subtitle: 'subtitle',
@@ -524,7 +528,16 @@ function normalizeAkeneoSettings(
     if (fallbackProducts) {
       normalized.products = {
         locale: readTrimmedString(productsRaw.locale) ?? fallbackProducts.locale,
-        channel: readTrimmedString(productsRaw.channel),
+        channel: readTrimmedString(productsRaw.channel) ?? fallbackProducts.channel,
+        channels: Array.isArray(productsRaw.channels)
+          ? dedupeStrings(productsRaw.channels as Array<string | null | undefined>)
+          : dedupeStrings([
+              readTrimmedString(productsRaw.channel),
+              ...(fallbackProducts.channels ?? []),
+            ]),
+        importAllChannels: typeof productsRaw.importAllChannels === 'boolean'
+          ? productsRaw.importAllChannels
+          : fallbackProducts.importAllChannels,
         fieldMap: {
           title: readTrimmedString(productsRaw.fieldMap && isRecord(productsRaw.fieldMap) ? productsRaw.fieldMap.title : undefined) ?? fallbackProducts.fieldMap.title,
           subtitle: readTrimmedString(productsRaw.fieldMap && isRecord(productsRaw.fieldMap) ? productsRaw.fieldMap.subtitle : undefined) ?? fallbackProducts.fieldMap.subtitle,

@@ -240,7 +240,7 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
         items,
         cursor: nextCursor,
         hasMore: Boolean(nextUrl),
-        totalEstimate: undefined,
+        totalEstimate: page.totalEstimate ?? undefined,
         batchIndex,
       }
       batchIndex += 1

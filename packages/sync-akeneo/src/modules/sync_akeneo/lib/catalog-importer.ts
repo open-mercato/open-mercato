@@ -125,7 +125,7 @@ type AkeneoFieldsetPlan = {
 const PRODUCT_ENTITY_ID = 'catalog:catalog_product'
 const VARIANT_ENTITY_ID = 'catalog:catalog_product_variant'
 
-function readPreferredValue(
+export function readPreferredAkeneoValue(
   values: AkeneoValues | undefined | null,
   attributeCode: string,
   locale: string,
@@ -138,7 +138,15 @@ function readPreferredValue(
   const wantedLocale = normalize(locale)
   const wantedChannel = normalize(channel)
 
-  const scored = entries
+  const eligibleEntries = entries.filter((entry) => {
+    const entryLocale = normalize(entry.locale)
+    const entryChannel = normalize(entry.scope)
+    const localeMatches = wantedLocale ? entryLocale === wantedLocale || entryLocale === null : true
+    const channelMatches = wantedChannel ? entryChannel === wantedChannel || entryChannel === null : true
+    return localeMatches && channelMatches
+  })
+
+  const scored = eligibleEntries
     .map((entry) => {
       const entryLocale = normalize(entry.locale)
       const entryChannel = normalize(entry.scope)
@@ -156,14 +164,14 @@ function readPreferredValue(
   return scored[0]?.entry?.data ?? null
 }
 
-function readLayeredValue(
+export function readLayeredAkeneoValue(
   layers: AkeneoValues[],
   attributeCode: string,
   locale: string,
   channel: string | null,
 ): unknown {
   for (const layer of layers) {
-    const value = readPreferredValue(layer, attributeCode, locale, channel)
+    const value = readPreferredAkeneoValue(layer, attributeCode, locale, channel)
     if (value !== null && value !== undefined && !(typeof value === 'string' && value.trim().length === 0)) {
       return value
     }
@@ -1359,7 +1367,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       const sourceLayers = fieldMapping.target === 'product'
         ? [params.hierarchy.rootValues, params.hierarchy.mergedValues]
         : [params.product.values ?? {}, params.hierarchy.mergedValues]
-      const rawValue = readLayeredValue(sourceLayers, fieldMapping.attributeCode, settings.locale, settings.channel ?? null)
+      const rawValue = readLayeredAkeneoValue(sourceLayers, fieldMapping.attributeCode, settings.locale, settings.channel ?? null)
       const value = resolveCustomFieldValue(rawValue, attribute, kind)
       if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue
       if (fieldMapping.target === 'product') {
@@ -1386,6 +1394,21 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         tenantId: scope.tenantId,
         values: variantCustomFields,
       }),
+    ])
+
+    await Promise.all([
+      params.fieldsetPlan?.product?.code
+        ? executeCommand('catalog.products.update', {
+            id: params.localProductId,
+            customFieldsetCode: params.fieldsetPlan.product.code,
+          })
+        : Promise.resolve(),
+      params.fieldsetPlan?.variant?.code
+        ? executeCommand('catalog.variants.update', {
+            id: params.localVariantId,
+            customFieldsetCode: params.fieldsetPlan.variant.code,
+          })
+        : Promise.resolve(),
     ])
 
     if (Object.keys(productCustomFields).length > 0) {
@@ -1428,7 +1451,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       const priceKind = await resolvePriceKind(priceMapping.priceKindCode)
       if (!channel || !priceKind) continue
       const akeneoChannel = priceMapping.akeneoChannel ?? params.settings.channel ?? null
-      const rawPrices = readLayeredValue(
+      const rawPrices = readLayeredAkeneoValue(
         [params.hierarchy.leafValues, params.hierarchy.mergedValues],
         priceMapping.attributeCode,
         params.settings.locale,
@@ -1438,7 +1461,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       if (entries.length === 0) continue
       const offerExternalId = `${params.hierarchy.rootExternalId}:offer:${channel.code}`
       const existingOffer = desiredOffers.get(offerExternalId)
-      const title = coerceString(readLayeredValue(
+      const title = coerceString(readLayeredAkeneoValue(
         [params.hierarchy.rootValues, params.hierarchy.mergedValues],
         params.settings.fieldMap.title,
         params.settings.locale,
@@ -1446,7 +1469,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       )) ?? params.resolvedProductTitle
       const description = clampString(
         normalizeMarkdownText(
-          coerceString(readLayeredValue(
+          coerceString(readLayeredAkeneoValue(
             [params.hierarchy.rootValues, params.hierarchy.mergedValues],
             params.settings.fieldMap.description,
             params.settings.locale,
@@ -1837,22 +1860,22 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       },
     }
 
-    const resolvedTitle = coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.title, locale, channel))
+    const resolvedTitle = coerceString(readLayeredAkeneoValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.title, locale, channel))
       ?? coerceString(product.identifier)
       ?? hierarchy.rootExternalId
-    const resolvedSubtitle = coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.subtitle, locale, channel))
+    const resolvedSubtitle = coerceString(readLayeredAkeneoValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.subtitle, locale, channel))
     const resolvedDescription = clampString(
       normalizeMarkdownText(
-        coerceString(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.description, locale, channel)),
+        coerceString(readLayeredAkeneoValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.description, locale, channel)),
       ),
       4000,
     )
-    const resolvedSku = coerceString(readLayeredValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.sku, locale, channel))
+    const resolvedSku = coerceString(readLayeredAkeneoValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.sku, locale, channel))
       ?? coerceString(product.identifier)
       ?? product.uuid
-    const resolvedBarcode = coerceString(readLayeredValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.barcode, locale, channel))
-    const resolvedWeight = coerceMetricAmount(readLayeredValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.weight, locale, channel))
-      ?? coerceMetricAmount(readLayeredValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.weight, locale, channel))
+    const resolvedBarcode = coerceString(readLayeredAkeneoValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.barcode, locale, channel))
+    const resolvedWeight = coerceMetricAmount(readLayeredAkeneoValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.weight, locale, channel))
+      ?? coerceMetricAmount(readLayeredAkeneoValue([hierarchy.rootValues, hierarchy.mergedValues], fieldMap.weight, locale, channel))
     const categoryIds = (
       await Promise.all(hierarchy.categories.map((code) => resolveCategoryId(code, locale)))
     ).filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -1916,7 +1939,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       ? Object.fromEntries(
           hierarchy.axisCodes
             .map((axis) => {
-              const value = readLayeredValue([hierarchy.leafValues, hierarchy.mergedValues], axis, locale, channel)
+              const value = readLayeredAkeneoValue([hierarchy.leafValues, hierarchy.mergedValues], axis, locale, channel)
               const normalized = Array.isArray(value)
                 ? value.map((entry) => coerceString(entry)).filter((entry): entry is string => Boolean(entry)).join(', ')
                 : coerceString(value)
@@ -1940,7 +1963,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       scope,
     )
 
-    const variantName = coerceString(readLayeredValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.variantName, locale, channel))
+    const variantName = coerceString(readLayeredAkeneoValue([hierarchy.leafValues, hierarchy.mergedValues], fieldMap.variantName, locale, channel))
       ?? (optionValues && Object.values(optionValues).length > 0 ? Object.values(optionValues).join(' / ') : resolvedTitle)
 
     const variantInput = {
@@ -2009,7 +2032,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       const sourceLayers = mediaMapping.target === 'product'
         ? [hierarchy.rootValues, hierarchy.mergedValues]
         : [hierarchy.leafValues, hierarchy.mergedValues]
-      const rawValue = readLayeredValue(sourceLayers, mediaMapping.attributeCode, locale, channel)
+      const rawValue = readLayeredAkeneoValue(sourceLayers, mediaMapping.attributeCode, locale, channel)
       const refs = collectMediaReferences(rawValue)
       refs.forEach((ref, index) => {
         desiredAssets.push({
