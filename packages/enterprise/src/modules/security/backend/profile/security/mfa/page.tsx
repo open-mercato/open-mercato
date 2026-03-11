@@ -77,7 +77,7 @@ export default function SecurityMfaPage() {
       configuredCountByType.set(method.type, currentCount + 1)
     }
 
-    const providerRows = providers.map((provider) => ({
+    const providerRows: MfaProviderRow[] = providers.map((provider) => ({
       kind: 'provider' as const,
       provider,
       configuredCount: configuredCountByType.get(provider.type) ?? 0,

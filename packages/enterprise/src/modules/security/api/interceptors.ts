@@ -1,5 +1,6 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { readSecurityModuleConfig } from '../lib/security-config'
 
 type JwtClaims = {
   sub: string
@@ -26,7 +27,7 @@ function readClaims(token: string): JwtClaims | null {
     tenantId: typeof payload.tenantId === 'string' ? payload.tenantId : null,
     orgId: typeof payload.orgId === 'string' ? payload.orgId : null,
     email: typeof payload.email === 'string' ? payload.email : null,
-    roles: Array.isArray(payload.roles) ? payload.roles.filter((value): value is string => typeof value === 'string') : [],
+    roles: Array.isArray(payload.roles) ? payload.roles.filter((value: unknown): value is string => typeof value === 'string') : [],
   }
 }
 
@@ -56,6 +57,7 @@ export const interceptors: ApiInterceptor[] = [
       if (response.statusCode !== 200) return {}
       if (response.body.ok !== true || response.body.mfa_required === true) return {}
       if (typeof response.body.token !== 'string' || response.body.token.length === 0) return {}
+      if (readSecurityModuleConfig().mfa.emergencyBypass) return {}
 
       const claims = readClaims(response.body.token)
       if (!claims) return {}

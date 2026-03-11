@@ -5,6 +5,7 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server'
 import { PasskeyProvider } from '../providers/PasskeyProvider'
+import { defaultSecurityModuleConfig } from '../security-config'
 
 jest.mock('@simplewebauthn/server', () => ({
   generateRegistrationOptions: jest.fn(),
@@ -17,6 +18,7 @@ const generateRegistrationOptionsMock = generateRegistrationOptions as jest.Mock
 const verifyRegistrationResponseMock = verifyRegistrationResponse as jest.MockedFunction<typeof verifyRegistrationResponse>
 const generateAuthenticationOptionsMock = generateAuthenticationOptions as jest.MockedFunction<typeof generateAuthenticationOptions>
 const verifyAuthenticationResponseMock = verifyAuthenticationResponse as jest.MockedFunction<typeof verifyAuthenticationResponse>
+const TEST_SETUP_TOKEN_SECRET = 'test-mfa-setup-secret'
 
 describe('PasskeyProvider', () => {
   beforeEach(() => {
@@ -68,7 +70,7 @@ describe('PasskeyProvider', () => {
   })
 
   test('creates registration options and confirms metadata from webauthn response', async () => {
-    const provider = new PasskeyProvider()
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const setup = await provider.setup('user-1', { label: 'MacBook Touch ID' })
 
     const confirmation = await provider.confirmSetup('user-1', setup.setupId, {
@@ -91,7 +93,7 @@ describe('PasskeyProvider', () => {
   })
 
   test('uses the user email as the default WebAuthn user name and display name', async () => {
-    const provider = new PasskeyProvider()
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const resolvedPayload = provider.resolveSetupPayload?.(
       {
         id: 'user-1',
@@ -110,9 +112,28 @@ describe('PasskeyProvider', () => {
     }))
   })
 
+  test('uses configured RP name and ID for registration options', async () => {
+    const provider = new PasskeyProvider({
+      ...defaultSecurityModuleConfig,
+      webauthn: {
+        ...defaultSecurityModuleConfig.webauthn,
+        rpName: 'Acme Mercato',
+        rpId: 'login.acme.test',
+        expectedOrigins: ['https://login.acme.test'],
+      },
+    }, TEST_SETUP_TOKEN_SECRET)
+
+    await provider.setup('user-1', { label: 'YubiKey' })
+
+    expect(generateRegistrationOptionsMock).toHaveBeenCalledWith(expect.objectContaining({
+      rpName: 'Acme Mercato',
+      rpID: 'login.acme.test',
+    }))
+  })
+
   test('confirms setup across different provider instances', async () => {
-    const setupProvider = new PasskeyProvider()
-    const confirmProvider = new PasskeyProvider()
+    const setupProvider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const confirmProvider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const setup = await setupProvider.setup('user-1', { label: 'MacBook Touch ID' })
 
     const confirmation = await confirmProvider.confirmSetup('user-1', setup.setupId, {
@@ -132,7 +153,7 @@ describe('PasskeyProvider', () => {
   })
 
   test('prepares and verifies passkey authentication challenge', async () => {
-    const provider = new PasskeyProvider()
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const method = {
       id: 'method-1',
       userId: 'user-1',
@@ -170,7 +191,7 @@ describe('PasskeyProvider', () => {
   })
 
   test('supports legacy verification payload for backward compatibility', async () => {
-    const provider = new PasskeyProvider()
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const method = {
       id: 'method-legacy',
       userId: 'user-1',

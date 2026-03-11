@@ -23,10 +23,8 @@ import type { PasswordService } from './PasswordService'
 import type { MfaService } from './MfaService'
 import type { MfaVerificationService } from './MfaVerificationService'
 import { sudoTargets as defaultSudoTargets } from '../security.sudo'
-
-const PENDING_CHALLENGE_TTL_MS = 10 * 60 * 1000
-const DEFAULT_TTL_SECONDS = 300
-const MAX_TTL_SECONDS = 1800
+import type { SecurityModuleConfig } from '../lib/security-config'
+import { readSecurityModuleConfig } from '../lib/security-config'
 
 type SudoMethod = 'password' | 'mfa'
 
@@ -80,6 +78,7 @@ export class SudoChallengeService {
     private readonly passwordService: PasswordService,
     private readonly mfaService: MfaService,
     private readonly mfaVerificationService: MfaVerificationService,
+    private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
   ) {}
 
   async listConfigs(): Promise<SudoChallengeConfig[]> {
@@ -97,6 +96,11 @@ export class SudoChallengeService {
         },
       },
     )
+  }
+
+  async getConfigById(id: string): Promise<SudoChallengeConfig | null> {
+    await this.ensureDeveloperDefaultsRegistered()
+    return this.em.findOne(SudoChallengeConfig, { id, deletedAt: null })
   }
 
   async isProtected(
@@ -163,7 +167,7 @@ export class SudoChallengeService {
       availableMfaMethods = challenge.availableMethods
     }
 
-    const expiresAt = new Date(Date.now() + PENDING_CHALLENGE_TTL_MS)
+    const expiresAt = new Date(Date.now() + this.securityConfig.sudo.pendingChallengeTtlMs)
     const session = this.em.create(SudoSession, {
       userId,
       tenantId: user.tenantId,
@@ -477,6 +481,9 @@ export class SudoChallengeService {
     configuredMethod: ChallengeMethod,
     availableMfaMethodCount: number,
   ): SudoMethod {
+    if (this.securityConfig.mfa.emergencyBypass) {
+      return 'password'
+    }
     if (configuredMethod === ChallengeMethod.PASSWORD) return 'password'
     if (configuredMethod === ChallengeMethod.MFA) {
       if (availableMfaMethodCount === 0) {
@@ -553,14 +560,11 @@ export class SudoChallengeService {
   }
 
   private normalizeTtl(value?: number | null): number {
-    const rawValue = value ?? this.readPositiveInteger(process.env.SECURITY_SUDO_DEFAULT_TTL) ?? DEFAULT_TTL_SECONDS
-    return Math.min(Math.max(rawValue, 30), this.readPositiveInteger(process.env.SECURITY_SUDO_MAX_TTL) ?? MAX_TTL_SECONDS)
-  }
-
-  private readPositiveInteger(value: string | undefined): number | null {
-    const parsed = Number(value)
-    if (!Number.isFinite(parsed) || parsed <= 0) return null
-    return Math.trunc(parsed)
+    const rawValue = value ?? this.securityConfig.sudo.defaultTtlSeconds
+    return Math.min(
+      Math.max(rawValue, this.securityConfig.sudo.minTtlSeconds),
+      this.securityConfig.sudo.maxTtlSeconds,
+    )
   }
 
   private readPassword(payload: unknown): string {

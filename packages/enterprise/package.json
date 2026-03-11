@@ -69,6 +69,7 @@
     "@simplewebauthn/browser": "^11.0.0",
     "@simplewebauthn/server": "^11.0.0",
     "openid-client": "^6.3.3",
+    "otpauth": "9.4.1",
     "qrcode": "^1.5.4"
   },
   "peerDependencies": {

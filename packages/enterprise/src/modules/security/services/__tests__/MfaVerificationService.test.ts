@@ -2,7 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
 import type { MfaProviderInterface } from '../../lib/mfa-provider-interface'
+import {
+  defaultSecurityModuleConfig,
+  type SecurityModuleConfig,
+} from '../../lib/security-config'
 import { MfaVerificationService } from '../MfaVerificationService'
+import type { MfaEnforcementService } from '../MfaEnforcementService'
 
 jest.mock('../../events', () => ({
   emitSecurityEvent: jest.fn().mockResolvedValue(undefined),
@@ -24,7 +29,9 @@ function createProvider(overrides?: Partial<MfaProviderInterface>): MfaProviderI
   }
 }
 
-function createServiceContext() {
+function createServiceContext(
+  securityConfig: SecurityModuleConfig = defaultSecurityModuleConfig,
+) {
   const methods = [
     {
       id: 'method-1',
@@ -32,7 +39,8 @@ function createServiceContext() {
       tenantId: 'tenant-1',
       type: 'totp',
       isActive: true,
-      providerMetadata: { secret: 'SECRET' },
+      secret: 'SECRET',
+      providerMetadata: {},
       deletedAt: null,
       createdAt: new Date(),
       lastUsedAt: null,
@@ -99,13 +107,19 @@ function createServiceContext() {
     verifyRecoveryCode: jest.fn(async () => true),
   }
 
+  const mfaEnforcementService = {
+    getEffectivePolicyForUser: jest.fn(async () => null),
+  }
+
   const service = new MfaVerificationService(
     em as unknown as EntityManager,
     registry,
     mfaService as never,
+    mfaEnforcementService as unknown as MfaEnforcementService,
+    securityConfig,
   )
 
-  return { service, em, registry, provider, mfaService, methods, challenges }
+  return { service, em, registry, provider, mfaService, mfaEnforcementService, methods, challenges }
 }
 
 const mockedEmitSecurityEvent = emitSecurityEvent as jest.MockedFunction<typeof emitSecurityEvent>
@@ -157,6 +171,32 @@ describe('MfaVerificationService', () => {
       statusCode: 400,
       message: 'No registered MFA providers are available for the configured methods',
     })
+  })
+
+  test('createChallenge filters out methods disallowed by the active enforcement policy', async () => {
+    const { service, mfaEnforcementService, methods } = createServiceContext()
+    methods.push({
+      id: 'method-2',
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+      type: 'passkey',
+      isActive: true,
+      providerMetadata: {},
+      deletedAt: null,
+      createdAt: new Date(),
+      lastUsedAt: null,
+    })
+    mfaEnforcementService.getEffectivePolicyForUser.mockResolvedValueOnce({
+      id: 'policy-1',
+      isEnforced: true,
+      allowedMethods: ['totp'],
+    })
+
+    const result = await service.createChallenge('user-1')
+
+    expect(result.availableMethods).toEqual([
+      { type: 'totp', label: 'Authenticator App', icon: 'Smartphone' },
+    ])
   })
 
   test('prepareChallenge persists provider verification context on the challenge', async () => {
@@ -222,6 +262,28 @@ describe('MfaVerificationService', () => {
     }
 
     expect(challenges[0].attempts).toBe(5)
+    expect(challenges[0].expiresAt.getTime()).toBeLessThanOrEqual(Date.now())
+  })
+
+  test('verifyChallenge uses the configured max attempts limit', async () => {
+    const { service, challenges, registry } = createServiceContext({
+      ...defaultSecurityModuleConfig,
+      mfa: {
+        ...defaultSecurityModuleConfig.mfa,
+        maxAttempts: 2,
+      },
+    })
+    const provider = registry.get('totp')
+    if (!provider) {
+      throw new Error('Expected TOTP provider to be registered')
+    }
+    provider.verify = jest.fn(async () => false)
+    const created = await service.createChallenge('user-1')
+
+    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' })
+
+    expect(challenges[0].attempts).toBe(2)
     expect(challenges[0].expiresAt.getTime()).toBeLessThanOrEqual(Date.now())
   })
 

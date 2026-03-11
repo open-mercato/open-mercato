@@ -1,4 +1,6 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { isEnforcementDeadlineOverdue } from '../services/MfaEnforcementService'
+import { readSecurityModuleConfig } from './security-config'
 
 const MFA_ENROLLMENT_PATH = '/backend/profile/security/mfa'
 
@@ -47,6 +49,7 @@ export async function resolveMfaEnrollmentRedirect(args: {
   if (!auth || typeof auth.sub !== 'string' || auth.sub.length === 0) return null
   if (auth.mfa_pending === true) return null
   if (isExemptPath(pathname)) return null
+  if (readSecurityModuleConfig().mfa.emergencyBypass) return null
 
   const enforcementService = resolveEnforcementService(container)
   if (!enforcementService) return null
@@ -59,7 +62,7 @@ export async function resolveMfaEnrollmentRedirect(args: {
       redirect: pathname,
       reason: 'mfa_enrollment_required',
     })
-    if (compliance.deadline && compliance.deadline.getTime() <= Date.now()) {
+    if (isEnforcementDeadlineOverdue(compliance.deadline)) {
       searchParams.set('overdue', '1')
     }
     return `${MFA_ENROLLMENT_PATH}?${searchParams.toString()}`

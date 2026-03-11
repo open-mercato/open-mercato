@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto'
 import QRCode from 'qrcode'
 import { TotpProvider } from '../providers/TotpProvider'
+import { defaultSecurityModuleConfig } from '../security-config'
 
 jest.mock('qrcode', () => ({
   __esModule: true,
@@ -14,6 +15,7 @@ const qrCodeToDataUrlMock = QRCode.toDataURL as jest.MockedFunction<typeof QRCod
 const TOTP_PERIOD_SECONDS = 30
 const TOTP_DIGITS = 6
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+const TEST_SETUP_TOKEN_SECRET = 'test-mfa-setup-secret'
 
 function decodeBase32(input: string): Buffer {
   let bits = 0
@@ -64,19 +66,25 @@ describe('TotpProvider', () => {
     jest.useRealTimers()
   })
 
+  test('advertises authenticator app as a single-instance MFA provider', () => {
+    const provider = new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+
+    expect(provider.allowMultiple).toBe(false)
+  })
+
   test('creates setup and confirms with valid TOTP code', async () => {
-    const provider = new TotpProvider()
+    const provider = new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const setup = await provider.setup('user-1', { issuer: 'Open Mercato', label: 'test-user' })
     const secret = String(setup.clientData.secret)
     const code = generateTotp(secret, Math.floor(fixedEpochMs / 1000))
 
     const confirmation = await provider.confirmSetup('user-1', setup.setupId, { code })
-    expect(confirmation.metadata.secret).toBe(secret)
-    expect(confirmation.metadata.period).toBe(30)
+    expect(confirmation.metadata).toEqual({})
+    expect(confirmation.secret).toBe(secret)
   })
 
   test('verifies challenge codes against stored method metadata', async () => {
-    const provider = new TotpProvider()
+    const provider = new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const setup = await provider.setup('user-1', {})
     const secret = String(setup.clientData.secret)
     const code = generateTotp(secret, Math.floor(fixedEpochMs / 1000))
@@ -88,6 +96,7 @@ describe('TotpProvider', () => {
         id: 'method-1',
         userId: 'user-1',
         type: 'totp',
+        secret: confirmation.secret,
         providerMetadata: confirmation.metadata,
       },
       { code },
@@ -98,6 +107,7 @@ describe('TotpProvider', () => {
         id: 'method-1',
         userId: 'user-1',
         type: 'totp',
+        secret: confirmation.secret,
         providerMetadata: confirmation.metadata,
       },
       { code: '000000' },
@@ -107,8 +117,28 @@ describe('TotpProvider', () => {
     expect(invalid).toBe(false)
   })
 
+  test('verifies legacy methods that still keep the TOTP secret in provider metadata', async () => {
+    const provider = new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const setup = await provider.setup('user-1', {})
+    const secret = String(setup.clientData.secret)
+    const code = generateTotp(secret, Math.floor(fixedEpochMs / 1000))
+
+    const valid = await provider.verify(
+      'user-1',
+      {
+        id: 'method-legacy',
+        userId: 'user-1',
+        type: 'totp',
+        providerMetadata: { secret },
+      },
+      { code },
+    )
+
+    expect(valid).toBe(true)
+  })
+
   test('uses the user email as the default authenticator label when available', async () => {
-    const provider = new TotpProvider()
+    const provider = new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const resolvedPayload = provider.resolveSetupPayload?.(
       {
         id: 'user-1',
@@ -122,5 +152,19 @@ describe('TotpProvider', () => {
     const setup = await provider.setup('user-1', resolvedPayload ?? {})
 
     expect(setup.clientData.label).toBe('owner@example.com')
+  })
+
+  test('uses the configured issuer when the setup payload omits it', async () => {
+    const provider = new TotpProvider({
+      ...defaultSecurityModuleConfig,
+      totp: {
+        ...defaultSecurityModuleConfig.totp,
+        issuer: 'Acme Security',
+      },
+    }, TEST_SETUP_TOKEN_SECRET)
+
+    const setup = await provider.setup('user-1', {})
+
+    expect(setup.clientData.issuer).toBe('Acme Security')
   })
 })

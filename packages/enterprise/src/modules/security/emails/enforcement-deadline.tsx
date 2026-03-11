@@ -13,11 +13,12 @@ export function EnforcementDeadlineEmail({
   setupUrl,
 }: EnforcementDeadlineEmailProps) {
   const dayLabel = daysRemaining === 1 ? 'day' : 'days'
+  const previewText = `MFA enrollment required in ${daysRemaining} ${dayLabel}`
 
   return (
     <Html>
       <Head />
-      <Preview>MFA enrollment required in {daysRemaining} {dayLabel}</Preview>
+      <Preview>{previewText}</Preview>
       <Body style={body}>
         <Container style={container}>
           <Section>

@@ -3,10 +3,10 @@ import { MfaChallenge, UserMfaMethod } from '../data/entities'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
 import type { MfaService } from './MfaService'
+import type { MfaEnforcementService } from './MfaEnforcementService'
 import type { MfaVerifyContext } from '../lib/mfa-provider-interface'
-
-const CHALLENGE_TTL_MS = 10 * 60 * 1000
-const MAX_ATTEMPTS = 5
+import type { SecurityModuleConfig } from '../lib/security-config'
+import { readSecurityModuleConfig } from '../lib/security-config'
 
 type AvailableMethod = {
   type: string
@@ -39,6 +39,8 @@ export class MfaVerificationService {
     private readonly em: EntityManager,
     private readonly mfaProviderRegistry: MfaProviderRegistry,
     private readonly mfaService: MfaService,
+    private readonly mfaEnforcementService: MfaEnforcementService,
+    private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
   ) {}
 
   async createChallenge(userId: string): Promise<ChallengeCreationResult> {
@@ -50,7 +52,7 @@ export class MfaVerificationService {
     const challenge = this.em.create(MfaChallenge, {
       userId,
       tenantId: methods[0].tenantId,
-      expiresAt: new Date(Date.now() + CHALLENGE_TTL_MS),
+      expiresAt: new Date(Date.now() + this.securityConfig.mfa.challengeTtlMs),
       attempts: 0,
       createdAt: new Date(),
     })
@@ -94,6 +96,7 @@ export class MfaVerificationService {
       id: method.id,
       type: method.type,
       userId: method.userId,
+      secret: method.secret ?? null,
       providerMetadata: method.providerMetadata,
     })
 
@@ -106,12 +109,15 @@ export class MfaVerificationService {
 
   async verifyChallenge(challengeId: string, methodType: string, payload: unknown): Promise<boolean> {
     const challenge = await this.getValidChallenge(challengeId)
-    if (challenge.attempts >= MAX_ATTEMPTS) {
+    if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
       return false
     }
 
     if (challenge.methodType && challenge.methodType !== methodType) {
       challenge.attempts += 1
+      if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
+        challenge.expiresAt = new Date()
+      }
       await this.em.flush()
       return false
     }
@@ -131,6 +137,7 @@ export class MfaVerificationService {
       id: method.id,
       type: method.type,
       userId: method.userId,
+      secret: method.secret ?? null,
       providerMetadata: method.providerMetadata,
     }, payload, context)
 
@@ -148,7 +155,7 @@ export class MfaVerificationService {
     }
 
     challenge.attempts += 1
-    if (challenge.attempts >= MAX_ATTEMPTS) {
+    if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
       challenge.expiresAt = new Date()
     }
     await this.em.flush()
@@ -174,7 +181,7 @@ export class MfaVerificationService {
   }
 
   private async getActiveMethods(userId: string): Promise<UserMfaMethod[]> {
-    return this.em.find(
+    const methods = await this.em.find(
       UserMfaMethod,
       {
         userId,
@@ -185,6 +192,13 @@ export class MfaVerificationService {
         orderBy: { createdAt: 'asc' },
       },
     )
+
+    const policy = await this.mfaEnforcementService.getEffectivePolicyForUser(userId)
+    if (!policy?.isEnforced || !policy.allowedMethods?.length) {
+      return methods
+    }
+
+    return methods.filter((method) => policy.allowedMethods?.includes(method.type))
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {

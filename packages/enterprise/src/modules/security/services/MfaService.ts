@@ -6,9 +6,8 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { EnforcementScope, MfaEnforcementPolicy, MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
-
-const RECOVERY_CODES_COUNT = 10
-const RECOVERY_BCRYPT_COST = 10
+import type { SecurityModuleConfig } from '../lib/security-config'
+import { readSecurityModuleConfig } from '../lib/security-config'
 
 type SetupResult = {
   setupId: string
@@ -42,6 +41,7 @@ export class MfaService {
   constructor(
     private readonly em: EntityManager,
     private readonly mfaProviderRegistry: MfaProviderRegistry,
+    private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
   ) {}
 
   async setupMethod(userId: string, providerType: string, payload: unknown): Promise<SetupResult> {
@@ -55,17 +55,7 @@ export class MfaService {
       throw new MfaServiceError('User not found', 404)
     }
 
-    if (!provider.allowMultiple) {
-      const existingMethod = await this.em.findOne(UserMfaMethod, {
-        userId,
-        type: providerType,
-        isActive: true,
-        deletedAt: null,
-      })
-      if (existingMethod) {
-        throw new MfaServiceError(`MFA provider '${providerType}' is already configured`, 409)
-      }
-    }
+    await this.ensureProviderCanBeConfigured(userId, providerType, provider.allowMultiple)
 
     const resolvedPayload = provider.resolveSetupPayload
       ? await provider.resolveSetupPayload({
@@ -119,6 +109,8 @@ export class MfaService {
       throw new MfaServiceError(`MFA provider '${method.type}' is not registered`, 400)
     }
 
+    await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple)
+
     const activeMethodsBefore = await this.em.count(UserMfaMethod, {
       userId,
       isActive: true,
@@ -127,9 +119,9 @@ export class MfaService {
 
     const confirmation = await provider.confirmSetup(userId, setupId, payload)
     method.providerMetadata = confirmation.metadata
+    method.secret = confirmation.secret ?? null
     method.label = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
     method.isActive = true
-    method.secret = null
     method.updatedAt = new Date()
     await this.em.flush()
 
@@ -215,9 +207,9 @@ export class MfaService {
     }
 
     const plaintextCodes: string[] = []
-    for (let index = 0; index < RECOVERY_CODES_COUNT; index += 1) {
+    for (let index = 0; index < this.securityConfig.recoveryCodes.count; index += 1) {
       const code = this.createRecoveryCode()
-      const codeHash = await hash(code, RECOVERY_BCRYPT_COST)
+      const codeHash = await hash(code, this.securityConfig.recoveryCodes.bcryptCost)
       const recoveryCode = this.em.create(MfaRecoveryCode, {
         userId,
         tenantId: user.tenantId,
@@ -291,6 +283,25 @@ export class MfaService {
     const value = metadata.label
     return typeof value === 'string' && value.length > 0 ? value : null
   }
+
+  private async ensureProviderCanBeConfigured(
+    userId: string,
+    providerType: string,
+    allowMultiple: boolean,
+  ): Promise<void> {
+    if (allowMultiple) return
+
+    const existingMethod = await this.em.findOne(UserMfaMethod, {
+      userId,
+      type: providerType,
+      isActive: true,
+      deletedAt: null,
+    })
+    if (existingMethod) {
+      throw new MfaServiceError(`MFA provider '${providerType}' is already configured`, 409)
+    }
+  }
+
   private async findUserById(userId: string): Promise<User | null> {
     return findOneWithDecryption(this.em, User, { id: userId, deletedAt: null }, undefined, {})
   }
