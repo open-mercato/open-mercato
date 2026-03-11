@@ -18,6 +18,9 @@ test.describe('TC-UMES-001: Foundation and Menu Injection', () => {
     await page.getByTestId('profile-dropdown-trigger').click()
     const dropdown = page.getByTestId('profile-dropdown')
     await expect(dropdown).toBeVisible()
+    await expect.poll(async () => {
+      return await dropdown.locator('[data-menu-item-id="example-quick-add-todo"]').count()
+    }).toBeGreaterThan(0)
     const injectedItem = dropdown.locator('[data-menu-item-id="example-quick-add-todo"]').first()
     await expect(injectedItem).toBeVisible()
     await injectedItem.click()

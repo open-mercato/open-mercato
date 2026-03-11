@@ -405,6 +405,10 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
     if (!user) throw new CrudHttpError(404, { error: 'User not found' })
 
+    if (hashed) {
+      await em.nativeDelete(Session, { user: parsed.id })
+    }
+
     if (Array.isArray(parsed.roles)) {
       await syncUserRoles(em, user, parsed.roles, user.tenantId ? String(user.tenantId) : tenantId ?? null)
     }

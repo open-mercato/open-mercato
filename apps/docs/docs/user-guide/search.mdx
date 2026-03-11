@@ -9,9 +9,10 @@ The search module provides a unified search experience combining multiple strate
 
 Press `Cmd+K` (Mac) or `Ctrl+K` (Windows/Linux) anywhere in the backend to open the global search palette.
 
+![Global search dialog](/screenshots/open-mercato-global-search-dialog.png)
+
 - Type at least two characters to see results
 - Use arrow keys to navigate, `Enter` to open the selected item
-- Toggle between **Fuzzy** and **Semantic** search modes using the settings icon
 - Press `Esc` to close without navigating
 
 The search palette shows results from customers, notes, deals, and todos with direct links to their detail pages.
@@ -71,8 +72,11 @@ Token-based search requires no configuration. It uses hashed tokens stored in Po
 
 ## Configuration
 
-Navigate to **Backend > Configuration > Search Settings** to manage:
+Navigate to **Settings > Module Configuration > Search Settings** to manage:
 
+![Search settings page](/screenshots/open-mercato-search-settings.png)
+
+- **Global Search mode**: Choose which strategy powers the global search palette — **Fulltext** (Meilisearch), **Vector** (semantic AI), or **Tokens** (PostgreSQL).
 - **Embedding Provider**: Select from configured providers and models
 - **Auto-Indexing**: Toggle automatic indexing of database changes
 - **Reindex**: Rebuild search indexes for Meilisearch or Vector strategies
@@ -82,26 +86,21 @@ Navigate to **Backend > Configuration > Search Settings** to manage:
 | Variable | Effect |
 |----------|--------|
 | `MEILISEARCH_HOST` | Enables Meilisearch (Fuzzy) strategy |
-| `OPENAI_API_KEY` (or other provider) | Enables Vector (Semantic) strategy |
+| `MEILISEARCH_API_KEY` | Authentication key for Meilisearch |
+| `OPENAI_API_KEY` (or other provider key) | Enables Vector (Semantic) strategy |
 | `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` | Disables automatic vector indexing |
-
-## Data Designer
-
-Navigate to **Backend > Data Designer > Search** to browse indexed records in table form. This view shows results from all enabled strategies with:
-
-- Strategy badges indicating result source
-- Relevance scores
-- Direct links to record detail pages
-- Filtering by search strategy
 
 ## What Gets Indexed
 
 Modules define searchable entities via `search.ts` configuration files. The default installation includes:
 
 - **Customers**: People and companies with names, titles, and contact info
-- **Deals**: Deal names, stages, and descriptions
-- **Activities**: Notes and activities linked to customers
-- **Todos**: Task items with customer associations
+- **Sales**: Deals and sales records
+- **Catalog**: Products and catalog items
+- **Staff**: Staff members and profiles
+- **Resources**: Resource records
+- **Planner**: Planner tasks and items
+- **Inbox**: Messages and inbox items
 
 Custom modules can opt-in by exporting a `search.ts` file alongside their module metadata.
 
@@ -131,9 +130,11 @@ POST /api/search/embeddings/reindex
 
 ### From Settings UI
 
-Use the reindex buttons in **Configuration > Search Settings** for:
+Use the reindex buttons in **Settings > Module Configuration > Search Settings** for:
 - **Meilisearch**: Clear, recreate, or full reindex options
 - **Vector**: Rebuild all embeddings with current provider
+
+![Search reindex options](/screenshots/open-mercato-search-reindex.png)
 
 ## Encryption-Aware Indexing
 

@@ -1866,3 +1866,4 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-02-24 | Split from monolithic to core + plugin architecture — provider modules are independent |
 | 2026-02-24 | Added §17 Integration Marketplace Alignment — credentials move to SPEC-045 `IntegrationCredentials`, provider modules declare `integration.ts` |
 | 2026-02-24 | Added API versioning support: adapter registry is version-aware, gateway service resolves tenant's selected version, Stripe module restructured with `lib/shared.ts` + `lib/adapters/v*.ts` pattern, `integration.ts` declares `apiVersions` |
+| 2026-03-10 | Implementation: TC-PGWY-008..011 edge-case tests added (partial refund, double capture, webhook idempotency, malformed webhook). All tests use mock adapter. Stripe-specific integration tests requiring real API keys deferred to future. |

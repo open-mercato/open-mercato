@@ -17,7 +17,21 @@ export type I18nContextValue = {
   t: TranslateFn
 }
 
-const I18nContext = createContext<I18nContextValue | null>(null)
+const I18N_CONTEXT_KEY = '__openMercatoI18nContext'
+
+type GlobalI18nContextStore = typeof globalThis & {
+  [I18N_CONTEXT_KEY]?: ReturnType<typeof createContext<I18nContextValue | null>>
+}
+
+function getI18nContext() {
+  const store = globalThis as GlobalI18nContextStore
+  if (!store[I18N_CONTEXT_KEY]) {
+    store[I18N_CONTEXT_KEY] = createContext<I18nContextValue | null>(null)
+  }
+  return store[I18N_CONTEXT_KEY]
+}
+
+const I18nContext = getI18nContext()
 
 function format(template: string, params?: TranslateParams) {
   if (!params) return template

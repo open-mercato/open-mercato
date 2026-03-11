@@ -5,6 +5,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getBundle, getBundleIntegrations, getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../lib/credentials-service'
 import type { IntegrationStateService } from '../../lib/state-service'
+import {
+  finalizeIntegrationsReadResponse,
+  integrationApiRoutePaths,
+  runIntegrationsReadBeforeInterceptors,
+} from '../umes-read'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -38,6 +43,15 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const container = await createRequestContainer()
+  const beforeInterceptors = await runIntegrationsReadBeforeInterceptors({
+    routePath: integrationApiRoutePaths.detail,
+    request: req,
+    auth,
+    container,
+  })
+  if (!beforeInterceptors.ok) {
+    return NextResponse.json(beforeInterceptors.body, { status: beforeInterceptors.statusCode })
+  }
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
@@ -68,17 +82,30 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     )
     : []
 
-  return NextResponse.json({
-    integration,
-    bundle,
-    bundleIntegrations,
-    state: {
-      isEnabled: state?.isEnabled ?? true,
-      apiVersion: state?.apiVersion ?? null,
-      reauthRequired: state?.reauthRequired ?? false,
-      lastHealthStatus: state?.lastHealthStatus ?? null,
-      lastHealthCheckedAt: state?.lastHealthCheckedAt?.toISOString() ?? null,
+  return finalizeIntegrationsReadResponse({
+    routePath: integrationApiRoutePaths.detail,
+    request: req,
+    auth,
+    container,
+    interceptorRequest: beforeInterceptors.request,
+    beforeMetadata: beforeInterceptors.metadataByInterceptor,
+    enrich: {
+      targetEntity: 'integrations.integration',
+      recordKeys: ['integration'],
+      listKeys: ['bundleIntegrations'],
     },
-    hasCredentials: Boolean(credentials),
+    body: {
+      integration,
+      bundle,
+      bundleIntegrations,
+      state: {
+        isEnabled: state?.isEnabled ?? true,
+        apiVersion: state?.apiVersion ?? null,
+        reauthRequired: state?.reauthRequired ?? false,
+        lastHealthStatus: state?.lastHealthStatus ?? null,
+        lastHealthCheckedAt: state?.lastHealthCheckedAt?.toISOString() ?? null,
+      },
+      hasCredentials: Boolean(credentials),
+    },
   })
 }
