@@ -6,6 +6,7 @@ import { trackingQuerySchema } from '../../../data/validators'
 import { shippingCarriersTag } from '../../openapi'
 
 export const metadata = {
+  pathAliases: ['/shipping-carriers/tracking'],
   GET: { requireAuth: true, requireFeatures: ['shipping_carriers.view'] },
 }
 

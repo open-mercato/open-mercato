@@ -226,6 +226,16 @@ function getPattern(r: ModuleRoute) {
   return r.pattern ?? r.path ?? '/'
 }
 
+function getLegacyApiPaths(api: ModuleApiLegacy): string[] {
+  const metadata = api.metadata && typeof api.metadata === 'object'
+    ? api.metadata as { pathAliases?: unknown }
+    : null
+  const aliases = Array.isArray(metadata?.pathAliases)
+    ? metadata.pathAliases.filter((alias): alias is string => typeof alias === 'string' && alias.length > 0)
+    : []
+  return [api.path, ...aliases]
+}
+
 export function findFrontendMatch(modules: Module[], pathname: string): { route: ModuleRoute; params: Record<string, string | string[]> } | undefined {
   for (const m of modules) {
     const routes = m.frontendRoutes ?? []
@@ -257,9 +267,11 @@ export function findApi(modules: Module[], method: HttpMethod, pathname: string)
       } else {
         const al = a as ModuleApiLegacy
         if (al.method !== method) continue
-        const params = matchPattern(al.path, pathname)
-        if (params) {
-          return { handler: al.handler, params, metadata: al.metadata }
+        for (const candidatePath of getLegacyApiPaths(al)) {
+          const params = matchPattern(candidatePath, pathname)
+          if (params) {
+            return { handler: al.handler, params, metadata: al.metadata }
+          }
         }
       }
     }

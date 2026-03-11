@@ -7,6 +7,7 @@ import { getShippingCarrierQueue } from '../../../../lib/queue'
 import { shippingCarriersTag } from '../../../openapi'
 
 export const metadata = {
+  pathAliases: ['/shipping-carriers/webhook/[provider]'],
   POST: { requireAuth: false },
 }
 
