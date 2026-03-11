@@ -15,7 +15,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChevronDown, ChevronRight, CreditCard, RefreshCw, Webhook } from 'lucide-react'
+import { ChevronDown, ChevronRight, CreditCard, Plus, RefreshCw, Webhook } from 'lucide-react'
+import { CreatePaymentTransactionDialog } from '../../components/CreatePaymentTransactionDialog'
 
 type TransactionRow = {
   id: string
@@ -192,6 +193,7 @@ export default function PaymentTransactionsPage() {
   const [detailError, setDetailError] = React.useState<string | null>(null)
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
+  const [dialogOpen, setDialogOpen] = React.useState(false)
   const noneLabel = t('common.none', 'None')
 
   const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
@@ -391,6 +393,12 @@ export default function PaymentTransactionsPage() {
       <PageHeader
         title={t('payment_gateways.transactions.title', 'Payment Transactions')}
         description={t('payment_gateways.transactions.description', 'Track all payment-gateway transactions, inspect webhook activity, and review provider logs from one place.')}
+        actions={(
+          <Button type="button" onClick={() => setDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('payment_gateways.create.title', 'Create new transaction')}
+          </Button>
+        )}
       />
       <PageBody className="space-y-6">
         <DataTable
@@ -655,6 +663,14 @@ export default function PaymentTransactionsPage() {
           </Card>
         ) : null}
       </PageBody>
+      <CreatePaymentTransactionDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onCreated={async (transactionId) => {
+          setSelectedId(transactionId)
+          await Promise.all([loadRows(), loadDetail(transactionId)])
+        }}
+      />
     </Page>
   )
 }

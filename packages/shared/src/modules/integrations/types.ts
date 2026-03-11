@@ -140,6 +140,12 @@ export interface IntegrationDetailPageConfig {
   widgetSpotId?: string
 }
 
+export interface PaymentGatewayIntegrationConfig {
+  supportsPaymentLinks?: boolean
+  transactionCreateFieldSpotId?: string
+  paymentLinkWidgetSpotId?: string
+}
+
 export interface IntegrationDefinition {
   id: string
   title: string
@@ -159,6 +165,7 @@ export interface IntegrationDefinition {
   license?: string
   tags?: string[]
   detailPage?: IntegrationDetailPageConfig
+  paymentGateway?: PaymentGatewayIntegrationConfig
   credentials?: IntegrationCredentialsSchema
   healthCheck?: IntegrationHealthCheckConfig
 }

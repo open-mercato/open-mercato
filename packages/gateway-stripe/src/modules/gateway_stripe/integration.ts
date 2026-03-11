@@ -21,6 +21,11 @@ export const integration: IntegrationDefinition = {
   detailPage: {
     widgetSpotId: gatewayStripeDetailWidgetSpotId,
   },
+  paymentGateway: {
+    supportsPaymentLinks: true,
+    transactionCreateFieldSpotId: 'payment-gateways.transaction-create:stripe:fields',
+    paymentLinkWidgetSpotId: 'payment-gateways.payment-link:stripe',
+  },
   apiVersions: [
     {
       id: '2025-02-24.acacia',

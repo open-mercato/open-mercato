@@ -74,6 +74,59 @@ export class GatewayTransaction {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'gateway_payment_links' })
+@Index({ properties: ['token'], options: { unique: true } })
+@Index({ properties: ['transactionId', 'organizationId', 'tenantId'] })
+@Index({ properties: ['organizationId', 'tenantId', 'status'] })
+export class GatewayPaymentLink {
+  [OptionalProps]?: 'description' | 'passwordHash' | 'status' | 'completedAt' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'metadata'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'transaction_id', type: 'uuid' })
+  transactionId!: string
+
+  @Property({ type: 'text' })
+  token!: string
+
+  @Property({ type: 'text' })
+  providerKey!: string
+
+  @Property({ type: 'text' })
+  title!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'password_hash', type: 'text', nullable: true })
+  passwordHash?: string | null
+
+  @Property({ type: 'text', default: 'active' })
+  status: 'active' | 'completed' | 'cancelled' = 'active'
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'gateway_webhook_events' })
 @Index({
   name: 'gateway_webhook_events_idempotency_unique',

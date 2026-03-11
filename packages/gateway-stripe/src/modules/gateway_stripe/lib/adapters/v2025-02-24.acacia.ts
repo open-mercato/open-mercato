@@ -26,6 +26,11 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const providerInput = input.providerInput ?? {}
+    const paymentTypes =
+      Array.isArray(providerInput.paymentTypes) && providerInput.paymentTypes.every((value) => typeof value === 'string')
+        ? providerInput.paymentTypes
+        : input.paymentTypes
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: toCents(input.amount, input.currencyCode),
@@ -37,7 +42,7 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
         organizationId: input.organizationId,
         orderId: input.orderId,
       }),
-      payment_method_types: input.paymentTypes ?? ['card'],
+      payment_method_types: paymentTypes ?? ['card'],
       description: input.description,
     })
 

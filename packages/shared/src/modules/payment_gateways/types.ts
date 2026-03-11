@@ -54,6 +54,7 @@ export interface CreateSessionInput {
   successUrl?: string
   cancelUrl?: string
   metadata?: Record<string, unknown>
+  providerInput?: Record<string, unknown>
   credentials: Record<string, unknown>
   lineItems?: SessionLineItem[]
 }

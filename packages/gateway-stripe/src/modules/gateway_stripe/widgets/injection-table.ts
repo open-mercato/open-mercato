@@ -10,6 +10,14 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'payment-gateways.transaction-create:stripe:fields': {
+    widgetId: 'gateway_stripe.injection.transaction-fields',
+    priority: 100,
+  },
+  'payment-gateways.payment-link:stripe': {
+    widgetId: 'gateway_stripe.injection.payment-link',
+    priority: 100,
+  },
 }
 
 export default injectionTable
