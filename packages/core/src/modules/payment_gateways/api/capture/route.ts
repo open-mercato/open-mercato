@@ -52,5 +52,3 @@ export const openApi = {
     },
   },
 }
-
-export default POST

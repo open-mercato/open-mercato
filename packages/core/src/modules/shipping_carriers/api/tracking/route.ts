@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { ShippingCarrierService } from '../../../lib/shipping-service'
-import { trackingQuerySchema } from '../../../data/validators'
-import { shippingCarriersTag } from '../../openapi'
+import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { trackingQuerySchema } from '../../data/validators'
+import { shippingCarriersTag } from '../openapi'
 
 export const metadata = {
-  pathAliases: ['/shipping-carriers/tracking'],
+  path: '/shipping-carriers/tracking',
   GET: { requireAuth: true, requireFeatures: ['shipping_carriers.view'] },
 }
 
@@ -54,5 +54,3 @@ export const openApi = {
     },
   },
 }
-
-export default GET

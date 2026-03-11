@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { ShippingCarrierService } from '../../../lib/shipping-service'
-import { calculateRatesSchema } from '../../../data/validators'
-import { shippingCarriersTag } from '../../openapi'
+import type { ShippingCarrierService } from '../../lib/shipping-service'
+import { calculateRatesSchema } from '../../data/validators'
+import { shippingCarriersTag } from '../openapi'
 
 export const metadata = {
-  pathAliases: ['/shipping-carriers/rates'],
+  path: '/shipping-carriers/rates',
   POST: { requireAuth: true, requireFeatures: ['shipping_carriers.manage'] },
 }
 
@@ -50,5 +50,3 @@ export const openApi = {
     },
   },
 }
-
-export default POST

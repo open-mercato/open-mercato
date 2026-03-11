@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { CredentialsService } from '../../../../../integrations/lib/credentials-service'
-import { getShippingAdapter } from '../../../../lib/adapter-registry'
-import type { ShippingCarrierService } from '../../../../lib/shipping-service'
-import { getShippingCarrierQueue } from '../../../../lib/queue'
-import { shippingCarriersTag } from '../../../openapi'
+import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
+import { getShippingAdapter } from '../../../lib/adapter-registry'
+import type { ShippingCarrierService } from '../../../lib/shipping-service'
+import { getShippingCarrierQueue } from '../../../lib/queue'
+import { shippingCarriersTag } from '../../openapi'
 
 export const metadata = {
-  pathAliases: ['/shipping-carriers/webhook/[provider]'],
+  path: '/shipping-carriers/webhook/[provider]',
   POST: { requireAuth: false },
 }
 
@@ -32,8 +32,9 @@ function readCarrierShipmentId(payload: Record<string, unknown> | null): string 
   return null
 }
 
-export async function POST(req: Request, { params }: { params: { provider: string } }) {
-  const providerKey = params.provider
+export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> | { provider: string } }) {
+  const resolvedParams = await params
+  const providerKey = resolvedParams.provider
   const adapter = getShippingAdapter(providerKey)
   if (!adapter) {
     return NextResponse.json({ error: `No shipping adapter for provider: ${providerKey}` }, { status: 404 })
@@ -96,5 +97,3 @@ export const openApi = {
     },
   },
 }
-
-export default POST
