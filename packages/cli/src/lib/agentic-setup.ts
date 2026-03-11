@@ -52,7 +52,9 @@ Never edit node_modules directly.
 | Add a response enricher | \`src/modules/<id>/data/enrichers.ts\` |
 | Add an API interceptor | \`src/modules/<id>/api/interceptors.ts\` |
 | Eject a core module | Run \`yarn mercato eject <module-id>\` |
-| Write a spec | \`.ai/specs/README.md\`, \`.ai/specs/SPEC-000-template.md\` |
+| Write a spec | \`.ai/skills/spec-writing/SKILL.md\`, \`.ai/specs/SPEC-000-template.md\` |
+| Review code changes | \`.ai/skills/code-review/SKILL.md\` |
+| Build backend UI | \`.ai/skills/backend-ui-design/SKILL.md\` |
 
 ## Critical conventions
 
@@ -176,6 +178,415 @@ const LESSONS_MD = `# Lessons Learned
 Record patterns, mistakes, and insights discovered during development.
 AI agents will update this file as they work on the codebase.
 `
+
+// ─── Skills content ──────────────────────────────────────────────────────
+
+const SKILL_SPEC_WRITING = `---
+name: spec-writing
+description: Guide for creating high-quality specifications for {{PROJECT_NAME}}. Use when starting a new SPEC or reviewing specs against architectural standards.
+---
+
+# Spec Writing & Review
+
+Design and review specifications (SPECs) against Open Mercato architecture and quality rules.
+
+## Workflow
+
+1. **Load Context**: Read \`AGENTS.md\` for module conventions and \`.ai/specs/\` for existing specs.
+2. **Initialize**: Create \`SPEC-{number}-{date}-{title}.md\` in \`.ai/specs/\`.
+3. **Start Minimal**: Write a Skeleton Spec (TLDR + 2-3 key sections). Do NOT write the full spec in one pass.
+   - Scan for **critical unknowns** — decisions that block data model, scope, or architecture.
+   - If unknowns exist, add a numbered **Open Questions** block (\`Q1\`, \`Q2\`, …) after the TLDR.
+   - **STOP after presenting the skeleton.** Do not proceed until the user answers all questions.
+4. **Iterate**: Apply answers, remove Open Questions block. Repeat if new unknowns surface.
+5. **Research**: Challenge requirements against open-source market leaders.
+6. **Design**: Create architecture, data models, API contracts.
+7. **Implementation Breakdown**: Break into **Phases** (stories) and **Steps** (testable tasks).
+8. **Review**: Apply the [Spec Checklist](references/spec-checklist.md).
+9. **Output**: Finalize the specification file.
+
+## Output Formats
+
+### 1. New Specification
+
+Use the [Specification Template](references/spec-template.md). Adapt if needed, but ensure core concerns are addressed.
+
+**Required sections**: TLDR, Problem Statement, Proposed Solution, Data Models, API Contracts, Risks, Changelog.
+
+### 2. Architectural Review
+
+\`\`\`markdown
+# Architectural Review: {SPEC-0XX: Title}
+
+## Summary
+{1-3 sentences: what the spec proposes and overall health}
+
+## Findings
+
+### Critical
+{Cross-module ORM, tenant isolation leaks, missing auth guards}
+
+### High
+{Missing undo logic, incorrect module placement, missing phase strategy}
+
+### Medium
+{Missing failure scenarios, inconsistent terminology}
+
+### Low
+{Style suggestions, nits}
+\`\`\`
+
+## Review Heuristics
+
+1. **Command Graph vs. Independent Ops**: Graph Save (coupled calculation) or Compound Command (independent steps)?
+2. **Architectural Diff**: Cut standard CRUD noise. Focus on what's unique.
+3. **Singularity Law**: Singular naming for entities, commands, events, feature IDs.
+4. **Undo Contract**: Is the "Undo" logic as detailed as the "Execute"?
+5. **Module Isolation**: Using Event Bus for side effects or cheating with direct imports?
+
+## Quick Rule Reference
+
+- **Singular naming** for entities, commands, events, feature IDs.
+- **FK IDs only** for cross-module links — no ORM relationships.
+- **\`organization_id\`** is mandatory for all tenant-scoped entities.
+- **Undoability** is the default for state changes.
+- **Zod validation** for all API inputs.
+
+## Reference Materials
+
+- [Spec Template](references/spec-template.md)
+- [Spec Checklist](references/spec-checklist.md)
+- [AGENTS.md](../../../AGENTS.md)
+`
+
+const SKILL_SPEC_TEMPLATE = `# SPEC-{number} — {Title}
+
+**Date**: {YYYY-MM-DD}
+**Status**: Draft
+
+## TLDR
+
+**Key Points:**
+- [What is being built — 1-2 sentences]
+- [Primary goal / value proposition]
+
+**Scope:**
+- [Feature 1]
+- [Feature 2]
+
+## Open Questions *(remove before finalizing)*
+
+- **Q1**: [Critical unknown — e.g. "Should this store data per-tenant or globally?"]
+- **Q2**: [Critical unknown — e.g. "Does this replace X or coexist with it?"]
+
+---
+
+## Overview
+
+[What this feature does and why. Target audience and key benefits.]
+
+> **Market Reference**: [Name the open-source leader you studied. What did you adopt vs. reject?]
+
+## Problem Statement
+
+[Specific pain points or gaps this solves.]
+
+## Proposed Solution
+
+[High-level technical approach.]
+
+### Design Decisions (Optional)
+
+| Decision | Rationale |
+|----------|-----------|
+| [Choice] | [Why this over alternatives] |
+
+## User Stories
+
+- **[User]** wants to **[Action]** so that **[Benefit]**
+
+## Data Models
+
+### [Entity Name] (Singular)
+
+- \`id\`: string (UUID)
+- \`organization_id\`: string (FK)
+- \`created_at\`: Date
+- \`updated_at\`: Date
+- ...
+
+## API Contracts
+
+### [Endpoint Name]
+
+- \`METHOD /api/path\`
+- Request: \`{...}\`
+- Response: \`{...}\`
+
+## Implementation Plan
+
+### Phase 1: [Name]
+
+1. [Step — testable]
+2. [Step — testable]
+
+### Phase 2: [Name]
+
+1. [Step]
+
+## Risks
+
+| Risk | Severity | Mitigation | Residual |
+|------|----------|------------|----------|
+| [What goes wrong] | High/Med/Low | [How addressed] | [What remains] |
+
+## Changelog
+
+| Date | Change |
+|------|--------|
+| {date} | Initial spec |
+`
+
+const SKILL_SPEC_CHECKLIST = `# Spec Review Checklist
+
+Every item must be answered in the spec or marked N/A with justification.
+
+## 1. Design Logic & Phasing
+
+- [ ] TLDR defines scope, value, and clear boundaries
+- [ ] MVP is explicit; future work is deferred and labeled
+- [ ] User stories map to API/data/UI sections
+- [ ] Phase plan is testable and incrementally deliverable
+
+## 2. Architecture & Module Isolation
+
+- [ ] Cross-module links use FK IDs only (no direct ORM relations)
+- [ ] Tenant isolation and \`organization_id\` scoping are explicit
+- [ ] Module placement is in \`src/modules/<id>/\`
+- [ ] DI usage is specified (Awilix)
+- [ ] Event/subscriber boundaries are clear and non-circular
+
+## 3. Data Integrity & Security
+
+- [ ] Entities include \`id\`, \`organization_id\`, \`created_at\`, \`updated_at\`
+- [ ] Write operations define transaction boundaries
+- [ ] Input validation uses zod schemas
+- [ ] All user input validated before business logic/persistence
+- [ ] Auth guards are declared (\`requireAuth\`, \`requireRoles\`, \`requireFeatures\`)
+- [ ] Tenant isolation: every scoped query filters by \`organization_id\`
+
+## 4. Commands, Events & Naming
+
+- [ ] Naming is singular and consistent
+- [ ] All mutations are commands with undo logic
+- [ ] Events declared in \`events.ts\` before emitting
+- [ ] Side-effect reversibility is documented
+
+## 5. API & UI
+
+- [ ] API contracts are complete (request/response/errors)
+- [ ] Routes include \`openApi\` expectations
+- [ ] UI uses \`CrudForm\`, \`DataTable\`, and shared primitives
+- [ ] i18n keys are planned for user-facing strings
+- [ ] Pagination limits defined (\`pageSize <= 100\`)
+
+## 6. Risks & Anti-Patterns
+
+- [ ] Risks include concrete scenarios with severity and mitigation
+- [ ] Blast radius and detection described
+- [ ] Does not introduce cross-module ORM links
+- [ ] Does not skip undoability for state changes
+- [ ] Does not mix MVP with speculative future phases
+`
+
+const SKILL_CODE_REVIEW = `---
+name: code-review
+description: Review code changes for architecture, security, conventions, and quality compliance. Use when reviewing pull requests, code changes, or auditing code quality.
+---
+
+# Code Review
+
+Review code changes against Open Mercato architecture rules, security requirements, and quality standards.
+
+## Review Workflow
+
+1. **Scope**: Identify changed files. Classify by layer (entity, API route, validator, backend page, subscriber, worker, command, widget).
+2. **Gather context**: Read \`AGENTS.md\` for module conventions. Check \`.ai/specs/\` for active specs. Read \`.ai/lessons.md\` for known pitfalls.
+3. **CI/CD verification gate (MANDATORY)**: Run the checks below. Every gate MUST pass. See **CI/CD Gate** section.
+4. **Run checklist**: Apply rules from \`references/review-checklist.md\`. Flag violations with severity, file, and fix suggestion.
+5. **Test coverage**: Verify changed behavior is covered by tests. Flag missing coverage.
+6. **Cross-module impact**: If the change touches events, extensions, or widgets, verify consumers handle the contract correctly.
+7. **Output**: Produce the review report.
+
+## CI/CD Verification Gate (MANDATORY)
+
+**NEVER claim code is "ready to merge" without running these checks.** If any step fails, it MUST be fixed before the review can pass.
+
+| # | Command | What it checks | If it fails |
+|---|---------|----------------|-------------|
+| 1 | \`yarn generate\` | Module registries are up to date | Run it — it generates missing files |
+| 2 | \`yarn typecheck\` | TypeScript types are correct | Fix type errors |
+| 3 | \`yarn test\` | All unit tests pass | Fix failing tests |
+| 4 | \`yarn build\` | The app builds successfully | Fix build errors |
+
+**Rules**:
+- Steps 2 and 3 can run in parallel.
+- Every failure is a **Critical** finding — even if it appears unrelated to the current changes.
+- The review output MUST include actual pass/fail results. Do not assume — run and report.
+
+## Severity Classification
+
+| Severity | Criteria | Action |
+|----------|----------|--------|
+| **Critical** | Security vulnerability, cross-tenant leak, data corruption, missing auth | MUST fix before merge |
+| **High** | Architecture violation, missing required export, broken module contract | MUST fix before merge |
+| **Medium** | Convention violation, suboptimal pattern, missing best practice | Should fix |
+| **Low** | Style suggestion, minor improvement | Nice to have |
+
+## Quick Rule Reference
+
+### Architecture
+
+- **NO direct ORM relationships between modules** — use FK IDs, fetch separately
+- **Always filter by \`organization_id\`** for tenant-scoped entities
+- **Use DI (Awilix)** to inject services — never \`new\` directly
+- **NO direct module-to-module calls** for side effects — use events
+
+### Security
+
+- **Validate all inputs with zod** in \`data/validators.ts\`
+- **Use \`findWithDecryption\`** instead of raw \`em.find\`/\`em.findOne\`
+- **Every endpoint MUST declare auth guards**
+
+### Data Integrity
+
+- **Never hand-write migrations** — update entities, run \`yarn db:generate\`
+- **Workers/subscribers MUST be idempotent**
+- **Commands MUST be undoable** — include before/after snapshots
+
+### UI & HTTP
+
+- Forms: \`CrudForm\` — never custom
+- Tables: \`DataTable\` — never manual markup
+- API calls: \`apiCall\`/\`apiCallOrThrow\` — never raw \`fetch\`
+
+## Reference Materials
+
+- [Review Checklist](references/review-checklist.md)
+- [AGENTS.md](../../../AGENTS.md)
+`
+
+const SKILL_CODE_REVIEW_CHECKLIST = `# Code Review Checklist
+
+## 1. Architecture & Module Independence
+
+- [ ] No ORM relationships between modules — FK IDs only
+- [ ] No direct module-to-module function calls for side effects
+- [ ] DI (Awilix) used for service wiring
+- [ ] No cross-tenant data exposure
+- [ ] Code in correct location (\`src/modules/<id>/\`)
+
+## 2. Security
+
+- [ ] All inputs validated with zod in \`data/validators.ts\`
+- [ ] No \`any\` types
+- [ ] Auth guards on all endpoints
+- [ ] Passwords hashed with bcryptjs (cost >= 10)
+- [ ] No credentials logged or in error messages
+- [ ] \`findWithDecryption\` used instead of raw \`em.find\`/\`em.findOne\`
+- [ ] Tenant isolation: queries filter by \`organization_id\`
+
+## 3. Data Integrity & ORM
+
+- [ ] No hand-written migrations
+- [ ] Migration scope matches PR intent
+- [ ] UUID primary keys with standard columns
+- [ ] Atomic transactions for multi-step writes
+
+## 4. API Routes
+
+- [ ] \`openApi\` exported for documentation
+- [ ] \`metadata\` exported with auth guards
+- [ ] Zod validation on request body
+- [ ] Tenant scoping in queries
+- [ ] \`apiCall\` used instead of raw \`fetch\`
+- [ ] \`pageSize <= 100\`
+
+## 5. Events & Commands
+
+- [ ] Events declared in \`events.ts\` with \`createModuleEvents\` and \`as const\`
+- [ ] Subscribers export \`metadata\`
+- [ ] All mutations implemented as commands with undo logic
+
+## 6. UI & Backend Pages
+
+- [ ] Forms use \`CrudForm\` (not custom)
+- [ ] Tables use \`DataTable\` (not custom)
+- [ ] Notifications use \`flash()\` (not alert/toast)
+- [ ] Dialog forms have \`embedded={true}\`
+- [ ] Keyboard: \`Cmd/Ctrl+Enter\` submit, \`Escape\` cancel
+- [ ] Loading/error/empty states present
+- [ ] i18n: \`useT()\` client-side — no hardcoded strings
+
+## 7. Naming Conventions
+
+- [ ] Modules: plural, snake_case
+- [ ] JS/TS identifiers: camelCase
+- [ ] DB tables/columns: snake_case, plural table names
+
+## 8. Anti-Patterns
+
+- [ ] No cross-module ORM links
+- [ ] No direct \`fetch()\` calls
+- [ ] No custom toast/notification implementations
+- [ ] No empty \`catch\` blocks
+- [ ] No \`any\` types
+`
+
+const SKILL_BACKEND_UI = `---
+name: backend-ui-design
+description: Design and implement consistent backend/backoffice interfaces using @open-mercato/ui. Use when building admin pages, CRUD interfaces, data tables, forms, detail pages, or any backoffice UI.
+---
+
+# Backend UI Design
+
+Guide for creating consistent, production-grade backend interfaces using \`@open-mercato/ui\`.
+
+## Design Principles
+
+1. **Consistency First**: Every page should feel like part of the same application.
+2. **Component Reuse**: Never create custom implementations when a shared component exists.
+3. **Data Density**: Admin users need information-rich interfaces.
+4. **Keyboard Navigation**: \`Cmd/Ctrl+Enter\` for primary actions, \`Escape\` to cancel.
+5. **Clear Hierarchy**: Page → Section → Content.
+
+## Required Components
+
+### Layout: \`Page\`, \`PageHeader\`, \`PageBody\` from \`@open-mercato/ui/backend/Page\`
+### Lists: \`DataTable\` from \`@open-mercato/ui/backend/DataTable\`
+### Forms: \`CrudForm\` from \`@open-mercato/ui/backend/CrudForm\`
+### Headers: \`FormHeader\`, \`FormFooter\` from \`@open-mercato/ui/backend/forms\`
+### Notifications: \`flash()\` from \`@open-mercato/ui/backend/FlashMessages\`
+### Loading: \`LoadingMessage\`, \`ErrorMessage\` from \`@open-mercato/ui/backend/detail\`
+### API: \`apiCall\`, \`createCrud\`, \`updateCrud\`, \`deleteCrud\`
+
+## Anti-Patterns
+
+1. Custom form implementations — use \`CrudForm\`
+2. Manual table markup — use \`DataTable\`
+3. Custom toast — use \`flash()\`
+4. Inline styles — use Tailwind
+5. Direct \`fetch()\` — use \`apiCall\`/\`apiCallOrThrow\`
+6. Missing loading/error states
+
+For full component API, see \`references/ui-components.md\`.
+`
+
+// Note: UI components reference is too large to embed as string.
+// The CLI version uses a condensed backend-ui-design SKILL.md that
+// references the full ui-components.md (available in create-app's
+// agentic/ directory). For agentic:init on existing apps, the
+// condensed version provides sufficient guidance.
 
 // ─── Claude Code content ─────────────────────────────────────────────────
 
@@ -537,6 +948,14 @@ function generateShared(config: AgenticConfig): void {
   writeFile(join(targetDir, '.ai', 'specs', 'README.md'), resolve_(SPECS_README, config))
   writeFile(join(targetDir, '.ai', 'specs', 'SPEC-000-template.md'), SPEC_TEMPLATE)
   writeFile(join(targetDir, '.ai', 'lessons.md'), LESSONS_MD)
+
+  // Skills
+  writeFile(join(targetDir, '.ai', 'skills', 'spec-writing', 'SKILL.md'), resolve_(SKILL_SPEC_WRITING, config))
+  writeFile(join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-template.md'), SKILL_SPEC_TEMPLATE)
+  writeFile(join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-checklist.md'), SKILL_SPEC_CHECKLIST)
+  writeFile(join(targetDir, '.ai', 'skills', 'backend-ui-design', 'SKILL.md'), SKILL_BACKEND_UI)
+  writeFile(join(targetDir, '.ai', 'skills', 'code-review', 'SKILL.md'), SKILL_CODE_REVIEW)
+  writeFile(join(targetDir, '.ai', 'skills', 'code-review', 'references', 'review-checklist.md'), SKILL_CODE_REVIEW_CHECKLIST)
 }
 
 function generateClaudeCode(config: AgenticConfig): void {

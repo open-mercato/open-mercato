@@ -27,7 +27,9 @@ Never edit node_modules directly.
 | Add a response enricher | `src/modules/<id>/data/enrichers.ts` |
 | Add an API interceptor | `src/modules/<id>/api/interceptors.ts` |
 | Eject a core module | Run `yarn mercato eject <module-id>` |
-| Write a spec | `.ai/specs/README.md`, `.ai/specs/SPEC-000-template.md` |
+| Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
+| Review code changes | `.ai/skills/code-review/SKILL.md` |
+| Build backend UI | `.ai/skills/backend-ui-design/SKILL.md` |
 
 ## Critical conventions
 

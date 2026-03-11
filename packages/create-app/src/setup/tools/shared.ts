@@ -42,4 +42,37 @@ export function generateShared(config: AgenticConfig): void {
   writeTemplate('ai/specs/README.md', join(targetDir, '.ai', 'specs', 'README.md'), config)
   copyFile('ai/specs/SPEC-000-template.md', join(targetDir, '.ai', 'specs', 'SPEC-000-template.md'))
   copyFile('ai/lessons.md', join(targetDir, '.ai', 'lessons.md'))
+
+  // .ai/skills/
+  writeTemplate(
+    'ai/skills/spec-writing/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'spec-writing', 'SKILL.md'),
+    config,
+  )
+  copyFile(
+    'ai/skills/spec-writing/references/spec-template.md',
+    join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-template.md'),
+  )
+  copyFile(
+    'ai/skills/spec-writing/references/spec-checklist.md',
+    join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-checklist.md'),
+  )
+
+  copyFile(
+    'ai/skills/backend-ui-design/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'backend-ui-design', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/backend-ui-design/references/ui-components.md',
+    join(targetDir, '.ai', 'skills', 'backend-ui-design', 'references', 'ui-components.md'),
+  )
+
+  copyFile(
+    'ai/skills/code-review/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'code-review', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/code-review/references/review-checklist.md',
+    join(targetDir, '.ai', 'skills', 'code-review', 'references', 'review-checklist.md'),
+  )
 }
