@@ -26,6 +26,7 @@ export type AkeneoCustomFieldMapping = {
   fieldKey: string
   target: AkeneoCustomFieldTarget
   kind?: AkeneoCustomFieldKind | null
+  skip?: boolean
 }
 
 export type AkeneoPriceMapping = {
@@ -416,8 +417,9 @@ function normalizeCustomFieldMappings(value: unknown): AkeneoCustomFieldMapping[
       || entry.kind === 'select'
       ? entry.kind
       : undefined
+    const skip = typeof entry.skip === 'boolean' ? entry.skip : false
     if (!attributeCode || !fieldKey || !target) continue
-    normalized.push({ attributeCode, fieldKey, target, kind })
+    normalized.push({ attributeCode, fieldKey, target, kind, skip })
   }
   return normalized
 }

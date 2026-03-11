@@ -65,6 +65,7 @@ export async function GET(req: Request) {
       channels: [],
       attributes: [],
       families: [],
+      familyVariants: [],
       localChannels: localChannels
         .filter((channel) => typeof channel.code === 'string' && channel.code.trim().length > 0)
         .map((channel) => ({ code: String(channel.code), name: channel.name })),
@@ -87,6 +88,7 @@ export async function GET(req: Request) {
       channels: discovery.channels,
       attributes: discovery.attributes,
       families: discovery.families,
+      familyVariants: discovery.familyVariants,
       localChannels: localChannels
         .filter((channel) => typeof channel.code === 'string' && channel.code.trim().length > 0)
         .map((channel) => ({ code: String(channel.code), name: channel.name })),
@@ -106,6 +108,7 @@ export async function GET(req: Request) {
       channels: [],
       attributes: [],
       families: [],
+      familyVariants: [],
       localChannels: localChannels
         .filter((channel) => typeof channel.code === 'string' && channel.code.trim().length > 0)
         .map((channel) => ({ code: String(channel.code), name: channel.name })),

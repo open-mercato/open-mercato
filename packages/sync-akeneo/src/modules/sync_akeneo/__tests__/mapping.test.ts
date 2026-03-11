@@ -27,7 +27,7 @@ describe('akeneo mappings', () => {
             variantName: 'variant_name_attr',
           },
           customFieldMappings: [
-            { attributeCode: 'material', target: 'product', fieldKey: 'akeneo_material', kind: 'select' },
+            { attributeCode: 'material', target: 'product', fieldKey: 'akeneo_material', kind: 'select', skip: true },
           ],
           priceMappings: [
             { attributeCode: 'price', priceKindCode: 'regular', akeneoChannel: 'ecommerce', localChannelCode: 'web' },
@@ -51,6 +51,7 @@ describe('akeneo mappings', () => {
     expect(mapping.fields[0]?.externalField).toBe('title_attr')
     expect(mapping.settings?.products?.locale).toBe('pl_PL')
     expect(mapping.settings?.products?.customFieldMappings[0]?.fieldKey).toBe('akeneo_material')
+    expect(mapping.settings?.products?.customFieldMappings[0]?.skip).toBe(true)
     expect(mapping.settings?.products?.priceMappings[0]?.localChannelCode).toBe('web')
     expect(mapping.settings?.products?.mediaMappings[0]?.kind).toBe('image')
     expect(mapping.settings?.products?.syncAssociations).toBe(false)

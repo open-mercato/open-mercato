@@ -139,7 +139,7 @@ function dedupeCustomFieldMappings(mappings: AkeneoCustomFieldMapping[]): Akeneo
   const seen = new Set<string>()
   const deduped: AkeneoCustomFieldMapping[] = []
   for (const mapping of mappings) {
-    const key = `${mapping.target}:${mapping.attributeCode}:${mapping.fieldKey}`
+    const key = `${mapping.target}:${mapping.attributeCode}:${mapping.fieldKey}:${mapping.skip === true ? 'skip' : 'import'}`
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(mapping)

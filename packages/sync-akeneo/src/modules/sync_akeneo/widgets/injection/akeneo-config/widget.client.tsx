@@ -61,6 +61,7 @@ type CustomFieldRow = {
   target: 'product' | 'variant'
   fieldKey: string
   kind: '' | 'text' | 'multiline' | 'integer' | 'float' | 'boolean' | 'select'
+  skip: boolean
 }
 
 type PriceMappingRow = {
@@ -217,7 +218,7 @@ function mergeMappingsIntoState(
     includeNumericAttributes: normalizedAttributes.settings?.attributes?.includeNumericAttributes ?? state.includeNumericAttributes,
     familyCodeFilter: (normalizedAttributes.settings?.attributes?.familyCodeFilter ?? []).join(', '),
     customFieldMappings: (normalizedProducts.settings?.products?.customFieldMappings ?? [])
-      .map((entry) => `${entry.attributeCode},${entry.target},${entry.fieldKey}${entry.kind ? `,${entry.kind}` : ''}`)
+      .map((entry) => `${entry.attributeCode},${entry.target},${entry.fieldKey},${entry.kind ?? ''},${entry.skip === true ? 'skip' : ''}`)
       .join('\n'),
     priceMappings: (normalizedProducts.settings?.products?.priceMappings ?? [])
       .map((entry) => `${entry.attributeCode},${entry.priceKindCode},${entry.akeneoChannel ?? ''},${entry.localChannelCode}`)
@@ -253,7 +254,7 @@ function parseRows(value: string): string[][] {
 
 function parseCustomFieldRows(value: string): CustomFieldRow[] {
   return parseRows(value)
-    .map(([attributeCode, target, fieldKey, kind]) => {
+    .map(([attributeCode, target, fieldKey, kind, skipFlag]) => {
       const normalizedTarget: CustomFieldRow['target'] = target === 'variant' ? 'variant' : 'product'
       const normalizedKind: CustomFieldRow['kind'] = kind === 'text'
         || kind === 'multiline'
@@ -268,6 +269,7 @@ function parseCustomFieldRows(value: string): CustomFieldRow[] {
         target: normalizedTarget,
         fieldKey,
         kind: normalizedKind,
+        skip: skipFlag === 'skip' || skipFlag === 'true',
       }
     })
     .filter((row) => row.attributeCode.length > 0 || row.fieldKey.length > 0)
@@ -275,9 +277,29 @@ function parseCustomFieldRows(value: string): CustomFieldRow[] {
 
 function serializeCustomFieldRows(rows: CustomFieldRow[]): string {
   return rows
-    .filter((row) => row.attributeCode.trim().length > 0 && row.fieldKey.trim().length > 0)
-    .map((row) => `${row.attributeCode.trim()},${row.target},${row.fieldKey.trim()}${row.kind ? `,${row.kind}` : ''}`)
+    .filter((row) => row.attributeCode.trim().length > 0 && (row.fieldKey.trim().length > 0 || row.skip))
+    .map((row) => [
+      row.attributeCode.trim(),
+      row.target,
+      row.fieldKey.trim() || normalizeFieldKey(row.attributeCode),
+      row.kind,
+      row.skip ? 'skip' : '',
+    ].filter((cell, index) => index < 4 || cell.length > 0).join(','))
     .join('\n')
+}
+
+function mergeCustomFieldRows(existingRows: CustomFieldRow[], discoveredRows: CustomFieldRow[]): CustomFieldRow[] {
+  const merged = [...existingRows]
+  const existingAttributeCodes = new Set(
+    existingRows.map((row) => row.attributeCode.trim()).filter((value) => value.length > 0),
+  )
+  for (const row of discoveredRows) {
+    const attributeCode = row.attributeCode.trim()
+    if (!attributeCode || existingAttributeCodes.has(attributeCode)) continue
+    merged.push(row)
+    existingAttributeCodes.add(attributeCode)
+  }
+  return merged
 }
 
 function parsePriceMappingRows(value: string): PriceMappingRow[] {
@@ -386,27 +408,31 @@ function buildSelectValues(values: Array<string | null | undefined>, currentValu
 }
 
 function buildDiscoveredFieldsetMappings(discovery: AkeneoDiscoveryResponse): FieldsetMappingRow[] {
-  return (discovery.families ?? []).flatMap((family) => {
+  const familyRows = (discovery.families ?? []).flatMap((family) => {
     const productFieldsetCode = buildAkeneoFieldsetCode('product', family.code)
-    const variantFieldsetCode = buildAkeneoFieldsetCode('variant', family.code)
-    const productRow: FieldsetMappingRow[] = productFieldsetCode ? [{
-      sourceType: 'family',
+    return productFieldsetCode ? [{
+      sourceType: 'family' as const,
       sourceCode: family.code,
-      target: 'product',
+      target: 'product' as const,
       fieldsetCode: productFieldsetCode,
       fieldsetLabel: family.label || family.code,
       description: `Akeneo family ${family.code}`,
     }] : []
-    const variantRow: FieldsetMappingRow[] = variantFieldsetCode ? [{
-      sourceType: 'family',
-      sourceCode: family.code,
-      target: 'variant',
-      fieldsetCode: variantFieldsetCode,
-      fieldsetLabel: family.label || family.code,
-      description: `Akeneo variant attributes for family ${family.code}`,
-    }] : []
-    return [...productRow, ...variantRow]
   })
+
+  const familyVariantRows = (discovery.familyVariants ?? []).flatMap((familyVariant) => {
+    const variantFieldsetCode = buildAkeneoFieldsetCode('variant', familyVariant.code)
+    return variantFieldsetCode ? [{
+      sourceType: 'familyVariant' as const,
+      sourceCode: familyVariant.code,
+      target: 'variant' as const,
+      fieldsetCode: variantFieldsetCode,
+      fieldsetLabel: familyVariant.label || familyVariant.code,
+      description: `Akeneo family variant ${familyVariant.code} from family ${familyVariant.familyCode}`,
+    }] : []
+  })
+
+  return [...familyRows, ...familyVariantRows]
 }
 
 function applyDiscoveryDefaults(
@@ -414,6 +440,17 @@ function applyDiscoveryDefaults(
   discovery: AkeneoDiscoveryResponse | null,
 ): FormState {
   if (!discovery?.ok) return state
+
+  const discoveredFamilyVariant = (discovery.familyVariants ?? []).length > 0
+    ? {
+        code: '__discovery__',
+        variant_attribute_sets: (discovery.familyVariants ?? []).map((familyVariant, index) => ({
+          level: index + 1,
+          axes: familyVariant.axes,
+          attributes: familyVariant.attributes,
+        })),
+      }
+    : null
 
   const inferred = inferAkeneoProductMapping({
     attributes: (discovery.attributes ?? []).map((attribute) => ({
@@ -426,13 +463,14 @@ function applyDiscoveryDefaults(
       metric_family: attribute.metricFamily,
     })),
     family: null,
-    familyVariant: null,
+    familyVariant: discoveredFamilyVariant,
     fieldMap: state.fieldMap,
     explicitCustomFieldMappings: parseCustomFieldRows(state.customFieldMappings).map((row) => ({
       attributeCode: row.attributeCode.trim(),
       target: row.target,
-      fieldKey: row.fieldKey.trim(),
+      fieldKey: row.fieldKey.trim() || normalizeFieldKey(row.attributeCode),
       kind: row.kind || null,
+      skip: row.skip,
     })),
     explicitMediaMappings: parseMediaMappingRows(state.mediaMappings).map((row) => ({
       attributeCode: row.attributeCode.trim(),
@@ -445,6 +483,14 @@ function applyDiscoveryDefaults(
   const hasMediaMappings = parseMediaMappingRows(state.mediaMappings).length > 0
   const hasPriceMappings = parsePriceMappingRows(state.priceMappings).some((row) => row.attributeCode.trim().length > 0)
   const hasFieldsetMappings = parseFieldsetMappingRows(state.fieldsetMappings).length > 0
+  const currentCustomFieldRows = parseCustomFieldRows(state.customFieldMappings)
+  const discoveredCustomFieldRows = inferred.autoCustomFieldMappings.map((mapping) => ({
+    attributeCode: mapping.attributeCode,
+    target: mapping.target,
+    fieldKey: mapping.fieldKey,
+    kind: mapping.kind ?? '',
+    skip: false,
+  }) satisfies CustomFieldRow)
   const preferredLocalChannel = discovery.localChannels.find((channel) => ['web', 'online', 'ecommerce', 'default'].includes(channel.code.trim().toLowerCase()))
     ?? discovery.localChannels[0]
     ?? null
@@ -459,16 +505,9 @@ function applyDiscoveryDefaults(
     categoryLocale: state.categoryLocale === 'en_US' ? preferredLocale : state.categoryLocale,
     productChannel: state.productChannel || preferredAkeneoChannel,
     fieldMap: inferred.fieldMap,
-    customFieldMappings: hasCustomFields
-      ? state.customFieldMappings
-      : serializeCustomFieldRows(
-          inferred.autoCustomFieldMappings.map((mapping) => ({
-            attributeCode: mapping.attributeCode,
-            target: mapping.target,
-            fieldKey: mapping.fieldKey,
-            kind: mapping.kind ?? '',
-          })),
-        ),
+    customFieldMappings: serializeCustomFieldRows(
+      mergeCustomFieldRows(currentCustomFieldRows, discoveredCustomFieldRows),
+    ),
     mediaMappings: hasMediaMappings
       ? state.mediaMappings
       : serializeMediaMappingRows(
@@ -511,7 +550,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
 
   const buildMappingPayloads = React.useCallback((currentState: FormState) => {
     const customFieldMappings = parseRows(currentState.customFieldMappings)
-      .map(([attributeCode, target, fieldKey, kind]) => {
+      .map(([attributeCode, target, fieldKey, kind, skipFlag]) => {
         const normalizedTarget = target === 'variant' ? 'variant' : target === 'product' ? 'product' : null
         const normalizedKind = kind === 'text'
           || kind === 'multiline'
@@ -521,12 +560,14 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
           || kind === 'select'
           ? kind
           : null
-        if (!attributeCode || !fieldKey || !normalizedTarget) return null
+        const normalizedFieldKey = fieldKey || normalizeFieldKey(attributeCode)
+        if (!attributeCode || !normalizedFieldKey || !normalizedTarget) return null
         return {
           attributeCode,
           target: normalizedTarget,
-          fieldKey,
+          fieldKey: normalizedFieldKey,
           kind: normalizedKind,
+          skip: skipFlag === 'skip' || skipFlag === 'true',
         } as const
       })
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
@@ -821,6 +862,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   )
   const missingCustomFieldCount = React.useMemo(
     () => customFieldRows.filter((row) => {
+      if (row.skip) return false
       if (!row.fieldKey.trim()) return false
       return row.target === 'product'
         ? !productFieldKeys.has(row.fieldKey.trim())
@@ -838,12 +880,17 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   )
   const dialogMissingCustomFieldCount = React.useMemo(
     () => customFieldEditorRows.filter((row) => {
+      if (row.skip) return false
       if (!row.fieldKey.trim()) return false
       return row.target === 'product'
         ? !productFieldKeys.has(row.fieldKey.trim())
         : !variantFieldKeys.has(row.fieldKey.trim())
     }).length,
     [customFieldEditorRows, productFieldKeys, variantFieldKeys],
+  )
+  const skippedCustomFieldCount = React.useMemo(
+    () => customFieldRows.filter((row) => row.skip).length,
+    [customFieldRows],
   )
   const renderCustomFieldStatusBadge = React.useCallback((exists: boolean) => (
     <Badge
@@ -860,6 +907,15 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
       </span>
     </Badge>
   ), [t])
+  const renderSkippedCustomFieldBadge = React.useCallback(() => (
+    <Badge
+      variant="outline"
+      className="inline-flex items-center gap-1.5 border-slate-300 bg-slate-100 text-slate-700"
+    >
+      <X className="size-3.5" />
+      <span>{t('sync_akeneo.customFields.status.skipped', 'Skipped')}</span>
+    </Badge>
+  ), [t])
 
   function openCustomFieldDialog() {
     setCustomFieldEditorRows(parseCustomFieldRows(state.customFieldMappings))
@@ -870,6 +926,11 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     setIsCreatingCustomFields(true)
     try {
       const customFieldMappings = (sourceRows ?? parseCustomFieldRows(state.customFieldMappings))
+        .filter((row) => !row.skip)
+      if (customFieldMappings.length === 0) {
+        flash(t('sync_akeneo.customFields.createNothing', 'There are no non-skipped custom-field mappings to create.'), 'info')
+        return
+      }
       const currentProductsMapping = {
         ...buildDefaultAkeneoMapping('products'),
         settings: {
@@ -880,8 +941,9 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
             customFieldMappings: customFieldMappings.map((row) => ({
               attributeCode: row.attributeCode.trim(),
               target: row.target,
-              fieldKey: row.fieldKey.trim(),
+              fieldKey: row.fieldKey.trim() || normalizeFieldKey(row.attributeCode),
               kind: row.kind || null,
+              skip: false,
             })),
             priceMappings: [],
             mediaMappings: [],
@@ -1240,7 +1302,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind]. After valid Akeneo credentials are saved, Open Mercato discovers mappings automatically: variant axes stay as product options, and other relevant Akeneo attributes are auto-mapped as custom fields unless you override them here. Product imports create or update missing Open Mercato custom field definitions automatically and store the Akeneo metadata, validation rules, and groups on those fields.')}
+                  {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind][,skip]. After valid Akeneo credentials are saved, Open Mercato discovers mappings automatically: variant axes stay as product options, and other relevant Akeneo attributes are auto-mapped as custom fields unless you override them here. Use the editor skip checkbox when an Akeneo attribute should be ignored entirely. Product imports create or update missing Open Mercato custom field definitions automatically and store the Akeneo metadata, validation rules, and groups on those fields.')}
                 </p>
                 <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-800">
                   <Sparkles className="mt-0.5 size-3.5 shrink-0" />
@@ -1266,13 +1328,13 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                             ? productFieldKeys.has(row.fieldKey.trim())
                             : variantFieldKeys.has(row.fieldKey.trim())
                           return (
-                            <tr key={`${row.attributeCode}:${row.fieldKey}:${index}`} className="border-t">
+                            <tr key={`${row.attributeCode}:${row.fieldKey}:${index}`} className={`border-t ${row.skip ? 'opacity-70' : ''}`}>
                               <td className="px-3 py-2 font-medium">{row.attributeCode}</td>
                               <td className="px-3 py-2">{row.target}</td>
                               <td className="px-3 py-2">{row.fieldKey}</td>
                               <td className="px-3 py-2 text-muted-foreground">{row.kind || t('sync_akeneo.customFields.kinds.auto', 'Auto')}</td>
                               <td className="px-3 py-2">
-                                {renderCustomFieldStatusBadge(exists)}
+                                {row.skip ? renderSkippedCustomFieldBadge() : renderCustomFieldStatusBadge(exists)}
                               </td>
                             </tr>
                           )
@@ -1290,6 +1352,11 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                     <span className="rounded border px-2 py-1">
                       {t('sync_akeneo.mapping.customFields.total', `${customFieldRows.length} mapped`)}
                     </span>
+                    {skippedCustomFieldCount > 0 ? (
+                      <span className="rounded border px-2 py-1">
+                        {t('sync_akeneo.mapping.customFields.skipped', `${skippedCustomFieldCount} skipped`)}
+                      </span>
+                    ) : null}
                     <span className={`rounded border px-2 py-1 ${missingCustomFieldCount > 0 ? 'border-amber-300 text-amber-700' : ''}`}>
                       {missingCustomFieldCount > 0
                         ? t('sync_akeneo.mapping.customFields.missing', `${missingCustomFieldCount} missing locally`)
@@ -1869,7 +1936,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
           <DialogHeader>
             <DialogTitle>{t('sync_akeneo.customFields.dialog.title', 'Akeneo custom field editor')}</DialogTitle>
             <DialogDescription>
-              {t('sync_akeneo.customFields.dialog.description', 'Edit structured custom-field mappings, review which local field definitions already exist, and generate missing ones immediately.')}
+              {t('sync_akeneo.customFields.dialog.description', 'Edit structured custom-field mappings, review which local field definitions already exist, generate missing ones immediately, or mark specific Akeneo attributes to be skipped during import.')}
             </DialogDescription>
           </DialogHeader>
 
@@ -1890,6 +1957,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                 <thead className="bg-muted/50 text-left">
                   <tr>
                     <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.attribute', 'Akeneo attribute')}</th>
+                    <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.skip', 'Skip import')}</th>
                     <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.target', 'Target')}</th>
                     <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.key', 'Field key')}</th>
                     <th className="px-3 py-2 font-medium">{t('sync_akeneo.customFields.columns.kind', 'Kind')}</th>
@@ -1903,7 +1971,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                       ? productFieldKeys.has(row.fieldKey.trim())
                       : variantFieldKeys.has(row.fieldKey.trim())
                     return (
-                      <tr key={`${row.attributeCode}:${row.fieldKey}:${index}`} className="border-t">
+                      <tr key={`${row.attributeCode}:${row.fieldKey}:${index}`} className={`border-t ${row.skip ? 'opacity-70' : ''}`}>
                         <td className="px-3 py-2">
                           <Input
                             list="akeneo-attributes"
@@ -1915,6 +1983,24 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                             }}
                             disabled={isLoading || isSaving || isCreatingCustomFields}
                           />
+                        </td>
+                        <td className="px-3 py-2">
+                          <label className="flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={row.skip}
+                              onChange={(event) => {
+                                const nextRows = [...customFieldEditorRows]
+                                nextRows[index] = {
+                                  ...row,
+                                  skip: event.target.checked,
+                                  fieldKey: row.fieldKey || normalizeFieldKey(row.attributeCode),
+                                }
+                                setCustomFieldEditorRows(nextRows)
+                              }}
+                              disabled={isLoading || isSaving || isCreatingCustomFields}
+                            />
+                          </label>
                         </td>
                         <td className="px-3 py-2">
                           <select
@@ -1968,7 +2054,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                           </select>
                         </td>
                         <td className="px-3 py-2">
-                          {renderCustomFieldStatusBadge(exists)}
+                          {row.skip ? renderSkippedCustomFieldBadge() : renderCustomFieldStatusBadge(exists)}
                         </td>
                         <td className="px-3 py-2">
                           <Button
@@ -1988,7 +2074,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                     )
                   }) : (
                     <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      <td colSpan={7} className="px-3 py-6 text-center text-sm text-muted-foreground">
                         {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are mapped yet. Use the suggestions below or add a row manually.')}
                       </td>
                     </tr>
@@ -2003,7 +2089,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                 variant="outline"
                 onClick={() => setCustomFieldEditorRows([
                   ...customFieldEditorRows,
-                  { attributeCode: '', target: 'product', fieldKey: '', kind: '' },
+                  { attributeCode: '', target: 'product', fieldKey: '', kind: '', skip: false },
                 ])}
                 disabled={isLoading || isSaving || isCreatingCustomFields}
               >
@@ -2044,6 +2130,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                           target: 'product',
                           fieldKey: normalizeFieldKey(`akeneo_${attribute.code}`),
                           kind: inferCustomFieldKind(attribute.type),
+                          skip: false,
                         },
                       ])
                     }}

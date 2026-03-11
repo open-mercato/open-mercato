@@ -486,10 +486,10 @@ function buildFieldsetPlan(params: {
   }
 }
 
-function dedupeCustomFieldMappings(items: Array<{ attributeCode: string; fieldKey: string; target: 'product' | 'variant'; kind?: AkeneoCustomFieldKind | null }>) {
+function dedupeCustomFieldMappings(items: Array<{ attributeCode: string; fieldKey: string; target: 'product' | 'variant'; kind?: AkeneoCustomFieldKind | null; skip?: boolean }>) {
   const seen = new Set<string>()
   return items.filter((item) => {
-    const key = `${item.target}:${item.attributeCode}:${item.fieldKey}`
+    const key = `${item.target}:${item.attributeCode}:${item.fieldKey}:${item.skip === true ? 'skip' : 'import'}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -1015,7 +1015,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     const settings = mapping.settings?.products
     if (!settings || settings.customFieldMappings.length === 0) return []
     const cacheKey = JSON.stringify({
-      customFieldMappings: settings.customFieldMappings,
+      customFieldMappings: settings.customFieldMappings.filter((mapping) => !mapping.skip),
       fieldsetPlan,
       locale,
     })
@@ -1026,6 +1026,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         const items: CustomFieldSyncItem[] = []
 
         for (const fieldMapping of settings.customFieldMappings) {
+          if (fieldMapping.skip) continue
           const attribute = await client.getAttribute(fieldMapping.attributeCode)
           if (!attribute) continue
           const kind = mapAkeneoAttributeToCustomFieldKind(attribute, fieldMapping.kind)
@@ -1350,6 +1351,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     const variantCustomFields: Record<string, unknown> = {}
 
     for (const fieldMapping of settings.customFieldMappings) {
+      if (fieldMapping.skip) continue
       const attribute = await client.getAttribute(fieldMapping.attributeCode)
       if (!attribute) continue
       const kind = mapAkeneoAttributeToCustomFieldKind(attribute, fieldMapping.kind)

@@ -33,6 +33,13 @@ export const akeneoDiscoveryResponseSchema = z.object({
     label: z.string(),
     attributeCount: z.number().int().nonnegative(),
   })).default([]),
+  familyVariants: z.array(z.object({
+    familyCode: z.string(),
+    code: z.string(),
+    label: z.string(),
+    axes: z.array(z.string()).default([]),
+    attributes: z.array(z.string()).default([]),
+  })).default([]),
   localChannels: z.array(z.object({
     code: z.string(),
     name: z.string(),

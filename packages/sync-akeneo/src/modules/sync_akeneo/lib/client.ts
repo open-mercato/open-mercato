@@ -406,6 +406,18 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     })
   }
 
+  async function listFamilyVariants(
+    familyCode: string,
+    nextUrl?: string | null,
+    batchSize = 100,
+  ): Promise<{ items: AkeneoFamilyVariant[]; nextUrl: string | null; totalEstimate: number | null }> {
+    if (nextUrl) return readList<AkeneoFamilyVariant>(nextUrl)
+    return readList<AkeneoFamilyVariant>(`/api/rest/v1/families/${encodeURIComponent(familyCode)}/variants`, {
+      limit: Math.min(Math.max(batchSize, 1), 100),
+      with_count: false,
+    })
+  }
+
   async function listChannels(): Promise<AkeneoChannel[]> {
     const response = await readList<AkeneoChannel>('/api/rest/v1/channels', {
       limit: 100,
@@ -530,6 +542,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     channels: Array<{ code: string; label: string; locales: string[] }>
     attributes: Array<{ code: string; type: string; label: string; localizable: boolean; scopable: boolean; group?: string; metricFamily?: string }>
     families: Array<{ code: string; label: string; attributeCount: number }>
+    familyVariants: Array<{ familyCode: string; code: string; label: string; axes: string[]; attributes: string[] }>
     version: string | null
   }> {
     const [locales, channels, attributes, families, probe] = await Promise.all([
@@ -539,6 +552,26 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
       listFamilies(null, 100),
       getSystemProbe().catch(() => ({ version: null })),
     ])
+
+    const familyVariants: Array<{ familyCode: string; code: string; label: string; axes: string[]; attributes: string[] }> = []
+    for (const family of families.items) {
+      let nextUrl: string | null = null
+      do {
+        const page: { items: AkeneoFamilyVariant[]; nextUrl: string | null; totalEstimate: number | null } = await listFamilyVariants(family.code, nextUrl, 100).catch(() => ({
+          items: [] as AkeneoFamilyVariant[],
+          nextUrl: null,
+          totalEstimate: null,
+        }))
+        familyVariants.push(...page.items.map((familyVariant) => ({
+          familyCode: family.code,
+          code: familyVariant.code,
+          label: labelFromLocalizedRecord(familyVariant.labels ?? null, null, familyVariant.code),
+          axes: dedupeStrings(familyVariant.variant_attribute_sets?.flatMap((set: { axes?: string[] }) => Array.isArray(set.axes) ? set.axes : []) ?? []),
+          attributes: dedupeStrings(familyVariant.variant_attribute_sets?.flatMap((set: { attributes?: string[] }) => Array.isArray(set.attributes) ? set.attributes : []) ?? []),
+        })))
+        nextUrl = page.nextUrl
+      } while (nextUrl)
+    }
 
     return {
       locales: locales.map((locale) => ({
@@ -567,6 +600,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
         label: labelFromLocalizedRecord(family.labels ?? null, null, family.code),
         attributeCount: Array.isArray(family.attributes) ? family.attributes.length : 0,
       })),
+      familyVariants,
       version: probe.version,
     }
   }
@@ -579,6 +613,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     listCategories,
     listAttributes,
     listFamilies,
+    listFamilyVariants,
     listChannels,
     listLocales,
     getCategory,

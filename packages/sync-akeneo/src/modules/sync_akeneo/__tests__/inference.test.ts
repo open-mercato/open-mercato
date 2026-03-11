@@ -66,4 +66,42 @@ describe('akeneo inference', () => {
     )
     expect(inferred.autoPriceAttributeCodes).toEqual(['price'])
   })
+
+  it('does not auto-map attributes that were explicitly marked as skipped', () => {
+    const inferred = inferAkeneoProductMapping({
+      attributes: [
+        { code: 'focus_mode', type: 'pim_catalog_simpleselect', labels: { en_US: 'Focus mode' } },
+        { code: 'packshot', type: 'pim_catalog_image', labels: { en_US: 'Packshot' } },
+      ],
+      family: null,
+      familyVariant: null,
+      fieldMap: {
+        title: 'name',
+        subtitle: 'subtitle',
+        description: 'description',
+        sku: 'sku',
+        barcode: 'ean',
+        weight: 'weight',
+        variantName: 'name',
+      },
+      explicitCustomFieldMappings: [
+        {
+          attributeCode: 'focus_mode',
+          target: 'product',
+          fieldKey: 'focus_mode',
+          skip: true,
+        },
+      ],
+      explicitMediaMappings: [
+        {
+          attributeCode: 'packshot',
+          target: 'product',
+          kind: 'image',
+        },
+      ],
+    })
+
+    expect(inferred.autoCustomFieldMappings).toEqual([])
+    expect(inferred.autoMediaMappings).toEqual([])
+  })
 })
