@@ -25,8 +25,8 @@ const responseSchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['sync_akeneo.configure'] },
-  POST: { requireAuth: true, requireFeatures: ['sync_akeneo.configure'] },
+  GET: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
+  POST: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
 }
 
 export const openApi = {

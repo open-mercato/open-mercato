@@ -5,7 +5,7 @@ const widget: InjectionWidgetModule = {
   metadata: {
     id: 'sync_akeneo.injection.config',
     title: 'Akeneo Sync Settings',
-    features: ['sync_akeneo.configure'],
+    features: ['data_sync.configure'],
     priority: 100,
   },
   Widget: AkeneoConfigWidget,

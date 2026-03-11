@@ -8,7 +8,7 @@ import { createAkeneoClient } from '../../lib/client'
 import { akeneoDiscoveryQuerySchema, akeneoDiscoveryResponseSchema } from '../../data/validators'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['sync_akeneo.configure'] },
+  GET: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
 }
 
 export const openApi = {

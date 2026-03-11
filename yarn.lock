@@ -5690,6 +5690,7 @@ __metadata:
     "@mikro-orm/postgresql": ^6.6.2
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
+    react-dom: ^19.0.0
   languageName: unknown
   linkType: soft
 
