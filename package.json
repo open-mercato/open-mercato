@@ -47,6 +47,7 @@
     "i18n:check-usage": "tsx scripts/i18n-check-usage.ts",
     "i18n:check": "tsx scripts/i18n-check-sync.ts && tsx scripts/i18n-check-usage.ts",
     "i18n:fix": "tsx scripts/i18n-check-sync.ts --fix",
+    "check:dep-versions": "tsx scripts/check-dep-versions.ts",
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
@@ -61,7 +62,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.80",
+    "@ai-sdk/openai": "^3.0.5",
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",
