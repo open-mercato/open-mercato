@@ -1,11 +1,17 @@
 "use client"
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -31,6 +37,22 @@ type ResponsePayload = {
   totalPages: number
 }
 
+type SyncOption = {
+  integrationId: string
+  title: string
+  description?: string | null
+  providerKey?: string | null
+  direction: 'import' | 'export' | 'bidirectional'
+  supportedEntities: string[]
+  hasCredentials: boolean
+  isEnabled: boolean
+  settingsPath: string
+}
+
+type SyncOptionsResponse = {
+  items: SyncOption[]
+}
+
 const STATUS_STYLES: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-800',
   running: 'bg-blue-100 text-blue-800',
@@ -43,15 +65,25 @@ const STATUS_STYLES: Record<string, string> = {
 export default function SyncRunsDashboardPage() {
   const router = useRouter()
   const [rows, setRows] = React.useState<SyncRunRow[]>([])
+  const [options, setOptions] = React.useState<SyncOption[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
+  const [isLoadingOptions, setIsLoadingOptions] = React.useState(true)
+  const [selectedIntegrationId, setSelectedIntegrationId] = React.useState('')
+  const [selectedEntityType, setSelectedEntityType] = React.useState('')
+  const [selectedDirection, setSelectedDirection] = React.useState<'import' | 'export'>('import')
+  const [batchSize, setBatchSize] = React.useState('100')
+  const [fullSync, setFullSync] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'data_sync.dashboard',
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -84,6 +116,57 @@ export default function SyncRunsDashboardPage() {
     load()
     return () => { cancelled = true }
   }, [page, filterValues, reloadToken, scopeVersion, t])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadOptions() {
+      setIsLoadingOptions(true)
+      const fallback: SyncOptionsResponse = { items: [] }
+      const call = await apiCall<SyncOptionsResponse>('/api/data_sync/options', undefined, { fallback })
+      if (!cancelled) {
+        if (!call.ok) {
+          flash(t('data_sync.dashboard.loadError'), 'error')
+          setOptions([])
+          setIsLoadingOptions(false)
+          return
+        }
+
+        const nextItems = Array.isArray(call.result?.items) ? call.result.items : []
+        setOptions(nextItems)
+        setSelectedIntegrationId((current) => {
+          if (current && nextItems.some((item) => item.integrationId === current)) return current
+          return nextItems[0]?.integrationId ?? ''
+        })
+        setIsLoadingOptions(false)
+      }
+    }
+
+    void loadOptions()
+    return () => { cancelled = true }
+  }, [scopeVersion, t])
+
+  const selectedIntegration = React.useMemo(
+    () => options.find((item) => item.integrationId === selectedIntegrationId) ?? null,
+    [options, selectedIntegrationId],
+  )
+
+  const entityOptions = React.useMemo(
+    () => selectedIntegration?.supportedEntities ?? [],
+    [selectedIntegration],
+  )
+
+  React.useEffect(() => {
+    if (!selectedIntegration) {
+      setSelectedEntityType('')
+      return
+    }
+    setSelectedEntityType((current) => (
+      current && selectedIntegration.supportedEntities.includes(current)
+        ? current
+        : (selectedIntegration.supportedEntities[0] ?? '')
+    ))
+    setSelectedDirection(selectedIntegration.direction === 'export' ? 'export' : 'import')
+  }, [selectedIntegration])
 
   const handleCancel = React.useCallback(async (row: SyncRunRow) => {
     const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/cancel`, {
@@ -124,6 +207,56 @@ export default function SyncRunsDashboardPage() {
     setFilterValues({})
     setPage(1)
   }, [])
+
+  const handleStartSync = React.useCallback(async () => {
+    if (!selectedIntegration || !selectedEntityType) return
+
+    const parsedBatchSize = Number.parseInt(batchSize, 10)
+    if (!Number.isFinite(parsedBatchSize) || parsedBatchSize < 1 || parsedBatchSize > 1000) {
+      flash(t('data_sync.dashboard.start.invalidBatchSize', 'Batch size must be between 1 and 1000.'), 'error')
+      return
+    }
+
+    try {
+      const call = await runMutation({
+        operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            integrationId: selectedIntegration.integrationId,
+            entityType: selectedEntityType,
+            direction: selectedDirection,
+            batchSize: parsedBatchSize,
+            fullSync,
+          }),
+        }, { fallback: null }),
+        mutationPayload: {
+          integrationId: selectedIntegration.integrationId,
+          entityType: selectedEntityType,
+          direction: selectedDirection,
+          batchSize: parsedBatchSize,
+          fullSync,
+        },
+        context: {
+          operation: 'create',
+          actionId: 'start-sync-run',
+          integrationId: selectedIntegration.integrationId,
+        },
+      })
+
+      if (!call.ok || !call.result?.id) {
+        flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.start.error', 'Failed to start sync run'), 'error')
+        return
+      }
+
+      flash(t('data_sync.dashboard.start.success', 'Sync run started'), 'success')
+      setReloadToken((token) => token + 1)
+      router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('data_sync.dashboard.start.error', 'Failed to start sync run')
+      flash(message, 'error')
+    }
+  }, [batchSize, fullSync, router, runMutation, selectedDirection, selectedEntityType, selectedIntegration, t])
 
   const filters: FilterDef[] = [
     {
@@ -198,9 +331,123 @@ export default function SyncRunsDashboardPage() {
     },
   ], [t])
 
+  const canStartSelectedIntegration = Boolean(
+    selectedIntegration
+    && selectedEntityType
+    && selectedIntegration.isEnabled
+    && selectedIntegration.hasCredentials,
+  )
+
   return (
     <Page>
-      <PageBody>
+      <PageBody className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('data_sync.dashboard.title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 lg:grid-cols-5">
+              <div className="space-y-2 lg:col-span-2">
+                <label className="text-sm font-medium">{t('data_sync.dashboard.columns.integration')}</label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedIntegrationId}
+                  onChange={(event) => setSelectedIntegrationId(event.target.value)}
+                  disabled={isLoadingOptions || options.length === 0}
+                >
+                  {options.length === 0 ? (
+                    <option value="">{t('integrations.marketplace.noResults', 'No integrations found')}</option>
+                  ) : null}
+                  {options.map((item) => (
+                    <option key={item.integrationId} value={item.integrationId}>
+                      {item.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('data_sync.dashboard.columns.entityType')}</label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedEntityType}
+                  onChange={(event) => setSelectedEntityType(event.target.value)}
+                  disabled={entityOptions.length === 0}
+                >
+                  {entityOptions.map((entityType) => (
+                    <option key={entityType} value={entityType}>
+                      {entityType}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('data_sync.dashboard.columns.direction')}</label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedDirection}
+                  onChange={(event) => setSelectedDirection(event.target.value === 'export' ? 'export' : 'import')}
+                  disabled={selectedIntegration?.direction !== 'bidirectional'}
+                >
+                  <option value="import">{t('data_sync.dashboard.direction.import')}</option>
+                  {(selectedIntegration?.direction === 'bidirectional' || selectedIntegration?.direction === 'export') ? (
+                    <option value="export">{t('data_sync.dashboard.direction.export')}</option>
+                  ) : null}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{t('data_sync.dashboard.start.batchSize', 'Batch size')}</label>
+                <Input
+                  value={batchSize}
+                  onChange={(event) => setBatchSize(event.target.value)}
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={fullSync}
+                  onChange={(event) => setFullSync(event.target.checked)}
+                />
+                <span>{t('data_sync.dashboard.start.fullSync', 'Run as full sync')}</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {selectedIntegration ? (
+                  <Button asChild variant="outline">
+                    <Link href={selectedIntegration.settingsPath}>
+                      {t('integrations.marketplace.configure')}
+                    </Link>
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  onClick={() => void handleStartSync()}
+                  disabled={!canStartSelectedIntegration}
+                >
+                  {t('data_sync.dashboard.start.submit', 'Start sync')}
+                </Button>
+              </div>
+            </div>
+
+            {selectedIntegration?.description ? (
+              <p className="text-sm text-muted-foreground">{selectedIntegration.description}</p>
+            ) : null}
+
+            {selectedIntegration && !selectedIntegration.isEnabled ? (
+              <Notice compact variant="warning">
+                {t('integrations.detail.state.disabled', 'This integration is disabled. Enable it on the integration settings page before starting a sync.')}
+              </Notice>
+            ) : null}
+            {selectedIntegration && !selectedIntegration.hasCredentials ? (
+              <Notice compact variant="warning">
+                {t('integrations.detail.credentials.notConfigured', 'Credentials are not configured yet. Save the integration credentials before starting a sync.')}
+              </Notice>
+            ) : null}
+          </CardContent>
+        </Card>
+
         <DataTable
           title={t('data_sync.dashboard.title')}
           columns={columns}

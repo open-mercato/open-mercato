@@ -60,7 +60,7 @@ export async function GET(req: Request) {
         company: integration.company ?? null,
         version: integration.version ?? null,
         hasCredentials: Boolean(resolvedCredentials),
-        isEnabled: state?.isEnabled ?? true,
+        isEnabled: state?.isEnabled ?? false,
         apiVersion: state?.apiVersion ?? null,
       }
     }),

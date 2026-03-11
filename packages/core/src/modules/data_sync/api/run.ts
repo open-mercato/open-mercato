@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { ProgressService } from '../../progress/lib/progressService'
+import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
 import { getSyncQueue } from '../lib/queue'
+import { getDataSyncAdapter } from '../lib/adapter-registry'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['data_sync.run'] },
@@ -30,10 +33,30 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
   const progressService = container.resolve('progressService') as ProgressService
+  const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
 
   const scope = {
     organizationId: auth.orgId as string,
     tenantId: auth.tenantId,
+  }
+
+  const integration = getIntegration(parsed.data.integrationId)
+  if (!integration?.providerKey) {
+    return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
+  }
+
+  const adapter = getDataSyncAdapter(integration.providerKey)
+  if (!adapter) {
+    return NextResponse.json({ error: 'No registered sync adapter for provider' }, { status: 404 })
+  }
+
+  if (!adapter.supportedEntities.includes(parsed.data.entityType)) {
+    return NextResponse.json({ error: 'Unsupported entity type for this integration' }, { status: 422 })
+  }
+
+  const integrationState = await integrationStateService.get(parsed.data.integrationId, scope)
+  if (!(integrationState?.isEnabled ?? false)) {
+    return NextResponse.json({ error: 'Integration is disabled' }, { status: 409 })
   }
 
   const overlap = await syncRunService.findRunningOverlap(

@@ -38,7 +38,7 @@ export function createIntegrationStateService(em: EntityManager) {
 
       const created = em.create(IntegrationState, {
         integrationId,
-        isEnabled: input.isEnabled ?? true,
+        isEnabled: input.isEnabled ?? false,
         apiVersion: input.apiVersion,
         reauthRequired: input.reauthRequired ?? false,
         lastHealthStatus: input.lastHealthStatus,

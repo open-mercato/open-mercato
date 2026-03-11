@@ -67,7 +67,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       getBundleIntegrations(integration.bundleId).map(async (item) => {
         const itemState = await stateService.get(item.id, scope)
         const resolvedState = {
-          isEnabled: itemState?.isEnabled ?? true,
+          isEnabled: itemState?.isEnabled ?? false,
           apiVersion: itemState?.apiVersion ?? null,
           reauthRequired: itemState?.reauthRequired ?? false,
           lastHealthStatus: itemState?.lastHealthStatus ?? null,
@@ -99,7 +99,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       bundle,
       bundleIntegrations,
       state: {
-        isEnabled: state?.isEnabled ?? true,
+        isEnabled: state?.isEnabled ?? false,
         apiVersion: state?.apiVersion ?? null,
         reauthRequired: state?.reauthRequired ?? false,
         lastHealthStatus: state?.lastHealthStatus ?? null,

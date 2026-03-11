@@ -17,7 +17,6 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { buildDefaultAkeneoMapping, buildProductFieldMappings, normalizeAkeneoMapping, type AkeneoReconciliationSettings } from '../../../lib/shared'
 import type { AkeneoDiscoveryResponse } from '../../../data/validators'
 
@@ -41,6 +40,50 @@ type CustomFieldRow = {
   target: 'product' | 'variant'
   fieldKey: string
   kind: '' | 'text' | 'multiline' | 'integer' | 'float' | 'boolean' | 'select'
+}
+
+type PriceMappingRow = {
+  attributeCode: string
+  priceKindCode: string
+  akeneoChannel: string
+  localChannelCode: string
+}
+
+type MediaMappingRow = {
+  attributeCode: string
+  target: 'product' | 'variant'
+  kind: 'image' | 'file'
+}
+
+type SyncScheduleRecord = {
+  id: string
+  entityType: string
+  scheduleType: 'cron' | 'interval'
+  scheduleValue: string
+  timezone: string
+  fullSync: boolean
+  isEnabled: boolean
+  lastRunAt: string | null
+}
+
+type SyncScheduleResponse = {
+  items?: SyncScheduleRecord[]
+}
+
+type ScheduleEditorState = {
+  id?: string
+  scheduleType: 'cron' | 'interval'
+  scheduleValue: string
+  timezone: string
+  fullSync: boolean
+  isEnabled: boolean
+  lastRunAt: string | null
+}
+
+type AkeneoWidgetContext = {
+  state?: {
+    isEnabled?: boolean
+  } | null
 }
 
 type FormState = {
@@ -78,6 +121,42 @@ const PRODUCT_FIELD_KEYS: Array<{
   { key: 'barcode', label: 'Barcode attribute', help: 'Optional barcode/EAN source.' },
   { key: 'weight', label: 'Weight attribute', help: 'Metric attribute used for product and default-variant weight.' },
   { key: 'variantName', label: 'Variant label attribute', help: 'Fallback label for generated variant names.' },
+]
+
+const DEFAULT_WIDGET_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+
+const SYNC_TARGETS: Array<{
+  entityType: 'categories' | 'attributes' | 'products'
+  label: string
+  description: string
+  defaultScheduleType: 'cron' | 'interval'
+  defaultScheduleValue: string
+  defaultFullSync: boolean
+}> = [
+  {
+    entityType: 'categories',
+    label: 'Categories',
+    description: 'Create or refresh the Akeneo category tree before other imports.',
+    defaultScheduleType: 'interval',
+    defaultScheduleValue: '6h',
+    defaultFullSync: true,
+  },
+  {
+    entityType: 'attributes',
+    label: 'Attributes',
+    description: 'Sync family-driven schemas and mapped Akeneo custom fields.',
+    defaultScheduleType: 'interval',
+    defaultScheduleValue: '6h',
+    defaultFullSync: true,
+  },
+  {
+    entityType: 'products',
+    label: 'Products',
+    description: 'Import products, variants, prices, offers, media, and associations.',
+    defaultScheduleType: 'interval',
+    defaultScheduleValue: '1h',
+    defaultFullSync: false,
+  },
 ]
 
 function buildInitialState(): FormState {
@@ -194,6 +273,89 @@ function serializeCustomFieldRows(rows: CustomFieldRow[]): string {
     .join('\n')
 }
 
+function parsePriceMappingRows(value: string): PriceMappingRow[] {
+  return parseRows(value)
+    .map(([attributeCode, priceKindCode, akeneoChannel, localChannelCode]) => ({
+      attributeCode,
+      priceKindCode,
+      akeneoChannel: akeneoChannel ?? '',
+      localChannelCode,
+    }))
+    .filter((row) => (
+      row.attributeCode.length > 0
+      || row.priceKindCode.length > 0
+      || row.akeneoChannel.length > 0
+      || row.localChannelCode.length > 0
+    ))
+}
+
+function serializePriceMappingRows(rows: PriceMappingRow[]): string {
+  return rows
+    .filter((row) => (
+      row.attributeCode.trim().length > 0
+      && row.priceKindCode.trim().length > 0
+      && row.localChannelCode.trim().length > 0
+    ))
+    .map((row) => [
+      row.attributeCode.trim(),
+      row.priceKindCode.trim(),
+      row.akeneoChannel.trim(),
+      row.localChannelCode.trim(),
+    ].join(','))
+    .join('\n')
+}
+
+function parseMediaMappingRows(value: string): MediaMappingRow[] {
+  return parseRows(value)
+    .map(([attributeCode, target, kind]) => ({
+      attributeCode,
+      target: target === 'variant' ? 'variant' : 'product',
+      kind: kind === 'file' ? 'file' : 'image',
+    }))
+    .filter((row) => row.attributeCode.length > 0)
+}
+
+function serializeMediaMappingRows(rows: MediaMappingRow[]): string {
+  return rows
+    .filter((row) => row.attributeCode.trim().length > 0)
+    .map((row) => `${row.attributeCode.trim()},${row.target},${row.kind}`)
+    .join('\n')
+}
+
+function buildDefaultScheduleState(entityType: (typeof SYNC_TARGETS)[number]['entityType']): ScheduleEditorState {
+  const target = SYNC_TARGETS.find((item) => item.entityType === entityType)
+  return {
+    scheduleType: target?.defaultScheduleType ?? 'interval',
+    scheduleValue: target?.defaultScheduleValue ?? '1h',
+    timezone: DEFAULT_WIDGET_TIMEZONE,
+    fullSync: target?.defaultFullSync ?? false,
+    isEnabled: true,
+    lastRunAt: null,
+  }
+}
+
+function buildScheduleEditors(records: SyncScheduleRecord[] | undefined): Record<string, ScheduleEditorState> {
+  return Object.fromEntries(
+    SYNC_TARGETS.map((target) => {
+      const record = records?.find((item) => item.entityType === target.entityType)
+      return [
+        target.entityType,
+        record
+          ? {
+            id: record.id,
+            scheduleType: record.scheduleType,
+            scheduleValue: record.scheduleValue,
+            timezone: record.timezone,
+            fullSync: record.fullSync,
+            isEnabled: record.isEnabled,
+            lastRunAt: record.lastRunAt,
+          }
+          : buildDefaultScheduleState(target.entityType),
+      ]
+    }),
+  )
+}
+
 function normalizeFieldKey(value: string): string {
   return value
     .trim()
@@ -219,9 +381,10 @@ function inferCustomFieldKind(attributeType: string): CustomFieldRow['kind'] {
   return 'text'
 }
 
-export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps) {
+export default function AkeneoConfigWidget(props: InjectionWidgetComponentProps<AkeneoWidgetContext>) {
   const t = useT()
   const [state, setState] = React.useState<FormState>(() => buildInitialState())
+  const [schedules, setSchedules] = React.useState<Record<string, ScheduleEditorState>>(() => buildScheduleEditors(undefined))
   const [discovery, setDiscovery] = React.useState<AkeneoDiscoveryResponse | null>(null)
   const [customFieldStatus, setCustomFieldStatus] = React.useState<CustomFieldStatusResponse | null>(null)
   const [customFieldDialogOpen, setCustomFieldDialogOpen] = React.useState(false)
@@ -229,16 +392,21 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
   const [isCreatingCustomFields, setIsCreatingCustomFields] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
+  const [runningEntityType, setRunningEntityType] = React.useState<string | null>(null)
+  const [savingScheduleEntityType, setSavingScheduleEntityType] = React.useState<string | null>(null)
+  const [deletingScheduleEntityType, setDeletingScheduleEntityType] = React.useState<string | null>(null)
+  const integrationEnabled = props.context?.state?.isEnabled ?? false
 
   const load = React.useCallback(async (refresh = false) => {
     setIsLoading(true)
     try {
-      const [discoveryCall, productsCall, categoriesCall, attributesCall, customFieldsCall] = await Promise.all([
+      const [discoveryCall, productsCall, categoriesCall, attributesCall, customFieldsCall, schedulesCall] = await Promise.all([
         apiCall<AkeneoDiscoveryResponse>(`/api/sync_akeneo/discovery${refresh ? '?refresh=true' : ''}`),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=products&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=categories&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=attributes&page=1&pageSize=1'),
         apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields'),
+        apiCall<SyncScheduleResponse>('/api/data_sync/schedules?integrationId=sync_akeneo&page=1&pageSize=20'),
       ])
 
       const nextState = mergeMappingsIntoState(
@@ -251,6 +419,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
       setState(nextState)
       setDiscovery(discoveryCall.result ?? null)
       setCustomFieldStatus(customFieldsCall.result ?? null)
+      setSchedules(buildScheduleEditors(schedulesCall.result?.items))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load Akeneo configuration'
       flash(message, 'error')
@@ -271,6 +440,14 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
     () => parseCustomFieldRows(state.customFieldMappings),
     [state.customFieldMappings],
   )
+  const priceMappingRows = React.useMemo(
+    () => parsePriceMappingRows(state.priceMappings),
+    [state.priceMappings],
+  )
+  const mediaMappingRows = React.useMemo(
+    () => parseMediaMappingRows(state.mediaMappings),
+    [state.mediaMappings],
+  )
   const productFieldKeys = React.useMemo(
     () => new Set(customFieldStatus?.productKeys ?? []),
     [customFieldStatus],
@@ -287,10 +464,6 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
         : !variantFieldKeys.has(row.fieldKey.trim())
     }).length,
     [customFieldRows, productFieldKeys, variantFieldKeys],
-  )
-  const mappedAttributeCodes = React.useMemo(
-    () => new Set(customFieldRows.map((row) => row.attributeCode).filter((value) => value.length > 0)),
-    [customFieldRows],
   )
   const editorMappedAttributeCodes = React.useMemo(
     () => new Set(customFieldEditorRows.map((row) => row.attributeCode).filter((value) => value.length > 0)),
@@ -367,6 +540,135 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
       customFieldMappings: serializeCustomFieldRows(customFieldEditorRows),
     }))
     setCustomFieldDialogOpen(false)
+  }
+
+  function updatePriceMappingRows(nextRows: PriceMappingRow[]) {
+    setState((current) => ({
+      ...current,
+      priceMappings: serializePriceMappingRows(nextRows),
+    }))
+  }
+
+  function updateMediaMappingRows(nextRows: MediaMappingRow[]) {
+    setState((current) => ({
+      ...current,
+      mediaMappings: serializeMediaMappingRows(nextRows),
+    }))
+  }
+
+  function updateScheduleEditor(entityType: string, patch: Partial<ScheduleEditorState>) {
+    setSchedules((current) => ({
+      ...current,
+      [entityType]: {
+        ...(current[entityType] ?? buildDefaultScheduleState(entityType as (typeof SYNC_TARGETS)[number]['entityType'])),
+        ...patch,
+      },
+    }))
+  }
+
+  async function startSync(entityType: (typeof SYNC_TARGETS)[number]['entityType']) {
+    if (!integrationEnabled) {
+      flash(t('sync_akeneo.run.integrationDisabled', 'Enable the integration before starting a sync run.'), 'error')
+      return
+    }
+
+    setRunningEntityType(entityType)
+    try {
+      const scheduleState = schedules[entityType] ?? buildDefaultScheduleState(entityType)
+      const result = await apiCall<{ id: string }>('/api/data_sync/run', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          integrationId: 'sync_akeneo',
+          entityType,
+          direction: 'import',
+          fullSync: scheduleState.fullSync,
+          batchSize: 100,
+        }),
+      })
+
+      if (!result.ok) {
+        throw new Error((result.result as { error?: string } | null)?.error ?? 'Failed to start Akeneo sync')
+      }
+
+      flash(t('sync_akeneo.run.started', `${entityType} sync started. Open Data Sync to track progress.`), 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start Akeneo sync'
+      flash(message, 'error')
+    } finally {
+      setRunningEntityType(null)
+    }
+  }
+
+  async function saveSchedule(entityType: (typeof SYNC_TARGETS)[number]['entityType']) {
+    const scheduleState = schedules[entityType] ?? buildDefaultScheduleState(entityType)
+    setSavingScheduleEntityType(entityType)
+    try {
+      const result = await apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          integrationId: 'sync_akeneo',
+          entityType,
+          direction: 'import',
+          scheduleType: scheduleState.scheduleType,
+          scheduleValue: scheduleState.scheduleValue,
+          timezone: scheduleState.timezone,
+          fullSync: scheduleState.fullSync,
+          isEnabled: scheduleState.isEnabled,
+        }),
+      })
+
+      if (!result.ok || !result.result) {
+        throw new Error((result.result as { error?: string } | null)?.error ?? 'Failed to save schedule')
+      }
+
+      updateScheduleEditor(entityType, {
+        id: result.result.id,
+        scheduleType: result.result.scheduleType,
+        scheduleValue: result.result.scheduleValue,
+        timezone: result.result.timezone,
+        fullSync: result.result.fullSync,
+        isEnabled: result.result.isEnabled,
+        lastRunAt: result.result.lastRunAt,
+      })
+      flash(t('sync_akeneo.schedule.saved', `${entityType} schedule saved.`), 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save schedule'
+      flash(message, 'error')
+    } finally {
+      setSavingScheduleEntityType(null)
+    }
+  }
+
+  async function deleteSchedule(entityType: (typeof SYNC_TARGETS)[number]['entityType']) {
+    const scheduleState = schedules[entityType]
+    if (!scheduleState?.id) {
+      updateScheduleEditor(entityType, buildDefaultScheduleState(entityType))
+      return
+    }
+
+    setDeletingScheduleEntityType(entityType)
+    try {
+      const result = await apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleState.id)}`, {
+        method: 'DELETE',
+      })
+
+      if (!result.ok) {
+        throw new Error((result.result as { error?: string } | null)?.error ?? 'Failed to delete schedule')
+      }
+
+      setSchedules((current) => ({
+        ...current,
+        [entityType]: buildDefaultScheduleState(entityType),
+      }))
+      flash(t('sync_akeneo.schedule.deleted', `${entityType} schedule removed.`), 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete schedule'
+      flash(message, 'error')
+    } finally {
+      setDeletingScheduleEntityType(null)
+    }
   }
 
   async function saveMappings() {
@@ -543,6 +845,145 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
       </div>
 
       <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold">{t('sync_akeneo.run.heading', 'Run and schedule syncs')}</h3>
+          <p className="text-sm text-muted-foreground">
+            {t('sync_akeneo.run.help', 'Start the first import directly from here, then save recurring runs per entity without leaving the Akeneo settings page.')}
+          </p>
+        </div>
+
+        {!integrationEnabled ? (
+          <Notice compact variant="warning">
+            {t('sync_akeneo.run.integrationDisabled', 'Enable the integration first. Saved schedules stay here, but disabled integrations do not run until you switch them on.')}
+          </Notice>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          {SYNC_TARGETS.map((target, index) => {
+            const scheduleState = schedules[target.entityType] ?? buildDefaultScheduleState(target.entityType)
+            const isRunning = runningEntityType === target.entityType
+            const isSavingSchedule = savingScheduleEntityType === target.entityType
+            const isDeletingSchedule = deletingScheduleEntityType === target.entityType
+            return (
+              <div key={target.entityType} className="space-y-4 rounded-lg border p-4">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-medium">
+                      {index + 1}. {t(`sync_akeneo.run.targets.${target.entityType}.title`, target.label)}
+                    </h4>
+                    <span className={`rounded-full px-2 py-1 text-[11px] ${scheduleState.isEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-muted text-muted-foreground'}`}>
+                      {scheduleState.id
+                        ? (scheduleState.isEnabled ? t('sync_akeneo.schedule.status.enabled', 'Scheduled') : t('sync_akeneo.schedule.status.disabled', 'Paused'))
+                        : t('sync_akeneo.schedule.status.notConfigured', 'No schedule')}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {t(`sync_akeneo.run.targets.${target.entityType}.description`, target.description)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {scheduleState.lastRunAt
+                      ? t('sync_akeneo.schedule.lastRun', `Last run: ${new Date(scheduleState.lastRunAt).toLocaleString()}`)
+                      : t('sync_akeneo.schedule.notRunYet', 'No successful scheduled run yet.')}
+                  </p>
+                </div>
+
+                <div className="grid gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor={`akeneo-schedule-type-${target.entityType}`}>{t('sync_akeneo.schedule.type', 'Schedule type')}</Label>
+                    <select
+                      id={`akeneo-schedule-type-${target.entityType}`}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={scheduleState.scheduleType}
+                      onChange={(event) => updateScheduleEditor(target.entityType, {
+                        scheduleType: event.target.value === 'cron' ? 'cron' : 'interval',
+                      })}
+                      disabled={isLoading || isSavingSchedule || isDeletingSchedule}
+                    >
+                      <option value="interval">{t('sync_akeneo.schedule.interval', 'Interval')}</option>
+                      <option value="cron">{t('sync_akeneo.schedule.cron', 'Cron')}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`akeneo-schedule-value-${target.entityType}`}>
+                      {scheduleState.scheduleType === 'cron'
+                        ? t('sync_akeneo.schedule.cronValue', 'Cron expression')
+                        : t('sync_akeneo.schedule.intervalValue', 'Interval')}
+                    </Label>
+                    <Input
+                      id={`akeneo-schedule-value-${target.entityType}`}
+                      value={scheduleState.scheduleValue}
+                      onChange={(event) => updateScheduleEditor(target.entityType, { scheduleValue: event.target.value })}
+                      disabled={isLoading || isSavingSchedule || isDeletingSchedule}
+                      placeholder={scheduleState.scheduleType === 'cron' ? '0 * * * *' : '1h'}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`akeneo-schedule-timezone-${target.entityType}`}>{t('sync_akeneo.schedule.timezone', 'Timezone')}</Label>
+                    <Input
+                      id={`akeneo-schedule-timezone-${target.entityType}`}
+                      value={scheduleState.timezone}
+                      onChange={(event) => updateScheduleEditor(target.entityType, { timezone: event.target.value })}
+                      disabled={isLoading || isSavingSchedule || isDeletingSchedule}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={scheduleState.fullSync}
+                      onChange={(event) => updateScheduleEditor(target.entityType, { fullSync: event.target.checked })}
+                      disabled={isLoading || isSavingSchedule || isDeletingSchedule}
+                    />
+                    <span>{t('sync_akeneo.schedule.fullSync', 'Run full sync')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={scheduleState.isEnabled}
+                      onChange={(event) => updateScheduleEditor(target.entityType, { isEnabled: event.target.checked })}
+                      disabled={isLoading || isSavingSchedule || isDeletingSchedule}
+                    />
+                    <span>{t('sync_akeneo.schedule.enabled', 'Schedule enabled')}</span>
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => void startSync(target.entityType)}
+                    disabled={isLoading || isRunning || !integrationEnabled}
+                  >
+                    {isRunning
+                      ? t('sync_akeneo.run.starting', 'Starting...')
+                      : t('sync_akeneo.run.start', 'Start now')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void saveSchedule(target.entityType)}
+                    disabled={isLoading || isSavingSchedule}
+                  >
+                    {isSavingSchedule
+                      ? t('sync_akeneo.schedule.saving', 'Saving...')
+                      : t('sync_akeneo.schedule.save', 'Save schedule')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void deleteSchedule(target.entityType)}
+                    disabled={isLoading || isDeletingSchedule || !scheduleState.id}
+                  >
+                    {isDeletingSchedule
+                      ? t('sync_akeneo.schedule.deleting', 'Deleting...')
+                      : t('sync_akeneo.schedule.delete', 'Remove')}
+                  </Button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold">{t('sync_akeneo.mapping.heading', 'Field mapping')}</h3>
@@ -641,7 +1082,7 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
             <div className="grid gap-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="akeneo-custom-fields">{t('sync_akeneo.mapping.customFields', 'Custom field mappings')}</Label>
+                  <Label>{t('sync_akeneo.mapping.customFields', 'Custom field mappings')}</Label>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button type="button" variant="outline" onClick={() => openCustomFieldDialog()} disabled={isLoading || isSaving}>
                       {t('sync_akeneo.mapping.customFields.editor', 'Open editor')}
@@ -653,17 +1094,41 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                     </Button>
                   </div>
                 </div>
-                <Textarea
-                  id="akeneo-custom-fields"
-                  value={state.customFieldMappings}
-                  onChange={(event) => setState((current) => ({ ...current, customFieldMappings: event.target.value }))}
-                  disabled={isLoading || isSaving}
-                  rows={6}
-                  placeholder={'material,product,akeneo_material,select\ncare_instructions,variant,akeneo_care_instructions,multiline'}
-                />
                 <p className="text-xs text-muted-foreground">
                   {t('sync_akeneo.mapping.customFields.help', 'One mapping per line: attribute_code,target(product|variant),field_key[,kind]. The importer creates or updates Open Mercato custom field definitions and stores Akeneo metadata, validation rules, and groups on those fields.')}
                 </p>
+                {customFieldRows.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border p-3">
+                    {customFieldRows.map((row) => {
+                      const exists = row.target === 'product'
+                        ? productFieldKeys.has(row.fieldKey.trim())
+                        : variantFieldKeys.has(row.fieldKey.trim())
+                      return (
+                        <div key={`${row.attributeCode}:${row.fieldKey}`} className="grid gap-2 rounded-md border p-3 md:grid-cols-[1fr_auto_1fr_auto] md:items-center">
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('sync_akeneo.mapping.from', 'From')}</div>
+                            <div className="text-sm font-medium">{row.attributeCode}</div>
+                          </div>
+                          <div className="text-center text-muted-foreground">→</div>
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-muted-foreground">{t('sync_akeneo.mapping.to', 'To')}</div>
+                            <div className="text-sm font-medium">{row.target}.{row.fieldKey}</div>
+                            <div className="text-xs text-muted-foreground">{row.kind || t('sync_akeneo.customFields.kinds.auto', 'Auto')}</div>
+                          </div>
+                          <div className={`rounded-full px-2 py-1 text-[11px] ${exists ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                            {exists
+                              ? t('sync_akeneo.customFields.status.ready', 'Exists')
+                              : t('sync_akeneo.customFields.status.missing', 'Missing')}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <Notice compact>
+                    {t('sync_akeneo.customFields.empty', 'No Akeneo custom fields are mapped yet. Use the editor to add structured mappings.')}
+                  </Notice>
+                )}
                 {customFieldRows.length > 0 ? (
                   <div className="flex flex-wrap gap-2 text-xs">
                     <span className="rounded border px-2 py-1">
@@ -678,32 +1143,178 @@ export default function AkeneoConfigWidget(_props: InjectionWidgetComponentProps
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="akeneo-prices">{t('sync_akeneo.mapping.prices', 'Price and offer mappings')}</Label>
-                <Textarea
-                  id="akeneo-prices"
-                  value={state.priceMappings}
-                  onChange={(event) => setState((current) => ({ ...current, priceMappings: event.target.value }))}
-                  disabled={isLoading || isSaving}
-                  rows={5}
-                  placeholder={'price,regular,ecommerce,web\nsale_price,sale,ecommerce,web'}
-                />
+                <div className="flex items-center justify-between gap-3">
+                  <Label>{t('sync_akeneo.mapping.prices', 'Price and offer mappings')}</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => updatePriceMappingRows([
+                      ...priceMappingRows,
+                      { attributeCode: '', priceKindCode: '', akeneoChannel: '', localChannelCode: '' },
+                    ])}
+                    disabled={isLoading || isSaving}
+                  >
+                    {t('sync_akeneo.mapping.addRow', 'Add row')}
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {t('sync_akeneo.mapping.prices.help', 'One mapping per line: price_attribute,price_kind_code,akeneo_channel,local_channel_code. Each distinct local channel creates or updates an offer, and each price collection entry becomes a Catalog Product Price in the matching currency.')}
                 </p>
+                <div className="space-y-2 rounded-lg border p-3">
+                  {priceMappingRows.length > 0 ? priceMappingRows.map((row, index) => (
+                    <div key={`price-mapping-${index}`} className="grid gap-2 rounded-md border p-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr_auto] lg:items-end">
+                      <div className="space-y-1">
+                        <Label>{t('sync_akeneo.mapping.from', 'From')}</Label>
+                        <Input
+                          list="akeneo-attributes"
+                          value={row.attributeCode}
+                          onChange={(event) => {
+                            const nextRows = [...priceMappingRows]
+                            nextRows[index] = { ...row, attributeCode: event.target.value }
+                            updatePriceMappingRows(nextRows)
+                          }}
+                          disabled={isLoading || isSaving}
+                        />
+                      </div>
+                      <div className="pb-2 text-center text-muted-foreground">→</div>
+                      <div className="space-y-1">
+                        <Label>{t('sync_akeneo.mapping.priceKind', 'Price kind')}</Label>
+                        <Input
+                          value={row.priceKindCode}
+                          onChange={(event) => {
+                            const nextRows = [...priceMappingRows]
+                            nextRows[index] = { ...row, priceKindCode: event.target.value }
+                            updatePriceMappingRows(nextRows)
+                          }}
+                          disabled={isLoading || isSaving}
+                        />
+                      </div>
+                      <div className="pb-2 text-center text-muted-foreground">@</div>
+                      <div className="space-y-1">
+                        <Label>{t('sync_akeneo.mapping.akeneoChannel', 'Akeneo channel')}</Label>
+                        <Input
+                          list="akeneo-channels"
+                          value={row.akeneoChannel}
+                          onChange={(event) => {
+                            const nextRows = [...priceMappingRows]
+                            nextRows[index] = { ...row, akeneoChannel: event.target.value }
+                            updatePriceMappingRows(nextRows)
+                          }}
+                          disabled={isLoading || isSaving}
+                          placeholder={t('sync_akeneo.mapping.channelPlaceholder', 'Optional')}
+                        />
+                      </div>
+                      <div className="pb-2 text-center text-muted-foreground">→</div>
+                      <div className="space-y-1">
+                        <Label>{t('sync_akeneo.mapping.localChannel', 'Open Mercato channel')}</Label>
+                        <Input
+                          value={row.localChannelCode}
+                          onChange={(event) => {
+                            const nextRows = [...priceMappingRows]
+                            nextRows[index] = { ...row, localChannelCode: event.target.value }
+                            updatePriceMappingRows(nextRows)
+                          }}
+                          disabled={isLoading || isSaving}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => updatePriceMappingRows(priceMappingRows.filter((_, rowIndex) => rowIndex !== index))}
+                        disabled={isLoading || isSaving}
+                      >
+                        {t('sync_akeneo.customFields.actions.remove', 'Remove')}
+                      </Button>
+                    </div>
+                  )) : (
+                    <Notice compact>
+                      {t('sync_akeneo.mapping.emptyPrices', 'No price mappings configured yet.')}
+                    </Notice>
+                  )}
+                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="akeneo-media">{t('sync_akeneo.mapping.media', 'Media and attachment mappings')}</Label>
-                <Textarea
-                  id="akeneo-media"
-                  value={state.mediaMappings}
-                  onChange={(event) => setState((current) => ({ ...current, mediaMappings: event.target.value }))}
-                  disabled={isLoading || isSaving}
-                  rows={5}
-                  placeholder={'main_image,product,image\nsize_chart,product,file\npackshot,variant,image'}
-                />
+                <div className="flex items-center justify-between gap-3">
+                  <Label>{t('sync_akeneo.mapping.media', 'Media and attachment mappings')}</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => updateMediaMappingRows([
+                      ...mediaMappingRows,
+                      { attributeCode: '', target: 'product', kind: 'image' },
+                    ])}
+                    disabled={isLoading || isSaving}
+                  >
+                    {t('sync_akeneo.mapping.addRow', 'Add row')}
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {t('sync_akeneo.mapping.media.help', 'One mapping per line: attribute_code,target(product|variant),kind(image|file). Image mappings are re-hosted into Open Mercato attachments and can become default media; file mappings are imported as attachments.')}
                 </p>
+                <div className="space-y-2 rounded-lg border p-3">
+                  {mediaMappingRows.length > 0 ? mediaMappingRows.map((row, index) => (
+                    <div key={`media-mapping-${index}`} className="grid gap-2 rounded-md border p-3 lg:grid-cols-[1fr_auto_1fr_1fr_auto] lg:items-end">
+                      <div className="space-y-1">
+                        <Label>{t('sync_akeneo.mapping.from', 'From')}</Label>
+                        <Input
+                          list="akeneo-attributes"
+                          value={row.attributeCode}
+                          onChange={(event) => {
+                            const nextRows = [...mediaMappingRows]
+                            nextRows[index] = { ...row, attributeCode: event.target.value }
+                            updateMediaMappingRows(nextRows)
+                          }}
+                          disabled={isLoading || isSaving}
+                        />
+                      </div>
+                      <div className="pb-2 text-center text-muted-foreground">→</div>
+                      <div className="space-y-1">
+                        <Label>{t('sync_akeneo.customFields.columns.target', 'Target')}</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={row.target}
+                          onChange={(event) => {
+                            const nextRows = [...mediaMappingRows]
+                            nextRows[index] = { ...row, target: event.target.value === 'variant' ? 'variant' : 'product' }
+                            updateMediaMappingRows(nextRows)
+                          }}
+                          disabled={isLoading || isSaving}
+                        >
+                          <option value="product">{t('sync_akeneo.customFields.targets.product', 'Product')}</option>
+                          <option value="variant">{t('sync_akeneo.customFields.targets.variant', 'Variant')}</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('sync_akeneo.customFields.columns.kind', 'Kind')}</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={row.kind}
+                          onChange={(event) => {
+                            const nextRows = [...mediaMappingRows]
+                            nextRows[index] = { ...row, kind: event.target.value === 'file' ? 'file' : 'image' }
+                            updateMediaMappingRows(nextRows)
+                          }}
+                          disabled={isLoading || isSaving}
+                        >
+                          <option value="image">{t('sync_akeneo.mapping.mediaKinds.image', 'Image')}</option>
+                          <option value="file">{t('sync_akeneo.mapping.mediaKinds.file', 'File')}</option>
+                        </select>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => updateMediaMappingRows(mediaMappingRows.filter((_, rowIndex) => rowIndex !== index))}
+                        disabled={isLoading || isSaving}
+                      >
+                        {t('sync_akeneo.customFields.actions.remove', 'Remove')}
+                      </Button>
+                    </div>
+                  )) : (
+                    <Notice compact>
+                      {t('sync_akeneo.mapping.emptyMedia', 'No media mappings configured yet.')}
+                    </Notice>
+                  )}
+                </div>
               </div>
             </div>
 
