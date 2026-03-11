@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { updateEnforcementPolicySchema } from '../../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { mapEnforcementError, resolveEnforcementContext } from '../_shared'
 
 const paramsSchema = z.object({
@@ -24,7 +25,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
   const params = paramsSchema.safeParse(await context.params)
   if (!params.success) {
-    return NextResponse.json({ error: 'Invalid policy id.', issues: params.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid policy id.', { issues: params.error.issues })
   }
 
   let rawBody: unknown
@@ -36,7 +37,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
 
   const parsedBody = updateEnforcementPolicySchema.safeParse(rawBody)
   if (!parsedBody.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsedBody.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsedBody.error.issues })
   }
 
   try {
@@ -50,7 +51,7 @@ export async function PUT(req: Request, context: { params: Promise<{ id: string 
     })
     return NextResponse.json(result)
   } catch (error) {
-    return mapEnforcementError(error)
+    return await mapEnforcementError(error)
   }
 }
 
@@ -60,7 +61,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
 
   const params = paramsSchema.safeParse(await context.params)
   if (!params.success) {
-    return NextResponse.json({ error: 'Invalid policy id.', issues: params.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid policy id.', { issues: params.error.issues })
   }
 
   try {
@@ -71,7 +72,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
     })
     return NextResponse.json(result)
   } catch (error) {
-    return mapEnforcementError(error)
+    return await mapEnforcementError(error)
   }
 }
 

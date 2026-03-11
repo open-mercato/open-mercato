@@ -4,6 +4,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { sudoConfigUpdateSchema } from '../../../../data/validators'
 import { requireSudo } from '../../../../lib/sudo-middleware'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
+import { securityApiError } from '../../../i18n'
 import { mapSudoError, resolveSudoContext, toSudoConfigResponse } from '../../_shared'
 
 const paramsSchema = z.object({
@@ -52,17 +53,17 @@ export async function GET(req: Request, ctx?: RouteContext) {
 
   const parsedParams = await readParams(ctx)
   if (!parsedParams.success) {
-    return NextResponse.json({ error: 'Invalid route parameters', issues: parsedParams.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid route parameters', { issues: parsedParams.error.issues })
   }
 
   try {
     const config = await context.sudoChallengeService.getConfigById(parsedParams.data.id)
     if (!config) {
-      return NextResponse.json({ error: 'Sudo config not found' }, { status: 404 })
+      return securityApiError(404, 'Sudo config not found')
     }
     return NextResponse.json(toSudoConfigResponse(config))
   } catch (error) {
-    return mapSudoError(error)
+    return await mapSudoError(error)
   }
 }
 
@@ -72,7 +73,7 @@ export async function PUT(req: Request, ctx?: RouteContext) {
 
   const parsedParams = await readParams(ctx)
   if (!parsedParams.success) {
-    return NextResponse.json({ error: 'Invalid route parameters', issues: parsedParams.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid route parameters', { issues: parsedParams.error.issues })
   }
 
   let body: unknown
@@ -84,7 +85,7 @@ export async function PUT(req: Request, ctx?: RouteContext) {
 
   const parsedBody = sudoConfigUpdateSchema.safeParse(body)
   if (!parsedBody.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsedBody.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsedBody.error.issues })
   }
 
   try {
@@ -99,7 +100,7 @@ export async function PUT(req: Request, ctx?: RouteContext) {
     })
     return NextResponse.json(result)
   } catch (error) {
-    return mapSudoError(error)
+    return await mapSudoError(error)
   }
 }
 
@@ -109,7 +110,7 @@ export async function DELETE(req: Request, ctx?: RouteContext) {
 
   const parsedParams = await readParams(ctx)
   if (!parsedParams.success) {
-    return NextResponse.json({ error: 'Invalid route parameters', issues: parsedParams.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid route parameters', { issues: parsedParams.error.issues })
   }
 
   try {
@@ -121,7 +122,7 @@ export async function DELETE(req: Request, ctx?: RouteContext) {
     })
     return NextResponse.json(result)
   } catch (error) {
-    return mapSudoError(error)
+    return await mapSudoError(error)
   }
 }
 

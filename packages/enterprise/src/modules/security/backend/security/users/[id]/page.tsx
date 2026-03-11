@@ -2,14 +2,14 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation.js'
-import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import type { ComplianceItem, ComplianceResponse, UserStatus } from '../_shared'
 import SecurityUserForm, { type SecurityUserFormValue } from '../../../../components/SecurityUserForm'
 import { SudoProvider } from '../../../../components/SudoProvider'
@@ -61,29 +61,39 @@ function SecurityUserDetailPageInner({ params }: SecurityUserDetailPageProps) {
 
     setLoading(true)
     setError(null)
-    const [statusResponse, complianceResponse] = await Promise.all([
-      apiCall<UserStatus>(`/api/security/users/${encodeURIComponent(userId)}/mfa/status`),
-      apiCall<ComplianceResponse>('/api/security/users/mfa/compliance'),
-    ])
+    try {
+      const [statusResponse, complianceResponse] = await Promise.all([
+        apiCall<UserStatus>(`/api/security/users/${encodeURIComponent(userId)}/mfa/status`),
+        apiCall<ComplianceResponse>('/api/security/users/mfa/compliance'),
+      ])
 
-    if (!statusResponse.ok || !statusResponse.result) {
+      if (!statusResponse.ok || !statusResponse.result) {
+        setStatus(null)
+        setSummary(null)
+        setError(t('security.admin.users.errors.status', 'Failed to load user MFA status.'))
+        setLoading(false)
+        return
+      }
+
+      const complianceItems = complianceResponse.ok && complianceResponse.result
+        ? complianceResponse.result.items
+        : []
+      const found = Array.isArray(complianceItems)
+        ? complianceItems.find((item) => item.userId === userId) ?? null
+        : null
+
+      setStatus(statusResponse.result)
+      setSummary(found)
+      setLoading(false)
+    } catch (loadError) {
       setStatus(null)
       setSummary(null)
-      setError(t('security.admin.users.errors.status', 'Failed to load user MFA status.'))
+      setError(
+        normalizeCrudServerError(loadError).message
+          ?? t('security.admin.users.errors.status', 'Failed to load user MFA status.'),
+      )
       setLoading(false)
-      return
     }
-
-    const complianceItems = complianceResponse.ok && complianceResponse.result
-      ? complianceResponse.result.items
-      : []
-    const found = Array.isArray(complianceItems)
-      ? complianceItems.find((item) => item.userId === userId) ?? null
-      : null
-
-    setStatus(statusResponse.result)
-    setSummary(found)
-    setLoading(false)
   }, [t, userId])
 
   React.useEffect(() => {
@@ -122,8 +132,12 @@ function SecurityUserDetailPageInner({ params }: SecurityUserDetailPageProps) {
       )
       flash(t('security.admin.users.flash.reset', 'User MFA reset completed.'), 'success')
       await loadDetail()
-    } catch {
-      flash(t('security.admin.users.flash.resetError', 'Failed to reset user MFA.'), 'error')
+    } catch (resetError) {
+      flash(
+        normalizeCrudServerError(resetError).message
+          ?? t('security.admin.users.flash.resetError', 'Failed to reset user MFA.'),
+        'error',
+      )
     } finally {
       setSaving(false)
     }

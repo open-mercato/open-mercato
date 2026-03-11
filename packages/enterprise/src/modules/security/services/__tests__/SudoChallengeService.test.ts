@@ -225,6 +225,82 @@ describe('SudoChallengeService', () => {
     })).resolves.toBe(true)
   })
 
+  test('signs sudo tokens with the active request scope when it differs from the stored user scope', async () => {
+    const { service, mfaService } = createServiceContext()
+    mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
+
+    const initiated = await service.initiate('user-1', 'security.sudo.manage', {
+      targetType: SudoTargetType.FEATURE,
+      tenantId: 'tenant-override',
+      organizationId: 'org-override',
+    })
+
+    const verified = await service.verify(
+      initiated.sessionId!,
+      'totp',
+      { code: '123456' },
+      {
+        expectedUserId: 'user-1',
+        tenantId: 'tenant-override',
+        organizationId: 'org-override',
+        targetType: SudoTargetType.FEATURE,
+        targetIdentifier: 'security.sudo.manage',
+      },
+    )
+
+    await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
+      targetType: SudoTargetType.FEATURE,
+      expectedUserId: 'user-1',
+      tenantId: 'tenant-override',
+      organizationId: 'org-override',
+    })).resolves.toBe(true)
+
+    await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
+      targetType: SudoTargetType.FEATURE,
+      expectedUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })).resolves.toBe(false)
+  })
+
+  test('preserves explicit null request scope when signing sudo tokens', async () => {
+    const { service, mfaService } = createServiceContext()
+    mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
+
+    const initiated = await service.initiate('user-1', 'security.sudo.manage', {
+      targetType: SudoTargetType.FEATURE,
+      tenantId: null,
+      organizationId: null,
+    })
+
+    const verified = await service.verify(
+      initiated.sessionId!,
+      'totp',
+      { code: '123456' },
+      {
+        expectedUserId: 'user-1',
+        tenantId: null,
+        organizationId: null,
+        targetType: SudoTargetType.FEATURE,
+        targetIdentifier: 'security.sudo.manage',
+      },
+    )
+
+    await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
+      targetType: SudoTargetType.FEATURE,
+      expectedUserId: 'user-1',
+      tenantId: null,
+      organizationId: null,
+    })).resolves.toBe(true)
+
+    await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
+      targetType: SudoTargetType.FEATURE,
+      expectedUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })).resolves.toBe(false)
+  })
+
   test('falls back to password when MFA emergency bypass is enabled', async () => {
     const { service, mfaService, mfaVerificationService } = createServiceContext({
       ...defaultSecurityModuleConfig,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { mapMfaError, readJsonRecord, readString, resolveMfaRequestContext } from '../_shared'
 
 const requestSchema = z.object({
@@ -22,21 +23,21 @@ export async function POST(req: Request) {
   if (context instanceof NextResponse) return context
 
   if (context.auth.mfa_pending !== true) {
-    return NextResponse.json({ error: 'MFA pending token is required.' }, { status: 403 })
+    return securityApiError(403, 'MFA pending token is required.')
   }
 
   const body = await readJsonRecord(req)
   const challengeId = readString(body.challengeId)
   const methodType = readString(body.methodType)
   if (!challengeId || !methodType) {
-    return NextResponse.json({ error: 'challengeId and methodType are required.' }, { status: 400 })
+    return securityApiError(400, 'challengeId and methodType are required.')
   }
 
   try {
     const prepared = await context.mfaVerificationService.prepareChallenge(challengeId, methodType)
     return NextResponse.json({ ok: true, ...(prepared.clientData ? { clientData: prepared.clientData } : {}) })
   } catch (error) {
-    return mapMfaError(error)
+    return await mapMfaError(error)
   }
 }
 

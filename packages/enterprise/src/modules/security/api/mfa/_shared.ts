@@ -7,6 +7,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { MfaService, MfaServiceError } from '../../services/MfaService'
 import type { MfaVerificationService, MfaVerificationServiceError } from '../../services/MfaVerificationService'
+import { localizeSecurityApiBody, securityApiError } from '../i18n'
 
 const jsonRecordSchema = z.record(z.string(), z.unknown())
 
@@ -21,7 +22,7 @@ export type MfaRequestContext = {
 export async function resolveMfaRequestContext(req: Request): Promise<MfaRequestContext | NextResponse> {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return securityApiError(401, 'Unauthorized')
   }
 
   const container = await createRequestContainer()
@@ -62,15 +63,15 @@ export function readString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-export function mapMfaError(error: unknown): NextResponse {
+export async function mapMfaError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
-    return NextResponse.json(error.body, { status: error.status })
+    return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
   }
   if (isMfaServiceError(error) || isMfaVerificationServiceError(error)) {
-    return NextResponse.json({ error: error.message }, { status: error.statusCode })
+    return securityApiError(error.statusCode, error.message)
   }
   console.error('security.mfa.route failure', error)
-  return NextResponse.json({ error: 'Failed to process MFA request.' }, { status: 500 })
+  return securityApiError(500, 'Failed to process MFA request.')
 }
 
 function isMfaServiceError(error: unknown): error is MfaServiceError {

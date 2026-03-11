@@ -209,16 +209,32 @@ export class SudoChallengeService {
     sessionId: string,
     methodType: string,
     payload: unknown,
-    options: { targetType?: SudoTargetType; targetIdentifier: string },
+    options: {
+      expectedUserId?: string
+      tenantId?: string | null
+      organizationId?: string | null
+      targetType?: SudoTargetType
+      targetIdentifier: string
+    },
   ): Promise<{ sudoToken: string; expiresAt: Date }> {
     const session = await this.getPendingSession(sessionId)
+    if (options.expectedUserId && session.userId !== options.expectedUserId) {
+      throw new SudoChallengeServiceError('Sudo challenge user mismatch', 403)
+    }
     const user = await this.findUserScope(session.userId)
     if (!user?.tenantId) {
       throw new SudoChallengeServiceError('User not found', 404)
     }
 
     const targetType = options.targetType ?? SudoTargetType.FEATURE
-    const protection = await this.isProtected(targetType, options.targetIdentifier, user.tenantId, user.organizationId)
+    const scopeTenantId = options.tenantId !== undefined ? options.tenantId : user.tenantId
+    const scopeOrganizationId = options.organizationId !== undefined ? options.organizationId : user.organizationId
+    const protection = await this.isProtected(
+      targetType,
+      options.targetIdentifier,
+      scopeTenantId,
+      scopeOrganizationId,
+    )
     if (!protection.protected || !protection.config) {
       throw new SudoChallengeServiceError('Sudo protection is not configured for this target', 404)
     }
@@ -250,8 +266,8 @@ export class SudoChallengeService {
     const sudoToken = this.signToken({
       sid: session.id,
       sub: session.userId,
-      tid: user.tenantId,
-      oid: user.organizationId,
+      tid: scopeTenantId,
+      oid: scopeOrganizationId,
       typ: targetType,
       tgt: options.targetIdentifier,
       exp: expiresAt.getTime(),
@@ -264,8 +280,8 @@ export class SudoChallengeService {
 
     await emitSecurityEvent('security.sudo.verified', {
       userId: session.userId,
-      tenantId: user.tenantId,
-      organizationId: user.organizationId,
+      tenantId: scopeTenantId,
+      organizationId: scopeOrganizationId,
       targetIdentifier: options.targetIdentifier,
       targetType,
       method: methodUsed,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { mapMfaError, resolveMfaRequestContext } from '../_shared'
 
 const providersResponseSchema = z.object({
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
   if (context instanceof NextResponse) return context
 
   if (!context.auth.tenantId) {
-    return NextResponse.json({ error: 'Tenant context is required.' }, { status: 400 })
+    return securityApiError(400, 'Tenant context is required.')
   }
 
   try {
@@ -37,7 +38,7 @@ export async function GET(req: Request) {
     )
     return NextResponse.json({ providers })
   } catch (error) {
-    return mapMfaError(error)
+    return await mapMfaError(error)
   }
 }
 

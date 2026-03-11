@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sudoChallengeVerifySchema } from '../../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { mapSudoError, resolveSudoContext } from '../_shared'
 
 const verifyResponseSchema = z.object({
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
 
   const parsed = sudoChallengeVerifySchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsed.error.issues })
   }
 
   try {
@@ -35,6 +36,9 @@ export async function POST(req: Request) {
       parsed.data.methodType,
       parsed.data.payload,
       {
+        expectedUserId: context.auth.sub,
+        tenantId: context.auth.tenantId,
+        organizationId: context.auth.orgId,
         targetType: parsed.data.targetType,
         targetIdentifier: parsed.data.targetIdentifier,
       },
@@ -44,7 +48,7 @@ export async function POST(req: Request) {
       expiresAt: result.expiresAt.toISOString(),
     })
   } catch (error) {
-    return mapSudoError(error)
+    return await mapSudoError(error)
   }
 }
 

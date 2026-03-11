@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { EnforcementScope } from '../../../data/entities'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { mapEnforcementError, resolveEnforcementContext } from '../_shared'
 
 const complianceQuerySchema = z.object({
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
     scopeId: url.searchParams.get('scopeId') ?? undefined,
   })
   if (!parsedQuery.success) {
-    return NextResponse.json({ error: 'Invalid query parameters', issues: parsedQuery.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid query parameters', { issues: parsedQuery.error.issues })
   }
 
   try {
@@ -46,7 +47,7 @@ export async function GET(req: Request) {
       ...report,
     })
   } catch (error) {
-    return mapEnforcementError(error)
+    return await mapEnforcementError(error)
   }
 }
 

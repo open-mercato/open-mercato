@@ -7,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { changePasswordSchema } from '../../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { localizeSecurityApiBody } from '../../i18n'
 
 const changePasswordResponseSchema = z.object({
   ok: z.literal(true),
@@ -50,7 +51,7 @@ export async function PUT(req: Request) {
   const parsed = changePasswordSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json(
-      { error: translate('api.errors.invalid', 'Invalid payload'), issues: parsed.error.issues },
+      { error: translate('api.errors.invalidPayload', 'Invalid payload.'), issues: parsed.error.issues },
       { status: 400 },
     )
   }
@@ -65,7 +66,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: true })
   } catch (error) {
     if (error instanceof CrudHttpError) {
-      return NextResponse.json(error.body, { status: error.status })
+      return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
     }
     console.error('security.profile.password.update failed', error)
     return NextResponse.json(

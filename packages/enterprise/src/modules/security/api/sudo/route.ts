@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { sudoChallengeInitSchema } from '../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../openapi'
+import { securityApiError } from '../i18n'
 import { mapSudoError, resolveSudoContext } from './_shared'
 
 const sudoStatusResponseSchema = z.object({
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
 
   const parsed = sudoChallengeInitSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsed.error.issues })
   }
 
   try {
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
       expiresAt: result.expiresAt?.toISOString(),
     })
   } catch (error) {
-    return mapSudoError(error)
+    return await mapSudoError(error)
   }
 }
 

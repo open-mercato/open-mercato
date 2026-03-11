@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sudoChallengePrepareSchema } from '../../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { mapSudoError, resolveSudoContext } from '../_shared'
 
 const prepareResponseSchema = z.object({
@@ -25,14 +26,14 @@ export async function POST(req: Request) {
 
   const parsed = sudoChallengePrepareSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsed.error.issues })
   }
 
   try {
     const result = await context.sudoChallengeService.prepare(parsed.data.sessionId, parsed.data.methodType)
     return NextResponse.json(result)
   } catch (error) {
-    return mapSudoError(error)
+    return await mapSudoError(error)
   }
 }
 

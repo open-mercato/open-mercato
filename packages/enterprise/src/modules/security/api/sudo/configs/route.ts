@@ -4,6 +4,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { sudoConfigSchema } from '../../../data/validators'
 import { requireSudo } from '../../../lib/sudo-middleware'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
+import { securityApiError } from '../../i18n'
 import { mapSudoError, resolveSudoContext, toSudoConfigResponse } from '../_shared'
 
 const sudoConfigItemSchema = z.object({
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
 
   const parsed = sudoConfigSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsed.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsed.error.issues })
   }
 
   try {
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(result, { status: 201 })
   } catch (error) {
-    return mapSudoError(error)
+    return await mapSudoError(error)
   }
 }
 

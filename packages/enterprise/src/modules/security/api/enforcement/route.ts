@@ -4,13 +4,16 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { enforcementPolicySchema } from '../../data/validators'
 import { EnforcementScope } from '../../data/entities'
 import { buildSecurityOpenApi, securityErrorSchema } from '../openapi'
-import { mapEnforcementError, resolveEnforcementContext, toPolicyResponse } from './_shared'
+import { securityApiError } from '../i18n'
+import { attachPolicyScopeNames, mapEnforcementError, resolveEnforcementContext } from './_shared'
 
 const enforcementPolicyResponseSchema = z.object({
   id: z.string().uuid(),
   scope: z.nativeEnum(EnforcementScope),
   tenantId: z.string().uuid().nullable(),
+  tenantName: z.string().nullable(),
   organizationId: z.string().uuid().nullable(),
+  organizationName: z.string().nullable(),
   isEnforced: z.boolean(),
   allowedMethods: z.array(z.string()).nullable(),
   enforcementDeadline: z.string().nullable(),
@@ -46,15 +49,15 @@ export async function GET(req: Request) {
       scope: url.searchParams.get('scope') ?? undefined,
     })
     if (!parsedQuery.success) {
-      return NextResponse.json({ error: 'Invalid query parameters', issues: parsedQuery.error.issues }, { status: 400 })
+      return securityApiError(400, 'Invalid query parameters', { issues: parsedQuery.error.issues })
     }
 
     const policies = await context.enforcementService.listPolicies(parsedQuery.data)
     return NextResponse.json({
-      items: policies.map(toPolicyResponse),
+      items: await attachPolicyScopeNames(context.container, policies),
     })
   } catch (error) {
-    return mapEnforcementError(error)
+    return await mapEnforcementError(error)
   }
 }
 
@@ -71,7 +74,7 @@ export async function POST(req: Request) {
 
   const parsedBody = enforcementPolicySchema.safeParse(rawBody)
   if (!parsedBody.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: parsedBody.error.issues }, { status: 400 })
+    return securityApiError(400, 'Invalid payload', { issues: parsedBody.error.issues })
   }
 
   try {
@@ -82,7 +85,7 @@ export async function POST(req: Request) {
     })
     return NextResponse.json(result, { status: 201 })
   } catch (error) {
-    return mapEnforcementError(error)
+    return await mapEnforcementError(error)
   }
 }
 
