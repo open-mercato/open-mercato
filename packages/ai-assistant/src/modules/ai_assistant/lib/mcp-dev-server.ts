@@ -265,6 +265,19 @@ export async function runMcpDevServer(): Promise<void> {
     log('Entity graph generation skipped:', error instanceof Error ? error.message : error)
   }
 
+  // Pre-cache rich OpenAPI spec for Code Mode search tool (prefers runtime module registry over static JSON)
+  try {
+    const { loadRichOpenApiSpec } = await import('./api-endpoint-index')
+    const spec = await loadRichOpenApiSpec()
+    if (spec) {
+      log('Rich OpenAPI spec cached for Code Mode (with requestBody schemas)')
+    } else {
+      log('OpenAPI spec not available')
+    }
+  } catch (error) {
+    log('OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
+  }
+
   // Index tools, API endpoints, and entity schemas for search (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService
@@ -294,6 +307,11 @@ export async function runMcpDevServer(): Promise<void> {
     log('Search indexing skipped (search service not available)')
   }
 
+  // Generate a stable session ID for dev mode (enables session memory / caching)
+  const { randomBytes } = await import('node:crypto')
+  const devSessionId = 'dev_' + randomBytes(8).toString('hex')
+  log(`Session ID: ${devSessionId} (stable for this server instance)`)
+
   // Create tool context from auth result
   const toolContext: McpToolContext = {
     tenantId: authResult.tenantId,
@@ -303,6 +321,7 @@ export async function runMcpDevServer(): Promise<void> {
     userFeatures: authResult.features,
     isSuperAdmin: authResult.isSuperAdmin,
     apiKeySecret: apiKey,
+    sessionId: devSessionId,
   }
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {

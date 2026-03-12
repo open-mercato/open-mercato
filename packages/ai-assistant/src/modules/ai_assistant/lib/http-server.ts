@@ -12,6 +12,7 @@ import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 
 /**
@@ -91,13 +92,64 @@ async function resolveSessionContext(
 }
 
 /**
+ * Resolve user context from the server-level API key (header-based auth fallback).
+ * Used when no session token is provided — loads the API key's ACL for RBAC.
+ */
+async function resolveApiKeyContext(
+  apiKeyRecord: ApiKey,
+  baseContext: McpToolContext,
+  debug?: boolean
+): Promise<McpToolContext | null> {
+  try {
+    const rbacService = baseContext.container.resolve<RbacService>('rbacService')
+    const userId = apiKeyRecord.sessionUserId ?? apiKeyRecord.createdBy
+    if (!userId) {
+      if (debug) {
+        console.error(`[MCP HTTP] API key has no associated user`)
+      }
+      return null
+    }
+
+    const acl = await rbacService.loadAcl(`api_key:${apiKeyRecord.id}`, {
+      tenantId: apiKeyRecord.tenantId ?? null,
+      organizationId: apiKeyRecord.organizationId ?? null,
+    })
+
+    if (debug) {
+      console.error(`[MCP HTTP] API key context resolved for user ${userId}:`, {
+        tenantId: apiKeyRecord.tenantId,
+        organizationId: apiKeyRecord.organizationId,
+        features: acl.features.length,
+        isSuperAdmin: acl.isSuperAdmin,
+      })
+    }
+
+    return {
+      tenantId: apiKeyRecord.tenantId ?? null,
+      organizationId: apiKeyRecord.organizationId ?? null,
+      userId,
+      container: baseContext.container,
+      userFeatures: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
+      apiKeySecret: baseContext.apiKeySecret,
+    }
+  } catch (error) {
+    if (debug) {
+      console.error(`[MCP HTTP] Error resolving API key context:`, error)
+    }
+    return null
+  }
+}
+
+/**
  * Create a stateless MCP server instance for a single request.
  * Tools are registered without pre-filtering - permission checks happen at execution time
  * based on the session token provided in each tool call.
  */
 function createMcpServerForRequest(
   config: McpServerConfig,
-  toolContext: McpToolContext
+  toolContext: McpToolContext,
+  apiKeyRecord: ApiKey
 ): McpServer {
   const server = new McpServer(
     { name: config.name, version: config.version },
@@ -130,7 +182,7 @@ function createMcpServerForRequest(
         const properties = (jsonSchema.properties ?? {}) as Record<string, unknown>
         properties._sessionToken = {
           type: 'string',
-          description: 'Session authorization token (REQUIRED for all tool calls)',
+          description: 'Session authorization token. If omitted, the server API key roles are used instead.',
         }
         jsonSchema.properties = properties
 
@@ -183,8 +235,8 @@ function createMcpServerForRequest(
           if (sessionToken) {
             const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
             if (sessionContext) {
-              // Session context includes the decrypted API key secret
-              effectiveContext = sessionContext
+              // Session context includes the decrypted API key secret + session ID for memory layer
+              effectiveContext = { ...sessionContext, sessionId: sessionToken }
             } else {
               // Session token expired - return user-friendly error for AI to relay
               return {
@@ -201,19 +253,31 @@ function createMcpServerForRequest(
               }
             }
           } else {
-            // No session token provided - reject if base context has no permissions
-            if (!effectiveContext.userId && effectiveContext.userFeatures.length === 0) {
+            // No session token — fall back to header API key auth
+            const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
+            if (apiKeyContext) {
+              effectiveContext = apiKeyContext
+            } else if (!effectiveContext.userId && effectiveContext.userFeatures.length === 0) {
               return {
                 content: [
                   {
                     type: 'text' as const,
                     text: JSON.stringify({
-                      error: 'Session token required (_sessionToken parameter)',
+                      error: 'Authentication failed: provide a session token (_sessionToken) or a valid API key with assigned roles',
                       code: 'UNAUTHORIZED',
                     }),
                   },
                 ],
                 isError: true,
+              }
+            }
+
+            // Derive a fallback sessionId from the API key so all tool calls
+            // within the same MCP connection share a session memory cache
+            if (!effectiveContext.sessionId && effectiveContext.apiKeySecret) {
+              effectiveContext = {
+                ...effectiveContext,
+                sessionId: 'apikey_' + effectiveContext.apiKeySecret.slice(0, 16),
               }
             }
           }
@@ -358,6 +422,19 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
     console.error('[MCP HTTP] Entity graph generation skipped:', error instanceof Error ? error.message : error)
   }
 
+  // Pre-cache rich OpenAPI spec for Code Mode search tool (prefers runtime module registry over static JSON)
+  try {
+    const { loadRichOpenApiSpec } = await import('./api-endpoint-index')
+    const spec = await loadRichOpenApiSpec()
+    if (spec) {
+      console.error('[MCP HTTP] Rich OpenAPI spec cached for Code Mode (with requestBody schemas)')
+    } else {
+      console.error('[MCP HTTP] OpenAPI spec not available')
+    }
+  } catch (error) {
+    console.error('[MCP HTTP] OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
+  }
+
   // Index tools, API endpoints, and entity schemas for hybrid search discovery (if search service available)
   try {
     const searchService = container.resolve('searchService') as SearchService
@@ -460,7 +537,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       })
 
       // Create new server for this request
-      const mcpServer = createMcpServerForRequest(config, toolContext)
+      const mcpServer = createMcpServerForRequest(config, toolContext, apiKeyRecord)
 
       if (config.debug) {
         // Check registered tools on the server
@@ -521,7 +598,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   console.error(`[MCP HTTP] Tools registered: ${toolCount}`)
   console.error(`[MCP HTTP] Mode: Stateless (new server per request)`)
   console.error(`[MCP HTTP] Server Auth: API key validated against database (x-api-key header)`)
-  console.error(`[MCP HTTP] User Auth: Session token in _sessionToken parameter`)
+  console.error(`[MCP HTTP] User Auth: Session token (_sessionToken) preferred, falls back to API key roles`)
 
   // Return a Promise that keeps the process alive until shutdown
   return new Promise<void>((resolve) => {
