@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { EnforcementScope, MfaEnforcementPolicy, MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
+import type { MfaProviderRuntimeContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
 
@@ -44,7 +45,12 @@ export class MfaService {
     private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
   ) {}
 
-  async setupMethod(userId: string, providerType: string, payload: unknown): Promise<SetupResult> {
+  async setupMethod(
+    userId: string,
+    providerType: string,
+    payload: unknown,
+    context?: MfaProviderRuntimeContext,
+  ): Promise<SetupResult> {
     const provider = this.mfaProviderRegistry.get(providerType)
     if (!provider) {
       throw new MfaServiceError(`MFA provider '${providerType}' is not registered`, 400)
@@ -66,7 +72,7 @@ export class MfaService {
       }, payload)
       : payload
 
-    const result = await provider.setup(userId, resolvedPayload)
+    const result = await provider.setup(userId, resolvedPayload, context)
     const now = new Date()
     const method = this.em.create(UserMfaMethod, {
       userId,
@@ -90,6 +96,7 @@ export class MfaService {
     setupId: string,
     payload: unknown,
     providerType?: string,
+    context?: MfaProviderRuntimeContext,
   ): Promise<{ recoveryCodes?: string[] }> {
     const method = await this.em.findOne(UserMfaMethod, {
       userId,
@@ -117,7 +124,7 @@ export class MfaService {
       deletedAt: null,
     })
 
-    const confirmation = await provider.confirmSetup(userId, setupId, payload)
+    const confirmation = await provider.confirmSetup(userId, setupId, payload, context)
     method.providerMetadata = confirmation.metadata
     method.secret = confirmation.secret ?? null
     method.label = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null

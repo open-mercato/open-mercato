@@ -53,7 +53,12 @@ describe('security MFA provider route', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(context.mfaService.setupMethod).toHaveBeenCalledWith('user-1', 'totp', { label: 'Phone' })
+    expect(context.mfaService.setupMethod).toHaveBeenCalledWith(
+      'user-1',
+      'totp',
+      { label: 'Phone' },
+      { request: expect.any(Request) },
+    )
   })
 
   test('PUT passes provider type through to confirmMethod', async () => {
@@ -69,7 +74,13 @@ describe('security MFA provider route', () => {
     })
 
     expect(response.status).toBe(200)
-    expect(context.mfaService.confirmMethod).toHaveBeenCalledWith('user-1', 'setup-1', { code: '123456' }, 'totp')
+    expect(context.mfaService.confirmMethod).toHaveBeenCalledWith(
+      'user-1',
+      'setup-1',
+      { code: '123456' },
+      'totp',
+      { request: expect.any(Request) },
+    )
   })
 
   test('PUT falls back to derived payload when payload field is missing', async () => {
@@ -84,7 +95,13 @@ describe('security MFA provider route', () => {
       params: Promise.resolve({ providername: 'totp' }),
     })
 
-    expect(context.mfaService.confirmMethod).toHaveBeenCalledWith('user-1', 'setup-1', { code: '123456', label: 'Phone' }, 'totp')
+    expect(context.mfaService.confirmMethod).toHaveBeenCalledWith(
+      'user-1',
+      'setup-1',
+      { code: '123456', label: 'Phone' },
+      'totp',
+      { request: expect.any(Request) },
+    )
   })
 
   test('PUT maps provider mismatch errors through MFA error mapper', async () => {

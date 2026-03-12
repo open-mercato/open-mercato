@@ -63,7 +63,11 @@ describe('security sudo challenge routes', () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(context.sudoChallengeService.prepare).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'totp')
+    expect(context.sudoChallengeService.prepare).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      'totp',
+      expect.any(Request),
+    )
   })
 
   test('verify route serializes expiresAt and returns sudo token', async () => {
@@ -94,6 +98,7 @@ describe('security sudo challenge routes', () => {
         targetType: 'feature',
         targetIdentifier: 'security.sudo.manage',
       }),
+      expect.any(Request),
     )
     await expect(response.json()).resolves.toEqual({
       sudoToken: 'sudo-token',

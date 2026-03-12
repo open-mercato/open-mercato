@@ -18,6 +18,10 @@ export type MfaVerifyContext = {
   challenge?: Record<string, unknown> | null
 }
 
+export type MfaProviderRuntimeContext = {
+  request?: Request
+}
+
 export type MfaProviderUser = {
   id: string
   email?: string | null
@@ -47,13 +51,29 @@ export interface MfaProviderInterface {
   readonly verifySchema: z.ZodSchema
 
   resolveSetupPayload?(user: MfaProviderUser, payload: unknown): Promise<unknown> | unknown
-  setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }>
-  confirmSetup(userId: string, setupId: string, payload: unknown): Promise<MfaProviderConfirmResult>
+  setup(
+    userId: string,
+    payload: unknown,
+    context?: MfaProviderRuntimeContext,
+  ): Promise<{ setupId: string; clientData: Record<string, unknown> }>
+  confirmSetup(
+    userId: string,
+    setupId: string,
+    payload: unknown,
+    context?: MfaProviderRuntimeContext,
+  ): Promise<MfaProviderConfirmResult>
   prepareChallenge(
     userId: string,
     method: MfaMethodRecord,
+    context?: MfaProviderRuntimeContext,
   ): Promise<{ clientData?: Record<string, unknown>; verifyContext?: MfaVerifyContext }>
-  verify(userId: string, method: MfaMethodRecord, payload: unknown, context?: MfaVerifyContext): Promise<boolean>
+  verify(
+    userId: string,
+    method: MfaMethodRecord,
+    payload: unknown,
+    context?: MfaVerifyContext,
+    runtimeContext?: MfaProviderRuntimeContext,
+  ): Promise<boolean>
 }
 
 export type MfaProviderComponents = {

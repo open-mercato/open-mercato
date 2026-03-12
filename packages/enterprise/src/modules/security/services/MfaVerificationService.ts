@@ -4,7 +4,7 @@ import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
 import type { MfaService } from './MfaService'
 import type { MfaEnforcementService } from './MfaEnforcementService'
-import type { MfaVerifyContext } from '../lib/mfa-provider-interface'
+import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
 
@@ -84,6 +84,7 @@ export class MfaVerificationService {
   async prepareChallenge(
     challengeId: string,
     methodType: string,
+    context?: MfaProviderRuntimeContext,
   ): Promise<{ clientData?: Record<string, unknown> }> {
     const challenge = await this.getValidChallenge(challengeId)
     const provider = this.mfaProviderRegistry.get(methodType)
@@ -98,7 +99,7 @@ export class MfaVerificationService {
       userId: method.userId,
       secret: method.secret ?? null,
       providerMetadata: method.providerMetadata,
-    })
+    }, context)
 
     challenge.methodType = methodType
     challenge.methodId = method.id
@@ -107,7 +108,12 @@ export class MfaVerificationService {
     return result
   }
 
-  async verifyChallenge(challengeId: string, methodType: string, payload: unknown): Promise<boolean> {
+  async verifyChallenge(
+    challengeId: string,
+    methodType: string,
+    payload: unknown,
+    runtimeContext?: MfaProviderRuntimeContext,
+  ): Promise<boolean> {
     const challenge = await this.getValidChallenge(challengeId)
     if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
       return false
@@ -139,7 +145,7 @@ export class MfaVerificationService {
       userId: method.userId,
       secret: method.secret ?? null,
       providerMetadata: method.providerMetadata,
-    }, payload, context)
+    }, payload, context, runtimeContext)
 
     if (verified) {
       challenge.verifiedAt = new Date()

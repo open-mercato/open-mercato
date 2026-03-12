@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await context.sudoChallengeService.prepare(parsed.data.sessionId, parsed.data.methodType)
+    const result = await context.sudoChallengeService.prepare(parsed.data.sessionId, parsed.data.methodType, req)
     return NextResponse.json(result)
   } catch (error) {
     return await mapSudoError(error)

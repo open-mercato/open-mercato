@@ -45,6 +45,7 @@ export async function POST(req: Request, context: { params: Promise<{ providerna
       requestContext.auth.sub,
       providerType,
       body,
+      { request: req },
     )
 
     return NextResponse.json({
@@ -83,6 +84,7 @@ export async function PUT(req: Request, context: { params: Promise<{ providernam
       setupId,
       payload,
       providerType,
+      { request: req },
     )
     return NextResponse.json({
       ok: true,

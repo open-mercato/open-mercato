@@ -42,6 +42,7 @@ export async function POST(req: Request) {
         targetType: parsed.data.targetType,
         targetIdentifier: parsed.data.targetIdentifier,
       },
+      req,
     )
     return NextResponse.json({
       sudoToken: result.sudoToken,

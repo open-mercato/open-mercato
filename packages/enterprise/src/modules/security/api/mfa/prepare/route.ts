@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const prepared = await context.mfaVerificationService.prepareChallenge(challengeId, methodType)
+    const prepared = await context.mfaVerificationService.prepareChallenge(challengeId, methodType, { request: req })
     return NextResponse.json({ ok: true, ...(prepared.clientData ? { clientData: prepared.clientData } : {}) })
   } catch (error) {
     return await mapMfaError(error)
