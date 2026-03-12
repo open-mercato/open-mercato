@@ -5,7 +5,7 @@
 | Status | Draft |
 | Author | Codex |
 | Created | 2026-03-05 |
-| Updated | 2026-03-11 |
+| Updated | 2026-03-12 |
 | Related | SPEC-044, SPEC-045c, SPEC-045h, sales module |
 
 ---
@@ -659,6 +659,14 @@ Triggered from "Send Pay Link" button on order detail:
 **Route:** `sales/frontend/pay/[token]/page.tsx`
 **Metadata:** `requireAuth: false`
 
+**Design note — sales-owned shell + provider-owned checkout surface:**
+
+- The public pay-link page MUST remain a `sales` page because the customer is paying for an order, not for an abstract gateway transaction.
+- `sales` owns the order summary, totals, branding, pay-link state messaging, and any customer/order context shown before payment starts.
+- Gateway provider modules own only the payment interaction surface rendered inside that shell.
+- Stripe MUST support both embedded Stripe Elements variants and redirect-capable variants behind provider-specific configuration. The pay-link page therefore cannot assume that all online methods redirect immediately.
+- The long-term contract is: `sales` renders order details first, then mounts the provider checkout widget or redirect CTA inside a dedicated payment panel.
+
 ```
 ┌────────────────────────────────────────────────────────────┐
 │                                                            │
@@ -703,14 +711,14 @@ Triggered from "Send Pay Link" button on order detail:
 
 **Flow by method type:**
 
-**Card (Stripe/PayU/P24):**
+**Card / online methods (Stripe/PayU/P24):**
 1. Customer clicks payment method card.
 2. Frontend calls `POST /api/sales/pay/[token]/initiate` with `{ methodId }`.
 3. Backend creates `SalesPayment` (source: `pay_link`) + calls gateway `createSession()`.
-4. Response includes `redirectUrl` (Stripe Checkout, PayU payment page, etc.).
-5. Customer is redirected to provider.
-6. After payment, provider redirects to success/failure page.
-7. Webhook updates payment status → pay link marked `completed`.
+4. Response includes either embedded checkout payload (for example Stripe Elements `clientSecret` + widget configuration) or `redirectUrl`, depending on provider capabilities and pay-link configuration.
+5. If the provider supports embedded checkout, the `sales` pay-link page keeps the order summary visible and mounts the provider widget below it.
+6. If the provider uses hosted checkout, customer is redirected to the provider page.
+7. After payment, the provider either returns to the pay-link page or completes in-place; webhook and/or polling updates payment status → pay link marked `completed`.
 
 **Wire Transfer:**
 1. Customer clicks wire transfer card.
@@ -912,6 +920,8 @@ Add a payment status indicator to the order header, next to the order status:
 5. **"Send Pay Link" button** — opens the pay link creation dialog (Phase 4.4).
 
 6. **"Record Payment" button** — opens the existing PaymentDialog for manual payment entry (unchanged).
+
+7. **Order-context-first pay link experience** — when a pay link is opened by the customer, the first thing shown is the order summary owned by `sales` (items, totals, reference, merchant identity). Provider modules may enrich the checkout panel, but they must not replace the order-context shell.
 
 ### 5.3 Empty State
 
@@ -1164,3 +1174,4 @@ All tests must be self-contained and clean up created records.
 | 2026-03-05 | Initial draft created for sales-native payment gateway refactor |
 | 2026-03-11 | Major expansion: added Pay Links (Phase 4), Wire Transfer Provider (Phase 3a), Cash Payment Provider (Phase 3b), Payment Transactions Hub (Phase 2), Unified Order Payment UX (Phase 5). Added UI designs, data models, API contracts, events, ACL features, 35 integration test cases. Restructured into 6 phases. |
 | 2026-03-12 | Documented the payment transaction UMES contract: CrudForm-based create dialog, stable create/payment-link spot IDs, transaction-centric event emission, and mutation-guard/interceptor coverage for `POST /api/payment-gateways/sessions`. |
+| 2026-03-12 | Clarified pay-link sales integration: `sales` owns the order-summary shell, provider modules own only the checkout surface. Added support note for embedded Stripe Elements vs redirect-capable online methods. |

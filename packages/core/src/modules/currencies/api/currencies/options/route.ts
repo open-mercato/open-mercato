@@ -8,7 +8,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { Currency } from '../../../data/entities'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['currencies.view'] },
+  GET: { requireAuth: true },
 }
 
 const optionsQuerySchema = z.object({

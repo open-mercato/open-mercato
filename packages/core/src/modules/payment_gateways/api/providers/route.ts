@@ -8,7 +8,7 @@ import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
   path: '/payment_gateways/providers',
-  GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },
+  GET: { requireAuth: true, requireFeatures: ['payment_gateways.manage'] },
 }
 
 export async function GET(req: Request) {

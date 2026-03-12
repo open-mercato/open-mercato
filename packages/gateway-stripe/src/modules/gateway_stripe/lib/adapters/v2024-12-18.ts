@@ -14,10 +14,12 @@ import type {
   WebhookEvent,
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
+import type Stripe from 'stripe'
 import { resolveStripeClient } from '../client'
 import { mapRefundReason, mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
 import { toCents, fromCents, buildStripeMetadata } from '../shared'
 import { verifyStripeWebhook } from '../webhook-handler'
+import { resolveStripePaymentLinkConfig } from '../payment-link-config'
 
 const STRIPE_API_VERSION = '2024-12-18'
 
@@ -27,12 +29,8 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
     const providerInput = input.providerInput ?? {}
-    const paymentTypes =
-      Array.isArray(providerInput.paymentTypes) && providerInput.paymentTypes.every((value) => typeof value === 'string')
-        ? providerInput.paymentTypes
-        : input.paymentTypes
-
-    const paymentIntent = await stripe.paymentIntents.create({
+    const paymentLinkConfig = resolveStripePaymentLinkConfig(providerInput)
+    const paymentIntentInput: Stripe.PaymentIntentCreateParams = {
       amount: toCents(input.amount, input.currencyCode),
       currency: input.currencyCode.toLowerCase(),
       capture_method: input.captureMethod ?? 'automatic',
@@ -42,9 +40,19 @@ export const stripeAdapterV20241218: GatewayAdapter = {
         organizationId: input.organizationId,
         orderId: input.orderId,
       }),
-      payment_method_types: paymentTypes ?? ['card'],
       description: input.description,
-    })
+    }
+
+    if (paymentLinkConfig.paymentMethodMode === 'automatic') {
+      paymentIntentInput.automatic_payment_methods = {
+        enabled: true,
+        allow_redirects: paymentLinkConfig.allowRedirects,
+      }
+    } else {
+      paymentIntentInput.payment_method_types = ['card']
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentInput)
 
     return {
       sessionId: paymentIntent.id,
@@ -55,6 +63,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
         publishableKey: typeof input.credentials.publishableKey === 'string'
           ? input.credentials.publishableKey
           : undefined,
+        paymentLinkConfig,
       },
     }
   },

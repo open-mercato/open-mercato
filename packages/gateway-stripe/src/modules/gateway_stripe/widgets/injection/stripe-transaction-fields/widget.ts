@@ -16,6 +16,18 @@ const widget: InjectionFieldWidget = {
         { value: 'manual', label: 'gateway_stripe.config.captureMethod.manual' },
       ],
     },
+    {
+      id: 'checkoutProfile',
+      label: 'gateway_stripe.config.checkoutProfile',
+      type: 'select',
+      group: 'provider',
+      options: [
+        { value: 'card', label: 'gateway_stripe.config.checkoutProfile.card' },
+        { value: 'card_customer', label: 'gateway_stripe.config.checkoutProfile.cardCustomer' },
+        { value: 'payment_element', label: 'gateway_stripe.config.checkoutProfile.paymentElement' },
+        { value: 'payment_element_redirect', label: 'gateway_stripe.config.checkoutProfile.paymentElementRedirect' },
+      ],
+    },
   ],
 }
 
