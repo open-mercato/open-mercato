@@ -14,6 +14,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { useSavedViews, type SavedView } from '@open-mercato/ui/backend/hooks/useSavedViews'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -31,26 +32,6 @@ import {
   useCustomFieldDefs,
   filterCustomFieldDefs,
 } from '@open-mercato/ui/backend/utils/customFieldDefs'
-
-type SavedViewItem = {
-  id: string
-  entityType: string
-  name: string
-  filters: Record<string, unknown>
-  sortField: string | null
-  sortDir: string | null
-  columns: string[] | null
-  isDefault: boolean
-  isShared: boolean
-  userId: string
-  createdAt: string
-  updatedAt: string
-}
-
-type SavedViewsResponse = {
-  items?: SavedViewItem[]
-  total?: number
-}
 
 type DealRow = {
   id: string
@@ -307,63 +288,50 @@ export default function CustomersDealsPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
 
-  const [savedViews, setSavedViews] = React.useState<SavedViewItem[]>([])
-  const [selectedViewId, setSelectedViewId] = React.useState<string>('')
   const [showSaveForm, setShowSaveForm] = React.useState(false)
   const [saveViewName, setSaveViewName] = React.useState('')
   const [isSavingView, setIsSavingView] = React.useState(false)
 
-  const fetchSavedViews = React.useCallback(async () => {
-    try {
-      const call = await apiCall<SavedViewsResponse>('/api/customers/saved-views?entityType=deal')
-      if (!call.ok) return
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      setSavedViews(items)
-    } catch (error) { console.warn('Failed to fetch saved views', error) }
-  }, [])
+  const { views: savedViews, sharedViews, selectedViewId, selectView: handleSelectView, saveView, reload: reloadViews } = useSavedViews({
+    tableId: 'customers:deal',
+    onApply: (view: SavedView) => {
+      const viewFilters = (view.filters && typeof view.filters === 'object' && !Array.isArray(view.filters))
+        ? (view.filters as FilterValues)
+        : {}
+      setFilterValues(viewFilters)
+      setSelectedPersonIds([])
+      setSelectedCompanyIds([])
+      setPage(1)
+    },
+    onClear: () => {
+      setFilterValues({})
+      setSelectedPersonIds([])
+      setSelectedCompanyIds([])
+      setPage(1)
+    },
+    reloadDeps: [scopeVersion, reloadToken],
+  })
 
-  React.useEffect(() => {
-    fetchSavedViews()
-  }, [fetchSavedViews, scopeVersion, reloadToken])
-
-  const handleSelectView = React.useCallback((viewId: string) => {
-    setSelectedViewId(viewId)
-    if (!viewId) return
-    const view = savedViews.find((v) => v.id === viewId)
-    if (!view) return
-    const viewFilters = (view.filters && typeof view.filters === 'object' && !Array.isArray(view.filters))
-      ? (view.filters as FilterValues)
-      : {}
-    setFilterValues(viewFilters)
-    setSelectedPersonIds([])
-    setSelectedCompanyIds([])
-    setPage(1)
-  }, [savedViews])
+  const allSavedViews = React.useMemo(
+    () => [...savedViews, ...sharedViews],
+    [savedViews, sharedViews],
+  )
 
   const handleSaveView = React.useCallback(async () => {
     const trimmedName = saveViewName.trim()
     if (!trimmedName) return
     setIsSavingView(true)
     try {
-      const call = await apiCall<{ id?: string; ok?: boolean }>('/api/customers/saved-views', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entityType: 'deal',
-          name: trimmedName,
-          filters: filterValues,
-        }),
+      const success = await saveView({
+        name: trimmedName,
+        filters: filterValues,
       })
-      if (call.ok) {
+      if (success) {
         flash(t('customers.deals.list.savedViews.saveSuccess', 'View saved successfully.'), 'success')
         setSaveViewName('')
         setShowSaveForm(false)
-        await fetchSavedViews()
       } else {
-        const errorMsg = typeof (call.result as Record<string, unknown> | undefined)?.error === 'string'
-          ? (call.result as { error: string }).error
-          : t('customers.deals.list.savedViews.saveError', 'Failed to save view.')
-        flash(errorMsg, 'error')
+        flash(t('customers.deals.list.savedViews.saveError', 'Failed to save view.'), 'error')
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customers.deals.list.savedViews.saveError', 'Failed to save view.')
@@ -371,7 +339,7 @@ export default function CustomersDealsPage() {
     } finally {
       setIsSavingView(false)
     }
-  }, [saveViewName, filterValues, fetchSavedViews, t])
+  }, [saveViewName, filterValues, saveView, t])
 
   const initialPersonIds = React.useMemo(
     () => extractIdsFromParams(searchParams, 'personId'),
@@ -1027,8 +995,8 @@ export default function CustomersDealsPage() {
               <option value="">
                 {t('customers.deals.list.savedViews.defaultOption', 'All deals')}
               </option>
-              {savedViews.map((view) => (
-                <option key={view.id} value={view.id}>{view.name}</option>
+              {allSavedViews.map((view) => (
+                <option key={view.id} value={view.id}>{view.name}{view.isShared ? ` (${t('common.shared', 'shared')})` : ''}</option>
               ))}
             </select>
           </div>

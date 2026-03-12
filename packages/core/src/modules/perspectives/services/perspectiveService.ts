@@ -19,6 +19,8 @@ export type ResolvedPerspective = {
   tableId: string
   settings: PerspectiveSettings
   isDefault: boolean
+  isShared: boolean
+  userId: string
   createdAt: string
   updatedAt?: string | null
 }
@@ -41,6 +43,7 @@ export type PerspectivesState = {
   personal: ResolvedPerspective[]
   personalDefaultId: string | null
   rolePerspectives: ResolvedRolePerspective[]
+  shared: ResolvedPerspective[]
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000
@@ -72,6 +75,7 @@ function isResolvedPerspective(value: unknown): value is ResolvedPerspective {
     && typeof record.tableId === 'string'
     && typeof record.isDefault === 'boolean'
     && typeof record.createdAt === 'string'
+    && typeof record.userId === 'string'
 }
 
 function isResolvedRolePerspective(value: unknown): value is ResolvedRolePerspective {
@@ -92,6 +96,7 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
   if (!Array.isArray(record.personal) || record.personal.some((item) => !isResolvedPerspective(item))) return false
   if (record.personalDefaultId !== null && typeof record.personalDefaultId !== 'string') return false
   if (!Array.isArray(record.rolePerspectives) || record.rolePerspectives.some((item) => !isResolvedRolePerspective(item))) return false
+  if (!Array.isArray(record.shared) || record.shared.some((item) => !isResolvedPerspective(item))) return false
   return true
 }
 
@@ -101,6 +106,8 @@ function toResolvedPerspective(entity: Perspective): ResolvedPerspective {
     name: entity.name,
     tableId: entity.tableId,
     isDefault: !!entity.isDefault,
+    isShared: !!entity.isShared,
+    userId: entity.userId,
     settings: (entity.settingsJson ?? {}) as PerspectiveSettings,
     createdAt: entity.createdAt.toISOString(),
     updatedAt: entity.updatedAt ? entity.updatedAt.toISOString() : null,
@@ -140,7 +147,7 @@ export async function loadPerspectivesState(
   const tenantId = scope.tenantId ?? null
   const organizationId = scope.organizationId ?? null
 
-  const [personal, roleRecords] = await Promise.all([
+  const [personal, roleRecords, sharedRecords] = await Promise.all([
     em.find(Perspective, {
       userId: scope.userId,
       tenantId,
@@ -159,17 +166,28 @@ export async function loadPerspectivesState(
           ],
         } as any, { orderBy: { updatedAt: 'desc' } })
       : [],
+    organizationId
+      ? em.find(Perspective, {
+          userId: { $ne: scope.userId } as any,
+          organizationId,
+          tableId,
+          isShared: true,
+          deletedAt: null,
+        }, { orderBy: { updatedAt: 'desc' } })
+      : [],
   ])
 
   const personalResolved = personal.map(toResolvedPerspective)
   const personalDefaultId = personalResolved.find((p) => p.isDefault)?.id ?? null
   const roleResolved = roleRecords.map(toResolvedRolePerspective)
+  const sharedResolved = sharedRecords.map(toResolvedPerspective)
 
   const state: PerspectivesState = {
     tableId,
     personal: personalResolved,
     personalDefaultId,
     rolePerspectives: roleResolved,
+    shared: sharedResolved,
   }
 
   if (cache && cacheKey) {
@@ -228,6 +246,7 @@ export async function saveUserPerspective(
       name: input.name,
       settingsJson: input.settings,
       isDefault: Boolean(input.isDefault),
+      isShared: Boolean(input.isShared),
       createdAt: now,
       updatedAt: now,
     })
@@ -238,6 +257,8 @@ export async function saveUserPerspective(
     entity.updatedAt = now
     if (input.isDefault === true) entity.isDefault = true
     if (input.isDefault === false) entity.isDefault = false
+    if (input.isShared === true) entity.isShared = true
+    if (input.isShared === false) entity.isShared = false
   }
 
   if (input.isDefault === true) {

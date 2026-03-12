@@ -1,3 +1,8 @@
+/**
+ * @deprecated Use the generic perspectives module for saved views.
+ * The perspectives module supports saved views via `tableId = 'customers:<entityType>'`.
+ * These commands are kept for backward compatibility with existing audit logs and undo history.
+ */
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {

@@ -28,6 +28,9 @@ export class Perspective {
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
 
+  @Property({ name: 'is_shared', type: 'boolean', default: false })
+  isShared: boolean = false
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

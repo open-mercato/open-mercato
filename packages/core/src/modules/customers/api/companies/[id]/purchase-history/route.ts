@@ -9,6 +9,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SortDir, type QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { computeTrend } from '@open-mercato/shared/lib/math/trend'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -31,18 +32,6 @@ type OrderRecord = {
   status?: string | null
   created_at?: string | null
   customer_entity_id?: string | null
-}
-
-function computePurchaseTrend(
-  recentTotal: number,
-  previousTotal: number,
-): 'stable' | 'growing' | 'declining' {
-  if (previousTotal === 0 && recentTotal === 0) return 'stable'
-  if (previousTotal === 0) return 'growing'
-  const ratio = recentTotal / previousTotal
-  if (ratio > 1.1) return 'growing'
-  if (ratio < 0.9) return 'declining'
-  return 'stable'
 }
 
 export async function GET(req: Request, ctx: { params?: { id?: string } }) {
@@ -186,7 +175,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     frequency = 1
   }
 
-  const purchaseTrend = computePurchaseTrend(recentRevenue, previousRevenue)
+  const purchaseTrend = computeTrend(recentRevenue, previousRevenue)
 
   return NextResponse.json({
     orders: orders.map((order) => ({

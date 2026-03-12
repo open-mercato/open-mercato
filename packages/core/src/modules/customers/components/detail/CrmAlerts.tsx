@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type CrmAlert = {
@@ -9,9 +10,14 @@ type CrmAlert = {
   tab?: string
 }
 
-const alertIcons: Record<string, string> = {
-  warning: '⚠',
-  error: '⛔',
+const SEVERITY_STYLES: Record<string, string> = {
+  error: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/20 dark:border-red-800 dark:text-red-300',
+  warning: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-300',
+}
+
+const SEVERITY_ICONS: Record<string, string> = {
+  warning: '\u26A0',
+  error: '\u26D4',
 }
 
 export function CrmAlerts({
@@ -36,23 +42,22 @@ export function CrmAlerts({
   return (
     <div className="space-y-2">
       {alerts.map((alert, index) => {
-        const icon = alertIcons[alert.severity] ?? '⚠'
+        const icon = SEVERITY_ICONS[alert.severity] ?? '\u26A0'
         const message = alertMessages[alert.type] ?? alert.type
-        const bgColor = alert.severity === 'error'
-          ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/20 dark:border-red-800 dark:text-red-300'
-          : 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/20 dark:border-amber-800 dark:text-amber-300'
+        const bgColor = SEVERITY_STYLES[alert.severity] ?? SEVERITY_STYLES.warning
 
         return (
-          <button
+          <Button
             key={`${alert.type}-${index}`}
             type="button"
-            className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm ${bgColor} transition-colors hover:opacity-80`}
+            variant="ghost"
+            className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm h-auto ${bgColor} transition-colors hover:opacity-80`}
             onClick={() => alert.tab && onNavigateToTab?.(alert.tab)}
             disabled={!alert.tab}
           >
             <span>{icon}</span>
             <span>{message}</span>
-          </button>
+          </Button>
         )
       })}
     </div>

@@ -1043,6 +1043,11 @@ export class CustomerDealStageHistory {
   updatedAt: Date = new Date()
 }
 
+/**
+ * @deprecated Use the generic `Perspective` entity from the perspectives module instead.
+ * Store saved views as perspectives with `tableId = 'customers:<entityType>'`.
+ * This entity is kept for backward compatibility and will be removed in a future release.
+ */
 @Entity({ tableName: 'customer_saved_views' })
 @Index({ name: 'customer_saved_views_user_idx', properties: ['userId', 'entityType'] })
 @Index({ name: 'customer_saved_views_org_idx', properties: ['organizationId', 'tenantId', 'entityType', 'isShared'] })

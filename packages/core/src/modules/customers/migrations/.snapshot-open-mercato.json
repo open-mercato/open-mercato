@@ -719,11 +719,12 @@
           "unique": false
         },
         {
-          "keyName": "customer_deal_emails_message_unique",
+          "keyName": "customer_deal_emails_tenant_message_unique",
           "columnNames": [
+            "tenant_id",
             "message_id"
           ],
-          "composite": false,
+          "composite": true,
           "constraint": true,
           "primary": false,
           "unique": true
@@ -1136,6 +1137,17 @@
           "columnNames": [
             "mentioned_user_id",
             "is_read"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "customer_deal_mentions_org_tenant_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
           ],
           "composite": true,
           "constraint": false,
