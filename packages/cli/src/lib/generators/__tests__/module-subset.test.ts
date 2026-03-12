@@ -450,6 +450,7 @@ describe('all generated files are valid with varying subsets', () => {
     expect(mfaProviders).toContain('export const securityMfaProviderEntries')
     expect(mfaProviders).not.toContain('no_security')
     expect(sudoTargets).toContain('export const securitySudoTargetEntries')
+    expect(sudoTargets).toContain('const entriesRaw: SecuritySudoTargetEntryRaw[] = [\n]')
     expect(sudoTargets).not.toContain('no_security')
   })
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { bootstrapTest } from '@open-mercato/shared/lib/testing/bootstrap'
 import { POST as prepareChallenge } from '../prepare/route'
 import { POST as verifyChallenge } from '../verify/route'
 import { POST as verifyRecovery } from '../recovery/route'
@@ -58,8 +59,9 @@ function buildContext(overrides?: {
 }
 
 describe('security MFA challenge routes', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks()
+    await bootstrapTest({ modules: [] })
   })
 
   test('prepare route rejects non-pending MFA auth context', async () => {

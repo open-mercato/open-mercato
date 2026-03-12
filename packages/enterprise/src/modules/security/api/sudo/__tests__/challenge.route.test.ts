@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { bootstrapTest } from '@open-mercato/shared/lib/testing/bootstrap'
 import { POST as prepareChallenge } from '../prepare/route'
 import { POST as verifyChallenge } from '../verify/route'
 import { mapSudoError, resolveSudoContext } from '../_shared'
@@ -34,8 +35,9 @@ function buildContext() {
 }
 
 describe('security sudo challenge routes', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks()
+    await bootstrapTest({ modules: [] })
   })
 
   test('prepare route validates payload shape', async () => {
@@ -85,7 +87,13 @@ describe('security sudo challenge routes', () => {
       '11111111-1111-4111-8111-111111111111',
       'totp',
       { code: '123456' },
-      { targetType: 'feature', targetIdentifier: 'security.sudo.manage' },
+      expect.objectContaining({
+        expectedUserId: 'user-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        targetType: 'feature',
+        targetIdentifier: 'security.sudo.manage',
+      }),
     )
     await expect(response.json()).resolves.toEqual({
       sudoToken: 'sudo-token',
