@@ -5,7 +5,7 @@ import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { TrendingUp, Building2, ClipboardList, Clock } from 'lucide-react'
-import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
+import { SimpleTooltip, TooltipProvider } from '@open-mercato/ui/primitives/tooltip'
 
 type HealthScore = {
   score: number
@@ -388,24 +388,26 @@ export function CustomerDashboard({
         ))}
         {/* Health score with ring */}
         <div className="flex items-center justify-center px-5 py-4">
-          <SimpleTooltip
-            content={
-              <HealthScoreTooltipContent
-                components={metrics.healthScore.components}
-                t={t}
-              />
-            }
-            side="bottom"
-            delayDuration={200}
-          >
-            <div className="cursor-help">
-              <HealthRing
-                score={metrics.healthScore.score}
-                label={healthLabel}
-                ringLabel={t('customers.companies.detail.metrics.healthScore', 'Health Score')}
-              />
-            </div>
-          </SimpleTooltip>
+          <TooltipProvider>
+            <SimpleTooltip
+              content={
+                <HealthScoreTooltipContent
+                  components={metrics.healthScore.components}
+                  t={t}
+                />
+              }
+              side="bottom"
+              delayDuration={200}
+            >
+              <div className="cursor-help">
+                <HealthRing
+                  score={metrics.healthScore.score}
+                  label={healthLabel}
+                  ringLabel={t('customers.companies.detail.metrics.healthScore', 'Health Score')}
+                />
+              </div>
+            </SimpleTooltip>
+          </TooltipProvider>
         </div>
       </div>
       <InjectionSpot
