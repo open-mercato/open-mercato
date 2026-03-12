@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSyncScheduleSchema, listSyncSchedulesQuerySchema } from '../../data/validators'
 import type { SyncScheduleService } from '../../lib/sync-schedule-service'
 
@@ -85,7 +86,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const payload = await req.json().catch(() => null)
+  const payload = await readJsonSafe(req)
   const parsed = createSyncScheduleSchema.safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })

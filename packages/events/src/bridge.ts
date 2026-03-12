@@ -1,5 +1,4 @@
 import { Client, Pool } from 'pg'
-import type { Notification } from 'pg'
 import type { EmitOptions, EventPayload } from './types'
 
 const BRIDGE_CHANNEL = 'om_event_bridge'
@@ -14,6 +13,10 @@ type BridgeEnvelope = {
 }
 
 type CrossProcessEventListener = (envelope: BridgeEnvelope) => void | Promise<void>
+type PgNotificationMessage = {
+  channel: string
+  payload?: string
+}
 
 let publisherPool: InstanceType<typeof Pool> | null | undefined
 let listenerClient: InstanceType<typeof Client> | null = null
@@ -86,7 +89,7 @@ async function ensureCrossProcessListener(): Promise<void> {
   listenerConnectPromise = (async () => {
     const client = new Client({ connectionString })
 
-    client.on('notification', (message: Notification) => {
+    client.on('notification', (message: PgNotificationMessage) => {
       if (message.channel !== BRIDGE_CHANNEL || !message.payload) return
       try {
         const parsed = JSON.parse(message.payload) as BridgeEnvelope

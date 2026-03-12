@@ -1308,7 +1308,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         const items: CustomFieldSyncItem[] = []
         const globalAssignments = await resolveGlobalFieldsetAssignments(settings)
         const existingDefinitions = await findWithDecryption(em, CustomFieldDef, {
-          entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] } as any,
+          entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] } as never,
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           deletedAt: null,
@@ -1428,7 +1428,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
             reconcileAkeneoFieldsetAssignments(PRODUCT_ENTITY_ID, fieldsetPlan?.product?.code ?? null, productFields.map((field) => field.key)),
             reconcileAkeneoFieldsetAssignments(VARIANT_ENTITY_ID, fieldsetPlan?.variant?.code ?? null, variantFields.map((field) => field.key)),
           ])
-          await invalidateDefinitionsCache(cacheService as any, {
+          await invalidateDefinitionsCache(cacheService as never, {
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             entityIds: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID],
@@ -1516,7 +1516,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
     const existingDefinitions = await findWithDecryption(em, CustomFieldDef, {
       entityId,
-      key: { $in: normalizedKeys } as any,
+      key: { $in: normalizedKeys } as never,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
@@ -1607,7 +1607,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
     if (changed) {
       await em.flush()
-      await invalidateDefinitionsCache(cacheService as any, {
+      await invalidateDefinitionsCache(cacheService as never, {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         entityIds: [entityId],

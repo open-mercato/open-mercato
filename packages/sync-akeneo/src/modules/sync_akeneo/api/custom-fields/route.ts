@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { createAkeneoClient } from '../../lib/client'
@@ -35,7 +37,7 @@ export const openApi = {
   summary: 'Inspect and create Akeneo-backed custom fields',
 }
 
-async function loadActiveKeys(auth: { orgId?: string | null; tenantId?: string | null }, em: any) {
+async function loadActiveKeys(auth: { orgId?: string | null; tenantId?: string | null }, em: EntityManager) {
   const defs = await findWithDecryption(em, CustomFieldDef, {
     entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] },
     organizationId: auth.orgId ?? undefined,
@@ -70,7 +72,7 @@ export async function GET(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as any
+  const em = container.resolve('em') as EntityManager
   const keys = await loadActiveKeys(auth, em)
   return NextResponse.json(responseSchema.parse({
     ok: true,
@@ -84,14 +86,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, productKeys: [], variantKeys: [], message: 'Unauthorized' }, { status: 401 })
   }
 
-  const parsedBody = requestSchema.safeParse(await req.json().catch(() => null))
+  const parsedBody = requestSchema.safeParse(await readJsonSafe(req))
   if (!parsedBody.success) {
     return NextResponse.json({ ok: false, productKeys: [], variantKeys: [], message: 'Invalid payload' }, { status: 400 })
   }
 
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
-  const em = container.resolve('em') as any
+  const em = container.resolve('em') as EntityManager
   const scope = {
     organizationId: auth.orgId,
     tenantId: auth.tenantId,

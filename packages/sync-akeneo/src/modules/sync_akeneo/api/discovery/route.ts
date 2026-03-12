@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -32,11 +33,9 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
-  const em = container.resolve('em') as {
-    find: <T>(entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => Promise<T[]>
-  }
+  const em = container.resolve('em') as EntityManager
   const [localChannels, priceKinds] = await Promise.all([
-    findWithDecryption(em as any, SalesChannel, {
+    findWithDecryption(em, SalesChannel, {
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
@@ -48,7 +47,7 @@ export async function GET(req: Request) {
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
     }),
-    findWithDecryption(em as any, CatalogPriceKind, {
+    findWithDecryption(em, CatalogPriceKind, {
       tenantId: auth.tenantId,
       deletedAt: null,
       isActive: true,
