@@ -11,6 +11,7 @@ import {
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { computeTransitionDuration } from '@open-mercato/shared/lib/crud/state-history'
 
 const CLOSED_STATUSES = new Set(['win', 'won', 'lost', 'loose', 'closed'])
 
@@ -75,9 +76,7 @@ async function processChangeStage(
   deal.pipelineStage = stageInfo.label
   deal.pipelineId = stageInfo.pipelineId
 
-  const durationSeconds = deal.stageEnteredAt
-    ? Math.round((Date.now() - deal.stageEnteredAt.getTime()) / 1000)
-    : null
+  const durationSeconds = computeTransitionDuration(deal.stageEnteredAt)
 
   deal.stageEnteredAt = now
 

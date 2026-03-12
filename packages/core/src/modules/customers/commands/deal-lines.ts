@@ -26,6 +26,8 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import { computeSimpleLineTotal } from '@open-mercato/shared/lib/line-items/compute-line-totals'
+import { reorderItems } from '@open-mercato/shared/lib/crud/reorder-items'
 import { emitCustomersEvent } from '../events'
 
 const dealLineCrudEvents: CrudEventsConfig = {
@@ -42,18 +44,6 @@ const dealLineCrudEvents: CrudEventsConfig = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function computeLineTotal(
-  quantity: number,
-  unitPrice: number,
-  discountPercent: number | null | undefined,
-  discountAmount: number | null | undefined,
-): number {
-  const gross = quantity * unitPrice
-  const percentDiscount = gross * ((discountPercent ?? 0) / 100)
-  const total = gross - (discountAmount ?? 0) - percentDiscount
-  return Math.max(0, total)
-}
 
 function toNumericString(value: number | null | undefined): string | null {
   if (value === undefined || value === null) return null
@@ -202,7 +192,7 @@ const createDealLineCommand: CommandHandler<DealLineCreateInput, { dealLineId: s
     }
 
     const lineNumber = await getNextLineNumber(em, deal)
-    const lineTotal = computeLineTotal(
+    const lineTotal = computeSimpleLineTotal(
       parsed.quantity,
       parsed.unitPrice,
       parsed.discountPercent,
@@ -332,7 +322,7 @@ const updateDealLineCommand: CommandHandler<DealLineUpdateInput, { dealLineId: s
       parsed.discountAmount !== undefined
 
     if (priceFieldChanged) {
-      line.lineTotal = computeLineTotal(
+      line.lineTotal = computeSimpleLineTotal(
         line.quantity,
         line.unitPrice,
         line.discountPercent,
@@ -610,37 +600,25 @@ const reorderDealLinesCommand: CommandHandler<DealLineReorderInput, { reordered:
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await requireDeal(em, parsed.dealId, parsed.organizationId, parsed.tenantId)
 
-    const lines = await em.find(CustomerDealLine, {
-      deal,
-      id: { $in: parsed.lineIds },
-      deletedAt: null,
-    })
+    const result = await reorderItems(
+      em,
+      CustomerDealLine,
+      parsed.lineIds,
+      'lineNumber',
+      { deal: deal.id, deletedAt: null },
+    )
 
-    const lineMap = new Map(lines.map((line) => [line.id, line]))
-    let updated = 0
-
-    for (let index = 0; index < parsed.lineIds.length; index++) {
-      const lineId = parsed.lineIds[index]
-      const line = lineMap.get(lineId)
-      if (line && line.lineNumber !== index + 1) {
-        line.lineNumber = index + 1
-        updated++
-      }
-    }
-
-    if (updated > 0) {
-      await em.flush()
-
+    if (result.reordered > 0) {
       await emitCustomersEvent('customers.deal.line.reordered', {
         dealId: deal.id,
         organizationId: parsed.organizationId,
         tenantId: parsed.tenantId,
         lineIds: parsed.lineIds,
-        updatedCount: updated,
+        updatedCount: result.reordered,
       })
     }
 
-    return { reordered: updated }
+    return result
   },
   async prepare(rawInput, ctx) {
     const parsed = dealLineReorderSchema.parse(rawInput)
