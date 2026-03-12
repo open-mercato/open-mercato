@@ -162,7 +162,6 @@ const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
 const ANSI_ESCAPE_REGEX = /\x1b\[[0-?]*[ -/]*[@-~]/g // NOSONAR — ANSI escape sequence pattern
-const NEXT_STATIC_ASSET_PATTERN = /\/_next\/static\/[^"'`\s)]+?\.(?:js|css)/g
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
@@ -249,6 +248,24 @@ type CommandMonitoringOptions = {
   detectEnvironmentUnavailable?: boolean
   abortOnEnvironmentUnavailable?: boolean
   playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
+}
+
+type LoginPageProbeResult = {
+  status: number | null
+  healthy: boolean
+  detail: string
+}
+
+type BackendLoginProbeResult = {
+  status: number | null
+  healthy: boolean
+  detail: string
+}
+
+type ApplicationReadinessProbeResult = {
+  ready: boolean
+  frontend: LoginPageProbeResult
+  backend: BackendLoginProbeResult
 }
 
 type PlaywrightFailureHealthCheckOptions = {
@@ -1105,59 +1122,58 @@ export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironm
   }
 }
 
-async function isApplicationReachable(baseUrl: string): Promise<boolean> {
+function isLoginHtmlHealthy(html: string): boolean {
+  return !/Application error: a client-side exception has occurred/i.test(html)
+}
+
+function isSuccessfulBrowserNavigationStatus(status: number): boolean {
+  return status === 200 || (status >= 300 && status < 400)
+}
+
+async function probeLoginPage(baseUrl: string): Promise<LoginPageProbeResult> {
   try {
     const response = await fetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
     })
-    if (response.status === 302) {
-      return true
+    if (!isSuccessfulBrowserNavigationStatus(response.status)) {
+      return {
+        status: response.status,
+        healthy: false,
+        detail: `GET /login returned ${response.status}`,
+      }
     }
     if (response.status !== 200) {
-      return false
-    }
-    const html = await response.text()
-    return isLoginHtmlHealthy(html) && await areReferencedNextAssetsReachable(baseUrl, html)
-  } catch {
-    return false
-  }
-}
-
-function isLoginHtmlHealthy(html: string): boolean {
-  return !/Application error: a client-side exception has occurred/i.test(html)
-}
-
-function extractReferencedNextAssets(html: string, maxAssets = 8): string[] {
-  const matches = html.match(NEXT_STATIC_ASSET_PATTERN) ?? []
-  const unique = Array.from(new Set(matches))
-  return unique.slice(0, maxAssets)
-}
-
-async function areReferencedNextAssetsReachable(baseUrl: string, html: string): Promise<boolean> {
-  const assets = extractReferencedNextAssets(html)
-  if (assets.length === 0) {
-    return false
-  }
-
-  for (const assetPath of assets) {
-    try {
-      const response = await fetch(`${baseUrl}${assetPath}`, {
-        method: 'GET',
-        redirect: 'manual',
-      })
-      if (response.status !== 200 && response.status !== 304) {
-        return false
+      return {
+        status: response.status,
+        healthy: true,
+        detail: `GET /login returned redirect ${response.status}`,
       }
-    } catch {
-      return false
+    }
+    const html = await response.text().catch(() => '')
+    if (!isLoginHtmlHealthy(html)) {
+      return {
+        status: response.status,
+        healthy: false,
+        detail: 'GET /login returned client-side exception HTML',
+      }
+    }
+    return {
+      status: response.status,
+      healthy: true,
+      detail: 'GET /login returned healthy HTML',
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      status: null,
+      healthy: false,
+      detail: `GET /login failed: ${message}`,
     }
   }
-
-  return true
 }
 
-async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> {
+async function probeBackendLoginEndpoint(baseUrl: string): Promise<BackendLoginProbeResult> {
   try {
     const form = new URLSearchParams()
     form.set('email', 'integration-healthcheck@example.invalid')
@@ -1171,9 +1187,34 @@ async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> 
       body: form.toString(),
     })
 
-    return response.status === 200 || response.status === 400 || response.status === 401 || response.status === 403
-  } catch {
-    return false
+    const healthy = response.status === 200 || response.status === 400 || response.status === 401 || response.status === 403
+    return {
+      status: response.status,
+      healthy,
+      detail: healthy
+        ? `POST /api/auth/login returned ${response.status}`
+        : `POST /api/auth/login returned unexpected ${response.status}`,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      status: null,
+      healthy: false,
+      detail: `POST /api/auth/login failed: ${message}`,
+    }
+  }
+}
+
+async function probeApplicationReadiness(baseUrl: string): Promise<ApplicationReadinessProbeResult> {
+  const [frontend, backend] = await Promise.all([
+    probeLoginPage(baseUrl),
+    probeBackendLoginEndpoint(baseUrl),
+  ])
+
+  return {
+    ready: frontend.healthy && backend.healthy,
+    frontend,
+    backend,
   }
 }
 
@@ -1365,42 +1406,19 @@ async function waitForApplicationReadiness(
   const startTimestamp = Date.now()
   const exitPromise = getProcessExitPromise(appProcess)
   const readinessStabilizationMs = 600
+  let lastProbe: ApplicationReadinessProbeResult | null = null
 
   while (Date.now() - startTimestamp < options.timeoutMs) {
-    const responsePromise = fetch(`${baseUrl}/login`, {
-      method: 'GET',
-      redirect: 'manual',
-    })
-      .then(async (response) => ({
-        response,
-        body: response.status === 200 ? await response.text().catch(() => '') : '',
-      }))
-      .catch(() => null)
     const result = await Promise.race([
-      responsePromise.then((payload) => {
-        if (!payload) {
-          return { kind: 'network_error' as const }
-        }
-        return {
-          kind: 'response' as const,
-          status: payload.response.status,
-          body: payload.body,
-        }
-      }),
+      probeApplicationReadiness(baseUrl).then((probe) => ({ kind: 'probe' as const, probe })),
       exitPromise.then((code) => ({ kind: 'exit' as const, code })),
       delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
     ])
 
-    if (result.kind === 'response' && (result.status === 200 || result.status === 302)) {
-      if (result.status === 200) {
-        const loginHtml = result.body ?? ''
-        if (!isLoginHtmlHealthy(loginHtml)) {
-          continue
-        }
-        const assetsReachable = await areReferencedNextAssetsReachable(baseUrl, loginHtml)
-        if (!assetsReachable) {
-          continue
-        }
+    if (result.kind === 'probe') {
+      lastProbe = result.probe
+      if (!result.probe.ready) {
+        continue
       }
       const processExited = await Promise.race([
         exitPromise.then(() => true),
@@ -1416,7 +1434,11 @@ async function waitForApplicationReadiness(
     }
   }
 
-  throw new Error(`Application did not become ready within ${options.timeoutMs / 1000} seconds`)
+  const lastFrontendDetail = lastProbe?.frontend.detail ?? 'GET /login was never observed'
+  const lastBackendDetail = lastProbe?.backend.detail ?? 'POST /api/auth/login was never observed'
+  throw new Error(
+    `Application did not become ready within ${options.timeoutMs / 1000} seconds. Last probe: ${lastFrontendDetail}; ${lastBackendDetail}`,
+  )
 }
 
 export function parseOptions(rawArgs: string[]): IntegrationOptions {
@@ -2327,11 +2349,8 @@ async function runIntegrationTestSuiteOnce(
 }
 
 async function isEnvironmentUnavailable(baseUrl: string): Promise<boolean> {
-  const [applicationReachable, backendHealthy] = await Promise.all([
-    isApplicationReachable(baseUrl),
-    isBackendLoginEndpointHealthy(baseUrl),
-  ])
-  return !applicationReachable || !backendHealthy
+  const readiness = await probeApplicationReadiness(baseUrl)
+  return !readiness.ready
 }
 
 function isEnvironmentUnavailableError(error: unknown): boolean {
