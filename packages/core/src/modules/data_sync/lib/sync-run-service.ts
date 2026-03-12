@@ -175,7 +175,7 @@ export function createSyncRunService(em: EntityManager) {
           integrationId,
           entityType,
           direction,
-          status: 'running',
+          status: { $in: ['pending', 'running'] },
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           deletedAt: null,

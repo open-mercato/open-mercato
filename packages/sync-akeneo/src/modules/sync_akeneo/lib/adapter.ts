@@ -111,15 +111,16 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
     }
 
     if (entityType === 'attributes') {
+      const productMapping = await resolveMapping('products', input.scope)
       let batchIndex = 0
       let nextUrl = parseCursor(input.cursor)?.nextUrl ?? null
       const safeFullSync = !input.cursor
       const seenFamilyIds = new Set<string>()
       const reconciliation = buildDefaultReconciliationSettings()
-      const locale = mapping.settings?.products?.locale
+      const locale = productMapping.settings?.products?.locale
         ?? mapping.settings?.categories?.locale
         ?? 'en_US'
-      const customFieldItems = await importer.syncMappedCustomFields(mapping, locale)
+      const customFieldItems = await importer.syncMappedCustomFields(productMapping, locale)
       const currentCustomFieldKeys = new Set(
         customFieldItems
           .map((item) => {
@@ -171,6 +172,7 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
         batchIndex += 1
       } while (nextUrl)
       if (safeFullSync) {
+        await importer.reconcileMappedCustomFieldFieldsets(productMapping)
         await importer.reconcileAttributes({
           seenFamilyExternalIds: seenFamilyIds,
           currentCustomFieldKeys,
@@ -267,6 +269,7 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
         message: 'Reconciling imported Akeneo products after the final batch',
         batchIndex,
       }
+      await importer.reconcileMappedCustomFieldFieldsets(mapping)
       await importer.reconcileProducts(seenProductExternalIds, seenVariantExternalIds, reconciliation)
     }
   },

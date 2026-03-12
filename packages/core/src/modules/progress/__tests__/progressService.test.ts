@@ -329,7 +329,17 @@ describe('progress service', () => {
     expect(em.flush).toHaveBeenCalled()
     expect(em.find).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ tenantId: baseCtx.tenantId })
+      expect.objectContaining({
+        tenantId: baseCtx.tenantId,
+        status: 'running',
+        $or: [
+          { heartbeatAt: { $lt: expect.any(Date) } },
+          {
+            heartbeatAt: null,
+            startedAt: { $lt: expect.any(Date) },
+          },
+        ],
+      })
     )
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
     expect(eventBus.emit).toHaveBeenCalledWith(

@@ -1,4 +1,11 @@
-import { normalizeAkeneoSelectValue, readLayeredAkeneoValue, readPreferredAkeneoValue } from '../lib/catalog-importer'
+import {
+  filterAkeneoAttributeMappingsByAvailableAttributes,
+  normalizeAkeneoSelectValue,
+  readLayeredAkeneoValue,
+  readPreferredAkeneoValue,
+  resolveAkeneoFieldsetMemberships,
+  resolveAkeneoFieldKeysToDetach,
+} from '../lib/catalog-importer'
 
 describe('akeneo catalog importer value resolution', () => {
   it('does not fall back to a different locale when a base locale is selected', () => {
@@ -93,5 +100,83 @@ describe('akeneo catalog importer value resolution', () => {
     )
 
     expect(value).toBe('Red, Blue')
+  })
+
+  it('limits synced field mappings to the current family attributes', () => {
+    const mappings = filterAkeneoAttributeMappingsByAvailableAttributes(
+      [
+        { attributeCode: 'camera_brand', fieldKey: 'camera_brand', target: 'product' as const },
+        { attributeCode: 'material', fieldKey: 'material', target: 'product' as const },
+      ],
+      ['material', 'size'],
+    )
+
+    expect(mappings).toEqual([
+      { attributeCode: 'material', fieldKey: 'material', target: 'product' },
+    ])
+  })
+
+  it('detaches stale Akeneo-managed fields from a family fieldset during reconciliation', () => {
+    const keys = resolveAkeneoFieldKeysToDetach(
+      [
+        {
+          key: 'power_requirements',
+          description: 'Akeneo attribute power_requirements',
+          fieldset: 'akeneo_product_mp3_players',
+          fieldsets: ['akeneo_product_mp3_players'],
+        },
+        {
+          key: 'wash_temperature',
+          description: 'Akeneo attribute wash_temperature',
+          fieldset: 'akeneo_product_mp3_players',
+          fieldsets: ['akeneo_product_mp3_players'],
+        },
+        {
+          key: 'custom_note',
+          description: 'User-defined note',
+          fieldset: 'akeneo_product_mp3_players',
+          fieldsets: ['akeneo_product_mp3_players'],
+        },
+      ],
+      ['power_requirements'],
+      'akeneo_product_mp3_players',
+    )
+
+    expect(keys).toEqual(['wash_temperature'])
+  })
+
+  it('detaches stale Akeneo-managed membership from multi-fieldset definitions without touching active memberships', () => {
+    const keys = resolveAkeneoFieldKeysToDetach(
+      [
+        {
+          key: 'auto_exposure',
+          description: 'Akeneo attribute auto_exposure',
+          fieldset: null,
+          fieldsets: ['akeneo_product_digital_cameras', 'akeneo_product_camcorders'],
+        },
+        {
+          key: 'optical_zoom',
+          description: 'Akeneo attribute optical_zoom',
+          fieldset: null,
+          fieldsets: ['akeneo_product_digital_cameras'],
+        },
+      ],
+      ['auto_exposure'],
+      'akeneo_product_digital_cameras',
+    )
+
+    expect(keys).toEqual(['optical_zoom'])
+  })
+
+  it('adds the current family fieldset without dropping existing Akeneo memberships', () => {
+    const memberships = resolveAkeneoFieldsetMemberships(
+      ['akeneo_product_multifunctionals'],
+      'akeneo_product_digital_cameras',
+    )
+
+    expect(memberships).toEqual([
+      'akeneo_product_multifunctionals',
+      'akeneo_product_digital_cameras',
+    ])
   })
 })

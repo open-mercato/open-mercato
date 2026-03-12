@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { ProgressService, ProgressServiceContext } from '@open-mercato/core/modules/progress/lib/progressService'
+import { CatalogProduct } from '@open-mercato/core/modules/catalog/data/entities'
 import { SyncCursor } from '@open-mercato/core/modules/data_sync/data/entities'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
 
@@ -93,8 +94,27 @@ export async function findAkeneoImportedProductIds(
     },
   )
 
+  const metadataProducts = await em.find(
+    CatalogProduct,
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+      metadata: {
+        source: 'akeneo',
+      },
+    },
+    {
+      fields: ['id'],
+      orderBy: { createdAt: 'asc' },
+    },
+  )
+
   return Array.from(new Set(
-    (productMappings as Array<{ internalEntityId: string }>).map((entry) => entry.internalEntityId),
+    [
+      ...(productMappings as Array<{ internalEntityId: string }>).map((entry) => entry.internalEntityId),
+      ...(metadataProducts as Array<{ id: string }>).map((entry) => entry.id),
+    ],
   ))
 }
 

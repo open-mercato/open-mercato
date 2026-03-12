@@ -21,6 +21,7 @@ import {
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import { CustomFieldDef, CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
 import { normalizeEntityFieldsetConfig, type CustomFieldsetDefinition } from '@open-mercato/core/modules/entities/lib/fieldsets'
+import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/api/definitions.cache'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { deletePartitionFile, storePartitionFile } from '@open-mercato/core/modules/attachments/lib/storage'
@@ -201,6 +202,93 @@ export function normalizeAkeneoSelectValue(
   return optionLabels.get(raw) ?? raw
 }
 
+export function filterAkeneoAttributeMappingsByAvailableAttributes<T extends { attributeCode: string }>(
+  mappings: T[],
+  availableAttributeCodes: string[],
+): T[] {
+  const allowed = new Set(
+    availableAttributeCodes
+      .map((code) => code.trim())
+      .filter((code) => code.length > 0),
+  )
+  if (allowed.size === 0) return []
+  return mappings.filter((mapping) => allowed.has(mapping.attributeCode))
+}
+
+type ExistingFieldsetDefinition = {
+  key: string
+  description: string | null
+  fieldset: string | null
+  fieldsets: string[]
+}
+
+type DesiredFieldsetAssignment = {
+  key: string
+  fieldsets: string[]
+}
+
+type EntityFieldsetAssignments = {
+  fieldsets: CustomFieldsetDefinition[]
+  fieldsetsByKey: Map<string, string[]>
+}
+
+type ResolvedGlobalFieldsetAssignments = {
+  product: EntityFieldsetAssignments
+  variant: EntityFieldsetAssignments
+}
+
+type AkeneoOptionSchemaMetadata = {
+  familyCode: string | null
+  familyVariantCode: string | null
+  attributeCodes: string[]
+  richAttributes: Record<string, Record<string, unknown>>
+}
+
+export function resolveAkeneoFieldKeysToDetach(
+  definitions: ExistingFieldsetDefinition[],
+  desiredFieldKeys: string[],
+  fieldsetCode: string | null,
+): string[] {
+  if (!fieldsetCode) return []
+  const desired = new Set(
+    desiredFieldKeys
+      .map((key) => normalizeFieldKey(key))
+      .filter((key) => key.length > 0),
+  )
+
+  return definitions
+    .filter((definition) => definition.fieldset === fieldsetCode || definition.fieldsets.includes(fieldsetCode))
+    .filter((definition) => typeof definition.description === 'string' && definition.description.startsWith('Akeneo attribute '))
+    .filter((definition) => !desired.has(normalizeFieldKey(definition.key)))
+    .map((definition) => definition.key)
+}
+
+export function resolveAkeneoFieldsetMemberships(
+  currentFieldsets: string[],
+  fieldsetCode: string | null,
+): string[] {
+  return dedupeStrings([
+    ...currentFieldsets
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+    ...(fieldsetCode ? [fieldsetCode] : []),
+  ])
+}
+
+function readConfiguredFieldsets(config: Record<string, unknown> | null | undefined): string[] {
+  const configured = Array.isArray(config?.fieldsets)
+    ? config.fieldsets.filter((entry): entry is string => typeof entry === 'string')
+    : []
+  const normalized = dedupeStrings(
+    configured
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+  )
+  if (normalized.length > 0) return normalized
+  const legacy = typeof config?.fieldset === 'string' ? config.fieldset.trim() : ''
+  return legacy.length > 0 ? [legacy] : []
+}
+
 function clampString(value: string | null, maxLength: number): string | null {
   if (!value) return null
   return value.length > maxLength ? value.slice(0, maxLength).trim() : value
@@ -255,6 +343,44 @@ function normalizeFieldKey(value: string): string {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 100)
+}
+
+function readAkeneoOptionSchemaMetadata(value: unknown): AkeneoOptionSchemaMetadata | null {
+  const parsedValue = typeof value === 'string'
+    ? (() => {
+        try {
+          return JSON.parse(value) as unknown
+        } catch {
+          return null
+        }
+      })()
+    : value
+  const metadata = safeRecord(parsedValue)
+  if (!metadata) return null
+
+  const familyCode = typeof metadata.familyCode === 'string' && metadata.familyCode.trim().length > 0
+    ? metadata.familyCode.trim()
+    : null
+  const familyVariantCode = typeof metadata.familyVariantCode === 'string' && metadata.familyVariantCode.trim().length > 0
+    ? metadata.familyVariantCode.trim()
+    : null
+  const attributeCodes = Array.isArray(metadata.attributeCodes)
+    ? dedupeStrings(metadata.attributeCodes.filter((entry): entry is string => typeof entry === 'string'))
+    : []
+  const richAttributes = safeRecord(metadata.richAttributes) ?? {}
+
+  if (!familyCode && !familyVariantCode) return null
+  if (attributeCodes.length === 0) return null
+
+  return {
+    familyCode,
+    familyVariantCode,
+    attributeCodes,
+    richAttributes: Object.fromEntries(
+      Object.entries(richAttributes)
+        .filter(([, entry]) => Boolean(safeRecord(entry))),
+    ) as Record<string, Record<string, unknown>>,
+  }
 }
 
 function mapAkeneoAttributeInputType(attributeType: string): 'select' | 'text' | 'textarea' | 'number' | null {
@@ -459,6 +585,63 @@ function collectFieldsetGroups(attributes: AkeneoAttribute[], locale: string): N
   return groups.length > 0 ? groups : undefined
 }
 
+function collectFieldsetGroupsFromSchemaMetadata(
+  metadata: AkeneoOptionSchemaMetadata,
+): NonNullable<CustomFieldsetDefinition['groups']> | undefined {
+  const groups = new Map<string, { code: string; title: string }>()
+  for (const attributeCode of metadata.attributeCodes) {
+    const attribute = safeRecord(metadata.richAttributes[attributeCode])
+    const groupCode = typeof attribute?.groupCode === 'string' && attribute.groupCode.trim().length > 0
+      ? attribute.groupCode.trim()
+      : null
+    if (!groupCode) continue
+    const normalizedCode = normalizeFieldKey(groupCode)
+    if (!normalizedCode || groups.has(normalizedCode)) continue
+    const title = typeof attribute?.groupLabel === 'string' && attribute.groupLabel.trim().length > 0
+      ? attribute.groupLabel.trim()
+      : titleizeCode(groupCode)
+    groups.set(normalizedCode, { code: normalizedCode, title })
+  }
+  return groups.size > 0 ? Array.from(groups.values()) : undefined
+}
+
+function buildFieldsetPlanFromOptionSchema(params: {
+  schema: Pick<CatalogOptionSchemaTemplate, 'code' | 'name' | 'description'>
+  metadata: AkeneoOptionSchemaMetadata
+  locale: string
+  fieldsetMappings: AkeneoFieldsetMapping[]
+}): { target: 'product' | 'variant'; fieldset: CustomFieldsetDefinition | null } {
+  const target = params.metadata.familyVariantCode ? 'variant' : 'product'
+  const sourceType = params.metadata.familyVariantCode ? 'familyVariant' : 'family'
+  const sourceCode = params.metadata.familyVariantCode ?? params.metadata.familyCode
+  const fallbackCode = buildAkeneoFieldsetCode(target, sourceCode)
+  const override = findFieldsetMapping(params.fieldsetMappings, target, sourceType, sourceCode)
+  const fallbackLabel = params.schema.name?.trim().length
+    ? params.schema.name.trim()
+    : titleizeCode(sourceCode ?? `Akeneo ${target}`)
+  const fallbackDescription = params.schema.description?.trim().length
+    ? params.schema.description.trim()
+    : sourceType === 'familyVariant' && params.metadata.familyVariantCode
+      ? `Akeneo family variant ${params.metadata.familyVariantCode}`
+      : params.metadata.familyCode
+        ? `Akeneo family ${params.metadata.familyCode}`
+        : `Akeneo ${target} attributes`
+  const fieldsetCode = override?.fieldsetCode ?? fallbackCode
+  if (!fieldsetCode) {
+    return { target, fieldset: null }
+  }
+
+  return {
+    target,
+    fieldset: {
+      code: fieldsetCode,
+      label: override?.fieldsetLabel ?? fallbackLabel,
+      description: override?.description ?? fallbackDescription,
+      groups: collectFieldsetGroupsFromSchemaMetadata(params.metadata),
+    },
+  }
+}
+
 function buildFieldsetPlan(params: {
   family: AkeneoFamily | null
   familyVariant: AkeneoFamilyVariant | null
@@ -567,11 +750,18 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   const commandBus = container.resolve('commandBus') as CommandBus
   const dataEngine = container.resolve('dataEngine') as DataEngine
   const externalIdMappingService = container.resolve('externalIdMappingService') as ExternalIdMappingService
+  let cacheService: { deleteByTags?: (tags: string[]) => Promise<void> } | null = null
+  try {
+    cacheService = container.resolve('cache') as { deleteByTags?: (tags: string[]) => Promise<void> }
+  } catch {
+    cacheService = null
+  }
   const categoryCache = new Map<string, Promise<string | null>>()
   const optionSchemaCache = new Map<string, Promise<UpsertResult | null>>()
   const channelCache = new Map<string, Promise<{ id: string; code: string } | null>>()
   const priceKindCache = new Map<string, Promise<{ id: string; code: string; displayMode: string } | null>>()
   const customFieldSyncCache = new Map<string, Promise<CustomFieldSyncItem[]>>()
+  const globalFieldsetAssignmentCache = new Map<string, Promise<ResolvedGlobalFieldsetAssignments>>()
   const preferredChannelCodeCache = new Map<string, Promise<string | null>>()
   const preferredPriceKindCodeCache = new Map<string, Promise<string | null>>()
   const attributeOptionLabelCache = new Map<string, Promise<Map<string, string>>>()
@@ -641,7 +831,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return product?.id ?? null
   }
 
-  async function lookupVariantBySku(sku: string | null): Promise<string | null> {
+  async function lookupVariantBySku(sku: string | null, productId?: string | null): Promise<string | null> {
     if (!sku) return null
     const variant = await findOneWithDecryption(
       em,
@@ -649,6 +839,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
+        ...(productId ? { product: productId } : {}),
         sku,
         deletedAt: null,
       },
@@ -679,7 +870,11 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return lookupProductBySku(sku)
   }
 
-  async function resolveExistingVariantId(variantExternalId: string, sku: string | null): Promise<string | null> {
+  async function resolveExistingVariantId(
+    variantExternalId: string,
+    sku: string | null,
+    productId: string,
+  ): Promise<string | null> {
     const mappedId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_product_variant', variantExternalId, scope)
     if (mappedId) {
       const mappedVariant = await findOneWithDecryption(
@@ -689,6 +884,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           id: mappedId,
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
+          product: productId,
           deletedAt: null,
         },
         undefined,
@@ -697,7 +893,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       if (mappedVariant) return mappedVariant.id
     }
 
-    return lookupVariantBySku(sku)
+    return lookupVariantBySku(sku, productId)
   }
 
   async function resolveCategoryId(code: string | null | undefined, locale: string): Promise<string | null> {
@@ -1067,6 +1263,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     mapping: AkeneoDataMapping,
     locale: string,
     fieldsetPlan?: AkeneoFieldsetPlan | null,
+    options?: { forceRefresh?: boolean },
   ): Promise<CustomFieldSyncItem[]> {
     const settings = mapping.settings?.products
     if (!settings || settings.customFieldMappings.length === 0) return []
@@ -1075,11 +1272,33 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       fieldsetPlan,
       locale,
     })
+    if (options?.forceRefresh) {
+      customFieldSyncCache.delete(cacheKey)
+      globalFieldsetAssignmentCache.delete(JSON.stringify({
+        customFieldMappings: settings.customFieldMappings.filter((entry) => !entry.skip),
+        fieldsetMappings: settings.fieldsetMappings,
+      }))
+    }
     if (!customFieldSyncCache.has(cacheKey)) {
       customFieldSyncCache.set(cacheKey, (async () => {
         const productFields: Array<CustomFieldDefinition & { sourceMetadata?: Record<string, unknown> }> = []
         const variantFields: Array<CustomFieldDefinition & { sourceMetadata?: Record<string, unknown> }> = []
         const items: CustomFieldSyncItem[] = []
+        const globalAssignments = await resolveGlobalFieldsetAssignments(settings)
+        const existingDefinitions = await em.find(CustomFieldDef, {
+          entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] } as any,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        })
+        const existingFieldsetsByEntityAndKey = new Map<string, string[]>()
+        for (const definition of existingDefinitions) {
+          const config = safeRecord(definition.configJson)
+          existingFieldsetsByEntityAndKey.set(
+            `${definition.entityId}:${definition.key}`,
+            readConfiguredFieldsets(config),
+          )
+        }
 
         for (const fieldMapping of settings.customFieldMappings) {
           if (fieldMapping.skip) continue
@@ -1087,17 +1306,30 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           if (!attribute) continue
           const kind = mapAkeneoAttributeToCustomFieldKind(attribute, fieldMapping.kind)
           if (!kind) continue
+          const entityId = fieldMapping.target === 'product' ? PRODUCT_ENTITY_ID : VARIANT_ENTITY_ID
+          const normalizedKey = normalizeFieldKey(fieldMapping.fieldKey)
+          const currentFieldsetCode = fieldMapping.target === 'product'
+            ? fieldsetPlan?.product?.code ?? null
+            : fieldsetPlan?.variant?.code ?? null
+          const globalFieldsets = fieldMapping.target === 'product'
+            ? globalAssignments.product.fieldsetsByKey.get(normalizedKey) ?? []
+            : globalAssignments.variant.fieldsetsByKey.get(normalizedKey) ?? []
+          const inheritedFieldsets = existingFieldsetsByEntityAndKey.get(`${entityId}:${normalizedKey}`) ?? []
+          const effectiveFieldsets = dedupeStrings([
+            ...globalFieldsets,
+            ...inheritedFieldsets,
+            ...(currentFieldsetCode ? [currentFieldsetCode] : []),
+          ])
           const options = kind === 'select' && (attribute.type === 'pim_catalog_simpleselect' || attribute.type === 'pim_catalog_multiselect')
             ? await client.listAttributeOptions(attribute.code).catch(() => [])
             : []
           const field: CustomFieldDefinition & { sourceMetadata?: Record<string, unknown> } = {
-            key: normalizeFieldKey(fieldMapping.fieldKey),
+            key: normalizedKey,
             kind,
             label: labelFromLocalizedRecord(attribute.labels ?? null, locale, fieldMapping.fieldKey),
             description: `Akeneo attribute ${fieldMapping.attributeCode}`,
-            fieldset: fieldMapping.target === 'product'
-              ? fieldsetPlan?.product?.code
-              : fieldsetPlan?.variant?.code,
+            fieldset: effectiveFieldsets.length === 1 ? effectiveFieldsets[0] : undefined,
+            fieldsets: effectiveFieldsets.length > 0 ? effectiveFieldsets : undefined,
             multi: attribute.type === 'pim_catalog_multiselect' || attribute.type === 'akeneo_reference_entity_collection',
             options: options.map((option) => ({
               value: option.code,
@@ -1143,6 +1375,21 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         }
 
         if (sets.length > 0) {
+          const productFieldAssignments = productFields.map((field) => ({
+            key: field.key,
+            fieldsets: resolveAkeneoFieldsetMemberships(
+              existingFieldsetsByEntityAndKey.get(`${PRODUCT_ENTITY_ID}:${field.key}`) ?? [],
+              fieldsetPlan?.product?.code ?? null,
+            ),
+          }))
+          const variantFieldAssignments = variantFields.map((field) => ({
+            key: field.key,
+            fieldsets: resolveAkeneoFieldsetMemberships(
+              existingFieldsetsByEntityAndKey.get(`${VARIANT_ENTITY_ID}:${field.key}`) ?? [],
+              fieldsetPlan?.variant?.code ?? null,
+            ),
+          }))
+
           await ensureCustomFieldDefinitions(em, sets, {
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
@@ -1151,12 +1398,330 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
             ensureEntityFieldsetConfig(PRODUCT_ENTITY_ID, fieldsetPlan?.product ?? null),
             ensureEntityFieldsetConfig(VARIANT_ENTITY_ID, fieldsetPlan?.variant ?? null),
           ])
+          await Promise.all([
+            ensureAkeneoFieldsetAssignments(PRODUCT_ENTITY_ID, productFieldAssignments),
+            ensureAkeneoFieldsetAssignments(VARIANT_ENTITY_ID, variantFieldAssignments),
+          ])
+          await Promise.all([
+            reconcileAkeneoFieldsetAssignments(PRODUCT_ENTITY_ID, fieldsetPlan?.product?.code ?? null, productFields.map((field) => field.key)),
+            reconcileAkeneoFieldsetAssignments(VARIANT_ENTITY_ID, fieldsetPlan?.variant?.code ?? null, variantFields.map((field) => field.key)),
+          ])
+          await invalidateDefinitionsCache(cacheService as any, {
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            entityIds: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID],
+          })
         }
 
         return items
       })())
     }
     return customFieldSyncCache.get(cacheKey) ?? []
+  }
+
+  async function reconcileAkeneoFieldsetAssignments(
+    entityId: string,
+    fieldsetCode: string | null,
+    desiredFieldKeys: string[],
+  ): Promise<void> {
+    if (!fieldsetCode) return
+
+    const existingDefinitions = await em.find(CustomFieldDef, {
+      entityId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    })
+
+    const keysToDetach = resolveAkeneoFieldKeysToDetach(
+      existingDefinitions.map((definition) => {
+        const config = safeRecord(definition.configJson)
+        return {
+          key: definition.key,
+          description: typeof config?.description === 'string' ? config.description : null,
+          fieldset: typeof config?.fieldset === 'string' ? config.fieldset : null,
+          fieldsets: readConfiguredFieldsets(config),
+        }
+      }),
+      desiredFieldKeys,
+      fieldsetCode,
+    )
+
+    if (keysToDetach.length === 0) return
+
+    for (const definition of existingDefinitions) {
+      if (!keysToDetach.includes(definition.key)) continue
+      const nextConfig = {
+        ...(safeRecord(definition.configJson) ?? {}),
+      }
+      const remainingFieldsets = readConfiguredFieldsets(nextConfig).filter((entry) => entry !== fieldsetCode)
+      if (remainingFieldsets.length === 0) {
+        delete nextConfig.fieldset
+        delete nextConfig.fieldsets
+      } else if (remainingFieldsets.length === 1) {
+        nextConfig.fieldset = remainingFieldsets[0]
+        nextConfig.fieldsets = remainingFieldsets
+      } else {
+        delete nextConfig.fieldset
+        nextConfig.fieldsets = remainingFieldsets
+      }
+      definition.configJson = nextConfig
+      definition.updatedAt = new Date()
+    }
+
+    await em.flush()
+  }
+
+  async function ensureAkeneoFieldsetAssignments(
+    entityId: string,
+    assignments: DesiredFieldsetAssignment[],
+  ): Promise<void> {
+    const normalizedAssignments = assignments
+      .map((assignment) => ({
+        key: normalizeFieldKey(assignment.key),
+        fieldsets: dedupeStrings(
+          assignment.fieldsets
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0),
+        ),
+      }))
+      .filter((assignment) => assignment.key.length > 0 && assignment.fieldsets.length > 0)
+
+    const normalizedKeys = normalizedAssignments.map((assignment) => assignment.key)
+    if (normalizedKeys.length === 0) return
+
+    const fieldsetsByKey = new Map(normalizedAssignments.map((assignment) => [assignment.key, assignment.fieldsets]))
+
+    const existingDefinitions = await em.find(CustomFieldDef, {
+      entityId,
+      key: { $in: normalizedKeys } as any,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    })
+
+    let changed = false
+    for (const definition of existingDefinitions) {
+      const nextConfig = {
+        ...(safeRecord(definition.configJson) ?? {}),
+      }
+      const nextFieldsets = fieldsetsByKey.get(definition.key) ?? []
+      if (nextFieldsets.length === 0) continue
+
+      const currentFieldsets = readConfiguredFieldsets(nextConfig)
+      const currentPrimary = typeof nextConfig.fieldset === 'string' ? nextConfig.fieldset.trim() : ''
+      const nextPrimary = nextFieldsets.length === 1 ? nextFieldsets[0] : ''
+      const sameMemberships = currentFieldsets.length === nextFieldsets.length
+        && currentFieldsets.every((entry, index) => entry === nextFieldsets[index])
+      if (sameMemberships && currentPrimary === nextPrimary) continue
+
+      if (nextFieldsets.length === 1) {
+        nextConfig.fieldset = nextFieldsets[0]
+        delete nextConfig.fieldsets
+      } else {
+        delete nextConfig.fieldset
+        nextConfig.fieldsets = nextFieldsets
+      }
+      definition.configJson = nextConfig
+      definition.updatedAt = new Date()
+      changed = true
+    }
+
+    if (changed) {
+      await em.flush()
+    }
+  }
+
+  async function applyAkeneoManagedFieldsetAssignments(
+    entityId: string,
+    assignments: EntityFieldsetAssignments,
+  ): Promise<void> {
+    const dedupedFieldsets = new Map(assignments.fieldsets.map((fieldset) => [fieldset.code, fieldset]))
+    await Promise.all(
+      Array.from(dedupedFieldsets.values()).map((fieldset) => ensureEntityFieldsetConfig(entityId, fieldset)),
+    )
+
+    const definitions = await em.find(CustomFieldDef, {
+      entityId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    })
+
+    let changed = false
+    for (const definition of definitions) {
+      const config = safeRecord(definition.configJson)
+      const sourceMetadata = safeRecord(config?.sourceMetadata)
+      const isAkeneoManaged = sourceMetadata?.provider === 'akeneo'
+        || (typeof config?.description === 'string' && config.description.startsWith('Akeneo attribute '))
+      if (!isAkeneoManaged) continue
+
+      const nextConfig = {
+        ...(config ?? {}),
+      }
+      const nextFieldsets = assignments.fieldsetsByKey.get(definition.key) ?? []
+      const currentFieldsets = readConfiguredFieldsets(nextConfig)
+      const currentPrimary = typeof nextConfig.fieldset === 'string' ? nextConfig.fieldset.trim() : ''
+      const nextPrimary = nextFieldsets.length === 1 ? nextFieldsets[0] : ''
+      const sameMemberships = currentFieldsets.length === nextFieldsets.length
+        && currentFieldsets.every((entry, index) => entry === nextFieldsets[index])
+      if (sameMemberships && currentPrimary === nextPrimary) continue
+
+      if (nextFieldsets.length === 0) {
+        delete nextConfig.fieldset
+        delete nextConfig.fieldsets
+      } else if (nextFieldsets.length === 1) {
+        nextConfig.fieldset = nextFieldsets[0]
+        delete nextConfig.fieldsets
+      } else {
+        delete nextConfig.fieldset
+        nextConfig.fieldsets = nextFieldsets
+      }
+
+      definition.configJson = nextConfig
+      definition.updatedAt = new Date()
+      changed = true
+    }
+
+    if (changed) {
+      await em.flush()
+      await invalidateDefinitionsCache(cacheService as any, {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        entityIds: [entityId],
+      })
+    }
+  }
+
+  async function reconcileMappedCustomFieldFieldsets(mapping: AkeneoDataMapping): Promise<void> {
+    const settings = mapping.settings?.products
+    if (!settings || settings.customFieldMappings.length === 0) return
+
+    const activeMappings = settings.customFieldMappings.filter((entry) => !entry.skip)
+    if (activeMappings.length === 0) return
+
+    globalFieldsetAssignmentCache.delete(JSON.stringify({
+      customFieldMappings: settings.customFieldMappings.filter((entry) => !entry.skip),
+      fieldsetMappings: settings.fieldsetMappings,
+    }))
+    em.clear()
+    const globalAssignments = await resolveGlobalFieldsetAssignments(settings)
+    const productAssignments = globalAssignments.product
+    const variantAssignments = globalAssignments.variant
+
+    if (productAssignments.fieldsets.length > 0 || productAssignments.fieldsetsByKey.size > 0) {
+      await applyAkeneoManagedFieldsetAssignments(PRODUCT_ENTITY_ID, productAssignments)
+    }
+    if (variantAssignments.fieldsets.length > 0 || variantAssignments.fieldsetsByKey.size > 0) {
+      await applyAkeneoManagedFieldsetAssignments(VARIANT_ENTITY_ID, variantAssignments)
+    }
+  }
+
+  async function resolveGlobalFieldsetAssignments(
+    settings: AkeneoProductMappingSettings,
+  ): Promise<ResolvedGlobalFieldsetAssignments> {
+    const activeMappings = settings.customFieldMappings.filter((entry) => !entry.skip)
+    const cacheKey = JSON.stringify({
+      customFieldMappings: activeMappings,
+      fieldsetMappings: settings.fieldsetMappings,
+    })
+    if (!globalFieldsetAssignmentCache.has(cacheKey)) {
+      globalFieldsetAssignmentCache.set(cacheKey, (async () => {
+        const optionSchemas = await em.getConnection().execute<Array<{
+          code: string
+          name: string
+          description: string | null
+          metadata: unknown
+        }>>(
+          `
+            select code, name, description, metadata
+            from catalog_product_option_schemas
+            where organization_id = ?
+              and tenant_id = ?
+              and deleted_at is null
+          `,
+          [scope.organizationId, scope.tenantId],
+        )
+        const akeneoSchemas: Array<{
+          schema: {
+            code: string
+            name: string
+            description: string | null
+          }
+          metadata: AkeneoOptionSchemaMetadata
+        }> = []
+        for (const schema of optionSchemas) {
+          const metadata = readAkeneoOptionSchemaMetadata(schema.metadata)
+          if (!metadata) continue
+          akeneoSchemas.push({
+            schema: {
+              code: schema.code,
+              name: schema.name,
+              description: schema.description,
+            },
+            metadata,
+          })
+        }
+
+        const productAssignments: EntityFieldsetAssignments = {
+          fieldsets: [],
+          fieldsetsByKey: new Map(),
+        }
+        const variantAssignments: EntityFieldsetAssignments = {
+          fieldsets: [],
+          fieldsetsByKey: new Map(),
+        }
+
+        const addFieldsetAssignment = (
+          bucket: EntityFieldsetAssignments,
+          fieldKey: string,
+          fieldset: CustomFieldsetDefinition | null,
+        ) => {
+          if (!fieldset) return
+          const normalizedKey = normalizeFieldKey(fieldKey)
+          if (!normalizedKey) return
+          const existing = bucket.fieldsetsByKey.get(normalizedKey) ?? []
+          bucket.fieldsetsByKey.set(
+            normalizedKey,
+            resolveAkeneoFieldsetMemberships(existing, fieldset.code),
+          )
+          if (!bucket.fieldsets.some((entry) => entry.code === fieldset.code)) {
+            bucket.fieldsets.push(fieldset)
+          }
+        }
+
+        for (const { schema, metadata } of akeneoSchemas) {
+          const fieldsetPlan = buildFieldsetPlanFromOptionSchema({
+            schema,
+            metadata,
+            locale: settings.locale,
+            fieldsetMappings: settings.fieldsetMappings,
+          })
+          if (!fieldsetPlan.fieldset) continue
+
+          const schemaMappings = activeMappings.filter((entry) => (
+            entry.target === fieldsetPlan.target
+            && metadata.attributeCodes.includes(entry.attributeCode)
+          ))
+          if (schemaMappings.length === 0) continue
+
+          const bucket = fieldsetPlan.target === 'product' ? productAssignments : variantAssignments
+          for (const fieldMapping of schemaMappings) {
+            addFieldsetAssignment(bucket, fieldMapping.fieldKey, fieldsetPlan.fieldset)
+          }
+        }
+
+        return {
+          product: productAssignments,
+          variant: variantAssignments,
+        }
+      })())
+    }
+
+    return globalFieldsetAssignmentCache.get(cacheKey) ?? {
+      product: { fieldsets: [], fieldsetsByKey: new Map() },
+      variant: { fieldsets: [], fieldsetsByKey: new Map() },
+    }
   }
 
   async function upsertAttributeFamily(
@@ -1263,6 +1828,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }): Promise<{
     settings: AkeneoProductMappingSettings
     axisCodes: string[]
+    variantAttributeCodes: string[]
     optionSchemaAttributeCodes: string[]
     fieldsetPlan: AkeneoFieldsetPlan
   }> {
@@ -1322,23 +1888,31 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       locale: baseSettings.locale,
       fieldsetMappings: baseSettings.fieldsetMappings,
     })
+    const availableAttributeCodes = attributes.map((attribute) => attribute.code)
 
     return {
       settings: {
         ...baseSettings,
         fieldMap: inferred.fieldMap,
-        customFieldMappings: dedupeCustomFieldMappings([
-          ...baseSettings.customFieldMappings,
-          ...inferred.autoCustomFieldMappings,
-        ]),
-        mediaMappings: dedupeMediaMappings([
-          ...baseSettings.mediaMappings,
-          ...inferred.autoMediaMappings,
-        ]),
+        customFieldMappings: filterAkeneoAttributeMappingsByAvailableAttributes(
+          dedupeCustomFieldMappings([
+            ...baseSettings.customFieldMappings,
+            ...inferred.autoCustomFieldMappings,
+          ]),
+          availableAttributeCodes,
+        ),
+        mediaMappings: filterAkeneoAttributeMappingsByAvailableAttributes(
+          dedupeMediaMappings([
+            ...baseSettings.mediaMappings,
+            ...inferred.autoMediaMappings,
+          ]),
+          availableAttributeCodes,
+        ),
         fieldsetMappings: baseSettings.fieldsetMappings,
         priceMappings,
       },
       axisCodes: inferred.axisCodes,
+      variantAttributeCodes: inferred.variantAttributeCodes,
       optionSchemaAttributeCodes: inferred.optionSchemaAttributeCodes,
       fieldsetPlan,
     }
@@ -1612,7 +2186,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         const mappedPriceId = await externalIdMappingService.lookupLocalId('sync_akeneo', 'catalog_product_price', price.externalId, scope)
         const existingPrice = mappedPriceId
           ? existingPrices.find((entry) => entry.id === mappedPriceId) ?? null
-          : existingPrices.find((entry) => entry.channelId === price.channelId && entry.currencyCode === price.currencyCode && entry.kind === price.priceKindCode) ?? null
+          : existingPrices.find((entry) => (
+              (typeof entry.variant === 'string' ? entry.variant : entry.variant?.id ?? null) === price.variantId
+              && entry.channelId === price.channelId
+              && entry.currencyCode === price.currencyCode
+              && entry.kind === price.priceKindCode
+            )) ?? null
         const input = {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
@@ -1988,7 +2567,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     await externalIdMappingService.storeExternalIdMapping('sync_akeneo', 'catalog_product', localProductId, productExternalId, scope)
 
     const variantExternalId = product.parent ? product.uuid : `${product.uuid}:default`
-    const existingVariantId = await resolveExistingVariantId(variantExternalId, resolvedSku)
+    const existingVariantId = await resolveExistingVariantId(variantExternalId, resolvedSku, localProductId)
 
     const optionValues =
       hierarchy.axisCodes.length > 0
@@ -2086,16 +2665,37 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
     const desiredAssets: DesiredAsset[] = []
     for (const mediaMapping of settings.mediaMappings) {
-      const sourceLayers = mediaMapping.target === 'product'
+      const productScopedValue = readPreferredAkeneoValue(
+        hierarchy.rootValues,
+        mediaMapping.attributeCode,
+        locale,
+        channel,
+      )
+      const variantScopedValue = readPreferredAkeneoValue(
+        hierarchy.leafValues,
+        mediaMapping.attributeCode,
+        locale,
+        channel,
+      )
+      const effectiveTarget = resolvedProductSettings.variantAttributeCodes.includes(mediaMapping.attributeCode)
+        || (
+          mediaMapping.target === 'product'
+          && (productScopedValue === null || productScopedValue === undefined)
+          && variantScopedValue !== null
+          && variantScopedValue !== undefined
+        )
+        ? 'variant'
+        : mediaMapping.target
+      const sourceLayers = effectiveTarget === 'product'
         ? [hierarchy.rootValues, hierarchy.mergedValues]
         : [hierarchy.leafValues, hierarchy.mergedValues]
       const rawValue = readLayeredAkeneoValue(sourceLayers, mediaMapping.attributeCode, locale, channel)
       const refs = collectMediaReferences(rawValue)
       refs.forEach((ref, index) => {
         desiredAssets.push({
-          externalId: `${mediaMapping.target}:${mediaMapping.kind}:${mediaMapping.attributeCode}:${ref.codeOrUrl}:${index}`,
-          entityId: mediaMapping.target === 'product' ? PRODUCT_ENTITY_ID : VARIANT_ENTITY_ID,
-          recordId: mediaMapping.target === 'product' ? localProductId : localVariantId,
+          externalId: `${effectiveTarget}:${mediaMapping.kind}:${mediaMapping.attributeCode}:${ref.codeOrUrl}:${index}`,
+          entityId: effectiveTarget === 'product' ? PRODUCT_ENTITY_ID : VARIANT_ENTITY_ID,
+          recordId: effectiveTarget === 'product' ? localProductId : localVariantId,
           kind: mediaMapping.kind,
           remote: ref,
         })
@@ -2103,6 +2703,11 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
 
     const assetsByTarget = new Map<string, DesiredAsset[]>()
+    const pendingVariantHeroUpdates: Array<{
+      variantId: string
+      defaultMediaId: string | null
+      defaultMediaUrl: string | null
+    }> = []
     for (const asset of desiredAssets) {
       const key = `${asset.entityId}:${asset.recordId}`
       const bucket = assetsByTarget.get(key) ?? []
@@ -2126,8 +2731,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           defaultMediaUrl: hero.heroAttachmentUrl,
         })
       } else {
-        await executeCommand('catalog.variants.update', {
-          id: localVariantId,
+        pendingVariantHeroUpdates.push({
+          variantId: localVariantId,
           defaultMediaId: hero.heroAttachmentId,
           defaultMediaUrl: hero.heroAttachmentUrl,
         })
@@ -2140,6 +2745,30 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       localProductId,
       settings,
     })
+
+    for (const heroUpdate of pendingVariantHeroUpdates) {
+      await em.getConnection().execute(
+        `
+          update catalog_product_variants
+          set default_media_id = ?, default_media_url = ?, updated_at = now()
+          where id = ? and organization_id = ? and tenant_id = ?
+        `,
+        [
+          heroUpdate.defaultMediaId,
+          heroUpdate.defaultMediaUrl,
+          heroUpdate.variantId,
+          scope.organizationId,
+          scope.tenantId,
+        ],
+      )
+      await emitCatalogQueryIndexEvent(buildCommandContext(), {
+        entityType: VARIANT_ENTITY_ID,
+        recordId: heroUpdate.variantId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        action: 'updated',
+      })
+    }
 
     return [
       {
@@ -2224,6 +2853,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     upsertAttributeFamily,
     upsertProduct,
     syncMappedCustomFields,
+    reconcileMappedCustomFieldFieldsets,
     reconcileCategories,
     reconcileAttributes,
     reconcileProducts,
