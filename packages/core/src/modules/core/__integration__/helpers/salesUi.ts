@@ -315,7 +315,7 @@ async function createSalesDocumentFixture(
 }
 
 async function openSalesDocumentPage(page: Page, id: string, kind: DocumentKind): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     await page.goto(`/backend/sales/documents/${id}?kind=${kind}`);
     await page.waitForLoadState('domcontentloaded');
     const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
@@ -331,7 +331,7 @@ async function openSalesDocumentPage(page: Page, id: string, kind: DocumentKind)
 }
 
 async function ensureSalesDocumentReady(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
     if (await itemsButton.isVisible().catch(() => false)) {
       return;
@@ -597,8 +597,13 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   const dialog = lineDialog(page);
   await expect(dialog).toBeVisible();
 
-  await dialog.getByRole('button', { name: /Custom line/i }).click();
-  await dialog.getByRole('textbox', { name: /Optional line name/i }).fill(options.name);
+  const customLineButton = dialog.getByRole('button', { name: /Custom line/i });
+  await expect(customLineButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await customLineButton.click();
+
+  const nameInput = dialog.getByRole('textbox', { name: /Optional line name/i });
+  await expect(nameInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await nameInput.fill(options.name);
   await dialog.getByRole('textbox', { name: '0.00' }).fill(String(options.unitPriceGross));
   await dialog.getByRole('textbox', { name: '1' }).fill(String(options.quantity));
 
@@ -782,6 +787,7 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
 
   if (!closed) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (!(await dialog.isVisible().catch(() => false))) break;
       await selectShipmentMethod(dialog);
       await selectShipmentAddress(dialog);
       await fillShipmentQuantity(dialog);
