@@ -2,9 +2,9 @@
 
 import * as React from 'react'
 import { AddressElement, Elements, LinkAuthenticationElement, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
+import { loadStripe, type StripeElementLocale } from '@stripe/stripe-js'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { resolveStripePaymentLinkConfig, type StripePaymentLinkConfig } from '../../../lib/payment-link-config'
@@ -52,9 +52,14 @@ function readPaymentLinkConfig(data: PaymentLinkData | undefined): StripePayment
   return resolveStripePaymentLinkConfig(rawConfig)
 }
 
-function formatAmount(amount: number, currencyCode: string): string {
+function resolveStripeElementsLocale(locale: string): StripeElementLocale {
+  if (locale === 'pl' || locale === 'es' || locale === 'de') return locale
+  return 'en'
+}
+
+function formatAmount(amount: number, currencyCode: string, locale: string): string {
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currencyCode,
     }).format(amount)
@@ -128,6 +133,7 @@ function CheckoutForm({
   config: StripePaymentLinkConfig
 }) {
   const t = useT()
+  const locale = useLocale()
   const stripe = useStripe()
   const elements = useElements()
   const [submitting, setSubmitting] = React.useState(false)
@@ -273,7 +279,7 @@ function CheckoutForm({
       <Button type="button" className="w-full" onClick={() => void handleSubmit()} disabled={!stripe || !elements || submitting}>
         {submitting ? <Spinner className="mr-2 h-4 w-4" /> : null}
         {t('gateway_stripe.paymentLink.submit', 'Pay {{amount}}', {
-          amount: formatAmount(data.link.amount, data.link.currencyCode),
+          amount: formatAmount(data.link.amount, data.link.currencyCode, locale),
         })}
       </Button>
     </div>
@@ -281,6 +287,7 @@ function CheckoutForm({
 }
 
 export default function StripePaymentLinkWidget({ context, data }: InjectionWidgetComponentProps<PaymentLinkContext, PaymentLinkData>) {
+  const locale = useLocale()
   const publishableKey =
     data?.transaction?.gatewayMetadata && typeof data.transaction.gatewayMetadata.publishableKey === 'string'
       ? data.transaction.gatewayMetadata.publishableKey
@@ -298,7 +305,7 @@ export default function StripePaymentLinkWidget({ context, data }: InjectionWidg
   }
 
   return (
-    <Elements stripe={stripePromise} options={{ clientSecret }}>
+    <Elements stripe={stripePromise} options={{ clientSecret, locale: resolveStripeElementsLocale(locale) }}>
       <CheckoutForm context={context ?? {}} data={data} config={config} />
     </Elements>
   )

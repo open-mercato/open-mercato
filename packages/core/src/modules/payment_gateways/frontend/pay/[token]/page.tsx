@@ -3,12 +3,13 @@
 import * as React from 'react'
 import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { LanguageSwitcher } from '@open-mercato/ui/frontend/LanguageSwitcher'
 import { buildPaymentGatewayPaymentLinkWidgetSpotId } from '@open-mercato/shared/modules/payment_gateways/types'
 
 type PaymentLinkResponse = {
@@ -43,10 +44,10 @@ type PaymentLinkResponse = {
   }
 }
 
-function formatAmount(amount: number | undefined, currencyCode: string | undefined): string {
+function formatAmount(amount: number | undefined, currencyCode: string | undefined, locale: string): string {
   if (typeof amount !== 'number' || !currencyCode) return '—'
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currencyCode,
     }).format(amount)
@@ -71,6 +72,7 @@ function statusTone(status: string | null | undefined): string {
 
 export default function PaymentLinkPage({ params }: { params: { token: string } }) {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const token = params?.token
   const accessStorageKey = React.useMemo(() => `payment-link:${token}:access`, [token])
@@ -157,6 +159,7 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
   const summaryAmount = formatAmount(
     data?.link?.amount ?? data?.transaction?.amount,
     data?.link?.currencyCode ?? data?.transaction?.currencyCode,
+    locale,
   )
   const redirectUrl = typeof data?.transaction?.redirectUrl === 'string' && data.transaction.redirectUrl.trim().length > 0
     ? data.transaction.redirectUrl
@@ -187,15 +190,20 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
       <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <section className="rounded-[32px] border border-white/70 bg-white/85 p-8 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.45)] backdrop-blur">
           <div className="space-y-5">
-            <div className="flex items-center gap-3">
-              <Image src="/open-mercato.svg" alt="Open Mercato" width={40} height={40} priority className="h-10 w-10 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm" />
-              <div>
-                <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                  Open Mercato
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex items-center gap-3">
+                <Image src="/open-mercato.svg" alt="Open Mercato" width={40} height={40} priority className="h-10 w-10 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm" />
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                    Open Mercato
+                  </div>
+                  <div className="text-sm text-slate-600">
+                    {t('payment_gateways.paymentLink.securityTitle', 'Protected checkout')}
+                  </div>
                 </div>
-                <div className="text-sm text-slate-600">
-                  {t('payment_gateways.paymentLink.securityTitle', 'Protected checkout')}
-                </div>
+              </div>
+              <div className="self-start rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 shadow-sm">
+                <LanguageSwitcher />
               </div>
             </div>
             <div className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-1 text-xs font-medium uppercase tracking-[0.25em] text-slate-500">
