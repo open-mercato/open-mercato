@@ -9,6 +9,12 @@ type CreateDocumentOptions = {
   channelQuery?: string;
 };
 
+type ChannelListItem = {
+  name?: string | null;
+  code?: string | null;
+  isActive?: boolean | null;
+};
+
 type AddLineOptions = {
   name: string;
   quantity: number;
@@ -125,20 +131,35 @@ async function ensureSalesDocumentFixtures(
   }
 
   if (!channelQuery) {
-    const timestamp = Date.now();
-    const channelName = `QA Sales Channel ${timestamp}`;
-    const channelCode = `qa-sales-channel-${timestamp}`;
-    const channelResponse = await apiRequest(page.request, 'POST', '/api/sales/channels', {
-      token,
-      data: {
-        name: channelName,
-        code: channelCode,
-      },
-    }).catch(() => null);
-    if (channelResponse && channelResponse.ok()) {
-      channelQuery = channelName;
+    const existingChannelsResponse = await apiRequest(
+      page.request,
+      'GET',
+      '/api/sales/channels?page=1&pageSize=20&isActive=true',
+      { token },
+    ).catch(() => null);
+    const existingChannelsBody = (await existingChannelsResponse?.json().catch(() => null)) as { items?: ChannelListItem[] } | null;
+    const existingChannels = Array.isArray(existingChannelsBody?.items) ? existingChannelsBody.items : [];
+    const preferredExistingChannel =
+      existingChannels.find((item) => item.code === 'online' && item.isActive !== false) ??
+      existingChannels.find((item) => item.isActive !== false);
+    if (preferredExistingChannel?.name) {
+      channelQuery = preferredExistingChannel.name;
     } else {
-      channelQuery = 'online';
+      const timestamp = Date.now();
+      const channelName = `QA Sales Channel ${timestamp}`;
+      const channelCode = `qa-sales-channel-${timestamp}`;
+      const channelResponse = await apiRequest(page.request, 'POST', '/api/sales/channels', {
+        token,
+        data: {
+          name: channelName,
+          code: channelCode,
+        },
+      }).catch(() => null);
+      if (channelResponse && channelResponse.ok()) {
+        channelQuery = channelName;
+      } else {
+        channelQuery = 'online';
+      }
     }
   }
 
