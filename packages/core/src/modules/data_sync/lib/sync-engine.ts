@@ -3,6 +3,7 @@ import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import type { ProgressService } from '../../progress/lib/progressService'
+import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
 import { getDataSyncAdapter } from './adapter-registry'
@@ -93,6 +94,19 @@ export function createSyncEngine(deps: EngineDeps) {
         organizationId: scope.organizationId,
         userId: scope.userId,
       },
+    )
+  }
+
+  async function refreshCoverageSnapshots(entityTypes: string[] | undefined, scope: SyncScope): Promise<void> {
+    if (!entityTypes || entityTypes.length === 0) return
+
+    await Promise.allSettled(
+      Array.from(new Set(entityTypes.filter((value) => typeof value === 'string' && value.trim().length > 0)))
+        .map((entityType) => refreshCoverageSnapshot(deps.em, {
+          entityType,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+        })),
     )
   }
 
@@ -306,6 +320,7 @@ export function createSyncEngine(deps: EngineDeps) {
           await syncRunService.updateCursor(run.id, batch.cursor, scope)
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
+          await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
           await logImportItemFailures(run.id, run.integrationId, batch.items, scope)
 
           await integrationLogService.write(

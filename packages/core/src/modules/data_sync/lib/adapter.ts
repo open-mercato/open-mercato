@@ -40,6 +40,7 @@ export interface ImportBatch {
   hasMore: boolean
   totalEstimate?: number
   processedCount?: number
+  refreshCoverageEntityTypes?: string[]
   message?: string
   batchIndex: number
 }

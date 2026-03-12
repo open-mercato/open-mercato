@@ -247,6 +247,10 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
         hasMore: Boolean(nextUrl),
         totalEstimate: page.totalEstimate ?? undefined,
         processedCount: page.items.length,
+        refreshCoverageEntityTypes: [
+          'catalog:catalog_product',
+          'catalog:catalog_product_variant',
+        ],
         batchIndex,
       }
       batchIndex += 1

@@ -8,6 +8,7 @@ import type { SyncRunService } from '../sync-run-service'
 const mockGetDataSyncAdapter = jest.fn()
 const mockGetIntegration = jest.fn()
 const mockEmitDataSyncEvent = jest.fn(async () => undefined)
+const mockRefreshCoverageSnapshot = jest.fn(async () => undefined)
 
 jest.mock('../adapter-registry', () => ({
   getDataSyncAdapter: (...args: unknown[]) => mockGetDataSyncAdapter(...args),
@@ -21,9 +22,17 @@ jest.mock('../../events', () => ({
   emitDataSyncEvent: (...args: unknown[]) => mockEmitDataSyncEvent(...args),
 }))
 
+jest.mock('../../../query_index/lib/coverage', () => ({
+  refreshCoverageSnapshot: (...args: unknown[]) => mockRefreshCoverageSnapshot(...args),
+}))
+
 import { createSyncEngine } from '../sync-engine'
 
 describe('data sync engine import item failures', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
   it('counts and logs failed import items without failing the run', async () => {
     const adapter: DataSyncAdapter = {
       providerKey: 'akeneo',
@@ -181,6 +190,7 @@ describe('data sync engine import item failures', () => {
           ],
           processedCount: 1,
           totalEstimate: 1320,
+          refreshCoverageEntityTypes: ['catalog:catalog_product', 'catalog:catalog_product_variant'],
           cursor: 'cursor-1',
           hasMore: false,
           batchIndex: 0,
@@ -264,6 +274,17 @@ describe('data sync engine import item failures', () => {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
       userId: 'user-1',
+    })
+    expect(mockRefreshCoverageSnapshot).toHaveBeenCalledTimes(2)
+    expect(mockRefreshCoverageSnapshot).toHaveBeenNthCalledWith(1, {}, {
+      entityType: 'catalog:catalog_product',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(mockRefreshCoverageSnapshot).toHaveBeenNthCalledWith(2, {}, {
+      entityType: 'catalog:catalog_product_variant',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
     })
   })
 })
