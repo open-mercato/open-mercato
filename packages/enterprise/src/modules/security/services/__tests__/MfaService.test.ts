@@ -9,6 +9,11 @@ import {
 } from '../../lib/security-config'
 import { MfaService } from '../MfaService'
 
+jest.mock('bcryptjs', () => ({
+  compare: jest.fn(async (value: string, hashed: string | null) => hashed === `hashed:${value}`),
+  hash: jest.fn(async (value: string) => `hashed:${value}`),
+}))
+
 jest.mock('../../events', () => ({
   emitSecurityEvent: jest.fn().mockResolvedValue(undefined),
 }))

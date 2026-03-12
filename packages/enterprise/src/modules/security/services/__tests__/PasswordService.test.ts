@@ -4,6 +4,11 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../../events'
 import { PasswordService } from '../PasswordService'
 
+jest.mock('bcryptjs', () => ({
+  compare: jest.fn(async (value: string, hashed: string | null) => hashed === `hashed:${value}`),
+  hash: jest.fn(async (value: string) => `hashed:${value}`),
+}))
+
 jest.mock('../../events', () => ({
   emitSecurityEvent: jest.fn().mockResolvedValue(undefined),
 }))
