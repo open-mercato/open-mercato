@@ -1117,7 +1117,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     if (primary) {
                       setValue('shippingAddressId', primary.id)
                     }
-                  }).catch(() => {})
+                  }).catch((err) => { console.error('sales.documents.autoSelectAddress', err) })
                   if (next) {
                     const match = customers.find((entry) => entry.id === next)
                     const possibleEmail =
@@ -1174,7 +1174,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                         if (primary) {
                           setValue('shippingAddressId', primary.id)
                         }
-                      }).catch(() => {})
+                      }).catch((err) => { console.error('sales.documents.autoSelectAddress', err) })
                       if (email && !values.customerEmail) {
                         setValue('customerEmail', email)
                       }
