@@ -4,10 +4,10 @@
 **Key Points:**
 - Implement timesheets functionality inside the existing `staff` module with phased delivery: core tracking + project catalog (Phase 1) → approvals + locking (Phase 2) → policy enforcement + billing (Phase 3).
 - Support manual entry and timer-based tracking with multi-channel capture and break handling; policy enforcement is deferred.
-- Provide a fast monthly time entry UI for employees ("My Timesheets") and a project management UI for admins.
+- Provide a fast monthly time entry UI for employees ("My Timesheets"), a project management UI for admins, and two Phase 1 dashboard widgets.
 
 **Scope:**
-- Phase 1: Time entries (create/edit/delete), timer actions, break handling, project catalog, employee assignment (no rates), "My Timesheets" monthly grid UI, basic reporting.
+- Phase 1: Time entries (create/edit/delete), timer actions, break handling, project catalog, employee assignment (no rates), "My Timesheets" monthly grid UI, basic reporting, and two dashboard widgets (Timer + Hours by Project Summary).
 - Phase 2: Approval workflow and period locking, using existing `staff_team_members` and `user_id` links to system users.
 - Phase 3: Policy enforcement, billing/export integrations, utilization analytics.
 
@@ -42,6 +42,9 @@ Extend the existing `staff` module with a `timesheets` domain:
 - Billable vs non-billable configured per project by admins is deferred to Phase 3; employees do not set it per entry.
 - Employee assignment per project; rates and cost calculations deferred to Phase 3.
 - Report views by employee, project, and date range.
+- Dashboard widgets in Phase 1:
+  - Quick Timer widget: start/stop timer for a selected project/task context from dashboard.
+  - Hours by Project Summary widget: grouped hours by project for a selected period using the same date-range selector behavior as the AOV widget.
 - Policy-driven controls are in scope but deferred; Phase 1 has no enforcement.
 
 ### Design Decisions
@@ -55,6 +58,7 @@ Extend the existing `staff` module with a `timesheets` domain:
 | Reuse `staff_team_members` + `user_id` link | Avoids duplicate employee identity and aligns with existing staff architecture. |
 | `status` on `TimeEntry` deferred to Phase 2 | Avoids unused schema column in Phase 1; added via backward-compatible migration. |
 | Phase approvals and locking in Phase 2 | Enables governance while keeping Phase 1 focused on capture. |
+| Dashboard widgets reuse existing APIs | No dedicated widget backend endpoints in Phase 1; widgets call existing `/api/staff/timesheets/*` and `/api/dashboards/widgets/data`. |
 
 ### Alternatives Considered
 
@@ -73,6 +77,8 @@ Extend the existing `staff` module with a `timesheets` domain:
 3. As an **admin**, I can manage projects and assign employees.
 4. As a **manager**, I can review and approve monthly time for my reportees (Phase 2).
 5. As **finance**, I can rely on locked time periods for consistent reporting (Phase 2+).
+6. As an **employee**, I can use a dashboard time-reporting widget to quickly start/stop a timer for the task I am currently working on.
+7. As an **employee**, I can use a dashboard summary widget to see how many hours I tracked per project for a selected timeframe.
 
 ---
 
@@ -104,6 +110,9 @@ Extension of existing module: `staff` in `packages/core/src/modules/staff/`.
 | `commands/timesheets-*.ts` | New undoable command handlers for entries/projects/periods |
 | `commands/index.ts` | Register new timesheets command modules |
 | `backend/staff/timesheets/*` | New staff backend pages for My Timesheets, Projects, and Approvals |
+| `widgets/dashboard/timesheets-*/*` | Dashboard widgets for quick timer and hours summary |
+| `analytics.ts` | Register timesheets analytics entity mapping for `/api/dashboards/widgets/data` summary |
+| `dashboards/api/widgets/data/route.ts` | Enforce self-scope for timesheets summary widget when caller lacks `manage_all` |
 | `search.ts` | Extend staff search with timesheets project indexing |
 | `i18n/en.json` | Add `staff.timesheets.*` locale keys |
 
@@ -124,6 +133,8 @@ Extension of existing module: `staff` in `packages/core/src/modules/staff/`.
 | `staff.timesheets.time_project.delete` | Yes — undo = restore `deleted_at = null` + fields | Event `deleted` (ephemeral), search reindex, cache invalidation | |
 | `staff.timesheets.time_project_member.assign` | Yes — undo = soft delete assignment | Cache invalidation (project employee list) | |
 | `staff.timesheets.time_project_member.unassign` | Yes — undo = restore assignment | Cache invalidation (project employee list) | |
+
+Dashboard widgets in Phase 1 do not introduce new commands/events; they orchestrate existing `time_entry.*` and `time_project.*` contracts.
 
 #### Phase 2 Commands (Approvals)
 
@@ -306,7 +317,9 @@ Phase 1 schema excludes billing fields; `billing_mode` and `default_currency` ar
 
 ## API Contracts
 
-All routes MUST export an `openApi` object using `createStaffCrudOpenApi` from `api/openapi.ts`. All list endpoints use `page` + `pageSize` pagination (`pageSize` ≤ 100). Duration is accepted and returned in **minutes** (`duration_minutes`); the UI converts to/from decimal hours client-side.
+Timesheets routes under `/api/staff/timesheets/*` MUST export an `openApi` object using `createStaffCrudOpenApi` from `api/openapi.ts`. Staff list endpoints use `page` + `pageSize` pagination (`pageSize` ≤ 100). Duration is accepted and returned in **minutes** (`duration_minutes`); the UI converts to/from decimal hours client-side.
+
+Exception: dashboard summary widget aggregation reuses `/api/dashboards/widgets/data` and follows dashboards API/OpenAPI conventions.
 
 ### Time Entries
 
@@ -416,6 +429,32 @@ On any validation error, the entire batch is rolled back (atomic transaction).
 | `PATCH` | `/api/staff/timesheets/time-projects/{id}/employees/{staffMemberId}` | Required | `staff.timesheets.projects.manage` |
 | `DELETE` | `/api/staff/timesheets/time-projects/{id}/employees/{staffMemberId}` | Required | `staff.timesheets.projects.manage` |
 
+### Dashboard Widgets (Phase 1, Reuse Existing APIs)
+
+No dedicated widget-specific endpoints are added in Phase 1:
+- Timer widget reuses existing `/api/staff/timesheets/*` endpoints.
+- Summary widget reuses existing `/api/dashboards/widgets/data` endpoint.
+
+| Widget action | Method | Path | Notes |
+|---------------|--------|------|-------|
+| Load candidate projects | `GET` | `/api/staff/timesheets/time-projects` | Populate project/task picker in Timer widget |
+| Load current-day running entry | `GET` | `/api/staff/timesheets/time-entries?from=YYYY-MM-DD&to=YYYY-MM-DD` | Detect active timer (`started_at != null && ended_at == null`) |
+| Start timer from widget | `POST` + `POST` | `/api/staff/timesheets/time-entries` then `/api/staff/timesheets/time-entries/{id}/timer-start` | Create timer-sourced entry first, then start |
+| Stop timer from widget | `POST` | `/api/staff/timesheets/time-entries/{id}/timer-stop` | Uses existing timer-stop behavior |
+| Load summary data | `POST` | `/api/dashboards/widgets/data` | Same endpoint used by AOV widget |
+
+Date-range presets for summary widget MUST match AOV widget behavior (`today`, `yesterday`, `this_week`, `last_week`, `this_month`, `last_month`, `this_quarter`, `last_quarter`, `this_year`, `last_year`, `last_7_days`, `last_30_days`, `last_90_days`) and be passed as `dateRange.preset` to `/api/dashboards/widgets/data`.
+
+Summary widget request contract (`/api/dashboards/widgets/data`):
+- `entityType = "staff:staff_time_entries"`
+- `metric = { "field": "durationMinutes", "aggregate": "sum" }`
+- `groupBy = { "field": "timeProjectId", "limit": 20, "resolveLabels": true }`
+- `dateRange = { "field": "date", "preset": "<AOV preset>" }`
+
+Security rule for summary widget calls:
+- If caller lacks `staff.timesheets.manage_all`, backend MUST enforce current-user scope by injecting/overwriting `staffMemberId = <resolved current staff member>`.
+- This enforcement is implemented in existing dashboard widget data endpoint handling (no new endpoint).
+
 ### Approvals (Phase 2)
 
 | Method | Path | Auth | Feature |
@@ -439,6 +478,10 @@ All user-facing strings MUST use locale keys. Locale file: `i18n/en.json` under 
 | `staff.timesheets.my_timesheets.month_locked` | This month is closed. Time entries cannot be modified. |
 | `staff.timesheets.my_timesheets.month_approved` | Your time entries have been approved and are locked for editing. |
 | `staff.timesheets.my_timesheets.save_changes` | Save Changes |
+| `staff.timesheets.my_timesheets.confirm_save.title` | Confirm Changes |
+| `staff.timesheets.my_timesheets.confirm_save.body` | Are you sure you want to save your timesheet changes? |
+| `staff.timesheets.my_timesheets.confirm_save.cancel` | Cancel |
+| `staff.timesheets.my_timesheets.confirm_save.confirm` | Yes, Save |
 | `staff.timesheets.my_timesheets.export` | Export |
 | `staff.timesheets.my_timesheets.total_hours` | Total Hours |
 | `staff.timesheets.my_timesheets.working_days` | Working Days |
@@ -458,6 +501,13 @@ All user-facing strings MUST use locale keys. Locale file: `i18n/en.json` under 
 | `staff.timesheets.approvals.subtitle` | Review and approve reportee time for the month |
 | `staff.timesheets.approvals.approve` | Approve Month |
 | `staff.timesheets.approvals.reject` | Reject with Reason |
+| `staff.timesheets.widgets.timer.title` | Time Reporting |
+| `staff.timesheets.widgets.timer.start` | Start Timer |
+| `staff.timesheets.widgets.timer.stop` | Stop Timer |
+| `staff.timesheets.widgets.timer.select_project` | Select Project |
+| `staff.timesheets.widgets.timer.task_placeholder` | What are you working on? |
+| `staff.timesheets.widgets.summary.title` | Hours by Project |
+| `staff.timesheets.widgets.summary.empty` | No tracked hours in selected period |
 | `staff.timesheets.nav.my_timesheets` | My Timesheets |
 | `staff.timesheets.nav.projects` | Projects |
 | `staff.timesheets.nav.approvals` | Team Approvals |
@@ -502,11 +552,137 @@ All user-facing strings MUST use locale keys. Locale file: `i18n/en.json` under 
   - Placeholder `0`; weekend cells show `-`.
   - Entered values appear bold.
   - Real-time recalculation of row/column totals and summary cards.
-  - Save shows success toast; Phase 2 disables edits when approved/closed.
+  - Clicking `Save Changes` opens a confirmation dialog first.
+  - Save confirmation uses existing shared confirmation pattern (`ConfirmDialog` / native dialog migration pattern from UI specs), not a custom modal implementation.
+  - On confirm, save shows success toast; Phase 2 disables edits when approved/closed.
 - **Locking Rules**:
   - Open: editable.
   - Approved by PM: read-only.
   - Closed by Finance: read-only.
+
+### Phase 1 ASCII Mockups
+
+These are low-fidelity layout references only. Final implementation MUST reuse existing Open Mercato UI primitives and layout patterns (cards, badges, DataTable/list patterns, date-range controls, dialog patterns, and dashboard widget chrome) rather than introducing bespoke styling.
+
+#### Mockup 1 — My Timesheets
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ My Timesheets                                      [ < Feb 2026 > ]              [Export] [Save Changes]    │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ [Total Hours: 132.5]   [Working Days: 18]   [Daily Avg: 7.4]   [Month: Open] [Approval: Pending]         │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Project (sticky)            | Mon 1 | Tue 2 | Wed 3 | Thu 4 | Fri 5 | Sat 6 | Sun 7 | ... | Row Total    │
+├─────────────────────────────┼───────┼───────┼───────┼───────┼───────┼───────┼───────┼─────┼──────────────┤
+│ ● E-Commerce Redesign       |  7.5  |  8.0  |  6.0  |  8.0  |  7.0  |   -   |   -   | ... |    82.5      │
+│   ECP-2024                  |       |       |       |       |       |       |       |     |              │
+│ ● Mobile App                |  0.5  |  0.0  |  2.0  |  0.0  |  1.5  |   -   |   -   | ... |    18.0      │
+│   APP-118                   |       |       |       |       |       |       |       |     |              │
+│ ● Internal Ops              |  0.0  |  1.0  |  0.0  |  0.0  |  0.5  |   -   |   -   | ... |    32.0      │
+│   OPS-001                   |       |       |       |       |       |       |       |     |              │
+├─────────────────────────────┼───────┼───────┼───────┼───────┼───────┼───────┼───────┼─────┼──────────────┤
+│ Daily Total (sticky)        |  8.0  |  9.0  |  8.0  |  8.0  |  9.0  |   -   |   -   | ... |   132.5      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Mockup 1a — Save Confirmation
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ Confirm Changes                                          │
+├──────────────────────────────────────────────────────────┤
+│ Are you sure you want to save your timesheet changes?   │
+│ This will update logged hours for the selected month.    │
+│                                                          │
+│                                  [Cancel] [Yes, Save]   │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### Mockup 2 — Projects
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Projects                                                                                 [ + Add Project ] │
+│ Manage all projects, assignments, and configurations                                                             │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ [Total: 12] [Active: 8] [Unique Employees: 37] [On Hold: 2]                                                   │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ [ Search project / code / customer .................................................... ] [Customer ▾]      │
+│ [All (12)] [Active (8)] [On Hold (2)] [Completed (2)]                                                         │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ E-Commerce Redesign                    [Active]                                           [View Details →]    │
+│ Customer: Acme Corp   Start: Jan 2026   Employees: 8   Project ID: ECP-2024                                  │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Mobile App Launch                      [On Hold]                                          [View Details →]    │
+│ Customer: Beta SA     Start: Nov 2025   Employees: 5   Project ID: APP-118                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Mockup 3 — Dashboard Widget: Time Reporting
+
+```text
+┌───────────────────────────────────────────────┐
+│ Time Reporting                                │
+├───────────────────────────────────────────────┤
+│ Project                                       │
+│ [ E-Commerce Redesign (ECP-2024)        ▾ ]  │
+│ Task / Note                                  │
+│ [ Homepage estimation..................... ]  │
+│                                               │
+│ Status: Not running                           │
+│ [ Start Timer ]                               │
+└───────────────────────────────────────────────┘
+```
+
+#### Mockup 4 — Dashboard Widget: Hours by Project Summary
+
+```text
+┌───────────────────────────────────────────────┐
+│ Hours by Project                 [This Month ▾]│
+├───────────────────────────────────────────────┤
+│ E-Commerce Redesign                82.5 h      │
+│ ████████████████████████                       │
+│                                               │
+│ Internal Ops                      32.0 h       │
+│ ███████████                                    │
+│                                               │
+│ Mobile App                        18.0 h       │
+│ ██████                                         │
+│                                               │
+│ Total                             132.5 h      │
+└───────────────────────────────────────────────┘
+```
+
+### Dashboard Widgets (Phase 1)
+
+Widgets are available in the standard dashboard widget picker (same infrastructure as existing sales/analytics widgets).
+Widget visibility/access requirements:
+- Time Reporting widget: `dashboards.view` + `staff.timesheets.manage_own`.
+- Hours by Project Summary widget: `dashboards.view` + `analytics.view` + `staff.timesheets.view`.
+
+#### 1) Time Reporting Widget
+
+- Purpose: quick start/stop timer for the current work item without opening the full "My Timesheets" page.
+- Main controls:
+  - Project selector (assigned projects only).
+  - Optional task text input (stored in `TimeEntry.notes` in Phase 1).
+  - `Start Timer` / `Stop Timer` primary action.
+- Runtime behavior:
+  - If no active timer exists today, `Start Timer` creates a timer entry and starts it.
+  - If an active timer exists, widget shows running elapsed time and `Stop Timer`.
+  - If a different timer is already running, widget blocks creating another concurrent running entry.
+- Data source: existing timesheets endpoints only (no widget-specific API route).
+
+#### 2) Hours by Project Summary Widget
+
+- Purpose: show how many hours the current user tracked per project in a selected timeframe.
+- Visual: compact list/bar summary sorted by total tracked hours descending.
+- Timeframe control:
+  - Uses the same date-range dropdown behavior/presets as the AOV widget.
+  - Preset selection updates totals immediately.
+- Data source:
+  - Existing `/api/dashboards/widgets/data` endpoint (same as AOV widget).
+  - Aggregation is backend-side via `sum(duration_minutes)` grouped by `timeProjectId` with label resolver.
 
 ### "Projects" Tab (Admin Project Management)
 
@@ -580,6 +756,8 @@ Actions: `Cancel`, `Add Employee`.
 | "My Timesheets" monthly grid | Memory, tenant-scoped `(tenantId, staffMemberId, month)` | 1 min | Any write to `staff_time_entries` for that member/month |
 | Projects list | Memory, tenant-scoped `(tenantId, organizationId)` | 5 min | Any write to `staff_time_projects` |
 | Project employee list | Memory, key `(tenantId, projectId)` | 5 min | Any write to `staff_time_project_members` for that project |
+| Dashboard Time Reporting widget | Reuses "My Timesheets" + projects caches | Same as source endpoints | Same as source endpoints |
+| Dashboard Hours by Project widget | Reuses `widget-data` cache (`/api/dashboards/widgets/data`) | 2 min (dashboard default) | Any write to `staff_time_entries` |
 
 All cache keys are tenant-scoped to prevent cross-tenant data leakage. Cache is resolved via DI (never raw Redis/SQLite).
 
@@ -596,6 +774,7 @@ Child entity mutations must invalidate parent caches:
 - **Segment change** (`add_segment`, `timer_stop`) → invalidates `"My Timesheets" grid` cache for the affected member/month (tag: `staff:timesheets:my_timesheets:{staffMemberId}:{month}`)
 - **Project employee assignment/unassignment** → invalidates both `project employee list` (tag: `staff:timesheets:project_members:{projectId}`) and `projects list` (tag: `staff:timesheets:projects:{organizationId}`)
 - **Time entry create/update/delete** → invalidates `"My Timesheets" grid` cache (tag: `staff:timesheets:my_timesheets:{staffMemberId}:{month}`)
+- **Any time entry write** (`create`, `update`, `delete`, `timer_start`, `timer_stop`, segment mutation) → invalidates dashboard aggregation tags `widget-data` + `widget-data:staff:staff_time_entries`
 
 ### N+1 Mitigation — "My Timesheets" Grid
 
@@ -627,6 +806,7 @@ The "My Timesheets" monthly grid is the highest-traffic read path. Expected quer
 - Employees can only view/edit their own time entries (`staff_member_id` must match session user's staff member).
 - `manage_all` feature is required to view/edit other employees' entries.
 - Project management requires `staff.timesheets.projects.manage`.
+- Summary widget (`/api/dashboards/widgets/data` with `staff:staff_time_entries`) enforces own-staff-member scope unless caller has `staff.timesheets.manage_all`.
 - All queries enforce `organization_id` scoping to prevent cross-tenant access.
 
 ---
@@ -653,7 +833,7 @@ Tables created: `staff_time_entries`, `staff_time_entry_segments`, `staff_time_p
 
 ## Phasing
 
-- **Phase 1**: Core time entries, timer actions, break handling, project catalog, employee assignment, basic reporting, "My Timesheets" monthly grid UI. No approvals or policy enforcement; no rates or billing.
+- **Phase 1**: Core time entries, timer actions, break handling, project catalog, employee assignment, basic reporting, "My Timesheets" monthly grid UI, and dashboard widgets (Time Reporting + Hours by Project Summary). No approvals or policy enforcement; no rates or billing.
 - **Phase 2**: Approval workflow and period locking, with manager scope resolved from existing `staff_team_members`/`user_id` linkage.
 - **Phase 3**: Policy enforcement (tracking profiles, edit windows, overtime rules), billing/export integration, utilization analytics, payroll prep integration.
 
@@ -661,7 +841,7 @@ Tables created: `staff_time_entries`, `staff_time_entry_segments`, `staff_time_p
 
 ## Implementation Plan
 
-### Phase 1: Core Tracking + Project Catalog
+### Phase 1: Core Tracking + Project Catalog + Dashboard Widgets
 
 #### Step 1 — Staff Module Extension Scaffold
 - Extend `acl.ts` with `staff.timesheets.*` feature flags.
@@ -734,7 +914,21 @@ export const config = searchConfig
 - Monthly grid component: project rows × day columns, decimal hour inputs, real-time totals, transactional bulk save
 - Add `backend/staff/timesheets/page.meta.ts` with `pageGroupKey: 'staff.nav.group'` and nav label key `staff.timesheets.nav.my_timesheets`
 
-#### Step 8 — i18n
+#### Step 8 — Dashboard Widgets
+- Implement `widgets/dashboard/timesheets-time-reporting/widget.ts` + `widget.client.tsx` (Start/Stop timer widget).
+- Implement `widgets/dashboard/timesheets-hours-by-project/widget.ts` + `widget.client.tsx` (summary by project).
+- Reuse existing endpoints only:
+  - `time-entries` and timer routes for Start/Stop.
+  - `/api/dashboards/widgets/data` for summary aggregation (AOV-style).
+- Reuse existing design-system/pattern components:
+  - `DateRangeSelect` / `InlineDateRangeSelect` for timeframe behavior (AOV parity).
+  - Existing dashboard widget shell metadata conventions (`lazyDashboardWidget`, tags/category/features).
+  - Existing confirmation dialog pattern for save confirmation (no custom modal implementation).
+- Add/update `staff/analytics.ts` so `staff:staff_time_entries` supports `durationMinutes`, `date`, `timeProjectId`, and `staffMemberId` mapping (for secure self-scope filter enforcement).
+- Update `dashboards/api/widgets/data/route.ts` to enforce `staffMemberId = current staff member` for summary calls when user lacks `staff.timesheets.manage_all`.
+- Reuse the same date-range preset UI behavior used by AOV.
+
+#### Step 9 — i18n
 - Add all i18n keys to `i18n/en.json` under the `staff.timesheets` namespace.
 
 ### Phase 2: Approvals & Period Locking
@@ -787,7 +981,13 @@ export const config = searchConfig
 | `src/modules/staff/backend/staff/timesheets/projects/page.meta.ts` | Create | Sidebar entry metadata for Projects |
 | `src/modules/staff/backend/staff/timesheets/projects/create/page.tsx` | Create | Create project |
 | `src/modules/staff/backend/staff/timesheets/projects/[id]/page.tsx` | Create | Project settings |
+| `src/modules/staff/widgets/dashboard/timesheets-time-reporting/widget.ts` | Create | Dashboard widget metadata: quick timer |
+| `src/modules/staff/widgets/dashboard/timesheets-time-reporting/widget.client.tsx` | Create | Dashboard widget UI: start/stop timer |
+| `src/modules/staff/widgets/dashboard/timesheets-hours-by-project/widget.ts` | Create | Dashboard widget metadata: hours summary |
+| `src/modules/staff/widgets/dashboard/timesheets-hours-by-project/widget.client.tsx` | Create | Dashboard widget UI: grouped hours by project |
 | `src/modules/staff/backend/staff/timesheets/approvals/page.meta.ts` | Create | Sidebar entry metadata for Team Approvals (Phase 2) |
+| `src/modules/staff/analytics.ts` | Create | Analytics mapping for summary widget via `/api/dashboards/widgets/data` |
+| `src/modules/dashboards/api/widgets/data/route.ts` | Modify | Enforce self-scope for timesheets summary requests |
 | `src/modules/staff/search.ts` | Modify | Add timesheets project search config |
 | `src/modules/staff/i18n/en.json` | Modify | Add `staff.timesheets.*` labels |
 
@@ -814,6 +1014,10 @@ All integration tests MUST be self-contained: create fixtures via API in setup, 
 | Bulk save (create + update + delete) | `POST /api/staff/timesheets/time-entries/bulk` | Atomic batch: creates new, updates existing, soft-deletes zero-duration; all-or-nothing on validation error |
 | Bulk save exceeds max batch size | `POST /api/staff/timesheets/time-entries/bulk` | Returns 400 when entries array exceeds 200 items |
 | Tenant isolation | `GET /api/staff/timesheets/time-entries` | Returns only entries scoped to current organization |
+| Dashboard timer start flow | `POST /api/staff/timesheets/time-entries` + `POST /api/staff/timesheets/time-entries/{id}/timer-start` | Widget can start timer without custom endpoint |
+| Dashboard timer stop flow | `POST /api/staff/timesheets/time-entries/{id}/timer-stop` | Widget can stop active timer without custom endpoint |
+| Dashboard summary data source | `POST /api/dashboards/widgets/data` | Returns grouped hours by project for selected preset range |
+| Dashboard summary self-scope enforcement | `POST /api/dashboards/widgets/data` | Non-`manage_all` caller cannot query other `staffMemberId` values |
 
 ### Phase 1 — UI Coverage
 
@@ -822,6 +1026,8 @@ All integration tests MUST be self-contained: create fixtures via API in setup, 
 | My Timesheets grid loads | `/backend/staff/timesheets` | Monthly grid renders with project rows and day columns |
 | Decimal hour input saves | `/backend/staff/timesheets` | `7.5` saved as `450 minutes`; totals update in real time |
 | Projects list | `/backend/staff/timesheets/projects` | Projects list loads with stats cards and filters |
+| Time Reporting widget start/stop | `/backend` | User starts and stops timer from dashboard widget; state and elapsed time update |
+| Hours by Project widget date-range switch | `/backend` | Switching preset (AOV-style selector) recalculates grouped totals |
 
 ### Phase 2 — API Coverage
 
@@ -919,7 +1125,7 @@ All integration tests MUST be self-contained: create fixtures via API in setup, 
 
 ---
 
-## Final Compliance Report — 2026-02-23 (Phase 1 Scope, Rerun 4)
+## Final Compliance Report — 2026-03-12 (Phase 1 Scope, Rerun 5)
 
 ### AGENTS.md Files Reviewed
 
@@ -946,9 +1152,9 @@ All integration tests MUST be self-contained: create fixtures via API in setup, 
 | root AGENTS.md | Validate all inputs with Zod | Compliant | Validators declared in `data/validators.ts` |
 | root AGENTS.md | Use `findWithDecryption` for queries | Compliant | Noted in architecture; enforced during implementation |
 | root AGENTS.md | Never hard-code user-facing strings | Compliant | i18n keys defined for all strings |
-| root AGENTS.md | Every dialog: Cmd+Enter submit, Escape cancel | Compliant | Applied to Add Project and Add Employee modals |
+| root AGENTS.md | Every dialog: Cmd+Enter submit, Escape cancel | Compliant | Applied to Add Project and Add Employee modals; save confirmation uses shared dialog pattern |
 | root AGENTS.md | `pageSize` ≤ 100 | Compliant | All list endpoints enforce this |
-| packages/core/AGENTS.md | API routes MUST export `openApi` | Compliant | All routes use staff OpenAPI factory (`createStaffCrudOpenApi`) |
+| packages/core/AGENTS.md | API routes MUST export `openApi` | Compliant | `/api/staff/timesheets/*` routes use `createStaffCrudOpenApi`; summary widget uses existing `/api/dashboards/widgets/data` conventions |
 | packages/core/AGENTS.md | CRUD routes use `makeCrudRoute` with `indexer` | Compliant | Noted in Implementation Plan |
 | packages/core/AGENTS.md | Tables plural snake_case | Compliant | `staff_time_entries`, `staff_time_projects`, `staff_time_project_members`, etc. |
 | packages/core/AGENTS.md | setup.ts: declare `defaultRoleFeatures` | Compliant | Defined in Architecture section |
@@ -961,7 +1167,7 @@ All integration tests MUST be self-contained: create fixtures via API in setup, 
 | packages/events/AGENTS.md | Use `createModuleEvents` for typed events | Compliant | Timesheets event registry uses `createModuleEvents` with `as const` |
 | packages/events/AGENTS.md | Persistent subscribers for notifications/indexing | Compliant | Phase 2 approval subscribers use `persistent: true` |
 | packages/cache/AGENTS.md | Tag-based invalidation, tenant-scoped keys, DI resolution | Compliant | Cache keys, invalidation chains, miss behavior, and DI resolution documented in Cache Strategy |
-| packages/search/AGENTS.md | `search.ts` declares `searchConfig` | Compliant | `search.ts` sketch follows staff-module `entities[]`/`entityId` style with `fieldPolicy.searchable`, `formatResult`, `resolveUrl` |
+| packages/search/AGENTS.md | `search.ts` declares `searchConfig` | Compliant | Search sketch follows staff-module `entities[]`/`entityId` style with `fieldPolicy.searchable`, `formatResult`, `resolveUrl` |
 | packages/shared/AGENTS.md | Use `useT`/`resolveTranslations` for i18n | Compliant | Noted in i18n section |
 | .ai/specs/AGENTS.md | Integration coverage for all affected API paths | Compliant | Integration Test Coverage section covers all Phase 1+2 paths |
 | .ai/specs/AGENTS.md | All required spec sections present | Compliant | All sections included |
@@ -972,6 +1178,7 @@ All integration tests MUST be self-contained: create fixtures via API in setup, 
 |-------|--------|-------|
 | Data models match API contracts | Pass | Project `customer_id` mapped to create/update; bulk save endpoint for grid |
 | API contracts match UI/UX section | Pass | UI actions mapped; customer filter supported via `customerId` |
+| Widget API wording is consistent | Pass | Timer widget uses `/api/staff/timesheets/*`; summary widget uses `/api/dashboards/widgets/data` |
 | Risks cover all write operations | Pass | All mutation commands have a corresponding risk entry |
 | Commands defined for all mutations | Pass | Full command table with undo contracts for all entities |
 | Cache strategy covers all read APIs | Pass | Cache table covers primary read endpoints; miss behavior, invalidation chains, and N+1 mitigation documented |
@@ -994,5 +1201,12 @@ None. All previously identified gaps have been resolved.
 
 ## Changelog
 
-### 2026-02-20 — Frist verison
-- Frist proposal after mulitple internal revisions
+### 2026-03-12 — Phase 1 widgets and consistency updates
+- Added two Phase 1 dashboard widgets: `Time Reporting` (start/stop timer) and `Hours by Project` (AOV-style date presets).
+- Added save confirmation before `Save Changes` in the My Timesheets grid using the shared confirmation dialog pattern.
+- Added Phase 1 ASCII mockups, removed Notes from UI forms, and aligned KPI naming to `Unique Employees`.
+- Clarified API wording: timesheets routes use `/api/staff/timesheets/*`; summary widget uses existing `/api/dashboards/widgets/data`.
+- Updated access requirements for summary widget (`dashboards.view` + `analytics.view` + `staff.timesheets.view`) and reran compliance checks.
+
+### 2026-02-20 — First version
+- First proposal after multiple internal revisions.
