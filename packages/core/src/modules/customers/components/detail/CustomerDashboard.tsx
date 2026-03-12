@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { TrendingUp, Building2, ClipboardList, Clock } from 'lucide-react'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 
 type HealthScore = {
   score: number
@@ -97,6 +98,91 @@ function HealthRing({ score, label, ringLabel }: { score: number; label: HealthS
         </div>
         <div className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           {ringLabel}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function HealthScoreTooltipContent({
+  components,
+  t,
+}: {
+  components: HealthScore['components']
+  t: TranslateFn
+}) {
+  const dimensions = [
+    {
+      label: t('customers.companies.detail.health.tooltip.activityRecency', 'Activity Recency'),
+      weight: '30%',
+      value: components.activityRecency,
+    },
+    {
+      label: t('customers.companies.detail.health.tooltip.dealPipelineHealth', 'Deal Pipeline Health'),
+      weight: '25%',
+      value: components.dealPipelineHealth,
+    },
+    {
+      label: t('customers.companies.detail.health.tooltip.orderFrequency', 'Order Frequency'),
+      weight: '25%',
+      value: components.orderFrequency,
+    },
+    {
+      label: t('customers.companies.detail.health.tooltip.interactionCount', 'Interaction Count'),
+      weight: '20%',
+      value: components.interactionCount,
+    },
+  ]
+
+  const thresholds = [
+    { label: t('customers.companies.detail.health.excellent', 'Excellent'), range: '≥ 80', colorClass: 'text-green-400' },
+    { label: t('customers.companies.detail.health.good', 'Good'), range: '60–79', colorClass: 'text-blue-400' },
+    { label: t('customers.companies.detail.health.atRisk', 'At risk'), range: '40–59', colorClass: 'text-amber-400' },
+    { label: t('customers.companies.detail.health.critical', 'Critical'), range: '< 40', colorClass: 'text-red-400' },
+  ]
+
+  return (
+    <div className="space-y-2.5 py-1 text-left" style={{ minWidth: 220 }}>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+        {t('customers.companies.detail.health.tooltip.title', 'Score Breakdown')}
+      </div>
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="text-slate-400">
+            <th className="pb-1 text-left font-medium">
+              {t('customers.companies.detail.health.tooltip.dimension', 'Dimension')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('customers.companies.detail.health.tooltip.weight', 'Weight')}
+            </th>
+            <th className="pb-1 text-right font-medium">
+              {t('customers.companies.detail.health.tooltip.score', 'Score')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {dimensions.map((dim) => (
+            <tr key={dim.label}>
+              <td className="py-0.5 text-slate-200">{dim.label}</td>
+              <td className="py-0.5 text-right tabular-nums text-slate-300">{dim.weight}</td>
+              <td className="py-0.5 text-right tabular-nums text-white font-medium">
+                {Math.round(dim.value)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="border-t border-slate-700 pt-2">
+        <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">
+          {t('customers.companies.detail.health.tooltip.thresholds', 'Thresholds')}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+          {thresholds.map((th) => (
+            <span key={th.range}>
+              <span className={th.colorClass}>{th.range}</span>
+              <span className="text-slate-400"> {th.label}</span>
+            </span>
+          ))}
         </div>
       </div>
     </div>
@@ -302,11 +388,24 @@ export function CustomerDashboard({
         ))}
         {/* Health score with ring */}
         <div className="flex items-center justify-center px-5 py-4">
-          <HealthRing
-            score={metrics.healthScore.score}
-            label={healthLabel}
-            ringLabel={t('customers.companies.detail.metrics.healthScore', 'Health Score')}
-          />
+          <SimpleTooltip
+            content={
+              <HealthScoreTooltipContent
+                components={metrics.healthScore.components}
+                t={t}
+              />
+            }
+            side="bottom"
+            delayDuration={200}
+          >
+            <div className="cursor-help">
+              <HealthRing
+                score={metrics.healthScore.score}
+                label={healthLabel}
+                ringLabel={t('customers.companies.detail.metrics.healthScore', 'Health Score')}
+              />
+            </div>
+          </SimpleTooltip>
         </div>
       </div>
       <InjectionSpot

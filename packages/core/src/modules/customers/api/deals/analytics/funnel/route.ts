@@ -6,11 +6,12 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { CustomerDealStageHistory } from '../../../../data/entities'
+import { CustomerDeal, CustomerDealStageHistory } from '../../../../data/entities'
 
 const querySchema = z.object({
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  pipelineId: z.string().uuid().optional(),
 })
 
 export async function GET(request: Request) {
@@ -52,16 +53,25 @@ export async function GET(request: Request) {
   const em = (container.resolve('em') as EntityManager)
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
 
-  const tableName = em.getMetadata().get(CustomerDealStageHistory.name).tableName
+  const historyTable = em.getMetadata().get(CustomerDealStageHistory.name).tableName
+  const dealsTable = em.getMetadata().get(CustomerDeal.name).tableName
   const connection = em.getConnection()
 
+  const params: unknown[] = [scope.selectedId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()]
+  let pipelineFilter = ''
+  if (query.pipelineId) {
+    pipelineFilter = ` AND d.pipeline_id = ?`
+    params.push(query.pipelineId)
+  }
+
   const rows = await connection.execute(
-    `SELECT to_stage_label AS label, COUNT(*)::int AS deal_count
-     FROM ${tableName}
-     WHERE organization_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?
-     GROUP BY to_stage_label
+    `SELECT h.to_stage_label AS label, COUNT(*)::int AS deal_count
+     FROM ${historyTable} h
+     INNER JOIN ${dealsTable} d ON d.id = h.deal_id
+     WHERE h.organization_id = ? AND h.tenant_id = ? AND h.created_at >= ? AND h.created_at <= ?${pipelineFilter}
+     GROUP BY h.to_stage_label
      ORDER BY deal_count DESC`,
-    [scope.selectedId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
+    params,
   )
 
   const stages: Array<{ label: string; dealCount: number; conversionRate: number }> = []
