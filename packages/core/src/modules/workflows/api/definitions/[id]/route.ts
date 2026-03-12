@@ -17,6 +17,7 @@ import {
   updateWorkflowDefinitionInputSchema,
   type UpdateWorkflowDefinitionApiInput,
 } from '../../../data/validators'
+import { serializeWorkflowDefinition } from '../serialize'
 
 export const metadata = {
   requireAuth: true,
@@ -66,7 +67,7 @@ export async function GET(
       )
     }
 
-    return NextResponse.json({ data: definition })
+    return NextResponse.json({ data: serializeWorkflowDefinition(definition) })
   } catch (error) {
     console.error('Error getting workflow definition:', error)
     return NextResponse.json(
@@ -162,7 +163,7 @@ export async function PUT(
     await em.flush()
 
     return NextResponse.json({
-      data: definition,
+      data: serializeWorkflowDefinition(definition),
       message: 'Workflow definition updated successfully',
     })
   } catch (error) {

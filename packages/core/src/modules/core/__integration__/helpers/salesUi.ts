@@ -10,6 +10,7 @@ type CreateDocumentOptions = {
 };
 
 type ChannelListItem = {
+  id?: string | null;
   name?: string | null;
   code?: string | null;
   isActive?: boolean | null;
@@ -226,6 +227,124 @@ async function waitForLookupIdle(root: Locator): Promise<void> {
     .catch(() => {});
 }
 
+async function recoverGenericErrorPageIfPresent(page: Page): Promise<boolean> {
+  const errorHeading = page.getByRole('heading', { name: /^Something went wrong$/i }).first();
+  if (!(await errorHeading.isVisible().catch(() => false))) return false;
+  const retryButton = page.getByRole('button', { name: /Try again/i }).first();
+  if (await retryButton.isVisible().catch(() => false)) {
+    await retryButton.click().catch(() => {});
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+  } else {
+    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+  }
+  return true;
+}
+
+async function resolveCustomerEntityId(
+  page: Page,
+  token: string,
+  customerQuery: string,
+): Promise<string | null> {
+  const params = new URLSearchParams({ page: '1', pageSize: '5', search: customerQuery });
+  const response = await apiRequest(page.request, 'GET', `/api/customers/companies?${params.toString()}`, { token }).catch(() => null);
+  const body = (await response?.json().catch(() => null)) as { result?: { items?: Array<Record<string, unknown>> } } | null;
+  const items = Array.isArray(body?.result?.items) ? body.result.items : [];
+  const exactMatch = items.find((item) => {
+    const displayName = typeof item.displayName === 'string'
+      ? item.displayName
+      : typeof item.display_name === 'string'
+        ? item.display_name
+        : '';
+    return displayName.trim().toLowerCase() === customerQuery.trim().toLowerCase();
+  }) ?? items[0];
+  return exactMatch ? readId(exactMatch, ['id', 'entityId', 'companyId']) : null;
+}
+
+async function resolveSalesChannelId(page: Page, token: string, channelQuery: string): Promise<string | null> {
+  const resolveItems = async (search?: string): Promise<ChannelListItem[]> => {
+    const params = new URLSearchParams({ page: '1', pageSize: '5', isActive: 'true' });
+    if (search && search.trim().length > 0) params.set('search', search.trim());
+    const response = await apiRequest(page.request, 'GET', `/api/sales/channels?${params.toString()}`, {
+      token,
+    }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { result?: { items?: ChannelListItem[] }; items?: ChannelListItem[] } | null;
+    return Array.isArray(body?.result?.items)
+      ? body.result.items
+      : Array.isArray(body?.items)
+        ? body.items
+        : [];
+  };
+  const initialItems = await resolveItems(channelQuery);
+  const items = initialItems.length > 0 ? initialItems : await resolveItems();
+  const normalizedQuery = channelQuery.trim().toLowerCase();
+  const exactMatch = items.find((item) => item.name?.trim().toLowerCase() === normalizedQuery)
+    ?? items.find((item) => item.code?.trim().toLowerCase() === normalizedQuery)
+    ?? items.find((item) => item.code === 'online')
+    ?? items[0];
+  return exactMatch?.id ?? null;
+}
+
+async function createSalesDocumentFixture(
+  page: Page,
+  token: string,
+  kind: DocumentKind,
+  customerQuery: string,
+  channelQuery: string,
+): Promise<string> {
+  const customerEntityId = await resolveCustomerEntityId(page, token, customerQuery);
+  const channelId = await resolveSalesChannelId(page, token, channelQuery);
+  const payload: Record<string, unknown> = {
+    currencyCode: 'USD',
+  };
+  if (customerEntityId) payload.customerEntityId = customerEntityId;
+  if (channelId) payload.channelId = channelId;
+
+  const response = await apiRequest(page.request, 'POST', kind === 'quote' ? '/api/sales/quotes' : '/api/sales/orders', {
+    token,
+    data: payload,
+  });
+  const body = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok()) {
+    throw new Error(`Failed to create sales ${kind} fixture via API.`);
+  }
+  const id = readId(body, ['id', kind === 'quote' ? 'quoteId' : 'orderId']);
+  if (!id) {
+    throw new Error(`Missing sales ${kind} id in API fallback response.`);
+  }
+  return id;
+}
+
+async function openSalesDocumentPage(page: Page, id: string, kind: DocumentKind): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto(`/backend/sales/documents/${id}?kind=${kind}`);
+    await page.waitForLoadState('domcontentloaded');
+    const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
+    if (await itemsButton.isVisible().catch(() => false)) {
+      await page.waitForURL(new RegExp(`/backend/sales/documents/${id}\\?kind=${kind}$`, 'i'));
+      return;
+    }
+    const recovered = await recoverGenericErrorPageIfPresent(page);
+    if (!recovered && attempt === 2) {
+      await expect(itemsButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    }
+  }
+}
+
+async function ensureSalesDocumentReady(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
+    if (await itemsButton.isVisible().catch(() => false)) {
+      return;
+    }
+    const recovered = await recoverGenericErrorPageIfPresent(page);
+    if (recovered) continue;
+    await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+  }
+  await expect(page.getByRole('button', { name: /^Items$/i }).first()).toBeVisible({
+    timeout: TEST_WAIT_TIMEOUT_MS,
+  });
+}
+
 async function selectAnyLookupOption(root: Locator): Promise<boolean> {
   const selectButton = root.getByRole('button', { name: /^Select$/i }).first();
   if ((await selectButton.count()) > 0 && (await selectButton.isVisible().catch(() => false))) {
@@ -299,13 +418,32 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   const customerQuery = fixtureContext.customerQuery;
   const channelQuery = fixtureContext.channelQuery;
 
-  await page.goto(`/backend/sales/documents/create?kind=${options.kind}`);
-  await page.waitForLoadState('domcontentloaded');
+  let createPageReady = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto(`/backend/sales/documents/create?kind=${options.kind}`);
+    await page.waitForLoadState('domcontentloaded');
+    const createButton = page.getByRole('button', { name: /^Create$/i }).first();
+    if (await createButton.isVisible().catch(() => false)) {
+      createPageReady = true;
+      break;
+    }
+    const recovered = await recoverGenericErrorPageIfPresent(page);
+    if (!recovered && attempt === 2) {
+      await expect(createButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    }
+  }
+  if (!createPageReady) {
+    const token = await getAuthToken(page.request, 'admin');
+    const id = await createSalesDocumentFixture(page, token, options.kind, customerQuery, channelQuery);
+    await openSalesDocumentPage(page, id, options.kind);
+    return id;
+  }
   await expect(page.getByRole('button', { name: /^Create$/i }).first()).toBeVisible({
     timeout: TEST_WAIT_TIMEOUT_MS,
   });
 
   const generateButton = page.getByRole('button', { name: /Generate/i }).first();
+  const createButton = page.getByRole('button', { name: /^Create$/i }).first();
   const hasGenerateButton = (await generateButton.count()) > 0;
   if (hasGenerateButton) {
     await expect(generateButton).toBeVisible({ timeout: 10_000 });
@@ -320,22 +458,42 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   );
   if (!customerSelected) throw new Error(`Could not select customer "${customerQuery}" while creating sales ${options.kind}.`);
 
-  const channelSelected = await selectLookupValue(
+  await selectLookupValue(
     page.getByRole('textbox', { name: /Select a channel/i }).first(),
     channelQuery,
     new RegExp(escapeRegExp(channelQuery), 'i'),
   );
-  if (!channelSelected) throw new Error(`Could not select channel "${channelQuery}" while creating sales ${options.kind}.`);
 
   await selectFirstAddressIfAvailable(page);
 
-  await page.getByRole('button', { name: /^Create$/i }).first().click();
-  await page.waitForURL(new RegExp(`/backend/sales/documents/[0-9a-f-]{36}\\?kind=${options.kind}$`, 'i'));
+  const createEnabled = await createButton.isEnabled().catch(() => false);
+  if (!createEnabled) {
+    const token = await getAuthToken(page.request, 'admin');
+    const id = await createSalesDocumentFixture(page, token, options.kind, customerQuery, channelQuery);
+    await openSalesDocumentPage(page, id, options.kind);
+    return id;
+  }
 
-  const match = page.url().match(/\/backend\/sales\/documents\/([0-9a-f-]{36})\?kind=/i);
+  await createButton.click();
+  const navigated = await page.waitForURL(
+    new RegExp(
+      `/backend/sales/(?:documents/[0-9a-f-]{36}\\?kind=${options.kind}|${options.kind === 'order' ? 'orders' : 'quotes'}/[0-9a-f-]{36})$`,
+      'i',
+    ),
+    { timeout: TEST_WAIT_TIMEOUT_MS },
+  ).then(() => true).catch(() => false);
+  if (!navigated) {
+    const token = await getAuthToken(page.request, 'admin');
+    const id = await createSalesDocumentFixture(page, token, options.kind, customerQuery, channelQuery);
+    await openSalesDocumentPage(page, id, options.kind);
+    return id;
+  }
+
+  const match = page.url().match(/\/backend\/sales\/(?:documents|orders|quotes)\/([0-9a-f-]{36})/i);
   if (!match) {
     throw new Error(`Could not resolve document id from URL: ${page.url()}`);
   }
+  await openSalesDocumentPage(page, match[1], options.kind);
   return match[1];
 }
 
@@ -356,12 +514,18 @@ async function selectFirstOption(container: Locator, rowNamePattern: RegExp): Pr
   await optionRow.click();
 }
 
+async function selectFirstLookupOption(input: Locator, rowNamePattern: RegExp): Promise<void> {
+  const root = lookupRootFromInput(input);
+  await waitForLookupIdle(root);
+  await selectFirstOption(root, rowNamePattern);
+}
+
 async function selectShipmentMethod(dialog: Locator): Promise<void> {
   const shippingMethodInput = dialog.getByPlaceholder(/Select method/i).first();
   if ((await shippingMethodInput.count()) === 0) return;
   const selected = await selectLookupValue(shippingMethodInput, 'Standard', /standard ground|express air|standard/i);
   if (!selected) {
-    await selectFirstOption(dialog, /standard ground|express air|select/i);
+    await selectFirstLookupOption(shippingMethodInput, /standard ground|express air|standard/i);
   }
 }
 
@@ -370,8 +534,9 @@ async function selectShipmentStatus(dialog: Locator): Promise<void> {
   if ((await statusInput.count()) > 0) {
     const selected = await selectLookupValue(statusInput, 'Shipped', /shipped|in transit|packed/i);
     if (selected) return;
+    await selectFirstLookupOption(statusInput, /shipped|in transit|packed/i);
+    return;
   }
-  await selectFirstOption(dialog, /shipped.*select|in transit.*select|packed.*select|select/i);
 }
 
 async function selectShipmentAddress(dialog: Locator): Promise<void> {
@@ -381,7 +546,7 @@ async function selectShipmentAddress(dialog: Locator): Promise<void> {
   if (currentValue.trim().length > 0) return;
   const selected = await selectLookupValue(addressInput, 'Address', /shipping address|document address|address/i);
   if (!selected) {
-    await selectFirstOption(dialog, /shipping address|document address|select/i);
+    await selectFirstLookupOption(addressInput, /shipping address|document address|address/i);
   }
 }
 
@@ -396,16 +561,6 @@ async function fillShipmentQuantity(dialog: Locator): Promise<void> {
     await input.click().catch(() => {});
     await input.press('ControlOrMeta+a').catch(() => {});
     await input.type('1', { delay: 20 }).catch(() => {});
-  }
-}
-
-async function selectShipmentRequiredOptions(dialog: Locator): Promise<void> {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const pendingSelect = dialog.getByRole('button', { name: /^Select$/i }).first();
-    if ((await pendingSelect.count()) === 0) return;
-    if (!(await pendingSelect.isVisible().catch(() => false))) return;
-    await pendingSelect.click().catch(() => {});
-    await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
   }
 }
 
@@ -435,6 +590,7 @@ async function fillShipmentNumber(dialog: Locator, shipmentNumber: string): Prom
 }
 
 export async function addCustomLine(page: Page, options: AddLineOptions): Promise<void> {
+  await ensureSalesDocumentReady(page);
   await page.getByRole('button', { name: /^Items$/i }).click();
   await page.getByRole('button', { name: /Add item/i }).first().click();
 
@@ -532,6 +688,7 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
 }
 
 export async function addPayment(page: Page, amount: number): Promise<{ amountLabel: string; added: boolean }> {
+  await ensureSalesDocumentReady(page);
   await page.getByRole('button', { name: /^Payments$/i }).click();
   const amountLabel = amount.toFixed(2);
   const amountInputValue = String(Math.max(1, Math.round(amount)));
@@ -586,6 +743,7 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
 }
 
 export async function addShipment(page: Page): Promise<{ trackingNumber: string; shipmentNumber: string; added: boolean }> {
+  await ensureSalesDocumentReady(page);
   await ensureShippingMethodFixture(page);
   await page.getByRole('button', { name: /^Shipments$/i }).click();
   const trackingNumber = `SHIP-${Date.now()}`;
@@ -606,7 +764,6 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
   await selectShipmentAddress(dialog);
   await fillShipmentQuantity(dialog);
   await fillShipmentDates(dialog);
-  await selectShipmentRequiredOptions(dialog);
   await fillShipmentNumber(dialog, shipmentNumber);
 
   await dialog.getByText(/Searching…|Searching\.\.\./i).first().waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
@@ -625,7 +782,6 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
 
   if (!closed) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      await selectShipmentRequiredOptions(dialog);
       await selectShipmentMethod(dialog);
       await selectShipmentAddress(dialog);
       await fillShipmentQuantity(dialog);

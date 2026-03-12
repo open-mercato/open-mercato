@@ -4,10 +4,9 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesDocumentTag } from '../../data/entities'
 import { salesTagCreateSchema, salesTagUpdateSchema } from '../../data/validators'
-import { withScopedPayload } from '../utils'
+import { buildAggregateSearchFilter, withScopedPayload } from '../utils'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -44,13 +43,8 @@ const crud = makeCrudRoute({
     fields: ['id', 'slug', 'label', 'color', 'description', 'organization_id', 'tenant_id'],
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
-      if (query.search) {
-        const pattern = `%${escapeLikePattern(query.search)}%`
-        filters.$or = [
-          { label: { $ilike: pattern } },
-          { slug: { $ilike: pattern } },
-        ]
-      }
+      const searchFilter = buildAggregateSearchFilter(query.search)
+      if (searchFilter) Object.assign(filters, searchFilter)
       return filters
     },
   },

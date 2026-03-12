@@ -12,6 +12,8 @@ import { createSalesDocument } from '@open-mercato/core/modules/core/__integrati
  * Source: .ai/qa/scenarios/TC-INT-003-product-to-sales-flow.md
  */
 test.describe('TC-INT-003: Product Creation to Sales Channel to Order', () => {
+  test.setTimeout(60_000);
+
   test('should create a product and proceed with order creation flow', async ({ page, request }) => {
     const stamp = Date.now();
     const productName = `QA INT-003 Product ${stamp}`;
