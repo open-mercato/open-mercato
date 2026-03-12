@@ -510,6 +510,28 @@ function collectMediaReferences(value: unknown): MediaReference[] {
     .filter((entry): entry is MediaReference => Boolean(entry))
 }
 
+export function resolveAkeneoMediaTarget(params: {
+  mappingTarget: 'product' | 'variant'
+  attributeCode: string
+  variantAttributeCodes: string[]
+  productScopedValue: unknown
+  variantScopedValue: unknown
+}): 'product' | 'variant' {
+  const hasProductValue = params.productScopedValue !== null && params.productScopedValue !== undefined
+  const hasVariantValue = params.variantScopedValue !== null && params.variantScopedValue !== undefined
+
+  if (params.variantAttributeCodes.includes(params.attributeCode)) {
+    return 'variant'
+  }
+  if (hasProductValue) {
+    return 'product'
+  }
+  if (hasVariantValue) {
+    return 'variant'
+  }
+  return params.mappingTarget
+}
+
 function resolveCustomFieldValue(value: unknown, attribute: AkeneoAttribute, kind: AkeneoCustomFieldKind): unknown {
   if (kind === 'boolean') return coerceBoolean(value)
   if (kind === 'integer') return coerceNumber(value) === null ? null : Math.trunc(Number(value))
@@ -2677,15 +2699,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         locale,
         channel,
       )
-      const effectiveTarget = resolvedProductSettings.variantAttributeCodes.includes(mediaMapping.attributeCode)
-        || (
-          mediaMapping.target === 'product'
-          && (productScopedValue === null || productScopedValue === undefined)
-          && variantScopedValue !== null
-          && variantScopedValue !== undefined
-        )
-        ? 'variant'
-        : mediaMapping.target
+      const effectiveTarget = resolveAkeneoMediaTarget({
+        mappingTarget: mediaMapping.target,
+        attributeCode: mediaMapping.attributeCode,
+        variantAttributeCodes: resolvedProductSettings.variantAttributeCodes,
+        productScopedValue,
+        variantScopedValue,
+      })
       const sourceLayers = effectiveTarget === 'product'
         ? [hierarchy.rootValues, hierarchy.mergedValues]
         : [hierarchy.leafValues, hierarchy.mergedValues]

@@ -3,6 +3,7 @@ import {
   normalizeAkeneoSelectValue,
   readLayeredAkeneoValue,
   readPreferredAkeneoValue,
+  resolveAkeneoMediaTarget,
   resolveAkeneoFieldsetMemberships,
   resolveAkeneoFieldKeysToDetach,
 } from '../lib/catalog-importer'
@@ -114,6 +115,30 @@ describe('akeneo catalog importer value resolution', () => {
     expect(mappings).toEqual([
       { attributeCode: 'material', fieldKey: 'material', target: 'product' },
     ])
+  })
+
+  it('routes generated media mappings to product when the current family only exposes a product-level value', () => {
+    const target = resolveAkeneoMediaTarget({
+      mappingTarget: 'variant',
+      attributeCode: 'picture',
+      variantAttributeCodes: [],
+      productScopedValue: '4/5/6/product-image.jpg',
+      variantScopedValue: null,
+    })
+
+    expect(target).toBe('product')
+  })
+
+  it('routes media mappings to variant when the current family variant owns the attribute', () => {
+    const target = resolveAkeneoMediaTarget({
+      mappingTarget: 'product',
+      attributeCode: 'variation_image',
+      variantAttributeCodes: ['variation_image'],
+      productScopedValue: '4/5/6/product-image.jpg',
+      variantScopedValue: '7/8/9/variant-image.jpg',
+    })
+
+    expect(target).toBe('variant')
   })
 
   it('detaches stale Akeneo-managed fields from a family fieldset during reconciliation', () => {
