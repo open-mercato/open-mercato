@@ -8,24 +8,24 @@ const widget: InjectionFieldWidget = {
   fields: [
     {
       id: 'captureMethod',
-      label: 'gateway_stripe.config.captureMethod',
+      label: 'Capture method',
       type: 'select',
       group: 'provider',
       options: [
-        { value: 'automatic', label: 'gateway_stripe.config.captureMethod.automatic' },
-        { value: 'manual', label: 'gateway_stripe.config.captureMethod.manual' },
+        { value: 'automatic', label: 'Automatic - charge immediately' },
+        { value: 'manual', label: 'Manual - authorize first, capture later' },
       ],
     },
     {
       id: 'checkoutProfile',
-      label: 'gateway_stripe.config.checkoutProfile',
+      label: 'Pay Link Checkout Profile',
       type: 'select',
       group: 'provider',
       options: [
-        { value: 'card', label: 'gateway_stripe.config.checkoutProfile.card' },
-        { value: 'card_customer', label: 'gateway_stripe.config.checkoutProfile.cardCustomer' },
-        { value: 'payment_element', label: 'gateway_stripe.config.checkoutProfile.paymentElement' },
-        { value: 'payment_element_redirect', label: 'gateway_stripe.config.checkoutProfile.paymentElementRedirect' },
+        { value: 'card', label: 'Card only' },
+        { value: 'card_customer', label: 'Card with email and billing details' },
+        { value: 'payment_element', label: 'Stripe Payment Element (inline methods)' },
+        { value: 'payment_element_redirect', label: 'Stripe Payment Element (allow redirect methods)' },
       ],
     },
   ],

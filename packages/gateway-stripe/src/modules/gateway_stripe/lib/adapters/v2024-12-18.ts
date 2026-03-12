@@ -17,9 +17,9 @@ import type {
 import type Stripe from 'stripe'
 import { resolveStripeClient } from '../client'
 import { mapRefundReason, mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
-import { toCents, fromCents, buildStripeMetadata } from '../shared'
+import { toCents, fromCents } from '../shared'
 import { verifyStripeWebhook } from '../webhook-handler'
-import { resolveStripePaymentLinkConfig } from '../payment-link-config'
+import { createStripePaymentSession, resolveStripePaymentIntentSessionId } from '../session'
 
 const STRIPE_API_VERSION = '2024-12-18'
 
@@ -28,53 +28,17 @@ export const stripeAdapterV20241218: GatewayAdapter = {
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
-    const providerInput = input.providerInput ?? {}
-    const paymentLinkConfig = resolveStripePaymentLinkConfig(providerInput)
-    const paymentIntentInput: Stripe.PaymentIntentCreateParams = {
-      amount: toCents(input.amount, input.currencyCode),
-      currency: input.currencyCode.toLowerCase(),
-      capture_method: input.captureMethod ?? 'automatic',
-      metadata: buildStripeMetadata({
-        paymentId: input.paymentId,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-        orderId: input.orderId,
-      }),
-      description: input.description,
-    }
-
-    if (paymentLinkConfig.paymentMethodMode === 'automatic') {
-      paymentIntentInput.automatic_payment_methods = {
-        enabled: true,
-        allow_redirects: paymentLinkConfig.allowRedirects,
-      }
-    } else {
-      paymentIntentInput.payment_method_types = ['card']
-    }
-
-    const paymentIntent = await stripe.paymentIntents.create(paymentIntentInput)
-
-    return {
-      sessionId: paymentIntent.id,
-      clientSecret: paymentIntent.client_secret ?? undefined,
-      status: mapStripeStatus(paymentIntent.status),
-      providerData: {
-        paymentIntentId: paymentIntent.id,
-        publishableKey: typeof input.credentials.publishableKey === 'string'
-          ? input.credentials.publishableKey
-          : undefined,
-        paymentLinkConfig,
-      },
-    }
+    return createStripePaymentSession(stripe, input)
   },
 
   async capture(input: CaptureInput): Promise<CaptureResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const paymentIntentSessionId = await resolveStripePaymentIntentSessionId(stripe, input.sessionId)
     const paymentIntent = input.amount
-      ? await stripe.paymentIntents.retrieve(input.sessionId)
+      ? await stripe.paymentIntents.retrieve(paymentIntentSessionId)
       : null
 
-    const captured = await stripe.paymentIntents.capture(input.sessionId, {
+    const captured = await stripe.paymentIntents.capture(paymentIntentSessionId, {
       amount_to_capture: input.amount && paymentIntent
         ? toCents(input.amount, paymentIntent.currency)
         : undefined,
@@ -91,12 +55,13 @@ export const stripeAdapterV20241218: GatewayAdapter = {
 
   async refund(input: RefundInput): Promise<RefundResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const paymentIntentSessionId = await resolveStripePaymentIntentSessionId(stripe, input.sessionId)
     const paymentIntent = input.amount
-      ? await stripe.paymentIntents.retrieve(input.sessionId)
+      ? await stripe.paymentIntents.retrieve(paymentIntentSessionId)
       : null
 
     const refund = await stripe.refunds.create({
-      payment_intent: input.sessionId,
+      payment_intent: paymentIntentSessionId,
       amount: input.amount && paymentIntent
         ? toCents(input.amount, paymentIntent.currency)
         : undefined,
@@ -115,8 +80,9 @@ export const stripeAdapterV20241218: GatewayAdapter = {
 
   async cancel(input: CancelInput): Promise<CancelResult> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const paymentIntentSessionId = await resolveStripePaymentIntentSessionId(stripe, input.sessionId)
 
-    const cancelled = await stripe.paymentIntents.cancel(input.sessionId, {
+    const cancelled = await stripe.paymentIntents.cancel(paymentIntentSessionId, {
       cancellation_reason: 'requested_by_customer',
     })
 
@@ -127,8 +93,9 @@ export const stripeAdapterV20241218: GatewayAdapter = {
 
   async getStatus(input: GetStatusInput): Promise<GatewayPaymentStatus> {
     const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const paymentIntentSessionId = await resolveStripePaymentIntentSessionId(stripe, input.sessionId)
 
-    const pi = await stripe.paymentIntents.retrieve(input.sessionId)
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentSessionId)
     return {
       status: mapStripeStatus(pi.status),
       amount: fromCents(pi.amount, pi.currency),

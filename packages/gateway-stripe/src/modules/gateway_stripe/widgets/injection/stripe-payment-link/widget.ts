@@ -4,6 +4,7 @@ import StripePaymentLinkWidget from './widget.client'
 const widget: InjectionWidgetModule<any, any> = {
   metadata: {
     id: 'gateway_stripe.injection.payment-link',
+    title: 'Stripe payment link checkout',
     priority: 100,
   },
   Widget: StripePaymentLinkWidget,

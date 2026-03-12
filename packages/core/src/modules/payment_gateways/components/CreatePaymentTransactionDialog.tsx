@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import {
   CrudForm,
   type CrudCustomFieldRenderProps,
@@ -239,11 +240,15 @@ function PaymentLinkSection({
       {paymentLinkEnabled ? (
         <div className="mt-4 grid gap-4">
           <div className="space-y-2">
-            <Label htmlFor="paymentLinkTitle">{t('payment_gateways.create.paymentLinkTitle', 'Link title')}</Label>
+            <Label htmlFor="paymentLinkTitle">
+              {t('payment_gateways.create.paymentLinkTitle', 'Link title')}
+              <span className="text-red-600"> *</span>
+            </Label>
             <Input
               id="paymentLinkTitle"
               value={typeof values.paymentLinkTitle === 'string' ? values.paymentLinkTitle : ''}
               onChange={(event) => setValue('paymentLinkTitle', event.target.value)}
+              aria-invalid={errors.paymentLinkTitle ? 'true' : 'false'}
             />
             {errors.paymentLinkTitle ? <p className="text-xs text-destructive">{errors.paymentLinkTitle}</p> : null}
           </div>
@@ -254,6 +259,7 @@ function PaymentLinkSection({
               id="paymentLinkDescription"
               value={typeof values.paymentLinkDescription === 'string' ? values.paymentLinkDescription : ''}
               onChange={(event) => setValue('paymentLinkDescription', event.target.value)}
+              aria-invalid={errors.paymentLinkDescription ? 'true' : 'false'}
             />
             {errors.paymentLinkDescription ? <p className="text-xs text-destructive">{errors.paymentLinkDescription}</p> : null}
           </div>
@@ -265,6 +271,7 @@ function PaymentLinkSection({
               type="password"
               value={typeof values.paymentLinkPassword === 'string' ? values.paymentLinkPassword : ''}
               onChange={(event) => setValue('paymentLinkPassword', event.target.value)}
+              aria-invalid={errors.paymentLinkPassword ? 'true' : 'false'}
             />
             {errors.paymentLinkPassword ? <p className="text-xs text-destructive">{errors.paymentLinkPassword}</p> : null}
           </div>
@@ -356,6 +363,74 @@ export function CreatePaymentTransactionDialog({
     () => providers.find((provider) => provider.providerKey === currentProviderKey) ?? null,
     [currentProviderKey, providers],
   )
+
+  const schema = React.useMemo<z.ZodType<CreatePaymentTransactionFormValues>>(() => z.object({
+    providerKey: z.string(),
+    amount: z.union([z.number(), z.literal('')]),
+    currencyCode: z.string(),
+    description: z.string(),
+    createPaymentLink: z.boolean(),
+    paymentLinkTitle: z.string(),
+    paymentLinkDescription: z.string(),
+    paymentLinkPassword: z.string(),
+  }).catchall(z.unknown()).superRefine((value, ctx) => {
+    const provider = providers.find((item) => item.providerKey === value.providerKey) ?? null
+    const paymentLinkEnabled = provider?.supportsPaymentLinks === true && value.createPaymentLink === true
+    const validationMessage = t('payment_gateways.create.validation', 'Provider, amount, and currency are required.')
+
+    if (!value.providerKey.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['providerKey'],
+        message: t('payment_gateways.create.providerPlaceholder', 'Select provider'),
+      })
+    }
+
+    if (typeof value.amount !== 'number' || !Number.isFinite(value.amount) || value.amount <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['amount'],
+        message: validationMessage,
+      })
+    }
+
+    if (value.currencyCode.trim().length !== 3) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['currencyCode'],
+        message: validationMessage,
+      })
+    }
+
+    if (paymentLinkEnabled && (!value.paymentLinkTitle || value.paymentLinkTitle.trim().length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['paymentLinkTitle'],
+        message: t('payment_gateways.create.paymentLinkTitleRequired', 'Enter a title for the payment link.'),
+      })
+    }
+
+    if (value.paymentLinkDescription && value.paymentLinkDescription.trim().length > 500) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['paymentLinkDescription'],
+        message: t('payment_gateways.create.paymentLinkDescriptionTooLong', 'Link description must be 500 characters or fewer.'),
+      })
+    }
+
+    if (
+      paymentLinkEnabled &&
+      value.paymentLinkPassword &&
+      value.paymentLinkPassword.trim().length > 0 &&
+      value.paymentLinkPassword.trim().length < 4
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['paymentLinkPassword'],
+        message: t('payment_gateways.create.paymentLinkPasswordInvalid', 'Password must be at least 4 characters.'),
+      })
+    }
+  }), [providers, t])
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -661,6 +736,7 @@ export function CreatePaymentTransactionDialog({
           <CrudForm<CreatePaymentTransactionFormValues>
             key={formResetKey}
             embedded
+            schema={schema}
             fields={fields}
             groups={groups}
             initialValues={formInitialValues}

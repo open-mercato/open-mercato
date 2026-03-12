@@ -114,6 +114,39 @@ function flattenFieldErrors(input: Record<string, string[] | undefined>): Record
   return Object.keys(result).length > 0 ? result : undefined
 }
 
+function mapCreateSessionFieldErrors(error: z.ZodError): Record<string, string> | undefined {
+  const fieldErrors: Record<string, string> = {}
+
+  error.issues.forEach((issue) => {
+    const path = issue.path.join('.')
+
+    switch (path) {
+      case 'providerKey':
+        fieldErrors.providerKey = 'Select provider'
+        break
+      case 'amount':
+        fieldErrors.amount = 'Provider, amount, and currency are required.'
+        break
+      case 'currencyCode':
+        fieldErrors.currencyCode = 'Provider, amount, and currency are required.'
+        break
+      case 'paymentLink.title':
+        fieldErrors.paymentLinkTitle = 'Enter a title for the payment link.'
+        break
+      case 'paymentLink.description':
+        fieldErrors.paymentLinkDescription = 'Link description must be 500 characters or fewer.'
+        break
+      case 'paymentLink.password':
+        fieldErrors.paymentLinkPassword = 'Password must be at least 4 characters.'
+        break
+      default:
+        break
+    }
+  })
+
+  return Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined
+}
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -158,7 +191,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       error: 'Invalid payload',
       details: flattened,
-      fieldErrors: flattenFieldErrors(flattened.fieldErrors),
+      fieldErrors: mapCreateSessionFieldErrors(parsed.error) ?? flattenFieldErrors(flattened.fieldErrors),
     }, { status: 422 })
   }
 

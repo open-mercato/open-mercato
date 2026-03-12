@@ -92,4 +92,20 @@ describe('apiFetch', () => {
     expect(result).toBe(response)
     expect(flash).not.toHaveBeenCalled()
   })
+
+  it('returns 403 payload when the caller explicitly handles forbidden responses', async () => {
+    const response = createMockResponse(403, {
+      passwordRequired: true,
+    })
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => response)
+
+    const result = await apiFetch('/api/public', {
+      headers: {
+        'x-om-handle-forbidden': 'true',
+      },
+    })
+
+    expect(result).toBe(response)
+    expect(flash).not.toHaveBeenCalled()
+  })
 })

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Image from 'next/image'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -83,7 +84,10 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
     setLoading(true)
     const call = await apiCall<PaymentLinkResponse>(`/api/payment_gateways/pay/${encodeURIComponent(token)}`, {
       method: 'GET',
-      headers: accessToken ? { 'x-payment-link-access': accessToken } : undefined,
+      headers: {
+        ...(accessToken ? { 'x-payment-link-access': accessToken } : {}),
+        'x-om-handle-forbidden': 'true',
+      },
     }, { fallback: null })
     if (call.ok && call.result) {
       setData(call.result)
@@ -117,11 +121,15 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
   const handleUnlock = React.useCallback(async () => {
     if (!token || !password.trim()) return
     setUnlocking(true)
+    setError(null)
     const call = await apiCall<{ accessToken?: string | null }>(
       `/api/payment_gateways/pay/${encodeURIComponent(token)}/unlock`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-om-handle-forbidden': 'true',
+        },
         body: JSON.stringify({ password: password.trim() }),
       },
       { fallback: null },
@@ -154,6 +162,17 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
       <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <section className="rounded-[32px] border border-white/70 bg-white/85 p-8 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.45)] backdrop-blur">
           <div className="space-y-5">
+            <div className="flex items-center gap-3">
+              <Image src="/open-mercato.svg" alt="Open Mercato" width={40} height={40} priority className="h-10 w-10 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm" />
+              <div>
+                <div className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                  Open Mercato
+                </div>
+                <div className="text-sm text-slate-600">
+                  {t('payment_gateways.paymentLink.securityTitle', 'Protected checkout')}
+                </div>
+              </div>
+            </div>
             <div className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-1 text-xs font-medium uppercase tracking-[0.25em] text-slate-500">
               {t('payment_gateways.paymentLink.eyebrow', 'Secure payment link')}
             </div>
@@ -218,6 +237,12 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={t('payment_gateways.paymentLink.passwordPlaceholder', 'Password')}
                 className="border-slate-700 bg-slate-950 text-slate-50"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && password.trim() && !unlocking) {
+                    event.preventDefault()
+                    void handleUnlock()
+                  }
+                }}
               />
               {error ? <p className="text-sm text-rose-300">{error}</p> : null}
               <Button type="button" onClick={() => void handleUnlock()} disabled={unlocking || !password.trim()}>

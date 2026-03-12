@@ -4,7 +4,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
-import { GatewayTransaction } from '../../../data/entities'
+import { GatewayPaymentLink, GatewayTransaction } from '../../../data/entities'
+import { buildPaymentLinkUrl } from '../../../lib/payment-links'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
@@ -58,6 +59,22 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const integrationId = `gateway_${transaction.providerKey}`
+  const paymentLink = await findOneWithDecryption(
+    em,
+    GatewayPaymentLink,
+    {
+      transactionId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    {
+      orderBy: {
+        createdAt: 'desc',
+      },
+    },
+    scope,
+  )
   const { items: logRows } = await integrationLogService.query(
     {
       integrationId,
@@ -90,6 +107,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       createdAt: toIsoString(transaction.createdAt),
       updatedAt: toIsoString(transaction.updatedAt),
     },
+    paymentLink: paymentLink
+      ? {
+          id: paymentLink.id,
+          token: paymentLink.token,
+          url: buildPaymentLinkUrl(new URL(req.url).origin, paymentLink.token),
+          title: paymentLink.title,
+          description: paymentLink.description ?? null,
+          status: paymentLink.status,
+          passwordProtected: Boolean(paymentLink.passwordHash),
+          completedAt: toIsoString(paymentLink.completedAt),
+          createdAt: toIsoString(paymentLink.createdAt),
+          updatedAt: toIsoString(paymentLink.updatedAt),
+        }
+      : null,
     logs: logRows.map((row) => ({
       id: row.id,
       integrationId: row.integrationId,

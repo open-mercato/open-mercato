@@ -16,7 +16,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChevronDown, ChevronRight, CreditCard, Plus, RefreshCw, Webhook } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, CreditCard, ExternalLink, Plus, RefreshCw, Shield, Webhook } from 'lucide-react'
 import { CreatePaymentTransactionDialog } from '../../components/CreatePaymentTransactionDialog'
 
 type TransactionRow = {
@@ -77,6 +77,18 @@ type TransactionDetail = {
     createdAt: string | null
     updatedAt: string | null
   }
+  paymentLink: {
+    id: string
+    token: string
+    url: string
+    title: string
+    description?: string | null
+    status: 'active' | 'completed' | 'cancelled'
+    passwordProtected: boolean
+    completedAt?: string | null
+    createdAt: string | null
+    updatedAt: string | null
+  } | null
   logs: TransactionLogEntry[]
 }
 
@@ -292,6 +304,20 @@ export default function PaymentTransactionsPage() {
     flash(t('payment_gateways.transactions.success.refreshStatus', 'Transaction status refreshed'), 'success')
     setIsRefreshingStatus(false)
   }, [loadDetail, loadRows, selectedId, t])
+
+  const handleCopyPaymentLink = React.useCallback(async (url: string) => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      flash(t('payment_gateways.create.copyUnavailable', 'Copy is not available in this browser.'), 'error')
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(url)
+      flash(t('payment_gateways.transactions.success.paymentLinkCopied', 'Payment link copied.'), 'success')
+    } catch {
+      flash(t('payment_gateways.transactions.error.copyPaymentLink', 'Unable to copy the payment link.'), 'error')
+    }
+  }, [t])
 
   const providerOptions = React.useMemo(() => {
     const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort()
@@ -643,6 +669,69 @@ export default function PaymentTransactionsPage() {
                     </div>
 
                     <div className="space-y-4">
+                      {detail.paymentLink ? (
+                        <section className="rounded-xl border bg-muted/20 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 text-sm font-semibold">
+                                <Shield className="h-4 w-4 text-muted-foreground" />
+                                <span>{t('payment_gateways.transactions.detail.paymentLink', 'Payment link')}</span>
+                              </div>
+                              <div className="text-sm text-muted-foreground">{detail.paymentLink.title}</div>
+                            </div>
+                            <Badge variant="secondary" className={detail.paymentLink.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : detail.paymentLink.status === 'cancelled' ? 'bg-zinc-200 text-zinc-900' : 'bg-amber-100 text-amber-800'}>
+                              {detail.paymentLink.status === 'completed'
+                                ? t('payment_gateways.paymentLink.status.completed', 'Paid')
+                                : detail.paymentLink.status === 'cancelled'
+                                  ? t('payment_gateways.status.cancelled', 'Cancelled')
+                                  : t('payment_gateways.paymentLink.status.active', 'Active')}
+                            </Badge>
+                          </div>
+
+                          {detail.paymentLink.description ? (
+                            <p className="mt-3 text-sm text-muted-foreground">{detail.paymentLink.description}</p>
+                          ) : null}
+
+                          <div className="mt-4 rounded-lg border bg-background px-3 py-3">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {t('payment_gateways.transactions.detail.paymentLinkUrl', 'Payment link URL')}
+                            </div>
+                            <div className="mt-1 break-all text-sm">{detail.paymentLink.url}</div>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <Button type="button" size="sm" onClick={() => void handleCopyPaymentLink(detail.paymentLink!.url)}>
+                              <Copy className="mr-2 h-4 w-4" />
+                              {t('payment_gateways.transactions.actions.copyPaymentLink', 'Copy link')}
+                            </Button>
+                            <Button asChild type="button" size="sm" variant="outline">
+                              <a href={detail.paymentLink.url} target="_blank" rel="noreferrer">
+                                <ExternalLink className="mr-2 h-4 w-4" />
+                                {t('payment_gateways.transactions.actions.openPaymentLink', 'Open link')}
+                              </a>
+                            </Button>
+                          </div>
+
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-lg border bg-background px-3 py-3">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {t('payment_gateways.create.paymentLinkPassword', 'Password (optional)')}
+                              </div>
+                              <div className="mt-1 text-sm">
+                                {detail.paymentLink.passwordProtected
+                                  ? t('payment_gateways.transactions.detail.paymentLinkPasswordProtected', 'Required')
+                                  : t('common.none', 'None')}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border bg-background px-3 py-3">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {t('payment_gateways.transactions.columns.createdAt', 'Created at')}
+                              </div>
+                              <div className="mt-1 text-sm">{formatDateTime(detail.paymentLink.createdAt)}</div>
+                            </div>
+                          </div>
+                        </section>
+                      ) : null}
                       <JsonDisplay
                         data={detail.transaction.gatewayMetadata ?? {}}
                         title={t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}
