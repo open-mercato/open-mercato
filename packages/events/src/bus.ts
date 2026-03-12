@@ -1,6 +1,8 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+export { registerCrossProcessEventListener } from './bridge'
+import { publishCrossProcessEvent } from './bridge'
 import type {
   EventBus,
   CreateBusOptions,
@@ -193,6 +195,12 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
 
     // Always deliver to in-memory handlers first
     await deliver(event, payload)
+
+    try {
+      await publishCrossProcessEvent(event, payload, options)
+    } catch (error) {
+      console.error(`[events] Cross-process publish error for "${event}":`, error)
+    }
 
     // If persistent, also enqueue for async processing
     if (options?.persistent) {

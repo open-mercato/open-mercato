@@ -66,6 +66,7 @@ type FirstImportSequenceResponse = {
     status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
     currentStep: FirstImportStepKey | null
     currentRunId: string | null
+    currentRunProgressJobId: string | null
     currentRunStatus: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | null
     progressPercent: number | null
     processedCount: number | null
@@ -93,6 +94,7 @@ type FirstImportProgressState = {
   progressJobId: string | null
   step: FirstImportStepKey | null
   runId: string | null
+  runProgressJobId: string | null
   progressPercent: number | null
   processedCount: number | null
   totalCount: number | null
@@ -628,6 +630,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
     progressJobId: null,
     step: null,
     runId: null,
+    runProgressJobId: null,
     progressPercent: null,
     processedCount: null,
     totalCount: null,
@@ -652,6 +655,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
         progressJobId: null,
         step: null,
         runId: null,
+        runProgressJobId: null,
         progressPercent: null,
         processedCount: null,
         totalCount: null,
@@ -671,6 +675,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
       progressJobId: sequence.progressJobId,
       step: sequence.currentStep,
       runId: sequence.currentRunId,
+      runProgressJobId: sequence.currentRunProgressJobId,
       progressPercent: sequence.progressPercent,
       processedCount: sequence.processedCount,
       totalCount: sequence.totalCount,
@@ -844,6 +849,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
       progressJobId: null,
       step: null,
       runId: null,
+      runProgressJobId: null,
       progressPercent: null,
       processedCount: null,
       totalCount: null,
@@ -952,6 +958,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
         ? currentStep
         : null,
       runId: readProgressMetaString(meta, 'currentRunId'),
+      runProgressJobId: readProgressMetaString(meta, 'currentRunProgressJobId'),
       progressPercent: readProgressMetaNumber(meta, 'currentRunProgressPercent'),
       processedCount: readProgressMetaNumber(meta, 'currentRunProcessedCount'),
       totalCount: readProgressMetaNumber(meta, 'currentRunTotalCount'),
@@ -990,6 +997,38 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
       void loadFirstImportStatus().catch(() => undefined)
     }
   }, [load, loadFirstImportStatus, t])
+
+  const applyFirstImportChildRunProgressEvent = React.useCallback((payload: ProgressEventPayload) => {
+    const jobId = typeof payload.jobId === 'string' ? payload.jobId : null
+    if (!jobId) return
+
+    setFirstImportProgress((current) => {
+      if (!current.runProgressJobId || current.runProgressJobId !== jobId) {
+        return current
+      }
+
+      return {
+        ...current,
+        phase: payload.status === 'failed' || payload.status === 'cancelled'
+          ? 'failed'
+          : current.phase === 'idle'
+            ? 'running'
+            : current.phase,
+        progressPercent: typeof payload.progressPercent === 'number'
+          ? payload.progressPercent
+          : current.progressPercent,
+        processedCount: typeof payload.processedCount === 'number'
+          ? payload.processedCount
+          : current.processedCount,
+        totalCount: typeof payload.totalCount === 'number'
+          ? payload.totalCount
+          : current.totalCount,
+        errorMessage: typeof payload.errorMessage === 'string'
+          ? payload.errorMessage
+          : current.errorMessage,
+      }
+    })
+  }, [])
 
   const applyDeleteImportedProductsEvent = React.useCallback((payload: ProgressEventPayload) => {
     if (!deleteImportedProductsJobId || payload.jobId !== deleteImportedProductsJobId) return
@@ -1052,38 +1091,44 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
   useAppEvent('progress.job.created', (event) => {
     const payload = event.payload as ProgressEventPayload
     applyFirstImportProgressEvent(payload)
+    applyFirstImportChildRunProgressEvent(payload)
     applyDeleteImportedProductsEvent(payload)
-  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
+  }, [applyDeleteImportedProductsEvent, applyFirstImportChildRunProgressEvent, applyFirstImportProgressEvent])
 
   useAppEvent('progress.job.started', (event) => {
     const payload = event.payload as ProgressEventPayload
     applyFirstImportProgressEvent(payload)
+    applyFirstImportChildRunProgressEvent(payload)
     applyDeleteImportedProductsEvent(payload)
-  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
+  }, [applyDeleteImportedProductsEvent, applyFirstImportChildRunProgressEvent, applyFirstImportProgressEvent])
 
   useAppEvent('progress.job.updated', (event) => {
     const payload = event.payload as ProgressEventPayload
     applyFirstImportProgressEvent(payload)
+    applyFirstImportChildRunProgressEvent(payload)
     applyDeleteImportedProductsEvent(payload)
-  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
+  }, [applyDeleteImportedProductsEvent, applyFirstImportChildRunProgressEvent, applyFirstImportProgressEvent])
 
   useAppEvent('progress.job.completed', (event) => {
     const payload = event.payload as ProgressEventPayload
     applyFirstImportProgressEvent(payload)
+    applyFirstImportChildRunProgressEvent(payload)
     applyDeleteImportedProductsEvent(payload)
-  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
+  }, [applyDeleteImportedProductsEvent, applyFirstImportChildRunProgressEvent, applyFirstImportProgressEvent])
 
   useAppEvent('progress.job.failed', (event) => {
     const payload = event.payload as ProgressEventPayload
     applyFirstImportProgressEvent(payload)
+    applyFirstImportChildRunProgressEvent(payload)
     applyDeleteImportedProductsEvent(payload)
-  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
+  }, [applyDeleteImportedProductsEvent, applyFirstImportChildRunProgressEvent, applyFirstImportProgressEvent])
 
   useAppEvent('progress.job.cancelled', (event) => {
     const payload = event.payload as ProgressEventPayload
     applyFirstImportProgressEvent(payload)
+    applyFirstImportChildRunProgressEvent(payload)
     applyDeleteImportedProductsEvent(payload)
-  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
+  }, [applyDeleteImportedProductsEvent, applyFirstImportChildRunProgressEvent, applyFirstImportProgressEvent])
 
   useAppEvent('om:bridge:reconnected', () => {
     void loadFirstImportStatus().catch(() => undefined)

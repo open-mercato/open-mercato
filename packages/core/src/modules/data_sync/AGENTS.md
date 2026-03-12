@@ -139,12 +139,12 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 
 ### Progress Delivery Contract
 
-- `ProgressTopBar` polls `/api/progress/active` every 5s (`useProgressPoll`).
+- `ProgressTopBar` and sync-run detail pages use `progress.job.*` SSE updates for live progress.
 - Create `ProgressJob` in `run`/`retry` endpoints; start/update/complete/fail in `sync-engine`.
 - Include `progressJob` details in run detail response.
 - SSE DOM bridge forwards only events with `clientBroadcast: true`.
-- `data_sync.run.*` events are not yet marked `clientBroadcast: true` — polling is the active mechanism.
-- Do not claim SSE-driven progress for sync runs until event definitions and client wiring are explicitly enabled.
+- `progress.job.*` events are marked `clientBroadcast: true` and must reach the browser from both web and worker processes.
+- Do not add new frontend polling loops for sync progress; use one-shot fetches only for initial hydration or reconnect recovery.
 
 ### Integration Test Expectations
 

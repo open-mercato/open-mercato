@@ -29,6 +29,7 @@ export type FirstImportSequenceStatus = {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   currentStep: FirstImportStep | null
   currentRunId: string | null
+  currentRunProgressJobId: string | null
   currentRunStatus: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | null
   progressPercent: number | null
   processedCount: number | null
@@ -47,6 +48,7 @@ function buildProgressContext(scope: AkeneoFirstImportScope): ProgressServiceCon
 function buildSequenceMeta(input?: Partial<{
   currentStep: FirstImportStep | null
   currentRunId: string | null
+  currentRunProgressJobId: string | null
   currentRunStatus: string | null
   currentRunProgressPercent: number | null
   currentRunProcessedCount: number | null
@@ -58,6 +60,7 @@ function buildSequenceMeta(input?: Partial<{
     hiddenFromTopBar: true,
     currentStep: input?.currentStep ?? null,
     currentRunId: input?.currentRunId ?? null,
+    currentRunProgressJobId: input?.currentRunProgressJobId ?? null,
     currentRunStatus: input?.currentRunStatus ?? null,
     currentRunProgressPercent: input?.currentRunProgressPercent ?? null,
     currentRunProcessedCount: input?.currentRunProcessedCount ?? null,
@@ -84,6 +87,7 @@ function buildSequenceStatus(job: ProgressJob): FirstImportSequenceStatus {
       ? currentStep
       : null,
     currentRunId: readString(meta?.currentRunId),
+    currentRunProgressJobId: readString(meta?.currentRunProgressJobId),
     currentRunStatus: currentRunStatus === 'pending'
       || currentRunStatus === 'running'
       || currentRunStatus === 'completed'
@@ -175,6 +179,7 @@ export async function runAkeneoFirstImportSequence(params: {
         meta: buildSequenceMeta({
           currentStep: entityType,
           currentRunId: run.id,
+          currentRunProgressJobId: run.progressJobId ?? null,
           currentRunStatus: run.status,
           currentRunProgressPercent: null,
           currentRunProcessedCount: 0,
@@ -203,6 +208,7 @@ export async function runAkeneoFirstImportSequence(params: {
           meta: buildSequenceMeta({
             currentStep: entityType,
             currentRunId: currentRun.id,
+            currentRunProgressJobId: currentRun.progressJobId ?? null,
             currentRunStatus: currentRun.status,
             currentRunProgressPercent: currentRunJob?.totalCount ? currentRunJob.progressPercent : null,
             currentRunProcessedCount: currentRunJob?.processedCount ?? null,
@@ -235,6 +241,7 @@ export async function runAkeneoFirstImportSequence(params: {
         meta: buildSequenceMeta({
           currentStep: entityType,
           currentRunId: run.id,
+          currentRunProgressJobId: run.progressJobId ?? null,
           currentRunStatus: 'completed',
           currentRunProgressPercent: 100,
           currentRunProcessedCount: null,

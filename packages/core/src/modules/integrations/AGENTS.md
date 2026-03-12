@@ -180,9 +180,9 @@ The integrations module itself uses UMES to inject external ID displays on any e
 
 ## Progress Delivery Contract
 
-- `ProgressTopBar` polls `/api/progress/active` every 5s (`useProgressPoll`).
+- `ProgressTopBar` uses `progress.job.*` SSE updates for live progress.
 - SSE DOM bridge forwards only events with `clientBroadcast: true`.
-- `progress.job.*` events are not yet marked `clientBroadcast: true` — polling is the active mechanism.
+- `progress.job.*` events are marked `clientBroadcast: true` and must be bridged across worker and web processes.
 
 ## Integration Test Expectations
 

@@ -165,15 +165,6 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     void loadLogs()
   }, [loadRun, loadLogs])
 
-  React.useEffect(() => {
-    if (!run || (run.status !== 'running' && run.status !== 'pending')) return
-    const interval = setInterval(() => {
-      void loadRun()
-      void loadLogs()
-    }, 4000)
-    return () => clearInterval(interval)
-  }, [run?.status, loadRun, loadLogs])
-
   const handleProgressEvent = React.useCallback((payload: ProgressEventPayload) => {
     const eventJobId = typeof payload.jobId === 'string' ? payload.jobId : null
     if (!eventJobId) return
