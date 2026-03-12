@@ -82,6 +82,9 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       const createBody = await createRes.json()
       definitionId = createBody.data?.id
       expect(definitionId, 'Workflow definition ID should be present after creation').toBeTruthy()
+      if (!definitionId) {
+        throw new Error('Workflow definition ID should be present after creation')
+      }
 
       // --- Navigate to the workflow definition edit page ---
       await login(page, 'admin')
