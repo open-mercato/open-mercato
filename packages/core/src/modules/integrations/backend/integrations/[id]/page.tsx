@@ -853,7 +853,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         ) : null}
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
-          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0 text-base">
+          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
             <TabsTrigger
               value="credentials"
               className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"

@@ -33,6 +33,10 @@ export type UseProgressPollResult = {
 
 const POLL_INTERVAL = 5000
 
+function isVisibleProgressJob(job: ProgressJobDto): boolean {
+  return job.meta?.hiddenFromTopBar !== true
+}
+
 export function useProgressPoll(): UseProgressPollResult {
   const [activeJobs, setActiveJobs] = React.useState<ProgressJobDto[]>([])
   const [recentlyCompleted, setRecentlyCompleted] = React.useState<ProgressJobDto[]>([])
@@ -45,8 +49,8 @@ export function useProgressPoll(): UseProgressPollResult {
         '/api/progress/active'
       )
       if (result.ok && result.result) {
-        setActiveJobs(result.result.active)
-        setRecentlyCompleted(result.result.recentlyCompleted)
+        setActiveJobs(result.result.active.filter(isVisibleProgressJob))
+        setRecentlyCompleted(result.result.recentlyCompleted.filter(isVisibleProgressJob))
         setError(null)
       }
     } catch (err) {

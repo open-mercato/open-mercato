@@ -3,6 +3,7 @@
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -57,36 +58,39 @@ type DeleteImportedProductsJobResponse = {
   errorMessage?: string | null
 }
 
-type SyncRunStartResponse = {
-  id: string
-  progressJobId?: string | null
-}
-
-type SyncRunDetailResponse = {
-  id: string
-  entityType: 'categories' | 'attributes' | 'products' | string
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  lastError?: string | null
-  progressJob?: {
-    id: string
+type FirstImportSequenceResponse = {
+  ok: boolean
+  hasCompletedProductImport: boolean
+  sequence: {
+    progressJobId: string
     status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-    progressPercent: number
-    processedCount: number
-    totalCount?: number | null
+    currentStep: FirstImportStepKey | null
+    currentRunId: string | null
+    currentRunStatus: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | null
+    progressPercent: number | null
+    processedCount: number | null
+    totalCount: number | null
+    errorMessage: string | null
   } | null
-}
-
-type SyncRunListResponse = {
-  items?: Array<{
-    id: string
-    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  }>
 }
 
 type FirstImportStepKey = 'categories' | 'attributes' | 'products'
 
+type ProgressEventPayload = {
+  jobId?: string
+  jobType?: string
+  status?: string
+  progressPercent?: number
+  processedCount?: number
+  totalCount?: number | null
+  meta?: Record<string, unknown> | null
+  errorMessage?: string | null
+  resultSummary?: Record<string, unknown> | null
+}
+
 type FirstImportProgressState = {
   phase: 'idle' | 'running' | 'completed' | 'failed'
+  progressJobId: string | null
   step: FirstImportStepKey | null
   runId: string | null
   progressPercent: number | null
@@ -168,6 +172,17 @@ function readDeleteImportedProductsSummaryMessage(summary: Record<string, unknow
   if (typeof message !== 'string') return null
   const trimmed = message.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function readProgressMetaString(meta: Record<string, unknown> | null | undefined, key: string): string | null {
+  if (!meta || typeof meta[key] !== 'string') return null
+  const value = String(meta[key]).trim()
+  return value.length > 0 ? value : null
+}
+
+function readProgressMetaNumber(meta: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = meta?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 const PRODUCT_FIELD_KEYS: Array<{
@@ -610,6 +625,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
   const [hasCompletedProductImport, setHasCompletedProductImport] = React.useState(false)
   const [firstImportProgress, setFirstImportProgress] = React.useState<FirstImportProgressState>({
     phase: 'idle',
+    progressJobId: null,
     step: null,
     runId: null,
     progressPercent: null,
@@ -618,12 +634,57 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
     errorMessage: null,
   })
   const mountedRef = React.useRef(true)
+  const firstImportTerminalNoticeRef = React.useRef<string | null>(null)
 
   React.useEffect(() => {
     return () => {
       mountedRef.current = false
     }
   }, [])
+
+  const syncFirstImportStatus = React.useCallback((response: FirstImportSequenceResponse | null | undefined) => {
+    setHasCompletedProductImport(response?.hasCompletedProductImport === true)
+
+    const sequence = response?.sequence
+    if (!sequence) {
+      setFirstImportProgress({
+        phase: 'idle',
+        progressJobId: null,
+        step: null,
+        runId: null,
+        progressPercent: null,
+        processedCount: null,
+        totalCount: null,
+        errorMessage: null,
+      })
+      return
+    }
+
+    setFirstImportProgress({
+      phase: sequence.status === 'failed'
+        ? 'failed'
+        : sequence.status === 'pending' || sequence.status === 'running'
+          ? 'running'
+          : sequence.status === 'completed'
+            ? 'completed'
+            : 'idle',
+      progressJobId: sequence.progressJobId,
+      step: sequence.currentStep,
+      runId: sequence.currentRunId,
+      progressPercent: sequence.progressPercent,
+      processedCount: sequence.processedCount,
+      totalCount: sequence.totalCount,
+      errorMessage: sequence.errorMessage,
+    })
+  }, [])
+
+  const loadFirstImportStatus = React.useCallback(async () => {
+    const result = await apiCall<FirstImportSequenceResponse>('/api/sync_akeneo/first-import')
+    if (!result.ok) {
+      throw new Error(t('sync_akeneo.firstImport.errors.progress', 'Failed to load sync run progress.'))
+    }
+    syncFirstImportStatus(result.result ?? null)
+  }, [syncFirstImportStatus, t])
 
   const buildMappingPayloads = React.useCallback((currentState: FormState) => {
     const customFieldMappings = parseRows(currentState.customFieldMappings)
@@ -776,67 +837,11 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
     }
   }, [buildMappingPayloads])
 
-  const startSyncRun = React.useCallback(async (entityType: FirstImportStepKey, fullSync: boolean) => {
-    const result = await apiCall<SyncRunStartResponse>('/api/data_sync/run', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        integrationId: 'sync_akeneo',
-        entityType,
-        direction: 'import',
-        fullSync,
-        batchSize: 100,
-      }),
-    })
-
-    if (!result.ok || !result.result?.id) {
-      throw new Error(
-        (result.result as { error?: string } | null)?.error
-          ?? t('sync_akeneo.firstImport.errors.start', 'Failed to start the sync run.'),
-      )
-    }
-
-    return result.result.id
-  }, [t])
-
-  const waitForSyncRun = React.useCallback(async (runId: string, entityType: FirstImportStepKey) => {
-    while (mountedRef.current) {
-      const result = await apiCall<SyncRunDetailResponse>(`/api/data_sync/runs/${encodeURIComponent(runId)}`)
-      if (!result.ok || !result.result) {
-        throw new Error(t('sync_akeneo.firstImport.errors.progress', 'Failed to load sync run progress.'))
-      }
-
-      const run = result.result
-      setFirstImportProgress((current) => ({
-        ...current,
-        step: entityType,
-        runId,
-        progressPercent: run.progressJob?.totalCount ? run.progressJob.progressPercent : null,
-        processedCount: run.progressJob?.processedCount ?? null,
-        totalCount: run.progressJob?.totalCount ?? null,
-      }))
-
-      if (run.status === 'completed') {
-        return
-      }
-
-      if (run.status === 'failed') {
-        throw new Error(run.lastError ?? t('sync_akeneo.firstImport.errors.failed', 'The sync run failed.'))
-      }
-
-      if (run.status === 'cancelled') {
-        throw new Error(t('sync_akeneo.firstImport.errors.cancelled', 'The sync run was cancelled.'))
-      }
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 1500)
-      })
-    }
-  }, [t])
-
   const runFirstFullImport = React.useCallback(async () => {
+    firstImportTerminalNoticeRef.current = null
     setFirstImportProgress({
       phase: 'running',
+      progressJobId: null,
       step: null,
       runId: null,
       progressPercent: null,
@@ -847,40 +852,25 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
 
     try {
       await persistMappings(state)
+      const result = await apiCall<{ ok?: boolean; progressJobId?: string; error?: string }>('/api/sync_akeneo/first-import', {
+        method: 'POST',
+      })
 
-      for (const step of FIRST_IMPORT_STEPS) {
-        if (!mountedRef.current) return
-        setFirstImportProgress({
-          phase: 'running',
-          step: step.entityType,
-          runId: null,
-          progressPercent: null,
-          processedCount: 0,
-          totalCount: null,
-          errorMessage: null,
-        })
-
-        const runId = await startSyncRun(step.entityType, step.fullSync)
-        setFirstImportProgress((current) => ({
-          ...current,
-          step: step.entityType,
-          runId,
-        }))
-        await waitForSyncRun(runId, step.entityType)
+      if (!result.ok) {
+        if (result.status === 409) {
+          await loadFirstImportStatus()
+          return
+        }
+        throw new Error(
+          (result.result as { error?: string } | null)?.error
+            ?? t('sync_akeneo.firstImport.errors.start', 'Failed to start the sync run.'),
+        )
       }
 
-      if (!mountedRef.current) return
-      setHasCompletedProductImport(true)
-      setFirstImportProgress({
-        phase: 'idle',
-        step: null,
-        runId: null,
-        progressPercent: null,
-        processedCount: null,
-        totalCount: null,
-        errorMessage: null,
-      })
-      flash(t('sync_akeneo.firstImport.completed', 'The first full Akeneo import finished successfully.'), 'success')
+      setFirstImportProgress((current) => ({
+        ...current,
+        progressJobId: result.result?.progressJobId ?? current.progressJobId,
+      }))
     } catch (error) {
       if (!mountedRef.current) return
       const message = error instanceof Error
@@ -893,26 +883,18 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
       }))
       flash(message, 'error')
     }
-  }, [persistMappings, startSyncRun, state, t, waitForSyncRun])
+  }, [loadFirstImportStatus, persistMappings, state, t])
 
   const load = React.useCallback(async (refresh = false) => {
     setIsLoading(true)
     try {
-      const completedRunQuery = new URLSearchParams({
-        integrationId: 'sync_akeneo',
-        entityType: 'products',
-        direction: 'import',
-        status: 'completed',
-        page: '1',
-        pageSize: '1',
-      })
-      const [discoveryCall, productsCall, categoriesCall, attributesCall, customFieldsCall, completedRunsCall] = await Promise.all([
+      const [discoveryCall, productsCall, categoriesCall, attributesCall, customFieldsCall, firstImportStatusCall] = await Promise.all([
         apiCall<AkeneoDiscoveryResponse>(`/api/sync_akeneo/discovery${refresh ? '?refresh=true' : ''}`),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=products&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=categories&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=attributes&page=1&pageSize=1'),
         apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields'),
-        apiCall<SyncRunListResponse>(`/api/data_sync/runs?${completedRunQuery.toString()}`).catch(() => null),
+        apiCall<FirstImportSequenceResponse>('/api/sync_akeneo/first-import').catch(() => null),
       ])
 
       let nextState = mergeMappingsIntoState(
@@ -936,94 +918,176 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
       setState(nextState)
       setDiscovery(discoveryCall.result ?? null)
       setCustomFieldStatus(customFieldsCall.result ?? null)
-      setHasCompletedProductImport(Boolean(completedRunsCall?.ok && completedRunsCall.result?.items?.length))
+      syncFirstImportStatus(firstImportStatusCall?.result ?? null)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load Akeneo configuration'
       flash(message, 'error')
     } finally {
       setIsLoading(false)
     }
-  }, [persistMappings])
+  }, [persistMappings, syncFirstImportStatus])
+
+  const applyFirstImportProgressEvent = React.useCallback((payload: ProgressEventPayload) => {
+    const meta = payload.meta && typeof payload.meta === 'object' ? payload.meta : null
+    const workflow = readProgressMetaString(meta, 'workflow')
+    const integrationId = readProgressMetaString(meta, 'integrationId')
+    const isFirstImportEvent = payload.jobType === 'sync_akeneo.first_import'
+      || (workflow === 'first_import' && integrationId === 'sync_akeneo')
+
+    if (!isFirstImportEvent || !payload.jobId) return
+
+    const currentStep = readProgressMetaString(meta, 'currentStep')
+    const nextPhase = payload.status === 'failed'
+      ? 'failed'
+      : payload.status === 'pending' || payload.status === 'running'
+        ? 'running'
+        : payload.status === 'completed'
+          ? 'completed'
+          : 'idle'
+
+    setFirstImportProgress({
+      phase: nextPhase,
+      progressJobId: payload.jobId,
+      step: currentStep === 'categories' || currentStep === 'attributes' || currentStep === 'products'
+        ? currentStep
+        : null,
+      runId: readProgressMetaString(meta, 'currentRunId'),
+      progressPercent: readProgressMetaNumber(meta, 'currentRunProgressPercent'),
+      processedCount: readProgressMetaNumber(meta, 'currentRunProcessedCount'),
+      totalCount: readProgressMetaNumber(meta, 'currentRunTotalCount'),
+      errorMessage: typeof payload.errorMessage === 'string' ? payload.errorMessage : null,
+    })
+
+    if (nextPhase === 'running') {
+      firstImportTerminalNoticeRef.current = null
+      return
+    }
+
+    const terminalNoticeKey = `${payload.jobId}:${payload.status ?? 'unknown'}`
+    if (firstImportTerminalNoticeRef.current === terminalNoticeKey) return
+    firstImportTerminalNoticeRef.current = terminalNoticeKey
+
+    if (nextPhase === 'completed') {
+      setHasCompletedProductImport(true)
+      flash(t('sync_akeneo.firstImport.completed', 'The first full Akeneo import finished successfully.'), 'success')
+      void load(false)
+      return
+    }
+
+    if (nextPhase === 'failed') {
+      flash(
+        typeof payload.errorMessage === 'string' && payload.errorMessage.trim().length > 0
+          ? payload.errorMessage
+          : t('sync_akeneo.firstImport.errors.failed', 'The sync run failed.'),
+        'error',
+      )
+      void loadFirstImportStatus().catch(() => undefined)
+      return
+    }
+
+    if (payload.status === 'cancelled') {
+      flash(t('sync_akeneo.firstImport.errors.cancelled', 'The first full Akeneo import was cancelled.'), 'error')
+      void loadFirstImportStatus().catch(() => undefined)
+    }
+  }, [load, loadFirstImportStatus, t])
+
+  const applyDeleteImportedProductsEvent = React.useCallback((payload: ProgressEventPayload) => {
+    if (!deleteImportedProductsJobId || payload.jobId !== deleteImportedProductsJobId) return
+
+    const nextJob: DeleteImportedProductsJobResponse = {
+      id: payload.jobId,
+      status: payload.status === 'pending'
+        || payload.status === 'running'
+        || payload.status === 'completed'
+        || payload.status === 'failed'
+        || payload.status === 'cancelled'
+        ? payload.status
+        : 'running',
+      progressPercent: typeof payload.progressPercent === 'number' ? payload.progressPercent : 0,
+      processedCount: typeof payload.processedCount === 'number' ? payload.processedCount : 0,
+      totalCount: typeof payload.totalCount === 'number' ? payload.totalCount : null,
+      resultSummary: payload.resultSummary ?? null,
+      errorMessage: typeof payload.errorMessage === 'string' ? payload.errorMessage : null,
+    }
+
+    setDeleteImportedProductsJob(nextJob)
+
+    if (nextJob.status === 'completed') {
+      setDeleteImportedProductsJobId(null)
+      setDeleteImportedProductsJob(null)
+      flash(
+        readDeleteImportedProductsSummaryMessage(nextJob.resultSummary)
+          ?? t('sync_akeneo.deleteImportedProducts.completed', 'Imported Akeneo product deletion completed.'),
+        'success',
+      )
+      void load(false)
+      return
+    }
+
+    if (nextJob.status === 'failed') {
+      setDeleteImportedProductsJobId(null)
+      setDeleteImportedProductsJob(null)
+      flash(
+        nextJob.errorMessage
+          ?? t('sync_akeneo.deleteImportedProducts.failed', 'Imported Akeneo product deletion failed.'),
+        'error',
+      )
+      return
+    }
+
+    if (nextJob.status === 'cancelled') {
+      setDeleteImportedProductsJobId(null)
+      setDeleteImportedProductsJob(null)
+      flash(
+        t('sync_akeneo.deleteImportedProducts.cancelled', 'Imported Akeneo product deletion was cancelled.'),
+        'warning',
+      )
+    }
+  }, [deleteImportedProductsJobId, load, t])
 
   React.useEffect(() => {
     void load(false)
   }, [load])
 
-  React.useEffect(() => {
-    if (!deleteImportedProductsJobId) return
+  useAppEvent('progress.job.created', (event) => {
+    const payload = event.payload as ProgressEventPayload
+    applyFirstImportProgressEvent(payload)
+    applyDeleteImportedProductsEvent(payload)
+  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
 
-    let cancelled = false
-    let timeoutId: number | null = null
+  useAppEvent('progress.job.started', (event) => {
+    const payload = event.payload as ProgressEventPayload
+    applyFirstImportProgressEvent(payload)
+    applyDeleteImportedProductsEvent(payload)
+  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
 
-    const pollDeleteImportedProductsJob = async () => {
-      try {
-        const result = await apiCall<DeleteImportedProductsJobResponse>(`/api/progress/jobs/${deleteImportedProductsJobId}`)
-        if (!result.ok || !result.result) {
-          throw new Error('Failed to load imported-product deletion progress')
-        }
-        if (cancelled) return
+  useAppEvent('progress.job.updated', (event) => {
+    const payload = event.payload as ProgressEventPayload
+    applyFirstImportProgressEvent(payload)
+    applyDeleteImportedProductsEvent(payload)
+  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
 
-        const job = result.result
-        setDeleteImportedProductsJob(job)
+  useAppEvent('progress.job.completed', (event) => {
+    const payload = event.payload as ProgressEventPayload
+    applyFirstImportProgressEvent(payload)
+    applyDeleteImportedProductsEvent(payload)
+  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
 
-        if (job.status === 'completed') {
-          setDeleteImportedProductsJobId(null)
-          setDeleteImportedProductsJob(null)
-          flash(
-            readDeleteImportedProductsSummaryMessage(job.resultSummary)
-              ?? t('sync_akeneo.deleteImportedProducts.completed', 'Imported Akeneo product deletion completed.'),
-            'success',
-          )
-          void load(false)
-          return
-        }
+  useAppEvent('progress.job.failed', (event) => {
+    const payload = event.payload as ProgressEventPayload
+    applyFirstImportProgressEvent(payload)
+    applyDeleteImportedProductsEvent(payload)
+  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
 
-        if (job.status === 'failed') {
-          setDeleteImportedProductsJobId(null)
-          setDeleteImportedProductsJob(null)
-          flash(
-            job.errorMessage
-              ?? t('sync_akeneo.deleteImportedProducts.failed', 'Imported Akeneo product deletion failed.'),
-            'error',
-          )
-          return
-        }
+  useAppEvent('progress.job.cancelled', (event) => {
+    const payload = event.payload as ProgressEventPayload
+    applyFirstImportProgressEvent(payload)
+    applyDeleteImportedProductsEvent(payload)
+  }, [applyDeleteImportedProductsEvent, applyFirstImportProgressEvent])
 
-        if (job.status === 'cancelled') {
-          setDeleteImportedProductsJobId(null)
-          setDeleteImportedProductsJob(null)
-          flash(
-            t('sync_akeneo.deleteImportedProducts.cancelled', 'Imported Akeneo product deletion was cancelled.'),
-            'warning',
-          )
-          return
-        }
-
-        timeoutId = window.setTimeout(() => {
-          void pollDeleteImportedProductsJob()
-        }, 1500)
-      } catch (error) {
-        if (cancelled) return
-        setDeleteImportedProductsJobId(null)
-        setDeleteImportedProductsJob(null)
-        flash(
-          error instanceof Error
-            ? error.message
-            : t('sync_akeneo.deleteImportedProducts.progressError', 'Failed to load imported-product deletion progress.'),
-          'error',
-        )
-      }
-    }
-
-    void pollDeleteImportedProductsJob()
-
-    return () => {
-      cancelled = true
-      if (timeoutId) {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [deleteImportedProductsJobId, load, t])
+  useAppEvent('om:bridge:reconnected', () => {
+    void loadFirstImportStatus().catch(() => undefined)
+  }, [loadFirstImportStatus])
 
   const attributeCodes = React.useMemo(
     () => (discovery?.attributes ?? []).map((attribute) => attribute.code).sort(),

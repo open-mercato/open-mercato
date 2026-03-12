@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import type { SyncRunService } from '../../../lib/sync-run-service'
 import { retrySyncSchema } from '../../../data/validators'
-import { getSyncQueue } from '../../../lib/queue'
+import { startDataSyncRun } from '../../../lib/start-run'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
@@ -66,48 +66,25 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     ? null
     : previous.cursor ?? await syncRunService.resolveCursor(previous.integrationId, previous.entityType, previous.direction, scope)
 
-  const progressJob = await progressService.createJob(
-    {
-      jobType: `data_sync:${previous.direction}`,
-      name: `Retry data sync ${previous.integrationId} — ${previous.entityType}`,
-      description: `${previous.entityType} ${previous.direction}`,
-      cancellable: true,
-      meta: {
-        integrationId: previous.integrationId,
-        entityType: previous.entityType,
-        direction: previous.direction,
-      },
-    },
-    {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+  const { run, progressJob } = await startDataSyncRun({
+    syncRunService,
+    progressService,
+    scope: {
+      ...scope,
       userId: auth.sub,
     },
-  )
-
-  const run = await syncRunService.createRun(
-    {
+    input: {
       integrationId: previous.integrationId,
       entityType: previous.entityType,
       direction: previous.direction,
       cursor,
       triggeredBy: auth.sub,
-      progressJobId: progressJob.id,
-    },
-    scope,
-  )
-
-  const queueName = run.direction === 'import' ? 'data-sync-import' : 'data-sync-export'
-  const queue = getSyncQueue(queueName)
-  await queue.enqueue({
-    runId: run.id,
-    batchSize: 100,
-    scope: {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      userId: auth.sub,
+      batchSize: 100,
+      progressJob: {
+        name: `Retry data sync ${previous.integrationId} — ${previous.entityType}`,
+      },
     },
   })
 
-  return NextResponse.json({ id: run.id, progressJobId: progressJob.id }, { status: 201 })
+  return NextResponse.json({ id: run.id, progressJobId: progressJob?.id ?? null }, { status: 201 })
 }

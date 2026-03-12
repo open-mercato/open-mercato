@@ -7,7 +7,14 @@ import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
 
 const ACTIVE_POLL_INTERVAL_MS = 2000
 
+function isVisibleProgressJob(job: ProgressJobDto): boolean {
+  return job.meta?.hiddenFromTopBar !== true
+}
+
 function upsertJob(list: ProgressJobDto[], job: ProgressJobDto): ProgressJobDto[] {
+  if (!isVisibleProgressJob(job)) {
+    return list.filter((item) => item.id !== job.id)
+  }
   const next = [job, ...list.filter((item) => item.id !== job.id)]
   return next.sort(
     (a, b) =>
@@ -28,8 +35,8 @@ export function useProgressSse(): UseProgressPollResult {
         '/api/progress/active',
       )
       if (result.ok && result.result) {
-        setActiveJobs(result.result.active)
-        setRecentlyCompleted(result.result.recentlyCompleted)
+        setActiveJobs(result.result.active.filter(isVisibleProgressJob))
+        setRecentlyCompleted(result.result.recentlyCompleted.filter(isVisibleProgressJob))
         setError(null)
       }
     } catch (err) {

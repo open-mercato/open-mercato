@@ -1,5 +1,6 @@
 import type { CacheStrategy, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { CacheDependencyUnavailableError } from '../errors'
 
@@ -21,6 +22,8 @@ type SqliteDatabase = {
 type SqliteConstructor = new (file: string) => SqliteDatabase
 type SqliteModule = SqliteConstructor | { default: SqliteConstructor }
 
+const sqliteRequire = createRequire(path.join(process.cwd(), 'package.json'))
+
 /**
  * SQLite cache strategy with tag support
  * Persistent across process restarts, stored in a SQLite database file
@@ -38,7 +41,7 @@ export function createSqliteStrategy(dbPath?: string, options?: { defaultTtl?: n
     if (db) return db
 
     try {
-      const imported = await import('better-sqlite3') as SqliteModule
+      const imported = sqliteRequire('better-sqlite3') as SqliteModule
       const Database = typeof imported === 'function' ? imported : imported.default
       
       // Ensure directory exists

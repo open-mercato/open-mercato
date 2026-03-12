@@ -6,7 +6,7 @@ import type { ProgressService } from '../../progress/lib/progressService'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
-import { getSyncQueue } from '../lib/queue'
+import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
 
 export const metadata = {
@@ -73,48 +73,22 @@ export async function POST(req: Request) {
     ? null
     : await syncRunService.resolveCursor(parsed.data.integrationId, parsed.data.entityType, parsed.data.direction, scope)
 
-  const progressJob = await progressService.createJob(
-    {
-      jobType: `data_sync:${parsed.data.direction}`,
-      name: `Data sync ${parsed.data.integrationId} — ${parsed.data.entityType}`,
-      description: `${parsed.data.entityType} ${parsed.data.direction}`,
-      cancellable: true,
-      meta: {
-        integrationId: parsed.data.integrationId,
-        entityType: parsed.data.entityType,
-        direction: parsed.data.direction,
-      },
-    },
-    {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+  const { run, progressJob } = await startDataSyncRun({
+    syncRunService,
+    progressService,
+    scope: {
+      ...scope,
       userId: auth.sub,
     },
-  )
-
-  const run = await syncRunService.createRun(
-    {
+    input: {
       integrationId: parsed.data.integrationId,
       entityType: parsed.data.entityType,
       direction: parsed.data.direction,
       cursor,
       triggeredBy: parsed.data.triggeredBy ?? auth.sub,
-      progressJobId: progressJob.id,
-    },
-    scope,
-  )
-
-  const queueName = parsed.data.direction === 'import' ? 'data-sync-import' : 'data-sync-export'
-  const queue = getSyncQueue(queueName)
-  await queue.enqueue({
-    runId: run.id,
-    batchSize: parsed.data.batchSize,
-    scope: {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      userId: auth.sub,
+      batchSize: parsed.data.batchSize,
     },
   })
 
-  return NextResponse.json({ id: run.id, progressJobId: progressJob.id }, { status: 201 })
+  return NextResponse.json({ id: run.id, progressJobId: progressJob?.id ?? null }, { status: 201 })
 }
