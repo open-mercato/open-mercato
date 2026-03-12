@@ -1,3 +1,5 @@
+'use client'
+
 import * as React from 'react'
 import { buildMfaProviderComponentHandles } from '../lib/mfa-provider-interface'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
