@@ -856,7 +856,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
             <TabsTrigger
               value="credentials"
-              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
             >
               <span className="inline-flex items-center gap-2">
                 <Key className="h-4 w-4" />
@@ -866,7 +866,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {leadingInjectedTab ? (
               <TabsTrigger
                 value={leadingInjectedTab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings className="h-4 w-4" />
@@ -877,7 +877,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {hasVersions ? (
               <TabsTrigger
                 value="version"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <RefreshCw className="h-4 w-4" />
@@ -888,7 +888,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {hasDataSyncScheduleTab ? (
               <TabsTrigger
                 value="data-sync-schedule"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
@@ -898,7 +898,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             ) : null}
             <TabsTrigger
               value="health"
-              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
             >
               <span className="inline-flex items-center gap-2">
                 <Activity className="h-4 w-4" />
@@ -907,7 +907,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             </TabsTrigger>
             <TabsTrigger
               value="logs"
-              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
             >
               <span className="inline-flex items-center gap-2">
                 <FileText className="h-4 w-4" />
@@ -918,7 +918,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-3 text-base font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings className="h-4 w-4" />
