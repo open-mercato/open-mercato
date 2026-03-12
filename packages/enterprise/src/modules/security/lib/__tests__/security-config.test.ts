@@ -2,6 +2,7 @@ import {
   defaultSecurityModuleConfig,
   readSecurityModuleConfig,
   readSecuritySetupTokenSecret,
+  resolveSecurityModuleConfigForRequest,
 } from '../security-config'
 
 describe('security-config', () => {
@@ -40,6 +41,33 @@ describe('security-config', () => {
 
     expect(config.recoveryCodes.count).toBe(4)
     expect(config.sudo.defaultTtlSeconds).toBe(600)
+  })
+
+  test('uses the incoming request host for WebAuthn when no explicit RP ID override is configured', () => {
+    const resolved = resolveSecurityModuleConfigForRequest(
+      defaultSecurityModuleConfig,
+      new Request('https://preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com/api/security/mfa/prepare'),
+      {},
+    )
+
+    expect(resolved.webauthn.rpId).toBe('preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com')
+    expect(resolved.webauthn.expectedOrigins).toEqual([
+      'https://preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com',
+    ])
+  })
+
+  test('keeps explicit WebAuthn RP ID and origin overrides ahead of request host', () => {
+    const resolved = resolveSecurityModuleConfigForRequest(
+      defaultSecurityModuleConfig,
+      new Request('https://preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com/api/security/mfa/prepare'),
+      {
+        SECURITY_WEBAUTHN_RP_ID: 'login.example.com',
+        SECURITY_WEBAUTHN_ORIGIN: 'https://login.example.com',
+      },
+    )
+
+    expect(resolved.webauthn.rpId).toBe('login.example.com')
+    expect(resolved.webauthn.expectedOrigins).toEqual(['https://login.example.com'])
   })
 
   test('falls back to defaults for invalid values', () => {

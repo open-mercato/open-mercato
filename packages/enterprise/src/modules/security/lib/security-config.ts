@@ -146,6 +146,30 @@ export function readSecurityModuleConfig(
   }
 }
 
+export function resolveSecurityModuleConfigForRequest(
+  baseConfig: SecurityModuleConfig,
+  request?: Request,
+  env: NodeJS.ProcessEnv = process.env,
+): SecurityModuleConfig {
+  const explicitRpId = readText(env.SECURITY_WEBAUTHN_RP_ID)
+  const requestRpId = readRequestHostname(request)
+  const rpId = explicitRpId ?? requestRpId ?? baseConfig.webauthn.rpId
+  const expectedOrigins = readWebAuthnOrigins(env, rpId, request, baseConfig.webauthn.expectedOrigins)
+
+  if (rpId === baseConfig.webauthn.rpId && areOriginsEqual(expectedOrigins, baseConfig.webauthn.expectedOrigins)) {
+    return baseConfig
+  }
+
+  return {
+    ...baseConfig,
+    webauthn: {
+      ...baseConfig.webauthn,
+      rpId,
+      expectedOrigins,
+    },
+  }
+}
+
 export function readSecuritySetupTokenSecret(env: NodeJS.ProcessEnv = process.env): string {
   const secret = readText(env.SECURITY_MFA_SETUP_SECRET)
     ?? readText(env.AUTH_JWT_SECRET)
@@ -161,14 +185,25 @@ export function readSecuritySetupTokenSecret(env: NodeJS.ProcessEnv = process.en
   )
 }
 
-function readWebAuthnOrigins(env: NodeJS.ProcessEnv, rpId: string): string[] {
+function readWebAuthnOrigins(
+  env: NodeJS.ProcessEnv,
+  rpId: string,
+  request?: Request,
+  fallbackOrigins?: string[],
+): string[] {
   const fromList = (env.SECURITY_WEBAUTHN_ORIGINS ?? '')
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
+  const explicitOrigin = readText(env.SECURITY_WEBAUTHN_ORIGIN)
 
+  if (fromList.length > 0 || explicitOrigin) {
+    return [...new Set([...fromList, ...(explicitOrigin ? [explicitOrigin] : [])])]
+  }
+
+  const requestOrigin = readRequestOrigin(request)
   const singletons = [
-    env.SECURITY_WEBAUTHN_ORIGIN,
+    requestOrigin,
     env.APP_URL,
     env.NEXT_PUBLIC_APP_URL,
   ]
@@ -178,6 +213,10 @@ function readWebAuthnOrigins(env: NodeJS.ProcessEnv, rpId: string): string[] {
   const origins = [...new Set([...fromList, ...singletons])]
   if (origins.length > 0) {
     return origins
+  }
+
+  if (fallbackOrigins && fallbackOrigins.length > 0) {
+    return [...fallbackOrigins]
   }
 
   if (rpId === 'localhost') {
@@ -202,6 +241,49 @@ function readHostname(value: string | undefined): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function readRequestHostname(request: Request | undefined): string | undefined {
+  const url = readRequestUrl(request)
+  return url ? readText(url.hostname) : undefined
+}
+
+function readRequestOrigin(request: Request | undefined): string | undefined {
+  const url = readRequestUrl(request)
+  return url ? readText(url.origin) : undefined
+}
+
+function readRequestUrl(request: Request | undefined): URL | null {
+  if (!request) return null
+
+  const forwardedHost = readForwardedHeader(request.headers.get('x-forwarded-host'))
+  const forwardedProto = readForwardedHeader(request.headers.get('x-forwarded-proto'))
+  if (forwardedHost) {
+    const protocol = forwardedProto ?? 'https'
+    try {
+      return new URL(`${protocol}://${forwardedHost}`)
+    } catch {
+      return null
+    }
+  }
+
+  try {
+    return new URL(request.url)
+  } catch {
+    return null
+  }
+}
+
+function readForwardedHeader(value: string | null): string | undefined {
+  const trimmed = readText(value ?? undefined)
+  if (!trimmed) return undefined
+  const [first] = trimmed.split(',')
+  return readText(first)
+}
+
+function areOriginsEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  return left.every((value, index) => value === right[index])
 }
 
 function parsePositiveInteger(value: string | undefined): number | undefined {

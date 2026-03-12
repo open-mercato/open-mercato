@@ -11,11 +11,16 @@ import type {
   MfaMethodRecord,
   MfaProviderConfirmResult,
   MfaProviderInterface,
+  MfaProviderRuntimeContext,
   MfaProviderUser,
   MfaVerifyContext,
 } from '../mfa-provider-interface'
 import type { SecurityModuleConfig } from '../security-config'
-import { readSecurityModuleConfig, readSecuritySetupTokenSecret } from '../security-config'
+import {
+  readSecurityModuleConfig,
+  readSecuritySetupTokenSecret,
+  resolveSecurityModuleConfigForRequest,
+} from '../security-config'
 
 const SETUP_TOKEN_VERSION = 'v1'
 
@@ -108,17 +113,22 @@ export class PasskeyProvider implements MfaProviderInterface {
     }
   }
 
-  async setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
+  async setup(
+    userId: string,
+    payload: unknown,
+    context?: MfaProviderRuntimeContext,
+  ): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
     const parsed = setupPayloadSchema.parse(payload ?? {})
     const userName = parsed.userName ?? parsed.label ?? userId
     const userDisplayName = parsed.label ?? parsed.userName ?? userId
+    const securityConfig = this.resolveSecurityConfig(context)
     const options = await generateRegistrationOptions({
-      rpName: this.getRpName(),
-      rpID: this.getRpId(),
+      rpName: this.getRpName(securityConfig),
+      rpID: this.getRpId(securityConfig),
       userID: this.toWebAuthnUserId(userId),
       userName,
       userDisplayName,
-      timeout: this.securityConfig.webauthn.setupTtlMs,
+      timeout: securityConfig.webauthn.setupTtlMs,
       attestationType: 'none',
       authenticatorSelection: {
         residentKey: 'required',
@@ -147,13 +157,15 @@ export class PasskeyProvider implements MfaProviderInterface {
     userId: string,
     setupId: string,
     payload: unknown,
+    context?: MfaProviderRuntimeContext,
   ): Promise<MfaProviderConfirmResult> {
     const parsed = setupConfirmationPayloadSchema.parse(payload)
     const pending = this.readSetupToken(setupId)
+    const securityConfig = this.resolveSecurityConfig(context)
     if (!pending || pending.version !== SETUP_TOKEN_VERSION || pending.userId !== userId) {
       throw new Error('Passkey setup session not found')
     }
-    if (Date.now() - pending.createdAt > this.securityConfig.webauthn.setupTtlMs) {
+    if (Date.now() - pending.createdAt > securityConfig.webauthn.setupTtlMs) {
       throw new Error('Passkey setup session expired')
     }
 
@@ -161,8 +173,8 @@ export class PasskeyProvider implements MfaProviderInterface {
       const verification = await verifyRegistrationResponse({
         response: parsed.response as never,
         expectedChallenge: pending.challenge,
-        expectedOrigin: this.getExpectedOrigins(),
-        expectedRPID: this.getRpId(),
+        expectedOrigin: this.getExpectedOrigins(securityConfig),
+        expectedRPID: this.getRpId(securityConfig),
         requireUserVerification: false,
       })
 
@@ -220,6 +232,7 @@ export class PasskeyProvider implements MfaProviderInterface {
   async prepareChallenge(
     userId: string,
     method: MfaMethodRecord,
+    context?: MfaProviderRuntimeContext,
   ): Promise<{ clientData?: Record<string, unknown>; verifyContext?: MfaVerifyContext }> {
     if (method.userId !== userId) {
       throw new Error('MFA method does not belong to user')
@@ -231,10 +244,11 @@ export class PasskeyProvider implements MfaProviderInterface {
       throw new Error('Passkey credential is not configured')
     }
 
+    const securityConfig = this.resolveSecurityConfig(context)
     const options = await generateAuthenticationOptions({
-      rpID: this.getRpId(),
+      rpID: this.getRpId(securityConfig),
       userVerification: 'preferred',
-      timeout: this.securityConfig.webauthn.challengeTtlMs,
+      timeout: securityConfig.webauthn.challengeTtlMs,
       allowCredentials: [{
         id: credentialId,
         transports: this.normalizeTransports(metadata.transports),
@@ -259,11 +273,13 @@ export class PasskeyProvider implements MfaProviderInterface {
     method: MfaMethodRecord,
     payload: unknown,
     context?: MfaVerifyContext,
+    runtimeContext?: MfaProviderRuntimeContext,
   ): Promise<boolean> {
     const parsed = verifyPayloadSchema.parse(payload)
     if (method.userId !== userId) return false
 
     const parsedContext = verifyContextSchema.safeParse(context)
+    const securityConfig = this.resolveSecurityConfig(runtimeContext)
     if (!parsedContext.success) {
       if ('credentialId' in parsed) {
         const metadataCredentialId = method.providerMetadata?.credentialId
@@ -272,7 +288,7 @@ export class PasskeyProvider implements MfaProviderInterface {
       return false
     }
     const pending = parsedContext.data.challenge
-    if (Date.now() - pending.createdAt > this.securityConfig.webauthn.challengeTtlMs) {
+    if (Date.now() - pending.createdAt > securityConfig.webauthn.challengeTtlMs) {
       return false
     }
 
@@ -295,8 +311,8 @@ export class PasskeyProvider implements MfaProviderInterface {
       const verification = await verifyAuthenticationResponse({
         response: parsed.response as never,
         expectedChallenge: pending.challenge,
-        expectedOrigin: this.getExpectedOrigins(),
-        expectedRPID: this.getRpId(),
+        expectedOrigin: this.getExpectedOrigins(securityConfig),
+        expectedRPID: this.getRpId(securityConfig),
         requireUserVerification: false,
         credential: {
           id: credentialId,
@@ -383,16 +399,20 @@ export class PasskeyProvider implements MfaProviderInterface {
     return this.setupTokenSecret
   }
 
-  private getRpName(): string {
-    return this.securityConfig.webauthn.rpName
+  private getRpName(securityConfig: SecurityModuleConfig): string {
+    return securityConfig.webauthn.rpName
   }
 
-  private getRpId(): string {
-    return this.securityConfig.webauthn.rpId
+  private getRpId(securityConfig: SecurityModuleConfig): string {
+    return securityConfig.webauthn.rpId
   }
 
-  private getExpectedOrigins(): string[] {
-    return [...this.securityConfig.webauthn.expectedOrigins]
+  private getExpectedOrigins(securityConfig: SecurityModuleConfig): string[] {
+    return [...securityConfig.webauthn.expectedOrigins]
+  }
+
+  private resolveSecurityConfig(context?: MfaProviderRuntimeContext): SecurityModuleConfig {
+    return resolveSecurityModuleConfigForRequest(this.securityConfig, context?.request)
   }
 
   private toWebAuthnUserId(userId: string): Uint8Array {

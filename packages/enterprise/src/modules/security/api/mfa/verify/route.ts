@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const verified = await context.mfaVerificationService.verifyChallenge(challengeId, methodType, payload)
+    const verified = await context.mfaVerificationService.verifyChallenge(challengeId, methodType, payload, { request: req })
     if (!verified) {
       return securityApiError(401, 'Invalid MFA verification code.')
     }

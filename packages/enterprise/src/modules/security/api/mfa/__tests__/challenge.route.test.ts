@@ -101,7 +101,12 @@ describe('security MFA challenge routes', () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(context.mfaVerificationService.verifyChallenge).toHaveBeenCalledWith('challenge-1', 'totp', { code: '123456' })
+    expect(context.mfaVerificationService.verifyChallenge).toHaveBeenCalledWith(
+      'challenge-1',
+      'totp',
+      { code: '123456' },
+      { request: expect.any(Request) },
+    )
     expect(mockedIssueVerifiedMfaToken).toHaveBeenCalledWith(context.auth, ['totp', 'otp_email'])
     expect(mockedSetAuthCookie).toHaveBeenCalledWith(expect.any(NextResponse), 'verified-token')
   })

@@ -131,6 +131,17 @@ describe('PasskeyProvider', () => {
     }))
   })
 
+  test('uses the request host for WebAuthn on preview deployments', async () => {
+    const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const request = new Request('https://preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com/api/security/mfa/prepare')
+
+    await provider.setup('user-1', { label: 'YubiKey' }, { request })
+
+    expect(generateRegistrationOptionsMock).toHaveBeenCalledWith(expect.objectContaining({
+      rpID: 'preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com',
+    }))
+  })
+
   test('confirms setup across different provider instances', async () => {
     const setupProvider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
     const confirmProvider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
@@ -154,6 +165,7 @@ describe('PasskeyProvider', () => {
 
   test('prepares and verifies passkey authentication challenge', async () => {
     const provider = new PasskeyProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const request = new Request('https://preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com/api/security/mfa/prepare')
     const method = {
       id: 'method-1',
       userId: 'user-1',
@@ -166,7 +178,7 @@ describe('PasskeyProvider', () => {
       },
     }
 
-    const prepared = await provider.prepareChallenge('user-1', method)
+    const prepared = await provider.prepareChallenge('user-1', method, { request })
     expect(prepared.clientData?.challenge).toBe('auth-challenge')
     expect(prepared.verifyContext?.challenge).toMatchObject({
       challenge: 'auth-challenge',
@@ -183,9 +195,16 @@ describe('PasskeyProvider', () => {
           signature: 'signature',
         },
       },
-    }, prepared.verifyContext)
+    }, prepared.verifyContext, { request })
 
     expect(valid).toBe(true)
+    expect(generateAuthenticationOptionsMock).toHaveBeenCalledWith(expect.objectContaining({
+      rpID: 'preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com',
+    }))
+    expect(verifyAuthenticationResponseMock).toHaveBeenCalledWith(expect.objectContaining({
+      expectedRPID: 'preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com',
+      expectedOrigin: ['https://preview-ephemeralenvom-preview-0kyxui-wmfj8i.openmercato.com'],
+    }))
     expect(verifyAuthenticationResponseMock).toHaveBeenCalled()
     expect(method.providerMetadata.counter).toBe(1)
   })
