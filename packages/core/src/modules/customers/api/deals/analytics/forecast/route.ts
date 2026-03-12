@@ -9,8 +9,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CustomerDeal } from '../../../../data/entities'
 
 const querySchema = z.object({
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  pipelineId: z.string().uuid().optional(),
 })
 
 export async function GET(request: Request) {
@@ -55,6 +56,13 @@ export async function GET(request: Request) {
   const tableName = em.getMetadata().get(CustomerDeal.name).tableName
   const connection = em.getConnection()
 
+  const params: unknown[] = [scope.selectedId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()]
+  let pipelineFilter = ''
+  if (query.pipelineId) {
+    pipelineFilter = ` AND pipeline_id = ?`
+    params.push(query.pipelineId)
+  }
+
   const rows = await connection.execute(
     `SELECT
        to_char(expected_close_at, 'YYYY-MM') AS month,
@@ -63,10 +71,10 @@ export async function GET(request: Request) {
        COALESCE(SUM(value_amount * COALESCE(probability, 0) / 100.0), 0)::numeric AS weighted_value
      FROM ${tableName}
      WHERE organization_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?
-       AND expected_close_at IS NOT NULL AND deleted_at IS NULL
+       AND expected_close_at IS NOT NULL AND deleted_at IS NULL${pipelineFilter}
      GROUP BY to_char(expected_close_at, 'YYYY-MM')
      ORDER BY month ASC`,
-    [scope.selectedId, scope.tenantId, dateFrom.toISOString(), dateTo.toISOString()],
+    params,
   )
 
   const months = rows.map((row: Record<string, unknown>) => ({
