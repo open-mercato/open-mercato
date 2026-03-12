@@ -5544,6 +5544,7 @@ __metadata:
     "@simplewebauthn/browser": "npm:^11.0.0"
     "@simplewebauthn/server": "npm:^11.0.0"
     "@types/jest": "npm:^30.0.0"
+    "@types/qrcode": "npm:^1.5.5"
     jest: "npm:^30.2.0"
     openid-client: "npm:^6.3.3"
     otpauth: "npm:9.4.1"
@@ -8641,6 +8642,15 @@ __metadata:
   version: 15.7.15
   resolution: "@types/prop-types@npm:15.7.15"
   checksum: 10/31aa2f59b28f24da6fb4f1d70807dae2aedfce090ec63eaf9ea01727a9533ef6eaf017de5bff99fbccad7d1c9e644f52c6c2ba30869465dd22b1a7221c29f356
+  languageName: node
+  linkType: hard
+
+"@types/qrcode@npm:^1.5.5":
+  version: 1.5.6
+  resolution: "@types/qrcode@npm:1.5.6"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10/61aa00ba56a874a71a82006a55715d2ff2dc65689b582314c6f955c72c830938c93d0ee1e3376d370a1dcd6bac61b05afe75ad8d1f4a47ebcdd6344d39f70847
   languageName: node
   linkType: hard
 
