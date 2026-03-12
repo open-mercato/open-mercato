@@ -5,6 +5,8 @@ const widget: InjectionWidgetModule<{
   state?: {
     isEnabled?: boolean
   } | null
+}, {
+  hasCredentials?: boolean
 }> = {
   metadata: {
     id: 'sync_akeneo.injection.config',

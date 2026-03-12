@@ -741,7 +741,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ? prioritizedInjectedTabs.filter((tab) => tab.id !== leadingInjectedTab.id)
     : prioritizedInjectedTabs
   const StateIcon = resolvedState.isEnabled ? CheckCircle2 : XCircle
-  const stateToneClass = resolvedState.isEnabled
+  const stateBadgeClass = resolvedState.isEnabled
     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
     : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
 
@@ -790,20 +790,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
         <section className="rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className={cn('flex h-10 w-10 items-center justify-center rounded-full border', stateToneClass)}>
-                <StateIcon className="h-5 w-5" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {t('integrations.detail.state.label', 'State')}
-                </p>
-                <p className={cn('text-sm font-medium', resolvedState.isEnabled ? 'text-emerald-200' : 'text-zinc-200')}>
-                  {resolvedState.isEnabled
-                    ? t('integrations.detail.state.enabled', 'Enabled')
-                    : t('integrations.detail.state.disabled', 'Disabled')}
-                </p>
-              </div>
+            <div className="space-y-2">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {t('integrations.detail.state.label', 'State')}
+              </p>
+              <Badge variant="outline" className={cn('gap-1.5 rounded-full px-3 py-1 text-xs font-medium', stateBadgeClass)}>
+                <StateIcon className="h-3.5 w-3.5" />
+                {resolvedState.isEnabled
+                  ? t('integrations.detail.state.enabled', 'Enabled')
+                  : t('integrations.detail.state.disabled', 'Disabled')}
+              </Badge>
             </div>
             <Switch
               checked={resolvedState.isEnabled}

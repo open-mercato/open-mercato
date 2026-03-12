@@ -6,6 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { NextStepCallout } from '@open-mercato/ui/backend/NextStepCallout'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -73,6 +74,13 @@ type SyncRunDetailResponse = {
     processedCount: number
     totalCount?: number | null
   } | null
+}
+
+type SyncRunListResponse = {
+  items?: Array<{
+    id: string
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  }>
 }
 
 type FirstImportStepKey = 'categories' | 'attributes' | 'products'
@@ -599,6 +607,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
   const [isStartingDeleteImportedProducts, setIsStartingDeleteImportedProducts] = React.useState(false)
   const [deleteImportedProductsJobId, setDeleteImportedProductsJobId] = React.useState<string | null>(null)
   const [deleteImportedProductsJob, setDeleteImportedProductsJob] = React.useState<DeleteImportedProductsJobResponse | null>(null)
+  const [hasCompletedProductImport, setHasCompletedProductImport] = React.useState(false)
   const [firstImportProgress, setFirstImportProgress] = React.useState<FirstImportProgressState>({
     phase: 'idle',
     step: null,
@@ -861,11 +870,12 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
       }
 
       if (!mountedRef.current) return
+      setHasCompletedProductImport(true)
       setFirstImportProgress({
-        phase: 'completed',
-        step: 'products',
+        phase: 'idle',
+        step: null,
         runId: null,
-        progressPercent: 100,
+        progressPercent: null,
         processedCount: null,
         totalCount: null,
         errorMessage: null,
@@ -888,12 +898,21 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
   const load = React.useCallback(async (refresh = false) => {
     setIsLoading(true)
     try {
-      const [discoveryCall, productsCall, categoriesCall, attributesCall, customFieldsCall] = await Promise.all([
+      const completedRunQuery = new URLSearchParams({
+        integrationId: 'sync_akeneo',
+        entityType: 'products',
+        direction: 'import',
+        status: 'completed',
+        page: '1',
+        pageSize: '1',
+      })
+      const [discoveryCall, productsCall, categoriesCall, attributesCall, customFieldsCall, completedRunsCall] = await Promise.all([
         apiCall<AkeneoDiscoveryResponse>(`/api/sync_akeneo/discovery${refresh ? '?refresh=true' : ''}`),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=products&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=categories&page=1&pageSize=1'),
         apiCall<MappingRecordResponse>('/api/data_sync/mappings?integrationId=sync_akeneo&entityType=attributes&page=1&pageSize=1'),
         apiCall<CustomFieldStatusResponse>('/api/sync_akeneo/custom-fields'),
+        apiCall<SyncRunListResponse>(`/api/data_sync/runs?${completedRunQuery.toString()}`).catch(() => null),
       ])
 
       let nextState = mergeMappingsIntoState(
@@ -917,6 +936,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
       setState(nextState)
       setDiscovery(discoveryCall.result ?? null)
       setCustomFieldStatus(customFieldsCall.result ?? null)
+      setHasCompletedProductImport(Boolean(completedRunsCall?.ok && completedRunsCall.result?.items?.length))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load Akeneo configuration'
       flash(message, 'error')
@@ -1042,6 +1062,11 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
     || deleteImportedProductsJob?.status === 'running'
   const firstImportBusy = firstImportProgress.phase === 'running'
   const firstImportReady = Boolean(context?.state?.isEnabled) && Boolean(data?.hasCredentials)
+  const shouldShowFirstImportCallout = !isLoading && (
+    firstImportBusy
+    || firstImportProgress.phase === 'failed'
+    || !hasCompletedProductImport
+  )
   const firstImportCurrentStepLabel = firstImportProgress.step
     ? t(`sync_akeneo.firstImport.steps.${firstImportProgress.step}`, firstImportProgress.step)
     : null
@@ -1329,105 +1354,66 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
             'Run category sync first, attribute sync second, and product sync last. Product import expects local categories and family-based schemas to exist already.',
           )}
         />
-        <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-6 py-8">
-          <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-primary/30 bg-background text-primary">
-              <Sparkles className="h-6 w-6" />
-            </div>
-            <h4 className="text-lg font-semibold">
-              {t('sync_akeneo.firstImport.title', 'Run the first full import')}
-            </h4>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {t(
-                'sync_akeneo.firstImport.help',
-                'Launch the standard Akeneo sync sequence in the recommended order: categories first, attributes second, products last.',
-              )}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              {FIRST_IMPORT_STEPS.map((step) => {
-                const stepIndex = FIRST_IMPORT_STEPS.findIndex((item) => item.entityType === step.entityType)
-                const currentStepIndex = firstImportProgress.step
-                  ? FIRST_IMPORT_STEPS.findIndex((item) => item.entityType === firstImportProgress.step)
-                  : -1
-                const isActive = firstImportProgress.step === step.entityType && firstImportProgress.phase === 'running'
-                const isDone = firstImportProgress.phase === 'completed'
-                  || (firstImportProgress.phase === 'running' && currentStepIndex > stepIndex)
-                return (
-                  <Badge
-                    key={step.entityType}
-                    variant="outline"
-                    className={isActive
-                      ? 'border-primary/40 bg-primary/10 text-primary'
-                      : isDone
-                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                        : ''}
-                  >
-                    {t(`sync_akeneo.firstImport.steps.${step.entityType}`, step.entityType)}
-                  </Badge>
-                )
-              })}
-            </div>
-            <Button
-              type="button"
-              size="lg"
-              className="mt-6 min-w-72"
-              onClick={() => void runFirstFullImport()}
-              disabled={isLoading || isSaving || deleteImportedProductsBusy || firstImportBusy || !firstImportReady}
-            >
-              {firstImportBusy ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-              {firstImportBusy
-                ? t('sync_akeneo.firstImport.running', 'Running full import sequence...')
-                : t('sync_akeneo.firstImport.action', 'Run the first full import')}
-            </Button>
-            {!firstImportReady ? (
-              <p className="mt-3 text-xs text-muted-foreground">
-                {context?.state?.isEnabled
-                  ? t('sync_akeneo.firstImport.missingCredentials', 'Save valid Akeneo credentials before starting the first full import.')
-                  : t('sync_akeneo.firstImport.integrationDisabled', 'Enable the integration and save valid Akeneo credentials before starting the first full import.')}
-              </p>
-            ) : null}
-            {firstImportProgress.phase !== 'idle' ? (
-              <div className="mt-4 w-full rounded-lg border bg-background/70 px-4 py-3 text-left">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm font-medium">
-                    {firstImportProgress.phase === 'completed'
-                      ? t('sync_akeneo.firstImport.status.completed', 'Full import completed')
-                      : firstImportProgress.phase === 'failed'
-                        ? t('sync_akeneo.firstImport.status.failed', 'Full import failed')
-                        : t('sync_akeneo.firstImport.status.running', 'Full import sequence running')}
-                  </div>
-                  {firstImportCurrentStepLabel ? (
-                    <Badge variant="outline">{firstImportCurrentStepLabel}</Badge>
-                  ) : null}
-                </div>
-                {firstImportBusy ? (
-                  <>
-                    {typeof firstImportProgress.progressPercent === 'number' ? (
-                      <Progress value={firstImportProgress.progressPercent} className="mt-3 h-2" />
-                    ) : (
-                      <div className="mt-3 h-2 rounded-full bg-secondary" />
-                    )}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {firstImportProgress.totalCount && firstImportProgress.totalCount > 0
-                        ? t(
-                          'sync_akeneo.firstImport.progressCount',
-                          '{processed} of {total} items processed in the current run.',
-                          {
-                            processed: firstImportProgress.processedCount ?? 0,
-                            total: firstImportProgress.totalCount,
-                          },
-                        )
-                        : t('sync_akeneo.firstImport.progressUnknown', 'The current run is active. Live progress also appears in the global operations bar.')}
-                    </p>
-                  </>
-                ) : null}
-                {firstImportProgress.errorMessage ? (
-                  <p className="mt-2 text-xs text-destructive">{firstImportProgress.errorMessage}</p>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
+        {shouldShowFirstImportCallout ? (
+          <NextStepCallout
+            icon={<Sparkles className="h-6 w-6" />}
+            title={t('sync_akeneo.firstImport.title', 'Run the first full import')}
+            description={t(
+              'sync_akeneo.firstImport.help',
+              'Launch the standard Akeneo sync sequence in the recommended order: categories first, attributes second, products last.',
+            )}
+            steps={FIRST_IMPORT_STEPS.map((step, stepIndex) => {
+              const currentStepIndex = firstImportProgress.step
+                ? FIRST_IMPORT_STEPS.findIndex((item) => item.entityType === firstImportProgress.step)
+                : -1
+              const isActive = firstImportProgress.step === step.entityType && firstImportProgress.phase === 'running'
+              const isDone = firstImportProgress.phase === 'running' && currentStepIndex > stepIndex
+              return {
+                id: step.entityType,
+                label: t(`sync_akeneo.firstImport.steps.${step.entityType}`, step.entityType),
+                state: isActive ? 'active' : isDone ? 'completed' : 'pending',
+              }
+            })}
+            actionLabel={firstImportBusy
+              ? t('sync_akeneo.firstImport.running', 'Running full import sequence...')
+              : t('sync_akeneo.firstImport.action', 'Run the first full import')}
+            actionIcon={firstImportBusy ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+            onAction={() => void runFirstFullImport()}
+            disabled={isLoading || isSaving || deleteImportedProductsBusy || !firstImportReady}
+            busy={firstImportBusy}
+            disabledMessage={!firstImportReady
+              ? context?.state?.isEnabled
+                ? t('sync_akeneo.firstImport.missingCredentials', 'Save valid Akeneo credentials before starting the first full import.')
+                : t('sync_akeneo.firstImport.integrationDisabled', 'Enable the integration and save valid Akeneo credentials before starting the first full import.')
+              : undefined}
+            status={firstImportProgress.phase !== 'idle'
+              ? {
+                tone: firstImportProgress.phase === 'failed' ? 'danger' : 'info',
+                icon: firstImportProgress.phase === 'failed'
+                  ? <AlertCircle className="h-4 w-4" />
+                  : <RefreshCw className={firstImportBusy ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />,
+                label: firstImportProgress.phase === 'failed'
+                  ? t('sync_akeneo.firstImport.status.failed', 'Full import failed')
+                  : t('sync_akeneo.firstImport.status.running', 'Full import sequence running'),
+                badge: firstImportCurrentStepLabel ? <Badge variant="outline">{firstImportCurrentStepLabel}</Badge> : null,
+                progressValue: typeof firstImportProgress.progressPercent === 'number' ? firstImportProgress.progressPercent : null,
+                progressDescription: firstImportBusy
+                  ? firstImportProgress.totalCount && firstImportProgress.totalCount > 0
+                    ? t(
+                      'sync_akeneo.firstImport.progressCount',
+                      '{processed} of {total} items processed in the current run.',
+                      {
+                        processed: firstImportProgress.processedCount ?? 0,
+                        total: firstImportProgress.totalCount,
+                      },
+                    )
+                    : t('sync_akeneo.firstImport.progressUnknown', 'The current run is active. Live progress also appears in the global operations bar.')
+                  : undefined,
+                errorMessage: firstImportProgress.errorMessage,
+              }
+              : null}
+          />
+        ) : null}
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-lg border p-4">
             <h4 className="text-sm font-medium">{t('sync_akeneo.setup.credentials.title', 'Create API credentials in Akeneo')}</h4>
@@ -1467,11 +1453,11 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => void refreshDiscoveredMappings()} disabled={isLoading || isSaving || deleteImportedProductsBusy}>
+            <Button type="button" variant="outline" onClick={() => void refreshDiscoveredMappings()} disabled={isLoading || isSaving || deleteImportedProductsBusy || firstImportBusy}>
               <RefreshCw className="mr-2 h-4 w-4" />
               {t('sync_akeneo.mapping.refresh', 'Refresh discovery')}
             </Button>
-            <Button type="button" variant="destructive" onClick={() => void deleteImportedProducts()} disabled={isLoading || isSaving || deleteImportedProductsBusy}>
+            <Button type="button" variant="destructive" onClick={() => void deleteImportedProducts()} disabled={isLoading || isSaving || deleteImportedProductsBusy || firstImportBusy}>
               <Trash2 className="mr-2 h-4 w-4" />
               {deleteImportedProductsBusy
                 ? t('sync_akeneo.deleteImportedProducts.inProgress', 'Deletion in progress...')
