@@ -1,4 +1,4 @@
-# SPEC-058: Customer Identity & Portal Authentication
+# SPEC-060: Customer Identity & Portal Authentication
 
 | Field | Value |
 |-------|-------|
