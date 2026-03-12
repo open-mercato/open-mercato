@@ -25,10 +25,6 @@ const decimal = (opts?: { min?: number; max?: number; message?: string }) => {
   return schema
 }
 
-// Maximum quantity accepted for line item input. Chosen to stay well within both
-// quantity NUMERIC(18, 4) (14 integer digits) and normalizedQuantity NUMERIC(18, 6)
-// (12 integer digits), and to leave headroom for quantity × unit_price products
-// also stored in NUMERIC(18, 4) totals columns.
 const MAX_QUANTITY = 999_999_999
 
 const percentage = () => decimal({ min: 0, max: 100 })
