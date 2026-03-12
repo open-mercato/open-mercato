@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import Image from 'next/image'
+import { useSearchParams } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -70,6 +71,7 @@ function statusTone(status: string | null | undefined): string {
 
 export default function PaymentLinkPage({ params }: { params: { token: string } }) {
   const t = useT()
+  const searchParams = useSearchParams()
   const token = params?.token
   const accessStorageKey = React.useMemo(() => `payment-link:${token}:access`, [token])
   const [accessToken, setAccessToken] = React.useState<string | null>(null)
@@ -156,6 +158,29 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
     data?.link?.amount ?? data?.transaction?.amount,
     data?.link?.currencyCode ?? data?.transaction?.currencyCode,
   )
+  const redirectUrl = typeof data?.transaction?.redirectUrl === 'string' && data.transaction.redirectUrl.trim().length > 0
+    ? data.transaction.redirectUrl
+    : null
+  const checkoutReturnState = searchParams.get('checkout')
+  const isSettled = data?.link?.status === 'completed'
+    || ['authorized', 'captured', 'partially_captured', 'refunded', 'partially_refunded'].includes(data?.transaction?.unifiedStatus ?? '')
+  const shouldAutoRedirect = Boolean(
+    redirectUrl
+    && !loading
+    && !error
+    && !data?.passwordRequired
+    && !isSettled
+    && !checkoutReturnState,
+  )
+  const hasAutoRedirectedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!shouldAutoRedirect || !redirectUrl || typeof window === 'undefined' || hasAutoRedirectedRef.current) {
+      return
+    }
+    hasAutoRedirectedRef.current = true
+    window.location.replace(redirectUrl)
+  }, [redirectUrl, shouldAutoRedirect])
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.14),_transparent_38%),linear-gradient(180deg,_#f5f7f1_0%,_#eef4ff_48%,_#f8fafc_100%)] px-4 py-10 text-slate-950 sm:px-6">
@@ -254,6 +279,28 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
             <div className="flex min-h-[420px] items-center justify-center text-center text-sm text-rose-200">
               {error ?? t('payment_gateways.paymentLink.unavailable', 'This payment link is unavailable.')}
             </div>
+          ) : redirectUrl ? (
+            <div className="mx-auto flex min-h-[420px] max-w-md flex-col justify-center space-y-5">
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold">
+                  {isSettled
+                    ? t('payment_gateways.paymentLink.status.completed', 'Paid')
+                    : t('payment_gateways.paymentLink.redirectTitle', 'Continue to payment')}
+                </h2>
+                <p className="text-sm text-slate-300">
+                  {isSettled
+                    ? t('payment_gateways.paymentLink.paidMessage', 'This payment link has already been completed.')
+                    : t('payment_gateways.paymentLink.redirectBody', 'This provider completes the payment on its own hosted checkout page.')}
+                </p>
+              </div>
+              {isSettled ? null : (
+                <Button type="button" asChild>
+                  <a href={redirectUrl}>
+                    {t('payment_gateways.paymentLink.redirectButton', 'Open secure checkout')}
+                  </a>
+                </Button>
+              )}
+            </div>
           ) : providerWidgetSpotId ? (
             <div className="space-y-5">
               <InjectionSpot
@@ -266,20 +313,6 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
                   {t('payment_gateways.paymentLink.paidMessage', 'This payment link has already been completed.')}
                 </div>
               )}
-            </div>
-          ) : data.transaction.redirectUrl ? (
-            <div className="mx-auto flex min-h-[420px] max-w-md flex-col justify-center space-y-5">
-              <div className="space-y-2">
-                <h2 className="text-2xl font-semibold">{t('payment_gateways.paymentLink.redirectTitle', 'Continue to payment')}</h2>
-                <p className="text-sm text-slate-300">
-                  {t('payment_gateways.paymentLink.redirectBody', 'This provider completes the payment on its own hosted checkout page.')}
-                </p>
-              </div>
-              <Button type="button" asChild>
-                <a href={data.transaction.redirectUrl}>
-                  {t('payment_gateways.paymentLink.redirectButton', 'Open secure checkout')}
-                </a>
-              </Button>
             </div>
           ) : (
             <div className="flex min-h-[420px] items-center justify-center text-center text-sm text-slate-300">

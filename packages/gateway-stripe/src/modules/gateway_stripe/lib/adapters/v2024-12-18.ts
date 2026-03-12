@@ -14,7 +14,6 @@ import type {
   WebhookEvent,
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
-import type Stripe from 'stripe'
 import { resolveStripeClient } from '../client'
 import { mapRefundReason, mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
 import { toCents, fromCents } from '../shared'

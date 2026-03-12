@@ -7,7 +7,7 @@
   "gateway_stripe.config.checkoutProfile.card": "Card only",
   "gateway_stripe.config.checkoutProfile.cardCustomer": "Card with email and billing details",
   "gateway_stripe.config.checkoutProfile.paymentElement": "Stripe Payment Element (inline methods)",
-  "gateway_stripe.config.checkoutProfile.paymentElementRedirect": "Stripe Payment Element (allow redirect methods)",
+  "gateway_stripe.config.checkoutProfile.paymentElementRedirect": "Stripe hosted checkout (redirect)",
   "gateway_stripe.config.help": "Configure credentials in Integration details. Consumer modules decide how to bind Stripe to their payment UIs.",
   "gateway_stripe.config.paymentTypes": "Payment Types",
   "gateway_stripe.config.statementDescriptor": "Statement Descriptor",

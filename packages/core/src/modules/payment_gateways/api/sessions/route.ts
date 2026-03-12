@@ -147,6 +147,12 @@ function mapCreateSessionFieldErrors(error: z.ZodError): Record<string, string> 
   return Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined
 }
 
+function buildPaymentLinkReturnUrl(baseUrl: string, state: 'success' | 'cancelled'): string {
+  const url = new URL(baseUrl)
+  url.searchParams.set('checkout', state)
+  return url.toString()
+}
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -221,6 +227,15 @@ export async function POST(req: Request) {
   }
 
   try {
+    let paymentLinkUrl: string | null = null
+    let paymentLinkToken: string | null = null
+    let paymentLinkId: string | null = null
+
+    if (parsed.data.paymentLink?.enabled) {
+      paymentLinkToken = createPaymentLinkToken()
+      paymentLinkUrl = buildPaymentLinkUrl(new URL(req.url).origin, paymentLinkToken)
+    }
+
     const { transaction, session } = await service.createPaymentSession({
       providerKey: parsed.data.providerKey,
       paymentId: crypto.randomUUID(),
@@ -229,23 +244,20 @@ export async function POST(req: Request) {
       currencyCode: parsed.data.currencyCode,
       captureMethod: parsed.data.captureMethod,
       description: parsed.data.description,
-      successUrl: parsed.data.successUrl,
-      cancelUrl: parsed.data.cancelUrl,
+      successUrl: parsed.data.successUrl
+        ?? (paymentLinkUrl ? buildPaymentLinkReturnUrl(paymentLinkUrl, 'success') : undefined),
+      cancelUrl: parsed.data.cancelUrl
+        ?? (paymentLinkUrl ? buildPaymentLinkReturnUrl(paymentLinkUrl, 'cancelled') : undefined),
       metadata: parsed.data.metadata,
       providerInput: parsed.data.providerInput,
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
     })
 
-    let paymentLinkUrl: string | null = null
-    let paymentLinkToken: string | null = null
-    let paymentLinkId: string | null = null
-
     if (parsed.data.paymentLink?.enabled) {
-      paymentLinkToken = createPaymentLinkToken()
       const paymentLink = em.create(GatewayPaymentLink, {
         transactionId: transaction.id,
-        token: paymentLinkToken,
+        token: paymentLinkToken as string,
         providerKey: transaction.providerKey,
         title: parsed.data.paymentLink.title?.trim() || parsed.data.description?.trim() || `${transaction.providerKey} payment`,
         description: parsed.data.paymentLink.description?.trim() || null,
@@ -262,7 +274,6 @@ export async function POST(req: Request) {
       })
       await em.persistAndFlush(paymentLink)
       paymentLinkId = paymentLink.id
-      paymentLinkUrl = buildPaymentLinkUrl(new URL(req.url).origin, paymentLinkToken)
     }
 
     const responseBody = {

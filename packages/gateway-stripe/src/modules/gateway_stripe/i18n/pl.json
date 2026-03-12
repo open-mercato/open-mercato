@@ -7,7 +7,7 @@
   "gateway_stripe.config.checkoutProfile.card": "Tylko karta",
   "gateway_stripe.config.checkoutProfile.cardCustomer": "Karta z e-mailem i danymi rozliczeniowymi",
   "gateway_stripe.config.checkoutProfile.paymentElement": "Stripe Payment Element (metody inline)",
-  "gateway_stripe.config.checkoutProfile.paymentElementRedirect": "Stripe Payment Element (zezwól na metody z przekierowaniem)",
+  "gateway_stripe.config.checkoutProfile.paymentElementRedirect": "Stripe Checkout hostowany (przekierowanie)",
   "gateway_stripe.config.help": "Skonfiguruj dane uwierzytelniające w Integracjach. Moduły konsumenckie decydują o powiązaniu Stripe z ich UI płatności.",
   "gateway_stripe.config.paymentTypes": "Typy płatności",
   "gateway_stripe.config.statementDescriptor": "Opis na wyciągu",

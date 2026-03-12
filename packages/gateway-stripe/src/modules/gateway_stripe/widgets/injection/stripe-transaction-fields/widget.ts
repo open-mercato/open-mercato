@@ -25,7 +25,7 @@ const widget: InjectionFieldWidget = {
         { value: 'card', label: 'Card only' },
         { value: 'card_customer', label: 'Card with email and billing details' },
         { value: 'payment_element', label: 'Stripe Payment Element (inline methods)' },
-        { value: 'payment_element_redirect', label: 'Stripe Payment Element (allow redirect methods)' },
+        { value: 'payment_element_redirect', label: 'Stripe hosted checkout (redirect)' },
       ],
     },
   ],
