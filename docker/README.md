@@ -114,15 +114,15 @@ Windows users who develop through Docker can run any monorepo command using the 
 |---------------|------------------|-------|
 | `yarn dev` | `yarn docker:dev` | Dev profile: restarts existing `app` service and tails main process logs (prevents duplicate port-3000 servers). Use `yarn docker:dev --skip-rebuilt` to skip install/build/generate for that restart only. |
 | `yarn build:packages` | `yarn docker:build:packages` | Builds all packages inside container |
-| `yarn generate` | `yarn docker:generate` | Writes generated files from inside the container |
-| `yarn initialize` | `yarn docker:initialize` | Initializes / re-initializes the app |
-| `yarn reinstall` | `yarn docker:reinstall` | Reinstalls CLI inside the container |
+| `yarn generate` | `yarn docker:generate` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
+| `yarn initialize` | `yarn docker:initialize` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
+| `yarn reinstall` | `yarn docker:reinstall` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
 | `yarn db:migrate` | `yarn docker:db:migrate` | Applies database migrations |
-| `yarn db:generate` | `yarn docker:db:generate` | Generates migration files; writes back via mounted volume |
-| `yarn lint` | `yarn docker:lint` | Lints all packages |
-| `yarn typecheck` | `yarn docker:typecheck` | Type-checks all packages |
-| `yarn test` | `yarn docker:test` | Runs unit tests |
-| `yarn install-skills` | `yarn docker:install-skills` | Runs `install-skills.sh` inside the Linux container |
+| `yarn db:generate` | `yarn docker:db:generate` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
+| `yarn lint` | `yarn docker:lint` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
+| `yarn typecheck` | `yarn docker:typecheck` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
+| `yarn test` | `yarn docker:test` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
+| `yarn install-skills` | `yarn docker:install-skills` | Dev profile only; fullapp fails fast because monorepo tooling is unsupported there |
 | `yarn mercato <cmd>` | `yarn docker:mercato <cmd>` | Full CLI passthrough — all subcommands forwarded into container |
 
 **CLI passthrough examples:**
