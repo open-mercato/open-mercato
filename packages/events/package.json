@@ -32,6 +32,7 @@
     }
   },
   "dependencies": {
+    "@open-mercato/shared": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "pg": "8.20.0"
   },
