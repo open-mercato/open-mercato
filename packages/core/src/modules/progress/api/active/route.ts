@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressJob } from '../../data/entities'
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['progress.view'] },
+  GET: { requireAuth: true },
 }
 
 export const metadata = routeMetadata
@@ -19,6 +19,8 @@ export async function GET(req: Request) {
   const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
 
   const ctx = { tenantId: auth.tenantId, organizationId: auth.orgId }
+
+  await progressService.markStaleJobsFailed(auth.tenantId)
 
   const [jobs, recentlyCompleted] = await Promise.all([
     progressService.getActiveJobs(ctx),
@@ -43,6 +45,7 @@ function formatJob(job: ProgressJob) {
     totalCount: job.totalCount,
     etaSeconds: job.etaSeconds,
     cancellable: job.cancellable,
+    meta: job.meta ?? null,
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
     errorMessage: job.errorMessage,

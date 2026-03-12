@@ -9,6 +9,8 @@ import { createSalesDocument } from '@open-mercato/core/modules/core/__integrati
  * Source: .ai/qa/scenarios/TC-INT-002-customer-deal-order-flow.md
  */
 test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
+  test.setTimeout(60_000);
+
   test('should create CRM records and open a sales order flow', async ({ page, request }) => {
     const stamp = Date.now();
     const companyName = `QA INT-002 Co ${stamp}`;

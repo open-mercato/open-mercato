@@ -6,13 +6,12 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { statusDictionaryCreateSchema, statusDictionaryUpdateSchema } from '../data/validators'
 import { getSalesDictionaryDefinition, ensureSalesDictionary, type SalesDictionaryKind } from './dictionaries'
-import { parseScopedCommandInput, resolveCrudRecordId } from '../api/utils'
+import { buildAggregateSearchFilter, parseScopedCommandInput, resolveCrudRecordId } from '../api/utils'
 import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,
   defaultDeleteRequestSchema,
 } from '../api/openapi'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 interface StatusDictionaryRouteConfig {
   kind: SalesDictionaryKind
@@ -153,13 +152,8 @@ export function makeStatusDictionaryRoute(config: StatusDictionaryRouteConfig) {
         const filters: Record<string, unknown> = {
           dictionary_id: dictionaryId,
         }
-        if (query.search && query.search.trim().length > 0) {
-          const term = `%${escapeLikePattern(query.search.trim())}%`
-          filters.$or = [
-            { [F.value]: { $ilike: term } },
-            { [F.label]: { $ilike: term } },
-          ]
-        }
+        const searchFilter = buildAggregateSearchFilter(query.search)
+        if (searchFilter) Object.assign(filters, searchFilter)
         return filters
       },
       transformItem: (item: Record<string, unknown>) => ({

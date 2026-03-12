@@ -233,16 +233,20 @@ export default function PaymentGatewayDemoPage() {
   const [error, setError] = useState<string | null>(null)
   const [transaction, setTransaction] = useState<TransactionState | null>(null)
   const [actionResult, setActionResult] = useState<string | null>(null)
-  const [stripeConfigured, setStripeConfigured] = useState<boolean | null>(null)
+  const [stripeAvailable, setStripeAvailable] = useState<boolean | null>(null)
 
   useEffect(() => {
     async function checkStripe() {
-      const response = await apiCall<{ hasCredentials: boolean }>(
+      const response = await apiCall<{ hasCredentials: boolean; state?: { isEnabled?: boolean | null } | null }>(
         '/api/integrations/gateway_stripe',
         undefined,
         { fallback: null },
       )
-      setStripeConfigured(response.ok && response.result?.hasCredentials === true)
+      setStripeAvailable(
+        response.ok
+        && response.result?.hasCredentials === true
+        && response.result?.state?.isEnabled === true,
+      )
     }
     void checkStripe()
   }, [])
@@ -408,16 +412,16 @@ export default function PaymentGatewayDemoPage() {
               type="button"
               variant="outline"
               onClick={() => createSession('stripe')}
-              disabled={loading || stripeConfigured === false}
+              disabled={loading || stripeAvailable === false}
               className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-600 dark:text-indigo-300 dark:hover:bg-indigo-950"
             >
               {loading ? <Spinner className="mr-2 size-4" /> : <CreditCard className="mr-2 size-4" />}
               {t('example.payments.payStripe', 'Pay with Stripe')}
             </Button>
 
-            {stripeConfigured === false && (
+            {stripeAvailable === false && (
               <span className="text-xs text-muted-foreground">
-                {t('example.payments.stripeNotConfigured', 'Stripe not configured — set credentials in Integrations')}
+                {t('example.payments.stripeUnavailable', 'Stripe unavailable — enable the integration and save credentials in Integrations')}
               </span>
             )}
           </div>

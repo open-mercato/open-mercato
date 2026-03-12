@@ -147,6 +147,7 @@ export default function ProductsDataTable() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -536,6 +537,7 @@ export default function ProductsDataTable() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      setCacheStatus(null)
       try {
         const fallback: ProductsResponse = { items: [], total: 0, totalPages: 1 }
         const call = await apiCall<ProductsResponse>(
@@ -546,10 +548,12 @@ export default function ProductsDataTable() {
         if (!call.ok) {
           const message = t('catalog.products.list.error.load', 'Failed to load products')
           flash(message, 'error')
+          if (!cancelled) setCacheStatus(null)
           return
         }
         const payload = call.result ?? fallback
         if (cancelled) return
+        setCacheStatus(call.cacheStatus ?? null)
         const items = Array.isArray(payload.items) ? payload.items : []
         const normalized = items.filter((item): item is ProductRow => typeof item?.id === 'string')
         setRows(normalized)
@@ -557,6 +561,7 @@ export default function ProductsDataTable() {
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
       } catch (error) {
         if (!cancelled) {
+          setCacheStatus(null)
           const message =
             error instanceof Error
               ? error.message
@@ -640,7 +645,9 @@ export default function ProductsDataTable() {
         injectionContext={{
           search,
           filters: filterValues,
+          customFieldset: customFieldsetFilter,
           page,
+          sorting,
           scopeVersion,
         }}
         pagination={{
@@ -649,6 +656,7 @@ export default function ProductsDataTable() {
           total,
           totalPages,
           onPageChange: setPage,
+          cacheStatus,
         }}
         exporter={exportConfig}
         isLoading={isLoading}

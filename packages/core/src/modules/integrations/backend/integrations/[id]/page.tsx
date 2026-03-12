@@ -20,18 +20,21 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID, type CredentialFieldType, type IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { Bell, ChevronDown, ChevronRight, CreditCard, HardDrive, MessageSquare, RefreshCw, Truck, Webhook, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, ChevronDown, ChevronRight, CreditCard, FileText, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
+import { IntegrationScheduleTab } from '../../../../data_sync/components/IntegrationScheduleTab'
 import {
   buildIntegrationDetailInjectedTabs,
   filterIntegrationDetailWidgetsByKind,
+  type IntegrationDetailInjectedTab,
   resolveIntegrationDetailWidgetSpotId,
   resolveRequestedIntegrationDetailTab,
 } from '../detail-page-widgets'
 
 type CredentialField = IntegrationCredentialField
-type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs'
+type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
 type IntegrationDetailTab = BuiltInIntegrationDetailTab | string
 
 const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
@@ -55,6 +58,7 @@ type IntegrationDetail = {
     description?: string
     category?: string
     hub?: string
+    providerKey?: string | null
     bundleId?: string
     docsUrl?: string
     apiVersions?: ApiVersion[]
@@ -109,6 +113,12 @@ const HEALTH_STATUS_STYLES: Record<string, string> = {
   healthy: 'bg-green-100 text-green-800',
   degraded: 'bg-yellow-100 text-yellow-800',
   unhealthy: 'bg-red-100 text-red-800',
+}
+
+const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
+  healthy: CheckCircle2,
+  degraded: AlertTriangle,
+  unhealthy: XCircle,
 }
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -228,6 +238,10 @@ function formatLogPrimitiveValue(value: string | number | boolean | null): strin
   if (value === null) return 'None'
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   return String(value)
+}
+
+function isAkeneoSettingsTab(tab: IntegrationDetailInjectedTab): boolean {
+  return tab.id.includes('sync_akeneo') || tab.label.toLowerCase().includes('akeneo')
 }
 
 function splitLogPayload(payload: Record<string, unknown> | null | undefined) {
@@ -419,9 +433,17 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ),
     [detailWidgets, t],
   )
+  const hasDataSyncScheduleTab = Boolean(
+    detail?.integration.hub === 'data_sync'
+      && detail?.integration.providerKey
+      && detail.integration.providerKey.trim().length > 0,
+  )
   const customTabIds = React.useMemo(
-    () => injectedTabs.map((tab) => tab.id),
-    [injectedTabs],
+    () => [
+      ...(hasDataSyncScheduleTab ? ['data-sync-schedule'] : []),
+      ...injectedTabs.map((tab) => tab.id),
+    ],
+    [hasDataSyncScheduleTab, injectedTabs],
   )
   const runMutationWithContext = React.useCallback(
     async <T,>({
@@ -703,6 +725,25 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const resolvedIntegration = detail.integration
   const resolvedState = detail.state
   const CategoryIcon = resolvedIntegration.category ? CATEGORY_ICONS[resolvedIntegration.category] : null
+  const HealthStatusIcon = resolvedState.lastHealthStatus ? HEALTH_STATUS_ICONS[resolvedState.lastHealthStatus] : null
+  const prioritizedInjectedTabs = resolvedIntegration.id === 'sync_akeneo'
+    ? [...injectedTabs].sort((left, right) => {
+      const leftPriority = isAkeneoSettingsTab(left) ? 1 : 0
+      const rightPriority = isAkeneoSettingsTab(right) ? 1 : 0
+      if (leftPriority !== rightPriority) return rightPriority - leftPriority
+      return 0
+    })
+    : injectedTabs
+  const leadingInjectedTab = resolvedIntegration.id === 'sync_akeneo'
+    ? prioritizedInjectedTabs.find(isAkeneoSettingsTab) ?? null
+    : null
+  const trailingInjectedTabs = leadingInjectedTab
+    ? prioritizedInjectedTabs.filter((tab) => tab.id !== leadingInjectedTab.id)
+    : prioritizedInjectedTabs
+  const StateIcon = resolvedState.isEnabled ? CheckCircle2 : XCircle
+  const stateBadgeClass = resolvedState.isEnabled
+    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+    : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
 
   const showCredentialActions = activeTab === 'credentials' && credentialFormFields.length > 0
 
@@ -749,15 +790,16 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
         <section className="rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
+            <div className="space-y-2">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 {t('integrations.detail.state.label', 'State')}
               </p>
-              <p className="text-sm font-medium">
+              <Badge variant="outline" className={cn('gap-1.5 rounded-full px-3 py-1 text-xs font-medium', stateBadgeClass)}>
+                <StateIcon className="h-3.5 w-3.5" />
                 {resolvedState.isEnabled
                   ? t('integrations.detail.state.enabled', 'Enabled')
                   : t('integrations.detail.state.disabled', 'Disabled')}
-              </p>
+              </Badge>
             </div>
             <Switch
               checked={resolvedState.isEnabled}
@@ -810,14 +852,79 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           </section>
         ) : null}
 
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="credentials">{t('integrations.detail.tabs.credentials')}</TabsTrigger>
-            {hasVersions ? <TabsTrigger value="version">{t('integrations.detail.tabs.version')}</TabsTrigger> : null}
-            <TabsTrigger value="health">{t('integrations.detail.tabs.health')}</TabsTrigger>
-            <TabsTrigger value="logs">{t('integrations.detail.tabs.logs')}</TabsTrigger>
-            {injectedTabs.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-5">
+          <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
+            <TabsTrigger
+              value="credentials"
+              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Key className="h-4 w-4" />
+                <span>{t('integrations.detail.tabs.credentials')}</span>
+              </span>
+            </TabsTrigger>
+            {leadingInjectedTab ? (
+              <TabsTrigger
+                value={leadingInjectedTab.id}
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  <span>{leadingInjectedTab.label}</span>
+                </span>
+              </TabsTrigger>
+            ) : null}
+            {hasVersions ? (
+              <TabsTrigger
+                value="version"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  <span>{t('integrations.detail.tabs.version')}</span>
+                </span>
+              </TabsTrigger>
+            ) : null}
+            {hasDataSyncScheduleTab ? (
+              <TabsTrigger
+                value="data-sync-schedule"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  <span>{t('data_sync.integrationTab.title', 'Sync schedules')}</span>
+                </span>
+              </TabsTrigger>
+            ) : null}
+            <TabsTrigger
+              value="health"
+              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                <span>{t('integrations.detail.tabs.health')}</span>
+              </span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="logs"
+              className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+            >
+              <span className="inline-flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                <span>{t('integrations.detail.tabs.logs')}</span>
+              </span>
+            </TabsTrigger>
+            {trailingInjectedTabs.map((tab) => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  <span>{tab.label}</span>
+                </span>
+              </TabsTrigger>
             ))}
           </TabsList>
 
@@ -887,9 +994,19 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             </TabsContent>
           ) : null}
 
+          {hasDataSyncScheduleTab ? (
+            <TabsContent value="data-sync-schedule" className="mt-0">
+              <IntegrationScheduleTab
+                integrationId={resolvedIntegration.id}
+                hasCredentials={detail.hasCredentials}
+                isEnabled={resolvedState.isEnabled}
+              />
+            </TabsContent>
+          ) : null}
+
           <TabsContent value="health" className="mt-0 space-y-4">
-            <Card>
-              <CardHeader>
+            <Card className="gap-4 py-4">
+              <CardHeader className="px-5">
                 <div className="flex items-center justify-between">
                   <CardTitle>{t('integrations.detail.health.title')}</CardTitle>
                   <Button
@@ -904,51 +1021,56 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium">{t('integrations.detail.health.title')}:</span>
+              <CardContent className="space-y-3 px-5">
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3">
                   {resolvedState.lastHealthStatus ? (
-                    <Badge className={HEALTH_STATUS_STYLES[resolvedState.lastHealthStatus] ?? ''}>
+                    <Badge className={`gap-1.5 ${HEALTH_STATUS_STYLES[resolvedState.lastHealthStatus] ?? ''}`}>
+                      {HealthStatusIcon ? <HealthStatusIcon className="h-3.5 w-3.5" /> : null}
                       {t(`integrations.detail.health.${resolvedState.lastHealthStatus}`)}
                     </Badge>
                   ) : (
-                    <span className="text-sm text-muted-foreground">
-                      {t('integrations.detail.health.unknown')}
-                    </span>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span>{t('integrations.detail.health.unknown')}</span>
+                    </div>
                   )}
+                  {healthStatusDescription ? (
+                    <p className="min-w-0 flex-1 text-sm text-muted-foreground">{healthStatusDescription}</p>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground md:ml-auto">
+                    {resolvedState.lastHealthCheckedAt
+                      ? t('integrations.detail.health.lastChecked', { date: new Date(resolvedState.lastHealthCheckedAt).toLocaleString() })
+                      : t('integrations.detail.health.neverChecked')
+                    }
+                  </p>
                 </div>
-                {healthStatusDescription ? (
-                  <p className="text-sm text-muted-foreground">{healthStatusDescription}</p>
-                ) : null}
-                {healthMessage ? (
-                  <div className="rounded-lg border bg-muted/30 p-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('integrations.detail.health.lastResult', 'Last result')}
-                    </p>
-                    <p className="mt-1 text-sm">{healthMessage}</p>
+                {healthMessage || healthDetailEntries.length > 0 ? (
+                  <div className={`grid gap-3 ${healthMessage && healthDetailEntries.length > 0 ? 'xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]' : ''}`}>
+                    {healthMessage ? (
+                      <div className="rounded-lg border px-4 py-3">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                          {t('integrations.detail.health.lastResult', 'Last result')}
+                        </p>
+                        <p className="mt-1.5 text-sm">{healthMessage}</p>
+                      </div>
+                    ) : null}
+                    {healthDetailEntries.length > 0 ? (
+                      <div className="rounded-lg border px-4 py-3">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                          {t('integrations.detail.health.details', 'Details')}
+                        </p>
+                        <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                          {healthDetailEntries.map(([key, value]) => (
+                            <div key={key}>
+                              <dt className="text-xs font-medium text-muted-foreground">{formatLogDetailLabel(key)}</dt>
+                              <dd className="mt-0.5 text-sm">{formatHealthValue(value)}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-                {healthDetailEntries.length > 0 ? (
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {t('integrations.detail.health.details', 'Details')}
-                    </p>
-                    <dl className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {healthDetailEntries.map(([key, value]) => (
-                        <div key={key}>
-                          <dt className="text-xs font-medium text-muted-foreground">{key}</dt>
-                          <dd className="mt-1 text-sm">{formatHealthValue(value)}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </div>
-                ) : null}
-                <p className="text-xs text-muted-foreground">
-                  {resolvedState.lastHealthCheckedAt
-                    ? t('integrations.detail.health.lastChecked', { date: new Date(resolvedState.lastHealthCheckedAt).toLocaleString() })
-                    : t('integrations.detail.health.neverChecked')
-                  }
-                </p>
               </CardContent>
             </Card>
           </TabsContent>

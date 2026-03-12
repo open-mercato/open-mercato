@@ -5,10 +5,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesTaxRate } from '../../data/entities'
 import { taxRateCreateSchema, taxRateUpdateSchema } from '../../data/validators'
-import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { buildAggregateSearchFilter, parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/sales_tax_rate'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -76,17 +75,8 @@ const taxRateDeleteSchema = z.object({
 
 function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
-  if (query.search && query.search.trim().length > 0) {
-    const term = `%${escapeLikePattern(query.search.trim())}%`
-    filters.$or = [
-      { name: { $ilike: term } },
-      { code: { $ilike: term } },
-      { country_code: { $ilike: term } },
-      { region_code: { $ilike: term } },
-      { postal_code: { $ilike: term } },
-      { city: { $ilike: term } },
-    ]
-  }
+  const searchFilter = buildAggregateSearchFilter(query.search)
+  if (searchFilter) Object.assign(filters, searchFilter)
   if (query.country && query.country.trim().length > 0) {
     filters.country_code = query.country.trim().toUpperCase()
   }

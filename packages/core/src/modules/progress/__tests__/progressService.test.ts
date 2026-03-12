@@ -285,6 +285,31 @@ describe('progress service', () => {
     )
   })
 
+  it('markCancelled — finalizes running jobs as cancelled', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'running',
+      tenantId: baseCtx.tenantId,
+    } as unknown as ProgressJob
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.markCancelled('job-1', baseCtx)
+
+    expect(result.status).toBe('cancelled')
+    expect(result.cancelRequestedAt).toBeInstanceOf(Date)
+    expect(result.finishedAt).toBeInstanceOf(Date)
+    expect(result.etaSeconds).toBe(0)
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_CANCELLED,
+      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId })
+    )
+  })
+
   it('markStaleJobsFailed — marks stale jobs as failed, emits per job', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
@@ -304,7 +329,17 @@ describe('progress service', () => {
     expect(em.flush).toHaveBeenCalled()
     expect(em.find).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ tenantId: baseCtx.tenantId })
+      expect.objectContaining({
+        tenantId: baseCtx.tenantId,
+        status: 'running',
+        $or: [
+          { heartbeatAt: { $lt: expect.any(Date) } },
+          {
+            heartbeatAt: null,
+            startedAt: { $lt: expect.any(Date) },
+          },
+        ],
+      })
     )
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
     expect(eventBus.emit).toHaveBeenCalledWith(

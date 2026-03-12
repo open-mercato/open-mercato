@@ -7,6 +7,7 @@ import type { ProgressService } from '../progress/lib/progressService'
 import { SyncCursor, SyncMapping, SyncRun, SyncSchedule } from './data/entities'
 import { createExternalIdMappingService } from './lib/id-mapping'
 import { createSyncRunService } from './lib/sync-run-service'
+import { createSyncScheduleService } from './lib/sync-schedule-service'
 import { createSyncEngine } from './lib/sync-engine'
 
 type Cradle = {
@@ -14,12 +15,17 @@ type Cradle = {
   integrationCredentialsService: CredentialsService
   integrationLogService: IntegrationLogService
   progressService: ProgressService
+  schedulerService?: {
+    register: (registration: Record<string, unknown>) => Promise<void>
+    unregister: (scheduleId: string) => Promise<void>
+  }
 }
 
 export function register(container: AppContainer) {
   container.register({
     externalIdMappingService: asFunction(({ em }: Cradle) => createExternalIdMappingService(em)).scoped().proxy(),
     dataSyncRunService: asFunction(({ em }: Cradle) => createSyncRunService(em)).scoped().proxy(),
+    dataSyncScheduleService: asFunction(({ em, schedulerService }: Cradle) => createSyncScheduleService(em, schedulerService)).scoped().proxy(),
     dataSyncEngine: asFunction(({ em, dataSyncRunService, integrationCredentialsService, integrationLogService, progressService }: Cradle & {
       dataSyncRunService: ReturnType<typeof createSyncRunService>
     }) => createSyncEngine({

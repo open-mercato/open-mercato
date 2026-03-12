@@ -65,25 +65,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  if (!skipMarkRead && recipient && recipient.status === 'unread') {
-    const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    await commandBus.execute('messages.recipients.mark_read', {
-      input: {
-        messageId: params.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        userId: scope.userId,
-      },
-      ctx: {
-        container: ctx.container,
-        auth: ctx.auth ?? null,
-        organizationScope: null,
-        selectedOrganizationId: scope.organizationId,
-        organizationIds: scope.organizationId ? [scope.organizationId] : null,
-        request: req,
-      },
-    })
-  }
+  const autoMarkRead = !skipMarkRead && recipient?.status === 'unread'
+  const readAt = autoMarkRead ? new Date() : recipient?.readAt ?? null
 
   const objects = await em.find(MessageObject, { messageId: params.id })
   const objectPreviews = await Promise.all(
@@ -162,6 +145,26 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const messageType = getMessageTypeOrDefault(message.type)
   const resolvedActionData = buildResolvedMessageActions(message, objects)
 
+  if (autoMarkRead) {
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    await commandBus.execute('messages.recipients.mark_read', {
+      input: {
+        messageId: params.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      },
+      ctx: {
+        container: ctx.container,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: scope.organizationId,
+        organizationIds: scope.organizationId ? [scope.organizationId] : null,
+        request: req,
+      },
+    })
+  }
+
   return Response.json({
     id: message.id,
     type: message.type,
@@ -201,8 +204,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     recipients: allRecipients.map((item) => ({
       userId: item.recipientUserId,
       type: item.recipientType,
-      status: item.status,
-      readAt: item.readAt,
+      status: autoMarkRead && item.recipientUserId === scope.userId ? 'read' : item.status,
+      readAt: autoMarkRead && item.recipientUserId === scope.userId ? readAt : item.readAt,
     })),
     objects: objects.map((item, index) => ({
       id: item.id,
@@ -231,7 +234,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         sentAt: threadMessage.sentAt,
       }
     }),
-    isRead: recipient ? recipient.status !== 'unread' : true,
+    isRead: recipient ? (autoMarkRead || recipient.status !== 'unread') : true,
   })
 }
 

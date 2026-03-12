@@ -10,7 +10,7 @@
 
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
-import { registerGlobalEventTap } from '../../../../bus'
+import { registerCrossProcessEventListener, registerGlobalEventTap } from '../../../../bus'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -109,6 +109,36 @@ const connections = new Set<SseConnection>()
 
 let globalTapRegistered = false
 
+async function broadcastEventToConnections(eventName: string, payload: Record<string, unknown>): Promise<void> {
+  if (!eventName || connections.size === 0) return
+
+  if (!isBroadcastEvent(eventName)) return
+
+  const data = payload ?? {}
+  const audience = normalizeAudience(data)
+
+  const organizationId = audience.organizationScopes[0] ?? ''
+  let ssePayload = buildSsePayload(eventName, data, organizationId)
+
+  if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
+    ssePayload = buildTruncatedPayload(eventName, data, organizationId)
+    if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
+      console.warn(`[events:stream] Event ${eventName} payload exceeds ${MAX_PAYLOAD_BYTES} bytes, skipping`)
+      return
+    }
+  }
+
+  for (const conn of connections) {
+    if (!matchesAudience(conn, audience)) continue
+
+    try {
+      conn.send(ssePayload)
+    } catch {
+      // Connection may have been closed; cleanup happens via abort handler
+    }
+  }
+}
+
 function buildSsePayload(eventName: string, data: Record<string, unknown>, organizationId: string): string {
   return JSON.stringify({
     id: eventName,
@@ -148,35 +178,15 @@ function ensureGlobalTapSubscription(): void {
   globalTapRegistered = true
 
   registerGlobalEventTap(async (eventName, payload) => {
-    if (!eventName || connections.size === 0) return
+    await broadcastEventToConnections(eventName, (payload ?? {}) as Record<string, unknown>)
+  })
 
-    // Only bridge events with clientBroadcast: true
-    if (!isBroadcastEvent(eventName)) return
-
-    const data = (payload ?? {}) as Record<string, unknown>
-    const audience = normalizeAudience(data)
-
-    const organizationId = audience.organizationScopes[0] ?? ''
-    let ssePayload = buildSsePayload(eventName, data, organizationId)
-
-    // Enforce max payload size
-    if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
-      ssePayload = buildTruncatedPayload(eventName, data, organizationId)
-      if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
-        console.warn(`[events:stream] Event ${eventName} payload exceeds ${MAX_PAYLOAD_BYTES} bytes, skipping`)
-        return
-      }
-    }
-
-    for (const conn of connections) {
-      if (!matchesAudience(conn, audience)) continue
-
-      try {
-        conn.send(ssePayload)
-      } catch {
-        // Connection may have been closed; cleanup happens via abort handler
-      }
-    }
+  registerCrossProcessEventListener(async (envelope) => {
+    if (envelope.originPid === process.pid) return
+    await broadcastEventToConnections(
+      envelope.event,
+      (envelope.payload ?? {}) as Record<string, unknown>,
+    )
   })
 }
 

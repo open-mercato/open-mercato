@@ -58,25 +58,24 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const [credentials, state] = await Promise.all([
     credentialsService.resolve(integration.id, scope),
-    stateService.get(integration.id, scope),
+    stateService.resolveState(integration.id, scope),
   ])
 
   const bundle = integration.bundleId ? getBundle(integration.bundleId) : undefined
   const bundleIntegrations = integration.bundleId
     ? await Promise.all(
       getBundleIntegrations(integration.bundleId).map(async (item) => {
-        const itemState = await stateService.get(item.id, scope)
-        const resolvedState = {
-          isEnabled: itemState?.isEnabled ?? true,
-          apiVersion: itemState?.apiVersion ?? null,
-          reauthRequired: itemState?.reauthRequired ?? false,
-          lastHealthStatus: itemState?.lastHealthStatus ?? null,
-          lastHealthCheckedAt: itemState?.lastHealthCheckedAt?.toISOString() ?? null,
-        }
+        const resolvedState = await stateService.resolveState(item.id, scope)
         return {
           ...item,
           isEnabled: resolvedState.isEnabled,
-          state: resolvedState,
+          state: {
+            isEnabled: resolvedState.isEnabled,
+            apiVersion: resolvedState.apiVersion,
+            reauthRequired: resolvedState.reauthRequired,
+            lastHealthStatus: resolvedState.lastHealthStatus,
+            lastHealthCheckedAt: resolvedState.lastHealthCheckedAt?.toISOString() ?? null,
+          },
         }
       }),
     )
@@ -99,11 +98,11 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       bundle,
       bundleIntegrations,
       state: {
-        isEnabled: state?.isEnabled ?? true,
-        apiVersion: state?.apiVersion ?? null,
-        reauthRequired: state?.reauthRequired ?? false,
-        lastHealthStatus: state?.lastHealthStatus ?? null,
-        lastHealthCheckedAt: state?.lastHealthCheckedAt?.toISOString() ?? null,
+        isEnabled: state.isEnabled,
+        apiVersion: state.apiVersion,
+        reauthRequired: state.reauthRequired,
+        lastHealthStatus: state.lastHealthStatus,
+        lastHealthCheckedAt: state.lastHealthCheckedAt?.toISOString() ?? null,
       },
       hasCredentials: Boolean(credentials),
     },
