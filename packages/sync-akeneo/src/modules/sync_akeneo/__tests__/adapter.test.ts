@@ -47,6 +47,7 @@ describe('akeneo adapter product import', () => {
     })
     ;(createAkeneoImporter as jest.Mock).mockResolvedValue({
       upsertProduct,
+      reconcileMappedCustomFieldFieldsets: jest.fn(async () => undefined),
       reconcileProducts,
     })
 

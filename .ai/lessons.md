@@ -249,3 +249,23 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When an importer creates variant attachments and also performs later flush-heavy work, persist the variant hero-media pointer as the final variant write in that path. Attachment assignment and hero-media selection are separate pieces of state and both must survive the last flush.
 
 **Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts` and any importer that assigns attachments plus a default/hero attachment on the same entity in one transaction flow.
+
+## Env-backed integration presets belong in the provider module, not core
+
+**Context**: Akeneo needed a way to come up preconfigured on fresh installs from deployment environment variables, while still supporting a manual rerun later.
+
+**Problem**: Pushing provider-specific bootstrap logic into core integration or data-sync modules would couple generic infrastructure to one connector and make every future provider preset harder to maintain.
+
+**Rule**: Provider-specific env bootstrapping should live in the provider package itself, exposed through that module's own `setup.ts` and `cli.ts`, and should reuse the same helper for automatic tenant init and manual reruns.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/setup.ts`, `packages/sync-akeneo/src/modules/sync_akeneo/cli.ts`, and future integration packages that need env-driven bootstrap.
+
+## Integration packages must use decryption-aware find helpers for all entity reads
+
+**Context**: The Akeneo package had accumulated a mix of `findWithDecryption` usage and raw `em.find` / `em.findOne` reads across routes, setup presets, cleanup jobs, and importer internals.
+
+**Problem**: Even when the currently-read fields are not encrypted, raw ORM reads bypass encryption-map handling and create silent regressions once entity fields become encrypted later.
+
+**Rule**: In integration/provider modules, all entity reads should default to `findWithDecryption` / `findOneWithDecryption`; treat raw `em.find` / `em.findOne` as a bug unless there is a deliberate low-level reason that is documented inline.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/**/*` and future integration packages reading tenant-scoped entities.

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { CatalogPriceKind } from '@open-mercato/core/modules/catalog/data/entities'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
     find: <T>(entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => Promise<T[]>
   }
   const [localChannels, priceKinds] = await Promise.all([
-    em.find<{ code?: string | null; name: string }>(SalesChannel, {
+    findWithDecryption(em as any, SalesChannel, {
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
@@ -43,14 +44,20 @@ export async function GET(req: Request) {
     }, {
       fields: ['code', 'name'],
       orderBy: { name: 'asc' },
+    }, {
+      organizationId: auth.orgId as string,
+      tenantId: auth.tenantId,
     }),
-    em.find<{ code: string; title: string; displayMode: string }>(CatalogPriceKind, {
+    findWithDecryption(em as any, CatalogPriceKind, {
       tenantId: auth.tenantId,
       deletedAt: null,
       isActive: true,
     }, {
       fields: ['code', 'title', 'displayMode'],
       orderBy: { title: 'asc' },
+    }, {
+      organizationId: auth.orgId as string,
+      tenantId: auth.tenantId,
     }),
   ])
   const credentials = await credentialsService.resolve('sync_akeneo', {

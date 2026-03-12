@@ -935,13 +935,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     const cacheKey = `${normalizedCode}:${options?.createIfMissing ? 'create' : 'read'}:${options?.label ?? ''}`
     if (!channelCache.has(cacheKey)) {
       channelCache.set(cacheKey, (async () => {
-        const channel = await em.findOne(SalesChannel, {
+        const channel = await findOneWithDecryption(em, SalesChannel, {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           code: normalizedCode,
           deletedAt: null,
           isActive: true,
-        })
+        }, undefined, scope)
         if (channel) {
           return { id: channel.id, code: channel.code ?? normalizedCode }
         }
@@ -994,14 +994,14 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     const cacheKey = 'preferred'
     if (!preferredChannelCodeCache.has(cacheKey)) {
       preferredChannelCodeCache.set(cacheKey, (async () => {
-        const channels = await em.find(SalesChannel, {
+        const channels = await findWithDecryption(em, SalesChannel, {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           deletedAt: null,
           isActive: true,
         }, {
           orderBy: { createdAt: 'asc' },
-        })
+        }, scope)
         const preferredCodes = ['web', 'online', 'ecommerce', 'default']
         for (const preferredCode of preferredCodes) {
           const match = channels.find((channel) => (channel.code ?? '').trim().toLowerCase() === preferredCode)
@@ -1017,13 +1017,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     const cacheKey = 'preferred'
     if (!preferredPriceKindCodeCache.has(cacheKey)) {
       preferredPriceKindCodeCache.set(cacheKey, (async () => {
-        const priceKinds = await em.find(CatalogPriceKind, {
+        const priceKinds = await findWithDecryption(em, CatalogPriceKind, {
           tenantId: scope.tenantId,
           deletedAt: null,
           isActive: true,
         }, {
           orderBy: { createdAt: 'asc' },
-        })
+        }, scope)
         const preferredCodes = ['regular', 'sale', 'base', 'default']
         for (const preferredCode of preferredCodes) {
           const match = priceKinds.find((priceKind) => priceKind.code.trim().toLowerCase() === preferredCode)
@@ -1037,12 +1037,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
   async function ensureEntityFieldsetConfig(entityId: string, fieldset: CustomFieldsetDefinition | null): Promise<void> {
     if (!fieldset) return
-    let config = await em.findOne(CustomFieldEntityConfig, {
+    let config = await findOneWithDecryption(em, CustomFieldEntityConfig, {
       entityId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
     if (!config) {
       config = em.create(CustomFieldEntityConfig, {
         entityId,
@@ -1285,12 +1285,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         const variantFields: Array<CustomFieldDefinition & { sourceMetadata?: Record<string, unknown> }> = []
         const items: CustomFieldSyncItem[] = []
         const globalAssignments = await resolveGlobalFieldsetAssignments(settings)
-        const existingDefinitions = await em.find(CustomFieldDef, {
+        const existingDefinitions = await findWithDecryption(em, CustomFieldDef, {
           entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] } as any,
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
           deletedAt: null,
-        })
+        }, undefined, scope)
         const existingFieldsetsByEntityAndKey = new Map<string, string[]>()
         for (const definition of existingDefinitions) {
           const config = safeRecord(definition.configJson)
@@ -1426,12 +1426,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   ): Promise<void> {
     if (!fieldsetCode) return
 
-    const existingDefinitions = await em.find(CustomFieldDef, {
+    const existingDefinitions = await findWithDecryption(em, CustomFieldDef, {
       entityId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
 
     const keysToDetach = resolveAkeneoFieldKeysToDetach(
       existingDefinitions.map((definition) => {
@@ -1492,13 +1492,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
 
     const fieldsetsByKey = new Map(normalizedAssignments.map((assignment) => [assignment.key, assignment.fieldsets]))
 
-    const existingDefinitions = await em.find(CustomFieldDef, {
+    const existingDefinitions = await findWithDecryption(em, CustomFieldDef, {
       entityId,
       key: { $in: normalizedKeys } as any,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
 
     let changed = false
     for (const definition of existingDefinitions) {
@@ -1541,12 +1541,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       Array.from(dedupedFieldsets.values()).map((fieldset) => ensureEntityFieldsetConfig(entityId, fieldset)),
     )
 
-    const definitions = await em.find(CustomFieldDef, {
+    const definitions = await findWithDecryption(em, CustomFieldDef, {
       entityId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
 
     let changed = false
     for (const definition of definitions) {
@@ -2311,12 +2311,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       : null
     const heroAttachmentUrl = heroAttachmentId ? buildAttachmentImageUrl(heroAttachmentId) : null
 
-    const existing = await em.find(Attachment, {
+    const existing = await findWithDecryption(em, Attachment, {
       entityId: params.entityId,
       recordId: params.recordId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
-    })
+    }, undefined, scope)
     for (const attachment of existing) {
       const metadata = safeRecord(attachment.storageMetadata)
       const externalId = typeof metadata?.externalId === 'string' ? metadata.externalId : null
@@ -2344,11 +2344,11 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     settings: AkeneoProductMappingSettings
   }): Promise<void> {
     if (!params.settings.syncAssociations) return
-    const existing = await em.find(CatalogProductVariantRelation, {
+    const existing = await findWithDecryption(em, CatalogProductVariantRelation, {
       parentVariant: params.localVariantId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
-    })
+    }, undefined, scope)
 
     const desired = new Map<string, {
       relationType: 'bundle' | 'grouped'
@@ -2793,13 +2793,13 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }
 
   async function deactivateMappedEntities(entityType: string, seenExternalIds: Set<string>, commandId: string): Promise<void> {
-    const mappings = await em.find(SyncExternalIdMapping, {
+    const mappings = await findWithDecryption(em, SyncExternalIdMapping, {
       integrationId: 'sync_akeneo',
       internalEntityType: entityType,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
     for (const mapping of mappings) {
       if (seenExternalIds.has(mapping.externalId)) continue
       await executeCommand(commandId, {
@@ -2823,12 +2823,12 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     if (params.seenFamilyExternalIds.size > 0) {
       await deactivateMappedEntities('catalog_option_schema', params.seenFamilyExternalIds, 'catalog.optionSchemas.update')
     }
-    const defs = await em.find(CustomFieldDef, {
+    const defs = await findWithDecryption(em, CustomFieldDef, {
       entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] },
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
     for (const def of defs) {
       const sourceMetadata = safeRecord(def.configJson?.sourceMetadata)
       if (sourceMetadata?.provider !== 'akeneo') continue

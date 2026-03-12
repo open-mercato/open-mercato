@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { createAkeneoClient } from '../../lib/client'
@@ -35,7 +36,7 @@ export const openApi = {
 }
 
 async function loadActiveKeys(auth: { orgId?: string | null; tenantId?: string | null }, em: any) {
-  const defs = await em.find(CustomFieldDef, {
+  const defs = await findWithDecryption(em, CustomFieldDef, {
     entityId: { $in: [PRODUCT_ENTITY_ID, VARIANT_ENTITY_ID] },
     organizationId: auth.orgId ?? undefined,
     tenantId: auth.tenantId ?? undefined,
@@ -44,6 +45,9 @@ async function loadActiveKeys(auth: { orgId?: string | null; tenantId?: string |
   }, {
     fields: ['entityId', 'key'],
     orderBy: { key: 'asc' },
+  }, {
+    organizationId: auth.orgId ?? undefined,
+    tenantId: auth.tenantId ?? undefined,
   })
 
   const productKeys = new Set<string>()

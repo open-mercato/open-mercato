@@ -507,8 +507,8 @@ function applyDiscoveryDefaults(
 
   return {
     ...state,
-    productLocale: state.productLocale === 'en_US' ? preferredLocale : state.productLocale,
-    categoryLocale: state.categoryLocale === 'en_US' ? preferredLocale : state.categoryLocale,
+    productLocale: state.productLocale,
+    categoryLocale: state.categoryLocale,
     productChannel: state.productChannel || preferredAkeneoChannel,
     productChannels: state.productChannels.length > 0 ? state.productChannels : (preferredAkeneoChannel ? [preferredAkeneoChannel] : []),
     importAllProductChannels: state.importAllProductChannels,

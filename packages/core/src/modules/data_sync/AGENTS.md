@@ -82,6 +82,13 @@ Register adapters in your provider module's `di.ts`:
 registerDataSyncAdapter(myAdapter)
 ```
 
+If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
+
+- read env vars in the provider package
+- apply them from the provider module's `setup.ts`
+- expose a provider CLI command to rerun the preset outside tenant creation
+- persist through normal credentials/mapping/state services instead of special-casing the provider in `data_sync`
+
 ## Run Lifecycle
 
 `pending` → `running` → `completed` | `failed` | `cancelled`
@@ -151,6 +158,7 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 - **Always scope by organizationId + tenantId** — every entity query
 - **Never import from provider adapter modules** — data_sync is generic
 - **Use the queue system** — never run syncs inline in API handlers
+- **New sync providers MUST support provider-owned env preconfiguration** when fresh installs need credentials or default mappings/locales/channels from deployment env
 - **Persist cursor after each batch** — enables resume on failure
 - **Log item-level errors** — don't stop the sync for individual item failures
 - **Check for overlap** before starting a new run (same integration + entityType + direction)

@@ -46,7 +46,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Workflow automation, defining step-based workflows, executing instances, user tasks, async activities, event triggers, signals, compensation (saga pattern), visual editor | `packages/core/src/modules/workflows/AGENTS.md` |
 | Integration Marketplace foundation (registry/bundles, credentials, state, health checks, logs, admin UI, integration manifests) | `packages/core/src/modules/integrations/AGENTS.md` |
 | Data Sync hub (adapters, run lifecycle, workers, mapping APIs, scheduled sync, progress linkage, admin UI) | `packages/core/src/modules/data_sync/AGENTS.md` |
-| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/specs/SPEC-041-2026-02-24-universal-module-extension-system.md` + `.ai/specs/SPEC-045-2026-02-24-integration-marketplace.md` + `.ai/specs/SPEC-045c-payment-shipping-hubs.md` (+ `.ai/specs/SPEC-044-2026-02-24-payment-gateway-integrations.md` for payment providers) |
+| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/skills/integration-builder/SKILL.md` + `.ai/specs/SPEC-041-2026-02-24-universal-module-extension-system.md` + `.ai/specs/SPEC-045-2026-02-24-integration-marketplace.md` + `.ai/specs/SPEC-045c-payment-shipping-hubs.md` (+ `.ai/specs/SPEC-044-2026-02-24-payment-gateway-integrations.md` for payment providers) |
 | Wiring progress UX for long-running sync operations (top bar polling, job lifecycle, future SSE bridge) | `packages/core/src/modules/data_sync/AGENTS.md` + `packages/events/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
@@ -223,6 +223,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files
+- New integration providers MUST own their env-backed preconfiguration inside the provider package: implement preset reading/application in the provider module, apply it from `setup.ts`, expose a rerunnable provider CLI command when practical, and document the env variables. Do not add provider-specific preconfiguration logic to core modules.
 
 ## Backward Compatibility Contract
 

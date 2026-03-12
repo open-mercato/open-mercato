@@ -71,7 +71,19 @@ packages/core/src/modules/integrations/
 3. Declare `credentials.fields` for the admin UI to render a dynamic form
 4. Optionally declare `healthCheck.service` (register the service in your `di.ts`)
 5. Optionally declare `apiVersions` for versioned external APIs
-6. Run `yarn generate` to auto-discover the integration
+6. Add provider-owned env preconfiguration when the integration can be deployment-managed: read env vars in the provider package, apply them from `setup.ts`, and expose a rerunnable provider CLI command when practical
+7. Document the provider env vars in public docs or package docs
+8. Run `yarn generate` to auto-discover the integration
+
+### Provider-Owned Env Preconfiguration
+
+If the provider needs credentials, default mappings, or enabled state after a fresh install, implement that in the provider package, not in `integrations`:
+
+- Read env vars in a provider-local helper such as `lib/preset.ts`
+- Apply the preset from the provider module's `setup.ts` so tenant bootstrap can configure the integration automatically
+- Expose a provider-local CLI command (for example `configure-from-env`) so operators can rerun the same bootstrap logic later
+- Keep env names stable and provider-prefixed (for example `OM_INTEGRATION_AKENEO_*`)
+- Persist through the normal integration services (`integrationCredentialsService`, mapping APIs, state service); never special-case providers in core
 
 ### Bundle Integrations
 
@@ -183,6 +195,7 @@ The integrations module itself uses UMES to inject external ID displays on any e
 - **Never import from provider modules** — integrations module is generic; providers import from integrations, not vice versa
 - **Always scope by organizationId + tenantId** — every entity query and service call
 - **Use `findWithDecryption`/`findOneWithDecryption`** for credential reads
+- **New providers MUST support provider-owned env preconfiguration** when credentials/settings are deployment-managed; implement it in the provider package, not in core
 - **Never log credential values** — log service strips secret fields from payload
 - **Health check services** must be registered in DI by the provider module, not by integrations
 - **API routes must export `openApi`** for documentation generation

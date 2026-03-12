@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ProgressService, ProgressServiceContext } from '@open-mercato/core/modules/progress/lib/progressService'
 import { CatalogProduct } from '@open-mercato/core/modules/catalog/data/entities'
 import { SyncCursor } from '@open-mercato/core/modules/data_sync/data/entities'
@@ -79,7 +80,8 @@ export async function findAkeneoImportedProductIds(
   em: EntityManager,
   scope: Pick<DeleteImportedProductsScope, 'organizationId' | 'tenantId'>,
 ): Promise<string[]> {
-  const productMappings = await em.find(
+  const productMappings = await findWithDecryption(
+    em,
     SyncExternalIdMapping,
     {
       integrationId: 'sync_akeneo',
@@ -92,9 +94,11 @@ export async function findAkeneoImportedProductIds(
       fields: ['internalEntityId', 'createdAt'],
       orderBy: { createdAt: 'asc' },
     },
+    scope,
   )
 
-  const metadataProducts = await em.find(
+  const metadataProducts = await findWithDecryption(
+    em,
     CatalogProduct,
     {
       organizationId: scope.organizationId,
@@ -108,6 +112,7 @@ export async function findAkeneoImportedProductIds(
       fields: ['id'],
       orderBy: { createdAt: 'asc' },
     },
+    scope,
   )
 
   return Array.from(new Set(
