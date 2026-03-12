@@ -18,7 +18,11 @@ Open Mercato now includes a shared foundation for integration metadata (`integra
 Provider modules declare their integration metadata in `integration.ts`:
 
 ```ts
-import type { IntegrationBundle, IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+import {
+  buildIntegrationDetailWidgetSpotId,
+  type IntegrationBundle,
+  type IntegrationDefinition,
+} from '@open-mercato/shared/modules/integrations/types'
 
 export const bundle: IntegrationBundle = {
   id: 'my_provider',
@@ -40,6 +44,9 @@ export const integrations: IntegrationDefinition[] = [
     hub: 'data_sync',
     providerKey: 'my_provider_products',
     bundleId: 'my_provider',
+    detailPage: {
+      widgetSpotId: buildIntegrationDetailWidgetSpotId('my_provider_products'),
+    },
     credentials: { fields: [] },
   },
 ]
@@ -48,6 +55,45 @@ export const integrations: IntegrationDefinition[] = [
 export const integration = integrations[0]
 export const bundles: IntegrationBundle[] = [bundle]
 ```
+
+## Integration detail page extensions
+
+Provider modules can add custom tools to their own integration detail pages.
+
+- Declare `detailPage.widgetSpotId` in `integration.ts`
+- Register widgets for that spot in `widgets/injection-table.ts`
+- The integrations detail page renders those widgets according to `placement.kind`
+
+```ts
+import { buildIntegrationDetailWidgetSpotId } from '@open-mercato/shared/modules/integrations/types'
+
+export const injectionTable = {
+  [buildIntegrationDetailWidgetSpotId('my_provider_products')]: [
+    {
+      widgetId: 'my_provider_products.injection.tools',
+      kind: 'tab',
+      groupLabel: 'my_provider_products.tabs.tools',
+      priority: 100,
+    },
+    {
+      widgetId: 'my_provider_products.injection.summary',
+      kind: 'group',
+      groupLabel: 'my_provider_products.groups.summary',
+      priority: 80,
+    },
+  ],
+}
+```
+
+Rendering semantics:
+
+- `kind: 'tab'` adds an extra tab next to Credentials, Version, Health, and Logs
+- `kind: 'group'` renders a card section above the tabs
+- `kind: 'stack'` renders an inline section above the grouped cards/tabs
+
+Compatibility note:
+- Existing providers that still use the legacy `integrations.detail:tabs` spot continue to work
+- New providers should prefer `detailPage.widgetSpotId` so their widgets are isolated to their own integration page
 
 ## Register data sync adapters
 
@@ -76,6 +122,70 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `getMapping(...)`
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
+
+## Provider-owned environment preconfiguration
+
+New integration providers should not require manual admin setup after every fresh install when deployment already knows the credentials and defaults. The provider package should own that bootstrap path itself.
+
+Recommended pattern:
+
+1. Read provider env vars in a provider-local helper such as `lib/preset.ts`.
+2. Apply them from the provider module's `setup.ts` so tenant bootstrap can save credentials and default mappings automatically.
+3. Expose a provider-local CLI command such as `configure-from-env` so operators can rerun the same logic later.
+4. Persist through the normal integration services and data-sync mapping APIs instead of adding provider-specific branches to `integrations` or `data_sync`.
+
+```ts
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { applyMyProviderEnvPreset } from './lib/preset'
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated({ em, tenantId, organizationId, container }) {
+    await applyMyProviderEnvPreset({
+      em,
+      tenantId,
+      organizationId,
+      credentialsService: container.resolve('integrationCredentialsService'),
+      stateService: container.resolve('integrationStateService'),
+    })
+  },
+}
+
+export default setup
+```
+
+Use stable provider-prefixed env names. Prefer the `OM_INTEGRATION_<PROVIDER>_*` shape for primary names.
+
+### Akeneo example envs
+
+The Akeneo sync provider supports this pattern today. Primary envs:
+
+```env
+OM_INTEGRATION_AKENEO_API_URL=
+OM_INTEGRATION_AKENEO_CLIENT_ID=
+OM_INTEGRATION_AKENEO_CLIENT_SECRET=
+OM_INTEGRATION_AKENEO_USERNAME=
+OM_INTEGRATION_AKENEO_PASSWORD=
+OM_INTEGRATION_AKENEO_FORCE_PRECONFIGURE=false
+OM_INTEGRATION_AKENEO_PRODUCT_LOCALE=
+OM_INTEGRATION_AKENEO_CATEGORY_LOCALE=
+OM_INTEGRATION_AKENEO_PRODUCT_CHANNEL=
+OM_INTEGRATION_AKENEO_IMPORT_CHANNELS=
+OM_INTEGRATION_AKENEO_IMPORT_ALL_CHANNELS=true
+OM_INTEGRATION_AKENEO_CREATE_MISSING_CHANNELS=true
+OM_INTEGRATION_AKENEO_SYNC_ASSOCIATIONS=true
+OM_INTEGRATION_AKENEO_ATTRIBUTE_FAMILY_FILTER=
+OM_INTEGRATION_AKENEO_PRODUCTS_SETTINGS_JSON=
+OM_INTEGRATION_AKENEO_CATEGORIES_SETTINGS_JSON=
+OM_INTEGRATION_AKENEO_ATTRIBUTES_SETTINGS_JSON=
+```
+
+Operational notes:
+
+- only one product locale is imported into base Open Mercato fields at a time
+- `OM_INTEGRATION_AKENEO_IMPORT_CHANNELS` is a comma-separated list
+- if you do not set locale envs, the Akeneo preset defaults product and category locale to `en_US`
+- the provider can auto-apply these during tenant setup and can be rerun with `yarn mercato sync_akeneo configure-from-env --tenant <tenantId> --org <organizationId>`
+- legacy aliases `OPENMERCATO_AKENEO_*` and `AKENEO_*` are still accepted for backward compatibility
 
 ## Run lifecycle
 

@@ -19,6 +19,7 @@ import {
   createVariantInitialValues,
   normalizeOptionSchema,
   mapPriceItemToDraft,
+  findInvalidVariantPriceKinds,
 } from '@open-mercato/core/modules/catalog/components/products/variantForm'
 import {
   type PriceKindSummary,
@@ -26,6 +27,7 @@ import {
   type TaxRateSummary,
   normalizePriceKindSummary,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
+import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -463,6 +465,11 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               const message = t('catalog.variants.form.errors.nameRequired', 'Provide the variant name.')
               throw createCrudFormError(message, { name: message })
             }
+            const invalidPriceKinds = findInvalidVariantPriceKinds(priceKinds, values.prices)
+            if (invalidPriceKinds.length) {
+              const message = t('catalog.variants.form.errors.invalidPrice', 'Provide a valid non-negative price.')
+              throw createCrudFormError(message, { prices: message })
+            }
             const resolveTaxRateValue = (taxRateId?: string | null) => {
               if (!taxRateId) return null
               const match = taxRates.find((rate) => rate.id === taxRateId)
@@ -678,8 +685,8 @@ async function syncVariantPricesUpdate({
       }
       continue
     }
-    const numeric = Number(amount)
-    if (Number.isNaN(numeric) || numeric < 0) continue
+    const numeric = parseNumericInput(amount)
+    if (!Number.isFinite(numeric) || numeric < 0) continue
     const payload: Record<string, unknown> = {
       productId,
       variantId,

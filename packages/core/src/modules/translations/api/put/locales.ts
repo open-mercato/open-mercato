@@ -13,6 +13,7 @@ const bodySchema = z.object({
 })
 
 export const metadata = {
+  path: '/translations/locales',
   PUT: { requireAuth: true, requireFeatures: ['translations.manage_locales'] },
 }
 

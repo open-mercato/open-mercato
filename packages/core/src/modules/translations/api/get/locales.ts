@@ -7,6 +7,7 @@ import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
+  path: '/translations/locales',
   GET: { requireAuth: true, requireFeatures: ['translations.view'] },
 }
 

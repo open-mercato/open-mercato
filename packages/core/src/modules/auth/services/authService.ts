@@ -78,6 +78,10 @@ export class AuthService {
     await this.em.nativeDelete(Session, { token })
   }
 
+  async deleteAllUserSessions(userId: string) {
+    await this.em.nativeDelete(Session, { user: userId })
+  }
+
   async refreshFromSessionToken(token: string) {
     const now = new Date()
     const sess = await this.em.findOne(Session, { token })
@@ -107,6 +111,7 @@ export class AuthService {
     user.passwordHash = await hash(newPassword, 10)
     row.usedAt = new Date()
     await this.em.flush()
+    await this.deleteAllUserSessions(String(user.id))
     return user
   }
 }

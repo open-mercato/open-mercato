@@ -11,7 +11,10 @@ export const componentOverrides: ComponentOverride[] = [
       const WrappedSection = (props: unknown) =>
         React.createElement(
           'div',
-          { className: 'rounded-md border border-dashed border-amber-500/80 bg-amber-50 p-2' },
+          {
+            className: 'rounded-md border border-dotted border-border/40 p-2',
+            'data-testid': 'example-notes-wrapper',
+          },
           React.createElement(Original, props as object)
         )
       WrappedSection.displayName = 'ExampleNotesSectionWrapper'

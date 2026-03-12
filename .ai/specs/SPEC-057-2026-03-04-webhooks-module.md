@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-03-04 |
-| **Related** | SPEC-045 (Integration Marketplace), SPEC-045e (Storage & Webhook Hubs), SPEC-041 (UMES), Issue #257 |
+| **Related** | SPEC-045 (Integration Marketplace), SPEC-045e (Webhook Endpoints Hub), SPEC-041 (UMES), Issue #257 |
 
 ## TLDR
 

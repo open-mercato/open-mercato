@@ -167,7 +167,7 @@ async function processApiRoutes(options: {
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
     imports.push(`import * as ${importName} from '${importPath}'`)
-    apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    apis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
   }
 
   // Single files (plain .ts, not route.ts, not tests, skip method dirs)
@@ -187,7 +187,7 @@ async function processApiRoutes(options: {
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
     imports.push(`import * as ${importName} from '${importPath}'`)
-    apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    apis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
   }
 
   // Legacy per-method
@@ -217,7 +217,7 @@ async function processApiRoutes(options: {
       const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
       const docsPart = hasOpenApi ? `, docs: ${metaName}.openApi` : ''
       imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-      apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
+      apis.push(`{ method: '${method}', path: (${metaName}.metadata?.path ?? '${routePath}'), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
     }
   }
 

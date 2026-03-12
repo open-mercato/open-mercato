@@ -1,3 +1,73 @@
+# 0.4.7 (2026-03-12)
+
+## Highlights
+This release delivers the **Integration Marketplace** with Payment Gateways, Shipping Carriers hubs, and the first integration provider — **Akeneo PIM sync** (SPEC-044/045c/045h). It also ships **Agentic Tool Setup** for standalone apps (SPEC-058), **Docker Command Parity** for Windows developers (SPEC-054), a critical **session invalidation security fix**, **Railway deployment** support, and numerous sales and UX bug fixes.
+
+## ✨ Features
+
+### 🔌 Integration Marketplace — Payment & Shipping Hubs (SPEC-044/045c/045h)
+- Payment Gateways hub module — unified `GatewayAdapter` contract, payment session lifecycle (create/capture/refund/cancel), transaction entity with status machine, webhook receiver with signature verification, status polling worker, and admin UI. (#859) *(@pkarw)*
+- Shipping Carriers hub module — unified carrier adapter contract, shipment tracking, label generation, and rate calculation infrastructure. (#859) *(@pkarw)*
+- Akeneo PIM integration provider — full product sync adapter with field mapping, scheduled sync, and Integration Marketplace wiring. (#935) *(@pkarw)*
+
+### 🤖 Agentic Tool Setup for Standalone Apps (SPEC-058)
+- Standalone app developers using AI coding tools now get auto-generated AGENTS.md, CLAUDE.md, and tool configuration out of the box. (#932) *(@pat-lewczuk)*
+
+### 🐳 Docker Command Parity for Windows (SPEC-054)
+- Cross-platform Docker command wrappers (`scripts/docker-exec.mjs`) enabling Windows developers to run any monorepo command from their native terminal without WSL. (#866) *(@dominikpalatynski)*
+
+### 🗃️ Other Features
+- 🏠 Moved demo-credentials hint from /login to the start page for production build visibility. (#873) *(@mkadziolka)*
+
+## 🔒 Security
+- 🔑 Invalidate all user sessions (access + refresh tokens) on password change and reset — prevents stolen token reuse. (#888) *(@mkadziolka)*
+
+## 🐛 Fixes
+- 🛒 Cancel/back on document creation now returns to the correct list page instead of `/backend/sales/channels`. (#942) *(@rengare)*
+- 📦 Auto-select primary shipping address when a customer is chosen on document creation forms. (#943) *(@rengare)*
+- 🖼️ Enrich quote/order line images with current product media when catalog images are updated. (#914) *(@piorot)*
+- 🔍 Scroll active result into view on arrow key navigation in global search dialog. (#884) *(@MrBuldops)*
+- 🔐 Show access denied page instead of login redirect for authenticated users lacking permissions (#807). (#874) *(@Gajam19)*
+- 🔧 Fix deal pipeline data not saving when adding a new deal. (#924) *(@MYMaj)*
+- 📋 Display fallback "Select" option when form value is empty — fixes TenantSelect validation mismatch. (#882) *(@wisniewski94)*
+- 💰 Handle price variant validation properly with improved coverage (#904). (#913) *(@Magiczne)*
+- 📦 Return user-friendly validation error for duplicate SKU instead of 500 (#909). (#912) *(@michal1986)*
+- 🔄 Finish duplicate definition flow in workflows and add regression tests. (#887) *(@mkadziolka)*
+
+## 🧪 Testing
+- 🔍 Cover search fallback presenter and improve name/title resolution with unit tests. (#886) *(@mkadziolka)*
+- 🔑 Add route-level GET tests for `/api/auth/users` and `/api/auth/roles` with tenant/RBAC filtering. (#885) *(@mkadziolka)*
+
+## 📝 Docs & Documentation
+- 📖 Add screenshots and fix search documentation to match actual codebase state (#331). (#881) *(@MrBuldops)*
+
+## 🚀 CI/CD & Infrastructure
+- 🚂 Railway deployment support with dependency hardening — fixes `@ai-sdk/openai` version conflicts and hoisting issues. (#937) *(@freakone)*
+
+## 👥 Contributors
+
+- @pkarw
+- @pat-lewczuk
+- @mkadziolka
+- @rengare
+- @MrBuldops
+- @dominikpalatynski
+- @michal1986
+- @piorot
+- @MYMaj
+- @freakone
+
+### 🌟 First-time Contributors
+
+Welcome and thank you to our new contributors! 🙌
+
+- @mkadziolka
+- @Magiczne
+- @wisniewski94
+- @Gajam19
+
+---
+
 # 0.4.6 (2026-03-06)
 
 ## Highlights

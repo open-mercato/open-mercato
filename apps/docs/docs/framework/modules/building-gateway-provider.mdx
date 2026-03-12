@@ -1,0 +1,279 @@
+---
+title: Building a Gateway Provider
+description: Step-by-step guide to building a new payment gateway or shipping carrier provider module.
+---
+
+# Building a Gateway Provider
+
+This guide walks through creating a new payment gateway provider package. The same pattern applies to shipping carriers — substitute `GatewayAdapter` with `ShippingAdapter` and adjust the hub/category accordingly.
+
+## 1. Scaffold the package
+
+Create a new workspace package:
+
+```
+packages/gateway-myprovider/
+├── package.json
+├── tsconfig.json
+└── src/
+    └── modules/
+        └── gateway_myprovider/
+            ├── index.ts
+            ├── integration.ts
+            ├── acl.ts
+            ├── setup.ts
+            ├── di.ts
+            ├── lib/
+            │   ├── adapter.ts
+            │   ├── webhook-handler.ts
+            │   ├── status-map.ts
+            │   └── health.ts
+            ├── workers/
+            │   └── webhook-processor.ts
+            └── i18n/
+                └── en.ts
+```
+
+Add the package to `apps/mercato/src/modules.ts` to enable it.
+
+## 2. Define the integration manifest
+
+Declare metadata in `integration.ts`:
+
+```ts
+import type { IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+
+export const integration: IntegrationDefinition = {
+  id: 'gateway_myprovider',
+  title: 'My Provider',
+  description: 'Accept payments via My Provider.',
+  category: 'payment',
+  hub: 'payment_gateways',
+  providerKey: 'myprovider',
+  icon: 'myprovider',
+  package: '@open-mercato/gateway-myprovider',
+  version: '1.0.0',
+  author: 'Your Name',
+  company: 'My Provider, Inc.',
+  credentials: {
+    fields: [
+      { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
+      { key: 'webhookSecret', label: 'Webhook Secret', type: 'secret', required: true },
+    ],
+  },
+  healthCheck: { service: 'myProviderHealthCheck' },
+}
+
+export const integrations: IntegrationDefinition[] = [integration]
+export const bundles = []
+```
+
+This registers the provider in the Integration Marketplace with a credential form and health check.
+
+## 3. Implement the adapter
+
+Create `lib/adapter.ts`:
+
+```ts
+import type { GatewayAdapter, CreateSessionInput, CreateSessionResult } from '@open-mercato/shared/modules/payment_gateways/types'
+import { mapMyProviderStatus } from './status-map'
+
+export const myProviderAdapter: GatewayAdapter = {
+  providerKey: 'myprovider',
+
+  async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
+    const client = createClient(input.credentials)
+    const session = await client.createPayment({
+      amount: input.amount,
+      currency: input.currencyCode,
+    })
+    return {
+      sessionId: session.id,
+      redirectUrl: session.checkoutUrl,
+      status: mapMyProviderStatus(session.status),
+    }
+  },
+
+  async capture(input) {
+    const client = createClient(input.credentials)
+    const result = await client.capture(input.sessionId, input.amount)
+    return { status: mapMyProviderStatus(result.status), capturedAmount: result.amount }
+  },
+
+  async refund(input) {
+    const client = createClient(input.credentials)
+    const result = await client.refund(input.sessionId, input.amount, input.reason)
+    return { refundId: result.id, status: mapMyProviderStatus(result.status), refundedAmount: result.amount }
+  },
+
+  async cancel(input) {
+    const client = createClient(input.credentials)
+    await client.cancel(input.sessionId)
+    return { status: 'cancelled' }
+  },
+
+  async getStatus(input) {
+    const client = createClient(input.credentials)
+    const payment = await client.getPayment(input.sessionId)
+    return {
+      status: mapMyProviderStatus(payment.status),
+      amount: payment.amount,
+      amountReceived: payment.captured,
+      currencyCode: payment.currency,
+    }
+  },
+
+  async verifyWebhook(input) {
+    const secret = input.credentials.webhookSecret as string
+    // Verify signature using provider SDK
+    const event = verifySignature(input.rawBody, input.headers, secret)
+    return {
+      eventType: event.type,
+      eventId: event.id,
+      data: event.data,
+      idempotencyKey: event.id,
+      timestamp: new Date(event.created),
+    }
+  },
+
+  mapStatus: mapMyProviderStatus,
+}
+```
+
+## 4. Build the status map
+
+Create `lib/status-map.ts`:
+
+```ts
+import type { UnifiedPaymentStatus } from '@open-mercato/shared/modules/payment_gateways/types'
+
+const STATUS_MAP: Record<string, UnifiedPaymentStatus> = {
+  'created': 'pending',
+  'awaiting_payment': 'pending',
+  'authorized': 'authorized',
+  'paid': 'captured',
+  'refunded': 'refunded',
+  'cancelled': 'cancelled',
+  'failed': 'failed',
+  'expired': 'expired',
+}
+
+export function mapMyProviderStatus(providerStatus: string): UnifiedPaymentStatus {
+  return STATUS_MAP[providerStatus] ?? 'unknown'
+}
+```
+
+## 5. Register at runtime in di.ts
+
+```ts
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerGatewayAdapter, registerWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+import { myProviderAdapter } from './lib/adapter'
+import { verifyMyProviderWebhook } from './lib/webhook-handler'
+
+export function register(container: AppContainer) {
+  registerGatewayAdapter(myProviderAdapter)
+  registerWebhookHandler('myprovider', verifyMyProviderWebhook, {
+    queue: 'myprovider-webhook',
+  })
+}
+```
+
+Keep `setup.ts` for tenant initialization concerns such as `defaultRoleFeatures`, seeded configuration, example data, and provider-owned env-backed preconfiguration that persists credentials or defaults. Do not rely on `setup.ts` for runtime adapter registration, because the gateway registry is in-memory and must be populated during app boot.
+
+Recommended provider pattern:
+
+- read env vars in a provider-local helper such as `lib/preset.ts`
+- apply them from `setup.ts` to persist credentials/defaults after fresh install
+- expose a provider CLI command such as `configure-from-env` so operators can rerun the preset later
+- keep the preset logic inside the provider package instead of adding provider-specific code to core
+
+## 6. Add the webhook worker
+
+Create `workers/webhook-processor.ts`:
+
+```ts
+import type { Job } from '@open-mercato/queue'
+import type { WorkerContext, WorkerMeta } from '@open-mercato/shared/modules/registry'
+
+export const metadata: WorkerMeta = {
+  queue: 'myprovider-webhook',
+  id: 'myprovider-webhook-processor',
+  concurrency: 5,
+}
+
+export default async function handler(job: Job, ctx: WorkerContext) {
+  const { event, scope, transactionId } = job.data
+  // Update transaction status, emit domain events, log activity
+}
+```
+
+## 7. Add health check
+
+Create `lib/health.ts` and register in `di.ts`:
+
+```ts
+export function createMyProviderHealthCheck(deps) {
+  return {
+    async check(credentials: Record<string, unknown>) {
+      const client = createClient(credentials)
+      await client.ping()
+      return { healthy: true }
+    },
+  }
+}
+```
+
+## 8. Configure webhooks
+
+Tell the payment provider to send events to:
+
+```
+{YOUR_APP_URL}/api/payment_gateways/webhook/myprovider
+```
+
+The dynamic `[provider]` route automatically dispatches to your registered handler.
+
+For local development, expose your app publicly with a tunnel such as ngrok:
+
+```bash
+ngrok http 3000
+```
+
+Then configure the provider to send webhooks to:
+
+```text
+https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/myprovider
+```
+
+## 9. Enable and test
+
+1. Add the package to `apps/mercato/src/modules.ts`.
+2. Run `yarn generate` and `yarn build:packages`.
+3. Go to **Settings > Integrations**, find your provider, and enter credentials.
+4. Use the Payment Gateway Demo page or create a payment method with your provider key.
+
+## Shipping carrier providers
+
+For shipping carriers, follow the same pattern with these differences:
+
+| Payment | Shipping |
+|---------|----------|
+| `GatewayAdapter` | `ShippingAdapter` |
+| `hub: 'payment_gateways'` | `hub: 'shipping_carriers'` |
+| `category: 'payment'` | `category: 'shipping'` |
+| `registerGatewayAdapter()` | `registerShippingAdapter()` |
+| Methods: `createSession`, `capture`, `refund`, `cancel` | Methods: `calculateRates`, `createShipment`, `getTracking`, `cancelShipment` |
+| Webhook route: `/api/payment_gateways/webhook/{provider}` | Webhook route: `/api/shipping_carriers/webhook/{provider}` |
+
+## Stripe reference
+
+The `@open-mercato/gateway-stripe` package is the reference implementation. It demonstrates:
+
+- Versioned adapters (supporting multiple Stripe API versions)
+- Webhook signature verification using the Stripe SDK
+- Status mapping for Payment Intents and Charges
+- Health check via `stripe.accounts.retrieve()`
+- Admin UI widget injection for capture mode configuration
+
+See the [Stripe configuration guide](/api/payment-gateways) for setup instructions.

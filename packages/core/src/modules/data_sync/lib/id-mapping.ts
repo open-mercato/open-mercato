@@ -52,7 +52,7 @@ export function createExternalIdMappingService(em: EntityManager) {
       externalId: string,
       scope: MappingScope,
     ): Promise<SyncExternalIdMapping> {
-      const existing = await findOneWithDecryption(
+      const existingByLocalId = await findOneWithDecryption(
         em,
         SyncExternalIdMapping,
         {
@@ -67,10 +67,40 @@ export function createExternalIdMappingService(em: EntityManager) {
         scope,
       )
 
+      const existingByExternalId = await findOneWithDecryption(
+        em,
+        SyncExternalIdMapping,
+        {
+        integrationId,
+        internalEntityType: entityType,
+        externalId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+        },
+        undefined,
+        scope,
+      )
+
+      const existing = existingByExternalId ?? existingByLocalId
+
       if (existing) {
+        const now = new Date()
+        existing.internalEntityId = localId
         existing.externalId = externalId
         existing.syncStatus = 'synced'
-        existing.lastSyncedAt = new Date()
+        existing.lastSyncedAt = now
+        existing.deletedAt = null
+        if (
+          existingByExternalId &&
+          existingByLocalId &&
+          existingByExternalId.id !== existingByLocalId.id
+        ) {
+          const duplicate = existing.id === existingByExternalId.id
+            ? existingByLocalId
+            : existingByExternalId
+          duplicate.deletedAt = now
+        }
         await em.flush()
         return existing
       }

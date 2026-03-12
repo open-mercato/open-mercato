@@ -77,7 +77,8 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # Install only production system dependencies (Alpine uses apk)
-RUN apk add --no-cache ca-certificates openssl
+# sudo: allows non-root user to chown the Railway-mounted volume at startup
+RUN apk add --no-cache ca-certificates openssl sudo
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -110,14 +111,22 @@ COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
 
-# Drop root privileges (Alpine uses adduser instead of useradd)
+# Copy Railway entrypoint script
+COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh
+RUN chmod +x /app/docker/scripts/railway-entrypoint.sh
+
+# Prepare storage directory for Railway volume mount
+RUN mkdir -p /app/apps/mercato/storage
+
+# Create non-root user and grant passwordless sudo for chown only
 RUN adduser -D -u 1001 omuser \
- && chown -R omuser:omuser /app
+ && chown -R omuser:omuser /app \
+ && echo "omuser ALL=(root) NOPASSWD: /bin/chown" > /etc/sudoers.d/omuser \
+ && chmod 0440 /etc/sudoers.d/omuser
 
 USER omuser
 
 EXPOSE ${CONTAINER_PORT}
 
-# Run the app directly instead of using turbo (which is a devDependency)
 WORKDIR /app/apps/mercato
 CMD ["yarn", "start"]

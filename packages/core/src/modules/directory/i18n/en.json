@@ -33,6 +33,7 @@
   "directory.organizations.form.loading": "Loading organization...",
   "directory.organizations.form.pathLabel": "Path: {path}",
   "directory.organizations.form.rootOption": "— Root level —",
+  "directory.organizations.form.tenant.select": "Select tenant",
   "directory.organizations.form.title.edit": "Edit Organization",
   "directory.organizations.list.actions.create": "Create",
   "directory.organizations.list.actions.delete": "Delete",

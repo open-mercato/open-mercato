@@ -30,7 +30,7 @@ export interface StreamImportInput {
 export interface ImportItem {
   externalId: string
   data: Record<string, unknown>
-  action: 'create' | 'update' | 'skip'
+  action: 'create' | 'update' | 'skip' | 'failed'
   hash?: string
 }
 
@@ -39,6 +39,9 @@ export interface ImportBatch {
   cursor: string
   hasMore: boolean
   totalEstimate?: number
+  processedCount?: number
+  refreshCoverageEntityTypes?: string[]
+  message?: string
   batchIndex: number
 }
 

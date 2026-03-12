@@ -1,0 +1,86 @@
+---
+title: Integration Marketplace
+description: Browse, configure, and monitor external service integrations from one place.
+sidebar_label: Integrations
+---
+
+The Integration Marketplace is your central hub for connecting Open Mercato with external services — payment gateways, shipping carriers, data sync providers, and more. Navigate to **External Systems → Integrations** in the sidebar.
+
+![Integration Marketplace](/screenshots/open-mercato-integrations-list.png)
+
+## Browsing integrations
+
+The marketplace lists every registered integration provider. Use the category filter tabs at the top to narrow by type:
+
+- **Payment** — payment gateway providers (e.g., Stripe)
+- **Shipping** — carrier and fulfillment services
+- **Data Sync** — import/export adapters
+- **Communication** — email, SMS, and messaging
+- **Notification** — alert and push notification services
+- **Storage** — file and asset storage
+- **Webhook** — outbound webhook destinations
+
+Use the search box to find a provider by name. Each card shows the provider name, description, publisher, version, and current state (enabled/disabled toggle).
+
+## Enabling an integration
+
+Click **Configure** on any integration card to open its detail page. Toggle the **State** switch to enable or disable the provider for your tenant.
+
+Some integrations can add provider-specific tabs or tools to this page. For example, a payment gateway can expose extra diagnostics, mapping tools, or setup helpers alongside the standard Credentials, Version, Health, and Logs tabs.
+
+## Credentials
+
+Each provider declares which credentials it requires (API keys, secrets, tokens). Open the **Credentials** tab to enter or update them.
+
+![Stripe credentials](/screenshots/open-mercato-stripe-credentials.png)
+
+- Required fields are marked with an asterisk.
+- Secret fields (passwords, API keys) are masked after saving — they are stored encrypted.
+- Click **Save Credentials** in the top-right to persist changes.
+
+:::tip
+Credentials are scoped per tenant and organization. Each tenant configures its own keys independently.
+:::
+
+## Version management
+
+Providers can publish multiple versions. The **Version** tab shows all available versions with stability labels:
+
+- **Stable** — production-ready
+- **Deprecated** — still functional but scheduled for sunset (date shown)
+
+![Version selector](/screenshots/open-mercato-stripe-api.png)
+
+Select a version and click to switch. The currently active version is labeled **Current Version**. Deprecated versions display their sunset date so you can plan migrations.
+
+## Health checks
+
+The **Health** tab displays the current connectivity status and provider-specific diagnostics.
+
+![Health check](/screenshots/open-mercato-stripe-health.png)
+
+- Click **Run Check** to trigger an on-demand health probe.
+- A **Healthy** badge means the provider responded successfully with the current credentials.
+- The **Details** section shows provider-specific metadata (e.g., Stripe account ID, country, capabilities).
+- **Last checked** timestamp shows when the most recent check ran.
+
+Use health checks after saving new credentials to verify they work before going live.
+
+## Logs
+
+The **Logs** tab provides a chronological audit trail of all operations performed through the integration.
+
+![Integration logs](/screenshots/open-mercato-stripe-refunded-status-log.png)
+
+- Filter by log level using the **All Levels** dropdown.
+- Expand any log entry to see a detailed summary including timestamp, level, entity type, entity ID, and structured fields.
+- The **Payload** panel shows the raw JSON data associated with each event — click **Copy** to grab it.
+
+Logs are invaluable for debugging webhook deliveries, tracking payment lifecycle transitions, and auditing credential changes.
+
+## Next steps
+
+- [Configure Stripe for payments](./stripe-payments) — step-by-step Stripe setup, testing with the demo page, and webhook configuration.
+- [Payment Transactions](./payment-transactions) — track and inspect all payment gateway transactions.
+- [Payment Gateways REST API](/api/payment-gateways) — programmatic access to sessions, captures, refunds, and webhooks.
+- [Integrations & Data Sync REST API](/api/integrations-data-sync) — manage integration state, credentials, and data sync runs via API.

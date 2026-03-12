@@ -217,6 +217,27 @@ interface ApiVersionDefinition {
 
 **Backward-compatibility rule:** the base `IntegrationDefinition` contract remains permissive. Marketplace APIs validate required operational fields (`category`, `hub`, `providerKey`, `credentials`) at registration/runtime, not by narrowing the shared type in a breaking way.
 
+### 1.4 Provider-Owned Env Preconfiguration
+
+Some providers need credentials and default state immediately after install because deployment automation already knows them. This bootstrap flow is part of the provider package contract.
+
+Requirements:
+
+- implement env parsing in a provider-local helper such as `lib/preset.ts`
+- apply the preset from the provider module's `setup.ts`
+- expose a rerunnable provider CLI command such as `configure-from-env`
+- persist through the shared credentials/state services instead of adding provider-specific branches to `integrations`
+- use `OM_INTEGRATION_<PROVIDER>_*` as the canonical env naming convention
+
+Examples:
+
+- `OM_INTEGRATION_STRIPE_SECRET_KEY`
+- `OM_INTEGRATION_STRIPE_API_VERSION`
+- `OM_INTEGRATION_AKENEO_API_URL`
+- `OM_INTEGRATION_AKENEO_PRODUCT_CHANNEL`
+
+Legacy aliases may be read for backward compatibility, but docs and examples must present the `OM_INTEGRATION_<PROVIDER>_*` names as primary.
+
 #### Bundle UX in Admin Panel
 
 Bundles appear as **grouped cards** in the marketplace:

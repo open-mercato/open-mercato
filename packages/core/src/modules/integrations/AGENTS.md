@@ -71,7 +71,19 @@ packages/core/src/modules/integrations/
 3. Declare `credentials.fields` for the admin UI to render a dynamic form
 4. Optionally declare `healthCheck.service` (register the service in your `di.ts`)
 5. Optionally declare `apiVersions` for versioned external APIs
-6. Run `yarn generate` to auto-discover the integration
+6. Add provider-owned env preconfiguration when the integration can be deployment-managed: read env vars in the provider package, apply them from `setup.ts`, and expose a rerunnable provider CLI command when practical
+7. Document the provider env vars in public docs or package docs
+8. Run `yarn generate` to auto-discover the integration
+
+### Provider-Owned Env Preconfiguration
+
+If the provider needs credentials, default mappings, or enabled state after a fresh install, implement that in the provider package, not in `integrations`:
+
+- Read env vars in a provider-local helper such as `lib/preset.ts`
+- Apply the preset from the provider module's `setup.ts` so tenant bootstrap can configure the integration automatically
+- Expose a provider-local CLI command (for example `configure-from-env`) so operators can rerun the same bootstrap logic later
+- Keep env names stable and provider-prefixed (for example `OM_INTEGRATION_AKENEO_*`)
+- Persist through the normal integration services (`integrationCredentialsService`, mapping APIs, state service); never special-case providers in core
 
 ### Bundle Integrations
 
@@ -119,6 +131,37 @@ Integration provider modules can leverage the full **Unified Module Extension Sy
 | **Notifications** | Emit in-app notifications on integration events | `notifications.ts`, `subscribers/` |
 | **DOM Event Bridge** | Push real-time events to browser (SSE) | Set `clientBroadcast: true` in event definitions |
 
+### Integration Detail Page Widget Spot
+
+Provider modules can opt into a provider-scoped integration detail extension surface directly from `integration.ts`:
+
+```typescript
+import { buildIntegrationDetailWidgetSpotId } from '@open-mercato/shared/modules/integrations/types'
+
+export const integration = {
+  id: 'gateway_example',
+  detailPage: {
+    widgetSpotId: buildIntegrationDetailWidgetSpotId('gateway_example'),
+  },
+} satisfies IntegrationDefinition
+```
+
+- Register React widgets for that spot in `widgets/injection-table.ts`
+- Use `placement.kind: 'tab'` to create additional detail tabs
+- Use `placement.kind: 'group'` for card-style panels and `placement.kind: 'stack'` for inline sections
+- Integration detail page writes run through `useGuardedMutation` with that same spot, so widget `onBeforeSave` / `onAfterSave` handlers apply to built-in credentials/state/version/health actions too
+- Backward compatibility: legacy `integrations.detail:tabs` still works as the fallback when `detailPage.widgetSpotId` is omitted
+
+### Marketplace API UMES Hooks
+
+The integrations marketplace read routes now support a safe subset of UMES:
+
+- `GET /api/integrations` and `GET /api/integrations/:id` support response enrichers targeting `integrations.integration`
+- `GET /api/integrations/logs` supports response enrichers targeting `integrations.log`
+- These read routes also execute API interceptors for their route IDs (`integrations`, `integrations/detail`, `integrations/logs`)
+- Safety rule: integrations read routes preserve built-in response keys and only accept additive fields from enrichers/interceptor-after hooks
+- Write routes (`credentials`, `state`, `version`) already support mutation guards and events; they are not yet wired into the generic API interceptor/enricher pipeline
+
 ### Key UMES Imports for Providers
 
 ```typescript
@@ -137,9 +180,9 @@ The integrations module itself uses UMES to inject external ID displays on any e
 
 ## Progress Delivery Contract
 
-- `ProgressTopBar` polls `/api/progress/active` every 5s (`useProgressPoll`).
+- `ProgressTopBar` uses `progress.job.*` SSE updates for live progress.
 - SSE DOM bridge forwards only events with `clientBroadcast: true`.
-- `progress.job.*` events are not yet marked `clientBroadcast: true` — polling is the active mechanism.
+- `progress.job.*` events are marked `clientBroadcast: true` and must be bridged across worker and web processes.
 
 ## Integration Test Expectations
 
@@ -152,6 +195,7 @@ The integrations module itself uses UMES to inject external ID displays on any e
 - **Never import from provider modules** — integrations module is generic; providers import from integrations, not vice versa
 - **Always scope by organizationId + tenantId** — every entity query and service call
 - **Use `findWithDecryption`/`findOneWithDecryption`** for credential reads
+- **New providers MUST support provider-owned env preconfiguration** when credentials/settings are deployment-managed; implement it in the provider package, not in core
 - **Never log credential values** — log service strips secret fields from payload
 - **Health check services** must be registered in DI by the provider module, not by integrations
 - **API routes must export `openApi`** for documentation generation

@@ -1,0 +1,15 @@
+{
+  "gateway_stripe.config.allowPromotionCodes": "Zezwól na kody promocyjne przy kasie",
+  "gateway_stripe.config.captureMethod": "Metoda przechwytywania",
+  "gateway_stripe.config.captureMethod.automatic": "Automatyczna - obciąż natychmiast",
+  "gateway_stripe.config.captureMethod.manual": "Manualna - autoryzuj, przechwytuj później",
+  "gateway_stripe.config.help": "Skonfiguruj dane uwierzytelniające w Integracjach. Moduły konsumenckie decydują o powiązaniu Stripe z ich UI płatności.",
+  "gateway_stripe.config.paymentTypes": "Typy płatności",
+  "gateway_stripe.config.statementDescriptor": "Opis na wyciągu",
+  "gateway_stripe.config.statementDescriptor.help": "Co pojawia się na wyciągu bankowym klienta (maks. 22 znaki)",
+  "gateway_stripe.description": "Akceptuj płatności kartą, Apple Pay, Google Pay i przelewy bankowe przez Stripe.",
+  "gateway_stripe.feature.configure": "Konfiguracja ustawień Stripe",
+  "gateway_stripe.feature.view": "Podgląd konfiguracji Stripe",
+  "gateway_stripe.tabs.settings": "Ustawienia Stripe",
+  "gateway_stripe.title": "Stripe"
+}

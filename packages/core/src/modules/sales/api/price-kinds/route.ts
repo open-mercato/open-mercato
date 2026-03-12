@@ -5,7 +5,7 @@ import { sanitizeSearchTerm, parseBooleanFlag } from '@open-mercato/core/modules
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/catalog_price_kind'
 import { createPagedListResponseSchema, createSalesCrudOpenApi } from '../openapi'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildAggregateSearchFilter } from '../utils'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
@@ -45,10 +45,8 @@ const crud = makeCrudRoute({
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       const term = sanitizeSearchTerm(query.search)
-      if (term) {
-        const like = `%${escapeLikePattern(term)}%`
-        filters.$or = [{ [F.code]: { $ilike: like } }, { [F.title]: { $ilike: like } }]
-      }
+      const searchFilter = buildAggregateSearchFilter(term)
+      if (searchFilter) Object.assign(filters, searchFilter)
       const isActive = parseBooleanFlag(query.isActive)
       if (isActive !== undefined) {
         filters[F.is_active] = isActive
