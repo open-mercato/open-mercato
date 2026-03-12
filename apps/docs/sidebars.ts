@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "installation/prerequisites",
         "installation/setup",
+        "installation/railway",
         {
           type: "link",
           label: "Standalone App (create-mercato-app)",
