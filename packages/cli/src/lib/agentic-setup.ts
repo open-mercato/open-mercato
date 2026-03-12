@@ -102,6 +102,12 @@ function generateShared(config: AgenticConfig): void {
     'ai/skills/code-review/references/review-checklist.md',
     join(targetDir, '.ai', 'skills', 'code-review', 'references', 'review-checklist.md'),
   )
+  copyFile(srcDir, 'ai/skills/integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'integration-builder', 'SKILL.md'))
+  copyFile(
+    srcDir,
+    'ai/skills/integration-builder/references/adapter-contracts.md',
+    join(targetDir, '.ai', 'skills', 'integration-builder', 'references', 'adapter-contracts.md'),
+  )
 }
 
 function generateClaudeCode(config: AgenticConfig): void {

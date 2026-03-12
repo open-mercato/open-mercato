@@ -30,6 +30,7 @@ Never edit node_modules directly.
 | Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
 | Review code changes | `.ai/skills/code-review/SKILL.md` |
 | Build backend UI | `.ai/skills/backend-ui-design/SKILL.md` |
+| Build an integration | `.ai/skills/integration-builder/SKILL.md` |
 
 ## Critical conventions
 
