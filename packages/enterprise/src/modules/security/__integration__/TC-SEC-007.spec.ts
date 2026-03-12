@@ -5,6 +5,7 @@ import {
   deleteUserFixture,
   enrollOtpEmail,
   fetchJson,
+  loginViaApi,
 } from './helpers/securityFixtures'
 
 test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
@@ -52,23 +53,8 @@ test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
     await deleteUserFixture(request, adminToken ?? null, controlUserId)
     controlUserId = controlUser.id
 
-    const targetLoginResponse = await request.post('http://localhost:3000/api/auth/login', {
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      data: `email=${encodeURIComponent(targetUser.email)}&password=${encodeURIComponent(targetUser.password)}`,
-    })
-    expect(targetLoginResponse.status()).toBe(200)
-    const targetLogin = await targetLoginResponse.json() as { token: string }
-
-    const controlLoginResponse = await request.post('http://localhost:3000/api/auth/login', {
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      data: `email=${encodeURIComponent(controlUser.email)}&password=${encodeURIComponent(controlUser.password)}`,
-    })
-    expect(controlLoginResponse.status()).toBe(200)
-    const controlLogin = await controlLoginResponse.json() as { token: string }
+    const targetLogin = await loginViaApi(request, targetUser.email, targetUser.password)
+    const controlLogin = await loginViaApi(request, controlUser.email, controlUser.password)
 
     await enrollOtpEmail(request, targetLogin.token)
 

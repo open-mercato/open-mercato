@@ -72,7 +72,9 @@ export class MfaService {
       }, payload)
       : payload
 
-    const result = await provider.setup(userId, resolvedPayload, context)
+    const result = context
+      ? await provider.setup(userId, resolvedPayload, context)
+      : await provider.setup(userId, resolvedPayload)
     const now = new Date()
     const method = this.em.create(UserMfaMethod, {
       userId,
