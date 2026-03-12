@@ -69,6 +69,7 @@ type AddressOption = {
   label: string
   summary: string
   name?: string | null
+  isPrimary: boolean
   value: AddressValue
 }
 
@@ -533,7 +534,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     }
   }, [])
 
-  const loadAddresses = React.useCallback(async (customerId?: string | null) => {
+  const loadAddresses = React.useCallback(async (customerId?: string | null): Promise<AddressOption[]> => {
     addressRequestRef.current += 1
     const requestId = addressRequestRef.current
 
@@ -550,7 +551,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       setAddressesError(null)
       setAddressOptions([])
       setAddressesLoading(false)
-      return
+      return []
     }
     setAddressesLoading(true)
     setAddressesError(null)
@@ -583,12 +584,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           const name = typeof item.name === 'string' ? item.name.trim() : ''
           const summary = formatAddressString(value, addressFormat)
           const label = name || summary || id
-          acc.push({ id, label, summary, value, name: name || null })
+          const isPrimary = item.is_primary === true
+          acc.push({ id, label, summary, value, name: name || null, isPrimary })
           return acc
         }, [])
         if (addressRequestRef.current === requestId) {
           setAddressOptions(options)
         }
+        return options
       } else {
         if (addressRequestRef.current === requestId) {
           setAddressOptions([])
@@ -621,6 +624,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         setAddressesLoading(false)
       }
     }
+    return []
   }, [addressFormat, t])
 
   React.useEffect(() => {
@@ -1108,7 +1112,12 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     resetAddressFormState(setValue)
                   }
                   setValue('customerEntityId', next)
-                  loadAddresses(next)
+                  loadAddresses(next).then((addrs) => {
+                    const primary = addrs.find((addr) => addr.isPrimary)
+                    if (primary) {
+                      setValue('shippingAddressId', primary.id)
+                    }
+                  }).catch(() => {})
                   if (next) {
                     const match = customers.find((entry) => entry.id === next)
                     const possibleEmail =
@@ -1160,7 +1169,12 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                       })
                       setValue('customerEntityId', id)
                       resetAddressFormState(setValue)
-                      loadAddresses(id)
+                      loadAddresses(id).then((addrs) => {
+                        const primary = addrs.find((addr) => addr.isPrimary)
+                        if (primary) {
+                          setValue('shippingAddressId', primary.id)
+                        }
+                      }).catch(() => {})
                       if (email && !values.customerEmail) {
                         setValue('customerEmail', email)
                       }
