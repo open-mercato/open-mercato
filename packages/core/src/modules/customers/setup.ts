@@ -1,7 +1,7 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
 import { seedCustomerDictionaries, seedCurrencyDictionary, seedCustomerExamples, seedDefaultPipeline } from './cli'
-import { DETAIL_HEADER_FIELDSET } from './components/detail/CompanyHighlights'
+import { DETAIL_HEADER_FIELDSET } from './lib/detailHelpers'
 
 const DETAIL_HEADER_FIELDSET_DEF = {
   code: DETAIL_HEADER_FIELDSET,
