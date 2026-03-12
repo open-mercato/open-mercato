@@ -390,7 +390,16 @@ describe('Workflow Definitions API', () => {
       const data = await response.json()
 
       expect(response.status).toBe(200)
-      expect(data.data).toEqual(mockDefinition)
+      expect(data.data).toEqual({
+        ...mockDefinition,
+        description: null,
+        metadata: null,
+        effectiveFrom: null,
+        effectiveTo: null,
+        createdBy: null,
+        updatedBy: null,
+        deletedAt: null,
+      })
       expect(mockEm.findOne).toHaveBeenCalledWith(
         WorkflowDefinition,
         expect.objectContaining({

@@ -68,6 +68,16 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "category",
+          label: "Integrations & Payments",
+          items: [
+            "user-guide/integrations",
+            "user-guide/akeneo-pim",
+            "user-guide/stripe-payments",
+            "user-guide/payment-transactions",
+          ],
+        },
+        {
+          type: "category",
           label: "Customers",
           items: [
             "user-guide/customers",
@@ -145,6 +155,7 @@ const sidebars: SidebarsConfig = {
             "api/dashboards",
             "api/customers",
             "api/integrations-data-sync",
+            "api/payment-gateways",
             "api/entities",
             "api/attachments",
             "api/vector",
@@ -260,6 +271,9 @@ const sidebars: SidebarsConfig = {
             "framework/modules/integrations-data-sync",
             "framework/modules/sales-providers",
             "framework/modules/sales-calculations",
+            "framework/modules/payment-gateways",
+            "framework/modules/shipping-carriers",
+            "framework/modules/building-gateway-provider",
           ],
         },
         {

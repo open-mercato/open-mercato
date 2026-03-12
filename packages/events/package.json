@@ -32,7 +32,9 @@
     }
   },
   "dependencies": {
-    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/queue": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "pg": "8.20.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

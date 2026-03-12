@@ -250,10 +250,16 @@ export type InjectionBulkActionDefinition = {
   id: string
   label: string
   icon?: string
+  requiresSelection?: boolean
   onExecute: (
     selectedRows: unknown[],
     context: unknown,
-  ) => Promise<void | { ok: boolean; message?: string; affectedCount?: number }>
+  ) => Promise<void | {
+    ok: boolean
+    message?: string
+    affectedCount?: number
+    progressJobId?: string | null
+  }>
 }
 
 export type InjectionFilterDefinition = {

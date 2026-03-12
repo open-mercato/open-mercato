@@ -3,6 +3,7 @@ import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import type { ProgressService } from '../../progress/lib/progressService'
+import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
 import { getDataSyncAdapter } from './adapter-registry'
@@ -35,6 +36,7 @@ function applyImportCounters(batch: ImportBatch): Pick<Required<SyncCounterDelta
   for (const item of batch.items) {
     if (item.action === 'create') createdCount += 1
     else if (item.action === 'update') updatedCount += 1
+    else if (item.action === 'failed') failedCount += 1
     else skippedCount += 1
   }
 
@@ -95,6 +97,56 @@ export function createSyncEngine(deps: EngineDeps) {
     )
   }
 
+  async function refreshCoverageSnapshots(entityTypes: string[] | undefined, scope: SyncScope): Promise<void> {
+    if (!entityTypes || entityTypes.length === 0) return
+
+    await Promise.allSettled(
+      Array.from(new Set(entityTypes.filter((value) => typeof value === 'string' && value.trim().length > 0)))
+        .map((entityType) => refreshCoverageSnapshot(deps.em, {
+          entityType,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+        })),
+    )
+  }
+
+  async function logImportItemFailures(
+    runId: string,
+    integrationId: string,
+    items: ImportBatch['items'],
+    scope: SyncScope,
+  ): Promise<void> {
+    const failedItems = items.filter((item) => item.action === 'failed')
+    for (const item of failedItems) {
+      const errorMessage = typeof item.data.errorMessage === 'string' && item.data.errorMessage.trim().length > 0
+        ? item.data.errorMessage.trim()
+        : 'Import item failed'
+      const sourceProductUuid = typeof item.data.sourceProductUuid === 'string' && item.data.sourceProductUuid.trim().length > 0
+        ? item.data.sourceProductUuid.trim()
+        : null
+      const sourceIdentifier = typeof item.data.sourceIdentifier === 'string' && item.data.sourceIdentifier.trim().length > 0
+        ? item.data.sourceIdentifier.trim()
+        : null
+      const message = [
+        `Failed to import Akeneo product ${item.externalId}`,
+        sourceProductUuid ? `(uuid: ${sourceProductUuid})` : null,
+        sourceIdentifier ? `(identifier: ${sourceIdentifier})` : null,
+        `: ${errorMessage}`,
+      ].filter((part) => part !== null).join(' ')
+
+      await integrationLogService.write(
+        {
+          integrationId,
+          runId,
+          level: 'error',
+          message,
+          payload: item.data,
+        },
+        scope,
+      )
+    }
+  }
+
   async function finalizeRun(runId: string, status: 'completed' | 'failed' | 'cancelled', scope: SyncScope, error?: string): Promise<void> {
     const run = await syncRunService.markStatus(runId, status, scope, error)
     if (!run) return
@@ -124,6 +176,15 @@ export function createSyncEngine(deps: EngineDeps) {
           {
             errorMessage: error ?? 'Sync run failed',
           },
+          {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          },
+        )
+      } else if (status === 'cancelled') {
+        await progressService.markCancelled(
+          run.progressJobId,
           {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
@@ -175,6 +236,16 @@ export function createSyncEngine(deps: EngineDeps) {
         console.warn(`[data-sync] Skipping stale import job for missing run ${runId}`)
         return
       }
+      if (run.status === 'cancelled') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
 
       const providerKey = resolveProviderKey(run.integrationId)
       const adapter = getDataSyncAdapter(providerKey)
@@ -187,7 +258,17 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`Integration ${run.integrationId} is missing credentials`)
       }
 
-      await syncRunService.markStatus(run.id, 'running', scope)
+      const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
+      if (!activeRun || activeRun.status !== 'running') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
       await emitDataSyncEvent('data_sync.run.started', {
         runId: run.id,
         integrationId: run.integrationId,
@@ -224,7 +305,8 @@ export function createSyncEngine(deps: EngineDeps) {
           }
 
           const delta = applyImportCounters(batch)
-          processedCount += batch.items.length
+          const processedBatchCount = batch.processedCount ?? batch.items.length
+          processedCount += processedBatchCount
           totalCount = batch.totalEstimate ?? totalCount
 
           await syncRunService.updateCounts(
@@ -238,16 +320,21 @@ export function createSyncEngine(deps: EngineDeps) {
           await syncRunService.updateCursor(run.id, batch.cursor, scope)
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
+          await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
+          await logImportItemFailures(run.id, run.integrationId, batch.items, scope)
 
           await integrationLogService.write(
             {
               integrationId: run.integrationId,
               runId: run.id,
               level: 'info',
-              message: `Processed import batch ${batch.batchIndex}`,
+              message: batch.message?.trim().length
+                ? batch.message.trim()
+                : `Processed import batch ${batch.batchIndex}`,
               payload: {
                 processedCount,
                 batchSize: batch.items.length,
+                processedBatchCount,
                 cursor: batch.cursor,
               },
             },
@@ -278,6 +365,16 @@ export function createSyncEngine(deps: EngineDeps) {
         console.warn(`[data-sync] Skipping stale export job for missing run ${runId}`)
         return
       }
+      if (run.status === 'cancelled') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
 
       const providerKey = resolveProviderKey(run.integrationId)
       const adapter = getDataSyncAdapter(providerKey)
@@ -290,7 +387,17 @@ export function createSyncEngine(deps: EngineDeps) {
         throw new Error(`Integration ${run.integrationId} is missing credentials`)
       }
 
-      await syncRunService.markStatus(run.id, 'running', scope)
+      const activeRun = await syncRunService.markStatus(run.id, 'running', scope)
+      if (!activeRun || activeRun.status !== 'running') {
+        if (run.progressJobId) {
+          await progressService.markCancelled(run.progressJobId, {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            userId: scope.userId,
+          })
+        }
+        return
+      }
       await emitDataSyncEvent('data_sync.run.started', {
         runId: run.id,
         integrationId: run.integrationId,

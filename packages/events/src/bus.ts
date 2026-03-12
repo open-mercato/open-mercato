@@ -1,6 +1,9 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
+export { registerCrossProcessEventListener } from './bridge'
+import { publishCrossProcessEvent } from './bridge'
 import type {
   EventBus,
   CreateBusOptions,
@@ -15,6 +18,11 @@ const EVENTS_QUEUE_NAME = 'events'
 
 type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
 const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
+
+function hasTenantScope(payload: EventPayload): boolean {
+  return typeof (payload as Record<string, unknown>)?.tenantId === 'string'
+    && String((payload as Record<string, unknown>).tenantId).trim().length > 0
+}
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
   const existing = (globalThis as Record<string, unknown>)[GLOBAL_EVENT_TAPS_KEY]
@@ -193,6 +201,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
 
     // Always deliver to in-memory handlers first
     await deliver(event, payload)
+
+    if (isBroadcastEvent(event) && hasTenantScope(payload)) {
+      try {
+        await publishCrossProcessEvent(event, payload, options)
+      } catch (error) {
+        console.error(`[events] Cross-process publish error for "${event}":`, error)
+      }
+    }
 
     // If persistent, also enqueue for async processing
     if (options?.persistent) {

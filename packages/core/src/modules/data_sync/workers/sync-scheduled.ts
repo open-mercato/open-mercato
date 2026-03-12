@@ -1,6 +1,7 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { SyncSchedule } from '../data/entities'
 import { getSyncQueue } from '../lib/queue'
@@ -26,6 +27,7 @@ type HandlerContext = JobContext & {
 export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
   const syncRunService = ctx.resolve<SyncRunService>('dataSyncRunService')
+  const integrationStateService = ctx.resolve<IntegrationStateService>('integrationStateService')
 
   const schedule = await findOneWithDecryption(
     em,
@@ -41,6 +43,11 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
   )
 
   if (!schedule || !schedule.isEnabled) {
+    return
+  }
+
+  const integrationEnabled = await integrationStateService.isEnabled(schedule.integrationId, job.payload.scope)
+  if (!integrationEnabled) {
     return
   }
 

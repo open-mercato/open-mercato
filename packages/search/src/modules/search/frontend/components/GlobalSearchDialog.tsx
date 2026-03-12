@@ -166,6 +166,7 @@ export function GlobalSearchDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = React.useState(0)
   const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const listRef = React.useRef<HTMLDivElement | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
   const t = useT()
   const [showScopeHint, setShowScopeHint] = React.useState<boolean>(() => hasActiveOrganizationSelection())
@@ -305,6 +306,19 @@ export function GlobalSearchDialog({
     }
   }, [results, selectedIndex, openResult])
 
+  React.useEffect(() => {
+    const container = listRef.current
+    const active = container?.querySelector<HTMLElement>('[data-active="true"]')
+    if (!container || !active) return
+    const { top: containerTop, bottom: containerBottom } = container.getBoundingClientRect()
+    const { top: activeTop, bottom: activeBottom } = active.getBoundingClientRect()
+    if (activeTop < containerTop) {
+      container.scrollTop -= containerTop - activeTop
+    } else if (activeBottom > containerBottom) {
+      container.scrollTop += activeBottom - containerBottom
+    }
+  }, [selectedIndex])
+
   // Check if vector search is enabled but not configured
   const showVectorWarning = !embeddingConfigured && enabledStrategies.includes('vector') && !error
 
@@ -364,7 +378,7 @@ export function GlobalSearchDialog({
               </p>
             ) : null}
           </div>
-          <div className="max-h-96 overflow-y-auto px-2 pb-3">
+          <div ref={listRef} className="max-h-96 overflow-y-auto px-2 pb-3">
             {results.length === 0 && !loading && !error ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">
                 {query.trim().length < MIN_QUERY_LENGTH
@@ -379,7 +393,7 @@ export function GlobalSearchDialog({
                 const hasLink = pickPrimaryLink(result) !== null
                 const Icon = presenter?.icon ? resolveIcon(presenter.icon) : null
                 return (
-                  <li key={`${result.entityId}:${result.recordId}`}>
+                  <li key={`${result.entityId}:${result.recordId}`} data-active={isActive}>
                     <button
                       type="button"
                       onClick={() => openResult(result)}
