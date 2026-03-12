@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { getSyncQueue } from '@open-mercato/core/modules/data_sync/lib/queue'
 import {
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
     }), { status: 401 })
   }
 
-  const parsed = requestSchema.safeParse(await req.json().catch(() => null))
+  const parsed = requestSchema.safeParse(await readJsonSafe(req))
   if (!parsed.success) {
     return NextResponse.json(responseSchema.parse({
       ok: false,

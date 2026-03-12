@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import type { SyncRunService } from '../../../lib/sync-run-service'
 import { retrySyncSchema } from '../../../data/validators'
@@ -33,7 +34,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     return NextResponse.json({ error: 'Invalid run id' }, { status: 400 })
   }
 
-  const payload = await req.json().catch(() => null)
+  const payload = await readJsonSafe(req)
   const parsedBody = retrySyncSchema.safeParse(payload ?? {})
   if (!parsedBody.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsedBody.error.flatten() }, { status: 422 })
