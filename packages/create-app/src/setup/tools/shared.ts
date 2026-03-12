@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AgenticConfig } from '../wizard.js'
@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // In the bundled output (dist/index.js), __dirname is dist/.
 // agentic/ is copied to dist/agentic/ by build.mjs.
 const AGENTIC_DIR = join(__dirname, 'agentic', 'shared')
+const GUIDES_DIR = join(__dirname, 'agentic', 'guides')
 
 function resolvePlaceholders(content: string, config: AgenticConfig): string {
   return content.replace(/\{\{PROJECT_NAME\}\}/g, config.projectName)
@@ -130,4 +131,17 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/data-model-design/references/mikro-orm-cheatsheet.md',
     join(targetDir, '.ai', 'skills', 'data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
   )
+
+  // Package guides — auto-discovered from sibling packages during build
+  if (existsSync(GUIDES_DIR)) {
+    const guidesDestDir = join(targetDir, '.ai', 'guides')
+    for (const file of readdirSync(GUIDES_DIR)) {
+      if (file.endsWith('.md')) {
+        const srcPath = join(GUIDES_DIR, file)
+        const destPath = join(guidesDestDir, file)
+        ensureDir(destPath)
+        copyFileSync(srcPath, destPath)
+      }
+    }
+  }
 }
