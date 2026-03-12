@@ -1366,16 +1366,18 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     [onCreated, t],
   )
 
+  const cancelHref = initialKind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
+
   return (
     <CrudForm<SalesDocumentFormValues>
       title={t('sales.documents.form.title', 'Create sales document')}
-      backHref="/backend/sales/channels"
+      backHref={cancelHref}
       fields={fields}
       groups={groups}
       initialValues={initialValues}
       entityIds={[E.sales.sales_quote, E.sales.sales_order]}
       submitLabel={t('sales.documents.form.submit', 'Create')}
-      cancelHref="/backend/sales/channels"
+      cancelHref={cancelHref}
       onSubmit={handleSubmit}
     />
   )
