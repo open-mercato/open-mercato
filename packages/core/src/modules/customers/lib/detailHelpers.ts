@@ -1,5 +1,12 @@
 import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 
+/**
+ * Reserved fieldset code. Custom fields assigned to this fieldset
+ * appear in the company detail header metadata strip.
+ * Manage via: System → Entities → Customer Company → "Detail header" fieldset tab.
+ */
+export const DETAIL_HEADER_FIELDSET = 'detail_header'
+
 export function generateTempId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()

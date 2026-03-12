@@ -15,13 +15,7 @@ import {
   type NextInteractionPayload,
 } from './InlineEditors'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
-
-/**
- * Reserved fieldset code. Custom fields assigned to this fieldset
- * appear in the company detail header metadata strip.
- * Manage via: System → Entities → Customer Company → "Detail header" fieldset tab.
- */
-export const DETAIL_HEADER_FIELDSET = 'detail_header'
+import { DETAIL_HEADER_FIELDSET } from '../../lib/detailHelpers'
 
 type CompanyHighlightsCompany = {
   id: string
