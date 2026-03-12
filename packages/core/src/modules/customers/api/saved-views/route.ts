@@ -1,3 +1,8 @@
+/**
+ * @deprecated Use the generic perspectives API instead: GET/POST /api/perspectives/{tableId}
+ * with tableId = 'customers:deal' | 'customers:person' | 'customers:company'.
+ * This route is kept for backward compatibility and will be removed in a future release.
+ */
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

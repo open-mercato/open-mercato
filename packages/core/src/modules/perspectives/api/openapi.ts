@@ -13,6 +13,8 @@ export const perspectiveDtoSchema = z.object({
   tableId: z.string(),
   settings: perspectiveSettingsSchema,
   isDefault: z.boolean(),
+  isShared: z.boolean().optional(),
+  userId: z.string().uuid().optional(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 })
@@ -27,6 +29,7 @@ export const rolePerspectiveDtoSchema = perspectiveDtoSchema.extend({
 export const perspectivesIndexResponseSchema = z.object({
   tableId: z.string(),
   perspectives: z.array(perspectiveDtoSchema),
+  shared: z.array(perspectiveDtoSchema),
   defaultPerspectiveId: z.string().uuid().nullable(),
   rolePerspectives: z.array(rolePerspectiveDtoSchema),
   roles: z.array(
