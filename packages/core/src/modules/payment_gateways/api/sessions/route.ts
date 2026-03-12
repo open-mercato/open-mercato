@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import {
@@ -19,6 +20,75 @@ import { paymentGatewaysTag } from '../openapi'
 export const metadata = {
   path: '/payment_gateways/sessions',
   POST: { requireAuth: true, requireFeatures: ['payment_gateways.manage'] },
+}
+
+const sessionRouteValidationDetailsSchema = z.object({
+  formErrors: z.array(z.string()).optional(),
+  fieldErrors: z.record(z.string(), z.array(z.string()).optional()).optional(),
+})
+
+const createPaymentSessionResponseSchema = z.object({
+  transactionId: z.string().uuid(),
+  sessionId: z.string(),
+  providerKey: z.string(),
+  clientSecret: z.string().nullable().optional(),
+  redirectUrl: z.string().url().nullable().optional(),
+  providerData: z.record(z.string(), z.unknown()).nullable(),
+  status: z.string(),
+  paymentId: z.string().uuid(),
+  paymentLinkId: z.string().uuid().nullable(),
+  paymentLinkToken: z.string().nullable(),
+  paymentLinkUrl: z.string().url().nullable(),
+})
+
+const createPaymentSessionErrorSchema = z.object({
+  error: z.string(),
+  details: sessionRouteValidationDetailsSchema.optional(),
+  fieldErrors: z.record(z.string(), z.string()).optional(),
+})
+
+const createPaymentSessionExample = {
+  providerKey: 'stripe',
+  amount: 49.99,
+  currencyCode: 'USD',
+  captureMethod: 'automatic',
+  description: 'Invoice #INV-10024',
+  successUrl: 'https://merchant.example.com/payments/success',
+  cancelUrl: 'https://merchant.example.com/payments/cancel',
+  metadata: {
+    invoiceId: 'INV-10024',
+    source: 'backoffice',
+  },
+  paymentLink: {
+    enabled: true,
+    title: 'Invoice INV-10024',
+    description: 'Secure payment for invoice INV-10024.',
+    password: '2486',
+  },
+}
+
+const createPaymentSessionResponseExample = {
+  transactionId: '123e4567-e89b-12d3-a456-426614174000',
+  sessionId: 'cs_test_a1b2c3',
+  providerKey: 'stripe',
+  clientSecret: 'pi_3QzExample_secret_abc123',
+  redirectUrl: 'https://checkout.stripe.com/c/pay/cs_test_a1b2c3',
+  providerData: {
+    paymentIntentId: 'pi_3QzExample',
+    publishableKey: 'pk_test_123',
+  },
+  status: 'pending',
+  paymentId: '123e4567-e89b-12d3-a456-426614174001',
+  paymentLinkId: '123e4567-e89b-12d3-a456-426614174002',
+  paymentLinkToken: 'pay_6NQ2gZf1wH7kPx',
+  paymentLinkUrl: 'https://merchant.example.com/pay/pay_6NQ2gZf1wH7kPx',
+}
+
+const createPaymentSessionValidationErrorExample = {
+  error: 'Invalid payload',
+  fieldErrors: {
+    paymentLinkTitle: 'Enter a title for the payment link.',
+  },
 }
 
 function resolveUserFeatures(auth: unknown): string[] {
@@ -235,15 +305,46 @@ export async function POST(req: Request) {
 
 export const openApi = {
   tags: [paymentGatewaysTag],
-  summary: 'Create a payment session via a gateway provider',
+  summary: 'Create a payment transaction and optional pay-by-link session via a gateway provider',
   methods: {
     POST: {
-      summary: 'Create payment session',
+      summary: 'Create payment transaction',
       tags: [paymentGatewaysTag],
+      description: [
+        'Creates a gateway transaction and returns the provider session details needed to complete checkout.',
+        'Set `paymentLink.enabled` to `true` to also generate a shareable hosted payment-link URL.',
+        'When pay-by-link mode is enabled, `paymentLink.title` is required and the response includes `paymentLinkId`, `paymentLinkToken`, and `paymentLinkUrl`.',
+      ].join(' '),
+      requestBody: {
+        schema: createSessionSchema,
+        description: 'Gateway transaction payload. Include the optional `paymentLink` object to create a public pay-by-link URL together with the transaction.',
+        example: createPaymentSessionExample,
+      },
       responses: [
-        { status: 201, description: 'Payment session created' },
-        { status: 422, description: 'Invalid payload or unknown provider' },
-        { status: 502, description: 'Gateway provider error' },
+        {
+          status: 201,
+          description: 'Payment transaction and provider session created',
+          schema: createPaymentSessionResponseSchema,
+          example: createPaymentSessionResponseExample,
+        },
+        {
+          status: 401,
+          description: 'Authentication required',
+          schema: createPaymentSessionErrorSchema,
+          example: { error: 'Unauthorized' },
+        },
+        {
+          status: 422,
+          description: 'Invalid payload, missing pay-link title, or unknown provider',
+          schema: createPaymentSessionErrorSchema,
+          example: createPaymentSessionValidationErrorExample,
+        },
+        {
+          status: 502,
+          description: 'Gateway provider error',
+          schema: createPaymentSessionErrorSchema,
+          example: { error: 'Failed to create payment session' },
+        },
       ],
     },
   },

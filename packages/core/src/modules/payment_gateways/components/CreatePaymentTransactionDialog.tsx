@@ -5,6 +5,7 @@ import {
   CrudForm,
   type CrudCustomFieldRenderProps,
   type CrudField,
+  type CrudFieldOption,
   type CrudFormGroup,
   type CrudFormGroupComponentProps,
 } from '@open-mercato/ui/backend/CrudForm'
@@ -67,7 +68,7 @@ type CreatePaymentTransactionFormValues = {
 const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
   providerKey: '',
   amount: '',
-  currencyCode: 'USD',
+  currencyCode: '',
   description: '',
   createPaymentLink: true,
   paymentLinkTitle: '',
@@ -110,6 +111,37 @@ function ProviderSelectField({
       {providers.map((provider) => (
         <option key={provider.providerKey} value={provider.providerKey}>
           {formatProviderLabel(provider)}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function CurrencySelectField({
+  value,
+  setValue,
+  autoFocus,
+  disabled,
+  currencies,
+  isLoading,
+  placeholder,
+}: CrudCustomFieldRenderProps & {
+  currencies: CrudFieldOption[]
+  isLoading: boolean
+  placeholder: string
+}) {
+  return (
+    <select
+      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+      value={typeof value === 'string' ? value : ''}
+      onChange={(event) => setValue(event.target.value)}
+      autoFocus={autoFocus}
+      disabled={disabled || isLoading}
+    >
+      <option value="">{placeholder}</option>
+      {currencies.map((currency) => (
+        <option key={currency.value} value={currency.value}>
+          {currency.label}
         </option>
       ))}
     </select>
@@ -251,7 +283,9 @@ export function CreatePaymentTransactionDialog({
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const providerFieldsRef = React.useRef<InjectionFieldDefinition[]>([])
   const [providers, setProviders] = React.useState<ProviderItem[]>([])
+  const [currencies, setCurrencies] = React.useState<CrudFieldOption[]>([])
   const [loadingProviders, setLoadingProviders] = React.useState(false)
+  const [loadingCurrencies, setLoadingCurrencies] = React.useState(false)
   const [currentProviderKey, setCurrentProviderKey] = React.useState('')
   const [formInitialValues, setFormInitialValues] = React.useState<CreatePaymentTransactionFormValues>(DEFAULT_FORM_VALUES)
   const [formResetKey, setFormResetKey] = React.useState(0)
@@ -264,24 +298,37 @@ export function CreatePaymentTransactionDialog({
 
     const loadProviders = async () => {
       setLoadingProviders(true)
-      const call = await apiCall<{ items?: ProviderItem[] }>('/api/payment_gateways/providers', undefined, {
-        fallback: { items: [] },
-      })
+      setLoadingCurrencies(true)
+      const [providersCall, currenciesCall] = await Promise.all([
+        apiCall<{ items?: ProviderItem[] }>('/api/payment_gateways/providers', undefined, {
+          fallback: { items: [] },
+        }),
+        apiCall<{ items?: CrudFieldOption[] }>('/api/currencies/currencies/options', undefined, {
+          fallback: { items: [] },
+        }),
+      ])
 
       if (!mounted) return
 
-      const nextProviders = Array.isArray(call.result?.items) ? call.result.items : []
+      const nextProviders = Array.isArray(providersCall.result?.items) ? providersCall.result.items : []
+      const nextCurrencies = Array.isArray(currenciesCall.result?.items) ? currenciesCall.result.items : []
       const defaultProviderKey = nextProviders[0]?.providerKey ?? ''
+      const defaultCurrencyCode = nextCurrencies.find((currency) => currency.value === 'USD')?.value
+        ?? nextCurrencies[0]?.value
+        ?? ''
 
       setProviders(nextProviders)
+      setCurrencies(nextCurrencies)
       setCurrentProviderKey(defaultProviderKey)
       providerFieldsRef.current = []
       setFormInitialValues({
         ...DEFAULT_FORM_VALUES,
         providerKey: defaultProviderKey,
+        currencyCode: defaultCurrencyCode,
       })
       setFormResetKey((current) => current + 1)
       setLoadingProviders(false)
+      setLoadingCurrencies(false)
     }
 
     void loadProviders()
@@ -294,6 +341,9 @@ export function CreatePaymentTransactionDialog({
   React.useEffect(() => {
     if (open) return
     setProviders([])
+    setCurrencies([])
+    setLoadingProviders(false)
+    setLoadingCurrencies(false)
     setCurrentProviderKey('')
     providerFieldsRef.current = []
     setFormInitialValues(DEFAULT_FORM_VALUES)
@@ -327,9 +377,17 @@ export function CreatePaymentTransactionDialog({
     {
       id: 'currencyCode',
       label: t('payment_gateways.create.currency', 'Currency'),
-      type: 'text',
+      type: 'custom',
       layout: 'half',
       required: true,
+      component: (props) => (
+        <CurrencySelectField
+          {...props}
+          currencies={currencies}
+          isLoading={loadingCurrencies}
+          placeholder={t('payment_gateways.create.currencyPlaceholder', 'Select currency')}
+        />
+      ),
     },
     {
       id: 'amount',
@@ -344,7 +402,7 @@ export function CreatePaymentTransactionDialog({
       type: 'text',
       layout: 'half',
     },
-  ], [loadingProviders, providers, t])
+  ], [currencies, loadingCurrencies, loadingProviders, providers, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
@@ -577,12 +635,16 @@ export function CreatePaymentTransactionDialog({
                 type="button"
                 variant="outline"
                 onClick={() => {
+                  const resetCurrencyCode = currencies.find((currency) => currency.value === 'USD')?.value
+                    ?? currencies[0]?.value
+                    ?? ''
                   setCreatedPaymentLink(null)
                   setCopied(false)
                   providerFieldsRef.current = []
                   setFormInitialValues({
                     ...DEFAULT_FORM_VALUES,
                     providerKey: providers[0]?.providerKey ?? '',
+                    currencyCode: resetCurrencyCode,
                   })
                   setCurrentProviderKey(providers[0]?.providerKey ?? '')
                   setFormResetKey((current) => current + 1)
@@ -602,7 +664,7 @@ export function CreatePaymentTransactionDialog({
             fields={fields}
             groups={groups}
             initialValues={formInitialValues}
-            isLoading={loadingProviders}
+            isLoading={loadingProviders || loadingCurrencies}
             loadingMessage={t('ui.forms.loading', 'Loading data...')}
             submitLabel={t('payment_gateways.create.submit', 'Create transaction')}
             injectionSpotId={PAYMENT_GATEWAY_TRANSACTION_CREATE_FORM_SPOT_ID}
