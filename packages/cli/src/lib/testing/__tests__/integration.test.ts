@@ -76,6 +76,9 @@ describe('integration cache and options', () => {
     const baseUrl = 'http://127.0.0.1:5001'
     const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : String(input)
+      if (url.endsWith('/api/auth/login')) {
+        return { status: 401, text: async () => '' } as unknown as Response
+      }
       if (url.endsWith('/login')) {
         return {
           status: 200,
@@ -84,9 +87,6 @@ describe('integration cache and options', () => {
       }
       if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
         return { status: 200, text: async () => '' } as unknown as Response
-      }
-      if (url.endsWith('/api/auth/login')) {
-        return { status: 401, text: async () => '' } as unknown as Response
       }
       return { status: 200, text: async () => '' } as unknown as Response
     })
@@ -120,6 +120,87 @@ describe('integration cache and options', () => {
       fetchSpy.mockRestore()
     }
   }, 20000)
+
+  it('reuses an existing environment when /login returns a redirect status other than 302', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.endsWith('/api/auth/login')) {
+        return { status: 401, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return { status: 308, text: async () => '' } as unknown as Response
+      }
+      return { status: 200, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      await writeEphemeralEnvironmentState({
+        baseUrl,
+        port: 5001,
+        logPrefix: 'integration',
+        captureScreenshots: true,
+      })
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: true,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+
+      expect(environment).not.toBeNull()
+      expect(environment).toMatchObject({
+        baseUrl,
+        port: 5001,
+        ownedByCurrentProcess: false,
+      })
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('reuses an existing environment when /login returns healthy HTML without static asset references', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.endsWith('/api/auth/login')) {
+        return { status: 401, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          text: async () => '<!doctype html><html><body><form data-auth-ready="0"></form></body></html>',
+        } as unknown as Response
+      }
+      return { status: 200, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      await writeEphemeralEnvironmentState({
+        baseUrl,
+        port: 5001,
+        logPrefix: 'integration',
+        captureScreenshots: false,
+      })
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: false,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+
+      expect(environment).not.toBeNull()
+      expect(environment).toMatchObject({
+        baseUrl,
+        port: 5001,
+        ownedByCurrentProcess: false,
+      })
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
 
   it('falls back to rebuilding when the ephemeral environment state is unreachable', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
