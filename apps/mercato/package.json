@@ -38,6 +38,7 @@
     "@open-mercato/scheduler": "workspace:*",
     "@open-mercato/search": "workspace:*",
     "@open-mercato/shared": "workspace:*",
+    "@open-mercato/sync-akeneo": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.0.5",

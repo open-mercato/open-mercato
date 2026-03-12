@@ -37,6 +37,7 @@ export type CustomFieldDefinition = {
   label?: string
   description?: string
   fieldset?: string
+  fieldsets?: string[]
   group?: {
     code: string
     title?: string
@@ -74,6 +75,7 @@ export type CustomFieldDefinition = {
   // Attachments config passthrough (handled by attachments module)
   maxAttachmentSizeMb?: number
   acceptExtensions?: string[]
+  sourceMetadata?: Record<string, unknown>
 }
 
 export type CustomFieldSet = {

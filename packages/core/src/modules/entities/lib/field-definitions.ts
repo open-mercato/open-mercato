@@ -24,6 +24,7 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'label',
   'description',
   'fieldset',
+  'fieldsets',
   'group',
   'options',
   'optionsUrl',
@@ -42,6 +43,7 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'validation',
   'maxAttachmentSizeMb',
   'acceptExtensions',
+  'sourceMetadata',
 ]
 
 function normalizeValue(value: unknown): unknown {

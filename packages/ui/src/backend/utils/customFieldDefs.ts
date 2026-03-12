@@ -19,6 +19,7 @@ export type CustomFieldDefDto = {
   input?: string
   priority?: number
   fieldset?: string
+  fieldsets?: string[]
   group?: { code: string; title?: string; hint?: string }
   // attachments-specific config
   maxAttachmentSizeMb?: number

@@ -3,6 +3,14 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { IntegrationState } from '../data/entities'
 
+export type ResolvedIntegrationState = {
+  isEnabled: boolean
+  apiVersion: string | null
+  reauthRequired: boolean
+  lastHealthStatus: string | null
+  lastHealthCheckedAt: Date | null
+}
+
 export function createIntegrationStateService(em: EntityManager) {
   return {
     async get(integrationId: string, scope: IntegrationScope): Promise<IntegrationState | null> {
@@ -18,6 +26,22 @@ export function createIntegrationStateService(em: EntityManager) {
         undefined,
         scope,
       )
+    },
+
+    async resolveState(integrationId: string, scope: IntegrationScope): Promise<ResolvedIntegrationState> {
+      const state = await this.get(integrationId, scope)
+      return {
+        isEnabled: state?.isEnabled ?? false,
+        apiVersion: state?.apiVersion ?? null,
+        reauthRequired: state?.reauthRequired ?? false,
+        lastHealthStatus: state?.lastHealthStatus ?? null,
+        lastHealthCheckedAt: state?.lastHealthCheckedAt ?? null,
+      }
+    },
+
+    async isEnabled(integrationId: string, scope: IntegrationScope): Promise<boolean> {
+      const state = await this.resolveState(integrationId, scope)
+      return state.isEnabled
     },
 
     async upsert(
@@ -38,7 +62,7 @@ export function createIntegrationStateService(em: EntityManager) {
 
       const created = em.create(IntegrationState, {
         integrationId,
-        isEnabled: input.isEnabled ?? true,
+        isEnabled: input.isEnabled ?? false,
         apiVersion: input.apiVersion,
         reauthRequired: input.reauthRequired ?? false,
         lastHealthStatus: input.lastHealthStatus,

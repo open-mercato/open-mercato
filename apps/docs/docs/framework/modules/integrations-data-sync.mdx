@@ -123,6 +123,70 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - `streamImport(...)` and/or `streamExport(...)`
 - optional `validateConnection(...)`
 
+## Provider-owned environment preconfiguration
+
+New integration providers should not require manual admin setup after every fresh install when deployment already knows the credentials and defaults. The provider package should own that bootstrap path itself.
+
+Recommended pattern:
+
+1. Read provider env vars in a provider-local helper such as `lib/preset.ts`.
+2. Apply them from the provider module's `setup.ts` so tenant bootstrap can save credentials and default mappings automatically.
+3. Expose a provider-local CLI command such as `configure-from-env` so operators can rerun the same logic later.
+4. Persist through the normal integration services and data-sync mapping APIs instead of adding provider-specific branches to `integrations` or `data_sync`.
+
+```ts
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { applyMyProviderEnvPreset } from './lib/preset'
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated({ em, tenantId, organizationId, container }) {
+    await applyMyProviderEnvPreset({
+      em,
+      tenantId,
+      organizationId,
+      credentialsService: container.resolve('integrationCredentialsService'),
+      stateService: container.resolve('integrationStateService'),
+    })
+  },
+}
+
+export default setup
+```
+
+Use stable provider-prefixed env names. Prefer the `OM_INTEGRATION_<PROVIDER>_*` shape for primary names.
+
+### Akeneo example envs
+
+The Akeneo sync provider supports this pattern today. Primary envs:
+
+```env
+OM_INTEGRATION_AKENEO_API_URL=
+OM_INTEGRATION_AKENEO_CLIENT_ID=
+OM_INTEGRATION_AKENEO_CLIENT_SECRET=
+OM_INTEGRATION_AKENEO_USERNAME=
+OM_INTEGRATION_AKENEO_PASSWORD=
+OM_INTEGRATION_AKENEO_FORCE_PRECONFIGURE=false
+OM_INTEGRATION_AKENEO_PRODUCT_LOCALE=
+OM_INTEGRATION_AKENEO_CATEGORY_LOCALE=
+OM_INTEGRATION_AKENEO_PRODUCT_CHANNEL=
+OM_INTEGRATION_AKENEO_IMPORT_CHANNELS=
+OM_INTEGRATION_AKENEO_IMPORT_ALL_CHANNELS=true
+OM_INTEGRATION_AKENEO_CREATE_MISSING_CHANNELS=true
+OM_INTEGRATION_AKENEO_SYNC_ASSOCIATIONS=true
+OM_INTEGRATION_AKENEO_ATTRIBUTE_FAMILY_FILTER=
+OM_INTEGRATION_AKENEO_PRODUCTS_SETTINGS_JSON=
+OM_INTEGRATION_AKENEO_CATEGORIES_SETTINGS_JSON=
+OM_INTEGRATION_AKENEO_ATTRIBUTES_SETTINGS_JSON=
+```
+
+Operational notes:
+
+- only one product locale is imported into base Open Mercato fields at a time
+- `OM_INTEGRATION_AKENEO_IMPORT_CHANNELS` is a comma-separated list
+- if you do not set locale envs, the Akeneo preset defaults product and category locale to `en_US`
+- the provider can auto-apply these during tenant setup and can be rerun with `yarn mercato sync_akeneo configure-from-env --tenant <tenantId> --org <organizationId>`
+- legacy aliases `OPENMERCATO_AKENEO_*` and `AKENEO_*` are still accepted for backward compatibility
+
 ## Run lifecycle
 
 `data_sync` run flow:

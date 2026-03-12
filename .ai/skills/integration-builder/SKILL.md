@@ -267,6 +267,48 @@ export const setup: ModuleSetupConfig = {
 export default setup
 ```
 
+### 4.5a Provider-Owned Env Preconfiguration (REQUIRED PATTERN)
+
+New integrations MUST support provider-owned env preconfiguration when credentials, mappings, channels, locales, or enabled state are likely to be managed by deployment automation.
+
+Implement the pattern inside the provider package:
+
+1. Add a provider-local helper such as `lib/preset.ts` that reads env vars and builds the persisted provider settings.
+2. Apply the preset from `setup.ts` so a fresh tenant can come up already configured when env vars are present.
+3. Add a provider-local CLI command (for example `configure-from-env`) so operators can rerun the same logic later without touching core.
+4. Persist through the normal services for that hub (credentials service, mapping APIs, state service, etc.).
+5. Name env vars with the primary pattern `OM_INTEGRATION_<PROVIDER>_*` (for example `OM_INTEGRATION_AKENEO_API_URL`, `OM_INTEGRATION_STRIPE_SECRET_KEY`).
+6. Legacy aliases may be accepted for backward compatibility, but docs and examples must show `OM_INTEGRATION_<PROVIDER>_*` as the canonical names.
+7. Document the env vars in public docs or package docs using those canonical names.
+
+Do not add provider-specific bootstrap logic to `packages/core/`.
+
+Example shape:
+
+```typescript
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { createCredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
+import { createIntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
+import { applyMyProviderEnvPreset } from './lib/preset'
+
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    superadmin: ['<module_id>.view', '<module_id>.configure'],
+    admin: ['<module_id>.view', '<module_id>.configure'],
+  },
+
+  async onTenantCreated({ em, tenantId, organizationId }) {
+    await applyMyProviderEnvPreset({
+      credentialsService: createCredentialsService(em),
+      stateService: createIntegrationStateService(em),
+      scope: { tenantId, organizationId },
+    })
+  },
+}
+
+export default setup
+```
+
 ### 4.6 di.ts
 
 ```typescript
@@ -670,6 +712,16 @@ npm run modules:prepare       # discover integration.ts, widgets, workers
 yarn generate                 # update generated files
 ```
 
+### 11.4 Document the Env Preset
+
+If the provider supports env-backed preconfiguration, update the relevant docs in the same change:
+
+- add the env variable list
+- explain which values are required vs optional
+- explain that the provider auto-applies them from `setup.ts`
+- document the rerunnable provider CLI command
+- note any JSON override envs separately from simple scalar envs
+
 ---
 
 ## 12. Verification
@@ -695,6 +747,9 @@ After completing the implementation:
 - [ ] No credentials stored in memory or logged — resolve fresh from `credentials` param
 - [ ] i18n: all user-facing strings in locale files, no hardcoded strings
 - [ ] ACL features declared and assigned in `setup.ts` `defaultRoleFeatures`
+- [ ] Provider-owned env preconfiguration implemented when the integration is deployment-managed
+- [ ] Provider env vars documented with canonical `OM_INTEGRATION_<PROVIDER>_*` names
+- [ ] Provider CLI can rerun env preconfiguration without core changes
 - [ ] Workers export `metadata` with `{ queue, id, concurrency }`
 - [ ] Widget injection table maps widgets to correct spots
 - [ ] Package has unit tests for status mapping, webhook verification, client factory
@@ -720,3 +775,6 @@ After completing the implementation:
 - **MUST NOT** modify any files in `packages/core/`, `packages/ui/`, or `packages/shared/`
 - **MUST** follow the gateway-stripe reference implementation patterns exactly
 - **MUST** declare ACL features and wire them in `setup.ts` `defaultRoleFeatures`
+- **MUST** add provider-owned env preconfiguration for new integrations when deployment automation can supply credentials or defaults
+- **MUST** keep env preset logic and documentation inside the provider package/docs; do not add provider-specific preset handling to core
+- **MUST** use `OM_INTEGRATION_<PROVIDER>_*` as the primary env naming convention for new integration presets

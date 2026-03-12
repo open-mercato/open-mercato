@@ -925,6 +925,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         entitySettings[entityId]?.singleFieldsetPerRecord !== false
       const defsByFieldset = new globalThis.Map<string | null, CustomFieldDefDto[]>()
       defsForEntity.forEach((def) => {
+        const memberships = Array.isArray(def.fieldsets)
+          ? def.fieldsets
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((entry) => entry.trim())
+              .filter((entry) => entry.length > 0)
+          : []
+        if (memberships.length > 0) {
+          memberships.forEach((code) => {
+            const bucket = defsByFieldset.get(code) ?? []
+            bucket.push(def)
+            defsByFieldset.set(code, bucket)
+          })
+          return
+        }
         const code = typeof def.fieldset === 'string' && def.fieldset.trim().length > 0 ? def.fieldset.trim() : null
         const bucket = defsByFieldset.get(code) ?? []
         bucket.push(def)

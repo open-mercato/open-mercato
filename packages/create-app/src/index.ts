@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { join, dirname, basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createInterface } from 'node:readline'
 import pc from 'picocolors'
+import { runAgenticSetup } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -199,6 +201,13 @@ async function main(): Promise<void> {
 
     console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
     console.log('')
+
+    // Agentic tool setup wizard
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    const ask = (q: string) => new Promise<string>((res) => rl.question(q, (a) => res(a.trim())))
+    await runAgenticSetup(targetDir, ask)
+    rl.close()
+
     console.log('Next steps:')
     console.log('')
     console.log(pc.cyan(`  cd ${appName}`))

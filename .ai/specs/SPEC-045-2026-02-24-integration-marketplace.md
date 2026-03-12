@@ -66,6 +66,7 @@ See [SPEC-045a §1.2](./SPEC-045a-foundation.md#12-integration-bundles) for the 
 | 6 | **Runtime enable/disable** — per tenant without code changes | `IntegrationState` entity |
 | 7 | **Versioned adapters** — one integration ships multiple API versions; tenants pick which to use | External APIs evolve; tenants upgrade at their own pace |
 | 8 | **Zero core module modifications** — integrations extend via UMES, events, DI | Community can contribute independently |
+| 9 | **Provider-owned env preconfiguration** — integrations bootstrap themselves from deployment env inside the provider package | Fresh installs and infra automation must not require core patches |
 
 ---
 
@@ -141,6 +142,26 @@ Integrations without `apiVersions` are treated as single-version (unversioned) �
 ### Credentials API
 
 Unified encrypted per-tenant store. Bundle integrations inherit bundle credentials via fallthrough. Secret fields masked on read (`'••••••••'`). Supports **OAuth 2.0 credential type** for third-party app authentication (Google, Microsoft, GitHub, Slack) — admin creates their own OAuth app, connects via consent screen, tokens stored encrypted with background renewal. See [SPEC-045a §2](./SPEC-045a-foundation.md#2-credentials-api) and [SPEC-045a §8](./SPEC-045a-foundation.md#8-oauth-20-credential-type--third-party-app-authentication).
+
+### Provider-Owned Env Preconfiguration
+
+Integrations may need credentials, default mappings, locale/channel defaults, enabled state, or API version immediately after a fresh install. This bootstrap capability belongs in the provider package, not in core modules.
+
+Contract:
+
+- Providers read deployment env vars in provider-local helpers such as `lib/preset.ts`
+- Providers apply those presets from their own `setup.ts`
+- Providers expose a rerunnable provider CLI command such as `configure-from-env`
+- Providers persist through normal integration services (`IntegrationCredentials`, `IntegrationState`, hub mapping APIs), never through provider-specific branches in core
+- Canonical env names MUST use the `OM_INTEGRATION_<PROVIDER>_*` pattern
+- Backward-compatible aliases may be accepted, but docs/examples must present `OM_INTEGRATION_<PROVIDER>_*` as the primary surface
+
+Examples:
+
+- `OM_INTEGRATION_AKENEO_API_URL`
+- `OM_INTEGRATION_AKENEO_PRODUCT_LOCALE`
+- `OM_INTEGRATION_STRIPE_SECRET_KEY`
+- `OM_INTEGRATION_STRIPE_API_VERSION`
 
 ### Operation Logs
 
@@ -228,6 +249,11 @@ Becomes `communication_channels` hub. WhatsApp becomes first spoke. See [SPEC-04
 - **Mitigation**: Transaction wraps credential save; documented in ops runbook. Admin re-enters credentials.
 - **Residual risk**: Downtime for affected integrations until re-configured.
 
+#### Misnamed Provider Env Variables
+- **Scenario**: Providers ship inconsistent env prefixes (`OPENMERCATO_*`, custom names, unprefixed names), causing failed automation and unclear docs
+- **Mitigation**: Canonical naming contract is `OM_INTEGRATION_<PROVIDER>_*`; provider docs and builder guidance must use that surface. Aliases are optional compatibility shims only.
+- **Residual risk**: Existing deployments may still use legacy aliases; mitigated by alias support during migration.
+
 ### Medium Risks
 
 #### Health Check Timeout
@@ -268,6 +294,9 @@ This spec family introduces new infrastructure while preserving existing contrac
 
 5. **Event/route stability rules**  
    Existing event IDs and API routes remain untouched. New IDs/routes are additive. Any future retirements require dual-emit/deprecation bridge.
+
+6. **Env preset naming is standardized**
+   New provider presets MUST use `OM_INTEGRATION_<PROVIDER>_*` as the canonical env surface. Legacy aliases such as `OPENMERCATO_<PROVIDER>_*` or `<PROVIDER>_*` may be read for backward compatibility, but must not be the documented primary names.
 
 ---
 
@@ -330,3 +359,4 @@ This spec family introduces new infrastructure while preserving existing contrac
 | 2026-02-24 | Updated SPEC-045b scheduler integration: replaced custom `sync-scheduler.ts` polling worker with proper `packages/scheduler` integration via `schedulerService.register()`. Added detailed execution flow, overlap prevention, two-strategy architecture (local/async), DI registration, and 16 scheduler integration tests |
 | 2026-03-04 | Added explicit "Migration & Backward Compatibility" section with bridge rules for type evolution, payment credential migration, canonical external ID mapping ownership, and generated contract stability |
 | 2026-03-10 | Split Phase 5 into 5a (SPEC-045i — Storage Providers Hub, merged with SPEC-058) and 5b (SPEC-045e — Webhook Endpoints Hub). Old combined SPEC-045e removed. |
+| 2026-03-12 | Added provider-owned env preconfiguration contract and canonical env naming rule: `OM_INTEGRATION_<PROVIDER>_*`; documented rerunnable `configure-from-env` provider CLI pattern and clarified aliases are compatibility-only |

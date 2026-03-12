@@ -18,6 +18,14 @@ export const injectionTable: ModuleInjectionTable = {
   ],
   // Fallback alias when forms derive spot id from entity id
   'crud-form:catalog.catalog_product': 'catalog.injection.product-seo',
+  'data-table:catalog.products:bulk-actions': {
+    widgetId: 'catalog.injection.product-bulk-delete',
+    priority: 40,
+  },
+  'data-table:catalog.products.list:bulk-actions': {
+    widgetId: 'catalog.injection.product-bulk-delete',
+    priority: 40,
+  },
 }
 
 export default injectionTable

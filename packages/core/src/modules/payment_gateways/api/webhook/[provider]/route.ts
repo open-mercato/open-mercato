@@ -69,9 +69,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       )
       : []
 
-    let transaction = null as GatewayTransaction | null
-    let matchedScope = null as { organizationId: string; tenantId: string } | null
-    let event = null as Awaited<ReturnType<typeof registration.handler>> | null
+    let transaction: GatewayTransaction | null = null
+    let matchedScope: { organizationId: string; tenantId: string } | null = null
+    let event: Awaited<ReturnType<typeof registration.handler>> | null = null
     let lastVerificationError: unknown = null
 
     for (const candidate of candidates) {

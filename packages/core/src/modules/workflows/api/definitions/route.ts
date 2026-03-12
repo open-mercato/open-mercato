@@ -16,6 +16,7 @@ import {
   createWorkflowDefinitionInputSchema,
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
+import { serializeWorkflowDefinition } from './serialize'
 
 export const metadata = {
   requireAuth: true,
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
     if (search) {
       where.$or = [
         { workflowId: { $ilike: `%${search}%` } },
-        { 'definition.workflowName': { $ilike: `%${search}%` } },
+        { workflowName: { $ilike: `%${search}%` } },
       ]
     }
 
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest) {
     )
 
     return NextResponse.json({
-      data: definitions,
+      data: definitions.map(serializeWorkflowDefinition),
       pagination: {
         total,
         limit,
@@ -188,7 +189,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        data: definition,
+        data: serializeWorkflowDefinition(definition),
         message: 'Workflow definition created successfully',
       },
       { status: 201 }
