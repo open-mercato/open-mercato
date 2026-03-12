@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": {
+      "command": "node",
+      "args": [".cursor/hooks/entity-migration-check.mjs"],
+      "description": "Check if entity edit requires a database migration"
+    }
+  }
+}

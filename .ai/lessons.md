@@ -299,3 +299,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: If server events can originate from workers, the event bridge must include a cross-process transport. Do not assume an in-memory tap is enough for SSE delivery. Also, orchestration widgets that wrap child sync runs should subscribe to the active child `progressJobId`, not only to a slower wrapper job.
 
 **Applies to**: `packages/events/src/bus.ts`, `packages/events/src/modules/events/api/stream/route.ts`, `packages/sync-akeneo/src/modules/sync_akeneo/lib/first-import.ts`, and worker-backed progress UI across the platform.
+
+## Keep standalone agentic content in sync with module conventions
+
+**Context**: `packages/create-app/agentic/` contains purpose-built AI coding tool configurations for standalone Open Mercato apps (AGENTS.md, CLAUDE.md, entity-migration hooks, Cursor rules, Codex enforcement rules). This content is separate from the monorepo's `.ai/` folder.
+
+**Problem**: When module conventions change (entity lifecycle, auto-discovery paths, CLI commands, `yarn generate` behavior), the standalone agentic content can drift, causing AI tools to give incorrect guidance or hooks to miss new patterns.
+
+**Rule**: When changing module conventions that affect standalone app developers — entity/migration workflow, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
+
+**Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
