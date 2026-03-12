@@ -2,44 +2,14 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { updateSyncScheduleSchema } from '../../../data/validators'
 import type { SyncScheduleService } from '../../../lib/sync-schedule-service'
+import { serializeSchedule } from '../serialize'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })
-
-function serializeSchedule(item: {
-  id: string
-  integrationId: string
-  entityType: string
-  direction: 'import' | 'export'
-  scheduleType: 'cron' | 'interval'
-  scheduleValue: string
-  timezone: string
-  fullSync: boolean
-  isEnabled: boolean
-  scheduledJobId?: string | null
-  lastRunAt?: Date | null
-  createdAt: Date
-  updatedAt: Date
-}) {
-  return {
-    id: item.id,
-    integrationId: item.integrationId,
-    entityType: item.entityType,
-    direction: item.direction,
-    scheduleType: item.scheduleType,
-    scheduleValue: item.scheduleValue,
-    timezone: item.timezone,
-    fullSync: item.fullSync,
-    isEnabled: item.isEnabled,
-    scheduledJobId: item.scheduledJobId ?? null,
-    lastRunAt: item.lastRunAt?.toISOString() ?? null,
-    createdAt: item.createdAt.toISOString(),
-    updatedAt: item.updatedAt.toISOString(),
-  }
-}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['data_sync.configure'] },
@@ -96,7 +66,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid schedule id' }, { status: 400 })
   }
 
-  const payload = await req.json().catch(() => null)
+  const payload = await readJsonSafe(req)
   const parsed = updateSyncScheduleSchema.safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 422 })
