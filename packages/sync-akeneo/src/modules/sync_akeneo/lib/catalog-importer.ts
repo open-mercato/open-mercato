@@ -2708,6 +2708,11 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       defaultMediaId: string | null
       defaultMediaUrl: string | null
     }> = []
+    const shouldMirrorVariantHeroToProduct = !product.parent && !hierarchy.familyVariantCode
+    let mirroredProductHeroFromVariant: {
+      defaultMediaId: string | null
+      defaultMediaUrl: string | null
+    } | null = null
     for (const asset of desiredAssets) {
       const key = `${asset.entityId}:${asset.recordId}`
       const bucket = assetsByTarget.get(key) ?? []
@@ -2736,6 +2741,17 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
           defaultMediaId: hero.heroAttachmentId,
           defaultMediaUrl: hero.heroAttachmentUrl,
         })
+        if (
+          shouldMirrorVariantHeroToProduct
+          && firstAsset.recordId === localVariantId
+          && hero.heroAttachmentId
+          && !mirroredProductHeroFromVariant
+        ) {
+          mirroredProductHeroFromVariant = {
+            defaultMediaId: hero.heroAttachmentId,
+            defaultMediaUrl: hero.heroAttachmentUrl,
+          }
+        }
       }
     }
 
@@ -2767,6 +2783,14 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         action: 'updated',
+      })
+    }
+
+    if (mirroredProductHeroFromVariant) {
+      await executeCommand('catalog.products.update', {
+        id: localProductId,
+        defaultMediaId: mirroredProductHeroFromVariant.defaultMediaId,
+        defaultMediaUrl: mirroredProductHeroFromVariant.defaultMediaUrl,
       })
     }
 

@@ -99,6 +99,9 @@ describe('akeneo adapter product import', () => {
       processedCount: 0,
       message: 'Reconciling imported Akeneo products after the final batch',
     }))
+    expect(listProducts).toHaveBeenCalledWith(expect.objectContaining({
+      batchSize: 10,
+    }))
     expect(reconcileProducts).toHaveBeenCalled()
   })
 })

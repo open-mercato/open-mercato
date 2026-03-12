@@ -1,11 +1,8 @@
 "use client"
 import * as React from 'react'
 import { apiCall } from '../utils/apiCall'
-import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { useAppEvent } from '../injection/useAppEvent'
 import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
-
-const ACTIVE_POLL_INTERVAL_MS = 2000
 
 function isVisibleProgressJob(job: ProgressJobDto): boolean {
   return job.meta?.hiddenFromTopBar !== true
@@ -54,17 +51,9 @@ export function useProgressSse(): UseProgressPollResult {
     void fetchJobs()
   }, [fetchJobs])
 
-  React.useEffect(() => {
-    if (activeJobs.length === 0) return
-    const interval = window.setInterval(() => {
-      void fetchJobs()
-    }, ACTIVE_POLL_INTERVAL_MS)
-    return () => window.clearInterval(interval)
-  }, [activeJobs.length, fetchJobs])
-
   useAppEvent(
     'progress.job.updated',
-    (event: AppEventPayload) => {
+    (event) => {
       const payload = event.payload as Partial<ProgressJobDto> & { jobId?: string }
       const jobId = payload?.jobId
       if (!jobId) {

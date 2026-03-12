@@ -336,6 +336,28 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     }
   }
 
+  async function countProducts(updatedAfter?: string | null): Promise<number | null> {
+    const params: Record<string, string | number | boolean | undefined | null> = {
+      limit: 1,
+      pagination_type: 'page',
+      with_count: true,
+    }
+    const normalizedUpdatedAfter = normalizeAkeneoDateTime(updatedAfter)
+    if (normalizedUpdatedAfter) {
+      params.search = JSON.stringify({
+        updated: [
+          {
+            operator: '>',
+            value: normalizedUpdatedAfter,
+          },
+        ],
+      })
+    }
+
+    const page = await readList<AkeneoProduct>('/api/rest/v1/products-uuid', params)
+    return page.totalEstimate
+  }
+
   async function getSystemProbe(): Promise<{ version: string | null }> {
     try {
       const result = await request<Record<string, unknown>>('/api/rest/v1/system-information')
@@ -379,9 +401,13 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
         ],
       })
     }
-    const page = await readList<AkeneoProduct>('/api/rest/v1/products-uuid', params)
+    const [page, totalEstimate] = await Promise.all([
+      readList<AkeneoProduct>('/api/rest/v1/products-uuid', params),
+      countProducts(normalizedUpdatedAfter).catch(() => null),
+    ])
     return {
       ...page,
+      totalEstimate: totalEstimate ?? page.totalEstimate,
       nextUrl: page.nextUrl ? sanitizeAkeneoProductNextUrl(page.nextUrl) : null,
     }
   }

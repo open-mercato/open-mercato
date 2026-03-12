@@ -193,9 +193,10 @@ export const akeneoDataSyncAdapter: DataSyncAdapter = {
     const reconciliation = mapping.settings?.products?.reconciliation ?? buildDefaultReconciliationSettings()
 
     do {
+      const productPageSize = Math.min(Math.max(input.batchSize, 1), 10)
       const page = await client.listProducts({
         nextUrl,
-        batchSize: input.batchSize,
+        batchSize: productPageSize,
         updatedAfter,
       })
 
