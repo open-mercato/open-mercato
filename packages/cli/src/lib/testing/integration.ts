@@ -141,12 +141,13 @@ type EphemeralEnvironmentState = {
 
 type PlaywrightRunOptions = Pick<InteractiveIntegrationOptions, 'verbose' | 'captureScreenshots' | 'workers' | 'retries'>
 
-const APP_READY_TIMEOUT_MS = 90_000
+const DEFAULT_APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
 const DEFAULT_EPHEMERAL_APP_PORT = 5001
 const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 60_000
 const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
+const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
@@ -676,6 +677,21 @@ export function resolveBuildCacheTtlSeconds(logPrefix: string): number {
     return DEFAULT_BUILD_CACHE_TTL_SECONDS
   }
   return parsed
+}
+
+export function resolveAppReadyTimeoutMs(logPrefix: string): number {
+  const rawValue = process.env[APP_READY_TIMEOUT_ENV_VAR]
+  if (!rawValue) {
+    return DEFAULT_APP_READY_TIMEOUT_MS
+  }
+  const parsedSeconds = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsedSeconds) || parsedSeconds < 1) {
+    console.warn(
+      `[${logPrefix}] Invalid ${APP_READY_TIMEOUT_ENV_VAR} value "${rawValue}". Using default ${DEFAULT_APP_READY_TIMEOUT_MS / 1000}s.`,
+    )
+    return DEFAULT_APP_READY_TIMEOUT_MS
+  }
+  return parsedSeconds * 1000
 }
 
 function buildCacheDefaults(overrides: BuildCacheOptions = {}): {
@@ -1341,12 +1357,16 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
   }
 }
 
-async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildProcess): Promise<void> {
+async function waitForApplicationReadiness(
+  baseUrl: string,
+  appProcess: ChildProcess,
+  options: { timeoutMs: number },
+): Promise<void> {
   const startTimestamp = Date.now()
   const exitPromise = getProcessExitPromise(appProcess)
   const readinessStabilizationMs = 600
 
-  while (Date.now() - startTimestamp < APP_READY_TIMEOUT_MS) {
+  while (Date.now() - startTimestamp < options.timeoutMs) {
     const responsePromise = fetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
@@ -1396,7 +1416,7 @@ async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildPro
     }
   }
 
-  throw new Error(`Application did not become ready within ${APP_READY_TIMEOUT_MS / 1000} seconds`)
+  throw new Error(`Application did not become ready within ${options.timeoutMs / 1000} seconds`)
 }
 
 export function parseOptions(rawArgs: string[]): IntegrationOptions {
@@ -2542,6 +2562,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     }
 
     try {
+      const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
@@ -2619,8 +2640,15 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       })
       applicationProcess = startedAppProcess
 
-      await runTimedStep(options.logPrefix, 'Waiting for application readiness', { expectedSeconds: 12 }, async () =>
-        waitForApplicationReadiness(applicationBaseUrl, startedAppProcess))
+      await runTimedStep(
+        options.logPrefix,
+        'Waiting for application readiness',
+        { expectedSeconds: Math.max(12, Math.ceil(appReadyTimeoutMs / 1000)) },
+        async () =>
+          waitForApplicationReadiness(applicationBaseUrl, startedAppProcess, {
+            timeoutMs: appReadyTimeoutMs,
+          }),
+      )
       console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
       await writeEphemeralEnvironmentState({
         baseUrl: applicationBaseUrl,

@@ -14,10 +14,12 @@ import {
   readEphemeralEnvironmentState,
   clearEphemeralEnvironmentState,
   resolveBuildCacheTtlSeconds,
+  resolveAppReadyTimeoutMs,
   shouldReuseBuildArtifacts,
 } from '../integration'
 
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
+const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 
@@ -36,6 +38,7 @@ describe('integration cache and options', () => {
   const ephemeralEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
   const ephemeralLegacyEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
   const originalCacheTtl = process.env[CACHE_TTL_ENV_VAR]
+  const originalAppReadyTimeout = process.env[APP_READY_TIMEOUT_ENV_VAR]
   let originalEphemeralEnvState: string | null = null
   let originalEphemeralLegacyEnvState: string | null = null
 
@@ -60,6 +63,11 @@ describe('integration cache and options', () => {
       delete process.env[CACHE_TTL_ENV_VAR]
     } else {
       process.env[CACHE_TTL_ENV_VAR] = originalCacheTtl
+    }
+    if (originalAppReadyTimeout === undefined) {
+      delete process.env[APP_READY_TIMEOUT_ENV_VAR]
+    } else {
+      process.env[APP_READY_TIMEOUT_ENV_VAR] = originalAppReadyTimeout
     }
     await restoreEphemeralStateFiles(originalEphemeralEnvState, originalEphemeralLegacyEnvState)
   })
@@ -219,6 +227,20 @@ describe('integration cache and options', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     process.env[CACHE_TTL_ENV_VAR] = 'invalid'
     expect(resolveBuildCacheTtlSeconds('integration')).toBe(600)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Invalid'))
+    warn.mockRestore()
+  })
+
+  it('resolves app readiness timeout from env variable', () => {
+    delete process.env[APP_READY_TIMEOUT_ENV_VAR]
+    expect(resolveAppReadyTimeoutMs('integration')).toBe(90_000)
+
+    process.env[APP_READY_TIMEOUT_ENV_VAR] = '180'
+    expect(resolveAppReadyTimeoutMs('integration')).toBe(180_000)
+
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    process.env[APP_READY_TIMEOUT_ENV_VAR] = '0'
+    expect(resolveAppReadyTimeoutMs('integration')).toBe(90_000)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Invalid'))
     warn.mockRestore()
   })
