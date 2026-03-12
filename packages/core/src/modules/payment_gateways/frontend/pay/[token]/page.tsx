@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { buildPaymentGatewayPaymentLinkWidgetSpotId } from '@open-mercato/shared/modules/payment_gateways/types'
 
 type PaymentLinkResponse = {
   passwordRequired: boolean
@@ -141,7 +142,7 @@ export default function PaymentLinkPage({ params }: { params: { token: string } 
 
   const providerWidgetSpotId =
     data?.link?.paymentLinkWidgetSpotId ||
-    (data?.transaction?.providerKey ? `payment-gateways.payment-link:${data.transaction.providerKey}` : null)
+    (data?.transaction?.providerKey ? buildPaymentGatewayPaymentLinkWidgetSpotId(data.transaction.providerKey) : null)
 
   const summaryAmount = formatAmount(
     data?.link?.amount ?? data?.transaction?.amount,

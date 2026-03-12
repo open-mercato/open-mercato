@@ -2,7 +2,7 @@
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -11,6 +11,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { PAYMENT_GATEWAY_TRANSACTIONS_TABLE_ID } from '@open-mercato/shared/modules/payment_gateways/types'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
@@ -390,19 +391,15 @@ export default function PaymentTransactionsPage() {
 
   return (
     <Page>
-      <PageHeader
-        title={t('payment_gateways.transactions.title', 'Payment Transactions')}
-        description={t('payment_gateways.transactions.description', 'Track all payment-gateway transactions, inspect webhook activity, and review provider logs from one place.')}
-        actions={(
-          <Button type="button" onClick={() => setDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t('payment_gateways.create.title', 'Create new transaction')}
-          </Button>
-        )}
-      />
       <PageBody className="space-y-6">
         <DataTable
-          title={t('payment_gateways.transactions.tableTitle', 'Transactions')}
+          title={t('payment_gateways.transactions.title', 'Payment Transactions')}
+          actions={(
+            <Button type="button" onClick={() => setDialogOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t('payment_gateways.create.title', 'Create new transaction')}
+            </Button>
+          )}
           columns={columns}
           data={rows}
           filters={filters}
@@ -412,7 +409,7 @@ export default function PaymentTransactionsPage() {
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('payment_gateways.transactions.searchPlaceholder', 'Search by payment, transaction, session, or gateway id')}
-          perspective={{ tableId: 'payment_gateways.transactions.list' }}
+          perspective={{ tableId: PAYMENT_GATEWAY_TRANSACTIONS_TABLE_ID }}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
           onRowClick={(row) => setSelectedId((current) => current === row.id ? null : row.id)}

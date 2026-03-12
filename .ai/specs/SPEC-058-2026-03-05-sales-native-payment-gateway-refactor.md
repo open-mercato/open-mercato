@@ -984,6 +984,7 @@ When a customer pays via a pay link while the admin has the order open:
 - `POST /api/sales/payment-transactions/[id]/capture` — new
 - `POST /api/sales/payment-transactions/[id]/refund` — new
 - `POST /api/sales/payment-transactions/[id]/cancel` — new
+- `POST /api/payment-gateways/sessions` — UMES-aware create flow for the payment transaction dialog; participates in API interceptors and mutation guards
 
 ### Phase 3a (Wire Transfer)
 - `POST /api/payment-gateways/webhook/wire-transfer` — no-op (placeholder for consistency)
@@ -1009,6 +1010,26 @@ When a customer pays via a pay link while the admin has the order open:
 | `sales.payments.manage` | 1 | Create, update, delete payments; access transactions page |
 | `sales.pay_links.manage` | 4 | Create, cancel, send pay links |
 | `sales.pay_links.view` | 4 | View pay link list/details |
+
+---
+
+## Payment Transaction UMES Contract
+
+The payment-gateway transaction create flow and transactions hub expose stable UMES-facing contracts:
+
+- CrudForm spot: `crud-form:payment_gateways.transaction-create`
+- Provider create-field spot: `payment-gateways.transaction-create:<providerKey>:fields`
+- Payment-link widget spot: `payment-gateways.payment-link:<providerKey>`
+- DataTable id: `payment_gateways.transactions.list`
+
+The transaction lifecycle emits the following extension-facing events:
+
+- `payment_gateways.transaction.created`
+- `payment_gateways.transaction.updated`
+- `payment_gateways.transaction.status_changed`
+- `payment_gateways.payment_link.created`
+
+These are additive to the lower-level gateway lifecycle events (`payment_gateways.session.created`, `payment_gateways.payment.*`, `payment_gateways.webhook.*`) and are intended to be the primary subscription surface for payment transaction UI extensions, workflow triggers, and notification side effects.
 
 ---
 
@@ -1142,3 +1163,4 @@ All tests must be self-contained and clean up created records.
 |---|---|
 | 2026-03-05 | Initial draft created for sales-native payment gateway refactor |
 | 2026-03-11 | Major expansion: added Pay Links (Phase 4), Wire Transfer Provider (Phase 3a), Cash Payment Provider (Phase 3b), Payment Transactions Hub (Phase 2), Unified Order Payment UX (Phase 5). Added UI designs, data models, API contracts, events, ACL features, 35 integration test cases. Restructured into 6 phases. |
+| 2026-03-12 | Documented the payment transaction UMES contract: CrudForm-based create dialog, stable create/payment-link spot IDs, transaction-centric event emission, and mutation-guard/interceptor coverage for `POST /api/payment-gateways/sessions`. |

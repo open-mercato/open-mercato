@@ -1,4 +1,8 @@
 import { buildIntegrationDetailWidgetSpotId, type IntegrationBundle, type IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
+import {
+  buildPaymentGatewayPaymentLinkWidgetSpotId,
+  buildPaymentGatewayTransactionCreateFieldSpotId,
+} from '@open-mercato/shared/modules/payment_gateways/types'
 import { stripeWebhookSetupGuide } from './webhook-guide'
 
 export const gatewayStripeDetailWidgetSpotId = buildIntegrationDetailWidgetSpotId('gateway_stripe')
@@ -23,8 +27,8 @@ export const integration: IntegrationDefinition = {
   },
   paymentGateway: {
     supportsPaymentLinks: true,
-    transactionCreateFieldSpotId: 'payment-gateways.transaction-create:stripe:fields',
-    paymentLinkWidgetSpotId: 'payment-gateways.payment-link:stripe',
+    transactionCreateFieldSpotId: buildPaymentGatewayTransactionCreateFieldSpotId('stripe'),
+    paymentLinkWidgetSpotId: buildPaymentGatewayPaymentLinkWidgetSpotId('stripe'),
   },
   apiVersions: [
     {
