@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { ZodError } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -102,6 +103,9 @@ export async function GET(req: Request) {
       totalPages: Math.ceil(total / query.pageSize),
     })
   } catch (err) {
+    if (err instanceof ZodError) {
+      return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
+    }
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

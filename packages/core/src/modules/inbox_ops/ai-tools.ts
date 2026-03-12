@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   resolveOpenCodeModel,
@@ -349,7 +350,7 @@ Returns on error: error message with appropriate detail.`,
       const { resolveCache, invalidateCountsCache } = await import('./lib/cache')
       const cache = resolveCache(ctx.container)
       if (cache && scope.tenantId) {
-        await invalidateCountsCache(cache, scope.tenantId)
+        await runWithCacheTenant(scope.tenantId, () => invalidateCountsCache(cache, scope.tenantId))
       }
     } catch { /* cache invalidation is non-critical */ }
 

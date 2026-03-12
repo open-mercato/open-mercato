@@ -34,6 +34,7 @@ interface InboxEmailData {
 
 interface DraftReplyData {
   to: string
+  toName?: string | null
   subject: string
   body: string
 }
@@ -129,20 +130,38 @@ export async function createMessageRecordForReply(
     const commandBus = resolveCommandBus(ctx.container)
     if (!commandBus) return null
 
+    const em = ctx.container.resolve('em') as EntityManager
+    const knex = em.getKnex()
+    const recipientUserIds = await getRecipientUserIdsForFeature(
+      knex, ctx.scope.tenantId, 'inbox_ops.proposals.view',
+    )
+    if (recipientUserIds.length === 0) return null
+
+    const recipients = recipientUserIds.map((userId) => ({ userId, type: 'to' as const }))
+
     const { result } = await commandBus.execute('messages.messages.compose', {
       input: {
         type: 'inbox_ops.reply',
-        visibility: 'public' as const,
+        visibility: 'internal' as const,
         sourceEntityType: 'inbox_ops:inbox_email',
         sourceEntityId: inboxEmailId,
         externalEmail: reply.to,
-        recipients: [],
+        externalName: reply.toName ?? undefined,
+        recipients,
         subject: reply.subject,
         body: reply.body,
         bodyFormat: 'text' as const,
         priority: 'normal' as const,
         isDraft: false,
-        sendViaEmail: true,
+        sendViaEmail: false,
+        objects: [
+          {
+            entityModule: 'inbox_ops',
+            entityType: 'inbox_email',
+            entityId: inboxEmailId,
+            actionRequired: false,
+          },
+        ],
         tenantId: ctx.scope.tenantId,
         organizationId: ctx.scope.organizationId,
         userId: ctx.scope.userId,

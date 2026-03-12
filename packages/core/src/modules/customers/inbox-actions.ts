@@ -18,9 +18,55 @@ import {
   resolveEntityClass,
   resolveCustomerEntityIdByEmail,
   resolveContactIdByNameAndType,
+  userHasFeature,
 } from '../inbox_ops/lib/executionHelpers'
-import { splitPersonName } from '../inbox_ops/lib/contactValidation'
+import { splitPersonName, stripTitleFromName } from '../inbox_ops/lib/contactValidation'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function resolveOrCreateCompany(
+  hCtx: ReturnType<typeof asHelperContext>,
+  companyName: string,
+): Promise<string | null> {
+  const CustomerEntityClass = resolveEntityClass(hCtx, 'CustomerEntity')
+  if (CustomerEntityClass) {
+    const existing = await findOneWithDecryption(
+      hCtx.em,
+      CustomerEntityClass,
+      {
+        displayName: companyName.trim(),
+        kind: 'company',
+        tenantId: hCtx.tenantId,
+        organizationId: hCtx.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: hCtx.tenantId, organizationId: hCtx.organizationId },
+    )
+    if (existing) return existing.id
+  }
+
+  try {
+    const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
+      hCtx,
+      'customers.companies.create',
+      {
+        organizationId: hCtx.organizationId,
+        tenantId: hCtx.tenantId,
+        displayName: companyName.trim(),
+        legalName: companyName.trim(),
+        source: 'inbox_ops',
+      },
+    )
+    return result.entityId ?? null
+  } catch (err) {
+    console.warn('[customers:inbox-action] Failed to create company (non-fatal):', err)
+    return null
+  }
+}
 
 // ---------------------------------------------------------------------------
 // create_contact
@@ -95,21 +141,36 @@ async function executeCreateContactAction(
     return { createdEntityId: result.entityId, createdEntityType: 'customer_company' }
   }
 
+  const { cleanedName } = stripTitleFromName(payload.name)
   const { firstName, lastName } = splitPersonName(payload.name, payload.email)
+
+  let companyEntityId: string | null = null
+  const canManageCompanies = payload.companyName
+    ? await userHasFeature(hCtx, 'customers.companies.manage')
+    : false
+  if (payload.companyName && canManageCompanies) {
+    companyEntityId = await resolveOrCreateCompany(hCtx, payload.companyName)
+  }
+
+  const personInput: Record<string, unknown> = {
+    organizationId: hCtx.organizationId,
+    tenantId: hCtx.tenantId,
+    displayName: cleanedName,
+    firstName,
+    lastName,
+    primaryEmail: payload.email,
+    primaryPhone: payload.phone,
+    jobTitle: payload.role || undefined,
+    source: payload.source,
+  }
+  if (companyEntityId) {
+    personInput.companyEntityId = companyEntityId
+  }
+
   const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
     hCtx,
     'customers.people.create',
-    {
-      organizationId: hCtx.organizationId,
-      tenantId: hCtx.tenantId,
-      displayName: payload.name,
-      firstName,
-      lastName,
-      primaryEmail: payload.email,
-      primaryPhone: payload.phone,
-      jobTitle: payload.role,
-      source: payload.source,
-    },
+    personInput,
   )
 
   if (!result.entityId) {

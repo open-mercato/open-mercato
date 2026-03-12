@@ -69,45 +69,7 @@ export async function POST(req: Request) {
     if (!payloadResult.success) {
       return NextResponse.json({ error: 'Reply payload missing required fields (to, subject, body)' }, { status: 400 })
     }
-    const { to: toAddress, subject, body } = payloadResult.data
-
-    const messagesResult = await createMessageRecordForReply(
-      { to: toAddress, subject, body },
-      proposal.inboxEmailId,
-      {
-        container: ctx.container,
-        scope: {
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-          userId: ctx.userId,
-        },
-      },
-    )
-
-    if (messagesResult) {
-      action.metadata = {
-        ...(action.metadata && typeof action.metadata === 'object' ? action.metadata : {}),
-        replySentAt: new Date().toISOString(),
-        sentMessageId: messagesResult.messageId,
-        sentViaMessages: true,
-      }
-      await ctx.em.flush()
-
-      try {
-        await emitInboxOpsEvent('inbox_ops.reply.sent', {
-          proposalId: proposal.id,
-          actionId: replyId,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-          toAddress,
-          sentMessageId: messagesResult.messageId,
-        })
-      } catch (eventError) {
-        console.error('[inbox_ops:reply:send] Failed to emit event:', eventError)
-      }
-
-      return NextResponse.json({ ok: true, sentMessageId: messagesResult.messageId, sentViaMessages: true })
-    }
+    const { to: toAddress, toName, subject, body } = payloadResult.data
 
     const apiKey = process.env.RESEND_API_KEY
     if (!apiKey) {
@@ -149,11 +111,24 @@ export async function POST(req: Request) {
     }
 
     const sentMessageId = sendData?.id || null
+    const messagesResult = await createMessageRecordForReply(
+      { to: toAddress, toName, subject, body },
+      proposal.inboxEmailId,
+      {
+        container: ctx.container,
+        scope: {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          userId: ctx.userId,
+        },
+      },
+    )
 
     action.metadata = {
       ...(action.metadata && typeof action.metadata === 'object' ? action.metadata : {}),
       replySentAt: new Date().toISOString(),
       sentMessageId,
+      ...(messagesResult ? { messageRecordId: messagesResult.messageId } : {}),
     }
     await ctx.em.flush()
 
@@ -165,12 +140,17 @@ export async function POST(req: Request) {
         organizationId: ctx.organizationId,
         toAddress,
         sentMessageId,
+        messageRecordId: messagesResult?.messageId ?? null,
       })
     } catch (eventError) {
       console.error('[inbox_ops:reply:send] Failed to emit event:', eventError)
     }
 
-    return NextResponse.json({ ok: true, sentMessageId })
+    return NextResponse.json({
+      ok: true,
+      sentMessageId,
+      ...(messagesResult ? { messageRecordId: messagesResult.messageId } : {}),
+    })
   } catch (err) {
     return handleRouteError(err, 'send reply')
   }
@@ -181,8 +161,8 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Send draft reply',
   methods: {
     POST: {
-      summary: 'Send a draft reply email via the messages module or configured email provider',
-      description: 'Sends the draft_reply action payload as an email. Prefers messages module infrastructure when available, falls back to direct Resend delivery. Sets In-Reply-To and References headers for threading.',
+      summary: 'Send a draft reply email and register it in messages when available',
+      description: 'Sends the draft_reply action payload via the configured email provider. When the messages module is available, also records the sent reply as an internal message record. Sets In-Reply-To and References headers for threading.',
       responses: [
         { status: 200, description: 'Reply sent successfully' },
         { status: 400, description: 'Missing required payload fields' },

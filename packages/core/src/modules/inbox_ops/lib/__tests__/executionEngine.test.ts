@@ -1122,6 +1122,172 @@ describe('executionEngine', () => {
     })
   })
 
+  describe('executeAction — create_contact person with company (#898)', () => {
+    it('creates company and person with companyEntityId when companyName is provided', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-person-company',
+        actionType: 'create_contact',
+        status: 'processing',
+        payload: {
+          type: 'person',
+          name: 'Katarzyna Lewandowska',
+          email: 'k.lewandowska@vitamed.pl',
+          companyName: 'VitaMed Sp. z o.o.',
+          role: 'Koordynator ds. Zaopatrzenia',
+          source: 'inbox_ops',
+        },
+      })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(freshAction)
+        .mockResolvedValueOnce(null)
+
+      mockCommandBus.execute
+        .mockResolvedValueOnce({ result: { entityId: 'company-vitamed' } })
+        .mockResolvedValueOnce({ result: { entityId: 'person-1' } })
+
+      const action = makeAction({
+        id: 'a-person-company',
+        actionType: 'create_contact',
+        payload: {
+          type: 'person',
+          name: 'Katarzyna Lewandowska',
+          email: 'k.lewandowska@vitamed.pl',
+          companyName: 'VitaMed Sp. z o.o.',
+          role: 'Koordynator ds. Zaopatrzenia',
+          source: 'inbox_ops',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe('person-1')
+
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'customers.companies.create',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            displayName: 'VitaMed Sp. z o.o.',
+          }),
+        }),
+      )
+
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'customers.people.create',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            firstName: 'Katarzyna',
+            lastName: 'Lewandowska',
+            companyEntityId: 'company-vitamed',
+          }),
+        }),
+      )
+    })
+
+    it('creates only the person when the user lacks company permissions', async () => {
+      mockRbacService.userHasAllFeatures
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-person-no-company-perm',
+        actionType: 'create_contact',
+        status: 'processing',
+        payload: {
+          type: 'person',
+          name: 'Katarzyna Lewandowska',
+          email: 'k.lewandowska@vitamed.pl',
+          companyName: 'VitaMed Sp. z o.o.',
+          source: 'inbox_ops',
+        },
+      })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(freshAction)
+        .mockResolvedValueOnce(null)
+      mockFindWithDecryption.mockResolvedValueOnce([])
+      mockCommandBus.execute.mockResolvedValueOnce({ result: { entityId: 'person-2' } })
+
+      const action = makeAction({
+        id: 'a-person-no-company-perm',
+        actionType: 'create_contact',
+        payload: {
+          type: 'person',
+          name: 'Katarzyna Lewandowska',
+          email: 'k.lewandowska@vitamed.pl',
+          companyName: 'VitaMed Sp. z o.o.',
+          source: 'inbox_ops',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(mockCommandBus.execute).not.toHaveBeenCalledWith(
+        'customers.companies.create',
+        expect.anything(),
+      )
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'customers.people.create',
+        expect.objectContaining({
+          input: expect.not.objectContaining({
+            companyEntityId: expect.any(String),
+          }),
+        }),
+      )
+    })
+
+    it('strips title from name when creating person (mgr → title stripped)', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-person-title',
+        actionType: 'create_contact',
+        status: 'processing',
+        payload: {
+          type: 'person',
+          name: 'mgr Katarzyna Lewandowska',
+          email: 'k.lewandowska@example.com',
+          source: 'inbox_ops',
+        },
+      })
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+
+      mockCommandBus.execute
+        .mockResolvedValueOnce({ result: { entityId: 'person-2' } })
+
+      const action = makeAction({
+        id: 'a-person-title',
+        actionType: 'create_contact',
+        payload: {
+          type: 'person',
+          name: 'mgr Katarzyna Lewandowska',
+          email: 'k.lewandowska@example.com',
+          source: 'inbox_ops',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'customers.people.create',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            displayName: 'Katarzyna Lewandowska',
+            firstName: 'Katarzyna',
+            lastName: 'Lewandowska',
+          }),
+        }),
+      )
+    })
+  })
+
   describe('executeAction — create_contact company requires customers.companies.manage', () => {
     it('checks customers.companies.manage when create_contact type is company', async () => {
       mockRbacService.userHasAllFeatures.mockResolvedValue(false)
@@ -1419,6 +1585,198 @@ describe('executionEngine', () => {
 
       expect(result.success).toBe(true)
       expect(result.createdEntityId).toBe('order-fallback')
+    })
+  })
+
+  describe('executeAction — create_product with default variant (#891)', () => {
+    it('creates product and default variant via two command bus calls', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-product',
+        actionType: 'create_product',
+        status: 'processing',
+        payload: {
+          title: 'Steel Bearing',
+          sku: 'SB-001',
+          description: 'Industrial steel bearing',
+        },
+      })
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+
+      mockCommandBus.execute
+        .mockResolvedValueOnce({ result: { productId: 'product-1' } })
+        .mockResolvedValueOnce({ result: { variantId: 'variant-1' } })
+
+      const action = makeAction({
+        id: 'a-product',
+        actionType: 'create_product',
+        payload: {
+          title: 'Steel Bearing',
+          sku: 'SB-001',
+          description: 'Industrial steel bearing',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe('product-1')
+      expect(result.createdEntityType).toBe('catalog_product')
+
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'catalog.products.create',
+        expect.objectContaining({
+          input: expect.objectContaining({ title: 'Steel Bearing', sku: 'SB-001' }),
+        }),
+      )
+
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'catalog.variants.create',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            productId: 'product-1',
+            isDefault: true,
+            sku: 'SB-001',
+          }),
+        }),
+      )
+    })
+
+    it('skips variant and price creation when the user lacks variant permissions', async () => {
+      mockRbacService.userHasAllFeatures
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-product-no-variant-perm',
+        actionType: 'create_product',
+        status: 'processing',
+        payload: {
+          title: 'Steel Bearing',
+          sku: 'SB-001',
+          unitPrice: '12.50',
+          currencyCode: 'EUR',
+        },
+      })
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+      mockCommandBus.execute.mockResolvedValueOnce({ result: { productId: 'product-3' } })
+
+      const action = makeAction({
+        id: 'a-product-no-variant-perm',
+        actionType: 'create_product',
+        payload: {
+          title: 'Steel Bearing',
+          sku: 'SB-001',
+          unitPrice: '12.50',
+          currencyCode: 'EUR',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe('product-3')
+      expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'catalog.products.create',
+        expect.anything(),
+      )
+    })
+
+    it('creates product with default variant and price when unitPrice and currencyCode are provided', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-product-price',
+        actionType: 'create_product',
+        status: 'processing',
+        payload: {
+          title: 'Widget',
+          unitPrice: '12.50',
+          currencyCode: 'EUR',
+        },
+      })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(freshAction)
+        .mockResolvedValueOnce({ id: 'pk-regular', code: 'regular' })
+
+      mockCommandBus.execute
+        .mockResolvedValueOnce({ result: { productId: 'product-2' } })
+        .mockResolvedValueOnce({ result: { variantId: 'variant-2' } })
+        .mockResolvedValueOnce({ result: { priceId: 'price-1' } })
+
+      const action = makeAction({
+        id: 'a-product-price',
+        actionType: 'create_product',
+        payload: {
+          title: 'Widget',
+          unitPrice: '12.50',
+          currencyCode: 'EUR',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'catalog.prices.create',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            variantId: 'variant-2',
+            productId: 'product-2',
+            currencyCode: 'EUR',
+            unitPriceNet: 12.5,
+          }),
+        }),
+      )
+    })
+
+    it('skips price creation when the user lacks pricing permissions', async () => {
+      mockRbacService.userHasAllFeatures
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-product-no-price-perm',
+        actionType: 'create_product',
+        status: 'processing',
+        payload: {
+          title: 'Widget',
+          unitPrice: '12.50',
+          currencyCode: 'EUR',
+        },
+      })
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+      mockCommandBus.execute
+        .mockResolvedValueOnce({ result: { productId: 'product-4' } })
+        .mockResolvedValueOnce({ result: { variantId: 'variant-4' } })
+
+      const action = makeAction({
+        id: 'a-product-no-price-perm',
+        actionType: 'create_product',
+        payload: {
+          title: 'Widget',
+          unitPrice: '12.50',
+          currencyCode: 'EUR',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(mockCommandBus.execute).toHaveBeenCalledTimes(2)
+      expect(mockCommandBus.execute).not.toHaveBeenCalledWith(
+        'catalog.prices.create',
+        expect.anything(),
+      )
     })
   })
 
