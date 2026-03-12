@@ -26,7 +26,11 @@ Never edit node_modules directly.
 | Add widget injection | `src/modules/<id>/widgets/injection/`, `src/modules/<id>/widgets/injection-table.ts` |
 | Add a response enricher | `src/modules/<id>/data/enrichers.ts` |
 | Add an API interceptor | `src/modules/<id>/api/interceptors.ts` |
-| Eject a core module | Run `yarn mercato eject <module-id>` |
+| Extend a core module (add fields, columns, menus, interceptors) | `.ai/skills/system-extension/SKILL.md` |
+| Scaffold a new module from scratch | `.ai/skills/module-scaffold/SKILL.md` |
+| Design entities and relationships | `.ai/skills/data-model-design/SKILL.md` |
+| Eject and customize a core module | `.ai/skills/eject-and-customize/SKILL.md` |
+| Debug / fix errors | `.ai/skills/troubleshooter/SKILL.md` |
 | Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
 | Review code changes | `.ai/skills/code-review/SKILL.md` |
 | Build backend UI | `.ai/skills/backend-ui-design/SKILL.md` |

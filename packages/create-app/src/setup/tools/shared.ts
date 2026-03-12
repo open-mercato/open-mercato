@@ -84,4 +84,50 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/integration-builder/references/adapter-contracts.md',
     join(targetDir, '.ai', 'skills', 'integration-builder', 'references', 'adapter-contracts.md'),
   )
+
+  // system-extension skill
+  copyFile(
+    'ai/skills/system-extension/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'system-extension', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/system-extension/references/extension-contracts.md',
+    join(targetDir, '.ai', 'skills', 'system-extension', 'references', 'extension-contracts.md'),
+  )
+
+  // module-scaffold skill
+  copyFile(
+    'ai/skills/module-scaffold/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'module-scaffold', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/module-scaffold/references/naming-conventions.md',
+    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'naming-conventions.md'),
+  )
+
+  // troubleshooter skill
+  copyFile(
+    'ai/skills/troubleshooter/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'troubleshooter', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/troubleshooter/references/diagnostic-commands.md',
+    join(targetDir, '.ai', 'skills', 'troubleshooter', 'references', 'diagnostic-commands.md'),
+  )
+
+  // eject-and-customize skill
+  copyFile(
+    'ai/skills/eject-and-customize/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'eject-and-customize', 'SKILL.md'),
+  )
+
+  // data-model-design skill
+  copyFile(
+    'ai/skills/data-model-design/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'data-model-design', 'SKILL.md'),
+  )
+  copyFile(
+    'ai/skills/data-model-design/references/mikro-orm-cheatsheet.md',
+    join(targetDir, '.ai', 'skills', 'data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
+  )
 }
