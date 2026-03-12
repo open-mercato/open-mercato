@@ -27,6 +27,10 @@ test.describe('TC-CAT-006: Edit Product Variant', () => {
       await page.getByRole('textbox', { name: 'e.g., Blue / Small' }).fill('Editable Variant');
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(baseSku);
       await page.getByRole('button', { name: 'Create variant' }).last().click();
+      await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}`));
+
+      // Navigate to the newly created variant's edit page
+      await page.getByRole('link', { name: 'Edit' }).first().click();
       await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/i);
 
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(updatedSku);
