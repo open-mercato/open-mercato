@@ -1,4 +1,5 @@
 import { Client, Pool } from 'pg'
+import type { Notification } from 'pg'
 import type { EmitOptions, EventPayload } from './types'
 
 const BRIDGE_CHANNEL = 'om_event_bridge'
@@ -14,8 +15,8 @@ type BridgeEnvelope = {
 
 type CrossProcessEventListener = (envelope: BridgeEnvelope) => void | Promise<void>
 
-let publisherPool: Pool | null | undefined
-let listenerClient: Client | null = null
+let publisherPool: InstanceType<typeof Pool> | null | undefined
+let listenerClient: InstanceType<typeof Client> | null = null
 let listenerConnectPromise: Promise<void> | null = null
 let listenerReconnectTimer: ReturnType<typeof setTimeout> | null = null
 const listeners = new Set<CrossProcessEventListener>()
@@ -25,7 +26,7 @@ function getDatabaseUrl(): string | null {
   return value && value.length > 0 ? value : null
 }
 
-function getPublisherPool(): Pool | null {
+function getPublisherPool(): InstanceType<typeof Pool> | null {
   if (publisherPool !== undefined) return publisherPool
   const connectionString = getDatabaseUrl()
   if (!connectionString) {
@@ -85,7 +86,7 @@ async function ensureCrossProcessListener(): Promise<void> {
   listenerConnectPromise = (async () => {
     const client = new Client({ connectionString })
 
-    client.on('notification', (message) => {
+    client.on('notification', (message: Notification) => {
       if (message.channel !== BRIDGE_CHANNEL || !message.payload) return
       try {
         const parsed = JSON.parse(message.payload) as BridgeEnvelope
@@ -138,6 +139,7 @@ export async function publishCrossProcessEvent(
 
   const serialized = JSON.stringify(envelope)
   if (Buffer.byteLength(serialized, 'utf8') > MAX_MESSAGE_BYTES) {
+    console.warn(`[events] Cross-process event "${event}" dropped: payload exceeds ${MAX_MESSAGE_BYTES} bytes`)
     return
   }
 
@@ -156,4 +158,3 @@ export function registerCrossProcessEventListener(listener: CrossProcessEventLis
     }
   }
 }
-
