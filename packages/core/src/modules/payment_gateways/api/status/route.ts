@@ -6,7 +6,7 @@ import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
   path: '/payment_gateways/status',
-  GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },
+  GET: { requireAuth: true, requireFeatures: ['payment_gateways.refresh'] },
 }
 
 export async function GET(req: Request) {

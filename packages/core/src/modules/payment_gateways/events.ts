@@ -1,6 +1,10 @@
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
 const events = [
+  { id: 'payment_gateways.transaction.created', label: 'Payment Transaction Created', category: 'crud', entity: 'transaction' },
+  { id: 'payment_gateways.transaction.updated', label: 'Payment Transaction Updated', category: 'crud', entity: 'transaction' },
+  { id: 'payment_gateways.transaction.status_changed', label: 'Payment Transaction Status Changed', category: 'lifecycle', entity: 'transaction' },
+  { id: 'payment_gateways.payment_link.created', label: 'Payment Link Created', category: 'crud', entity: 'payment_link' },
   { id: 'payment_gateways.session.created', label: 'Payment Session Created', category: 'lifecycle', entity: 'session' },
   { id: 'payment_gateways.session.expired', label: 'Payment Session Expired', category: 'lifecycle', entity: 'session' },
   { id: 'payment_gateways.payment.authorized', label: 'Payment Authorized', category: 'lifecycle', entity: 'payment' },

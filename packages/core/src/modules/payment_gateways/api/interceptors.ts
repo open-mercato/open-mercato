@@ -4,7 +4,7 @@ import { getGatewayAdapter } from '@open-mercato/shared/modules/payment_gateways
 export const interceptors: ApiInterceptor[] = [
   {
     id: 'payment_gateways.validate-provider',
-    targetRoute: 'sessions',
+    targetRoute: 'payment_gateways/sessions',
     methods: ['POST'],
     priority: 100,
     async before(request) {

@@ -12,6 +12,17 @@ export type UnifiedPaymentStatus =
   | 'expired'
   | 'unknown'
 
+export const PAYMENT_GATEWAY_TRANSACTIONS_TABLE_ID = 'payment_gateways.transactions.list'
+export const PAYMENT_GATEWAY_TRANSACTION_CREATE_FORM_SPOT_ID = 'crud-form:payment_gateways.transaction-create'
+
+export function buildPaymentGatewayTransactionCreateFieldSpotId(providerKey: string): string {
+  return `payment-gateways.transaction-create:${providerKey.trim()}:fields`
+}
+
+export function buildPaymentGatewayPaymentLinkWidgetSpotId(providerKey: string): string {
+  return `payment-gateways.payment-link:${providerKey.trim()}`
+}
+
 // ── GatewayAdapter Interface ────────────────────────────────────────────────
 
 export interface GatewayAdapter {
@@ -54,6 +65,7 @@ export interface CreateSessionInput {
   successUrl?: string
   cancelUrl?: string
   metadata?: Record<string, unknown>
+  providerInput?: Record<string, unknown>
   credentials: Record<string, unknown>
   lineItems?: SessionLineItem[]
 }

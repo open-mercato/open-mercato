@@ -8,6 +8,7 @@ import type { IntegrationLogService } from '../../../../integrations/lib/log-ser
 import type { PaymentGatewayService } from '../../../lib/gateway-service'
 import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
 import { GatewayTransaction } from '../../../data/entities'
+import { emitPaymentGatewayEvent } from '../../../events'
 import { getPaymentGatewayQueue } from '../../../lib/queue'
 import { processPaymentGatewayWebhookJob } from '../../../lib/webhook-processor'
 import { paymentGatewaysTag } from '../../openapi'
@@ -112,6 +113,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       ? { organizationId: transaction.organizationId, tenantId: transaction.tenantId }
       : matchedScope ?? readScopeFromEventData(event.data)
 
+    await emitPaymentGatewayEvent('payment_gateways.webhook.received', {
+      providerKey,
+      eventType: event.eventType,
+      eventId: event.eventId,
+      transactionId: transaction?.id ?? null,
+      organizationId: scope?.organizationId ?? null,
+      tenantId: scope?.tenantId ?? null,
+    })
+
     const jobPayload = {
       providerKey,
       event,
@@ -138,6 +148,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     return NextResponse.json({ received: true, queued: true }, { status: 202 })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Webhook verification failed'
+    await emitPaymentGatewayEvent('payment_gateways.webhook.failed', {
+      providerKey,
+      error: message,
+    })
     return NextResponse.json({ error: message }, { status: 401 })
   }
 }

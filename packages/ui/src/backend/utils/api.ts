@@ -54,6 +54,7 @@ export class ForbiddenError extends Error {
 }
 
 let DEFAULT_FORBIDDEN_ROLES: string[] = ['admin']
+const HANDLE_FORBIDDEN_RESPONSE_HEADER = 'x-om-handle-forbidden'
 
 export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly string[] }) {
   if (cfg?.defaultForbiddenRoles && cfg.defaultForbiddenRoles.length) {
@@ -103,6 +104,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const mergedInit = Object.keys(scoped).length
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
     : init
+  const handleForbiddenResponse = new Headers(mergedInit?.headers).get(HANDLE_FORBIDDEN_RESPONSE_HEADER) === 'true'
   const res = await baseFetch(input, mergedInit)
   const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
   if (res.status === 401) {
@@ -126,6 +128,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       if (Array.isArray(data?.requiredFeatures)) features = data.requiredFeatures.map((f: any) => String(f))
       if (data && typeof data === 'object') payload = data
     } catch {}
+    if (handleForbiddenResponse) {
+      return res
+    }
     // Only redirect if not already on login page
     if (!onLoginPage) {
       const target =

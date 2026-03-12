@@ -8,7 +8,7 @@ import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
   path: '/payment_gateways/cancel',
-  POST: { requireAuth: true, requireFeatures: ['payment_gateways.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['payment_gateways.cancel'] },
 }
 
 export async function POST(req: Request) {

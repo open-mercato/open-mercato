@@ -63,6 +63,9 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "@stripe/react-stripe-js": "^3.9.0",
+    "@stripe/stripe-js": "^7.8.0",
     "stripe": "^17.0.0"
   },
   "peerDependencies": {

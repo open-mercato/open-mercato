@@ -9,6 +9,12 @@ export async function createPaymentSession(
     amount?: number
     currencyCode?: string
     captureMethod?: 'automatic' | 'manual'
+    paymentLink?: {
+      enabled: boolean
+      title?: string
+      description?: string
+      password?: string
+    }
   },
 ): Promise<{
   transactionId: string
@@ -16,6 +22,8 @@ export async function createPaymentSession(
   status: string
   paymentId: string
   clientSecret?: string
+  paymentLinkId?: string | null
+  paymentLinkUrl?: string | null
 }> {
   const response = await apiRequest(request, 'POST', '/api/payment_gateways/sessions', {
     token,
@@ -25,6 +33,7 @@ export async function createPaymentSession(
       currencyCode: overrides?.currencyCode ?? 'USD',
       captureMethod: overrides?.captureMethod ?? 'manual',
       description: `QA Test Payment ${Date.now()}`,
+      paymentLink: overrides?.paymentLink,
     },
   })
   if (!response.ok()) {
@@ -120,6 +129,7 @@ export async function getTransactionDetails(
   transactionId: string,
 ): Promise<{
   transaction: { id: string; paymentId: string; unifiedStatus: string; webhookLog?: unknown[] | null }
+  paymentLink?: { id: string; url: string; passwordProtected: boolean } | null
   logs: Array<{ id: string; message: string }>
 }> {
   const response = await apiRequest(request, 'GET', `/api/payment_gateways/transactions/${transactionId}`, {

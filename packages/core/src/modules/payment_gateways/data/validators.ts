@@ -24,6 +24,13 @@ export const createSessionSchema = z.object({
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  providerInput: z.record(z.string(), z.unknown()).optional(),
+  paymentLink: z.object({
+    enabled: z.boolean().default(false),
+    title: z.string().trim().max(160).optional(),
+    description: z.string().trim().max(500).optional(),
+    password: z.string().min(4).max(128).optional(),
+  }).optional(),
 })
 
 export type CreateSessionPayload = z.infer<typeof createSessionSchema>
@@ -65,3 +72,9 @@ export const listTransactionsQuerySchema = z.object({
 })
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>
+
+export const paymentLinkUnlockSchema = z.object({
+  password: z.string().min(1).max(128),
+})
+
+export type PaymentLinkUnlockPayload = z.infer<typeof paymentLinkUnlockSchema>

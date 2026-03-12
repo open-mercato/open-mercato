@@ -35,6 +35,7 @@ export interface CreatePaymentSessionInput {
   successUrl?: string
   cancelUrl?: string
   metadata?: Record<string, unknown>
+  providerInput?: Record<string, unknown>
   organizationId: string
   tenantId: string
 }
@@ -83,6 +84,58 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     const eventId = eventMap[status]
     if (!eventId) return
     await emitPaymentGatewayEvent(eventId, payload)
+  }
+
+  async function emitTransactionCreatedEvent(
+    transaction: GatewayTransaction,
+    payload?: Record<string, unknown>,
+  ) {
+    await emitPaymentGatewayEvent('payment_gateways.transaction.created', {
+      transactionId: transaction.id,
+      paymentId: transaction.paymentId,
+      providerKey: transaction.providerKey,
+      status: transaction.unifiedStatus,
+      organizationId: transaction.organizationId,
+      tenantId: transaction.tenantId,
+      ...payload,
+    })
+  }
+
+  async function emitTransactionUpdatedEvent(
+    transaction: GatewayTransaction,
+    payload?: Record<string, unknown>,
+  ) {
+    await emitPaymentGatewayEvent('payment_gateways.transaction.updated', {
+      transactionId: transaction.id,
+      paymentId: transaction.paymentId,
+      providerKey: transaction.providerKey,
+      status: transaction.unifiedStatus,
+      organizationId: transaction.organizationId,
+      tenantId: transaction.tenantId,
+      ...payload,
+    })
+  }
+
+  async function emitTransactionStatusChangedEvent(
+    transaction: GatewayTransaction,
+    previousStatus: UnifiedPaymentStatus,
+    nextStatus: UnifiedPaymentStatus,
+    trigger: 'create' | 'capture' | 'refund' | 'cancel' | 'poll' | 'webhook',
+    payload?: Record<string, unknown>,
+  ) {
+    if (previousStatus === nextStatus) return
+    await emitPaymentGatewayEvent('payment_gateways.transaction.status_changed', {
+      transactionId: transaction.id,
+      paymentId: transaction.paymentId,
+      providerKey: transaction.providerKey,
+      previousStatus,
+      status: nextStatus,
+      nextStatus,
+      trigger,
+      organizationId: transaction.organizationId,
+      tenantId: transaction.tenantId,
+      ...payload,
+    })
   }
 
   async function writeTransactionLog(
@@ -141,6 +194,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         successUrl: input.successUrl,
         cancelUrl: input.cancelUrl,
         metadata: input.metadata,
+        providerInput: input.providerInput,
         credentials,
       }
 
@@ -152,7 +206,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         providerSessionId: session.sessionId,
         unifiedStatus: session.status,
         redirectUrl: session.redirectUrl ?? null,
-        clientSecret: null,
+        clientSecret: session.clientSecret ?? null,
         amount: String(input.amount),
         currencyCode: input.currencyCode,
         gatewayMetadata: session.providerData ?? null,
@@ -160,6 +214,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         tenantId: input.tenantId,
       })
       await em.persistAndFlush(transaction)
+      await emitTransactionCreatedEvent(transaction, {
+        trigger: 'create',
+        providerSessionId: transaction.providerSessionId,
+      })
       await emitPaymentGatewayEvent('payment_gateways.session.created', {
         transactionId: transaction.id,
         paymentId: transaction.paymentId,
@@ -199,9 +257,21 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         credentials,
       })
 
+      const previousStatus = transaction.unifiedStatus as UnifiedPaymentStatus
       transaction.unifiedStatus = result.status
       transaction.gatewayMetadata = { ...transaction.gatewayMetadata, captureResult: result.providerData }
       await em.flush()
+      await emitTransactionUpdatedEvent(transaction, {
+        trigger: 'capture',
+        capturedAmount: result.capturedAmount,
+      })
+      await emitTransactionStatusChangedEvent(
+        transaction,
+        previousStatus,
+        result.status,
+        'capture',
+        { capturedAmount: result.capturedAmount },
+      )
       await emitStatusEvent(result.status, {
         transactionId: transaction.id,
         paymentId: transaction.paymentId,
@@ -244,10 +314,26 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         credentials,
       })
 
+      const previousStatus = transaction.unifiedStatus as UnifiedPaymentStatus
       transaction.unifiedStatus = result.status
       transaction.gatewayRefundId = result.refundId
       transaction.gatewayMetadata = { ...transaction.gatewayMetadata, refundResult: result.providerData }
       await em.flush()
+      await emitTransactionUpdatedEvent(transaction, {
+        trigger: 'refund',
+        refundId: result.refundId,
+        refundedAmount: result.refundedAmount,
+      })
+      await emitTransactionStatusChangedEvent(
+        transaction,
+        previousStatus,
+        result.status,
+        'refund',
+        {
+          refundId: result.refundId,
+          refundedAmount: result.refundedAmount,
+        },
+      )
       await emitStatusEvent(result.status, {
         transactionId: transaction.id,
         paymentId: transaction.paymentId,
@@ -289,8 +375,20 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         credentials,
       })
 
+      const previousStatus = transaction.unifiedStatus as UnifiedPaymentStatus
       transaction.unifiedStatus = result.status
       await em.flush()
+      await emitTransactionUpdatedEvent(transaction, {
+        trigger: 'cancel',
+        reason: reason ?? null,
+      })
+      await emitTransactionStatusChangedEvent(
+        transaction,
+        previousStatus,
+        result.status,
+        'cancel',
+        { reason: reason ?? null },
+      )
       await emitStatusEvent(result.status, {
         transactionId: transaction.id,
         paymentId: transaction.paymentId,
@@ -325,13 +423,25 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         credentials,
       })
 
-      if (status.status !== transaction.unifiedStatus && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)) {
-        const previousStatus = transaction.unifiedStatus
+      const previousStatus = transaction.unifiedStatus as UnifiedPaymentStatus
+      if (status.status !== transaction.unifiedStatus && isValidTransition(previousStatus, status.status)) {
         transaction.unifiedStatus = status.status
         transaction.gatewayStatus = status.status
         transaction.gatewayMetadata = { ...transaction.gatewayMetadata, statusResult: status.providerData ?? null }
         transaction.lastPolledAt = new Date()
         await em.flush()
+        await emitTransactionUpdatedEvent(transaction, {
+          trigger: 'poll',
+          previousStatus,
+          nextStatus: status.status,
+        })
+        await emitTransactionStatusChangedEvent(
+          transaction,
+          previousStatus,
+          status.status,
+          'poll',
+          { gatewayStatus: status.status },
+        )
         await emitStatusEvent(status.status, {
           transactionId: transaction.id,
           paymentId: transaction.paymentId,
@@ -371,7 +481,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       const currentStatus = transaction.unifiedStatus as UnifiedPaymentStatus
       const canTransition = isValidTransition(currentStatus, update.unifiedStatus)
       const shouldApplyStatus = canTransition && update.unifiedStatus !== currentStatus
-      const previousStatus = transaction.unifiedStatus
+      const previousStatus = transaction.unifiedStatus as UnifiedPaymentStatus
       if (shouldApplyStatus) {
         transaction.unifiedStatus = update.unifiedStatus
       }
@@ -394,7 +504,24 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       }
       transaction.lastWebhookAt = new Date()
       await em.flush()
+      await emitTransactionUpdatedEvent(transaction, {
+        trigger: 'webhook',
+        previousStatus,
+        nextStatus: update.unifiedStatus,
+        providerStatus: update.providerStatus ?? null,
+        eventType: update.webhookEvent?.eventType ?? null,
+      })
       if (shouldApplyStatus) {
+        await emitTransactionStatusChangedEvent(
+          transaction,
+          previousStatus,
+          update.unifiedStatus,
+          'webhook',
+          {
+            providerStatus: update.providerStatus ?? null,
+            eventType: update.webhookEvent?.eventType ?? null,
+          },
+        )
         await emitStatusEvent(update.unifiedStatus, {
           transactionId: transaction.id,
           paymentId: transaction.paymentId,

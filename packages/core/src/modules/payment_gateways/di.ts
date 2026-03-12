@@ -4,7 +4,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CredentialsService } from '../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../integrations/lib/log-service'
 import type { IntegrationStateService } from '../integrations/lib/state-service'
-import { GatewayTransaction, WebhookProcessedEvent } from './data/entities'
+import { GatewayPaymentLink, GatewayTransaction, WebhookProcessedEvent } from './data/entities'
 import { createPaymentGatewayService } from './lib/gateway-service'
 
 type Cradle = {
@@ -21,6 +21,7 @@ export function register(container: AppContainer) {
     ).scoped().proxy(),
 
     GatewayTransaction: asValue(GatewayTransaction),
+    GatewayPaymentLink: asValue(GatewayPaymentLink),
     WebhookProcessedEvent: asValue(WebhookProcessedEvent),
   })
 }
