@@ -179,7 +179,14 @@ export function register(container: AppContainer) {
 }
 ```
 
-Keep `setup.ts` for tenant initialization concerns such as `defaultRoleFeatures`, seeded configuration, and example data. Do not rely on `setup.ts` for runtime adapter registration, because the gateway registry is in-memory and must be populated during app boot.
+Keep `setup.ts` for tenant initialization concerns such as `defaultRoleFeatures`, seeded configuration, example data, and provider-owned env-backed preconfiguration that persists credentials or defaults. Do not rely on `setup.ts` for runtime adapter registration, because the gateway registry is in-memory and must be populated during app boot.
+
+Recommended provider pattern:
+
+- read env vars in a provider-local helper such as `lib/preset.ts`
+- apply them from `setup.ts` to persist credentials/defaults after fresh install
+- expose a provider CLI command such as `configure-from-env` so operators can rerun the preset later
+- keep the preset logic inside the provider package instead of adding provider-specific code to core
 
 ## 6. Add the webhook worker
 

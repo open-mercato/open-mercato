@@ -329,7 +329,7 @@ test.describe('TC-UMES-004: Phase E-H completion', () => {
       await page.goto(`/backend/customers/people/${encodeURIComponent(personId)}`)
       await page.waitForLoadState('domcontentloaded')
       await expect(page.locator('[data-component-handle="section:ui.detail.NotesSection"]')).toHaveCount(1)
-      await expect(page.locator('div.border-dashed').first()).toBeVisible()
+      await expect(page.getByTestId('example-notes-wrapper')).toHaveClass(/border-dotted/)
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
     }

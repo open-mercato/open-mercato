@@ -449,6 +449,34 @@ Provider modules declare an `IntegrationDefinition` in `integration.ts` with `hu
 - Activity logging
 - API version selection
 
+### Provider-owned env preconfiguration
+
+Gateway providers can preconfigure themselves from deployment env without adding provider-specific logic to core.
+
+Recommended pattern:
+
+1. Read env vars in a provider-local helper such as `lib/preset.ts`.
+2. Apply them from the provider module's `setup.ts`.
+3. Expose a provider CLI command such as `configure-from-env` so operators can rerun the same logic later.
+4. Persist through the normal integration credential/state services.
+
+Stripe supports this today with:
+
+```env
+OM_INTEGRATION_STRIPE_PUBLISHABLE_KEY=pk_test_...
+OM_INTEGRATION_STRIPE_SECRET_KEY=sk_test_...
+OM_INTEGRATION_STRIPE_WEBHOOK_SECRET=whsec_...
+OM_INTEGRATION_STRIPE_API_VERSION=2025-02-24.acacia
+OM_INTEGRATION_STRIPE_ENABLED=true
+OM_INTEGRATION_STRIPE_FORCE_PRECONFIGURE=false
+```
+
+Rerun command:
+
+```bash
+yarn mercato gateway_stripe configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
 ## Credential resolution
 
 Adapters receive credentials resolved by the core service in priority order:

@@ -178,7 +178,7 @@ test.describe('TC-INT-002: Integrations foundation APIs', () => {
           isEnabled:
             typeof baselineState.isEnabled === 'boolean'
               ? baselineState.isEnabled
-              : true,
+              : false,
           reauthRequired:
             typeof baselineState.reauthRequired === 'boolean'
               ? baselineState.reauthRequired

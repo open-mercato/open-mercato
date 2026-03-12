@@ -152,6 +152,9 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     indexer: {
       entityType: entityId,
     },
+    enrichers: {
+      entityId,
+    },
     list: {
       schema: listSchema,
       entityId,

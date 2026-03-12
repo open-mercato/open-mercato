@@ -269,13 +269,28 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     for (const filter of baseFilters) {
+      const fieldName = String(filter.field)
       let qualified = filter.qualified ?? null
       if (!qualified) {
-        const column = await this.resolveBaseColumn(table, String(filter.field))
-        if (!column) continue
+        const column = await this.resolveBaseColumn(table, fieldName)
+        if (!column) {
+          q = this.applyIndexDocFilter(q, {
+            entity: String(entity),
+            field: fieldName,
+            op: filter.op,
+            value: filter.value,
+            recordIdColumn,
+            tenantId: opts.tenantId ?? null,
+            organizationScope: orgScope,
+            withDeleted: opts.withDeleted === true,
+            searchActive,
+            searchConfig,
+          })
+          continue
+        }
         qualified = qualify(column)
       }
-      applyFilterOp(q, qualified, filter.op, filter.value, String(filter.field))
+      applyFilterOp(q, qualified, filter.op, filter.value, fieldName)
     }
 
     const applyAliasScopes = async (builder: any, aliasName: string) => {
@@ -763,6 +778,110 @@ export class BasicQueryEngine implements QueryEngine {
       }
     })
     return true
+  }
+
+  private applyIndexDocFilter<TRecord extends ResultRow, TResult>(
+    q: Knex.QueryBuilder<TRecord, TResult>,
+    opts: {
+      entity: string
+      field: string
+      op: NormalizedFilter['op']
+      value: unknown
+      recordIdColumn: string
+      tenantId?: string | null
+      organizationScope?: { ids: string[]; includeNull: boolean } | null
+      withDeleted: boolean
+      searchActive: boolean
+      searchConfig: ReturnType<typeof resolveSearchConfig>
+    }
+  ): Knex.QueryBuilder<TRecord, TResult> {
+    if ((opts.op === 'like' || opts.op === 'ilike') && opts.searchActive && typeof opts.value === 'string') {
+      const tokens = tokenizeText(String(opts.value), opts.searchConfig)
+      const hashes = tokens.hashes
+      if (hashes.length) {
+        const applied = this.applySearchTokens(q, {
+          entity: opts.entity,
+          field: opts.field,
+          hashes,
+          recordIdColumn: opts.recordIdColumn,
+          tenantId: opts.tenantId ?? null,
+          organizationScope: opts.organizationScope,
+          tokens: tokens.tokens,
+        })
+        this.logSearchDebug('search:index-doc-filter', {
+          entity: opts.entity,
+          field: opts.field,
+          tokens: tokens.tokens,
+          hashes,
+          applied,
+          tenantId: opts.tenantId ?? null,
+          organizationScope: opts.organizationScope,
+        })
+        if (applied) return q
+      } else {
+        this.logSearchDebug('search:index-doc-skip-empty-hashes', {
+          entity: opts.entity,
+          field: opts.field,
+          value: opts.value,
+        })
+      }
+      return q
+    }
+
+    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
+    const alias = `ei_${this.searchAliasSeq++}`
+    const engine = this
+    return q.whereExists(function (this: Knex.QueryBuilder) {
+      this.select(1)
+        .from({ [alias]: 'entity_indexes' })
+        .where(`${alias}.entity_type`, opts.entity)
+        .andWhereRaw('?? = ??::text', [`${alias}.entity_id`, opts.recordIdColumn])
+
+      if (opts.tenantId !== undefined) {
+        this.andWhereRaw(`${alias}.tenant_id is not distinct from ?`, [opts.tenantId ?? null])
+      }
+      if (opts.organizationScope) {
+        engine.applyOrganizationScope(this as any, `${alias}.organization_id`, opts.organizationScope)
+      }
+      if (!opts.withDeleted) {
+        this.whereNull(`${alias}.deleted_at`)
+      }
+
+      const text = knex.raw(`(${alias}.doc ->> ?)`, [opts.field])
+      switch (opts.op) {
+        case 'eq':
+          this.where(text, '=', opts.value as Knex.Value)
+          break
+        case 'ne':
+          this.where(text, '!=', opts.value as Knex.Value)
+          break
+        case 'gt':
+        case 'gte':
+        case 'lt':
+        case 'lte': {
+          const operator = opts.op === 'gt' ? '>' : opts.op === 'gte' ? '>=' : opts.op === 'lt' ? '<' : '<='
+          this.where(text, operator, opts.value as Knex.Value)
+          break
+        }
+        case 'in':
+          this.whereIn(text as any, Array.isArray(opts.value) ? opts.value : [opts.value])
+          break
+        case 'nin':
+          this.whereNotIn(text as any, Array.isArray(opts.value) ? opts.value : [opts.value])
+          break
+        case 'like':
+          this.where(text, 'like', opts.value as Knex.Value)
+          break
+        case 'ilike':
+          this.where(text, 'ilike', opts.value as Knex.Value)
+          break
+        case 'exists':
+          opts.value ? this.whereNotNull(text as any) : this.whereNull(text as any)
+          break
+        default:
+          break
+      }
+    })
   }
 
   private configureCustomFieldSources(
