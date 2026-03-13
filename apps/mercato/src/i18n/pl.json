@@ -612,6 +612,7 @@
   "ui.dataTable.bulkAction.error": "Bulk action failed.",
   "ui.dataTable.bulkAction.selectAll": "Select all",
   "ui.dataTable.bulkAction.selectRow": "Select row",
+  "ui.dataTable.bulkAction.started": "Akcja zbiorcza rozpoczęta. Śledź postęp na górnym pasku.",
   "ui.dataTable.bulkAction.success": "Bulk action completed.",
   "ui.dataTable.customizeColumns.ariaLabel": "Dostosuj kolumny",
   "ui.dataTable.customizeColumns.srOnly": "Dostosuj kolumny",
