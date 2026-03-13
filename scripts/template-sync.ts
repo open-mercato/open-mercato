@@ -1,13 +1,18 @@
 /**
  * Template sync checker/fixer for create-app scaffold parity.
  *
- * Keeps `packages/create-app/template/src/{app,components,modules}` and selected
+ * Keeps `packages/create-app/template/src/{app,components,lib,modules}` and selected
  * root src files aligned with app source for shared layout/routes/module scaffolding.
  *
  * Usage:
  *   tsx scripts/template-sync.ts          # check only (exit 1 on drift)
  *   tsx scripts/template-sync.ts --fix    # full mirror sync (overwrite from app source)
  *   tsx scripts/template-sync.ts --ask    # when drift is found, prompt to sync
+ *
+ * Yarn shortcuts:
+ *   yarn template:sync
+ *   yarn template:sync:fix
+ *   yarn template:sync:ask
  */
 
 import fs from 'node:fs'
@@ -21,12 +26,22 @@ const ROOT = path.resolve(path.dirname(__filename_), '..')
 
 const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
-const SYNC_FOLDERS = ['app', 'components', 'modules'] as const
-const SYNC_ROOT_FILES = ['bootstrap.ts'] as const
+const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
+const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
+const SYNC_FOLDERS = ['app', 'components', 'lib', 'modules'] as const
+const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts'] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])
+const SYNC_DEPENDENCY_KEYS = [
+  'next',
+  'pg',
+  'ai',
+  '@stripe/react-stripe-js',
+  '@stripe/stripe-js',
+] as const
+const SYNC_INTERNAL_PACKAGE_KEYS = ['@open-mercato/gateway-stripe'] as const
 const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
@@ -46,6 +61,16 @@ type Drift = {
   sourceFile: string
   templateFile: string
   rel: string
+}
+
+type PackageDriftKind = 'missing_in_template' | 'value_mismatch'
+
+type PackageDrift = {
+  kind: PackageDriftKind
+  section: 'dependencies'
+  key: string
+  expected: string
+  actual: string | null
 }
 
 function relFromRoot(absPath: string): string {
@@ -136,9 +161,67 @@ function computeDrift(): Drift[] {
   return drifts
 }
 
+function readJsonFile<T>(filePath: string): T {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
+}
+
+function computeTemplatePackageJson(): string {
+  const appPackage = readJsonFile<Record<string, unknown>>(APP_PACKAGE_FILE)
+  const templatePackage = readJsonFile<Record<string, unknown>>(TEMPLATE_PACKAGE_FILE)
+  const appDependencies = (appPackage.dependencies ?? {}) as Record<string, string>
+  const templateDependencies = { ...((templatePackage.dependencies ?? {}) as Record<string, string>) }
+
+  for (const key of SYNC_DEPENDENCY_KEYS) {
+    const version = appDependencies[key]
+    if (version) templateDependencies[key] = version
+  }
+
+  for (const key of SYNC_INTERNAL_PACKAGE_KEYS) {
+    if (key in appDependencies) {
+      templateDependencies[key] = '{{PACKAGE_VERSION}}'
+    }
+  }
+
+  templatePackage.dependencies = templateDependencies
+  return `${JSON.stringify(templatePackage, null, 2)}\n`
+}
+
+function computePackageDrift(): PackageDrift[] {
+  if (!fs.existsSync(APP_PACKAGE_FILE) || !fs.existsSync(TEMPLATE_PACKAGE_FILE)) return []
+  const appPackage = readJsonFile<Record<string, unknown>>(APP_PACKAGE_FILE)
+  const templatePackage = readJsonFile<Record<string, unknown>>(TEMPLATE_PACKAGE_FILE)
+  const appDependencies = (appPackage.dependencies ?? {}) as Record<string, string>
+  const templateDependencies = (templatePackage.dependencies ?? {}) as Record<string, string>
+  const drifts: PackageDrift[] = []
+
+  for (const key of SYNC_DEPENDENCY_KEYS) {
+    const expected = appDependencies[key]
+    if (!expected) continue
+    const actual = templateDependencies[key] ?? null
+    if (actual === null) {
+      drifts.push({ kind: 'missing_in_template', section: 'dependencies', key, expected, actual })
+    } else if (actual !== expected) {
+      drifts.push({ kind: 'value_mismatch', section: 'dependencies', key, expected, actual })
+    }
+  }
+
+  for (const key of SYNC_INTERNAL_PACKAGE_KEYS) {
+    if (!(key in appDependencies)) continue
+    const expected = '{{PACKAGE_VERSION}}'
+    const actual = templateDependencies[key] ?? null
+    if (actual === null) {
+      drifts.push({ kind: 'missing_in_template', section: 'dependencies', key, expected, actual })
+    } else if (actual !== expected) {
+      drifts.push({ kind: 'value_mismatch', section: 'dependencies', key, expected, actual })
+    }
+  }
+
+  return drifts
+}
+
 function printDrift(drifts: Drift[]): void {
   if (drifts.length === 0) {
-    console.log(green('Template sync check passed: app and template are in sync for src/app, src/components, src/modules, and synced root src files.'))
+    console.log(green('Template sync check passed: app and template are in sync for synced src folders/root files.'))
     return
   }
 
@@ -162,6 +245,19 @@ function printDrift(drifts: Drift[]): void {
   }
   if (drifts.length > preview.length) {
     console.log(dim(`  ... and ${drifts.length - preview.length} more`))
+  }
+}
+
+function printPackageDrift(drifts: PackageDrift[]): void {
+  if (drifts.length === 0) {
+    console.log(green('Template package dependency sync check passed.'))
+    return
+  }
+
+  console.log(red(`Template package dependency drift detected: ${drifts.length} entry(s)`))
+  for (const drift of drifts) {
+    const marker = drift.kind === 'missing_in_template' ? yellow('MISSING') : yellow('DIFF')
+    console.log(`  - [${marker}] ${drift.section}.${drift.key} expected=${drift.expected} actual=${drift.actual ?? 'null'}`)
   }
 }
 
@@ -213,6 +309,14 @@ function applySync(drifts: Drift[]): number {
   return updated
 }
 
+function applyPackageSync(): number {
+  const expected = computeTemplatePackageJson()
+  const current = fs.existsSync(TEMPLATE_PACKAGE_FILE) ? fs.readFileSync(TEMPLATE_PACKAGE_FILE, 'utf8') : ''
+  if (current === expected) return 0
+  fs.writeFileSync(TEMPLATE_PACKAGE_FILE, expected)
+  return 1
+}
+
 async function promptYesNo(question: string): Promise<boolean> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   try {
@@ -234,16 +338,18 @@ async function main() {
     process.exit(2)
   }
 
-  console.log(cyan('[template-sync] Checking template parity for synced src folders and root files...'))
+  console.log(cyan('[template-sync] Checking template parity for synced src folders, root files, and mirrored package dependencies...'))
   const drifts = computeDrift()
+  const packageDrifts = computePackageDrift()
   printDrift(drifts)
+  printPackageDrift(packageDrifts)
 
-  if (drifts.length === 0) {
+  if (drifts.length === 0 && packageDrifts.length === 0) {
     process.exit(0)
   }
 
   if (checkOnly) {
-    console.log(dim('Run `yarn template:sync --fix` to sync template from app source.'))
+    console.log(dim('Run `yarn template:sync:fix` to sync template from app source.'))
     process.exit(1)
   }
 
@@ -261,7 +367,8 @@ async function main() {
   }
 
   const updated = applyFullSync()
-  console.log(green(`Synced ${updated} file(s) into packages/create-app/template/src.`))
+  const packageUpdated = applyPackageSync()
+  console.log(green(`Synced ${updated} src file(s) and ${packageUpdated} package template file(s).`))
   process.exit(0)
 }
 

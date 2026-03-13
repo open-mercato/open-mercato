@@ -397,17 +397,13 @@ export function SalesDocumentItemsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return;
-    if (items.length === 0) {
-      onActionChange(null);
-      return;
-    }
     onActionChange({
       label: t("sales.documents.items.add", "Add item"),
       onClick: openCreate,
       disabled: false,
     });
     return () => onActionChange(null);
-  }, [items.length, onActionChange, openCreate, t]);
+  }, [onActionChange, openCreate, t]);
 
   const handleEdit = React.useCallback((line: SalesLineRecord) => {
     setLineForEdit(line);

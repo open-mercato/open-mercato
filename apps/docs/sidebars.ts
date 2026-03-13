@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "installation/prerequisites",
         "installation/setup",
+        "installation/railway",
         {
           type: "link",
           label: "Standalone App (create-mercato-app)",
@@ -64,6 +65,16 @@ const sidebars: SidebarsConfig = {
             "user-guide/sales/adjustments",
             "user-guide/sales/order-items",
             "user-guide/sales/sales-settings",
+          ],
+        },
+        {
+          type: "category",
+          label: "Integrations & Payments",
+          items: [
+            "user-guide/integrations",
+            "user-guide/akeneo-pim",
+            "user-guide/stripe-payments",
+            "user-guide/payment-transactions",
           ],
         },
         {
@@ -145,6 +156,7 @@ const sidebars: SidebarsConfig = {
             "api/dashboards",
             "api/customers",
             "api/integrations-data-sync",
+            "api/payment-gateways",
             "api/entities",
             "api/attachments",
             "api/vector",
@@ -260,6 +272,9 @@ const sidebars: SidebarsConfig = {
             "framework/modules/integrations-data-sync",
             "framework/modules/sales-providers",
             "framework/modules/sales-calculations",
+            "framework/modules/payment-gateways",
+            "framework/modules/shipping-carriers",
+            "framework/modules/building-gateway-provider",
           ],
         },
         {

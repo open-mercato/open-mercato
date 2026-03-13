@@ -103,6 +103,8 @@ describe('Indexer', () => {
     expect(doc!.id).toBe('1')
     expect(doc!['cf:vip']).toBe(true)
     expect(doc!['cf:tags']).toEqual(['a','b'])
+    expect(doc!.search_text).toContain('A')
+    expect(doc!.search_text).toContain('b')
   })
 
   test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {

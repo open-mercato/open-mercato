@@ -38,6 +38,7 @@ import {
   Gift,
   Globe,
   Heart,
+  Info,
   Key,
   Map as MapIcon,
   Palette,
@@ -88,7 +89,7 @@ export type CrudFieldBase = {
   id: string
   label: string
   placeholder?: string
-  description?: string // inline field-level help
+  description?: React.ReactNode // inline field-level help
   required?: boolean
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
@@ -924,6 +925,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         entitySettings[entityId]?.singleFieldsetPerRecord !== false
       const defsByFieldset = new globalThis.Map<string | null, CustomFieldDefDto[]>()
       defsForEntity.forEach((def) => {
+        const memberships = Array.isArray(def.fieldsets)
+          ? def.fieldsets
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((entry) => entry.trim())
+              .filter((entry) => entry.length > 0)
+          : []
+        if (memberships.length > 0) {
+          memberships.forEach((code) => {
+            const bucket = defsByFieldset.get(code) ?? []
+            bucket.push(def)
+            defsByFieldset.set(code, bucket)
+          })
+          return
+        }
         const code = typeof def.fieldset === 'string' && def.fieldset.trim().length > 0 ? def.fieldset.trim() : null
         const bucket = defsByFieldset.get(code) ?? []
         bucket.push(def)
@@ -3077,7 +3092,10 @@ const FieldControl = React.memo(function FieldControlImpl({
         </>
       )}
       {field.description ? (
-        <div className="text-xs text-muted-foreground">{field.description}</div>
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div>{field.description}</div>
+        </div>
       ) : null}
       {error ? <div className="text-xs text-red-600">{error}</div> : null}
     </div>
@@ -3087,6 +3105,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.id === next.field.id &&
   prev.field.type === next.field.type &&
   prev.field.label === next.field.label &&
+  prev.field.description === next.field.description &&
   prev.field.required === next.field.required &&
   prev.value === next.value &&
   prev.error === next.error &&

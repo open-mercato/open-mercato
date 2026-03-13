@@ -40,4 +40,4 @@ Per-integration feasibility analyses evaluating how well external services map t
 
 | # | Integration | Related Spec | Verdict | Link |
 |---|-------------|-------------|---------|------|
-| ANALYSIS-014 | Google Docs / Drive / Sheets | [SPEC-045e](../SPEC-045e-storage-webhook-hubs.md), [SPEC-045g](../SPEC-045g-google-workspace.md) | Full for Sheets (already specced), Medium for Drive (no signed URLs), Low for Docs generation. | [View](./ANALYSIS-014-google-workspace-integration.md) |
+| ANALYSIS-014 | Google Docs / Drive / Sheets | [SPEC-045e](../SPEC-045e-webhook-hub.md), [SPEC-045i](../SPEC-045i-storage-hub.md), [SPEC-045g](../SPEC-045g-google-workspace.md) | Full for Sheets (already specced), Medium for Drive (no signed URLs), Low for Docs generation. | [View](./ANALYSIS-014-google-workspace-integration.md) |

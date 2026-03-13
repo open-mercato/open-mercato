@@ -82,8 +82,8 @@ const crud = makeCrudRoute({
       receivedAt: F.received_at,
       amount: F.amount,
     },
-    buildFilters: async (query: any) => {
-      const filters: Record<string, any> = {}
+    buildFilters: async (query: z.infer<typeof listSchema>) => {
+      const filters: Record<string, { $eq: string }> = {}
       if (query.orderId) filters.order_id = { $eq: query.orderId }
       if (query.paymentMethodId) filters.payment_method_id = { $eq: query.paymentMethodId }
       return filters

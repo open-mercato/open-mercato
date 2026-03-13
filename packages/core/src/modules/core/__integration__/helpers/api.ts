@@ -1,9 +1,11 @@
 import { type APIRequestContext } from '@playwright/test';
 import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
-const BASE_URL =
-  process.env.BASE_URL?.trim() ||
-  'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL?.trim() || null;
+
+function resolveUrl(path: string): string {
+  return BASE_URL ? `${BASE_URL}${path}` : path;
+}
 
 export async function getAuthToken(
   request: APIRequestContext,
@@ -30,7 +32,7 @@ export async function getAuthToken(
     form.set('email', attempt.email);
     form.set('password', attempt.password);
 
-    const response = await request.post(`${BASE_URL}/api/auth/login`, {
+    const response = await request.post(resolveUrl('/api/auth/login'), {
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
       },
@@ -60,12 +62,11 @@ export async function apiRequest(
   path: string,
   options: { token: string; data?: unknown },
 ) {
-  const url = `${BASE_URL}${path}`;
   const headers = {
     Authorization: `Bearer ${options.token}`,
     'Content-Type': 'application/json',
   };
-  return request.fetch(url, { method, headers, data: options.data });
+  return request.fetch(resolveUrl(path), { method, headers, data: options.data });
 }
 
 export async function postForm(
@@ -76,7 +77,7 @@ export async function postForm(
 ) {
   const form = new URLSearchParams();
   for (const [key, value] of Object.entries(data)) form.set(key, value);
-  return request.post(`${BASE_URL}${path}`, {
+  return request.post(resolveUrl(path), {
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
       ...(options?.headers ?? {}),

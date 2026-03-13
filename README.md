@@ -286,6 +286,21 @@ docker compose -f docker-compose.fullapp.dev.yml up --build
 
 **Windows users:** Ensure WSL 2 backend is enabled in Docker Desktop and clone with `git config --global core.autocrlf input` to avoid line-ending issues.
 
+Once the dev stack is running, you can use the Docker wrapper scripts from the repo root instead of typing `docker compose exec` manually:
+
+```bash
+yarn docker:build:packages
+yarn docker:generate
+yarn docker:initialize
+yarn docker:initialize -- --reinstall
+yarn docker:db:migrate
+yarn docker:lint
+yarn docker:typecheck
+yarn docker:test
+yarn docker:install-skills
+yarn docker:dev -- --skip-rebuilt
+```
+
 ### Production mode
 
 ```bash
@@ -298,6 +313,13 @@ docker compose -f docker-compose.fullapp.yml up --build
 - Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
 - Stop: `docker compose -f docker-compose.fullapp.yml down`
 - Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
+
+For runtime-oriented tasks on the fullapp stack, use the Docker wrappers as well:
+
+```bash
+yarn docker:db:migrate
+yarn docker:mercato auth:list-users
+```
 
 Navigate to `http://localhost:3000/backend` and sign in with the default credentials (admin@example.com).
 
@@ -346,6 +368,16 @@ docker compose -f docker-compose.preview.yaml down
 
 > **Attention:** This type of deployment is ephemeral and intended for testing purposes only. After stopping the containers, all data will be lost. Do not use this setup in production.
 
+
+### Deploy on Railway
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/TKvo95)
+
+One-click deployment on [Railway](https://railway.com) with PostgreSQL (pgvector), Redis, and Meilisearch provisioned automatically.
+
+> **Note:** Open Mercato requires at least **2 GB of memory**. The Railway **Hobby plan** (or higher) is required — the free tier is not sufficient.
+
+See the [Railway deployment guide](https://docs.openmercato.com/installation/railway) for environment variables, first-boot setup, and custom domain configuration.
 
 ### VPS Deployment
 
