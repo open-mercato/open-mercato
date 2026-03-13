@@ -5,12 +5,14 @@ import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
+type Pipeline = { id: string; name: string }
+
 type FunnelStage = {
-  stage: string
+  label: string
   dealCount: number
   conversionRate: number
 }
@@ -23,8 +25,9 @@ type ForecastEntry = {
 }
 
 type VelocityStage = {
-  stage: string
-  averageDays: number
+  label: string
+  avgDays: number
+  dealCount: number
 }
 
 type SourceEntry = {
@@ -35,7 +38,7 @@ type SourceEntry = {
 }
 
 type FunnelResponse = { stages: FunnelStage[] }
-type ForecastResponse = { entries: ForecastEntry[] }
+type ForecastResponse = { months: ForecastEntry[] }
 type VelocityResponse = { stages: VelocityStage[] }
 type SourcesResponse = { sources: SourceEntry[] }
 
@@ -54,6 +57,22 @@ export default function DealsAnalyticsPage() {
   const scopeVersion = useOrganizationScopeVersion()
   const [dateFrom, setDateFrom] = React.useState(getDefaultDateFrom)
   const [dateTo, setDateTo] = React.useState(getDefaultDateTo)
+  const [pipelines, setPipelines] = React.useState<Pipeline[]>([])
+  const [pipelineId, setPipelineId] = React.useState<string>('')
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadPipelines() {
+      try {
+        const call = await apiCall<{ items?: Pipeline[] }>('/api/customers/pipelines')
+        if (cancelled || !call.ok) return
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        setPipelines(items)
+      } catch { /* ignore */ }
+    }
+    loadPipelines().catch(() => {})
+    return () => { cancelled = true }
+  }, [scopeVersion])
 
   return (
     <Page>
@@ -85,27 +104,48 @@ export default function DealsAnalyticsPage() {
               onChange={(event) => setDateTo(event.target.value)}
               className="rounded-md border bg-background px-3 py-1.5 text-sm"
             />
+            {pipelines.length > 0 && (
+              <>
+                <label className="text-sm font-medium text-muted-foreground">
+                  {t('customers.deals.analytics.pipeline', 'Pipeline')}
+                </label>
+                <select
+                  value={pipelineId}
+                  onChange={(event) => setPipelineId(event.target.value)}
+                  className="rounded-md border bg-background px-3 py-1.5 text-sm"
+                >
+                  <option value="">{t('customers.deals.analytics.pipelineAll', 'All pipelines')}</option>
+                  {pipelines.map((pipeline) => (
+                    <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>
+                  ))}
+                </select>
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <ConversionFunnelCard
               dateFrom={dateFrom}
               dateTo={dateTo}
+              pipelineId={pipelineId}
               scopeVersion={scopeVersion}
             />
             <RevenueForecastCard
               dateFrom={dateFrom}
               dateTo={dateTo}
+              pipelineId={pipelineId}
               scopeVersion={scopeVersion}
             />
             <DealVelocityCard
               dateFrom={dateFrom}
               dateTo={dateTo}
+              pipelineId={pipelineId}
               scopeVersion={scopeVersion}
             />
             <SourceEffectivenessCard
               dateFrom={dateFrom}
               dateTo={dateTo}
+              pipelineId={pipelineId}
               scopeVersion={scopeVersion}
             />
           </div>
@@ -118,17 +158,24 @@ export default function DealsAnalyticsPage() {
 type CardProps = {
   dateFrom: string
   dateTo: string
+  pipelineId: string
   scopeVersion: number
 }
 
-function ConversionFunnelCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
+function buildAnalyticsUrl(endpoint: string, dateFrom: string, dateTo: string, pipelineId: string): string {
+  const params = new URLSearchParams({ from: dateFrom, to: dateTo })
+  if (pipelineId) params.set('pipelineId', pipelineId)
+  return `/api/customers/deals/analytics/${endpoint}?${params.toString()}`
+}
+
+function ConversionFunnelCard({ dateFrom, dateTo, pipelineId, scopeVersion }: CardProps) {
   const t = useT()
 
   const { data, isLoading, error } = useQuery<FunnelResponse>({
-    queryKey: ['customers', 'deals', 'analytics', 'funnel', scopeVersion, dateFrom, dateTo],
+    queryKey: ['customers', 'deals', 'analytics', 'funnel', scopeVersion, dateFrom, dateTo, pipelineId],
     queryFn: () =>
       readApiResultOrThrow<FunnelResponse>(
-        `/api/customers/deals/analytics/funnel?from=${encodeURIComponent(dateFrom)}&to=${encodeURIComponent(dateTo)}`,
+        buildAnalyticsUrl('funnel', dateFrom, dateTo, pipelineId),
         undefined,
         { errorMessage: t('customers.deals.analytics.funnel.error', 'Failed to load conversion funnel') },
       ),
@@ -155,9 +202,9 @@ function ConversionFunnelCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
       ) : (
         <div className="mt-4 flex flex-col gap-3">
           {data?.stages?.map((stage) => (
-            <div key={stage.stage} className="flex flex-col gap-1">
+            <div key={stage.label} className="flex flex-col gap-1">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{stage.stage}</span>
+                <span className="font-medium">{stage.label}</span>
                 <span className="text-muted-foreground">
                   {stage.dealCount} {t('customers.deals.analytics.funnel.deals', 'deals')} &middot;{' '}
                   {stage.conversionRate.toFixed(1)}%
@@ -182,14 +229,14 @@ function ConversionFunnelCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
   )
 }
 
-function RevenueForecastCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
+function RevenueForecastCard({ dateFrom, dateTo, pipelineId, scopeVersion }: CardProps) {
   const t = useT()
 
   const { data, isLoading, error } = useQuery<ForecastResponse>({
-    queryKey: ['customers', 'deals', 'analytics', 'forecast', scopeVersion, dateFrom, dateTo],
+    queryKey: ['customers', 'deals', 'analytics', 'forecast', scopeVersion, dateFrom, dateTo, pipelineId],
     queryFn: () =>
       readApiResultOrThrow<ForecastResponse>(
-        `/api/customers/deals/analytics/forecast?from=${encodeURIComponent(dateFrom)}&to=${encodeURIComponent(dateTo)}`,
+        buildAnalyticsUrl('forecast', dateFrom, dateTo, pipelineId),
         undefined,
         { errorMessage: t('customers.deals.analytics.forecast.error', 'Failed to load revenue forecast') },
       ),
@@ -210,7 +257,7 @@ function RevenueForecastCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
-          {data?.entries?.length ? (
+          {data?.months?.length ? (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
@@ -229,7 +276,7 @@ function RevenueForecastCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
                 </tr>
               </thead>
               <tbody>
-                {data.entries.map((entry) => (
+                {data.months.map((entry) => (
                   <tr key={entry.month} className="border-b last:border-0">
                     <td className="py-2 pr-4">{entry.month}</td>
                     <td className="py-2 pr-4 text-right">{entry.dealCount}</td>
@@ -250,14 +297,14 @@ function RevenueForecastCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
   )
 }
 
-function DealVelocityCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
+function DealVelocityCard({ dateFrom, dateTo, pipelineId, scopeVersion }: CardProps) {
   const t = useT()
 
   const { data, isLoading, error } = useQuery<VelocityResponse>({
-    queryKey: ['customers', 'deals', 'analytics', 'velocity', scopeVersion, dateFrom, dateTo],
+    queryKey: ['customers', 'deals', 'analytics', 'velocity', scopeVersion, dateFrom, dateTo, pipelineId],
     queryFn: () =>
       readApiResultOrThrow<VelocityResponse>(
-        `/api/customers/deals/analytics/velocity?from=${encodeURIComponent(dateFrom)}&to=${encodeURIComponent(dateTo)}`,
+        buildAnalyticsUrl('velocity', dateFrom, dateTo, pipelineId),
         undefined,
         { errorMessage: t('customers.deals.analytics.velocity.error', 'Failed to load deal velocity') },
       ),
@@ -265,7 +312,7 @@ function DealVelocityCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
 
   const maxDays = React.useMemo(() => {
     if (!data?.stages?.length) return 1
-    return Math.max(...data.stages.map((stage) => stage.averageDays), 1)
+    return Math.max(...data.stages.map((stage) => stage.avgDays), 1)
   }, [data])
 
   return (
@@ -284,17 +331,17 @@ function DealVelocityCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
       ) : (
         <div className="mt-4 flex flex-col gap-3">
           {data?.stages?.map((stage) => (
-            <div key={stage.stage} className="flex flex-col gap-1">
+            <div key={stage.label} className="flex flex-col gap-1">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{stage.stage}</span>
+                <span className="font-medium">{stage.label}</span>
                 <span className="text-muted-foreground">
-                  {stage.averageDays.toFixed(1)} {t('customers.deals.analytics.velocity.days', 'days')}
+                  {stage.avgDays.toFixed(1)} {t('customers.deals.analytics.velocity.days', 'days')}
                 </span>
               </div>
               <div className="h-2 w-full rounded-full bg-muted">
                 <div
                   className="h-2 rounded-full bg-primary"
-                  style={{ width: `${(stage.averageDays / maxDays) * 100}%` }}
+                  style={{ width: `${(stage.avgDays / maxDays) * 100}%` }}
                 />
               </div>
             </div>
@@ -310,14 +357,14 @@ function DealVelocityCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
   )
 }
 
-function SourceEffectivenessCard({ dateFrom, dateTo, scopeVersion }: CardProps) {
+function SourceEffectivenessCard({ dateFrom, dateTo, pipelineId, scopeVersion }: CardProps) {
   const t = useT()
 
   const { data, isLoading, error } = useQuery<SourcesResponse>({
-    queryKey: ['customers', 'deals', 'analytics', 'sources', scopeVersion, dateFrom, dateTo],
+    queryKey: ['customers', 'deals', 'analytics', 'sources', scopeVersion, dateFrom, dateTo, pipelineId],
     queryFn: () =>
       readApiResultOrThrow<SourcesResponse>(
-        `/api/customers/deals/analytics/sources?from=${encodeURIComponent(dateFrom)}&to=${encodeURIComponent(dateTo)}`,
+        buildAnalyticsUrl('sources', dateFrom, dateTo, pipelineId),
         undefined,
         { errorMessage: t('customers.deals.analytics.sources.error', 'Failed to load source effectiveness') },
       ),
