@@ -377,17 +377,13 @@ export function SalesShipmentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (shipments.length === 0) {
-      onActionChange(null)
-      return
-    }
     onActionChange({
       label: addShipmentLabel,
       onClick: handleOpenCreate,
-      disabled: loading,
+      disabled: false,
     })
     return () => onActionChange(null)
-  }, [addShipmentLabel, handleOpenCreate, loading, onActionChange, shipments.length])
+  }, [addShipmentLabel, handleOpenCreate, onActionChange])
 
   const handleEdit = React.useCallback((shipment: ShipmentRow) => {
     setDialogState({ mode: 'edit', shipment })

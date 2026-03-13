@@ -235,17 +235,13 @@ export function SalesDocumentPaymentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (payments.length === 0) {
-      onActionChange(null)
-      return
-    }
     onActionChange({
       label: addActionLabel,
       onClick: openCreate,
-      disabled: loading,
+      disabled: false,
     })
     return () => onActionChange(null)
-  }, [addActionLabel, loading, onActionChange, openCreate, payments.length])
+  }, [addActionLabel, onActionChange, openCreate])
 
   const columns = React.useMemo<ColumnDef<PaymentRow>[]>(
     () => [
