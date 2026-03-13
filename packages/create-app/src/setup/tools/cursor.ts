@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AgenticConfig } from '../wizard.js'
@@ -46,4 +46,18 @@ export function generateCursor(config: AgenticConfig): void {
 
   // .cursor/mcp.json.example
   copyFile('mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
+
+  // Symlink .cursor/skills → ../.ai/skills
+  ensureSkillsLink(join(targetDir, '.cursor', 'skills'), join('..', '.ai', 'skills'))
+}
+
+function ensureSkillsLink(linkPath: string, target: string): void {
+  ensureDir(linkPath)
+  if (existsSync(linkPath) && !lstatSync(linkPath).isSymbolicLink()) {
+    return
+  }
+  if (lstatSync(linkPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    unlinkSync(linkPath)
+  }
+  symlinkSync(target, linkPath)
 }
