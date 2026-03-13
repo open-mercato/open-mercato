@@ -23,8 +23,8 @@ import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { TimelineEntry } from './types'
 import { dealTimelinePanelConfig } from './config'
-import { GenericTimelineItem } from '@open-mercato/ui/backend/timeline/TimelineItem'
-import { GenericFilterDropdown } from '@open-mercato/ui/backend/timeline/TimelineFilterDropdown'
+import { TimelineItem as GenericTimelineItem } from '@open-mercato/ui/backend/timeline/TimelineItem'
+import { TimelineFilterDropdown as GenericFilterDropdown } from '@open-mercato/ui/backend/timeline/TimelineFilterDropdown'
 import { ALL_TIMELINE_KINDS, type TimelineEntryKind } from './types'
 
 export type TimelineItemProps = {

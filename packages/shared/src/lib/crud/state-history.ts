@@ -58,7 +58,7 @@ export function computeTransitionDuration(
   from: Date | string | null,
   to: Date | string | null = new Date(),
 ): number | null {
-  if (!from) return null
+  if (!from || !to) return null
   const fromMs = new Date(from).getTime()
   const toMs = new Date(to).getTime()
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null

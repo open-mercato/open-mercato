@@ -225,7 +225,7 @@ export function TimelineItem<K extends string>({ entry, isLast, t, config, badge
   const [emailModalOpen, setEmailModalOpen] = React.useState(false)
 
   const kind = entry.kind as K
-  const IconComponent = config.resolveActivityIcon && kind === ('activity_logged' as K)
+  const IconComponent: React.ComponentType<{ className?: string }> | undefined = config.resolveActivityIcon && kind === ('activity_logged' as K)
     ? config.resolveActivityIcon(entry.detail)
     : config.kindIcons[kind]
   const bgClass = config.kindBgColors[kind] ?? ''
@@ -248,7 +248,7 @@ export function TimelineItem<K extends string>({ entry, isLast, t, config, badge
       <div
         className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border ${bgClass}`}
       >
-        {IconComponent ? <IconComponent className={`h-3 w-3 ${iconColorClass}`} aria-hidden /> : null}
+        {IconComponent ? <IconComponent className={`h-3 w-3 ${iconColorClass}`} /> : null}
       </div>
       <div className="flex-1 pb-4">
         <div className="rounded-lg border bg-card p-3 space-y-1.5">

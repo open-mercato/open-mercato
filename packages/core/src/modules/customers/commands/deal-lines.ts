@@ -602,7 +602,7 @@ const reorderDealLinesCommand: CommandHandler<DealLineReorderInput, { reordered:
 
     const result = await reorderItems(
       em,
-      CustomerDealLine,
+      CustomerDealLine as unknown as (new (...args: unknown[]) => Record<string, unknown>),
       parsed.lineIds,
       'lineNumber',
       { deal: deal.id, deletedAt: null },
