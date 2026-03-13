@@ -3,7 +3,8 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerComment } from '../data/entities'
+import { CustomerComment, CustomerDealMention } from '../data/entities'
+import { emitCustomersEvent } from '../events'
 import { commentCreateSchema, commentUpdateSchema, type CommentCreateInput, type CommentUpdateInput } from '../data/validators'
 import {
   ensureOrganizationScope,
@@ -114,6 +115,50 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       indexer: commentCrudIndexer,
       events: commentCrudEvents,
     })
+
+    // Parse @mentions from body: @[userId:displayName] pattern
+    const dealRef = comment.deal
+    const dealId = dealRef ? (typeof dealRef === 'string' ? dealRef : dealRef.id) : null
+    if (dealId && parsed.body) {
+      const mentionPattern = /@\[([0-9a-f-]{36}):([^\]]*)\]/gi
+      const mentionedUserIds = new Set<string>()
+      let match: RegExpExecArray | null = null
+      while ((match = mentionPattern.exec(parsed.body)) !== null) {
+        const userId = match[1]
+        if (userId && userId.length === 36) mentionedUserIds.add(userId)
+      }
+      if (mentionedUserIds.size) {
+        const mentionEm = em.fork()
+        const mentionedIds = Array.from(mentionedUserIds)
+        const validUserRows = await mentionEm.getConnection().execute<Array<{ id: string }>>(
+          'SELECT id FROM users WHERE id = ANY(?) AND tenant_id = ? AND deleted_at IS NULL',
+          [mentionedIds, parsed.tenantId],
+        )
+        for (const row of validUserRows) {
+          const mention = mentionEm.create(CustomerDealMention, {
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            dealId,
+            commentId: comment.id,
+            mentionedUserId: row.id,
+            isRead: false,
+          })
+          mentionEm.persist(mention)
+        }
+        await mentionEm.flush()
+
+        for (const row of validUserRows) {
+          await emitCustomersEvent('customers.deal.mentioned', {
+            dealId,
+            commentId: comment.id,
+            mentionedUserId: row.id,
+            authorUserId: normalizedAuthor,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+          })
+        }
+      }
+    }
 
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },

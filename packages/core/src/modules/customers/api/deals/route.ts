@@ -259,7 +259,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           ),
         ])
 
-        const personAssignments = new Map<string, { id: string; label: string }[]>()
+        const personAssignments = new Map<string, { id: string; label: string; role: string | null }[]>()
         const personMemberships = new Map<string, Set<string>>()
         allPersonLinks.forEach((link) => {
           const deal = link.deal
@@ -282,9 +282,10 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             personRef && typeof personRef === 'object' && 'displayName' in personRef && typeof (personRef as any).displayName === 'string'
               ? (personRef as any).displayName
               : ''
+          const role = typeof link.participantRole === 'string' ? link.participantRole : null
           const bucket = personAssignments.get(dealId) ?? []
           if (!bucket.some((entry) => entry.id === personId)) {
-            bucket.push({ id: personId, label })
+            bucket.push({ id: personId, label, role })
             personAssignments.set(dealId, bucket)
           }
           const membership = personMemberships.get(dealId) ?? new Set<string>()

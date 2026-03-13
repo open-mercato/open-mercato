@@ -22,9 +22,13 @@ import {
   CustomerActivity,
   CustomerAddress,
   CustomerComment,
+  CustomerDealStageHistory,
+  CustomerDealEmail,
+  CustomerBranch,
   CustomerPipeline,
   CustomerPipelineStage,
 } from './data/entities'
+
 import { ensureDictionaryEntry } from './commands/shared'
 
 type SeedArgs = {
@@ -46,7 +50,7 @@ const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
   { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
   { value: 'win', label: 'Win', color: '#22c55e', icon: 'lucide:trophy' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
 ]
 
@@ -57,8 +61,29 @@ const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'offering', label: 'Offering', color: '#22c55e', icon: 'lucide:package' },
   { value: 'negotiations', label: 'Negotiations', color: '#facc15', icon: 'lucide:handshake' },
   { value: 'win', label: 'Win', color: '#16a34a', icon: 'lucide:award' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
+]
+
+const DEAL_CLOSE_REASON_DEFAULTS: DictionaryDefault[] = [
+  { value: 'budget', label: 'Budget constraints', color: '#f59e0b', icon: 'lucide:wallet' },
+  { value: 'competitor', label: 'Lost to competitor', color: '#ef4444', icon: 'lucide:swords' },
+  { value: 'no_decision', label: 'No decision made', color: '#6b7280', icon: 'lucide:circle-pause' },
+  { value: 'timing', label: 'Bad timing', color: '#8b5cf6', icon: 'lucide:clock' },
+  { value: 'no_need', label: 'No longer needed', color: '#64748b', icon: 'lucide:x-circle' },
+  { value: 'price', label: 'Price too high', color: '#dc2626', icon: 'lucide:trending-down' },
+  { value: 'fit', label: 'Product fit issues', color: '#d97706', icon: 'lucide:puzzle' },
+  { value: 'champion_left', label: 'Champion left', color: '#9333ea', icon: 'lucide:user-minus' },
+  { value: 'successful_close', label: 'Successful close', color: '#22c55e', icon: 'lucide:trophy' },
+]
+
+const DEAL_CONTACT_ROLE_DEFAULTS: DictionaryDefault[] = [
+  { value: 'decision_maker', label: 'Decision Maker', icon: 'lucide:crown' },
+  { value: 'champion', label: 'Champion', icon: 'lucide:star' },
+  { value: 'influencer', label: 'Influencer', icon: 'lucide:megaphone' },
+  { value: 'blocker', label: 'Blocker', icon: 'lucide:shield-alert' },
+  { value: 'end_user', label: 'End User', icon: 'lucide:user' },
+  { value: 'budget_holder', label: 'Budget Holder', icon: 'lucide:wallet' },
 ]
 
 const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
@@ -188,6 +213,29 @@ type ExampleNote = {
   color?: string
 }
 
+type ExampleDealStageHistoryEntry = {
+  fromStageLabel: string | null
+  toStageLabel: string
+  durationSeconds: number | null
+  occurredAt: string
+}
+
+type ExampleDealComment = {
+  body: string
+  occurredAt: string
+}
+
+type ExampleDealEmail = {
+  direction: 'inbound' | 'outbound'
+  fromAddress: string
+  fromName: string
+  toAddresses: Array<{ email: string; name?: string }>
+  subject: string
+  bodyText: string
+  sentAt: string
+  hasAttachments?: boolean
+}
+
 type ExampleDeal = {
   slug: string
   title: string
@@ -200,8 +248,20 @@ type ExampleDeal = {
   expectedCloseAt?: string
   people: ExampleDealParticipant[]
   activities?: ExampleActivity[]
+  stageHistory?: ExampleDealStageHistoryEntry[]
+  comments?: ExampleDealComment[]
+  emails?: ExampleDealEmail[]
   source?: string
   custom?: Record<string, unknown>
+}
+
+type ExampleOrder = {
+  orderNumber: string
+  status?: string
+  currencyCode?: string
+  grandTotalGrossAmount: number
+  placedAt: string
+  comments?: string
 }
 
 type ExampleCompany = {
@@ -223,6 +283,14 @@ type ExampleCompany = {
   address?: ExampleAddress
   people?: ExamplePerson[]
   deals?: ExampleDeal[]
+  orders?: ExampleOrder[]
+  branches?: Array<{
+    name: string
+    branchType?: 'headquarters' | 'branch' | 'warehouse' | 'office'
+    specialization?: string
+    budget?: number
+    headcount?: number
+  }>
   interactions?: ExampleActivity[]
   notes?: ExampleNote[]
   custom?: Record<string, unknown>
@@ -256,6 +324,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     source: 'partner_referral',
     lifecycleStage: 'customer',
     status: 'customer',
+    annualRevenue: 2800000,
     custom: {
       relationship_health: 'healthy',
       renewal_quarter: 'Q3',
@@ -273,6 +342,22 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       latitude: 37.7936,
       longitude: -122.3965,
     },
+    branches: [
+      {
+        name: 'Brightside Solar — San Francisco HQ',
+        branchType: 'headquarters',
+        specialization: 'community solar development, HOA portfolio management, residential installations',
+        budget: 180000,
+        headcount: 85,
+      },
+      {
+        name: 'Brightside Solar — San Diego Office',
+        branchType: 'office',
+        specialization: 'commercial installations, battery storage projects',
+        budget: 95000,
+        headcount: 42,
+      },
+    ],
     people: [
       {
         slug: 'mia-johnson',
@@ -375,6 +460,108 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             },
           },
         ],
+        stageHistory: [
+          {
+            fromStageLabel: null,
+            toStageLabel: 'Opportunity',
+            durationSeconds: null,
+            occurredAt: isoDaysFromNow(-42, { hour: 10 }),
+          },
+          {
+            fromStageLabel: 'Opportunity',
+            toStageLabel: 'Marketing Qualified Lead',
+            durationSeconds: 604800,
+            occurredAt: isoDaysFromNow(-35, { hour: 14 }),
+          },
+          {
+            fromStageLabel: 'Marketing Qualified Lead',
+            toStageLabel: 'Sales Qualified Lead',
+            durationSeconds: 518400,
+            occurredAt: isoDaysFromNow(-29, { hour: 11, minute: 30 }),
+          },
+          {
+            fromStageLabel: 'Sales Qualified Lead',
+            toStageLabel: 'Offering',
+            durationSeconds: 864000,
+            occurredAt: isoDaysFromNow(-19, { hour: 16 }),
+          },
+          {
+            fromStageLabel: 'Offering',
+            toStageLabel: 'Negotiations',
+            durationSeconds: 432000,
+            occurredAt: isoDaysFromNow(-14, { hour: 9, minute: 45 }),
+          },
+        ],
+        comments: [
+          {
+            body: 'Initial site assessment completed. HOA board has approved rooftop access for 40 homes in phase 1.',
+            occurredAt: isoDaysFromNow(-38, { hour: 15 }),
+          },
+          {
+            body: 'Budget approved by Daniel Cho. Moving forward with financing options from SolarFund Capital.',
+            occurredAt: isoDaysFromNow(-25, { hour: 10, minute: 30 }),
+          },
+          {
+            body: 'Mia confirmed the board wants to include EV charger pre-wiring in the scope. Need to revise the proposal — could increase deal value by ~$25K.',
+            occurredAt: isoDaysFromNow(-12, { hour: 14, minute: 15 }),
+          },
+          {
+            body: 'Legal team raised concerns about warranty terms for panels in coastal salt air environment. Sent updated warranty addendum for review.',
+            occurredAt: isoDaysFromNow(-5, { hour: 11 }),
+          },
+        ],
+        emails: [
+          {
+            direction: 'outbound',
+            fromAddress: 'sales@acme.com',
+            fromName: 'Sofia Nguyen',
+            toAddresses: [{ email: 'mia.johnson@brightsidesolar.com', name: 'Mia Johnson' }],
+            subject: 'Redwood Residences — Solar Proposal & ROI Analysis',
+            bodyText: 'Hi Mia,\n\nPlease find attached our detailed proposal for the Redwood Residences solar rollout. The ROI analysis shows a 4.2-year payback period with the current incentive structure.\n\nLooking forward to discussing next steps.\n\nBest,\nSofia',
+            sentAt: isoDaysFromNow(-30, { hour: 9 }),
+          },
+          {
+            direction: 'inbound',
+            fromAddress: 'mia.johnson@brightsidesolar.com',
+            fromName: 'Mia Johnson',
+            toAddresses: [{ email: 'sales@acme.com', name: 'Sofia Nguyen' }],
+            subject: 'Re: Redwood Residences — Solar Proposal & ROI Analysis',
+            bodyText: 'Hi Sofia,\n\nThanks for the proposal. The board reviewed it and has a few questions about the maintenance tiers. Can we schedule a call this week?\n\nAlso, Daniel wants to explore the battery add-on option.\n\nBest,\nMia',
+            sentAt: isoDaysFromNow(-28, { hour: 14, minute: 20 }),
+          },
+          {
+            direction: 'outbound',
+            fromAddress: 'sales@acme.com',
+            fromName: 'Sofia Nguyen',
+            toAddresses: [
+              { email: 'mia.johnson@brightsidesolar.com', name: 'Mia Johnson' },
+              { email: 'daniel.cho@brightsidesolar.com', name: 'Daniel Cho' },
+            ],
+            subject: 'Redwood Residences — Revised Proposal with Battery Option',
+            bodyText: 'Hi Mia and Daniel,\n\nAttached is the revised proposal including the battery storage option. The total investment increases to $185K but reduces the payback period to 3.8 years with the additional energy savings.\n\nI\'ve also included a comparison of maintenance tier options as requested.\n\nBest,\nSofia',
+            sentAt: isoDaysFromNow(-20, { hour: 11, minute: 30 }),
+            hasAttachments: true,
+          },
+          {
+            direction: 'inbound',
+            fromAddress: 'daniel.cho@brightsidesolar.com',
+            fromName: 'Daniel Cho',
+            toAddresses: [{ email: 'sales@acme.com', name: 'Sofia Nguyen' }],
+            subject: 'Re: Redwood Residences — Revised Proposal with Battery Option',
+            bodyText: 'Sofia,\n\nThe revised numbers look good. We\'re leaning toward Tier 2 maintenance. Can you send over the final contract draft? We\'d like to have legal review it before the next board meeting on the 15th.\n\nThanks,\nDaniel',
+            sentAt: isoDaysFromNow(-18, { hour: 16, minute: 45 }),
+          },
+          {
+            direction: 'outbound',
+            fromAddress: 'sales@acme.com',
+            fromName: 'Sofia Nguyen',
+            toAddresses: [{ email: 'daniel.cho@brightsidesolar.com', name: 'Daniel Cho' }],
+            subject: 'Redwood Residences — Contract Draft for Legal Review',
+            bodyText: 'Hi Daniel,\n\nPlease find the contract draft attached. I\'ve included the updated warranty terms for coastal installations as discussed.\n\nLet me know if you need any adjustments before the board meeting.\n\nBest,\nSofia',
+            sentAt: isoDaysFromNow(-6, { hour: 10 }),
+            hasAttachments: true,
+          },
+        ],
       },
       {
         slug: 'sunset-lofts-battery',
@@ -410,6 +597,34 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
               follow_up_owner: 'Mia Johnson',
             },
           },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-60, { hour: 9 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 691200, occurredAt: isoDaysFromNow(-52, { hour: 11 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1036800, occurredAt: isoDaysFromNow(-40, { hour: 15 }) },
+        ],
+      },
+      {
+        slug: 'marina-del-rey-commercial',
+        title: 'Marina Del Rey Commercial Solar Array',
+        description: 'Large commercial rooftop installation for a marina retail complex.',
+        status: 'win',
+        pipelineStage: 'win',
+        valueAmount: 320000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-60),
+        probability: 100,
+        source: 'partner_referral',
+        people: [
+          { slug: 'daniel-cho', participantRole: 'Executive Sponsor' },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-180, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 864000, occurredAt: isoDaysFromNow(-170, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 604800, occurredAt: isoDaysFromNow(-163, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1209600, occurredAt: isoDaysFromNow(-149, { hour: 16 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 2592000, occurredAt: isoDaysFromNow(-119, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 5097600, occurredAt: isoDaysFromNow(-60, { hour: 15 }) },
         ],
       },
     ],
@@ -447,6 +662,40 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         color: '#a855f7',
       },
     ],
+    orders: [
+      {
+        orderNumber: 'BSS-2025-0042',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 320000.00,
+        placedAt: isoDaysFromNow(-180),
+        comments: 'Marina Del Rey commercial solar array — full installation package',
+      },
+      {
+        orderNumber: 'BSS-2025-0078',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 48500.00,
+        placedAt: isoDaysFromNow(-120),
+        comments: 'Annual maintenance contract renewal — 12 HOA buildings',
+      },
+      {
+        orderNumber: 'BSS-2026-0005',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 67200.00,
+        placedAt: isoDaysFromNow(-60),
+        comments: 'Inverter upgrades and panel replacements — Sunset Lofts',
+      },
+      {
+        orderNumber: 'BSS-2026-0019',
+        status: 'processing',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 185000.00,
+        placedAt: isoDaysFromNow(-5),
+        comments: 'Redwood Residences solar rollout — phase 1 deposit',
+      },
+    ],
   },
   {
     slug: 'harborview-analytics',
@@ -464,6 +713,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     source: 'industry_event',
     lifecycleStage: 'prospect',
     status: 'active',
+    annualRevenue: 8500000,
     custom: {
       relationship_health: 'monitor',
       renewal_quarter: 'Q4',
@@ -481,6 +731,29 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       latitude: 42.3522,
       longitude: -71.0507,
     },
+    branches: [
+      {
+        name: 'Harborview Analytics — Boston HQ',
+        branchType: 'headquarters',
+        specialization: 'product development, enterprise sales, customer success',
+        budget: 420000,
+        headcount: 280,
+      },
+      {
+        name: 'Harborview Analytics — Chicago Office',
+        branchType: 'office',
+        specialization: 'midwest retail partnerships, field sales',
+        budget: 145000,
+        headcount: 65,
+      },
+      {
+        name: 'Harborview Analytics — Data Center',
+        branchType: 'warehouse',
+        specialization: 'cloud infrastructure, data processing, ML operations',
+        budget: 210000,
+        headcount: 40,
+      },
+    ],
     people: [
       {
         slug: 'arjun-patel',
@@ -574,6 +847,14 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             },
           },
         ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-120, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 432000, occurredAt: isoDaysFromNow(-115, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 518400, occurredAt: isoDaysFromNow(-109, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 864000, occurredAt: isoDaysFromNow(-99, { hour: 15 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 1728000, occurredAt: isoDaysFromNow(-79, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 4665600, occurredAt: isoDaysFromNow(-25, { hour: 16 }) },
+        ],
       },
       {
         slug: 'midwest-outfitters',
@@ -609,6 +890,32 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
               follow_up_owner: 'Arjun Patel',
             },
           },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-30, { hour: 10 }) },
+        ],
+      },
+      {
+        slug: 'harborview-saas-platform',
+        title: 'Harborview SaaS Platform License',
+        description: 'Enterprise platform license for data analytics across all divisions.',
+        status: 'win',
+        pipelineStage: 'win',
+        valueAmount: 156000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-15),
+        probability: 100,
+        source: 'inbound_web',
+        people: [
+          { slug: 'arjun-patel', participantRole: 'Executive Sponsor' },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-100, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 259200, occurredAt: isoDaysFromNow(-97, { hour: 11 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 432000, occurredAt: isoDaysFromNow(-92, { hour: 14 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 950400, occurredAt: isoDaysFromNow(-81, { hour: 10 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 1555200, occurredAt: isoDaysFromNow(-63, { hour: 15 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 4147200, occurredAt: isoDaysFromNow(-15, { hour: 16 }) },
         ],
       },
     ],
@@ -647,6 +954,40 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         color: '#0ea5e9',
       },
     ],
+    orders: [
+      {
+        orderNumber: 'HVA-2025-0112',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 96000.00,
+        placedAt: isoDaysFromNow(-90),
+        comments: 'Blue Harbor Grocers pilot program — 28 locations, 6-month license',
+      },
+      {
+        orderNumber: 'HVA-2025-0145',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 156000.00,
+        placedAt: isoDaysFromNow(-60),
+        comments: 'Harborview SaaS platform enterprise license — all divisions',
+      },
+      {
+        orderNumber: 'HVA-2026-0008',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 24500.00,
+        placedAt: isoDaysFromNow(-30),
+        comments: 'Professional services — custom dashboard configuration and training',
+      },
+      {
+        orderNumber: 'HVA-2026-0031',
+        status: 'processing',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 38000.00,
+        placedAt: isoDaysFromNow(-7),
+        comments: 'Data integration add-on — POS and inventory sync module',
+      },
+    ],
   },
   {
     slug: 'copperleaf-design',
@@ -664,6 +1005,7 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
     source: 'customer_referral',
     lifecycleStage: 'customer',
     status: 'customer',
+    annualRevenue: 1250000,
     custom: {
       relationship_health: 'healthy',
       renewal_quarter: 'Q1',
@@ -681,6 +1023,22 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
       latitude: 30.2642,
       longitude: -97.7275,
     },
+    branches: [
+      {
+        name: 'Copperleaf Design — Austin Studio',
+        branchType: 'headquarters',
+        specialization: 'hospitality design, boutique retail interiors, sustainable materials consulting',
+        budget: 65000,
+        headcount: 22,
+      },
+      {
+        name: 'Copperleaf Design — Houston Showroom',
+        branchType: 'office',
+        specialization: 'client presentations, material samples library, project staging',
+        budget: 28000,
+        headcount: 8,
+      },
+    ],
     people: [
       {
         slug: 'taylor-brooks',
@@ -759,13 +1117,18 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
             },
           },
         ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-55, { hour: 9 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 777600, occurredAt: isoDaysFromNow(-46, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 950400, occurredAt: isoDaysFromNow(-35, { hour: 11 }) },
+        ],
       },
       {
         slug: 'cedar-creek-retreat',
         title: 'Cedar Creek Retreat Expansion',
         description: 'New wellness center build-out including retail area and treatment rooms.',
-        status: 'loose',
-        pipelineStage: 'loose',
+        status: 'lost',
+        pipelineStage: 'lost',
         valueAmount: 98000,
         valueCurrency: 'USD',
         expectedCloseAt: isoDaysFromNow(-70),
@@ -794,6 +1157,58 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
               follow_up_owner: 'Taylor Brooks',
             },
           },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-150, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 518400, occurredAt: isoDaysFromNow(-144, { hour: 15 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 691200, occurredAt: isoDaysFromNow(-136, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1296000, occurredAt: isoDaysFromNow(-121, { hour: 14 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 2160000, occurredAt: isoDaysFromNow(-96, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Lost', durationSeconds: 2246400, occurredAt: isoDaysFromNow(-70, { hour: 17 }) },
+        ],
+      },
+      {
+        slug: 'grand-pacific-penthouse',
+        title: 'Grand Pacific Penthouse Collection',
+        description: 'Luxury interior design for 6 penthouse units in downtown Portland.',
+        status: 'win',
+        pipelineStage: 'win',
+        valueAmount: 275000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-40),
+        probability: 100,
+        source: 'inbound_web',
+        people: [
+          { slug: 'taylor-brooks', participantRole: 'Principal Designer' },
+          { slug: 'naomi-harris', participantRole: 'Project Lead' },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-140, { hour: 10 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 345600, occurredAt: isoDaysFromNow(-136, { hour: 14 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 604800, occurredAt: isoDaysFromNow(-129, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1036800, occurredAt: isoDaysFromNow(-117, { hour: 16 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Negotiations', durationSeconds: 1728000, occurredAt: isoDaysFromNow(-97, { hour: 10 }) },
+          { fromStageLabel: 'Negotiations', toStageLabel: 'Win', durationSeconds: 4924800, occurredAt: isoDaysFromNow(-40, { hour: 15 }) },
+        ],
+      },
+      {
+        slug: 'urban-loft-staging',
+        title: 'Urban Loft Staging Package',
+        description: 'Property staging for 15 loft units for a real estate developer.',
+        status: 'lost',
+        pipelineStage: 'lost',
+        valueAmount: 68000,
+        valueCurrency: 'USD',
+        expectedCloseAt: isoDaysFromNow(-90),
+        probability: 0,
+        source: 'outbound_campaign',
+        people: [{ slug: 'naomi-harris', participantRole: 'Project Lead' }],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-160, { hour: 9 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 604800, occurredAt: isoDaysFromNow(-153, { hour: 13 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 777600, occurredAt: isoDaysFromNow(-144, { hour: 11 }) },
+          { fromStageLabel: 'Sales Qualified Lead', toStageLabel: 'Offering', durationSeconds: 1382400, occurredAt: isoDaysFromNow(-128, { hour: 15 }) },
+          { fromStageLabel: 'Offering', toStageLabel: 'Lost', durationSeconds: 3283200, occurredAt: isoDaysFromNow(-90, { hour: 16 }) },
         ],
       },
     ],
@@ -831,6 +1246,396 @@ const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         color: '#0ea5e9',
       },
     ],
+    orders: [
+      {
+        orderNumber: 'CLD-2025-0034',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 275000.00,
+        placedAt: isoDaysFromNow(-120),
+        comments: 'Grand Pacific Penthouse Collection — full design and furnishing contract',
+      },
+      {
+        orderNumber: 'CLD-2025-0051',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 42800.00,
+        placedAt: isoDaysFromNow(-85),
+        comments: 'Material procurement — sustainable textiles and reclaimed wood for Wanderstay project',
+      },
+      {
+        orderNumber: 'CLD-2026-0003',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 18500.00,
+        placedAt: isoDaysFromNow(-45),
+        comments: 'Design consultation retainer — Q1 hospitality projects',
+      },
+      {
+        orderNumber: 'CLD-2026-0017',
+        status: 'processing',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 145000.00,
+        placedAt: isoDaysFromNow(-8),
+        comments: 'Wanderstay Boutique Renovation — phase 1 furnishing order',
+      },
+    ],
+  },
+  {
+    slug: 'northgate-medical',
+    displayName: 'Northgate Medical Supply',
+    legalName: 'Northgate Medical Supply Inc.',
+    brandName: 'Northgate Medical',
+    industry: 'Medical Devices Distribution',
+    sizeBucket: '11-50',
+    domain: 'northgatemedical.com',
+    websiteUrl: 'https://www.northgatemedical.com',
+    description:
+      'Regional medical supply distributor serving hospitals, clinics, and outpatient facilities across the Midwest. Specializes in surgical instruments, single-use consumables, and diagnostic equipment. B2B distribution with next-day delivery across six states.',
+    primaryEmail: 'orders@northgatemedical.com',
+    primaryPhone: '+1 312-555-0734',
+    source: 'partner_referral',
+    lifecycleStage: 'customer',
+    status: 'customer',
+    annualRevenue: 3200000,
+    address: {
+      name: 'Headquarters',
+      purpose: 'office',
+      addressLine1: '400 N Michigan Ave Suite 1200',
+      city: 'Chicago',
+      region: 'IL',
+      postalCode: '60611',
+      country: 'US',
+      latitude: 41.8902,
+      longitude: -87.6244,
+    },
+    branches: [
+      {
+        name: 'Northgate Medical — Chicago HQ',
+        branchType: 'headquarters',
+        specialization: 'surgical instruments, diagnostic equipment, hospital supply distribution',
+        budget: 85000,
+        headcount: 35,
+      },
+      {
+        name: 'Northgate Medical — Indianapolis Warehouse',
+        branchType: 'warehouse',
+        specialization: 'central distribution hub, inventory management, next-day fulfillment',
+        budget: 42000,
+        headcount: 12,
+      },
+    ],
+    people: [
+      {
+        slug: 'rachel-whitfield',
+        firstName: 'Rachel',
+        lastName: 'Whitfield',
+        jobTitle: 'Director of Procurement',
+        department: 'Procurement',
+        seniority: 'director',
+        email: 'r.whitfield@northgatemedical.com',
+        phone: '+1 312-555-0741',
+        timezone: 'America/Chicago',
+        description: 'Primary purchasing decision-maker. Prefers email communication. Relationship developing well.',
+        custom: {
+          buying_role: 'economic_buyer',
+          newsletter_opt_in: false,
+        },
+      },
+      {
+        slug: 'kevin-marsh-northgate',
+        firstName: 'Kevin',
+        lastName: 'Marsh',
+        jobTitle: 'Product Manager',
+        department: 'Product',
+        seniority: 'manager',
+        email: 'k.marsh@northgatemedical.com',
+        phone: '+1 312-555-0748',
+        timezone: 'America/Chicago',
+        description: 'Key influencer in product selection decisions. Prefers phone calls. Strong rapport with sales team.',
+        custom: {
+          buying_role: 'influencer',
+          newsletter_opt_in: true,
+        },
+      },
+      {
+        slug: 'sandra-chen-northgate',
+        firstName: 'Sandra',
+        lastName: 'Chen',
+        jobTitle: 'Finance Manager',
+        department: 'Finance',
+        seniority: 'mid',
+        email: 'accounting@northgatemedical.com',
+        phone: '+1 312-555-0755',
+        timezone: 'America/Chicago',
+        description: 'Billing and invoicing contact. Prefers email correspondence.',
+        custom: {
+          buying_role: 'influencer',
+          newsletter_opt_in: false,
+        },
+      },
+    ],
+    deals: [
+      {
+        slug: 'northgate-consumables-2026',
+        title: 'Annual Consumables Supply Agreement',
+        description:
+          'Proposal for annual supply of disinfectant kits and nitrile gloves. Client negotiating 12% catalog discount — our counter-offer is 8%.',
+        status: 'in_progress',
+        pipelineStage: 'negotiations',
+        valueAmount: 78500,
+        valueCurrency: 'USD',
+        probability: 60,
+        expectedCloseAt: isoDaysFromNow(14),
+        source: 'partner_referral',
+        people: [
+          { slug: 'rachel-whitfield', participantRole: 'Decision Maker' },
+          { slug: 'kevin-marsh-northgate', participantRole: 'Influencer' },
+        ],
+        activities: [
+          {
+            slug: 'northgate-proposal-sent',
+            entity: 'company',
+            type: 'email',
+            subject: 'Sent proposal — consumables supply agreement',
+            body: 'Sent proposal for annual consumables package including disinfectant kits and nitrile gloves. Total value: $78,500. Awaiting client response.',
+            occurredAt: isoDaysFromNow(-5, { hour: 10, minute: 0 }),
+            icon: 'lucide:mail',
+            color: '#2563eb',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: false,
+              follow_up_owner: 'Marcus Rivera',
+            },
+          },
+        ],
+        stageHistory: [
+          {
+            fromStageLabel: null,
+            toStageLabel: 'Opportunity',
+            durationSeconds: null,
+            occurredAt: isoDaysFromNow(-21, { hour: 9 }),
+          },
+          {
+            fromStageLabel: 'Opportunity',
+            toStageLabel: 'Offering',
+            durationSeconds: 604800,
+            occurredAt: isoDaysFromNow(-14, { hour: 11 }),
+          },
+          {
+            fromStageLabel: 'Offering',
+            toStageLabel: 'Negotiations',
+            durationSeconds: 777600,
+            occurredAt: isoDaysFromNow(-5, { hour: 10 }),
+          },
+        ],
+        comments: [
+          {
+            body: 'Client evaluating switching glove suppliers. Interested in a long-term recurring supply agreement.',
+            occurredAt: isoDaysFromNow(-3, { hour: 14, minute: 30 }),
+          },
+          {
+            body: 'Client budget per order: up to $80K. Requested 12% catalog discount — our offer is 8%.',
+            occurredAt: isoDaysFromNow(-5, { hour: 11, minute: 0 }),
+          },
+        ],
+        emails: [
+          {
+            direction: 'outbound',
+            fromAddress: 'marcus.rivera@openmercato.com',
+            fromName: 'Marcus Rivera',
+            toAddresses: [
+              { email: 'r.whitfield@northgatemedical.com', name: 'Rachel Whitfield' },
+            ],
+            subject: 'Proposal — Annual Consumables Supply Agreement',
+            bodyText:
+              'Hi Rachel,\n\nPlease find attached the proposal for your annual consumables supply agreement covering disinfectant kits and nitrile gloves. The pricing includes our standard 8% volume discount.\n\nTotal value: $78,500.\n\nPlease let me know if you have any questions.\n\nBest regards,\nMarcus Rivera',
+            sentAt: isoDaysFromNow(-5, { hour: 10 }),
+            hasAttachments: true,
+          },
+        ],
+        custom: {
+          competitive_risk: 'medium',
+          implementation_complexity: 'simple',
+          requires_legal_review: false,
+        },
+      },
+      {
+        slug: 'northgate-surgical-upgrade',
+        title: 'Surgical Instrument Catalog Upgrade',
+        description: 'Upgrading their surgical instrument catalog from basic to premium tier across three hospital clients.',
+        status: 'open',
+        pipelineStage: 'sales_qualified_lead',
+        valueAmount: 124000,
+        valueCurrency: 'USD',
+        probability: 45,
+        expectedCloseAt: isoDaysFromNow(60),
+        source: 'inbound_web',
+        people: [
+          { slug: 'kevin-marsh-northgate', participantRole: 'Product Lead' },
+        ],
+        activities: [
+          {
+            slug: 'northgate-instrument-demo',
+            entity: 'company',
+            type: 'meeting',
+            subject: 'Product demo — premium surgical instruments',
+            body: 'Conducted in-person demo of premium instrument line. Kevin expressed strong interest in the laparoscopic kit.',
+            occurredAt: isoDaysFromNow(-10, { hour: 14, minute: 0 }),
+            icon: 'lucide:users',
+            color: '#a855f7',
+            custom: {
+              engagement_sentiment: 'positive',
+              shared_with_leadership: true,
+              follow_up_owner: 'Marcus Rivera',
+            },
+          },
+        ],
+        stageHistory: [
+          { fromStageLabel: null, toStageLabel: 'Opportunity', durationSeconds: null, occurredAt: isoDaysFromNow(-35, { hour: 9 }) },
+          { fromStageLabel: 'Opportunity', toStageLabel: 'Marketing Qualified Lead', durationSeconds: 518400, occurredAt: isoDaysFromNow(-29, { hour: 11 }) },
+          { fromStageLabel: 'Marketing Qualified Lead', toStageLabel: 'Sales Qualified Lead', durationSeconds: 691200, occurredAt: isoDaysFromNow(-21, { hour: 14 }) },
+        ],
+      },
+    ],
+    interactions: [
+      {
+        slug: 'northgate-supplier-review-call',
+        entity: 'company',
+        type: 'call',
+        subject: 'Supplier review call — switching evaluation',
+        body: 'Client evaluating alternative glove suppliers. Interested in a long-term contract. Discussed pricing tiers and delivery schedules.',
+        occurredAt: isoDaysFromNow(-3, { hour: 14, minute: 30 }),
+        icon: 'lucide:phone-call',
+        color: '#2563eb',
+        custom: {
+          engagement_sentiment: 'positive',
+          shared_with_leadership: true,
+          follow_up_owner: 'Marcus Rivera',
+        },
+      },
+      {
+        slug: 'northgate-initial-proposal',
+        entity: 'company',
+        type: 'email',
+        subject: 'Sent initial proposal — consumables package',
+        body: 'Sent proposal for nitrile gloves and disinfectant kits. Client comparing against two competing offers.',
+        occurredAt: isoDaysFromNow(-21, { hour: 9, minute: 0 }),
+        icon: 'lucide:mail',
+        color: '#16a34a',
+        custom: {
+          engagement_sentiment: 'neutral',
+          shared_with_leadership: false,
+          follow_up_owner: 'Marcus Rivera',
+        },
+      },
+      {
+        slug: 'northgate-trade-show',
+        entity: 'company',
+        type: 'meeting',
+        subject: 'Met at MedTech Midwest trade show',
+        body: 'Discussed partnership for hospital supply tenders. Client interested in co-bidding on bulk consumable contracts for regional hospital networks.',
+        occurredAt: isoDaysFromNow(-57, { hour: 11, minute: 0 }),
+        icon: 'lucide:users',
+        color: '#a855f7',
+        custom: {
+          engagement_sentiment: 'positive',
+          shared_with_leadership: true,
+          follow_up_owner: 'Marcus Rivera',
+        },
+      },
+    ],
+    notes: [
+      {
+        entity: 'company',
+        body: 'Client typically reorders gloves every 30 days — last order was 35 days ago. Consider a reminder call about restocking.',
+        occurredAt: isoDaysFromNow(-1, { hour: 9, minute: 0 }),
+        icon: 'lucide:alert-triangle',
+        color: '#d97706',
+      },
+      {
+        entity: 'company',
+        body: 'Cross-sell potential: high. Client primarily buys consumables — opportunity to expand into surgical instruments and diagnostic equipment.',
+        occurredAt: isoDaysFromNow(-10, { hour: 15 }),
+        icon: 'lucide:lightbulb',
+        color: '#22c55e',
+      },
+      {
+        entity: 'person',
+        personSlug: 'rachel-whitfield',
+        body: 'Rachel prefers email for routine communication. Reserve phone calls for critical negotiations.',
+        occurredAt: isoDaysFromNow(-8, { hour: 10, minute: 30 }),
+        icon: 'lucide:bookmark',
+        color: '#0ea5e9',
+      },
+      {
+        entity: 'person',
+        personSlug: 'kevin-marsh-northgate',
+        body: 'Kevin is open to new product presentations. Good rapport — treat as internal champion.',
+        occurredAt: isoDaysFromNow(-12, { hour: 16 }),
+        icon: 'lucide:star',
+        color: '#f59e0b',
+      },
+    ],
+    orders: [
+      {
+        orderNumber: 'NMS-2025-0187',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 41250.00,
+        placedAt: isoDaysFromNow(-142),
+        comments: 'Recurring order — nitrile gloves and disinfectant kits',
+      },
+      {
+        orderNumber: 'NMS-2025-0214',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 38900.50,
+        placedAt: isoDaysFromNow(-112),
+        comments: 'Single-use consumables — needles, syringes, wound dressings',
+      },
+      {
+        orderNumber: 'NMS-2025-0259',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 44100.00,
+        placedAt: isoDaysFromNow(-81),
+        comments: 'Extended disinfectant package plus surgical gloves',
+      },
+      {
+        orderNumber: 'NMS-2026-0012',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 36750.25,
+        placedAt: isoDaysFromNow(-52),
+        comments: 'Standard restocking order — single-use consumables',
+      },
+      {
+        orderNumber: 'NMS-2026-0048',
+        status: 'completed',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 39500.00,
+        placedAt: isoDaysFromNow(-23),
+        comments: 'Nitrile gloves and specialty wound dressings',
+      },
+      {
+        orderNumber: 'NMS-2026-0071',
+        status: 'processing',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: 42800.00,
+        placedAt: isoDaysFromNow(-3),
+        comments: 'Order in progress — disinfectant kits and surgical instruments',
+      },
+    ],
+    custom: {
+      ein: '36-4821753',
+      duns: '078423156',
+      assigned_salesperson: 'Marcus Rivera',
+      relationship_health: 'monitor',
+      renewal_quarter: 'Q2',
+      executive_notes: 'Key account for the Midwest region. Centralized purchasing model. Priority A — high-touch service.',
+      customer_marketing_case: false,
+    },
   },
 ]
 
@@ -1135,6 +1940,27 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       icon: entry.icon,
     })
   }
+  for (const entry of DEAL_CLOSE_REASON_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'deal_close_reason',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of DEAL_CONTACT_ROLE_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'deal_contact_role',
+      value: entry.value,
+      label: entry.label,
+      icon: entry.icon,
+    })
+  }
   for (const entry of INDUSTRY_DEFAULTS) {
     await ensureDictionaryEntry(em, {
       tenantId,
@@ -1331,8 +2157,14 @@ async function seedCustomerExamples(
   const companyEntities = new Map<string, CustomerEntity>()
   const personEntities = new Map<string, CustomerEntity>()
 
-  for (const company of CUSTOMER_EXAMPLES) {
+  // Phase 1: Create company entities, profiles, addresses, and branches.
+  // Flush before creating person entities to avoid MikroORM batch insert issues
+  // when the same entity type (CustomerEntity) has bidirectional OneToOne relations
+  // with both company and person profiles in a single changeset.
+  for (const [companyIdx, company] of CUSTOMER_EXAMPLES.entries()) {
+    const companyEntityId = randomUUID()
     const companyEntity = em.create(CustomerEntity, {
+      id: companyEntityId,
       organizationId,
       tenantId,
       kind: 'company',
@@ -1403,6 +2235,31 @@ async function seedCustomerExamples(
 
     companyEntities.set(company.slug, companyEntity)
 
+    for (const branchInfo of company.branches ?? []) {
+      const branch = em.create(CustomerBranch, {
+        organizationId,
+        tenantId,
+        companyEntityId: companyEntity.id,
+        name: branchInfo.name,
+        branchType: branchInfo.branchType ?? null,
+        specialization: branchInfo.specialization ?? null,
+        budget: typeof branchInfo.budget === 'number' ? toAmount(branchInfo.budget) : null,
+        headcount: branchInfo.headcount ?? null,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(branch)
+    }
+  }
+
+  await em.flush()
+
+  // Phase 2: Create person entities, profiles, addresses, interactions, and notes.
+  for (const company of CUSTOMER_EXAMPLES) {
+    const companyEntity = companyEntities.get(company.slug)
+    if (!companyEntity) continue
+
     for (const person of company.people ?? []) {
       const nameParts = [person.firstName, person.lastName].filter((part) => !!part && part.trim().length)
       const displayName = nameParts.length ? nameParts.join(' ') : person.email
@@ -1414,13 +2271,13 @@ async function seedCustomerExamples(
         description: person.description ?? null,
         primaryEmail: person.email,
         primaryPhone: person.phone ?? null,
-      lifecycleStage: company.lifecycleStage ?? null,
-      status: 'active',
-      source: person.source ?? company.source ?? null,
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
+        lifecycleStage: company.lifecycleStage ?? null,
+        status: 'active',
+        source: person.source ?? company.source ?? null,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
       const personProfile = em.create(CustomerPersonProfile, {
         organizationId,
         tenantId,
@@ -1545,11 +2402,16 @@ async function seedCustomerExamples(
     }
   }
 
+  await em.flush()
+
+  // Phase 3: Create deals, deal links, deal activities, stage history, comments, and emails.
   for (const company of CUSTOMER_EXAMPLES) {
     const companyEntity = companyEntities.get(company.slug)
     if (!companyEntity) continue
     for (const dealInfo of company.deals ?? []) {
+      const dealId = randomUUID()
       const deal = em.create(CustomerDeal, {
+        id: dealId,
         organizationId,
         tenantId,
         title: dealInfo.title,
@@ -1636,6 +2498,58 @@ async function seedCustomerExamples(
             })
           )
         }
+      }
+
+      for (const stageEntry of dealInfo.stageHistory ?? []) {
+        const stageHistory = em.create(CustomerDealStageHistory, {
+          organizationId,
+          tenantId,
+          dealId: deal.id,
+          fromStageId: null,
+          fromStageLabel: stageEntry.fromStageLabel,
+          toStageId: randomUUID(),
+          toStageLabel: stageEntry.toStageLabel,
+          fromPipelineId: null,
+          toPipelineId: randomUUID(),
+          changedByUserId: null,
+          durationSeconds: stageEntry.durationSeconds,
+          createdAt: new Date(stageEntry.occurredAt),
+          updatedAt: new Date(stageEntry.occurredAt),
+        })
+        em.persist(stageHistory)
+      }
+
+      for (const commentEntry of dealInfo.comments ?? []) {
+        const comment = em.create(CustomerComment, {
+          organizationId,
+          tenantId,
+          entity: companyEntity,
+          deal,
+          body: commentEntry.body,
+          authorUserId: null,
+          createdAt: new Date(commentEntry.occurredAt),
+          updatedAt: new Date(commentEntry.occurredAt),
+        })
+        em.persist(comment)
+      }
+
+      for (const emailEntry of dealInfo.emails ?? []) {
+        const dealEmail = em.create(CustomerDealEmail, {
+          organizationId,
+          tenantId,
+          dealId: deal.id,
+          direction: emailEntry.direction,
+          fromAddress: emailEntry.fromAddress,
+          fromName: emailEntry.fromName,
+          toAddresses: emailEntry.toAddresses,
+          subject: emailEntry.subject,
+          bodyText: emailEntry.bodyText,
+          sentAt: new Date(emailEntry.sentAt),
+          hasAttachments: emailEntry.hasAttachments ?? false,
+          createdAt: new Date(emailEntry.sentAt),
+          updatedAt: new Date(emailEntry.sentAt),
+        })
+        em.persist(dealEmail)
       }
     }
   }
@@ -2384,7 +3298,7 @@ async function seedCustomerStressTest(
       const dealId = randomUUID()
       const valueAmount = toAmount(monetaryBase + randomInt(0, 7500))
       const expectedCloseAt =
-        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
+        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'lost'
           ? randomPastDate(120)
           : randomFutureDate(120)
       const dealRow: CustomerDealRow = {
@@ -2822,10 +3736,543 @@ async function seedDefaultPipeline(em: EntityManager, { tenantId, organizationId
   await em.flush()
 }
 
-export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary, seedDefaultPipeline }
+async function seedSingleCompanyExample(
+  em: EntityManager,
+  container: AppContainer,
+  { tenantId, organizationId }: SeedArgs,
+  companySlug: string
+): Promise<boolean> {
+  const companyData = CUSTOMER_EXAMPLES.find((c) => c.slug === companySlug)
+  if (!companyData) {
+    console.error(`[customers.cli] Company slug "${companySlug}" not found in CUSTOMER_EXAMPLES`)
+    return false
+  }
+
+  const dealTitles = (companyData.deals ?? [])
+    .map((d) => d.title)
+    .filter((t): t is string => typeof t === 'string')
+  if (dealTitles.length > 0) {
+    const already = await em.count(CustomerDeal, {
+      tenantId,
+      organizationId,
+      title: { $in: dealTitles },
+    })
+    if (already > 0) {
+      return false
+    }
+  }
+
+  await seedCustomerDictionaries(em, { tenantId, organizationId })
+
+  if (typeof companyData.industry === 'string' && companyData.industry.trim()) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'industry',
+      value: companyData.industry.trim(),
+      label: companyData.industry.trim(),
+    })
+  }
+
+  // Flush dictionary entries before creating customer entities to avoid
+  // mixed batch inserts that confuse MikroORM's ChangeSetPersister
+  await em.flush()
+
+  // Ensure custom field definitions exist (NIP, REGON, KRS, etc.)
+  let cache: CacheStrategy | null = null
+  if (container.hasRegistration('cache')) {
+    try { cache = (container.resolve('cache') as CacheStrategy) } catch { cache = null }
+  }
+  try {
+    await installCustomEntitiesFromModules(em, cache, {
+      tenantIds: [tenantId], includeGlobal: false, dryRun: false, logger: () => {},
+    })
+  } catch { /* non-critical */ }
+  try {
+    await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
+  } catch { /* non-critical */ }
+
+  const dataEngine = new DefaultDataEngine(em, container)
+  const customFieldAssignments: Array<() => Promise<void>> = []
+  const personEntities = new Map<string, CustomerEntity>()
+
+  const companyEntityId = randomUUID()
+  const companyEntity = em.create(CustomerEntity, {
+    id: companyEntityId,
+    organizationId,
+    tenantId,
+    kind: 'company',
+    displayName: companyData.displayName,
+    description: companyData.description ?? null,
+    primaryEmail: companyData.primaryEmail ?? null,
+    primaryPhone: companyData.primaryPhone ?? null,
+    lifecycleStage: companyData.lifecycleStage ?? null,
+    status: companyData.status ?? null,
+    source: companyData.source ?? null,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+  const companyProfile = em.create(CustomerCompanyProfile, {
+    id: randomUUID(),
+    organizationId,
+    tenantId,
+    entity: companyEntity,
+    legalName: companyData.legalName ?? null,
+    brandName: companyData.brandName ?? null,
+    domain: companyData.domain ?? null,
+    websiteUrl: companyData.websiteUrl ?? null,
+    industry: typeof companyData.industry === 'string' ? companyData.industry.trim() || null : null,
+    sizeBucket: companyData.sizeBucket ?? null,
+    annualRevenue: typeof companyData.annualRevenue === 'number' ? toAmount(companyData.annualRevenue) : null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+  em.persist(companyEntity)
+  em.persist(companyProfile)
+
+  if (companyData.custom && Object.keys(companyData.custom).length) {
+    const values = { ...companyData.custom } as CustomFieldValuesPayload
+    customFieldAssignments.push(async () =>
+      dataEngine.setCustomFields({
+        entityId: CoreEntities.customers.customer_company_profile,
+        recordId: companyProfile.id,
+        organizationId,
+        tenantId,
+        values,
+      })
+    )
+  }
+
+  if (companyData.address?.addressLine1) {
+    const address = em.create(CustomerAddress, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: companyEntity,
+      name: companyData.address.name ?? null,
+      purpose: companyData.address.purpose ?? 'office',
+      addressLine1: companyData.address.addressLine1,
+      addressLine2: companyData.address.addressLine2 ?? null,
+      city: companyData.address.city ?? null,
+      region: companyData.address.region ?? null,
+      postalCode: companyData.address.postalCode ?? null,
+      country: companyData.address.country ?? null,
+      latitude: companyData.address.latitude ?? null,
+      longitude: companyData.address.longitude ?? null,
+      buildingNumber: companyData.address.buildingNumber ?? null,
+      flatNumber: companyData.address.flatNumber ?? null,
+      isPrimary: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(address)
+  }
+
+  for (const branchInfo of companyData.branches ?? []) {
+    const branch = em.create(CustomerBranch, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      companyEntityId: companyEntity.id,
+      name: branchInfo.name,
+      branchType: branchInfo.branchType ?? null,
+      specialization: branchInfo.specialization ?? null,
+      budget: typeof branchInfo.budget === 'number' ? toAmount(branchInfo.budget) : null,
+      headcount: branchInfo.headcount ?? null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(branch)
+  }
+
+  for (const person of companyData.people ?? []) {
+    const nameParts = [person.firstName, person.lastName].filter((part) => !!part && part.trim().length)
+    const displayName = nameParts.length ? nameParts.join(' ') : person.email
+    const personEntityId = randomUUID()
+    const personEntity = em.create(CustomerEntity, {
+      id: personEntityId,
+      organizationId,
+      tenantId,
+      kind: 'person',
+      displayName,
+      description: person.description ?? null,
+      primaryEmail: person.email,
+      primaryPhone: person.phone ?? null,
+      lifecycleStage: companyData.lifecycleStage ?? null,
+      status: 'active',
+      source: person.source ?? companyData.source ?? null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    const personProfile = em.create(CustomerPersonProfile, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: personEntity,
+      company: companyEntity,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      preferredName: person.preferredName ?? null,
+      jobTitle: person.jobTitle ?? null,
+      department: person.department ?? null,
+      seniority: person.seniority ?? null,
+      timezone: person.timezone ?? null,
+      linkedInUrl: person.linkedInUrl ?? null,
+      twitterUrl: person.twitterUrl ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(personEntity)
+    em.persist(personProfile)
+
+    if (person.custom && Object.keys(person.custom).length) {
+      const values = { ...person.custom } as CustomFieldValuesPayload
+      customFieldAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_person_profile,
+          recordId: personProfile.id,
+          organizationId,
+          tenantId,
+          values,
+        })
+      )
+    }
+
+    if (person.address?.addressLine1) {
+      const addr = em.create(CustomerAddress, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        entity: personEntity,
+        name: person.address.name ?? null,
+        purpose: person.address.purpose ?? 'work',
+        addressLine1: person.address.addressLine1,
+        addressLine2: person.address.addressLine2 ?? null,
+        city: person.address.city ?? null,
+        region: person.address.region ?? null,
+        postalCode: person.address.postalCode ?? null,
+        country: person.address.country ?? null,
+        latitude: person.address.latitude ?? null,
+        longitude: person.address.longitude ?? null,
+        buildingNumber: person.address.buildingNumber ?? null,
+        flatNumber: person.address.flatNumber ?? null,
+        isPrimary: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(addr)
+    }
+
+    personEntities.set(person.slug, personEntity)
+  }
+
+  for (const interaction of companyData.interactions ?? []) {
+    const targetEntity =
+      interaction.entity === 'person' && interaction.personSlug
+        ? personEntities.get(interaction.personSlug)
+        : companyEntity
+    if (!targetEntity) continue
+    const activity = em.create(CustomerActivity, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: targetEntity,
+      deal: null,
+      activityType: interaction.type,
+      subject: interaction.subject ?? null,
+      body: interaction.body ?? null,
+      occurredAt: interaction.occurredAt ? new Date(interaction.occurredAt) : null,
+      appearanceIcon: interaction.icon ?? null,
+      appearanceColor: interaction.color ?? null,
+      authorUserId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(activity)
+
+    if (interaction.custom && Object.keys(interaction.custom).length) {
+      const values = { ...interaction.custom } as CustomFieldValuesPayload
+      customFieldAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_activity,
+          recordId: activity.id,
+          organizationId,
+          tenantId,
+          values,
+        })
+      )
+    }
+  }
+
+  for (const note of companyData.notes ?? []) {
+    const targetEntity =
+      note.entity === 'person' && note.personSlug ? personEntities.get(note.personSlug) : companyEntity
+    if (!targetEntity) continue
+    const comment = em.create(CustomerComment, {
+      id: randomUUID(),
+      organizationId,
+      tenantId,
+      entity: targetEntity,
+      deal: null,
+      body: note.body,
+      authorUserId: null,
+      appearanceIcon: note.icon ?? null,
+      appearanceColor: note.color ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    if (note.occurredAt) {
+      const timestamp = new Date(note.occurredAt)
+      if (!Number.isNaN(timestamp.getTime())) {
+        comment.createdAt = timestamp
+        comment.updatedAt = timestamp
+      }
+    }
+    em.persist(comment)
+  }
+
+  await em.flush()
+
+  for (const dealInfo of companyData.deals ?? []) {
+    const dealId = randomUUID()
+    const deal = em.create(CustomerDeal, {
+      id: dealId,
+      organizationId,
+      tenantId,
+      title: dealInfo.title,
+      description: dealInfo.description ?? null,
+      status: dealInfo.status ?? 'open',
+      pipelineStage: dealInfo.pipelineStage ?? null,
+      valueAmount: toAmount(dealInfo.valueAmount),
+      valueCurrency:
+        dealInfo.valueCurrency ?? (typeof dealInfo.valueAmount === 'number' ? 'PLN' : null),
+      probability:
+        typeof dealInfo.probability === 'number' ? Math.round(dealInfo.probability) : null,
+      expectedCloseAt: dealInfo.expectedCloseAt ? new Date(dealInfo.expectedCloseAt) : null,
+      ownerUserId: null,
+      source: dealInfo.source ?? companyData.source ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(deal)
+
+    if (dealInfo.custom && Object.keys(dealInfo.custom).length) {
+      const values = { ...dealInfo.custom } as CustomFieldValuesPayload
+      customFieldAssignments.push(async () =>
+        dataEngine.setCustomFields({
+          entityId: CoreEntities.customers.customer_deal,
+          recordId: deal.id,
+          organizationId,
+          tenantId,
+          values,
+        })
+      )
+    }
+
+    const companyLink = em.create(CustomerDealCompanyLink, {
+      id: randomUUID(),
+      deal,
+      company: companyEntity,
+      createdAt: new Date(),
+    })
+    em.persist(companyLink)
+
+    for (const participant of dealInfo.people ?? []) {
+      const personEntity = personEntities.get(participant.slug)
+      if (!personEntity) continue
+      const link = em.create(CustomerDealPersonLink, {
+        id: randomUUID(),
+        deal,
+        person: personEntity,
+        participantRole: participant.participantRole ?? null,
+        createdAt: new Date(),
+      })
+      em.persist(link)
+    }
+
+    for (const activityInfo of dealInfo.activities ?? []) {
+      const targetEntity =
+        activityInfo.entity === 'person' && activityInfo.personSlug
+          ? personEntities.get(activityInfo.personSlug)
+          : companyEntity
+      if (!targetEntity) continue
+      const activity = em.create(CustomerActivity, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        entity: targetEntity,
+        deal,
+        activityType: activityInfo.type,
+        subject: activityInfo.subject ?? null,
+        body: activityInfo.body ?? null,
+        occurredAt: activityInfo.occurredAt ? new Date(activityInfo.occurredAt) : null,
+        appearanceIcon: activityInfo.icon ?? null,
+        appearanceColor: activityInfo.color ?? null,
+        authorUserId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(activity)
+
+      if (activityInfo.custom && Object.keys(activityInfo.custom).length) {
+        const values = { ...activityInfo.custom } as CustomFieldValuesPayload
+        customFieldAssignments.push(async () =>
+          dataEngine.setCustomFields({
+            entityId: CoreEntities.customers.customer_activity,
+            recordId: activity.id,
+            organizationId,
+            tenantId,
+            values,
+          })
+        )
+      }
+    }
+
+    for (const stageEntry of dealInfo.stageHistory ?? []) {
+      const stageHistory = em.create(CustomerDealStageHistory, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        dealId: deal.id,
+        fromStageId: null,
+        fromStageLabel: stageEntry.fromStageLabel,
+        toStageId: randomUUID(),
+        toStageLabel: stageEntry.toStageLabel,
+        fromPipelineId: null,
+        toPipelineId: randomUUID(),
+        changedByUserId: null,
+        durationSeconds: stageEntry.durationSeconds,
+        createdAt: new Date(stageEntry.occurredAt),
+        updatedAt: new Date(stageEntry.occurredAt),
+      })
+      em.persist(stageHistory)
+    }
+
+    for (const commentEntry of dealInfo.comments ?? []) {
+      const comment = em.create(CustomerComment, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        entity: companyEntity,
+        deal,
+        body: commentEntry.body,
+        authorUserId: null,
+        createdAt: new Date(commentEntry.occurredAt),
+        updatedAt: new Date(commentEntry.occurredAt),
+      })
+      em.persist(comment)
+    }
+
+    for (const emailEntry of dealInfo.emails ?? []) {
+      const dealEmail = em.create(CustomerDealEmail, {
+        id: randomUUID(),
+        organizationId,
+        tenantId,
+        dealId: deal.id,
+        direction: emailEntry.direction,
+        fromAddress: emailEntry.fromAddress,
+        fromName: emailEntry.fromName,
+        toAddresses: emailEntry.toAddresses,
+        subject: emailEntry.subject,
+        bodyText: emailEntry.bodyText,
+        sentAt: new Date(emailEntry.sentAt),
+        hasAttachments: emailEntry.hasAttachments ?? false,
+        createdAt: new Date(emailEntry.sentAt),
+        updatedAt: new Date(emailEntry.sentAt),
+      })
+      em.persist(dealEmail)
+    }
+  }
+
+  await em.flush()
+
+  // Seed sales orders linked to this company (raw insert to avoid cross-module entity import)
+  const orderRows = (companyData.orders ?? []).map((orderInfo) => {
+    const placedDate = orderInfo.placedAt ? new Date(orderInfo.placedAt) : new Date()
+    const grossAmount = toAmount(orderInfo.grandTotalGrossAmount) ?? '0'
+    const netAmount = toAmount(orderInfo.grandTotalGrossAmount / 1.23) ?? '0'
+    const taxAmount = toAmount(orderInfo.grandTotalGrossAmount - orderInfo.grandTotalGrossAmount / 1.23) ?? '0'
+    return {
+      id: randomUUID(),
+      organization_id: organizationId,
+      tenant_id: tenantId,
+      order_number: orderInfo.orderNumber,
+      customer_entity_id: companyEntityId,
+      currency_code: orderInfo.currencyCode ?? 'PLN',
+      status: orderInfo.status ?? 'completed',
+      placed_at: placedDate,
+      comments: orderInfo.comments ?? null,
+      grand_total_gross_amount: grossAmount,
+      grand_total_net_amount: netAmount,
+      subtotal_net_amount: netAmount,
+      subtotal_gross_amount: grossAmount,
+      tax_total_amount: taxAmount,
+      discount_total_amount: '0',
+      shipping_net_amount: '0',
+      shipping_gross_amount: '0',
+      surcharge_total_amount: '0',
+      paid_total_amount: grossAmount,
+      refunded_total_amount: '0',
+      outstanding_amount: '0',
+      line_item_count: 0,
+      created_at: placedDate,
+      updated_at: placedDate,
+    }
+  })
+
+  if (orderRows.length > 0) {
+    const knex = em.getConnection().getKnex()
+    await knex('sales_orders').insert(orderRows)
+  }
+
+  for (const assign of customFieldAssignments) {
+    try {
+      await assign()
+    } catch (err) {
+      console.warn('[customers.cli] Custom field assignment failed (non-critical)', err)
+    }
+  }
+
+  return true
+}
+
+export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedSingleCompanyExample, seedCurrencyDictionary, seedDefaultPipeline }
 export type { SeedArgs as CustomerSeedArgs }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest]
+const seedSingleCompany: ModuleCli = {
+  command: 'seed-company',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    const slug = String(args.slug ?? args.company ?? '')
+    if (!tenantId || !organizationId || !slug) {
+      console.error('Usage: mercato customers seed-company --tenant <tenantId> --org <organizationId> --slug <companySlug>')
+      console.error('Available slugs:', CUSTOMER_EXAMPLES.map((c) => c.slug).join(', '))
+      return
+    }
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager)
+    try {
+      const seeded = await em.transactional(async (tem) =>
+        seedSingleCompanyExample(tem, container, { tenantId, organizationId }, slug)
+      )
+      if (seeded) {
+        console.log(`Company "${slug}" seeded for organization ${organizationId}`)
+      } else {
+        console.log(`Company "${slug}" already present or not found; skipping`)
+      }
+    } catch (err) {
+      console.error('Seed failed with stack:', err instanceof Error ? err.stack : err)
+      throw err
+    }
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedSingleCompany, seedStressTest]
 
 export default customersCliCommands
 const CUSTOMER_CUSTOM_FIELD_SETS = [
@@ -2851,6 +4298,26 @@ const CUSTOMER_CUSTOM_FIELD_SETS = [
   {
     entity: CoreEntities.customers.customer_company_profile,
     fields: [
+      cf.text('nip', {
+        label: 'NIP',
+        description: 'Tax identification number (Numer Identyfikacji Podatkowej).',
+        filterable: true,
+      }),
+      cf.text('regon', {
+        label: 'REGON',
+        description: 'Statistical identification number (Rejestr Gospodarki Narodowej).',
+        filterable: true,
+      }),
+      cf.text('krs', {
+        label: 'KRS',
+        description: 'National Court Register number (Krajowy Rejestr Sądowy).',
+        filterable: true,
+      }),
+      cf.text('assigned_salesperson', {
+        label: 'Assigned salesperson',
+        description: 'Sales representative responsible for this account.',
+        filterable: true,
+      }),
       cf.select('relationship_health', ['healthy', 'monitor', 'at_risk'], {
         label: 'Relationship health',
         description: 'Overall account health assessment.',

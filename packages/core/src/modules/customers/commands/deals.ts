@@ -9,7 +9,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink, CustomerPipelineStage } from '../data/entities'
+import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink, CustomerDealStageHistory, CustomerPipelineStage } from '../data/entities'
 import {
   dealCreateSchema,
   dealUpdateSchema,
@@ -37,6 +37,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { emitCustomersEvent } from '../events'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -88,6 +89,11 @@ type DealSnapshot = {
     expectedCloseAt: Date | null
     ownerUserId: string | null
     source: string | null
+    closeReasonId: string | null
+    closeReasonNotes: string | null
+    closedAt: Date | null
+    stageEnteredAt: Date | null
+    lastActivityAt: Date | null
   }
   people: string[]
   companies: string[]
@@ -144,6 +150,11 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
       expectedCloseAt: deal.expectedCloseAt ?? null,
       ownerUserId: deal.ownerUserId ?? null,
       source: deal.source ?? null,
+      closeReasonId: deal.closeReasonId ?? null,
+      closeReasonNotes: deal.closeReasonNotes ?? null,
+      closedAt: deal.closedAt ?? null,
+      stageEnteredAt: deal.stageEnteredAt ?? null,
+      lastActivityAt: deal.lastActivityAt ?? null,
     },
     people: peopleLinks.map((link) =>
       typeof link.person === 'string' ? link.person : link.person.id
@@ -200,6 +211,46 @@ async function syncDealCompanies(
   }
 }
 
+async function resolveStageLabel(em: EntityManager, stageId: string): Promise<string> {
+  const stage = await em.findOne(CustomerPipelineStage, { id: stageId })
+  return stage?.label ?? stageId
+}
+
+async function recordStageHistory(
+  em: EntityManager,
+  deal: CustomerDeal,
+  fromStageId: string | null | undefined,
+  toStageId: string,
+  fromPipelineId: string | null | undefined,
+  toPipelineId: string,
+  changedByUserId: string | null | undefined,
+): Promise<void> {
+  const fromStageLabel = fromStageId ? await resolveStageLabel(em, fromStageId) : null
+  const toStageLabel = await resolveStageLabel(em, toStageId)
+
+  const durationSeconds = deal.stageEnteredAt
+    ? Math.round((Date.now() - deal.stageEnteredAt.getTime()) / 1000)
+    : null
+
+  const history = em.create(CustomerDealStageHistory, {
+    organizationId: deal.organizationId,
+    tenantId: deal.tenantId,
+    dealId: deal.id,
+    fromStageId: fromStageId ?? null,
+    toStageId,
+    fromStageLabel,
+    toStageLabel,
+    fromPipelineId: fromPipelineId ?? null,
+    toPipelineId,
+    changedByUserId: changedByUserId ?? null,
+    durationSeconds,
+  })
+  em.persist(history)
+}
+
+// 'loose' kept for backward compat with legacy data
+const CLOSED_STATUSES = new Set(['win', 'won', 'lost', 'loose', 'closed'])
+
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
   async execute(rawInput, ctx) {
@@ -208,6 +259,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const now = new Date()
     const deal = em.create(CustomerDeal, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -223,6 +275,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       expectedCloseAt: parsed.expectedCloseAt ?? null,
       ownerUserId: parsed.ownerUserId ?? null,
       source: parsed.source ?? null,
+      stageEnteredAt: parsed.pipelineStageId ? now : null,
     })
     em.persist(deal)
 
@@ -235,6 +288,11 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
 
     await syncDealPeople(em, deal, parsed.personIds ?? [])
     await syncDealCompanies(em, deal, parsed.companyIds ?? [])
+
+    if (deal.pipelineStageId && deal.pipelineId) {
+      await recordStageHistory(em, deal, null, deal.pipelineStageId, null, deal.pipelineId, ctx.auth?.sub ?? null)
+    }
+
     await em.flush()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -315,6 +373,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     ensureOrganizationScope(ctx, record.organizationId)
 
     const previousStatus = record.status
+    const previousStageId = record.pipelineStageId
+    const previousPipelineId = record.pipelineId
+    const previousStageLabel = record.pipelineStage ?? null
 
     if (parsed.title !== undefined) record.title = parsed.title
     if (parsed.description !== undefined) record.description = parsed.description ?? null
@@ -333,6 +394,33 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null
     if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
     if (parsed.source !== undefined) record.source = parsed.source ?? null
+    if (parsed.closeReasonId !== undefined) record.closeReasonId = parsed.closeReasonId ?? null
+    if (parsed.closeReasonNotes !== undefined) record.closeReasonNotes = parsed.closeReasonNotes ?? null
+
+    const stageChanged = parsed.pipelineStageId !== undefined && parsed.pipelineStageId !== previousStageId
+    const statusChanged = parsed.status !== undefined && parsed.status !== previousStatus
+    const now = new Date()
+
+    if (stageChanged && record.pipelineStageId && record.pipelineId) {
+      record.stageEnteredAt = now
+      await recordStageHistory(
+        em,
+        record,
+        previousStageId,
+        record.pipelineStageId,
+        previousPipelineId,
+        record.pipelineId,
+        ctx.auth?.sub ?? null,
+      )
+    }
+
+    if (statusChanged && CLOSED_STATUSES.has(record.status)) {
+      record.closedAt = now
+    } else if (statusChanged && !CLOSED_STATUSES.has(record.status) && CLOSED_STATUSES.has(previousStatus)) {
+      record.closedAt = null
+      record.closeReasonId = null
+      record.closeReasonNotes = null
+    }
 
     await syncDealPeople(em, record, parsed.personIds)
     await syncDealCompanies(em, record, parsed.companyIds)
@@ -362,10 +450,40 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       events: dealCrudEvents,
     })
 
-    // Send notifications for deal won/lost status changes
+    const eventPayload = {
+      id: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      title: record.title,
+      valueAmount: record.valueAmount,
+      valueCurrency: record.valueCurrency,
+      ownerUserId: record.ownerUserId,
+      entityType: 'CustomerDeal',
+      pipelineStage: record.pipelineStage ?? null,
+      status: record.status ?? null,
+    }
+
+    if (stageChanged) {
+      await emitCustomersEvent('customers.deal.stage.changed', {
+        ...eventPayload,
+        fromStageId: previousStageId ?? null,
+        toStageId: record.pipelineStageId ?? null,
+        fromPipelineId: previousPipelineId ?? null,
+        toPipelineId: record.pipelineId ?? null,
+        fromStageLabel: previousStageLabel ?? null,
+        toStageLabel: record.pipelineStage ?? null,
+      })
+    }
+
     const newStatus = record.status
     const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
-    if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost') && record.ownerUserId) {
+    if (statusChanged && normalizedStatus === 'won') {
+      await emitCustomersEvent('customers.deal.won', eventPayload)
+    } else if (statusChanged && normalizedStatus === 'lost') {
+      await emitCustomersEvent('customers.deal.lost', eventPayload)
+    }
+
+    if (statusChanged && (normalizedStatus === 'won' || normalizedStatus === 'lost') && record.ownerUserId) {
       try {
         const notificationService = resolveNotificationService(ctx.container)
         const notificationType = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'
@@ -461,6 +579,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       deal.expectedCloseAt = before.deal.expectedCloseAt
       deal.ownerUserId = before.deal.ownerUserId
       deal.source = before.deal.source
+      deal.closeReasonId = before.deal.closeReasonId
+      deal.closeReasonNotes = before.deal.closeReasonNotes
+      deal.closedAt = before.deal.closedAt
+      deal.stageEnteredAt = before.deal.stageEnteredAt
+      deal.lastActivityAt = before.deal.lastActivityAt
     }
     await em.flush()
     await syncDealPeople(em, deal, before.people)

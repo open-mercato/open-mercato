@@ -45,6 +45,7 @@ import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
+import { CustomerTimelineAction } from '../../../../components/detail/CustomerTimelineAction'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -658,22 +659,25 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               displayName: validators.displayName,
             }}
             utilityActions={(
-              <SendObjectMessageDialog
-                object={{
-                  entityModule: 'customers',
-                  entityType: 'person',
-                  entityId: personId,
-                  previewData: {
-                    title: person.displayName,
-                    subtitle: person.primaryEmail ?? undefined,
-                    metadata: {
-                      [t('customers.people.detail.highlights.primaryPhone')]: person.primaryPhone ?? '-',
-                      [t('customers.people.detail.fields.jobTitle')]: profile?.jobTitle ?? '-',
+              <>
+                <SendObjectMessageDialog
+                  object={{
+                    entityModule: 'customers',
+                    entityType: 'person',
+                    entityId: personId,
+                    previewData: {
+                      title: person.displayName,
+                      subtitle: person.primaryEmail ?? undefined,
+                      metadata: {
+                        [t('customers.people.detail.highlights.primaryPhone')]: person.primaryPhone ?? '-',
+                        [t('customers.people.detail.fields.jobTitle')]: profile?.jobTitle ?? '-',
+                      },
                     },
-                  },
-                }}
-                viewHref={`/backend/customers/people/${personId}`}
-              />
+                  }}
+                  viewHref={`/backend/customers/people/${personId}`}
+                />
+                <CustomerTimelineAction entityId={personId} entityType="person" t={t} />
+              </>
             )}
             onDisplayNameSave={updateDisplayName}
             onPrimaryEmailSave={async (next) => {

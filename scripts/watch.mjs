@@ -6,6 +6,31 @@ import { platform } from 'node:os'
 
 const isWindows = platform() === 'win32'
 
+function normalizeImportPath(fileDir, importPath) {
+  if (
+    importPath.endsWith('.js') ||
+    importPath.endsWith('.json') ||
+    importPath.endsWith('.mjs') ||
+    importPath.endsWith('.cjs')
+  ) {
+    return importPath
+  }
+
+  if (importPath.startsWith('.')) {
+    const resolvedPath = join(fileDir, importPath)
+    if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
+      return `${importPath}/index.js`
+    }
+    return `${importPath}.js`
+  }
+
+  if (importPath.startsWith('next/')) {
+    return `${importPath}.js`
+  }
+
+  return importPath
+}
+
 /**
  * Add .js extensions to relative imports in a compiled file
  * @param {string} filePath - Path to the compiled .js file
@@ -15,30 +40,40 @@ function addJsExtensionsToFile(filePath) {
   let content = readFileSync(filePath, 'utf-8')
   let modified = false
 
-  // Add .js to relative imports that don't have an extension
+  // Add .js to relative and next/* imports that don't have an extension
   content = content.replace(
-    /from\s+["'](\.[^"']+)["']/g,
-    (match, path) => {
-      if (path.endsWith('.js') || path.endsWith('.json')) return match
+    /from\s+["']((?:next\/|\.)[^"']+)["']/g,
+    (match, importPath) => {
+      const normalized = normalizeImportPath(fileDir, importPath)
+      if (normalized === importPath) return match
       modified = true
-      const resolvedPath = join(fileDir, path)
-      if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
-        return `from "${path}/index.js"`
-      }
-      return `from "${path}.js"`
+      return `from "${normalized}"`
     }
   )
 
   content = content.replace(
-    /import\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
-    (match, path) => {
-      if (path.endsWith('.js') || path.endsWith('.json')) return match
+    /import\s*\(\s*["']((?:next\/|\.)[^"']+)["']\s*\)/g,
+    (match, importPath) => {
+      const normalized = normalizeImportPath(fileDir, importPath)
+      if (normalized === importPath) return match
       modified = true
-      const resolvedPath = join(fileDir, path)
-      if (existsSync(resolvedPath) && existsSync(join(resolvedPath, 'index.js'))) {
-        return `import("${path}/index.js")`
-      }
-      return `import("${path}.js")`
+      return `import("${normalized}")`
+    }
+  )
+
+  content = content.replace(
+    /from\s+["']([^"']+\.json)["'](?!\s+with\s*\{\s*type:\s*["']json["']\s*\})/g,
+    (match, importPath) => {
+      modified = true
+      return `from "${importPath}" with { type: "json" }`
+    }
+  )
+
+  content = content.replace(
+    /import\s*\(\s*["']([^"']+\.json)["']\s*\)/g,
+    (match, importPath) => {
+      modified = true
+      return `import("${importPath}", { with: { type: "json" } })`
     }
   )
 

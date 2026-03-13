@@ -107,6 +107,7 @@ export async function GET(_req: Request, ctx: { params: { tableId: string } }) {
   return NextResponse.json({
     tableId,
     perspectives: state.personal,
+    shared: state.shared,
     defaultPerspectiveId: state.personalDefaultId,
     rolePerspectives: state.rolePerspectives.map((rp) => ({
       ...rp,

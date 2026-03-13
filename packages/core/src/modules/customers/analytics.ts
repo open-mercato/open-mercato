@@ -40,6 +40,28 @@ export const analyticsConfig: AnalyticsModuleConfig = {
         customerEntityId: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
       },
     },
+    {
+      entityId: 'customers:customer_branch',
+      requiredFeatures: ['customers.branches.view'],
+      entityConfig: {
+        tableName: 'customer_branches',
+        dateField: 'created_at',
+        defaultScopeFields: ['tenant_id', 'organization_id'],
+      },
+      fieldMappings: {
+        id: { dbColumn: 'id', type: 'uuid' },
+        name: { dbColumn: 'name', type: 'text' },
+        branchType: { dbColumn: 'branch_type', type: 'text' },
+        specialization: { dbColumn: 'specialization', type: 'text' },
+        budget: { dbColumn: 'budget', type: 'numeric' },
+        headcount: { dbColumn: 'headcount', type: 'numeric' },
+        isActive: { dbColumn: 'is_active', type: 'boolean' },
+        createdAt: { dbColumn: 'created_at', type: 'timestamp' },
+      },
+      labelResolvers: {
+        companyEntityId: { table: 'customer_entities', idColumn: 'id', labelColumn: 'display_name' },
+      },
+    },
   ],
 }
 

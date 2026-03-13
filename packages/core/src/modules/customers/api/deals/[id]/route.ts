@@ -6,6 +6,8 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerDeal,
+  CustomerDealLine,
+  CustomerDealEmail,
   CustomerDealPersonLink,
   CustomerDealCompanyLink,
   CustomerEntity,
@@ -35,6 +37,7 @@ type DealAssociation = {
   label: string
   subtitle: string | null
   kind: 'person' | 'company'
+  role?: string | null
 }
 
 function normalizePersonAssociation(entity: CustomerEntity): { label: string; subtitle: string | null } {
@@ -174,7 +177,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     const entity = link.person as CustomerEntity | null
     if (!entity || entity.deletedAt) return acc
     const { label, subtitle } = normalizePersonAssociation(entity)
-    acc.push({ id: entity.id, label, subtitle, kind: 'person' })
+    acc.push({ id: entity.id, label, subtitle, kind: 'person', role: link.participantRole ?? null })
     return acc
   }, [])
 
@@ -195,6 +198,11 @@ export async function GET(request: Request, context: { params?: Record<string, u
     tenantFallbacks: [deal.tenantId ?? auth.tenantId ?? null].filter((value): value is string => !!value),
   })
   const customFields = customFieldValues[deal.id] ?? {}
+
+  const [lineCount, emailCount] = await Promise.all([
+    em.count(CustomerDealLine, { deal: deal.id, deletedAt: null }),
+    em.count(CustomerDealEmail, { dealId: deal.id }),
+  ])
 
   const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
   let viewerName: string | null = null
@@ -220,11 +228,18 @@ export async function GET(request: Request, context: { params?: Record<string, u
       expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
       ownerUserId: deal.ownerUserId ?? null,
       source: deal.source ?? null,
+      closeReasonId: deal.closeReasonId ?? null,
+      closeReasonNotes: deal.closeReasonNotes ?? null,
+      closedAt: deal.closedAt ? deal.closedAt.toISOString() : null,
+      stageEnteredAt: deal.stageEnteredAt ? deal.stageEnteredAt.toISOString() : null,
+      lastActivityAt: deal.lastActivityAt ? deal.lastActivityAt.toISOString() : null,
       organizationId: deal.organizationId ?? null,
       tenantId: deal.tenantId ?? null,
       createdAt: deal.createdAt.toISOString(),
       updatedAt: deal.updatedAt.toISOString(),
     },
+    lineCount,
+    emailCount,
     people,
     companies,
     customFields,
@@ -251,17 +266,25 @@ const dealDetailResponseSchema = z.object({
     expectedCloseAt: z.string().nullable().optional(),
     ownerUserId: z.string().uuid().nullable().optional(),
     source: z.string().nullable().optional(),
+    closeReasonId: z.string().uuid().nullable().optional(),
+    closeReasonNotes: z.string().nullable().optional(),
+    closedAt: z.string().nullable().optional(),
+    stageEnteredAt: z.string().nullable().optional(),
+    lastActivityAt: z.string().nullable().optional(),
     organizationId: z.string().uuid().nullable().optional(),
     tenantId: z.string().uuid().nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   }),
+  lineCount: z.number().int().min(0),
+  emailCount: z.number().int().min(0),
   people: z.array(
     z.object({
       id: z.string().uuid(),
       label: z.string(),
       subtitle: z.string().nullable().optional(),
       kind: z.literal('person'),
+      role: z.string().nullable().optional(),
     }),
   ),
   companies: z.array(

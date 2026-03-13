@@ -67,6 +67,8 @@ function createEmptyDictionaryMaps(): Record<DictionaryKindKey, DictionaryMap> {
     'address-types': {},
     'activity-types': {},
     'deal-statuses': {},
+    'deal-contact-roles': {},
+    'deal-close-reasons': {},
     'pipeline-stages': {},
     'job-titles': {},
     industries: {},

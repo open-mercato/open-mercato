@@ -145,6 +145,9 @@ export function ActivitiesSection({
         subject: payload.subject ?? undefined,
         body: payload.body ?? undefined,
         occurredAt: payload.occurredAt ?? undefined,
+        dueAt: payload.dueAt ?? undefined,
+        reminderAt: payload.reminderAt ?? undefined,
+        assignedToUserId: payload.assignedToUserId ?? undefined,
         dealId: payloadDealId ?? undefined,
         ...(payload.customFields ? { customFields: payload.customFields } : {}),
       }, {
@@ -159,6 +162,9 @@ export function ActivitiesSection({
         subject: patch.subject ?? undefined,
         body: patch.body ?? undefined,
         occurredAt: patch.occurredAt ?? undefined,
+        dueAt: patch.dueAt ?? undefined,
+        reminderAt: patch.reminderAt ?? undefined,
+        assignedToUserId: patch.assignedToUserId ?? undefined,
         dealId: patch.dealId ?? undefined,
         ...(patch.customFields ? { customFields: patch.customFields } : {}),
       }, {

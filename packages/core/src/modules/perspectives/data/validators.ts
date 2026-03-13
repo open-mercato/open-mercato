@@ -20,6 +20,7 @@ export const perspectiveSaveSchema = z.object({
   name: z.string().min(1).max(120),
   settings: perspectiveSettingsSchema,
   isDefault: z.boolean().optional(),
+  isShared: z.boolean().optional(),
   applyToRoles: z.array(z.string().uuid()).optional(),
   clearRoleIds: z.array(z.string().uuid()).optional(),
   setRoleDefault: z.boolean().optional(),
