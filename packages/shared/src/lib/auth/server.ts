@@ -168,6 +168,7 @@ export async function getAuthFromCookies(): Promise<AuthContext> {
   try {
     const payload = verifyJwt(token) as AuthContext
     if (!payload) return null
+    if ((payload as any).type === 'customer') return null
     const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
     const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
     return applySuperAdminScope(payload, tenantCookie, orgCookie)
@@ -190,6 +191,7 @@ export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
   if (token) {
     try {
       const payload = verifyJwt(token) as AuthContext
+      if (payload && (payload as any).type === 'customer') return null
       if (payload) return applySuperAdminScope(payload, tenantCookie, orgCookie)
     } catch {
       // fall back to API key detection
