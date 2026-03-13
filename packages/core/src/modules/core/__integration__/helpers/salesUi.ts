@@ -316,8 +316,9 @@ async function createSalesDocumentFixture(
 
 async function openSalesDocumentPage(page: Page, id: string, kind: DocumentKind): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    await page.goto(`/backend/sales/documents/${id}?kind=${kind}`);
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto(`/backend/sales/documents/${id}?kind=${kind}`, {
+      waitUntil: 'domcontentloaded',
+    });
     const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
     if (await itemsButton.isVisible().catch(() => false)) {
       await page.waitForURL(new RegExp(`/backend/sales/documents/${id}\\?kind=${kind}$`, 'i'));
@@ -420,8 +421,9 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
 
   let createPageReady = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.goto(`/backend/sales/documents/create?kind=${options.kind}`);
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto(`/backend/sales/documents/create?kind=${options.kind}`, {
+      waitUntil: 'domcontentloaded',
+    });
     const createButton = page.getByRole('button', { name: /^Create$/i }).first();
     if (await createButton.isVisible().catch(() => false)) {
       createPageReady = true;
@@ -592,7 +594,10 @@ async function fillShipmentNumber(dialog: Locator, shipmentNumber: string): Prom
 export async function addCustomLine(page: Page, options: AddLineOptions): Promise<void> {
   await ensureSalesDocumentReady(page);
   await page.getByRole('button', { name: /^Items$/i }).click();
-  await page.getByRole('button', { name: /Add item/i }).first().click();
+  const addItemButton = page.getByRole('button', { name: /Add item/i }).first();
+  await expect(addItemButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await expect(addItemButton).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await addItemButton.click();
 
   const dialog = lineDialog(page);
   await expect(dialog).toBeVisible();
@@ -617,7 +622,10 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
     }
   }
 
-  await dialog.getByRole('button', { name: /Add item/i }).click();
+  const submitButton = dialog.getByRole('button', { name: /Add item/i });
+  await expect(submitButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await expect(submitButton).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await submitButton.click();
   await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(options.name), 'i') })).toBeVisible();
 }
 
