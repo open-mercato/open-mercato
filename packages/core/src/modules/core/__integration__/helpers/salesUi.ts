@@ -45,6 +45,10 @@ function parseCurrencyAmount(value: string): number {
   return Number.parseFloat(lastMatch.replace('$', ''));
 }
 
+function normalizeAdjustmentKindValue(kindLabel: string): string {
+  return kindLabel.trim().toLowerCase().replace(/\s+/g, '_');
+}
+
 function readId(payload: unknown, keys: string[]): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const map = payload as Record<string, unknown>;
@@ -625,8 +629,22 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   const submitButton = dialog.getByRole('button', { name: /Add item/i });
   await expect(submitButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   await expect(submitButton).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
-  await submitButton.click();
-  await expect(page.getByRole('row', { name: new RegExp(escapeRegExp(options.name), 'i') })).toBeVisible();
+  const lineRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.name), 'i') });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await submitButton.click();
+    await Promise.race([
+      dialog.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {}),
+      lineRow.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {}),
+    ]);
+    if (await lineRow.isVisible().catch(() => false)) break;
+    if (!(await dialog.isVisible().catch(() => false))) break;
+  }
+
+  if (await dialog.isVisible().catch(() => false)) {
+    await expect(dialog).toBeHidden({ timeout: TEST_WAIT_TIMEOUT_MS });
+  }
+  await page.getByRole('button', { name: /^Items$/i }).click().catch(() => {});
+  await expect(lineRow).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
 }
 
 export async function updateLineQuantity(page: Page, lineName: string, quantity: number): Promise<void> {
@@ -663,27 +681,41 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
 
   const dialog = page.getByRole('dialog', { name: /Add adjustment/i });
   await expect(dialog).toBeVisible();
+  const adjustmentRow = page.getByRole('row', { name: new RegExp(escapeRegExp(options.label), 'i') });
   const fillAdjustmentForm = async (): Promise<void> => {
-    const labelInput = dialog.getByRole('textbox', { name: /e\.g\. Shipping fee/i }).first();
-    if ((await labelInput.count()) > 0) {
-      await labelInput.fill(options.label);
-    } else {
-      await dialog.locator('input[placeholder="e.g. Shipping fee"]').first().fill(options.label);
-    }
+    await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+    const kindSelect = dialog.locator('select').first();
+    await expect(kindSelect).toHaveValue(/^custom$/i, { timeout: 3_000 });
 
-    const kindSelect = dialog.getByRole('combobox').first();
+    const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
+    await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+    await labelInput.fill(options.label);
+    await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
+
     if ((await kindSelect.count()) > 0) {
+      const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
+      await kindSelect.locator('option', { hasText: new RegExp(`^${escapeRegExp(options.kindLabel ?? 'Surcharge')}$`, 'i') })
+        .first()
+        .waitFor({ state: 'attached', timeout: 2_000 })
+        .catch(() => {});
       await kindSelect.selectOption({ label: options.kindLabel ?? 'Surcharge' }).catch(async () => {
         await kindSelect.selectOption({ label: 'Custom' });
       });
+      await expect(kindSelect).toHaveValue(new RegExp(`^${escapeRegExp(expectedKindValue)}$`, 'i'), {
+        timeout: 2_000,
+      });
+    }
+
+    const fixedAmountButton = dialog.getByRole('button', { name: /^Fixed amount$/i }).first();
+    if ((await fixedAmountButton.count()) > 0) {
+      await fixedAmountButton.click().catch(() => {});
     }
 
     const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
+    await expect(enabledAmountInputs.first()).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     if ((await enabledAmountInputs.count()) > 0) {
       await enabledAmountInputs.first().fill(String(options.netAmount));
-    }
-    if ((await enabledAmountInputs.count()) > 1) {
-      await enabledAmountInputs.nth(1).fill(String(options.netAmount));
+      await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
     }
   };
 
@@ -691,13 +723,21 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await fillAdjustmentForm();
     await dialog.getByRole('button', { name: /Add adjustment/i }).click();
-    saved = await dialog.waitFor({ state: 'hidden', timeout: 3_000 }).then(() => true).catch(() => false);
+    await Promise.race([
+      dialog.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {}),
+      adjustmentRow.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {}),
+    ]);
+    saved =
+      !(await dialog.isVisible().catch(() => false)) ||
+      (await adjustmentRow.isVisible().catch(() => false));
     if (saved) break;
   }
 
-  await expect(dialog).toBeHidden({ timeout: 8_000 });
+  if (await dialog.isVisible().catch(() => false)) {
+    await expect(dialog).toBeHidden({ timeout: 8_000 });
+  }
   await page.getByRole('button', { name: /^Adjustments$/i }).click();
-  await expect(page.getByText(new RegExp(escapeRegExp(options.label), 'i')).first()).toBeVisible({ timeout: 8_000 });
+  await expect(adjustmentRow).toBeVisible({ timeout: 8_000 });
 }
 
 export async function addPayment(page: Page, amount: number): Promise<{ amountLabel: string; added: boolean }> {
