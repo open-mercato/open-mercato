@@ -33,12 +33,15 @@ This release delivers the **Integration Marketplace** with Payment Gateways, Shi
 - 💰 Handle price variant validation properly with improved coverage (#904). (#913) *(@Magiczne)*
 - 📦 Return user-friendly validation error for duplicate SKU instead of 500 (#909). (#912) *(@michal1986)*
 - 🔄 Finish duplicate definition flow in workflows and add regression tests. (#887) *(@mkadziolka)*
+- 🔢 Validate quantity limit on sales line items to prevent `NUMERIC field overflow` on extremely large values (#920). (#925) *(@michal1986)*
+- 🕐 Consistent timestamp format in Payments table tooltip — localized time instead of raw UTC ISO string (#946). (#951) *(@michal1986)*
 
 ## 🧪 Testing
 - 🔍 Cover search fallback presenter and improve name/title resolution with unit tests. (#886) *(@mkadziolka)*
 - 🔑 Add route-level GET tests for `/api/auth/users` and `/api/auth/roles` with tenant/RBAC filtering. (#885) *(@mkadziolka)*
 
-## 📝 Docs & Documentation
+## 📝 Specs & Documentation
+- 📋 SPEC-060: Customer Identity & Portal Authentication — two-tier `CustomerUser` identity model with RBAC, JWT pipeline, invitation system, and CRM auto-linking. (#863) *(@pat-lewczuk)*
 - 📖 Add screenshots and fix search documentation to match actual codebase state (#331). (#881) *(@MrBuldops)*
 
 ## 🚀 CI/CD & Infrastructure
