@@ -76,7 +76,7 @@ async function processChangeStage(
   deal.pipelineStage = stageInfo.label
   deal.pipelineId = stageInfo.pipelineId
 
-  const durationSeconds = computeTransitionDuration(deal.stageEnteredAt)
+  const durationSeconds = computeTransitionDuration(deal.stageEnteredAt ?? null)
 
   deal.stageEnteredAt = now
 

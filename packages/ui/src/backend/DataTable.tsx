@@ -781,11 +781,12 @@ export function DataTable<T>({
         return {
           tableId: perspectiveTableId,
           perspectives: [],
+          shared: [],
           defaultPerspectiveId: null,
           rolePerspectives: [],
           roles: [],
           canApplyToRoles: false,
-        }
+        } satisfies PerspectivesIndexResponse
       }
       if (!call.ok) {
         await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
