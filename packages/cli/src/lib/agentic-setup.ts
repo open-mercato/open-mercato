@@ -6,7 +6,7 @@
  * This module reads those files at runtime — no embedded string constants.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -118,6 +118,9 @@ function generateClaudeCode(config: AgenticConfig): void {
   copyFile(srcDir, 'settings.json', join(targetDir, '.claude', 'settings.json'))
   copyFile(srcDir, 'hooks/entity-migration-check.ts', join(targetDir, '.claude', 'hooks', 'entity-migration-check.ts'))
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.mcp.json.example'))
+
+  // Symlink .claude/skills → ../.ai/skills
+  ensureSkillsLink(join(targetDir, '.claude', 'skills'), join('..', '.ai', 'skills'))
 }
 
 function generateCodex(config: AgenticConfig): void {
@@ -149,6 +152,9 @@ function generateCodex(config: AgenticConfig): void {
   }
 
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.codex', 'mcp.json.example'))
+
+  // Symlink .codex/skills → ../.ai/skills
+  ensureSkillsLink(join(targetDir, '.codex', 'skills'), join('..', '.ai', 'skills'))
 }
 
 function generateCursor(config: AgenticConfig): void {
@@ -161,6 +167,20 @@ function generateCursor(config: AgenticConfig): void {
   copyFile(srcDir, 'hooks.json', join(targetDir, '.cursor', 'hooks.json'))
   copyFile(srcDir, 'hooks/entity-migration-check.mjs', join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
+
+  // Symlink .cursor/skills → ../.ai/skills
+  ensureSkillsLink(join(targetDir, '.cursor', 'skills'), join('..', '.ai', 'skills'))
+}
+
+function ensureSkillsLink(linkPath: string, target: string): void {
+  ensureDir(linkPath)
+  if (existsSync(linkPath) && !lstatSync(linkPath).isSymbolicLink()) {
+    return
+  }
+  if (lstatSync(linkPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    unlinkSync(linkPath)
+  }
+  symlinkSync(target, linkPath)
 }
 
 // ─── Wizard ──────────────────────────────────────────────────────────────
