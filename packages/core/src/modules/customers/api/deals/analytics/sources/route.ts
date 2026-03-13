@@ -9,8 +9,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CustomerDeal } from '../../../../data/entities'
 
 const querySchema = z.object({
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  pipelineId: z.string().uuid().optional(),
 })
 
 export async function GET(request: Request) {
