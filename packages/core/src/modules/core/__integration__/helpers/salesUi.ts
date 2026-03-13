@@ -350,32 +350,48 @@ async function createSalesDocumentFixture(
   return id;
 }
 
-async function openSalesDocumentPage(page: Page, id: string, kind: DocumentKind): Promise<void> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    await page.goto(`/backend/sales/documents/${id}?kind=${kind}`, {
-      waitUntil: 'domcontentloaded',
-    });
-    const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
-    if (await itemsButton.isVisible().catch(() => false)) {
-      await page.waitForURL(new RegExp(`/backend/sales/documents/${id}\\?kind=${kind}$`, 'i'));
-      return;
-    }
-    const recovered = await recoverGenericErrorPageIfPresent(page);
-    if (!recovered && attempt === 2) {
-      await expect(itemsButton).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
-    }
+async function waitForDocumentLoaded(page: Page, timeout = TEST_WAIT_TIMEOUT_MS): Promise<boolean> {
+  const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
+  if (await itemsButton.isVisible().catch(() => false)) return true;
+  const loadingIndicator = page.getByText(/Loading document…|Loading document\.\.\./i).first();
+  const isLoading = await loadingIndicator.isVisible().catch(() => false);
+  if (isLoading) {
+    await loadingIndicator.waitFor({ state: 'hidden', timeout }).catch(() => {});
   }
+  return await itemsButton.waitFor({ state: 'visible', timeout: Math.min(timeout, 5_000) }).then(() => true).catch(() => false);
+}
+
+async function openSalesDocumentPage(page: Page, id: string, kind: DocumentKind): Promise<void> {
+  const documentUrl = `/backend/sales/documents/${id}?kind=${kind}`;
+  await page.goto(documentUrl, { waitUntil: 'domcontentloaded' });
+
+  if (await waitForDocumentLoaded(page, TEST_WAIT_TIMEOUT_MS)) return;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const recovered = await recoverGenericErrorPageIfPresent(page);
+    if (recovered) {
+      if (await waitForDocumentLoaded(page, TEST_WAIT_TIMEOUT_MS)) return;
+      continue;
+    }
+    await page.goto(documentUrl, { waitUntil: 'domcontentloaded' });
+    if (await waitForDocumentLoaded(page, TEST_WAIT_TIMEOUT_MS)) return;
+  }
+  await expect(page.getByRole('button', { name: /^Items$/i }).first()).toBeVisible({
+    timeout: TEST_WAIT_TIMEOUT_MS,
+  });
 }
 
 async function ensureSalesDocumentReady(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const itemsButton = page.getByRole('button', { name: /^Items$/i }).first();
-    if (await itemsButton.isVisible().catch(() => false)) {
-      return;
-    }
+  if (await waitForDocumentLoaded(page, TEST_WAIT_TIMEOUT_MS)) return;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     const recovered = await recoverGenericErrorPageIfPresent(page);
-    if (recovered) continue;
+    if (recovered) {
+      if (await waitForDocumentLoaded(page, TEST_WAIT_TIMEOUT_MS)) return;
+      continue;
+    }
     await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+    if (await waitForDocumentLoaded(page, TEST_WAIT_TIMEOUT_MS)) return;
   }
   await expect(page.getByRole('button', { name: /^Items$/i }).first()).toBeVisible({
     timeout: TEST_WAIT_TIMEOUT_MS,
@@ -460,6 +476,7 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     await page.goto(`/backend/sales/documents/create?kind=${options.kind}`, {
       waitUntil: 'domcontentloaded',
     });
+    await waitForOptionalTextToDisappear(page, /Loading…|Loading\.\.\./i, TEST_WAIT_TIMEOUT_MS);
     const createButton = page.getByRole('button', { name: /^Create$/i }).first();
     if (await createButton.isVisible().catch(() => false)) {
       createPageReady = true;
@@ -531,7 +548,10 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   if (!match) {
     throw new Error(`Could not resolve document id from URL: ${page.url()}`);
   }
-  await openSalesDocumentPage(page, match[1], options.kind);
+  const loaded = await waitForDocumentLoaded(page, TEST_WAIT_TIMEOUT_MS);
+  if (!loaded) {
+    await openSalesDocumentPage(page, match[1], options.kind);
+  }
   return match[1];
 }
 
