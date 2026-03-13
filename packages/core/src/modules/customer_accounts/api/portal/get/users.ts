@@ -84,3 +84,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'List company portal users',
   methods: { GET: methodDoc },
 }
+
+export default GET

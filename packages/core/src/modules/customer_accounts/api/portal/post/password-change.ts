@@ -63,3 +63,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Change customer password',
   methods: { POST: methodDoc },
 }
+
+export default POST

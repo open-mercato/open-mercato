@@ -85,3 +85,5 @@ export const openApi: OpenApiRouteDoc = {
   description: 'Handles password reset initiation for customer accounts.',
   methods: { POST: methodDoc },
 }
+
+export default POST

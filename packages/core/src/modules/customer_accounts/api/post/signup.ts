@@ -133,3 +133,5 @@ export const openApi: OpenApiRouteDoc = {
   description: 'Handles customer self-registration.',
   methods: { POST: methodDoc },
 }
+
+export default POST

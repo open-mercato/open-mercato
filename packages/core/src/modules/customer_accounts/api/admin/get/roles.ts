@@ -74,3 +74,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'List customer roles (admin)',
   methods: { GET: methodDoc },
 }
+
+export default GET

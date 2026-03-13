@@ -110,3 +110,5 @@ export const openApi: OpenApiRouteDoc = {
   pathParams: z.object({ id: z.string().uuid() }),
   methods: { GET: methodDoc },
 }
+
+export default GET

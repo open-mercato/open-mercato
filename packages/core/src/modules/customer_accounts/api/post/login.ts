@@ -161,3 +161,5 @@ export const openApi: OpenApiRouteDoc = {
   description: 'Handles customer authentication and session issuance.',
   methods: { POST: methodDoc },
 }
+
+export default POST

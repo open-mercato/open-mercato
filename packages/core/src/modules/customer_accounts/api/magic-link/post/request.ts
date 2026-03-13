@@ -85,3 +85,5 @@ export const openApi: OpenApiRouteDoc = {
   description: 'Handles magic link login requests for customer accounts.',
   methods: { POST: methodDoc },
 }
+
+export default POST

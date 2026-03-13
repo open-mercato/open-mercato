@@ -101,3 +101,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Invite portal user',
   methods: { POST: methodDoc },
 }
+
+export default POST

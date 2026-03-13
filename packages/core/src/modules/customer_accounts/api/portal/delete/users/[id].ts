@@ -79,3 +79,5 @@ export const openApi: OpenApiRouteDoc = {
   pathParams: z.object({ id: z.string().uuid() }),
   methods: { DELETE: methodDoc },
 }
+
+export default DELETE

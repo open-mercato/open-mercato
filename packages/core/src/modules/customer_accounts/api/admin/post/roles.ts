@@ -124,3 +124,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Create customer role (admin)',
   methods: { POST: methodDoc },
 }
+
+export default POST

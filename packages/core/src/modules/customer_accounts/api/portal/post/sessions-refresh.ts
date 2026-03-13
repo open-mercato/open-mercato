@@ -85,3 +85,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Refresh customer session',
   methods: { POST: methodDoc },
 }
+
+export default POST

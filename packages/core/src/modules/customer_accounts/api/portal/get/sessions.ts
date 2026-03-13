@@ -82,3 +82,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Customer sessions',
   methods: { GET: methodDoc },
 }
+
+export default GET

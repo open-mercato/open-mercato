@@ -69,3 +69,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Customer logout',
   methods: { POST: methodDoc },
 }
+
+export default POST

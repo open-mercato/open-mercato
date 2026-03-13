@@ -84,3 +84,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Invite customer user (admin)',
   methods: { POST: methodDoc },
 }
+
+export default POST

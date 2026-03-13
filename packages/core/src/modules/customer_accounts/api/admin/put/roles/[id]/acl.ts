@@ -96,3 +96,5 @@ export const openApi: OpenApiRouteDoc = {
   pathParams: z.object({ id: z.string().uuid() }),
   methods: { PUT: methodDoc },
 }
+
+export default PUT

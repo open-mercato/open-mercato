@@ -86,3 +86,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Customer profile',
   methods: { GET: methodDoc },
 }
+
+export default GET

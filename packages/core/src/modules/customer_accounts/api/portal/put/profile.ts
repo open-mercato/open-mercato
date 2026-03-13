@@ -74,3 +74,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Update customer profile',
   methods: { PUT: methodDoc },
 }
+
+export default PUT

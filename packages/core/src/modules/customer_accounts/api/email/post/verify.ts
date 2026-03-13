@@ -64,3 +64,5 @@ export const openApi: OpenApiRouteDoc = {
   description: 'Handles email verification for customer accounts.',
   methods: { POST: methodDoc },
 }
+
+export default POST

@@ -173,3 +173,5 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'List customer users (admin)',
   methods: { GET: methodDoc },
 }
+
+export default GET

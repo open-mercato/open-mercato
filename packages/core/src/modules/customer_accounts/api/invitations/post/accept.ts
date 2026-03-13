@@ -126,3 +126,5 @@ export const openApi: OpenApiRouteDoc = {
   description: 'Handles invitation acceptance for customer accounts.',
   methods: { POST: methodDoc },
 }
+
+export default POST

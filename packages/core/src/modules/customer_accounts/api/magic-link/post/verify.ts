@@ -130,3 +130,5 @@ export const openApi: OpenApiRouteDoc = {
   description: 'Handles magic link verification and auto-login.',
   methods: { POST: methodDoc },
 }
+
+export default POST
