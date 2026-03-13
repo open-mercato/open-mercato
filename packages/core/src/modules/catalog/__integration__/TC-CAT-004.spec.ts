@@ -26,9 +26,7 @@ test.describe('TC-CAT-004: Delete Product', () => {
       await page.getByRole('textbox', { name: 'e.g., Blue / Small' }).fill('Delete Me Variant');
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(`QA-CAT-004-VAR-${Date.now()}`);
       await page.getByRole('button', { name: 'Create variant' }).last().click();
-      await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/i);
-
-      await page.goto(`/backend/catalog/products/${productId}`);
+      await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}`));
       await page.getByRole('button', { name: /^Delete$/i }).first().click();
       const confirmDialog = page.getByRole('alertdialog');
       await expect(confirmDialog).toBeVisible();

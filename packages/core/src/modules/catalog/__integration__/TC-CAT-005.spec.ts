@@ -27,9 +27,9 @@ test.describe('TC-CAT-005: Create Product Variant', () => {
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(variantSku);
       await page.getByRole('button', { name: 'Create variant' }).last().click();
 
-      await expect(page).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}\/variants\/[0-9a-f-]{36}$/i);
-      await expect(page.getByRole('textbox', { name: 'e.g., Blue / Small' })).toHaveValue(variantName);
-      await expect(page.getByRole('textbox', { name: 'Unique identifier' })).toHaveValue(variantSku);
+      await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}`));
+      await expect(page.getByText(variantName)).toBeVisible();
+      await expect(page.getByText(variantSku)).toBeVisible();
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);
     }

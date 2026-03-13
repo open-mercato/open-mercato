@@ -672,6 +672,19 @@ export default function EditCatalogProductPage({
     };
   }, []);
 
+  const hasScrolledToHash = React.useRef(false)
+  React.useEffect(() => {
+    if (hasScrolledToHash.current) return
+    const hash = window.location.hash.replace('#', '')
+    if (!hash) return
+    const el = document.getElementById(hash)
+    if (!el) return
+    hasScrolledToHash.current = true
+    setTimeout(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+  })
+
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
   }, []);
