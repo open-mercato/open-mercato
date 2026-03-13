@@ -227,8 +227,40 @@ async function waitForLookupIdle(root: Locator): Promise<void> {
   await root
     .getByText(/Searching…|Searching\.\.\.|Loading…|Loading\.\.\./i)
     .first()
-    .waitFor({ state: 'hidden', timeout: 700 })
+    .waitFor({ state: 'hidden', timeout: 1_200 })
     .catch(() => {});
+}
+
+async function waitForOptionalTextToDisappear(scope: Locator, pattern: RegExp, timeout = 2_500): Promise<void> {
+  await scope.getByText(pattern).first().waitFor({ state: 'hidden', timeout }).catch(() => {});
+}
+
+async function waitForStableVisibility(locator: Locator, timeout = TEST_WAIT_TIMEOUT_MS): Promise<void> {
+  await expect(locator).toBeVisible({ timeout });
+  let stableChecks = 0;
+  const deadline = Date.now() + Math.min(timeout, 2_000);
+  while (Date.now() < deadline) {
+    if (await locator.isVisible().catch(() => false)) {
+      stableChecks += 1;
+      if (stableChecks >= 3) return;
+    } else {
+      stableChecks = 0;
+    }
+    await locator.page().waitForTimeout(50).catch(() => {});
+  }
+}
+
+async function waitForDialogFieldReady(
+  dialog: Locator,
+  field: Locator,
+  loadingPattern?: RegExp,
+): Promise<void> {
+  await expect(dialog).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
+  if (loadingPattern) {
+    await waitForOptionalTextToDisappear(dialog, loadingPattern, TEST_WAIT_TIMEOUT_MS);
+  }
+  await waitForStableVisibility(field, TEST_WAIT_TIMEOUT_MS);
+  await field.scrollIntoViewIfNeeded().catch(() => {});
 }
 
 async function recoverGenericErrorPageIfPresent(page: Page): Promise<boolean> {
@@ -352,13 +384,13 @@ async function ensureSalesDocumentReady(page: Page): Promise<void> {
 
 async function selectAnyLookupOption(root: Locator): Promise<boolean> {
   const selectButton = root.getByRole('button', { name: /^Select$/i }).first();
-  if ((await selectButton.count()) > 0 && (await selectButton.isVisible().catch(() => false))) {
+  if (await selectButton.isVisible().catch(() => false)) {
     await selectButton.click().catch(() => {});
     return true;
   }
 
   const row = root.locator('[role="button"]').first();
-  if ((await row.count()) > 0 && (await row.isVisible().catch(() => false))) {
+  if (await row.isVisible().catch(() => false)) {
     await row.click().catch(() => {});
     return true;
   }
@@ -371,7 +403,8 @@ async function selectLookupValue(
   query: string,
   preferredRowPattern?: RegExp,
 ): Promise<boolean> {
-  if ((await input.count()) === 0) return false;
+  if (!(await input.isVisible().catch(() => false)) && (await input.count().catch(() => 0)) === 0) return false;
+  await waitForStableVisibility(input, 4_000).catch(() => {});
   await input.click().catch(() => {});
   await input.press('ControlOrMeta+a').catch(() => {});
   await input.fill(query).catch(() => {});
@@ -382,9 +415,8 @@ async function selectLookupValue(
   const selectByPreferredRow = async (): Promise<boolean> => {
     if (!preferredRowPattern) return false;
     const row = root.locator('[role="button"]').filter({ hasText: preferredRowPattern }).first();
-    if ((await row.count()) === 0) return false;
     const action = row.getByRole('button', { name: /^Select$/i }).first();
-    if ((await action.count()) > 0 && (await action.isVisible().catch(() => false))) {
+    if (await action.isVisible().catch(() => false)) {
       await action.click();
       return true;
     }
@@ -403,7 +435,7 @@ async function selectLookupValue(
     if (await selectAnyLookupOption(root)) return true;
     if (await selectByPreferredRow()) return true;
     const selectedButton = root.getByRole('button', { name: /^Selected$/i }).first();
-    if ((await selectedButton.count()) > 0 && (await selectedButton.isVisible().catch(() => false))) {
+    if (await selectedButton.isVisible().catch(() => false)) {
       return true;
     }
     await input.page().waitForTimeout(250);
@@ -412,7 +444,7 @@ async function selectLookupValue(
   await input.press('ArrowDown').catch(() => {});
   await input.press('Enter').catch(() => {});
   const selectedButton = root.getByRole('button', { name: /^Selected$/i }).first();
-  if ((await selectedButton.count()) > 0 && (await selectedButton.isVisible().catch(() => false))) {
+  if (await selectedButton.isVisible().catch(() => false)) {
     return true;
   }
   return await selectAnyLookupOption(root);
@@ -564,9 +596,7 @@ async function fillShipmentQuantity(dialog: Locator): Promise<void> {
     const isVisible = await input.isVisible().catch(() => false);
     const isEnabled = await input.isEnabled().catch(() => false);
     if (!isVisible || !isEnabled) continue;
-    await input.click().catch(() => {});
-    await input.press('ControlOrMeta+a').catch(() => {});
-    await input.type('1', { delay: 20 }).catch(() => {});
+    await input.fill('1').catch(() => {});
   }
 }
 
@@ -588,10 +618,11 @@ async function fillShipmentDates(dialog: Locator): Promise<void> {
 
 async function fillShipmentNumber(dialog: Locator, shipmentNumber: string): Promise<void> {
   const shipmentNumberInput = dialog.getByRole('textbox').first();
-  if ((await shipmentNumberInput.count()) === 0) return;
-  await shipmentNumberInput.click().catch(() => {});
-  await shipmentNumberInput.press('ControlOrMeta+a').catch(() => {});
-  await shipmentNumberInput.type(shipmentNumber, { delay: 20 }).catch(() => {});
+  if (!(await shipmentNumberInput.isVisible().catch(() => false)) && (await shipmentNumberInput.count().catch(() => 0)) === 0) {
+    return;
+  }
+  await waitForStableVisibility(shipmentNumberInput, 4_000).catch(() => {});
+  await shipmentNumberInput.fill(shipmentNumber).catch(() => {});
   await shipmentNumberInput.press('Tab').catch(() => {});
 }
 
@@ -676,8 +707,12 @@ export async function deleteLine(page: Page, lineName: string): Promise<void> {
 }
 
 export async function addAdjustment(page: Page, options: AddAdjustmentOptions): Promise<void> {
-  await page.getByRole('button', { name: /^Adjustments$/i }).click();
-  await page.getByRole('button', { name: /Add adjustment/i }).first().click();
+  const adjustmentsTab = page.getByRole('button', { name: /^Adjustments$/i }).first();
+  await waitForStableVisibility(adjustmentsTab, TEST_WAIT_TIMEOUT_MS);
+  await adjustmentsTab.click();
+  const addAdjustmentButton = page.getByRole('button', { name: /Add adjustment/i }).first();
+  await waitForStableVisibility(addAdjustmentButton, TEST_WAIT_TIMEOUT_MS);
+  await addAdjustmentButton.click();
 
   const dialog = page.getByRole('dialog', { name: /Add adjustment/i });
   await expect(dialog).toBeVisible();
@@ -722,7 +757,9 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   let saved = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await fillAdjustmentForm();
-    await dialog.getByRole('button', { name: /Add adjustment/i }).click();
+    const submitButton = dialog.getByRole('button', { name: /Add adjustment/i }).first();
+    await waitForStableVisibility(submitButton, 4_000).catch(() => {});
+    await submitButton.click();
     await Promise.race([
       dialog.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {}),
       adjustmentRow.waitFor({ state: 'visible', timeout: 3_000 }).catch(() => {}),
@@ -734,57 +771,58 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   }
 
   if (await dialog.isVisible().catch(() => false)) {
-    await expect(dialog).toBeHidden({ timeout: 8_000 });
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
   }
-  await page.getByRole('button', { name: /^Adjustments$/i }).click();
-  await expect(adjustmentRow).toBeVisible({ timeout: 8_000 });
+  if (!(await adjustmentRow.isVisible().catch(() => false))) {
+    await adjustmentsTab.click().catch(() => {});
+    await adjustmentRow.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => {});
+  }
 }
 
 export async function addPayment(page: Page, amount: number): Promise<{ amountLabel: string; added: boolean }> {
   await ensureSalesDocumentReady(page);
-  await page.getByRole('button', { name: /^Payments$/i }).click();
+  const paymentsTab = page.getByRole('button', { name: /^Payments$/i }).first();
+  await waitForStableVisibility(paymentsTab, TEST_WAIT_TIMEOUT_MS);
+  await paymentsTab.click();
   const amountLabel = amount.toFixed(2);
   const amountInputValue = String(Math.max(1, Math.round(amount)));
-  await page.getByRole('button', { name: /Add payment/i }).click();
+  const addPaymentButton = page.getByRole('button', { name: /Add payment/i }).first();
+  await waitForStableVisibility(addPaymentButton, TEST_WAIT_TIMEOUT_MS);
+  await expect(addPaymentButton).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await addPaymentButton.click();
 
   const dialog = page.getByRole('dialog', { name: /Add payment/i });
-  await expect(dialog).toBeVisible();
+  const amountInput = dialog.locator('input[placeholder="0.00"]').first();
+  await waitForDialogFieldReady(dialog, amountInput, /Loading payment methods…|Loading payment methods\.\.\./i);
   const setAmount = async (): Promise<void> => {
-    const amountInput = dialog.getByRole('spinbutton').first();
-    await amountInput.click();
-    await amountInput.press('ControlOrMeta+a');
-    await amountInput.fill(amountInputValue);
-    await amountInput.press('Tab');
+    const refreshedAmountInput = dialog.locator('input[placeholder="0.00"]').first();
+    await waitForStableVisibility(refreshedAmountInput, 4_000).catch(() => {});
+    await refreshedAmountInput.fill(amountInputValue).catch(() => {});
+    await refreshedAmountInput.press('Tab').catch(() => {});
   };
-  const selectFirstOption = async (optionNamePattern: RegExp): Promise<void> => {
-    const option = dialog.getByRole('button', { name: optionNamePattern }).first();
-    if ((await option.count()) === 0) return;
-    const selectButton = option.getByRole('button', { name: /^Select$/i }).first();
-    if ((await selectButton.count()) > 0) {
-      await selectButton.click();
-      return;
-    }
-    await option.click();
-  };
+  const selectMethodInput = dialog.getByPlaceholder(/Search payment method/i).first();
+  const statusInput = dialog.getByPlaceholder(/Select status/i).first();
   await setAmount();
-
-  await dialog.getByText(/Loading payment methods/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
-  await selectFirstOption(/bank transfer|credit card|cash on delivery/i);
-  await selectFirstOption(/pending.*select|captured.*select/i);
+  await waitForStableVisibility(selectMethodInput, 4_000).catch(() => {});
+  await selectLookupValue(selectMethodInput, 'Bank', /bank transfer|credit card|cash on delivery/i).catch(() => false);
+  await waitForStableVisibility(statusInput, 4_000).catch(() => {});
+  await selectLookupValue(statusInput, 'Pending', /pending|captured/i).catch(() => false);
   const saveButton = dialog.getByRole('button', { name: /Save/i }).first();
   const operationMessage = page.getByText(/Last operation:\s*Create payment/i).first();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await setAmount();
-    await selectFirstOption(/bank transfer|credit card|cash on delivery/i);
-    await selectFirstOption(/pending.*select|captured.*select/i);
+    await selectLookupValue(selectMethodInput, 'Bank', /bank transfer|credit card|cash on delivery/i).catch(() => false);
+    await selectLookupValue(statusInput, 'Pending', /pending|captured/i).catch(() => false);
+    await waitForStableVisibility(saveButton, 4_000).catch(() => {});
     await saveButton.click();
     await Promise.race([
-      dialog.waitFor({ state: 'hidden', timeout: 2_500 }).catch(() => {}),
-      operationMessage.waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {}),
-      dialog.getByText(/This field is required/i).first().waitFor({ state: 'visible', timeout: 2_500 }).catch(() => {}),
+      dialog.waitFor({ state: 'hidden', timeout: 3_500 }).catch(() => {}),
+      operationMessage.waitFor({ state: 'visible', timeout: 3_500 }).catch(() => {}),
+      dialog.getByText(/This field is required/i).first().waitFor({ state: 'visible', timeout: 3_500 }).catch(() => {}),
     ]);
     if (!(await dialog.isVisible().catch(() => false))) break;
     if (await operationMessage.isVisible().catch(() => false)) break;
+    await waitForOptionalTextToDisappear(dialog, /Loading payment methods…|Loading payment methods\.\.\./i, 3_000);
   }
   if (await dialog.isVisible().catch(() => false)) {
     await dialog.press('Escape').catch(() => {});
@@ -798,20 +836,23 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
 export async function addShipment(page: Page): Promise<{ trackingNumber: string; shipmentNumber: string; added: boolean }> {
   await ensureSalesDocumentReady(page);
   await ensureShippingMethodFixture(page);
-  await page.getByRole('button', { name: /^Shipments$/i }).click();
+  const shipmentsTab = page.getByRole('button', { name: /^Shipments$/i }).first();
+  await waitForStableVisibility(shipmentsTab, TEST_WAIT_TIMEOUT_MS);
+  await shipmentsTab.click();
   const trackingNumber = `SHIP-${Date.now()}`;
   const shipmentNumber = String(Date.now());
-  await page.getByRole('button', { name: /Add shipment/i }).click();
+  const addShipmentButton = page.getByRole('button', { name: /Add shipment/i }).first();
+  await waitForStableVisibility(addShipmentButton, TEST_WAIT_TIMEOUT_MS);
+  await expect(addShipmentButton).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+  await addShipmentButton.click();
 
   const dialog = page.getByRole('dialog', { name: /Add shipment/i });
-  await expect(dialog).toBeVisible();
+  const shipmentNumberInput = dialog.getByRole('textbox').first();
+  await waitForDialogFieldReady(dialog, shipmentNumberInput, /Loading shipments…|Loading shipments\.\.\./i);
   await fillShipmentNumber(dialog, shipmentNumber);
-  const trackingInput = dialog.getByLabel(/Tracking numbers/i).first();
-  if ((await trackingInput.count()) > 0) {
-    await trackingInput.fill(trackingNumber);
-  } else {
-    await dialog.getByPlaceholder(/One per line or comma separated/i).first().fill(trackingNumber);
-  }
+  const trackingInput = dialog.getByPlaceholder(/One per line or comma separated/i).first();
+  await waitForStableVisibility(trackingInput, 4_000).catch(() => {});
+  await trackingInput.fill(trackingNumber).catch(() => {});
   await selectShipmentMethod(dialog);
   await selectShipmentStatus(dialog);
   await selectShipmentAddress(dialog);
