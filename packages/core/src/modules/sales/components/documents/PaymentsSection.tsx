@@ -287,6 +287,10 @@ export function SalesDocumentPaymentsSection({
         header: t('sales.documents.payments.createdAt', 'Created'),
         cell: ({ row }) =>
           row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—',
+        meta: {
+          tooltipContent: (row: PaymentRow) =>
+            row.createdAt ? new Date(row.createdAt).toLocaleString() : undefined,
+        },
       },
       {
         id: 'actions',
