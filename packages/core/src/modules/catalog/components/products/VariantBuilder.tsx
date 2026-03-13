@@ -11,6 +11,7 @@ import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
 import { E } from '#generated/entities.ids.generated'
+import { PriceEditorOmnibusRow } from '@open-mercato/core/modules/catalog/components/PriceEditorOmnibusRow'
 
 type VariantBuilderProps = {
   values: VariantFormValues
@@ -19,6 +20,9 @@ type VariantBuilderProps = {
   optionDefinitions: OptionDefinition[]
   priceKinds: PriceKindSummary[]
   taxRates: TaxRateSummary[]
+  productId?: string | null
+  variantId?: string | null
+  channelId?: string | null
 }
 
 type VariantSectionBaseProps = {
@@ -54,6 +58,9 @@ type VariantPricesSectionProps = {
   taxRates: TaxRateSummary[]
   showHeader?: boolean
   embedded?: boolean
+  productId?: string | null
+  variantId?: string | null
+  channelId?: string | null
 }
 
 type VariantMediaSectionProps = {
@@ -69,6 +76,9 @@ export function VariantBuilder({
   optionDefinitions,
   priceKinds,
   taxRates,
+  productId,
+  variantId,
+  channelId,
 }: VariantBuilderProps) {
   return (
     <div className="space-y-6">
@@ -76,7 +86,7 @@ export function VariantBuilder({
       <VariantOptionValuesSection values={values} setValue={setValue} optionDefinitions={optionDefinitions} />
       <VariantDimensionsSection values={values} setValue={setValue} />
       <VariantMetadataSection values={values} setValue={setValue} />
-      <VariantPricesSection values={values} setValue={setValue} priceKinds={priceKinds} taxRates={taxRates} />
+      <VariantPricesSection values={values} setValue={setValue} priceKinds={priceKinds} taxRates={taxRates} productId={productId} variantId={variantId} channelId={channelId} />
       <VariantMediaSection values={values} setValue={setValue} />
     </div>
   )
@@ -270,6 +280,9 @@ export function VariantPricesSection({
   taxRates,
   showHeader = true,
   embedded = false,
+  productId,
+  variantId,
+  channelId,
 }: VariantPricesSectionProps) {
   const t = useT()
 
@@ -346,6 +359,15 @@ export function VariantPricesSection({
                   onChange={(event) => updatePrice(kind.id, { amount: event.target.value })}
                   placeholder="0.00"
                 />
+                {kind.currencyCode ? (
+                  <PriceEditorOmnibusRow
+                    productId={productId}
+                    variantId={variantId}
+                    priceKindId={kind.id}
+                    currencyCode={kind.currencyCode}
+                    channelId={channelId}
+                  />
+                ) : null}
               </div>
             )
           })

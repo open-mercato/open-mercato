@@ -182,6 +182,7 @@ export async function seedAnalyticsData(
       productType: 'simple',
       isConfigurable: false,
       isActive: true,
+      omnibusExempt: false,
       createdAt: productCreatedAt,
       updatedAt: productCreatedAt,
     })
