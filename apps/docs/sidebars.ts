@@ -132,6 +132,24 @@ const sidebars: SidebarsConfig = {
         "enterprise/record-locks",
         {
           type: "category",
+          label: "Security",
+          items: [
+            "enterprise/security/index",
+            "enterprise/security/change-password",
+            {
+              type: "category",
+              label: "MFA",
+              items: [
+                "enterprise/security/mfa-user",
+                "enterprise/security/mfa-admin",
+                "enterprise/security/extending-mfa-providers"
+              ],
+            },
+            "enterprise/security/sudo",
+          ],
+        },
+        {
+          type: "category",
           label: "Single Sign-On (SSO)",
           items: [
             "enterprise/sso/index",

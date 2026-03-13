@@ -1,0 +1,212 @@
+'use client'
+
+import * as React from 'react'
+import { Loader2 } from 'lucide-react'
+import { useRouter } from 'next/navigation.js'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+
+type TotpSetupResponse = {
+  setupId?: string
+  clientData?: Record<string, unknown>
+  secret?: string
+  uri?: string
+  qrDataUrl?: string
+}
+
+type TotpSetupState = {
+  setupId: string
+  secret: string | null
+  uri: string | null
+  qrDataUrl: string | null
+}
+
+type TotpConfirmResponse = {
+  ok?: boolean
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeTotpSetupResponse(response: TotpSetupResponse): TotpSetupState {
+  const setupId = readNonEmptyString(response.setupId)
+  if (!setupId) {
+    throw new Error('Missing setupId')
+  }
+
+  const clientData = response.clientData && typeof response.clientData === 'object'
+    ? response.clientData
+    : {}
+
+  return {
+    setupId,
+    secret: readNonEmptyString(clientData.secret) ?? readNonEmptyString(response.secret),
+    uri: readNonEmptyString(clientData.uri) ?? readNonEmptyString(response.uri),
+    qrDataUrl: readNonEmptyString(clientData.qrDataUrl) ?? readNonEmptyString(response.qrDataUrl),
+  }
+}
+
+export default function TotpProviderDetails() {
+  const t = useT()
+  const router = useRouter()
+  const [loading, setLoading] = React.useState(false)
+  const [setup, setSetup] = React.useState<TotpSetupState | null>(null)
+  const [setupError, setSetupError] = React.useState<string | null>(null)
+  const [showManualSecret, setShowManualSecret] = React.useState(false)
+  const [code, setCode] = React.useState('')
+
+  const startSetup = React.useCallback(async () => {
+    setLoading(true)
+    setSetupError(null)
+    try {
+      const result = await readApiResultOrThrow<TotpSetupResponse>(
+        '/api/security/mfa/provider/totp',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({}),
+        },
+      )
+      setSetup(normalizeTotpSetupResponse(result))
+      setShowManualSecret(false)
+      setCode('')
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : t('security.profile.mfa.totp.setupError', 'Failed to prepare authenticator setup.')
+      setSetupError(message)
+    } finally {
+      setLoading(false)
+    }
+  }, [t])
+
+  const confirmSetup = React.useCallback(async () => {
+    if (!setup || code.trim().length === 0) return
+    setLoading(true)
+    try {
+      await readApiResultOrThrow<TotpConfirmResponse>(
+        '/api/security/mfa/provider/totp',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setupId: setup.setupId, payload: { code: code.trim() } }),
+        },
+      )
+      setCode('')
+      router.push('/backend/profile/security/mfa')
+      flash(t('security.profile.mfa.totp.confirmSuccess', 'TOTP method enabled.'), 'success')
+    } finally {
+      setLoading(false)
+    }
+  }, [code, router, setup, t])
+
+  React.useEffect(() => {
+    if (setup != null) return
+    void startSetup()
+  }, [setup, startSetup])
+
+  const handleCancel = React.useCallback(() => {
+    router.push('/backend/profile/security/mfa')
+  }, [router])
+
+  return (
+    <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-950 p-6 text-slate-100">
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold">
+          {t('security.profile.mfa.totp.title', 'Authenticator app')}
+        </h2>
+        <p className="text-sm text-slate-300">
+          {t(
+            'security.profile.mfa.totp.description',
+            'Authenticator apps and browser extensions generate one-time passwords used as a second factor during sign-in.',
+          )}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-base font-semibold">
+          {t('security.profile.mfa.totp.scanTitle', 'Scan the QR code')}
+        </h3>
+        <p className="text-sm text-slate-300">
+          {t(
+            'security.profile.mfa.totp.scanInstructions',
+            'Use an authenticator app or browser extension to scan this code.',
+          )}
+        </p>
+        {setup?.qrDataUrl ? (
+          <img
+            src={setup.qrDataUrl}
+            alt={t('security.profile.mfa.totp.qrAlt', 'TOTP QR code')}
+            width={224}
+            height={224}
+            className="size-56 rounded-md border border-slate-700 bg-white p-2"
+          />
+        ) : (
+          <div className="flex h-56 w-56 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-sm text-slate-300">
+            {loading
+              ? t('security.profile.mfa.totp.loadingQr', 'Preparing QR code...')
+              : t('security.profile.mfa.totp.loadingQrFallback', 'QR code unavailable')}
+          </div>
+        )}
+
+        <p className="text-sm text-slate-300">
+          {t('security.profile.mfa.totp.manualHint', 'Unable to scan? You can use a setup key to configure your authenticator app.')}
+        </p>
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto p-0 text-sm text-blue-400"
+          onClick={() => setShowManualSecret((prev) => !prev)}
+        >
+          {showManualSecret
+            ? t('security.profile.mfa.totp.hideManual', 'Hide setup key')
+            : t('security.profile.mfa.totp.showManual', 'Show setup key')}
+        </Button>
+        {showManualSecret && setup?.secret ? (
+          <div className="rounded-md border border-slate-700 bg-slate-900 p-3">
+            <code className="break-all text-sm text-slate-100">{setup.secret}</code>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-base font-semibold">
+          {t('security.profile.mfa.totp.verifyTitle', 'Verify the code from the app')}
+        </h3>
+        <Input
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+          placeholder={t('security.profile.mfa.totp.codePlaceholder', 'XXXXXX')}
+          maxLength={6}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          className="h-10 max-w-xs border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+        />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            onClick={confirmSetup}
+            disabled={loading || !setup || code.trim().length < 6}
+            className="h-10"
+          >
+            {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            {t('ui.actions.save', 'Save')}
+          </Button>
+          <Button type="button" variant="outline" className="h-10" onClick={handleCancel}>
+            {t('ui.actions.cancel', 'Cancel')}
+          </Button>
+        </div>
+      </div>
+
+      {setupError ? (
+        <p className="text-sm text-red-400" role="alert">{setupError}</p>
+      ) : null}
+    </section>
+  )
+}

@@ -1,9 +1,28 @@
 /** @jest-environment node */
-import { POST } from '@open-mercato/core/modules/auth/api/login'
 import { randomUUID } from 'crypto'
+import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { POST } from '@open-mercato/core/modules/auth/api/login'
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
+
+const authServiceMock = {
+  findUsersByEmail: jest.fn(async (email: string) => ([{ id: 1, email, passwordHash: 'hash', tenantId, organizationId: orgId }])),
+  findUserByEmailAndTenant: jest.fn(async (email: string) => ({ id: 1, email, passwordHash: 'hash', tenantId, organizationId: orgId })),
+  verifyPassword: jest.fn(async () => true),
+  getUserRoles: jest.fn(async () => ['admin']),
+  updateLastLoginAt: jest.fn(async () => undefined),
+  createSession: jest.fn(async () => ({ token: 'session-token' })),
+}
+
+const containerMock = {
+  resolve: jest.fn((name: string) => {
+    if (name === 'authService') return authServiceMock
+    if (name === 'eventBus') return { emitEvent: jest.fn(async () => undefined) }
+    if (name === 'em') return {}
+    return null
+  }),
+}
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -12,36 +31,121 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({
-    resolve: (_: string) => ({
-      findUserByEmail: async (email: string) => ({ id: 1, email, passwordHash: 'hash', tenantId: tenantId, organizationId: orgId }),
-      findUsersByEmail: async (email: string) => ([{ id: 1, email, passwordHash: 'hash', tenantId: tenantId, organizationId: orgId }]),
-      findUserByEmailAndTenant: async (email: string) => ({ id: 1, email, passwordHash: 'hash', tenantId: tenantId, organizationId: orgId }),
-      verifyPassword: async () => true,
-      getUserRoles: async (_user: any, _tenant: string | null | undefined) => ['admin'],
-      updateLastLoginAt: async () => undefined,
-      createSession: async (_user: any, _exp: Date) => ({ token: 'session-token' }),
-    }),
-  }),
+  createRequestContainer: async () => containerMock,
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: () => 'jwt-token' }))
 
 function makeFormData(data: Record<string, string>) {
-  const fd = new FormData()
-  for (const [k, v] of Object.entries(data)) fd.append(k, v)
-  return fd
+  const formData = new FormData()
+  for (const [key, value] of Object.entries(data)) formData.append(key, value)
+  return formData
 }
 
-describe('POST /api/auth/login', () => {
-  it('returns token and sets cookies on success', async () => {
-    const req = new Request('http://localhost/api/auth/login', { method: 'POST', body: makeFormData({ email: 'user@example.com', password: 'secret', remember: '1' }) })
+describe('POST /api/auth/login with custom route interceptors', () => {
+  beforeEach(() => {
+    registerApiInterceptors([])
+    jest.clearAllMocks()
+  })
+
+  test('returns unchanged login response when no interceptor matches', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', remember: '1' }),
+    })
+
     const res = await POST(req)
     expect(res.status).toBe(200)
-    const text = await res.text()
-    expect(text).toContain('"ok":true')
-    expect(text).toContain('"token":"jwt-token"')
-    const setCookie = res.headers.get('set-cookie') || ''
-    expect(setCookie).toContain('auth_token=')
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: true,
+      token: 'jwt-token',
+      redirect: '/backend',
+      refreshToken: 'session-token',
+    })
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=jwt-token')
+    expect(setCookie).toContain('session_token=session-token')
+  })
+
+  test('applies body merge from matched after interceptor', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.merge',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { merge: { mfa_required: true } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: true,
+      token: 'jwt-token',
+      redirect: '/backend',
+      mfa_required: true,
+    })
+  })
+
+  test('applies body replace from matched after interceptor and keeps cookies valid', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.replace',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return {
+                replace: {
+                  ok: true,
+                  mfa_required: true,
+                  challenge_id: 'challenge-1',
+                  token: 'pending-token',
+                },
+              }
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', remember: '1' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: true,
+      mfa_required: true,
+      challenge_id: 'challenge-1',
+      token: 'pending-token',
+    })
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=pending-token')
+    expect(setCookie).not.toContain('session_token=')
   })
 })

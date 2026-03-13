@@ -150,6 +150,14 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: All new connector work and refactors of existing providers (for example, `gateway_*`, `carrier_*`, and sync connector modules), with UMES extension points per SPEC-041.
 
+## Sanitize generated component override entries before runtime use
+
+**Context**: Enterprise security login overrides caused `/login` SSR failures because the server-side override registry received at least one malformed entry from generated component overrides, and `getComponentOverrides()` assumed every item had `target.componentId`.
+
+**Rule**: Shared runtime registries fed by generated/module-loaded plugin arrays must defensively filter malformed or `undefined` entries both at registration time and before lookup. Never assume SSR imports across client/server module boundaries preserve registry item shape.
+
+**Applies to**: `packages/shared/src/modules/widgets/component-registry.ts` and any similar generated registries that are consumed during Next.js SSR/bootstrap.
+
 ## Prefer canonical route paths over alias lists for custom APIs
 
 **Context**: Payment and shipping endpoints were still using the legacy `api/<method>/...` layout, and shipping added alias matching because its public URL was kebab-case while the module id is snake_case.

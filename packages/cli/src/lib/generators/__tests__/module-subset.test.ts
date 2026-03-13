@@ -361,7 +361,7 @@ describe('generateModuleRegistryCli with module subsets', () => {
 })
 
 describe('all generated files are valid with varying subsets', () => {
-  it('produces all 9 generated files even when no modules have matching content', async () => {
+  it('produces all generated files even when no modules have matching content', async () => {
     scaffoldModule(tmpDir, 'bare_mod', 'pkg', ['acl.ts'])
     const enabled: ModuleEntry[] = [
       { id: 'bare_mod', from: '@open-mercato/core' },
@@ -380,6 +380,10 @@ describe('all generated files are valid with varying subsets', () => {
       'events.generated.ts',
       'analytics.generated.ts',
       'translations-fields.generated.ts',
+      'security-mfa-providers.generated.ts',
+      'security-sudo.generated.ts',
+      'frontend-middleware.generated.ts',
+      'backend-middleware.generated.ts',
     ]
     for (const file of expectedFiles) {
       const content = readGenerated(tmpDir, file)
@@ -433,6 +437,42 @@ describe('all generated files are valid with varying subsets', () => {
     expect(aiTools).not.toContain('no_ai')
   })
 
+  it('security generated registries are empty when no module provides security convention files', async () => {
+    scaffoldModule(tmpDir, 'no_security', 'pkg', ['setup.ts'])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'no_security', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const mfaProviders = readGenerated(tmpDir, 'security-mfa-providers.generated.ts')!
+    const sudoTargets = readGenerated(tmpDir, 'security-sudo.generated.ts')!
+
+    expect(mfaProviders).toContain('export const securityMfaProviderEntries')
+    expect(mfaProviders).not.toContain('no_security')
+    expect(sudoTargets).toContain('export const securitySudoTargetEntries')
+    expect(sudoTargets).toContain('const entriesRaw: SecuritySudoTargetEntryRaw[] = [\n]')
+    expect(sudoTargets).not.toContain('no_security')
+  })
+
+  it('discovers security convention files into dedicated generated registries', async () => {
+    scaffoldModule(tmpDir, 'security_ext', 'pkg', [
+      'security.mfa-providers.ts',
+      'security.sudo.ts',
+    ])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'security_ext', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const mfaProviders = readGenerated(tmpDir, 'security-mfa-providers.generated.ts')!
+    const sudoTargets = readGenerated(tmpDir, 'security-sudo.generated.ts')!
+
+    expect(mfaProviders).toContain('security_ext')
+    expect(mfaProviders).toContain('mfaProviders')
+    expect(sudoTargets).toContain('security_ext')
+    expect(sudoTargets).toContain('sudoTargets')
+  })
+
   it('notifications.generated.ts uses typed fallback for legacy "types" export', async () => {
     scaffoldModule(tmpDir, 'notif_mod', 'pkg', ['notifications.ts'])
     const resolver = createMockResolver(tmpDir, [
@@ -443,5 +483,21 @@ describe('all generated files are valid with varying subsets', () => {
     const notifications = readGenerated(tmpDir, 'notifications.generated.ts')!
     expect(notifications).toContain('as any).types')
     expect(notifications).toContain('as NotificationTypeDefinition[]')
+  })
+
+  it('discovers frontend and backend middleware conventions', async () => {
+    scaffoldModule(tmpDir, 'security', 'pkg', [
+      'frontend/middleware.ts',
+      'backend/middleware.ts',
+    ])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'security', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const frontendMiddleware = readGenerated(tmpDir, 'frontend-middleware.generated.ts')!
+    const backendMiddleware = readGenerated(tmpDir, 'backend-middleware.generated.ts')!
+    expect(frontendMiddleware).toContain("moduleId: 'security'")
+    expect(backendMiddleware).toContain("moduleId: 'security'")
   })
 })

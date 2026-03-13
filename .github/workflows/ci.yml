@@ -66,6 +66,9 @@ jobs:
     env:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
+      SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -97,6 +100,8 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run ephemeral integration tests with code coverage
+        env:
+          OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
         run: yarn test:integration:coverage
 
       - name: Display integration coverage summary

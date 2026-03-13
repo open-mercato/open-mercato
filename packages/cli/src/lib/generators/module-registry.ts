@@ -407,6 +407,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
   const transFieldsOutFile = path.join(outputDir, 'translations-fields.generated.ts')
   const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
+  const securityMfaProvidersOutFile = path.join(outputDir, 'security-mfa-providers.generated.ts')
+  const securityMfaProvidersChecksumFile = path.join(outputDir, 'security-mfa-providers.generated.checksum')
+  const securitySudoOutFile = path.join(outputDir, 'security-sudo.generated.ts')
+  const securitySudoChecksumFile = path.join(outputDir, 'security-sudo.generated.checksum')
   const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
   const enrichersChecksumFile = path.join(outputDir, 'enrichers.generated.checksum')
   const interceptorsOutFile = path.join(outputDir, 'interceptors.generated.ts')
@@ -419,6 +423,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const guardsChecksumFile = path.join(outputDir, 'guards.generated.checksum')
   const commandInterceptorsOutFile = path.join(outputDir, 'command-interceptors.generated.ts')
   const commandInterceptorsChecksumFile = path.join(outputDir, 'command-interceptors.generated.checksum')
+  const frontendMiddlewareOutFile = path.join(outputDir, 'frontend-middleware.generated.ts')
+  const frontendMiddlewareChecksumFile = path.join(outputDir, 'frontend-middleware.generated.checksum')
+  const backendMiddlewareOutFile = path.join(outputDir, 'backend-middleware.generated.ts')
+  const backendMiddlewareChecksumFile = path.join(outputDir, 'backend-middleware.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   const imports: string[] = []
@@ -450,6 +458,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const analyticsImports: string[] = []
   const transFieldsConfigs: string[] = []
   const transFieldsImports: string[] = []
+  const securityMfaProviderConfigs: string[] = []
+  const securityMfaProviderImports: string[] = []
+  const securitySudoConfigs: string[] = []
+  const securitySudoImports: string[] = []
   const enricherConfigs: string[] = []
   const enricherImports: string[] = []
   const interceptorConfigs: string[] = []
@@ -462,6 +474,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const guardImports: string[] = []
   const commandInterceptorConfigs: string[] = []
   const commandInterceptorImports: string[] = []
+  const frontendMiddlewareConfigs: string[] = []
+  const frontendMiddlewareImports: string[] = []
+  const backendMiddlewareConfigs: string[] = []
+  const backendMiddlewareImports: string[] = []
 
   // UMES conflict detection: collect file paths during module processing
   const umesConflictSources: Array<{
@@ -735,6 +751,24 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
     })
 
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'security.mfa-providers.ts',
+      prefix: 'SECURITY_MFA_PROVIDERS',
+      standaloneImports: securityMfaProviderImports,
+      standaloneConfigs: securityMfaProviderConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', providers: ((${n}.default ?? ${n}.mfaProviders ?? []) as unknown[]) }`,
+    })
+
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'security.sudo.ts',
+      prefix: 'SECURITY_SUDO',
+      standaloneImports: securitySudoImports,
+      standaloneConfigs: securitySudoConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', targets: ((${n}.default ?? ${n}.sudoTargets ?? []) as Array<Record<string, unknown>>) }`,
+    })
+
     // Inbox Actions: inbox-actions.ts
     {
       const resolved = resolveModuleFile(roots, imps, 'inbox-actions.ts')
@@ -766,6 +800,26 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       standaloneImports: commandInterceptorImports,
       standaloneConfigs: commandInterceptorConfigs,
       configExpr: (n, id) => `{ moduleId: '${id}', interceptors: ((${n} as any).interceptors ?? (${n} as any).default ?? []) }`,
+    })
+
+    // 10g. Frontend page middleware: frontend/middleware.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'frontend/middleware.ts',
+      prefix: 'FRONTEND_MIDDLEWARE',
+      standaloneImports: frontendMiddlewareImports,
+      standaloneConfigs: frontendMiddlewareConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
+    })
+
+    // 10h. Backend page middleware: backend/middleware.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'backend/middleware.ts',
+      prefix: 'BACKEND_MIDDLEWARE',
+      standaloneImports: backendMiddlewareImports,
+      standaloneConfigs: backendMiddlewareConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
     })
 
     // 11. Setup: setup.ts
@@ -1153,6 +1207,31 @@ export const allTranslatableEntityTypes = Object.keys(allFields)
 registerTranslatableFields(allFields)
 `
 
+  const securityMfaProviderEntriesLiteral = securityMfaProviderConfigs.join(',\n  ')
+  const securityMfaProviderImportSection = securityMfaProviderImports.join('\n')
+  const securityMfaProvidersOutput = `// AUTO-GENERATED by mercato generate registry
+${securityMfaProviderImportSection ? `${securityMfaProviderImportSection}\n` : ''}type SecurityMfaProviderEntry = { moduleId: string; providers: unknown[] }
+
+export const securityMfaProviderEntries: SecurityMfaProviderEntry[] = [
+${securityMfaProviderEntriesLiteral ? `  ${securityMfaProviderEntriesLiteral}\n` : ''}]
+`
+
+  const securitySudoEntriesLiteral = securitySudoConfigs.join(',\n  ')
+  const securitySudoImportSection = securitySudoImports.join('\n')
+  const securitySudoOutput = `// AUTO-GENERATED by mercato generate registry
+import type { SecuritySudoTarget, SecuritySudoTargetEntry } from '@open-mercato/enterprise/modules/security'
+${securitySudoImportSection ? `\n${securitySudoImportSection}\n` : '\n'}
+type SecuritySudoTargetEntryRaw = { moduleId: string; targets: Array<Record<string, unknown>> }
+
+const entriesRaw: SecuritySudoTargetEntryRaw[] = [
+${securitySudoEntriesLiteral ? `  ${securitySudoEntriesLiteral}\n` : ''}]
+
+export const securitySudoTargetEntries: SecuritySudoTargetEntry[] = entriesRaw.map((entry) => ({
+  moduleId: entry.moduleId,
+  targets: entry.targets as SecuritySudoTarget[],
+}))
+`
+
   const notificationEntriesLiteral = notificationTypes.join(',\n  ')
   const notificationImportSection = notificationImports.join('\n')
   const notificationsOutput = `// AUTO-GENERATED by mercato generate registry
@@ -1429,6 +1508,8 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: securityMfaProvidersOutFile, checksumFile: securityMfaProvidersChecksumFile, content: securityMfaProvidersOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: securitySudoOutFile, checksumFile: securitySudoChecksumFile, content: securitySudoOutput, structureChecksum, result, quiet })
 
   // Enrichers generated file
   const enricherEntriesLiteral = enricherConfigs.join(',\n  ')
@@ -1517,6 +1598,46 @@ export const commandInterceptorEntries: CommandInterceptorEntry[] = [
 ${commandInterceptorEntriesLiteral ? `  ${commandInterceptorEntriesLiteral}\n` : ''}]
 `
   writeGeneratedFile({ outFile: commandInterceptorsOutFile, checksumFile: commandInterceptorsChecksumFile, content: commandInterceptorsOutput, structureChecksum, result, quiet })
+
+  const frontendMiddlewareEntriesLiteral = frontendMiddlewareConfigs.join(',\n  ')
+  const frontendMiddlewareImportSection = frontendMiddlewareImports.join('\n')
+  const frontendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
+import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
+${frontendMiddlewareImportSection ? `\n${frontendMiddlewareImportSection}\n` : '\n'}type FrontendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
+
+const entriesRaw: FrontendMiddlewareEntry[] = [
+${frontendMiddlewareEntriesLiteral ? `  ${frontendMiddlewareEntriesLiteral}\n` : ''}]
+
+export const frontendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
+`
+  writeGeneratedFile({
+    outFile: frontendMiddlewareOutFile,
+    checksumFile: frontendMiddlewareChecksumFile,
+    content: frontendMiddlewareOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+
+  const backendMiddlewareEntriesLiteral = backendMiddlewareConfigs.join(',\n  ')
+  const backendMiddlewareImportSection = backendMiddlewareImports.join('\n')
+  const backendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
+import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
+${backendMiddlewareImportSection ? `\n${backendMiddlewareImportSection}\n` : '\n'}type BackendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
+
+const entriesRaw: BackendMiddlewareEntry[] = [
+${backendMiddlewareEntriesLiteral ? `  ${backendMiddlewareEntriesLiteral}\n` : ''}]
+
+export const backendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
+`
+  writeGeneratedFile({
+    outFile: backendMiddlewareOutFile,
+    checksumFile: backendMiddlewareChecksumFile,
+    content: backendMiddlewareOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
 
   return result
 }
