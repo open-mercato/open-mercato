@@ -7,7 +7,7 @@ import type {
   StatusBadgeContext,
 } from '@open-mercato/shared/modules/widgets/injection'
 import { Badge } from '../../primitives/badge'
-import { SimpleTooltip } from '../../primitives/tooltip'
+import { SimpleTooltip, TooltipProvider } from '../../primitives/tooltip'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -77,15 +77,17 @@ export function StatusBadgeRenderer({ widget, context }: StatusBadgeRendererProp
   )
 
   const wrapped = result.tooltip ? (
-    <SimpleTooltip content={result.tooltip}>
-      {widget.badge.href ? (
-        <a href={widget.badge.href} className="inline-flex items-center hover:opacity-80 transition-opacity">
-          {content}
-        </a>
-      ) : (
-        <span className="inline-flex items-center">{content}</span>
-      )}
-    </SimpleTooltip>
+    <TooltipProvider delayDuration={250}>
+      <SimpleTooltip content={result.tooltip}>
+        {widget.badge.href ? (
+          <a href={widget.badge.href} className="inline-flex items-center hover:opacity-80 transition-opacity">
+            {content}
+          </a>
+        ) : (
+          <span className="inline-flex items-center">{content}</span>
+        )}
+      </SimpleTooltip>
+    </TooltipProvider>
   ) : widget.badge.href ? (
     <a href={widget.badge.href} className="inline-flex items-center hover:opacity-80 transition-opacity">
       {content}
