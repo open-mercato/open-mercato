@@ -35,6 +35,7 @@ This release delivers the **Integration Marketplace** with Payment Gateways, Shi
 - 🔄 Finish duplicate definition flow in workflows and add regression tests. (#887) *(@mkadziolka)*
 - 🔢 Validate quantity limit on sales line items to prevent `NUMERIC field overflow` on extremely large values (#920). (#925) *(@michal1986)*
 - 🕐 Consistent timestamp format in Payments table tooltip — localized time instead of raw UTC ISO string (#946). (#951) *(@michal1986)*
+- 💳 Fix payment method not displayed in Order Details after adding a payment (#947). (#952) *(@michal1986)*
 
 ## 🧪 Testing
 - 🔍 Cover search fallback presenter and improve name/title resolution with unit tests. (#886) *(@mkadziolka)*
