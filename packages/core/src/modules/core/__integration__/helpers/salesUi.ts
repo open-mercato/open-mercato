@@ -476,7 +476,7 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
     await page.goto(`/backend/sales/documents/create?kind=${options.kind}`, {
       waitUntil: 'domcontentloaded',
     });
-    await waitForOptionalTextToDisappear(page, /Loading…|Loading\.\.\./i, TEST_WAIT_TIMEOUT_MS);
+    await page.getByText(/Loading…|Loading\.\.\./i).first().waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS }).catch(() => {});
     const createButton = page.getByRole('button', { name: /^Create$/i }).first();
     if (await createButton.isVisible().catch(() => false)) {
       createPageReady = true;
