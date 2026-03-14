@@ -1,3 +1,6 @@
+// InPost ShipX API documentation:
+// https://dokumentacja-inpost.atlassian.net/wiki/spaces/PL/pages/18153476/API+ShipX+ENG+Documentation
+
 export const inpostErrors = {
   missingApiToken: () => new Error('InPost API token is required'),
   missingOrganizationId: () => new Error('InPost organization ID is required'),
