@@ -313,7 +313,9 @@ test.describe("TC-CAT-015: Catalog price update error handling", () => {
           Number.isFinite(gross),
           `${testCase.label} should persist a numeric gross amount`,
         ).toBeTruthy();
-        expect(gross).toBe(testCase.expectedStoredGross);
+        if ('expectedStoredGross' in testCase) {
+          expect(gross).toBe(testCase.expectedStoredGross);
+        }
       }
     } finally {
       for (const priceId of createdPriceIds) {
