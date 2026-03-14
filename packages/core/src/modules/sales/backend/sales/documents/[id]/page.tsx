@@ -2581,11 +2581,15 @@ export default function SalesDocumentDetailPage({
   React.useEffect(() => {
     if (kind !== 'order') return
     ensureShippingMethodOption(record?.shippingMethodId ?? null, record?.shippingMethodSnapshot ?? null)
-    ensurePaymentMethodOption(record?.paymentMethodId ?? null, record?.paymentMethodSnapshot ?? null)
+    const paymentMethodSnapshotOrCode =
+      record?.paymentMethodSnapshot ??
+      (record?.paymentMethodCode ? { code: record.paymentMethodCode } : null)
+    ensurePaymentMethodOption(record?.paymentMethodId ?? null, paymentMethodSnapshotOrCode)
   }, [
     ensurePaymentMethodOption,
     ensureShippingMethodOption,
     kind,
+    record?.paymentMethodCode,
     record?.paymentMethodId,
     record?.paymentMethodSnapshot,
     record?.shippingMethodId,
@@ -4200,21 +4204,9 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onPaymentsChange={(payments) => setHasPayments(payments.length > 0)}
-          onTotalsChange={(totals) =>
-            setRecord((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    paidTotalAmount:
-                      totals?.paidTotalAmount ?? prev.paidTotalAmount ?? null,
-                    refundedTotalAmount:
-                      totals?.refundedTotalAmount ?? prev.refundedTotalAmount ?? null,
-                    outstandingAmount:
-                      totals?.outstandingAmount ?? prev.outstandingAmount ?? null,
-                  }
-                : prev
-            )
-          }
+          onTotalsChange={() => {
+            void refreshDocumentTotals()
+          }}
         />
       )
     }

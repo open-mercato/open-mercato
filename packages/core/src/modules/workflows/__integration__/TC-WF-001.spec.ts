@@ -136,7 +136,11 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
 
       // Cancel without saving — trigger creation API is out of scope for this test
       if (await dialog.isVisible().catch(() => false)) {
-        await dialog.getByRole('button', { name: 'Cancel' }).click()
+        // Press Escape to dismiss dialog — avoids DOM detachment race from React re-renders
+        await page.keyboard.press('Escape')
+        if (await dialog.isVisible().catch(() => false)) {
+          await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 5_000 }).catch(() => {})
+        }
       }
       await expect(dialog).toBeHidden()
     } finally {

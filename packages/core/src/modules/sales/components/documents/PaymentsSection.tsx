@@ -39,7 +39,7 @@ type SalesDocumentPaymentsSectionProps = {
   organizationId?: string | null
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
-  onTotalsChange?: (totals: PaymentTotals) => void
+  onTotalsChange?: () => void
   onPaymentsChange?: (payments: PaymentRow[]) => void
 }
 
@@ -198,10 +198,8 @@ export function SalesDocumentPaymentsSection({
   )
 
   const handlePaymentSaved = React.useCallback(
-    async (totals?: PaymentTotals | null) => {
-      if (totals && onTotalsChange) {
-        onTotalsChange(totals)
-      }
+    async (_totals?: PaymentTotals | null) => {
+      onTotalsChange?.()
       await loadPayments()
       emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
       handleDialogChange(false)
@@ -222,10 +220,7 @@ export function SalesDocumentPaymentsSection({
           errorMessage: t('sales.documents.payments.errorDelete', 'Failed to delete payment.'),
         })
         if (result.ok) {
-          const totals = result.result?.orderTotals ?? null
-          if (totals && onTotalsChange) {
-            onTotalsChange(totals)
-          }
+          onTotalsChange?.()
           flash(t('sales.documents.payments.deleted', 'Payment deleted.'), 'success')
           await loadPayments()
           emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
@@ -240,17 +235,13 @@ export function SalesDocumentPaymentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (payments.length === 0) {
-      onActionChange(null)
-      return
-    }
     onActionChange({
       label: addActionLabel,
       onClick: openCreate,
-      disabled: loading,
+      disabled: false,
     })
     return () => onActionChange(null)
-  }, [addActionLabel, loading, onActionChange, openCreate, payments.length])
+  }, [addActionLabel, onActionChange, openCreate])
 
   const columns = React.useMemo<ColumnDef<PaymentRow>[]>(
     () => [
@@ -287,6 +278,10 @@ export function SalesDocumentPaymentsSection({
         header: t('sales.documents.payments.createdAt', 'Created'),
         cell: ({ row }) =>
           row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—',
+        meta: {
+          tooltipContent: (row: PaymentRow) =>
+            row.createdAt ? new Date(row.createdAt).toLocaleString() : undefined,
+        },
       },
       {
         id: 'actions',
