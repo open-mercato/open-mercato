@@ -20,33 +20,48 @@ const profileResponseSchema = z.object({
 
 const passwordSchema = buildPasswordSchema()
 
-const updateSchema = z.object({
+const updateSchemaBase = z.object({
   email: z.string().email().optional(),
   currentPassword: z.string().trim().min(1).optional(),
   password: passwordSchema.optional(),
-}).superRefine((data, ctx) => {
-  if (!data.email && !data.password) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Provide an email or password.',
-      path: ['email'],
-    })
-  }
-  if (data.password && !data.currentPassword) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Current password is required when changing password.',
-      path: ['currentPassword'],
-    })
-  }
-  if (data.currentPassword && !data.password) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Provide a new password.',
-      path: ['password'],
-    })
-  }
 })
+
+function buildUpdateSchema(translate: (key: string, fallback: string) => string) {
+  return updateSchemaBase.superRefine((data, ctx) => {
+    if (!data.email && !data.password) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: translate(
+          'auth.profile.form.errors.emailOrPasswordRequired',
+          'Provide an email or password.',
+        ),
+        path: ['email'],
+      })
+    }
+    if (data.password && !data.currentPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: translate(
+          'auth.profile.form.errors.currentPasswordRequired',
+          'Current password is required.',
+        ),
+        path: ['currentPassword'],
+      })
+    }
+    if (data.currentPassword && !data.password) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: translate(
+          'auth.profile.form.errors.newPasswordRequired',
+          'New password is required.',
+        ),
+        path: ['password'],
+      })
+    }
+  })
+}
+
+const updateSchema = buildUpdateSchema((_key, fallback) => fallback)
 
 const profileUpdateResponseSchema = z.object({
   ok: z.literal(true),
@@ -103,7 +118,7 @@ export async function PUT(req: Request) {
   }
   try {
     const body = await req.json().catch(() => ({}))
-    const parsed = updateSchema.safeParse(body)
+    const parsed = buildUpdateSchema(translate).safeParse(body)
     if (!parsed.success) {
       return NextResponse.json(
         {
