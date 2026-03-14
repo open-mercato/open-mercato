@@ -45,6 +45,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },
   { id: 'example', from: '@app' },
 
 ]

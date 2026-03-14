@@ -27,6 +27,7 @@
     "@mikro-orm/postgresql": "^6.6.2",
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
+    "@open-mercato/carrier-inpost": "workspace:*",
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",
     "@open-mercato/core": "workspace:*",
