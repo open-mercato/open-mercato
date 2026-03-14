@@ -101,6 +101,7 @@ export type CrudFieldOption = { value: string; label: string }
 export type CrudBuiltinField = CrudFieldBase & {
   type:
     | 'text'
+    | 'password'
     | 'textarea'
     | 'checkbox'
     | 'select'
@@ -2348,6 +2349,7 @@ function TextInput({
   onSubmit,
   disabled,
   suggestions,
+  inputType = 'text',
 }: {
   value: string
   onChange: (v: string) => void
@@ -2356,6 +2358,7 @@ function TextInput({
   onSubmit?: () => void
   disabled?: boolean
   suggestions?: string[]
+  inputType?: 'text' | 'password'
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -2399,7 +2402,7 @@ function TextInput({
   return (
     <>
       <input
-        type="text"
+        type={inputType}
         className="w-full h-9 rounded border px-2 text-sm"
         placeholder={placeholder}
         value={local}
@@ -2858,6 +2861,17 @@ const FieldControl = React.memo(function FieldControlImpl({
           onSubmit={onSubmitRequest}
           disabled={disabled}
           suggestions={field.type === 'text' ? field.suggestions : undefined}
+        />
+      )}
+      {field.type === 'password' && (
+        <TextInput
+          value={value == null ? '' : String(value)}
+          placeholder={placeholder}
+          onChange={(next) => fieldSetValue(next)}
+          autoFocus={autoFocusField}
+          onSubmit={onSubmitRequest}
+          disabled={disabled}
+          inputType="password"
         />
       )}
       {field.type === 'number' && (
