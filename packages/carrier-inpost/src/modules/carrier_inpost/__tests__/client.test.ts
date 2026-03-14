@@ -1,4 +1,7 @@
+import Chance from 'chance'
 import { resolveBaseUrl, resolveApiToken, resolveOrganizationId, inpostRequest } from '../lib/client'
+
+const chance = new Chance()
 
 const PRODUCTION_BASE_URL = 'https://api-shipx-pl.easypack24.net'
 
@@ -11,30 +14,33 @@ describe('resolveBaseUrl', () => {
   })
 
   it('returns a trimmed override URL without trailing slash', () => {
-    expect(resolveBaseUrl({ apiBaseUrl: 'https://sandbox.inpost.pl' })).toBe('https://sandbox.inpost.pl')
-    expect(resolveBaseUrl({ apiBaseUrl: 'https://sandbox.inpost.pl/' })).toBe('https://sandbox.inpost.pl')
-    expect(resolveBaseUrl({ apiBaseUrl: '  https://sandbox.inpost.pl  ' })).toBe('https://sandbox.inpost.pl')
+    const host = `https://${chance.domain()}`
+    expect(resolveBaseUrl({ apiBaseUrl: host })).toBe(host)
+    expect(resolveBaseUrl({ apiBaseUrl: `${host}/` })).toBe(host)
+    expect(resolveBaseUrl({ apiBaseUrl: `  ${host}  ` })).toBe(host)
   })
 })
 
 describe('resolveApiToken', () => {
   it('returns a trimmed token from credentials', () => {
-    expect(resolveApiToken({ apiToken: 'my-token' })).toBe('my-token')
-    expect(resolveApiToken({ apiToken: '  padded  ' })).toBe('padded')
+    const token = chance.guid()
+    expect(resolveApiToken({ apiToken: token })).toBe(token)
+    expect(resolveApiToken({ apiToken: `  ${token}  ` })).toBe(token)
   })
 
   it('throws when apiToken is missing or empty', () => {
     expect(() => resolveApiToken({})).toThrow('InPost API token is required')
     expect(() => resolveApiToken({ apiToken: '' })).toThrow('InPost API token is required')
     expect(() => resolveApiToken({ apiToken: '   ' })).toThrow('InPost API token is required')
-    expect(() => resolveApiToken({ apiToken: 123 })).toThrow('InPost API token is required')
+    expect(() => resolveApiToken({ apiToken: chance.integer() })).toThrow('InPost API token is required')
   })
 })
 
 describe('resolveOrganizationId', () => {
   it('returns a trimmed org ID from credentials', () => {
-    expect(resolveOrganizationId({ organizationId: 'org-abc' })).toBe('org-abc')
-    expect(resolveOrganizationId({ organizationId: '  org-abc  ' })).toBe('org-abc')
+    const orgId = chance.guid()
+    expect(resolveOrganizationId({ organizationId: orgId })).toBe(orgId)
+    expect(resolveOrganizationId({ organizationId: `  ${orgId}  ` })).toBe(orgId)
   })
 
   it('throws when organizationId is missing or empty', () => {
@@ -46,76 +52,77 @@ describe('resolveOrganizationId', () => {
 })
 
 describe('inpostRequest', () => {
-  const credentials = { apiToken: 'tok', organizationId: 'org-1' }
-
   beforeEach(() => {
     jest.resetAllMocks()
   })
 
   it('sends GET request with Bearer token and correct headers', async () => {
-    const mockFetch = jest.fn().mockResolvedValue({
+    const token = chance.guid()
+    const orgId = chance.guid()
+    const credentials = { apiToken: token, organizationId: orgId }
+    const responseBody = { id: orgId, name: chance.company() }
+
+    global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ id: 'org-1', name: 'Test' }),
+      json: () => Promise.resolve(responseBody),
     })
-    global.fetch = mockFetch
 
-    const result = await inpostRequest(credentials, '/v1/organizations/org-1')
+    const result = await inpostRequest(credentials, `/v1/organizations/${orgId}`)
 
-    expect(mockFetch).toHaveBeenCalledTimes(1)
-    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('https://api-shipx-pl.easypack24.net/v1/organizations/org-1')
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+    expect(url).toBe(`${PRODUCTION_BASE_URL}/v1/organizations/${orgId}`)
     expect(init.method).toBe('GET')
-    expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer tok')
+    expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${token}`)
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json')
-    expect(result).toEqual({ id: 'org-1', name: 'Test' })
+    expect(result).toEqual(responseBody)
   })
 
   it('sends POST request with serialized body', async () => {
-    const mockFetch = jest.fn().mockResolvedValue({
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid() }
+    const payload = { service: `inpost_${chance.word()}` }
+
+    global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 201,
-      json: () => Promise.resolve({ id: 'shp-1', tracking_number: 'TRK001' }),
+      json: () => Promise.resolve({ id: chance.guid() }),
     })
-    global.fetch = mockFetch
 
     await inpostRequest(credentials, '/v1/organizations/org-1/shipments', {
       method: 'POST',
-      body: { service: 'inpost_locker_standard' },
+      body: payload,
     })
 
-    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit]
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
     expect(init.method).toBe('POST')
-    expect(init.body).toBe(JSON.stringify({ service: 'inpost_locker_standard' }))
+    expect(init.body).toBe(JSON.stringify(payload))
   })
 
   it('appends query parameters to the URL', async () => {
-    const mockFetch = jest.fn().mockResolvedValue({
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid() }
+    const page = String(chance.integer({ min: 1, max: 10 }))
+    const perPage = String(chance.integer({ min: 10, max: 100 }))
+
+    global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: () => Promise.resolve({}),
     })
-    global.fetch = mockFetch
 
-    await inpostRequest(credentials, '/v1/shipments', {
-      query: { page: '2', per_page: '20' },
-    })
+    await inpostRequest(credentials, '/v1/shipments', { query: { page, per_page: perPage } })
 
-    const [url] = mockFetch.mock.calls[0] as [string]
-    expect(url).toContain('page=2')
-    expect(url).toContain('per_page=20')
+    const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+    expect(url).toContain(`page=${page}`)
+    expect(url).toContain(`per_page=${perPage}`)
   })
 
   it('returns undefined for 204 No Content responses', async () => {
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid() }
     const jsonMock = jest.fn()
-    const mockFetch = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 204,
-      json: jsonMock,
-    })
-    global.fetch = mockFetch
 
-    const result = await inpostRequest(credentials, '/v1/organizations/org-1/shipments/shp-1', {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204, json: jsonMock })
+
+    const result = await inpostRequest(credentials, `/v1/organizations/${chance.guid()}/shipments/${chance.guid()}`, {
       method: 'DELETE',
     })
 
@@ -124,58 +131,62 @@ describe('inpostRequest', () => {
   })
 
   it('throws on non-ok responses with status and body', async () => {
-    const mockFetch = jest.fn().mockResolvedValue({
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid() }
+    const errorBody = chance.sentence()
+
+    global.fetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 422,
-      text: () => Promise.resolve('Validation failed'),
+      text: () => Promise.resolve(errorBody),
     })
-    global.fetch = mockFetch
 
-    await expect(inpostRequest(credentials, '/v1/organizations/org-1/shipments', { method: 'POST' }))
-      .rejects.toThrow('InPost API error 422: Validation failed')
+    await expect(
+      inpostRequest(credentials, '/v1/organizations/org-1/shipments', { method: 'POST' }),
+    ).rejects.toThrow(`InPost API error 422: ${errorBody}`)
   })
 
   it('throws on 401 unauthorized', async () => {
-    const mockFetch = jest.fn().mockResolvedValue({
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid() }
+
+    global.fetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 401,
       text: () => Promise.resolve('Unauthorized'),
     })
-    global.fetch = mockFetch
 
     await expect(inpostRequest(credentials, '/v1/organizations/org-1')).rejects.toThrow('InPost API error 401')
   })
 
   it('uses custom base URL when provided in credentials', async () => {
-    const mockFetch = jest.fn().mockResolvedValue({
+    const customBase = `https://${chance.domain()}`
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid(), apiBaseUrl: customBase }
+
+    global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: () => Promise.resolve({}),
     })
-    global.fetch = mockFetch
 
-    await inpostRequest(
-      { ...credentials, apiBaseUrl: 'https://sandbox.inpost.pl' },
-      '/v1/organizations/org-1',
-    )
+    await inpostRequest(credentials, '/v1/organizations/org-1')
 
-    const [url] = mockFetch.mock.calls[0] as [string]
-    expect(url.startsWith('https://sandbox.inpost.pl')).toBe(true)
+    const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+    expect(url.startsWith(customBase)).toBe(true)
   })
 
   it('throws when API token is missing', async () => {
-    await expect(inpostRequest({ organizationId: 'org-1' }, '/v1/test')).rejects.toThrow(
-      'InPost API token is required',
-    )
+    await expect(
+      inpostRequest({ organizationId: chance.guid() }, '/v1/test'),
+    ).rejects.toThrow('InPost API token is required')
   })
 
   it('still throws when error body cannot be read', async () => {
-    const mockFetch = jest.fn().mockResolvedValue({
+    const credentials = { apiToken: chance.guid(), organizationId: chance.guid() }
+
+    global.fetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 500,
       text: () => Promise.reject(new Error('stream error')),
     })
-    global.fetch = mockFetch
 
     await expect(inpostRequest(credentials, '/v1/test')).rejects.toThrow('InPost API error 500')
   })

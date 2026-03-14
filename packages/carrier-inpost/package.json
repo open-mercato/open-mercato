@@ -70,7 +70,9 @@
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@types/chance": "^1.1.7",
     "@types/jest": "^30.0.0",
+    "chance": "^1.1.13",
     "esbuild": "^0.25.2",
     "glob": "^11.0.3",
     "jest": "^30.2.0",
