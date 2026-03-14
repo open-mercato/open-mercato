@@ -22,10 +22,30 @@ const passwordSchema = buildPasswordSchema()
 
 const updateSchema = z.object({
   email: z.string().email().optional(),
+  currentPassword: z.string().trim().min(1).optional(),
   password: passwordSchema.optional(),
-}).refine((data) => Boolean(data.email || data.password), {
-  message: 'Provide an email or password.',
-  path: ['email'],
+}).superRefine((data, ctx) => {
+  if (!data.email && !data.password) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide an email or password.',
+      path: ['email'],
+    })
+  }
+  if (data.password && !data.currentPassword) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Current password is required when changing password.',
+      path: ['currentPassword'],
+    })
+  }
+  if (data.currentPassword && !data.password) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Provide a new password.',
+      path: ['password'],
+    })
+  }
 })
 
 const profileUpdateResponseSchema = z.object({
@@ -94,6 +114,35 @@ export async function PUT(req: Request) {
       )
     }
     const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager)
+    const authService = container.resolve('authService') as AuthService
+    if (parsed.data.password) {
+      const user = await findOneWithDecryption(
+        em,
+        User,
+        { id: auth.sub, deletedAt: null },
+        undefined,
+        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+      )
+      if (!user) {
+        return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
+      }
+      const currentPassword = parsed.data.currentPassword?.trim() ?? ''
+      const isCurrentPasswordValid = await authService.verifyPassword(user, currentPassword)
+      if (!isCurrentPasswordValid) {
+        const message = translate(
+          'auth.profile.form.errors.currentPasswordInvalid',
+          'Current password is incorrect.',
+        )
+        return NextResponse.json(
+          {
+            error: message,
+            issues: [{ path: ['currentPassword'], message }],
+          },
+          { status: 400 },
+        )
+      }
+    }
     const commandBus = (container.resolve('commandBus') as CommandBus)
     const ctx = buildCommandContext(container, auth, req)
     const { result } = await commandBus.execute<{ id: string; email?: string; password?: string }, User>(
@@ -107,7 +156,6 @@ export async function PUT(req: Request) {
         ctx,
       },
     )
-    const authService = container.resolve('authService') as AuthService
     const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
     const jwt = signJwt({
       sub: String(result.id),
