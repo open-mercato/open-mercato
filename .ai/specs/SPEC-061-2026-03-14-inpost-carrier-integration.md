@@ -91,6 +91,7 @@ packages/carrier-inpost/
 
 ### InPost ShipX API
 
+- **Documentation**: [API ShipX ENG Documentation](https://dokumentacja-inpost.atlassian.net/wiki/spaces/PL/pages/18153476/API+ShipX+ENG+Documentation)
 - **Base URL**: `https://api-shipx-pl.easypack24.net` (production)
 - **Auth**: `Authorization: Bearer <apiToken>`
 - **Version**: v1

@@ -1,5 +1,8 @@
 import { inpostErrors } from './errors'
 
+// InPost ShipX API documentation:
+// https://dokumentacja-inpost.atlassian.net/wiki/spaces/PL/pages/18153476/API+ShipX+ENG+Documentation
+
 const INPOST_DEFAULT_BASE_URL = 'https://api-shipx-pl.easypack24.net'
 
 export function resolveBaseUrl(credentials: Record<string, unknown>): string {
