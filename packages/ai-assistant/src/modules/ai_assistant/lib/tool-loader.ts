@@ -82,12 +82,16 @@ export async function loadAllModuleTools(): Promise<void> {
   // 3. Load auto-discovered ai-tools.ts files from modules
   // Tools are discovered by the generator and registered in ai-tools.generated.ts
   try {
-    const pathModule = await import('node:path')
+    // prettier-ignore
+    const pathModule = await import(/* webpackIgnore: true */ 'node:path')
     const path = pathModule.default
-    const { pathToFileURL } = await import('node:url')
-    const fsModule = await import('node:fs')
+    // prettier-ignore
+    const { pathToFileURL } = await import(/* webpackIgnore: true */ 'node:url')
+    // prettier-ignore
+    const fsModule = await import(/* webpackIgnore: true */ 'node:fs')
     const fs = fsModule.default
-    const { findAppRoot, findAllApps } = await import('@open-mercato/shared/lib/bootstrap/appResolver')
+    // prettier-ignore
+    const { findAppRoot, findAllApps } = await import(/* webpackIgnore: true */ '@open-mercato/shared/lib/bootstrap/appResolver')
 
     // Find the app root (contains .mercato/generated/)
     let appRoot = findAppRoot()
@@ -128,7 +132,8 @@ export async function loadAllModuleTools(): Promise<void> {
 
       if (needsCompile) {
         console.error(`[MCP Tools] Compiling ai-tools.generated.ts...`)
-        const esbuild = await import('esbuild')
+        // prettier-ignore
+        const esbuild = await import(/* webpackIgnore: true */ 'esbuild')
         const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
         // Plugin to resolve @/ alias to app root
