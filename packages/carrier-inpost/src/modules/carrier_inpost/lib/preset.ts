@@ -3,6 +3,7 @@ import type { IntegrationScope } from '@open-mercato/shared/modules/integrations
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
+import { inpostErrors } from './errors'
 
 const INPOST_INTEGRATION_ID = 'carrier_inpost'
 
@@ -60,9 +61,7 @@ export function readInpostEnvPreset(env: NodeJS.ProcessEnv = process.env): Inpos
   const organizationId = readEnvValue(env, [...credentialKeys.organizationId])
 
   if (!apiToken || !organizationId) {
-    throw new Error(
-      '[carrier_inpost] Incomplete InPost env preset. Set OM_INTEGRATION_INPOST_API_TOKEN and OM_INTEGRATION_INPOST_ORGANIZATION_ID.',
-    )
+    throw inpostErrors.incompleteEnvPreset()
   }
 
   const apiBaseUrl = readEnvValue(env, [...credentialKeys.apiBaseUrl])

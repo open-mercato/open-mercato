@@ -11,6 +11,7 @@ import type {
 import { inpostRequest, resolveOrganizationId } from '../client'
 import { mapInpostStatus, mapServiceCodeToInpost } from '../status-map'
 import { verifyInpostWebhook } from '../webhook-handler'
+import { inpostErrors } from '../errors'
 
 type InpostShipmentResponse = {
   id: string
@@ -137,7 +138,7 @@ export const inpostAdapterV1: ShippingAdapter = {
   async getTracking(input): Promise<TrackingResult> {
     const trackingNumber = input.trackingNumber ?? input.shipmentId
     if (!trackingNumber) {
-      throw new Error('trackingNumber or shipmentId is required for InPost tracking')
+      throw inpostErrors.missingTrackingIdentifier()
     }
 
     const response = await inpostRequest<InpostTrackingResponse>(
