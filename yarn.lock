@@ -5362,6 +5362,7 @@ __metadata:
     "@mikro-orm/postgresql": "npm:^6.6.2"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
+    "@open-mercato/carrier-inpost": "workspace:*"
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/content": "workspace:*"
     "@open-mercato/core": "workspace:*"
@@ -5451,6 +5452,25 @@ __metadata:
       optional: true
     ioredis:
       optional: true
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/carrier-inpost@workspace:*, @open-mercato/carrier-inpost@workspace:packages/carrier-inpost":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/carrier-inpost@workspace:packages/carrier-inpost"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    esbuild: "npm:^0.25.2"
+    glob: "npm:^11.0.3"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^6.5.9
+    "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
   languageName: unknown
   linkType: soft
 

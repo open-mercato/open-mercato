@@ -1,0 +1,8 @@
+{
+  "carrier_inpost.config.help": "Skonfiguruj token API InPost i identyfikator organizacji w danych uwierzytelniających integracji. Dostępne usługi: paczkomaty (standardowy i ekspres) oraz kurier.",
+  "carrier_inpost.description": "Wysyłaj paczki przez paczkomaty InPost i kuriera z śledzeniem w czasie rzeczywistym.",
+  "carrier_inpost.feature.configure": "Konfiguracja ustawień InPost",
+  "carrier_inpost.feature.view": "Podgląd konfiguracji InPost",
+  "carrier_inpost.tabs.settings": "Ustawienia InPost",
+  "carrier_inpost.title": "InPost"
+}
