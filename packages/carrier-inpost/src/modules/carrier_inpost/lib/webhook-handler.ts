@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto'
 import type { ShippingWebhookEvent } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
+import { inpostErrors } from './errors'
 
 type VerifyWebhookInput = {
   rawBody: string | Buffer
@@ -26,7 +27,7 @@ export async function verifyInpostWebhook(input: VerifyWebhookInput): Promise<Sh
   if (secret) {
     const signature = readHeader(input.headers, 'x-inpost-signature')
     if (!signature) {
-      throw new Error('Missing X-Inpost-Signature header')
+      throw inpostErrors.missingWebhookSignatureHeader()
     }
 
     const expected = crypto
@@ -41,7 +42,7 @@ export async function verifyInpostWebhook(input: VerifyWebhookInput): Promise<Sh
       signatureBuffer.length !== expectedBuffer.length ||
       !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
     ) {
-      throw new Error('InPost webhook signature verification failed')
+      throw inpostErrors.webhookSignatureMismatch()
     }
   }
 
@@ -49,7 +50,7 @@ export async function verifyInpostWebhook(input: VerifyWebhookInput): Promise<Sh
   try {
     payload = JSON.parse(body) as Record<string, unknown>
   } catch {
-    throw new Error('InPost webhook payload is not valid JSON')
+    throw inpostErrors.webhookInvalidJson()
   }
 
   const eventType = typeof payload.status === 'string' ? payload.status : 'unknown'

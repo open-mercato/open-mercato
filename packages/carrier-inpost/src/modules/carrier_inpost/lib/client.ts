@@ -1,3 +1,5 @@
+import { inpostErrors } from './errors'
+
 const INPOST_DEFAULT_BASE_URL = 'https://api-shipx-pl.easypack24.net'
 
 export function resolveBaseUrl(credentials: Record<string, unknown>): string {
@@ -11,7 +13,7 @@ export function resolveBaseUrl(credentials: Record<string, unknown>): string {
 export function resolveApiToken(credentials: Record<string, unknown>): string {
   const token = credentials.apiToken
   if (typeof token !== 'string' || token.trim().length === 0) {
-    throw new Error('InPost API token is required')
+    throw inpostErrors.missingApiToken()
   }
   return token.trim()
 }
@@ -19,7 +21,7 @@ export function resolveApiToken(credentials: Record<string, unknown>): string {
 export function resolveOrganizationId(credentials: Record<string, unknown>): string {
   const orgId = credentials.organizationId
   if (typeof orgId !== 'string' || orgId.trim().length === 0) {
-    throw new Error('InPost organization ID is required')
+    throw inpostErrors.missingOrganizationId()
   }
   return orgId.trim()
 }
@@ -57,7 +59,7 @@ export async function inpostRequest<T>(
 
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    throw new Error(`InPost API error ${response.status}: ${text}`)
+    throw inpostErrors.apiError(response.status, text)
   }
 
   if (response.status === 204) {
