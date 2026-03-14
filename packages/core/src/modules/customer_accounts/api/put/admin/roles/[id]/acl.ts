@@ -8,7 +8,7 @@ import { CustomerRole, CustomerRoleAcl } from '@open-mercato/core/modules/custom
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { updateRoleAclSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)

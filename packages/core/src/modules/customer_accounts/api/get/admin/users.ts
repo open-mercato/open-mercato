@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerUser, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -28,11 +28,13 @@ export async function GET(req: Request) {
   const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '25')))
   const status = url.searchParams.get('status') as 'active' | 'inactive' | 'locked' | null
   const customerEntityId = url.searchParams.get('customerEntityId')
+  const personEntityId = url.searchParams.get('personEntityId')
   const roleId = url.searchParams.get('roleId')
   const search = url.searchParams.get('search')
 
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
   }
 
@@ -49,10 +51,15 @@ export async function GET(req: Request) {
     where.customerEntityId = customerEntityId
   }
 
+  if (personEntityId) {
+    where.personEntityId = personEntityId
+  }
+
   if (search) {
+    const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
     const searchFilter = [
-      { email: { $ilike: `%${search}%` } },
-      { displayName: { $ilike: `%${search}%` } },
+      { email: { $ilike: `%${escapedSearch}%` } },
+      { displayName: { $ilike: `%${escapedSearch}%` } },
     ]
     if (where.$or) {
       where.$and = [{ $or: where.$or }, { $or: searchFilter }]
@@ -162,7 +169,7 @@ const methodDoc: OpenApiMethodDoc = {
   responses: [{
     status: 200,
     description: 'Paginated user list',
-    schema: z.object({ ok: z.literal(true), users: z.array(userSchema), pagination: paginationSchema }),
+    schema: z.object({ ok: z.literal(true), items: z.array(userSchema), total: z.number(), totalPages: z.number(), page: z.number() }),
   }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: z.object({ ok: z.literal(false), error: z.string() }) },

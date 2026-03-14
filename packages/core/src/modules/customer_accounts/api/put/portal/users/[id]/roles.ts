@@ -7,7 +7,7 @@ import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { assignRolesSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const auth = await getCustomerAuthFromRequest(req)

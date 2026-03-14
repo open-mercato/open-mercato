@@ -7,7 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerRole, CustomerRoleAcl, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)

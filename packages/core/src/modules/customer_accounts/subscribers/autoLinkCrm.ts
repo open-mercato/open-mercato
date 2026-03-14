@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {
   event: 'customer_accounts.user.created',
@@ -14,32 +15,51 @@ export default async function handle(
 ): Promise<void> {
   const data = payload as Record<string, unknown>
   const userId = data?.id as string
-  const email = data?.email as string
   const tenantId = data?.tenantId as string
-  if (!userId || !email || !tenantId) return
+  const organizationId = data?.organizationId as string | undefined
+  if (!userId || !tenantId) return
 
   const em = ctx.resolve<EntityManager>('em')
-  const emailHash = hashForLookup(email)
 
   try {
-    // Find CRM person by email hash
-    const person = await em.getConnection().execute(
-      `SELECT id, customer_entity_id FROM customer_person_profiles WHERE email_hash = ? AND tenant_id = ? AND deleted_at IS NULL LIMIT 1`,
-      [emailHash, tenantId],
+    let email: string | undefined
+    if (data?.email) {
+      email = (data.email as string).toLowerCase().trim()
+    } else {
+      const user = await em.findOne(CustomerUser, { id: userId, tenantId, deletedAt: null })
+      if (user) email = user.email?.toLowerCase().trim()
+    }
+    if (!email) return
+
+    const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')
+
+    const personEntities = await findWithDecryption(
+      em,
+      CustomerEntity,
+      { tenantId, kind: 'person', deletedAt: null } as any,
+      { limit: 500 } as any,
+      { tenantId, organizationId },
     )
 
-    if (person && person.length > 0) {
-      const personId = person[0].id
-      const customerEntityId = person[0].customer_entity_id
+    const matchingEntity = personEntities.find(
+      (e: any) => e.primaryEmail && e.primaryEmail.toLowerCase().trim() === email,
+    ) as any
 
-      const updates: Record<string, unknown> = { personEntityId: personId }
-      if (customerEntityId) {
-        updates.customerEntityId = customerEntityId
-      }
+    if (!matchingEntity) return
 
-      await em.nativeUpdate(CustomerUser, { id: userId }, updates)
+    const profileRows = await em.getConnection().execute(
+      `SELECT company_entity_id FROM customer_people WHERE entity_id = ? LIMIT 1`,
+      [matchingEntity.id],
+    )
+    const companyEntityId = profileRows?.[0]?.company_entity_id as string | undefined
+
+    const updates: Record<string, unknown> = { personEntityId: matchingEntity.id }
+    if (companyEntityId) {
+      updates.customerEntityId = companyEntityId
     }
-  } catch {
-    // Best effort — CRM module may not be enabled
+
+    await em.nativeUpdate(CustomerUser, { id: userId }, updates)
+  } catch (err) {
+    console.error('[customer_accounts:auto-link-crm] Failed to link customer user to CRM person:', err)
   }
 }

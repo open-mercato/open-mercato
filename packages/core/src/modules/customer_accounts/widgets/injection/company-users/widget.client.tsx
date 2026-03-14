@@ -4,6 +4,13 @@ import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+interface CompanyUser {
+  id: string
+  displayName: string
+  email: string
+  isActive: boolean
+}
+
 interface CompanyUsersProps {
   context?: {
     entityId?: string
@@ -17,12 +24,12 @@ export default function CompanyUsersWidget({ context }: CompanyUsersProps) {
 
   const { data, isLoading } = useQuery({
     queryKey: ['customer-company-users', customerEntityId],
-    queryFn: async () => {
-      if (!customerEntityId) return null
+    queryFn: async (): Promise<CompanyUser[]> => {
+      if (!customerEntityId) return []
       const result = await apiCall(`/api/customer_accounts/admin/users?customerEntityId=${customerEntityId}&pageSize=50`)
-      if (!result.ok) return null
-      const json = await result.json()
-      return json?.users || []
+      if (!result.ok) return []
+      const json = result.result as Record<string, unknown> | null
+      return (json?.items as CompanyUser[]) || []
     },
     enabled: !!customerEntityId,
   })
@@ -45,7 +52,7 @@ export default function CompanyUsersWidget({ context }: CompanyUsersProps) {
         </div>
       ) : (
         <div className="space-y-2">
-          {users.map((user: any) => (
+          {users.map((user) => (
             <div key={user.id} className="flex items-center justify-between text-sm">
               <div>
                 <div className="font-medium">{user.displayName}</div>

@@ -4,6 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+interface AccountStatusData {
+  id: string
+  email: string
+  isActive: boolean
+  emailVerified: boolean
+  lastLoginAt: string | null
+}
+
 interface AccountStatusProps {
   context?: {
     entityId?: string
@@ -17,12 +25,13 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
   const { data, isLoading } = useQuery({
     queryKey: ['customer-account-status', personEntityId],
-    queryFn: async () => {
+    queryFn: async (): Promise<AccountStatusData | null> => {
       if (!personEntityId) return null
-      const result = await apiCall(`/api/customer_accounts/admin/users?search=&personEntityId=${personEntityId}&pageSize=1`)
+      const result = await apiCall(`/api/customer_accounts/admin/users?personEntityId=${personEntityId}&pageSize=1`)
       if (!result.ok) return null
-      const json = await result.json()
-      return json?.users?.[0] || null
+      const json = result.result as Record<string, unknown> | null
+      const items = json?.items as AccountStatusData[] | undefined
+      return items?.[0] || null
     },
     enabled: !!personEntityId,
   })

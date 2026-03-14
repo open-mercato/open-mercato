@@ -9,7 +9,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)

@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -23,21 +24,21 @@ type RoleDetail = {
 }
 
 const PORTAL_FEATURES = [
-  { id: 'portal.profile.view', label: 'View profile' },
-  { id: 'portal.profile.edit', label: 'Edit profile' },
-  { id: 'portal.orders.view', label: 'View orders' },
-  { id: 'portal.orders.create', label: 'Create orders' },
-  { id: 'portal.invoices.view', label: 'View invoices' },
-  { id: 'portal.quotes.view', label: 'View quotes' },
-  { id: 'portal.quotes.request', label: 'Request quotes' },
-  { id: 'portal.addresses.view', label: 'View addresses' },
-  { id: 'portal.addresses.manage', label: 'Manage addresses' },
-  { id: 'portal.users.view', label: 'View team members' },
-  { id: 'portal.users.invite', label: 'Invite team members' },
-  { id: 'portal.users.manage', label: 'Manage team members' },
+  { id: 'portal.profile.view', labelKey: 'customer_accounts.admin.portalFeatures.profile.view', fallback: 'View profile' },
+  { id: 'portal.profile.edit', labelKey: 'customer_accounts.admin.portalFeatures.profile.edit', fallback: 'Edit profile' },
+  { id: 'portal.orders.view', labelKey: 'customer_accounts.admin.portalFeatures.orders.view', fallback: 'View orders' },
+  { id: 'portal.orders.create', labelKey: 'customer_accounts.admin.portalFeatures.orders.create', fallback: 'Create orders' },
+  { id: 'portal.invoices.view', labelKey: 'customer_accounts.admin.portalFeatures.invoices.view', fallback: 'View invoices' },
+  { id: 'portal.quotes.view', labelKey: 'customer_accounts.admin.portalFeatures.quotes.view', fallback: 'View quotes' },
+  { id: 'portal.quotes.request', labelKey: 'customer_accounts.admin.portalFeatures.quotes.request', fallback: 'Request quotes' },
+  { id: 'portal.addresses.view', labelKey: 'customer_accounts.admin.portalFeatures.addresses.view', fallback: 'View addresses' },
+  { id: 'portal.addresses.manage', labelKey: 'customer_accounts.admin.portalFeatures.addresses.manage', fallback: 'Manage addresses' },
+  { id: 'portal.users.view', labelKey: 'customer_accounts.admin.portalFeatures.users.view', fallback: 'View team members' },
+  { id: 'portal.users.invite', labelKey: 'customer_accounts.admin.portalFeatures.users.invite', fallback: 'Invite team members' },
+  { id: 'portal.users.manage', labelKey: 'customer_accounts.admin.portalFeatures.users.manage', fallback: 'Manage team members' },
 ]
 
-const FEATURE_GROUPS: Array<{ id: string; label: string; features: string[] }> = (() => {
+const FEATURE_GROUPS: Array<{ id: string; labelKey: string; fallback: string; features: string[] }> = (() => {
   const groups = new Map<string, string[]>()
   for (const feature of PORTAL_FEATURES) {
     const parts = feature.id.split('.')
@@ -49,11 +50,16 @@ const FEATURE_GROUPS: Array<{ id: string; label: string; features: string[] }> =
       groups.set(groupKey, [feature.id])
     }
   }
-  return Array.from(groups.entries()).map(([groupId, features]) => ({
-    id: groupId,
-    label: groupId.split('.').slice(1).join(' ').replace(/^\w/, (ch) => ch.toUpperCase()),
-    features,
-  }))
+  return Array.from(groups.entries()).map(([groupId, features]) => {
+    const scope = groupId.split('.').slice(1).join('')
+    const fallback = scope.replace(/^\w/, (ch) => ch.toUpperCase())
+    return {
+      id: groupId,
+      labelKey: `customer_accounts.admin.portalFeatures.groups.${scope}`,
+      fallback,
+      features,
+    }
+  })
 })()
 
 export default function CustomerRoleDetailPage({ params }: { params?: { id?: string } }) {
@@ -229,31 +235,20 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">{data.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{data.slug}</code>
-              {data.isSystem && (
-                <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                  {t('customer_accounts.admin.roles.system', 'System')}
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/backend/customer_accounts/roles">
-                {t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
-              </Link>
-            </Button>
-            {!data.isSystem && (
-              <Button variant="destructive" onClick={() => { void handleDelete() }}>
-                {t('customer_accounts.admin.roleDetail.actions.delete', 'Delete')}
-              </Button>
-            )}
-          </div>
-        </div>
+        <FormHeader
+          mode="detail"
+          backHref="/backend/customer_accounts/roles"
+          backLabel={t('customer_accounts.admin.roleDetail.actions.backToList', 'Back to roles')}
+          title={data.name}
+          subtitle={data.slug}
+          statusBadge={data.isSystem ? (
+            <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+              {t('customer_accounts.admin.roles.system', 'System')}
+            </span>
+          ) : undefined}
+          onDelete={!data.isSystem ? (() => { void handleDelete() }) : undefined}
+          deleteLabel={t('customer_accounts.admin.roleDetail.actions.delete', 'Delete')}
+        />
 
         <div className="rounded-lg border p-4 space-y-4">
           <h2 className="text-sm font-semibold">{t('customer_accounts.admin.roleDetail.sections.details', 'Role Details')}</h2>
@@ -323,7 +318,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
                       onChange={() => handleGroupToggle(groupFeatures)}
                       className="rounded border-border"
                     />
-                    {group.label}
+                    {t(group.labelKey, group.fallback)}
                   </label>
                   <div className="ml-6 grid gap-1 sm:grid-cols-2">
                     {groupFeatures.map((featureId) => {
@@ -336,7 +331,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
                             onChange={() => handleFeatureToggle(featureId)}
                             className="rounded border-border"
                           />
-                          {feature?.label || featureId}
+                          {feature ? t(feature.labelKey, feature.fallback) : featureId}
                         </label>
                       )
                     })}

@@ -8,7 +8,7 @@ import { CustomerRole, CustomerRoleAcl } from '@open-mercato/core/modules/custom
 import { createRoleSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)

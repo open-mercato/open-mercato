@@ -48,7 +48,7 @@ export class CustomerSessionService {
     })
   }
 
-  async findByToken(rawToken: string): Promise<CustomerUserSession | null> {
+  async findByToken(rawToken: string, tenantId?: string): Promise<CustomerUserSession | null> {
     const tokenHash = hashToken(rawToken)
     const session = await this.em.findOne(CustomerUserSession, {
       tokenHash,
@@ -56,6 +56,8 @@ export class CustomerSessionService {
     }, { populate: ['user'] })
     if (!session) return null
     if (session.expiresAt.getTime() < Date.now()) return null
+    const user = session.user as CustomerUser
+    if (tenantId && user?.tenantId !== tenantId) return null
     return session
   }
 

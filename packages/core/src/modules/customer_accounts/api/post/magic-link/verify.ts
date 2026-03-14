@@ -11,7 +11,7 @@ import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
   let body: unknown
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
-  const user = await customerUserService.findById(result.userId)
+  const user = await customerUserService.findById(result.userId, result.tenantId)
   if (!user || !user.isActive) {
     return NextResponse.json({ ok: false, error: 'Account not found or deactivated' }, { status: 401 })
   }

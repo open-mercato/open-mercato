@@ -8,7 +8,7 @@ import { CustomerUserService } from '@open-mercato/core/modules/customer_account
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const auth = await getCustomerAuthFromRequest(req)

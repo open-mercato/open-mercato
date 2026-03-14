@@ -7,7 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const invitation = await customerInvitationService.createInvitation(
+  const { invitation } = await customerInvitationService.createInvitation(
     parsed.data.email,
     { tenantId: auth.tenantId!, organizationId: auth.orgId! },
     {

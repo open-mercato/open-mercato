@@ -16,7 +16,7 @@ import {
   customerLoginIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
   let body: unknown

@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
   if (!header) return undefined

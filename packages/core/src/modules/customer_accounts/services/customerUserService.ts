@@ -41,8 +41,8 @@ export class CustomerUserService {
     })
   }
 
-  async findById(id: string): Promise<CustomerUser | null> {
-    return this.em.findOne(CustomerUser, { id, deletedAt: null })
+  async findById(id: string, tenantId: string): Promise<CustomerUser | null> {
+    return this.em.findOne(CustomerUser, { id, tenantId, deletedAt: null })
   }
 
   async verifyPassword(user: CustomerUser, password: string): Promise<boolean> {

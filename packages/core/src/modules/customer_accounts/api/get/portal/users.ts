@@ -5,7 +5,7 @@ import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercat
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUser, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)

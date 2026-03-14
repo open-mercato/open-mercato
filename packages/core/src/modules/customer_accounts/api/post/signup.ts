@@ -14,7 +14,7 @@ import {
   customerSignupIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
   const { error: rateLimitError } = await checkAuthRateLimit({
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   // Check for existing user
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
-    return NextResponse.json({ ok: false, error: 'An account with this email already exists' }, { status: 409 })
+    return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
   }
 
   // Create user

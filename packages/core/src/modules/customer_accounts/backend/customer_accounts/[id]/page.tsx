@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -219,22 +220,15 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">{data.displayName}</h1>
-            <p className="text-sm text-muted-foreground">{data.email}</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" asChild>
-              <Link href="/backend/customer_accounts">
-                {t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
-              </Link>
-            </Button>
-            <Button variant="destructive" onClick={() => { void handleDelete() }}>
-              {t('customer_accounts.admin.detail.actions.delete', 'Delete')}
-            </Button>
-          </div>
-        </div>
+        <FormHeader
+          mode="detail"
+          backHref="/backend/customer_accounts"
+          backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
+          title={data.displayName}
+          subtitle={data.email}
+          onDelete={() => { void handleDelete() }}
+          deleteLabel={t('customer_accounts.admin.detail.actions.delete', 'Delete')}
+        />
 
         <div className="grid gap-6 md:grid-cols-2">
           <div className="rounded-lg border p-4 space-y-3">

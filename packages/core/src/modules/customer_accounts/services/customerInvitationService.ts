@@ -6,7 +6,7 @@ import {
   CustomerUserRole,
   CustomerRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { generateSecureToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
+import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 
 const BCRYPT_COST = 10
@@ -25,17 +25,18 @@ export class CustomerInvitationService {
       invitedByCustomerUserId?: string | null
       displayName?: string | null
     },
-  ): Promise<CustomerUserInvitation> {
+  ): Promise<{ invitation: CustomerUserInvitation; rawToken: string }> {
     const token = generateSecureToken()
     const emailHash = hashForLookup(email)
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS)
 
+    const tokenHashed = hashToken(token)
     const invitation = this.em.create(CustomerUserInvitation, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       email: email.toLowerCase().trim(),
       emailHash,
-      token,
+      token: tokenHashed,
       customerEntityId: options.customerEntityId || null,
       roleIdsJson: options.roleIds,
       invitedByUserId: options.invitedByUserId || null,
@@ -45,11 +46,12 @@ export class CustomerInvitationService {
       createdAt: new Date(),
     } as any) as CustomerUserInvitation
     await this.em.persistAndFlush(invitation)
-    return invitation
+    return { invitation, rawToken: token }
   }
 
   async findByToken(token: string): Promise<CustomerUserInvitation | null> {
-    const invitation = await this.em.findOne(CustomerUserInvitation, { token })
+    const tokenHashed = hashToken(token)
+    const invitation = await this.em.findOne(CustomerUserInvitation, { token: tokenHashed })
     if (!invitation) return null
     if (invitation.acceptedAt) return null
     if (invitation.cancelledAt) return null
@@ -87,7 +89,7 @@ export class CustomerInvitationService {
     // Assign roles
     const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
     for (const roleId of roleIds) {
-      const role = await this.em.findOne(CustomerRole, { id: roleId, deletedAt: null })
+      const role = await this.em.findOne(CustomerRole, { id: roleId, tenantId: invitation.tenantId, deletedAt: null })
       if (role) {
         const userRole = this.em.create(CustomerUserRole, {
           user,

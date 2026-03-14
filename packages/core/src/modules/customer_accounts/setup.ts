@@ -1,6 +1,13 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerRole, CustomerRoleAcl } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { hash } from 'bcryptjs'
+import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import {
+  CustomerRole,
+  CustomerRoleAcl,
+  CustomerUser,
+  CustomerUserRole,
+} from '@open-mercato/core/modules/customer_accounts/data/entities'
 
 interface SeedScope {
   tenantId: string
@@ -105,6 +112,47 @@ export const setup: ModuleSetupConfig = {
 
   async seedDefaults({ em, tenantId, organizationId }) {
     await seedDefaultRoles(em, { tenantId, organizationId })
+  },
+
+  async seedExamples({ em, tenantId, organizationId }) {
+    const BCRYPT_COST = 10
+    const exampleUsers = [
+      { email: 'alice.johnson@example.com', displayName: 'Alice Johnson', password: 'Password123!', roleSlug: 'portal_admin' },
+      { email: 'bob.smith@example.com', displayName: 'Bob Smith', password: 'Password123!', roleSlug: 'buyer' },
+      { email: 'carol.white@example.com', displayName: 'Carol White', password: 'Password123!', roleSlug: 'viewer' },
+    ]
+
+    for (const entry of exampleUsers) {
+      const emailHash = hashForLookup(entry.email)
+      const existing = await em.findOne(CustomerUser, { emailHash, tenantId, deletedAt: null })
+      if (existing) continue
+
+      const passwordHash = await hash(entry.password, BCRYPT_COST)
+      const user = em.create(CustomerUser, {
+        email: entry.email,
+        emailHash,
+        passwordHash,
+        displayName: entry.displayName,
+        tenantId,
+        organizationId,
+        isActive: true,
+        failedLoginAttempts: 0,
+        emailVerifiedAt: new Date(),
+        createdAt: new Date(),
+      } as any)
+      em.persist(user)
+
+      const role = await em.findOne(CustomerRole, { tenantId, slug: entry.roleSlug, deletedAt: null })
+      if (role) {
+        const userRole = em.create(CustomerUserRole, {
+          user,
+          role,
+          createdAt: new Date(),
+        } as any)
+        em.persist(userRole)
+      }
+    }
+    await em.flush()
   },
 }
 

@@ -1,16 +1,46 @@
-export const notificationRenderers = {
-  'customer_accounts.user.signup': {
-    icon: 'user-plus',
-    getTitle: (data: Record<string, unknown>) => `New customer signup: ${data.email || 'unknown'}`,
-    getBody: (data: Record<string, unknown>) => `A new customer account was created for ${data.email || 'unknown'}.`,
-    getHref: (data: Record<string, unknown>) => `/backend/customer_accounts/${data.userId || ''}`,
-  },
-  'customer_accounts.user.locked': {
-    icon: 'lock',
-    getTitle: (data: Record<string, unknown>) => `Customer account locked: ${data.email || 'unknown'}`,
-    getBody: (data: Record<string, unknown>) => `Customer account ${data.email || 'unknown'} was locked due to too many failed login attempts.`,
-    getHref: (data: Record<string, unknown>) => `/backend/customer_accounts/${data.userId || ''}`,
-  },
-}
+'use client'
 
-export default notificationRenderers
+import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+
+export const customerAccountsNotificationTypes: NotificationTypeDefinition[] = [
+  {
+    type: 'customer_accounts.user.signup',
+    module: 'customer_accounts',
+    titleKey: 'customer_accounts.notifications.user.signup.title',
+    bodyKey: 'customer_accounts.notifications.user.signup.body',
+    icon: 'user-plus',
+    severity: 'info',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/customer_accounts/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/customer_accounts/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
+  {
+    type: 'customer_accounts.user.locked',
+    module: 'customer_accounts',
+    titleKey: 'customer_accounts.notifications.user.locked.title',
+    bodyKey: 'customer_accounts.notifications.user.locked.body',
+    icon: 'lock',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/customer_accounts/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/customer_accounts/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
+]
+
+export default customerAccountsNotificationTypes

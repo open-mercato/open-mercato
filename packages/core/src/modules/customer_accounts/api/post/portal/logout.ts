@@ -4,7 +4,7 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
   if (!header) return undefined

@@ -1,7 +1,7 @@
 import { Entity, PrimaryKey, Property, ManyToOne, Unique, Index } from '@mikro-orm/core'
 
 @Entity({ tableName: 'customer_users' })
-@Index({ properties: ['tenantId', 'emailHash'], name: 'customer_users_tenant_email_hash_idx' })
+@Unique({ properties: ['tenantId', 'emailHash'], name: 'customer_users_tenant_email_hash_uniq' })
 export class CustomerUser {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -24,23 +24,32 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '50', 10) || 50))
-  const search = (url.searchParams.get('search') || '').trim().toLowerCase()
+  const search = (url.searchParams.get('search') || '').trim()
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const allRoles = await em.find(CustomerRole, {
+  const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
+    organizationId: auth.orgId,
     deletedAt: null,
-  }, { orderBy: { createdAt: 'ASC' } })
+  }
 
-  const filtered = search
-    ? allRoles.filter((role) => role.name.toLowerCase().includes(search) || role.slug.toLowerCase().includes(search))
-    : allRoles
+  if (search) {
+    const escapedSearch = search.replace(/[%_\\]/g, '\\$&')
+    where.$or = [
+      { name: { $ilike: `%${escapedSearch}%` } },
+      { slug: { $ilike: `%${escapedSearch}%` } },
+    ]
+  }
 
-  const total = filtered.length
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const offset = (page - 1) * pageSize
-  const paged = filtered.slice(offset, offset + pageSize)
+  const [paged, total] = await em.findAndCount(CustomerRole, where as any, {
+    orderBy: { createdAt: 'ASC' },
+    limit: pageSize,
+    offset,
+  })
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   const items = paged.map((role) => ({
     id: role.id,
@@ -76,7 +85,7 @@ const methodDoc: OpenApiMethodDoc = {
   responses: [{
     status: 200,
     description: 'Role list',
-    schema: z.object({ ok: z.literal(true), roles: z.array(roleSchema) }),
+    schema: z.object({ ok: z.literal(true), items: z.array(roleSchema), total: z.number(), totalPages: z.number(), page: z.number() }),
   }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: errorSchema },

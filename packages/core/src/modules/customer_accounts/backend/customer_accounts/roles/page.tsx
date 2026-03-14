@@ -198,13 +198,12 @@ export default function CustomerRolesPage() {
                   label: t('customer_accounts.admin.roles.actions.edit', 'Edit'),
                   onSelect: () => { router.push(`/backend/customer_accounts/roles/${row.id}`) },
                 },
-                {
+                ...(!row.isSystem ? [{
                   id: 'delete',
                   label: t('customer_accounts.admin.roles.actions.delete', 'Delete'),
                   destructive: true,
-                  disabled: row.isSystem,
                   onSelect: () => { void handleDelete(row) },
-                },
+                }] : []),
               ]}
             />
           )}

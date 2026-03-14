@@ -7,7 +7,7 @@ import { CustomerUserService } from '@open-mercato/core/modules/customer_account
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await customerUserService.findById(auth.sub)
+  const user = await customerUserService.findById(auth.sub, auth.tenantId)
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }

@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { passwordChangeSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
 
-  const user = await customerUserService.findById(auth.sub)
+  const user = await customerUserService.findById(auth.sub, auth.tenantId)
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }

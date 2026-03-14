@@ -62,14 +62,15 @@ export default function CreateCustomerRolePage() {
         },
       )
       if (!call.ok) {
-        const data = await call.json().catch(() => ({ error: 'Failed to create role' }))
-        flash(data.error || t('customer_accounts.admin.roleCreate.error.save', 'Failed to create role'), 'error')
+        const data = call.result as Record<string, unknown> | null
+        flash((data?.error as string) || t('customer_accounts.admin.roleCreate.error.save', 'Failed to create role'), 'error')
         return
       }
-      const data = await call.json().catch(() => ({}))
+      const data = call.result as Record<string, unknown> | null
       flash(t('customer_accounts.admin.roleCreate.flash.created', 'Role created'), 'success')
-      if (data.role?.id) {
-        router.push(`/backend/customer_accounts/roles/${data.role.id}`)
+      const role = data?.role as Record<string, unknown> | undefined
+      if (role?.id) {
+        router.push(`/backend/customer_accounts/roles/${role.id}`)
       } else {
         router.push('/backend/customer_accounts/roles')
       }

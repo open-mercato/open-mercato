@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerRole, CustomerRoleAcl } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-export const metadata = {}
+export const metadata: { path?: string } = {}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
