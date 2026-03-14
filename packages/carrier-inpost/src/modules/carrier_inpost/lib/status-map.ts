@@ -28,9 +28,24 @@ export function mapInpostStatus(inpostStatus: string): UnifiedShipmentStatus {
 
 export const SERVICE_CODE_MAP: Record<string, string> = {
   locker_standard: 'inpost_locker_standard',
-  locker_express: 'inpost_locker_express',
+  locker_economy: 'inpost_locker_economy',
   courier_standard: 'inpost_courier_standard',
   courier_c2c: 'inpost_courier_c2c',
+}
+
+const LOCKER_SERVICE_CODES = new Set([
+  'locker_standard',
+  'locker_economy',
+  'inpost_locker_standard',
+  'inpost_locker_economy',
+  'inpost_locker_allegro',
+  'inpost_locker_pass_thru',
+  'inpost_locker_standard_smart',
+  'inpost_locker_allegro_smart',
+])
+
+export function isLockerService(serviceCode: string): boolean {
+  return LOCKER_SERVICE_CODES.has(serviceCode)
 }
 
 export function mapServiceCodeToInpost(serviceCode: string): string {

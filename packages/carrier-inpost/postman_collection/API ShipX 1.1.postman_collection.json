@@ -1,0 +1,2290 @@
+{
+	"info": {
+		"_postman_id": "9a726767-626e-4e01-aecb-838fe9ad24d2",
+		"name": "API ShipX 1.1",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "1669932"
+	},
+	"item": [
+		{
+			"name": "Sample integration process with InPost services - https://dokumentacja-inpost.atlassian.net/wiki/spaces/PL/pages/47415642/Integration+process+with+InPost+services",
+			"item": [
+				{
+					"name": "1 step - Create shipment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"test@inpost.pl\",\r\n        \"phone\": \"111222333\"\r\n    },\r\n    \"parcels\": {\r\n        \"template\": \"small\"\r\n    },\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"sending_method\": \"dispatch_order\",\r\n        \"target_point\": \"WAW478M\"\r\n    },\r\n    \"service\": \"inpost_locker_standard\",\r\n    \"reference\": \"Test\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"shipments"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "2 step - Checking the status of a shipment",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/shipments/ID_Shipments",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"shipments",
+								"ID_Shipments"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "3 step - Shipment label download",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/shipments/:shipment_id/label?format=Pdf&type=A6",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"shipments",
+								":shipment_id",
+								"label"
+							],
+							"query": [
+								{
+									"key": "format",
+									"value": "Pdf"
+								},
+								{
+									"key": "format",
+									"value": "Zpl",
+									"disabled": true
+								},
+								{
+									"key": "format",
+									"value": "Epl",
+									"disabled": true
+								},
+								{
+									"key": "type",
+									"value": "A6"
+								},
+								{
+									"key": "type",
+									"value": "normal",
+									"disabled": true
+								},
+								{
+									"key": "type",
+									"value": "dpi300",
+									"disabled": true
+								}
+							],
+							"variable": [
+								{
+									"key": "shipment_id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "4 step - Creating new DispatchOrder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"shipments\": [\"1\", \"2\"],\r\n\t\"comment\": \"Dowolny komentarz do zlecenia odbioru\",\r\n\t\"name\": \"Przykładowa nazwa DispatchPoint\",\r\n \t\"phone\": \"505404202\",\r\n\t\"email\": \"sample@email.com\",\r\n\t\r\n\t\"address\": {\r\n        \"street\": \"Malborska\",\r\n        \"building_number\": \"130\",\r\n        \"city\": \"Krakow\",\r\n        \"post_code\": \"31-209\",\r\n        \"country_code\": \"PL\"\r\n    }\r\n}"
+						},
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"dispatch_orders"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "5 step - Printing a Dispatch Order",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/dispatch_orders/1/printout?format=Pdf",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"dispatch_orders",
+								"1",
+								"printout"
+							],
+							"query": [
+								{
+									"key": "format",
+									"value": "Pdf"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "6 step - Shipment History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{apix_url}}/v1/tracking/:tracking_number",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"tracking",
+								":tracking_number"
+							],
+							"variable": [
+								{
+									"key": "tracking_number",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Shipment",
+			"item": [
+				{
+					"name": "Creating a shipment in the simplified mode",
+					"item": [
+						{
+							"name": "Create shipment parcel locker",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"test@inpost.pl\",\r\n        \"phone\": \"111222333\"\r\n    },\r\n    \"parcels\": {\r\n        \"template\": \"small\"\r\n    },\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"sending_method\": \"dispatch_order\",\r\n        \"target_point\": \"WAW478M\"\r\n    },\r\n    \"service\": \"inpost_locker_standard\",\r\n    \"reference\": \"Test\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment parcel locker Weekend",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"test@inpost.pl\",\r\n        \"phone\": \"111222333\"\r\n    },\r\n    \"parcels\": {\r\n        \"template\": \"small\"\r\n    },\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"sending_method\": \"dispatch_order\",\r\n        \"target_point\": \"WAW478M\"\r\n    },\r\n    \"service\": \"inpost_locker_standard\",\r\n    \"reference\": \"Test\",\r\n    \"external_customer_id\": \"8877xxx\",\r\n    \"end_of_week_collection\": true\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment parcel locker - Pass-Thru",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"test@inpost.pl\",\r\n        \"phone\": \"111222333\"\r\n    },\r\n    \"parcels\": {\r\n        \"template\": \"large\"\r\n    },\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"sending_method\": \"parcel_locker\",\r\n        \"target_point\": \"WAW478M\",\r\n        \"dropoff_point\": \"WAW478M\"\r\n    },\r\n    \"service\": \"inpost_locker_pass_thru\",\r\n    \"reference\": \"Test\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment parcel locker Allegro",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"123abc+123abc@user.allegrogroup.pl\",\r\n        \"phone\": \"111222333\"\r\n    },\r\n    \"parcels\": {\r\n        \"template\": \"small\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"target_point\": \"WAW478M\",\r\n        \"sending_method\": \"dispatch_order\"\r\n    },\r\n    \"service\": \"inpost_locker_allegro\",\r\n    \"reference\": \"Test\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment Allegro miniKurier24",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"123abc+123abc@user.allegrogroup.pl\",\r\n        \"phone\": \"312312321\",\r\n        \"address\": {\r\n            \"street\": \"Cybernetyki\",\r\n            \"building_number\": \"10\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"02-677\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"parcels\": {\r\n        \"template\": \"letter_a\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"sending_method\": \"dispatch_order\"\r\n    },\r\n    \"service\": \"inpost_letter_allegro\",\r\n    \"reference\": \"Test\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment Allegro Kurier24",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"gtcc1rh559+4fe361dc5@user.allegrogroup.pl\",\r\n        \"phone\": \"888000000\",\r\n        \"address\": {\r\n            \"street\": \"Cybernetyki\",\r\n            \"building_number\": \"10\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"02-677\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"parcels\": {\r\n        \"dimensions\": {\r\n            \"length\": \"10\",\r\n            \"width\": \"10\",\r\n            \"height\": \"10\",\r\n            \"unit\": \"mm\"\r\n        },\r\n        \"weight\": {\r\n            \"amount\": \"10\",\r\n            \"unit\": \"kg\"\r\n        }\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"sending_method\": \"dispatch_order\"\r\n    },\r\n    \"service\": \"inpost_courier_allegro\",\r\n    \"reference\": \"Test\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment courier  C2C",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"receiver@example.com\",\r\n        \"phone\": \"888000000\",\r\n        \"address\": {\r\n            \"street\": \"Cybernetyki\",\r\n            \"building_number\": \"10\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"02-677\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"parcels\": {\r\n        \"template\": \"small\"\r\n    },\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"custom_attributes\": {\r\n        \"sending_method\": \"parcel_locker\",\r\n        \"dropoff_point\": \"KRA012\"\r\n    },\r\n    \"service\": \"inpost_courier_c2c\",\r\n    \"reference\": \"Test\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment courier  standard",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"receiver@example.com\",\r\n        \"phone\": \"888000000\",\r\n        \"address\": {\r\n            \"street\": \"Cybernetyki\",\r\n            \"building_number\": \"10\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"02-677\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"parcels\": [\r\n        {\r\n            \"id\": \"small package\",\r\n            \"dimensions\": {\r\n                \"length\": \"80\",\r\n                \"width\": \"360\",\r\n                \"height\": \"640\",\r\n                \"unit\": \"mm\"\r\n            },\r\n            \"weight\": {\r\n                \"amount\": \"25\",\r\n                \"unit\": \"kg\"\r\n            },\r\n            \"is_non_standard\": false\r\n        }\r\n    ],\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"service\": \"inpost_courier_standard\",\r\n    \"additional_services\": [\r\n        \"email\",\r\n        \"sms\"\r\n    ],\r\n    \"reference\": \"Test\",\r\n    \"comments\": \"dowolny komentarz\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment courier  standard (multiple packages)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"receiver@example.com\",\r\n        \"phone\": \"888000000\",\r\n        \"address\": {\r\n            \"street\": \"Cybernetyki\",\r\n            \"building_number\": \"10\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"02-677\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"parcels\": [\r\n        {\r\n            \"id\": \"small package\",\r\n            \"dimensions\": {\r\n                \"length\": \"80\",\r\n                \"width\": \"360\",\r\n                \"height\": \"640\",\r\n                \"unit\": \"mm\"\r\n            },\r\n            \"weight\": {\r\n                \"amount\": \"25\",\r\n                \"unit\": \"kg\"\r\n            },\r\n            \"is_non_standard\": true\r\n        },\r\n        {\r\n            \"id\": \"big package\",\r\n            \"dimensions\": {\r\n                \"length\": \"80\",\r\n                \"width\": \"360\",\r\n                \"height\": \"640\",\r\n                \"unit\": \"mm\"\r\n            },\r\n            \"weight\": {\r\n                \"amount\": \"25\",\r\n                \"unit\": \"kg\"\r\n            },\r\n            \"is_non_standard\": true\r\n        }\r\n    ],\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"service\": \"inpost_courier_standard\",\r\n    \"additional_services\": [\r\n        \"email\",\r\n        \"sms\"\r\n    ],\r\n    \"reference\": \"Test\",\r\n    \"comments\": \"dowolny komentarz\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Create shipment courier palette",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"receiver@example.com\",\r\n        \"phone\": \"888000000\",\r\n        \"address\": {\r\n            \"street\": \"Cybernetyki\",\r\n            \"building_number\": \"10\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"02-677\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"parcels\": {\r\n        \"dimensions\": {\r\n            \"length\": \"800\",\r\n            \"width\": \"800\",\r\n            \"height\": \"800\",\r\n            \"unit\": \"mm\"\r\n        },\r\n        \"weight\": {\r\n            \"amount\": \"50\",\r\n            \"unit\": \"kg\"\r\n        }\r\n    },\r\n    \"service\": \"inpost_courier_palette\",\r\n    \"additional_services\": [\r\n        \"email\",\r\n        \"sms\"\r\n    ],\r\n    \"reference\": \"Test\",\r\n    \"comments\": \"dowolny komentarz\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Shipment creation in offer mode",
+					"item": [
+						{
+							"name": "Sample process for selecting and paying an offer",
+							"item": [
+								{
+									"name": "1 step - Shipment creation in offer mode",
+									"request": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "Authorization",
+												"value": "{{apix_token}}",
+												"type": "text"
+											},
+											{
+												"key": "Content-Type",
+												"value": "application/json",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "raw",
+											"raw": "{\r\n     \"sender\": {\r\n        \"name\": \"Name\",\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n\t\"receiver\": {\r\n\t\t\"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n\t\t\"name\": \"Nazwa\",\r\n\t\t\"email\": \"receiver@example.com\",\r\n\t\t\"phone\": \"888000000\",\r\n\t\t\"address\": {\r\n            \"id\": \"123\",\r\n            \"street\": \"Malborska\",\r\n            \"building_number\": \"130\",\r\n            \"city\": \"Kraków\",\r\n            \"post_code\": \"30-624\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n\t},\r\n\t\"parcels\": [\r\n\t\t{\r\n\t\t\t\"id\": \"small package\",\r\n\t\t\t\"template\": \"small\",\r\n\t\t\t\"dimensions\": {\r\n\t\t\t\t\"length\": \"80\",\r\n\t\t\t\t\"width\": \"360\",\r\n\t\t\t\t\"height\": \"640\",\r\n\t\t\t\t\"unit\": \"mm\"\r\n\t\t\t},\r\n\t\t\t\"weight\": {\r\n\t\t\t\t\"amount\": \"25\",\r\n\t\t\t\t\"unit\": \"kg\"\r\n\t\t\t},\r\n            \"is_non_standard\": false\r\n\t\t}\r\n\t],\r\n\t\"custom_attributes\": {\r\n\t\t\"target_point\": \"KRA012\"\r\n\t},\r\n\t\"insurance\": {\r\n\t\t\"amount\": 25,\r\n\t\t\"currency\": \"PLN\"\r\n\t},\r\n\t\"cod\": {\r\n\t\t\"amount\": 12.50,\r\n\t\t\"currency\": \"PLN\"\r\n\t},\r\n\t\"additional_services\": [\"email\", \"sms\"],\r\n\t\"comments\": \"dowolny komentarz\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+											"host": [
+												"{{apix_url}}"
+											],
+											"path": [
+												"v1",
+												"organizations",
+												"{{apix_org_id}}",
+												"shipments"
+											]
+										}
+									},
+									"response": []
+								},
+								{
+									"name": "2 step - Checking shipment offers",
+									"request": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "Authorization",
+												"value": "{{apix_token}}",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{apix_url}}/v1/shipments/ID_Shipments",
+											"host": [
+												"{{apix_url}}"
+											],
+											"path": [
+												"v1",
+												"shipments",
+												"ID_Shipments"
+											]
+										}
+									},
+									"response": []
+								},
+								{
+									"name": "3 step - Offer selection",
+									"request": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "Authorization",
+												"value": "{{apix_token}}",
+												"type": "text"
+											},
+											{
+												"key": "Content-Type",
+												"value": "application/json",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "raw",
+											"raw": "{\r\n  \"offer_id\": 183\r\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{apix_url}}/v1/shipments/:id/select_offer",
+											"host": [
+												"{{apix_url}}"
+											],
+											"path": [
+												"v1",
+												"shipments",
+												":id",
+												"select_offer"
+											],
+											"variable": [
+												{
+													"key": "id",
+													"value": null
+												}
+											]
+										}
+									},
+									"response": []
+								},
+								{
+									"name": "4 step - Paying for Shipment",
+									"request": {
+										"method": "POST",
+										"header": [
+											{
+												"key": "Authorization",
+												"value": "{{apix_token}}",
+												"type": "text"
+											},
+											{
+												"key": "Content-Type",
+												"value": "application/json",
+												"type": "text"
+											}
+										],
+										"body": {
+											"mode": "raw",
+											"raw": "{\r\n  \"offer_id\": 1456\r\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{apix_url}}/v1/shipments/:id/buy",
+											"host": [
+												"{{apix_url}}"
+											],
+											"path": [
+												"v1",
+												"shipments",
+												":id",
+												"buy"
+											],
+											"variable": [
+												{
+													"key": "id",
+													"value": null
+												}
+											]
+										}
+									},
+									"response": []
+								},
+								{
+									"name": "5 step - Checking the status of a shipment Copy",
+									"request": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "Authorization",
+												"value": "{{apix_token}}",
+												"type": "text"
+											}
+										],
+										"url": {
+											"raw": "{{apix_url}}/v1/shipments/ID_Shipments",
+											"host": [
+												"{{apix_url}}"
+											],
+											"path": [
+												"v1",
+												"shipments",
+												"ID_Shipments"
+											]
+										}
+									},
+									"response": []
+								}
+							]
+						},
+						{
+							"name": "Shipment creation in offer mode",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"sender\": {\r\n        \"company_name\": \"Company_name\",\r\n        \"first_name\": \"first_name\",\r\n        \"last_name\": \"last_name\",\r\n        \"email\": \"test@grupainteger.pl\",\r\n        \"phone\": \"321321321\",\r\n        \"address\": {\r\n            \"street\": \"Czerniakowska\",\r\n            \"building_number\": \"87A\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"00-718\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"receiver\": {\r\n        \"company_name\": \"Company name\",\r\n        \"first_name\": \"Jan\",\r\n        \"last_name\": \"Kowalski\",\r\n        \"email\": \"receiver@example.com\",\r\n        \"phone\": \"888000000\",\r\n        \"address\": {\r\n            \"street\": \"Cybernetyki\",\r\n            \"building_number\": \"10\",\r\n            \"city\": \"Warszawa\",\r\n            \"post_code\": \"02-677\",\r\n            \"country_code\": \"PL\"\r\n        }\r\n    },\r\n    \"parcels\": [\r\n        {\r\n            \"id\": \"small package\",\r\n            \"template\": \"small\",\r\n            \"dimensions\": {\r\n                \"length\": \"80\",\r\n                \"width\": \"360\",\r\n                \"height\": \"640\",\r\n                \"unit\": \"mm\"\r\n            },\r\n            \"weight\": {\r\n                \"amount\": \"25\",\r\n                \"unit\": \"kg\"\r\n            },\r\n            \"is_non_standard\": false\r\n        }\r\n    ],\r\n    \"custom_attributes\": {\r\n        \"target_point\": \"WAW478M\"\r\n    },\r\n    \"insurance\": {\r\n        \"amount\": 25,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"cod\": {\r\n        \"amount\": 12.50,\r\n        \"currency\": \"PLN\"\r\n    },\r\n    \"additional_services\": [\r\n        \"email\",\r\n        \"sms\"\r\n    ],\r\n    \"comments\": \"dowolny komentarz\",\r\n    \"external_customer_id\": \"8877xxx\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Offer selection",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"offer_id\": 183\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/shipments/:id/select_offer",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"shipments",
+										":id",
+										"select_offer"
+									],
+									"variable": [
+										{
+											"key": "id",
+											"value": null
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Bulk Offer selection",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"shipments\":[\r\n  \t{\"id\": 1, \"shipment_id\": 235, \"offer_id\": 284},\r\n    {\"id\": 2, \"shipment_id\": 236, \"offer_id\": 285} \r\n  ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Paying for Shipment",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"offer_id\": 1456\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/shipments/:id/buy",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"shipments",
+										":id",
+										"buy"
+									],
+									"variable": [
+										{
+											"key": "id",
+											"value": null
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Bulk Shipment payment",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{ \r\n  \"shipments\":[\r\n    {\"id\": 1, \"shipment_id\": 235, \"offer_id\": 284},\r\n    {\"id\": 2, \"shipment_id\": 236, \"offer_id\": 285}\r\n  ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments/bulk_buy",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments",
+										"bulk_buy"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Creating and viewing shipment batches",
+					"item": [
+						{
+							"name": "Creating shipments in batches",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"only_choice_of_offer\": false,\r\n    \"shipments\": [\r\n        {\r\n            \"id\": 1,\r\n            \"service\": \"inpost_locker_standard\",\r\n            \"custom_attributes\": {\r\n                \"target_point\": \"WAW478M\"\r\n            },\r\n            \"parcels\": {\r\n                \"template\": \"small\"\r\n            },\r\n            \"sender\": {\r\n                \"company_name\": \"Company_name\",\r\n                \"first_name\": \"first_name\",\r\n                \"last_name\": \"last_name\",\r\n                \"email\": \"test@grupainteger.pl\",\r\n                \"phone\": \"321321321\",\r\n                \"address\": {\r\n                    \"street\": \"Czerniakowska\",\r\n                    \"building_number\": \"87A\",\r\n                    \"city\": \"Warszawa\",\r\n                    \"post_code\": \"00-718\",\r\n                    \"country_code\": \"PL\"\r\n                }\r\n            },\r\n            \"receiver\": {\r\n                \"company_name\": \"Company name\",\r\n                \"first_name\": \"Jan\",\r\n                \"last_name\": \"Kowalski\",\r\n                \"email\": \"receiver@example.com\",\r\n                \"phone\": \"888000000\",\r\n                \"address\": {\r\n                    \"street\": \"Cybernetyki\",\r\n                    \"building_number\": \"10\",\r\n                    \"city\": \"Warszawa\",\r\n                    \"post_code\": \"02-677\",\r\n                    \"country_code\": \"PL\"\r\n                }\r\n            },\r\n            \"cod\": {\r\n                \"amount\": 1,\r\n                \"currency\": \"PLN\"\r\n            },\r\n            \"insurance\": {\r\n                \"amount\": 23,\r\n                \"currency\": \"PLN\"\r\n            }\r\n        },\r\n        {\r\n            \"id\": 2,\r\n            \"service\": \"inpost_locker_standard\",\r\n            \"custom_attributes\": {\r\n                \"target_point\": \"WAW478M\"\r\n            },\r\n            \"parcels\": {\r\n                \"template\": \"small\"\r\n            },\r\n            \"sender\": {\r\n                \"company_name\": \"Company_name\",\r\n                \"first_name\": \"first_name\",\r\n                \"last_name\": \"last_name\",\r\n                \"email\": \"test@grupainteger.pl\",\r\n                \"phone\": \"321321321\",\r\n                \"address\": {\r\n                    \"street\": \"Czerniakowska\",\r\n                    \"building_number\": \"87A\",\r\n                    \"city\": \"Warszawa\",\r\n                    \"post_code\": \"00-718\",\r\n                    \"country_code\": \"PL\"\r\n                }\r\n            },\r\n            \"receiver\": {\r\n                \"company_name\": \"Company name\",\r\n                \"first_name\": \"Jan\",\r\n                \"last_name\": \"Kowalski\",\r\n                \"email\": \"receiver@example.com\",\r\n                \"phone\": \"888000000\",\r\n                \"address\": {\r\n                    \"street\": \"Cybernetyki\",\r\n                    \"building_number\": \"10\",\r\n                    \"city\": \"Warszawa\",\r\n                    \"post_code\": \"02-677\",\r\n                    \"country_code\": \"PL\"\r\n                }\r\n            },\r\n            \"cod\": {\r\n                \"amount\": 1,\r\n                \"currency\": \"PLN\"\r\n            },\r\n            \"insurance\": {\r\n                \"amount\": 23,\r\n                \"currency\": \"PLN\"\r\n            }\r\n        }\r\n    ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/batches",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"batches"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Viewing batch shipments",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{apix_url}}/v1/batches/:id",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"batches",
+										":id"
+									],
+									"variable": [
+										{
+											"key": "id",
+											"value": null
+										}
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Shipment label download",
+					"item": [
+						{
+							"name": "GET label",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{apix_url}}/v1/shipments/:shipment_id/label?format=Pdf&type=A6",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"shipments",
+										":shipment_id",
+										"label"
+									],
+									"query": [
+										{
+											"key": "format",
+											"value": "Pdf"
+										},
+										{
+											"key": "format",
+											"value": "Zpl",
+											"disabled": true
+										},
+										{
+											"key": "format",
+											"value": "Epl",
+											"disabled": true
+										},
+										{
+											"key": "type",
+											"value": "A6"
+										},
+										{
+											"key": "type",
+											"value": "normal",
+											"disabled": true
+										},
+										{
+											"key": "type",
+											"value": "dpi300",
+											"description": "Available only for zpl format and services:\nnpost_locker_standard, inpost_locker_allegro, inpost_locker_pass_thru, inpost_letter_allegro, inpost_courier_allegro, inpost_courier_c2c",
+											"disabled": true
+										}
+									],
+									"variable": [
+										{
+											"key": "shipment_id",
+											"value": null
+										}
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Multiple shipments label download",
+					"item": [
+						{
+							"name": "GET label",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									},
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n\"type\": \"A6\",\t\r\n\"format\": \"pdf\",\r\n\"shipment_ids\": [693213049,693252428]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments/labels",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments",
+										"labels"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Return label download",
+					"item": [
+						{
+							"name": "GET label",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									},
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/shipments/return_labels?shipment_ids[]=693213049&format=Pdf",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"shipments",
+										"return_labels"
+									],
+									"query": [
+										{
+											"key": "shipment_ids[]",
+											"value": "693213049"
+										},
+										{
+											"key": "format",
+											"value": "Pdf"
+										}
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Statuses",
+			"item": [
+				{
+					"name": "Status list",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{apix_url}}/v1/statuses",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"statuses"
+							],
+							"query": [
+								{
+									"key": "shipment_type",
+									"value": "inpost_locker_standard",
+									"disabled": true
+								},
+								{
+									"key": "lang",
+									"value": "en_GB",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Shipment Tracking",
+			"item": [
+				{
+					"name": "Shipment History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{apix_url}}/v1/tracking/:tracking_number",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"tracking",
+								":tracking_number"
+							],
+							"variable": [
+								{
+									"key": "tracking_number",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Dispatch Order",
+			"item": [
+				{
+					"name": "Printing a Dispatch Order",
+					"item": [
+						{
+							"name": "Printing multiple Dispatch Orders",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders/printouts?shipment_ids[]=123&shipment_ids[]=124&shipment_ids[]=125&format=Pdf",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"dispatch_orders",
+										"printouts"
+									],
+									"query": [
+										{
+											"key": "shipment_ids[]",
+											"value": "123"
+										},
+										{
+											"key": "shipment_ids[]",
+											"value": "124"
+										},
+										{
+											"key": "shipment_ids[]",
+											"value": "125"
+										},
+										{
+											"key": "format",
+											"value": "Pdf"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Printing a Dispatch Order",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{apix_url}}/v1/dispatch_orders/1/printout?format=Pdf",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"dispatch_orders",
+										"1",
+										"printout"
+									],
+									"query": [
+										{
+											"key": "format",
+											"value": "Pdf"
+										}
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Searching and sorting Dispatch Orders",
+					"item": [
+						{
+							"name": "List of Dispatch Orders",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"dispatch_orders"
+									],
+									"query": [
+										{
+											"key": "id",
+											"value": "1",
+											"description": "Searches for the dispatch order with the stated ID.\n\nSearches for dispatch orders with the stated IDs.",
+											"disabled": true
+										},
+										{
+											"key": "created_at",
+											"value": "2022-01-07",
+											"description": "Searches for dispatch orders created on the given day.",
+											"disabled": true
+										},
+										{
+											"key": "created_at_gteq",
+											"value": "2016-01-01T13:10+01:00",
+											"description": "Searches for  dispatch orders in which the time created is >= specified time.\n\nThe time can be provided in the ISO 8601 or similar format, and as a timestamp.",
+											"disabled": true
+										},
+										{
+											"key": "created_at_lteq",
+											"value": "2016-01-01T13:10+01:00",
+											"description": "Searches for  dispatch orders created earlier than at the specified time.\n\nThe time can be provided in the ISO 8601 or similar format, and as a timestamp.",
+											"disabled": true
+										},
+										{
+											"key": "status",
+											"value": "sent",
+											"description": "Searches for dispatch orders in the specified status.\n\nSearches for dispatch orders in one of the indicated statuses.",
+											"disabled": true
+										},
+										{
+											"key": "address",
+											"value": "Zaw",
+											"description": "Searches for dispatch orders for which the address (street) starts with the given string.",
+											"disabled": true
+										},
+										{
+											"key": "post_code",
+											"value": "30-442",
+											"description": "Searches for dispatch orders for which the post-code starts with the given string.",
+											"disabled": true
+										},
+										{
+											"key": "country_code",
+											"value": "PL",
+											"description": "Searches for dispatch orders for which the country code is the same as the specified string.",
+											"disabled": true
+										},
+										{
+											"key": "city",
+											"value": "Kraków",
+											"description": "Searches for dispatch orders for which the city is the same as the specified string.",
+											"disabled": true
+										},
+										{
+											"key": "shipment_id",
+											"value": "1",
+											"description": "Searches for dispatch orders that include shipment with the given id.\n\nSearches for dispatch orders that include shipments with the given ids.",
+											"disabled": true
+										},
+										{
+											"key": "tracking_number",
+											"value": "630000328531876219900746",
+											"description": "Searches for dispatch orders that include shipment with the given tracking number.\n\nSearches for dispatch orders that include shipments with the given tracking numbers.",
+											"disabled": true
+										},
+										{
+											"key": "shipment_service",
+											"value": "locker",
+											"description": "Searches for dispatch orders that include shipments with at least one of the given services.\n\ncourier\n\nlocker\n\nallegro",
+											"disabled": true
+										},
+										{
+											"key": "status",
+											"value": "new",
+											"description": "Searches for dispatch orders in the given state\n\nnew\n\nsent\n\naccepted\n\ndone\n\nrejected\n\ncanceled",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Dispatch Order price calculation",
+					"item": [
+						{
+							"name": "Dispatch Order price calculation",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									},
+									{
+										"key": "Authorization",
+										"value": "{{apix_token}}",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{  \r\n  \"dispatch_point_id\": 10,\r\n  \"shipments\": [24907, 24908, 24906, 24918, 24921]\r\n}"
+								},
+								"url": {
+									"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders/calculate",
+									"host": [
+										"{{apix_url}}"
+									],
+									"path": [
+										"v1",
+										"organizations",
+										"{{apix_org_id}}",
+										"dispatch_orders",
+										"calculate"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Creating new DispatchOrder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"shipments\": [\"1\", \"2\"],\r\n\t\"comment\": \"Dowolny komentarz do zlecenia odbioru\",\r\n\t\"name\": \"Przykładowa nazwa DispatchPoint\",\r\n \t\"phone\": \"505404202\",\r\n\t\"email\": \"sample@email.com\",\r\n\t\r\n\t\"address\": {\r\n        \"street\": \"Malborska\",\r\n        \"building_number\": \"130\",\r\n        \"city\": \"Krakow\",\r\n        \"post_code\": \"31-209\",\r\n        \"country_code\": \"PL\"\r\n    }\r\n}"
+						},
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"dispatch_orders"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "DispatchOrders list",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"dispatch_orders"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "DispatchOrder details",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/dispatch_orders/:id",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"dispatch_orders",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Deleting Dispatch Orders",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/dispatch_orders/:id",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"dispatch_orders",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creating Dispatch Order comment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \t\"comment\": \"Dodatkowy dowolny komentarz do zlecenia odbioru\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders/:dispatch_order_id/comment",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"dispatch_orders",
+								":dispatch_order_id",
+								"comment"
+							],
+							"variable": [
+								{
+									"key": "dispatch_order_id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Editing Dispatch Order comments",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n\t\"id\": 37,\r\n\t\"comment\": \"Aktualizacja komentarza\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders/:dispatch_order_id/comment",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"dispatch_orders",
+								":dispatch_order_id",
+								"comment"
+							],
+							"variable": [
+								{
+									"key": "dispatch_order_id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Deleting Dispatch Order comment",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/dispatch_orders/:dispatch_order_id/comment",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"dispatch_orders",
+								":dispatch_order_id",
+								"comment"
+							],
+							"variable": [
+								{
+									"key": "dispatch_order_id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Services",
+			"item": [
+				{
+					"name": "Services list",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{apix_url}}/v1/services",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"services"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Place of cost creation (MPK)",
+			"item": [
+				{
+					"name": "List of MPK",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/mpks",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"mpks"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Details of MPK",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/mpks/:id",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"mpks",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creation of MPK",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"name\": \"MPK name\", \r\n  \"description\": \"MPK description\"\r\n}"
+						},
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/mpks",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"mpks"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Updating of MPK",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"name\": \"MPK\", \r\n  \"description\": \"MPK description\"\r\n}"
+						},
+						"url": {
+							"raw": "{{apix_url}}/v1/mpks/:id",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"mpks",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Organizations",
+			"item": [
+				{
+					"name": "Organization list",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Organization statistics",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/statistics",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"statistics"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Reports",
+			"item": [
+				{
+					"name": "COD report for courier",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{apix_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{apix_url}}/v1/organizations/{{apix_org_id}}/reports/cod?format=csv&start_date=2022-02-01&end_date=2022-02-22",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"organizations",
+								"{{apix_org_id}}",
+								"reports",
+								"cod"
+							],
+							"query": [
+								{
+									"key": "format",
+									"value": "csv"
+								},
+								{
+									"key": "start_date",
+									"value": "2022-02-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2022-02-22"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Sending method",
+			"item": [
+				{
+					"name": "Sending Method List",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{apix_url}}/v1/sending_methods",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"sending_methods"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Points",
+			"item": [
+				{
+					"name": "Collection of points, which are available 24/7, dedicated to the Weekend Parcels service",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{apix_url}}/v1/points?name=KRA012",
+							"host": [
+								"{{apix_url}}"
+							],
+							"path": [
+								"v1",
+								"points"
+							],
+							"query": [
+								{
+									"key": "name",
+									"value": "KRA012",
+									"description": "Searches for shipments with given name"
+								},
+								{
+									"key": "type",
+									"value": "parcel_locker",
+									"description": "Collection of all parcel lockers and parcel points offices to which you can send your parcel",
+									"disabled": true
+								},
+								{
+									"key": "type",
+									"value": "parcel_locker_only",
+									"description": "Collection only of physical lockers",
+									"disabled": true
+								},
+								{
+									"key": "type",
+									"value": "parcel_locker_superpop",
+									"description": "Collection of parcels point to which you can send your parcel",
+									"disabled": true
+								},
+								{
+									"key": "type",
+									"value": "pop",
+									"description": "All parcel points",
+									"disabled": true
+								},
+								{
+									"key": "partner_id",
+									"value": "61",
+									"description": "Searches for shipments with given partner ID",
+									"disabled": true
+								},
+								{
+									"key": "functions",
+									"value": "parcel_collect",
+									"description": "Searches for shipments with given function.",
+									"disabled": true
+								},
+								{
+									"key": "payment_available",
+									"value": "true",
+									"description": "Collection of points that support COD shipments",
+									"disabled": true
+								},
+								{
+									"key": "post_code",
+									"value": "31-216",
+									"description": "Searches for shipments with given post code",
+									"disabled": true
+								},
+								{
+									"key": "city",
+									"value": "Kraków",
+									"description": "Searches for shipments with given city",
+									"disabled": true
+								},
+								{
+									"key": "province",
+									"value": "Małopolska",
+									"description": "Searches for shipments with given province",
+									"disabled": true
+								},
+								{
+									"key": "location_247",
+									"value": "true",
+									"description": "Collection of points, which are available 24/7, dedicated to the Weekend Parcels service",
+									"disabled": true
+								},
+								{
+									"key": "relative_point",
+									"value": "52.123,19.321",
+									"description": "Searches for points closest to the given location",
+									"disabled": true
+								},
+								{
+									"key": "relative_post_code",
+									"value": "11-111",
+									"description": "Searches for points closest to the given post code",
+									"disabled": true
+								},
+								{
+									"key": "max_distance",
+									"value": "1000",
+									"description": "Searches for points in distance up to the given value from relative_point or relative_post_code. Parameter usage requires sorting by distance.\nDefault value: 10000 (10km)\nMaximum value 50000 (50km)",
+									"disabled": true
+								},
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Point limiting parameter when using relative_point  or relative_post_code ",
+									"disabled": true
+								},
+								{
+									"key": "sort_by",
+									"value": "name",
+									"description": "Sort by point name",
+									"disabled": true
+								},
+								{
+									"key": "sort_by",
+									"value": "distance_to_relative_point",
+									"description": "Sort by relative distance (relative_point or relative_post_code)",
+									"disabled": true
+								},
+								{
+									"key": "sort_by",
+									"value": "status",
+									"description": "Sort by status",
+									"disabled": true
+								},
+								{
+									"key": "sort_order",
+									"value": "asc",
+									"description": "Sorts in ascending order",
+									"disabled": true
+								},
+								{
+									"key": "sort_order",
+									"value": "desc",
+									"description": "Sorts in descending order",
+									"disabled": true
+								},
+								{
+									"key": "page",
+									"value": "2",
+									"description": "Defines the page for which the results should be returnet",
+									"disabled": true
+								},
+								{
+									"key": "per_page",
+									"value": "50",
+									"description": "Defines the amount of points returned per page\nDefault: 25\nMaximum: 500",
+									"disabled": true
+								},
+								{
+									"key": "fields",
+									"value": "name,type",
+									"description": "Defines the point attributes that should be returned",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
