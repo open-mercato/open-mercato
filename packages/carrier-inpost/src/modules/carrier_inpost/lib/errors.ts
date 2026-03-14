@@ -1,16 +1,20 @@
 // InPost ShipX API documentation:
 // https://dokumentacja-inpost.atlassian.net/wiki/spaces/PL/pages/18153476/API+ShipX+ENG+Documentation
 
+const throwError = (message: string): never => {
+  throw new Error(message);
+}
+
 export const inpostErrors = {
-  missingApiToken: () => new Error('InPost API token is required'),
-  missingOrganizationId: () => new Error('InPost organization ID is required'),
-  apiError: (status: number, text: string) => new Error(`InPost API error ${status}: ${text}`),
-  missingWebhookSignatureHeader: () => new Error('Missing X-Inpost-Signature header'),
-  webhookSignatureMismatch: () => new Error('InPost webhook signature verification failed'),
-  webhookInvalidJson: () => new Error('InPost webhook payload is not valid JSON'),
-  missingTrackingIdentifier: () => new Error('trackingNumber or shipmentId is required for InPost tracking'),
+  missingApiToken: () => throwError('InPost API token is required'),
+  missingOrganizationId: () => throwError('InPost organization ID is required'),
+  apiError: (status: number, text: string) => throwError(`InPost API error ${status}: ${text}`),
+  missingWebhookSignatureHeader: () => throwError('Missing X-Inpost-Signature header'),
+  webhookSignatureMismatch: () => throwError('InPost webhook signature verification failed'),
+  webhookInvalidJson: () => throwError('InPost webhook payload is not valid JSON'),
+  missingTrackingIdentifier: () => throwError('trackingNumber or shipmentId is required for InPost tracking'),
   incompleteEnvPreset: () =>
-    new Error(
+    throwError(
       '[carrier_inpost] Incomplete InPost env preset. Set OM_INTEGRATION_INPOST_API_TOKEN and OM_INTEGRATION_INPOST_ORGANIZATION_ID.',
     ),
 }
