@@ -1,0 +1,8 @@
+{
+  "carrier_inpost.config.help": "Konfigurieren Sie Ihr InPost-API-Token und Ihre Organisations-ID in den Integrations-Anmeldedaten. Verfügbare Dienste: Paczkomat-Schließfächer (Standard und Express) und Kurierzustellung.",
+  "carrier_inpost.description": "Versenden Sie Pakete über InPost-Schließfächer (Paczkomat) und Kurier mit Echtzeit-Tracking.",
+  "carrier_inpost.feature.configure": "InPost-Einstellungen konfigurieren",
+  "carrier_inpost.feature.view": "InPost-Konfiguration anzeigen",
+  "carrier_inpost.tabs.settings": "InPost-Einstellungen",
+  "carrier_inpost.title": "InPost"
+}

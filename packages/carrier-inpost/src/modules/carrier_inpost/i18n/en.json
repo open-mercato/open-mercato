@@ -1,0 +1,8 @@
+{
+  "carrier_inpost.config.help": "Configure your InPost API token and organization ID in Integration credentials. Available services: Paczkomat lockers (standard & express) and courier delivery.",
+  "carrier_inpost.description": "Ship parcels via InPost lockers (Paczkomat) and courier delivery with real-time tracking.",
+  "carrier_inpost.feature.configure": "Configure InPost settings",
+  "carrier_inpost.feature.view": "View InPost configuration",
+  "carrier_inpost.tabs.settings": "InPost settings",
+  "carrier_inpost.title": "InPost"
+}
