@@ -1,0 +1,8 @@
+{
+  "carrier_inpost.config.help": "Configure su token de API de InPost y el ID de organización en las credenciales de integración. Servicios disponibles: taquillas Paczkomat (estándar y exprés) y entrega por mensajero.",
+  "carrier_inpost.description": "Envíe paquetes a través de las taquillas InPost (Paczkomat) y mensajería con seguimiento en tiempo real.",
+  "carrier_inpost.feature.configure": "Configurar ajustes de InPost",
+  "carrier_inpost.feature.view": "Ver configuración de InPost",
+  "carrier_inpost.tabs.settings": "Ajustes de InPost",
+  "carrier_inpost.title": "InPost"
+}
