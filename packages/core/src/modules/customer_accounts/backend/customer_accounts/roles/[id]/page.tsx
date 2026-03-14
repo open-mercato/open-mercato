@@ -84,7 +84,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       setError(null)
       try {
         const payload = await readApiResultOrThrow<RoleDetail>(
-          `/api/customer-accounts/admin/roles/${encodeURIComponent(id!)}`,
+          `/api/customer_accounts/admin/roles/${encodeURIComponent(id!)}`,
           undefined,
           { errorMessage: t('customer_accounts.admin.roleDetail.error.load', 'Failed to load role') },
         )
@@ -134,7 +134,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     setIsSaving(true)
     try {
       const call = await apiCall(
-        `/api/customer-accounts/admin/roles/${encodeURIComponent(id)}`,
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
@@ -181,7 +181,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     if (!confirmed) return
     try {
       const call = await apiCall(
-        `/api/customer-accounts/admin/roles/${encodeURIComponent(id)}`,
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       )
       if (!call.ok) {

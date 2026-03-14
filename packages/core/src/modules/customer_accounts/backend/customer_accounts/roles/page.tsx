@@ -58,7 +58,7 @@ export default function CustomerRolesPage() {
       try {
         const fallback: RolesResponse = { items: [], total: 0, totalPages: 1 }
         const payload = await readApiResultOrThrow<RolesResponse>(
-          `/api/customer-accounts/admin/roles?${queryParams}`,
+          `/api/customer_accounts/admin/roles?${queryParams}`,
           undefined,
           { errorMessage: t('customer_accounts.admin.roles.error.load', 'Failed to load roles'), fallback },
         )
@@ -92,7 +92,7 @@ export default function CustomerRolesPage() {
     if (!confirmed) return
     try {
       const call = await apiCall(
-        `/api/customer-accounts/admin/roles/${encodeURIComponent(role.id)}`,
+        `/api/customer_accounts/admin/roles/${encodeURIComponent(role.id)}`,
         { method: 'DELETE' },
       )
       if (!call.ok) {

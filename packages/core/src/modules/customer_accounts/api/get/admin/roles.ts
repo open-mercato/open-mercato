@@ -21,14 +21,28 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
 
+  const url = new URL(req.url)
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1)
+  const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '50', 10) || 50))
+  const search = (url.searchParams.get('search') || '').trim().toLowerCase()
+
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const roles = await em.find(CustomerRole, {
+  const allRoles = await em.find(CustomerRole, {
     tenantId: auth.tenantId,
     deletedAt: null,
   }, { orderBy: { createdAt: 'ASC' } })
 
-  const items = roles.map((role) => ({
+  const filtered = search
+    ? allRoles.filter((role) => role.name.toLowerCase().includes(search) || role.slug.toLowerCase().includes(search))
+    : allRoles
+
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const offset = (page - 1) * pageSize
+  const paged = filtered.slice(offset, offset + pageSize)
+
+  const items = paged.map((role) => ({
     id: role.id,
     name: role.name,
     slug: role.slug,
@@ -39,7 +53,7 @@ export async function GET(req: Request) {
     createdAt: role.createdAt,
   }))
 
-  return NextResponse.json({ ok: true, roles: items })
+  return NextResponse.json({ ok: true, items, total, totalPages, page })
 }
 
 const roleSchema = z.object({

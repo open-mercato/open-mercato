@@ -19,7 +19,7 @@ export default function CompanyUsersWidget({ context }: CompanyUsersProps) {
     queryKey: ['customer-company-users', customerEntityId],
     queryFn: async () => {
       if (!customerEntityId) return null
-      const result = await apiCall(`/api/customer-accounts/admin/users?customerEntityId=${customerEntityId}&pageSize=50`)
+      const result = await apiCall(`/api/customer_accounts/admin/users?customerEntityId=${customerEntityId}&pageSize=50`)
       if (!result.ok) return null
       const json = await result.json()
       return json?.users || []

@@ -65,7 +65,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
       setError(null)
       try {
         const payload = await readApiResultOrThrow<UserDetail>(
-          `/api/customer-accounts/admin/users/${encodeURIComponent(id!)}`,
+          `/api/customer_accounts/admin/users/${encodeURIComponent(id!)}`,
           undefined,
           { errorMessage: t('customer_accounts.admin.detail.error.load', 'Failed to load user') },
         )
@@ -90,7 +90,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     async function loadRoles() {
       try {
         const call = await apiCall<{ items?: Array<{ id: string; name: string }> }>(
-          '/api/customer-accounts/admin/roles?pageSize=100',
+          '/api/customer_accounts/admin/roles?pageSize=100',
         )
         if (cancelled || !call.ok) return
         const items = Array.isArray(call.result?.items) ? call.result!.items : []
@@ -110,7 +110,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     setIsSaving(true)
     try {
       await apiCall(
-        `/api/customer-accounts/admin/users/${encodeURIComponent(id)}`,
+        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
@@ -141,7 +141,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     if (!confirmed) return
     try {
       const call = await apiCall(
-        `/api/customer-accounts/admin/users/${encodeURIComponent(id)}`,
+        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
         { method: 'DELETE' },
       )
       if (!call.ok) {
@@ -160,7 +160,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     if (!id) return
     try {
       const call = await apiCall(
-        `/api/customer-accounts/admin/users/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`,
+        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`,
         { method: 'DELETE' },
       )
       if (!call.ok) {

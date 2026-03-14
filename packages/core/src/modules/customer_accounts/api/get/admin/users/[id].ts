@@ -8,7 +8,13 @@ import { CustomerUser, CustomerUserRole, CustomerUserSession } from '@open-merca
 
 export const metadata = {}
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function GET(req: Request, { params }: { params: { id: string } }) {
+  if (!UUID_RE.test(params.id)) {
+    return NextResponse.json({ ok: false, error: 'Invalid user ID' }, { status: 400 })
+  }
+
   const auth = await getAuthFromRequest(req)
   if (!auth) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
@@ -42,30 +48,36 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     slug: (ur.role as any).slug,
   }))
 
-  const activeSessionCount = await em.count(CustomerUserSession, {
+  const activeSessions = await em.find(CustomerUserSession, {
     user: user.id as any,
     deletedAt: null,
     expiresAt: { $gt: new Date() },
-  })
+  }, { orderBy: { lastUsedAt: 'DESC' } })
+
+  const sessions = activeSessions.map((session) => ({
+    id: session.id,
+    ipAddress: (session as any).ipAddress || null,
+    userAgent: (session as any).userAgent || null,
+    lastUsedAt: (session as any).lastUsedAt || null,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+  }))
 
   return NextResponse.json({
     ok: true,
-    user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      emailVerified: !!user.emailVerifiedAt,
-      isActive: user.isActive,
-      lockedUntil: user.lockedUntil || null,
-      lastLoginAt: user.lastLoginAt || null,
-      failedLoginAttempts: user.failedLoginAttempts,
-      customerEntityId: user.customerEntityId || null,
-      personEntityId: user.personEntityId || null,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt || null,
-      roles,
-      activeSessionCount,
-    },
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    emailVerifiedAt: user.emailVerifiedAt || null,
+    isActive: user.isActive,
+    lockedUntil: user.lockedUntil || null,
+    lastLoginAt: user.lastLoginAt || null,
+    customerEntityId: user.customerEntityId || null,
+    personEntityId: user.personEntityId || null,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt || null,
+    roles,
+    sessions,
   })
 }
 

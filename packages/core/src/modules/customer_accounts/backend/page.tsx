@@ -20,7 +20,7 @@ type UserRow = {
   emailVerified: boolean
   isActive: boolean
   lastLoginAt: string | null
-  roles: string[]
+  roles: Array<{ id: string; name: string; slug: string }>
   createdAt: string
   personEntityId: string | null
   customerEntityId: string | null
@@ -42,7 +42,7 @@ function formatDate(value: string | null | undefined, fallback: string): string 
 async function fetchRoleFilterOptions(): Promise<Array<{ value: string; label: string }>> {
   try {
     const call = await apiCall<{ items?: Array<{ id: string; name: string }> }>(
-      '/api/customer-accounts/admin/roles?pageSize=100',
+      '/api/customer_accounts/admin/roles?pageSize=100',
     )
     if (!call.ok) return []
     const items = Array.isArray(call.result?.items) ? call.result!.items : []
@@ -114,7 +114,7 @@ export default function CustomerAccountsPage() {
       try {
         const fallback: UsersResponse = { items: [], total: 0, totalPages: 1 }
         const payload = await readApiResultOrThrow<UsersResponse>(
-          `/api/customer-accounts/admin/users?${queryParams}`,
+          `/api/customer_accounts/admin/users?${queryParams}`,
           undefined,
           { errorMessage: t('customer_accounts.admin.error.loadUsers', 'Failed to load customer users'), fallback },
         )
@@ -151,7 +151,7 @@ export default function CustomerAccountsPage() {
     if (!confirmed) return
     try {
       const call = await apiCall(
-        `/api/customer-accounts/admin/users/${encodeURIComponent(user.id)}`,
+        `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
@@ -185,7 +185,7 @@ export default function CustomerAccountsPage() {
     if (!confirmed) return
     try {
       const call = await apiCall(
-        `/api/customer-accounts/admin/users/${encodeURIComponent(user.id)}`,
+        `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
         { method: 'DELETE' },
       )
       if (!call.ok) {
@@ -270,7 +270,7 @@ export default function CustomerAccountsPage() {
         cell: ({ row }) => {
           const roles = row.original.roles
           if (!roles || !roles.length) return noValue
-          return <span className="text-sm">{roles.join(', ')}</span>
+          return <span className="text-sm">{roles.map((r) => r.name).join(', ')}</span>
         },
       },
       {

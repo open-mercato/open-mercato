@@ -72,8 +72,10 @@ export async function GET(req: Request) {
     if (userIds.length === 0) {
       return NextResponse.json({
         ok: true,
-        users: [],
-        pagination: { page, pageSize, total: 0, totalPages: 0 },
+        items: [],
+        total: 0,
+        totalPages: 1,
+        page,
       })
     }
     where.id = { $in: userIds }
@@ -112,15 +114,14 @@ export async function GET(req: Request) {
     }
   }))
 
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
   return NextResponse.json({
     ok: true,
-    users: items,
-    pagination: {
-      page,
-      pageSize,
-      total,
-      totalPages: Math.ceil(total / pageSize),
-    },
+    items,
+    total,
+    totalPages,
+    page,
   })
 }
 

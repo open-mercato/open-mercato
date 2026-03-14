@@ -8,7 +8,13 @@ import { CustomerRole, CustomerRoleAcl } from '@open-mercato/core/modules/custom
 
 export const metadata = {}
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export async function GET(req: Request, { params }: { params: { id: string } }) {
+  if (!UUID_RE.test(params.id)) {
+    return NextResponse.json({ ok: false, error: 'Invalid role ID' }, { status: 400 })
+  }
+
   const auth = await getAuthFromRequest(req)
   if (!auth) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
@@ -37,26 +43,20 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     tenantId: auth.tenantId,
   })
 
+  const features = acl && Array.isArray(acl.featuresJson) ? acl.featuresJson : []
+
   return NextResponse.json({
     ok: true,
-    role: {
-      id: role.id,
-      name: role.name,
-      slug: role.slug,
-      description: role.description || null,
-      isDefault: role.isDefault,
-      isSystem: role.isSystem,
-      customerAssignable: role.customerAssignable,
-      createdAt: role.createdAt,
-      updatedAt: role.updatedAt || null,
-      acl: acl ? {
-        features: Array.isArray(acl.featuresJson) ? acl.featuresJson : [],
-        isPortalAdmin: acl.isPortalAdmin,
-      } : {
-        features: [],
-        isPortalAdmin: false,
-      },
-    },
+    id: role.id,
+    name: role.name,
+    slug: role.slug,
+    description: role.description || null,
+    isDefault: role.isDefault,
+    isSystem: role.isSystem,
+    customerAssignable: role.customerAssignable,
+    createdAt: role.createdAt,
+    updatedAt: role.updatedAt || null,
+    features,
   })
 }
 

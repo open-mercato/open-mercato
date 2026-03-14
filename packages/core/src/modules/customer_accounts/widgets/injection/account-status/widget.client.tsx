@@ -19,7 +19,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     queryKey: ['customer-account-status', personEntityId],
     queryFn: async () => {
       if (!personEntityId) return null
-      const result = await apiCall(`/api/customer-accounts/admin/users?search=&personEntityId=${personEntityId}&pageSize=1`)
+      const result = await apiCall(`/api/customer_accounts/admin/users?search=&personEntityId=${personEntityId}&pageSize=1`)
       if (!result.ok) return null
       const json = await result.json()
       return json?.users?.[0] || null
