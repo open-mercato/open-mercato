@@ -3,6 +3,9 @@
   "portal.subtitle": "Your self-service hub",
   "portal.info.instructions": "To access your organization's portal, navigate to your organization's unique URL. Contact your administrator if you don't know your portal link.",
 
+  "portal.disabled.title": "Portal Not Available",
+  "portal.disabled.description": "The customer portal has been disabled by the administrator. Please contact your organization for more information.",
+
   "portal.nav.dashboard": "Dashboard",
   "portal.nav.home": "Portal",
   "portal.nav.login": "Log In",

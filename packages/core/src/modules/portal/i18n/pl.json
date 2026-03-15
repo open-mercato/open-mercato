@@ -3,6 +3,9 @@
   "portal.subtitle": "Twoje centrum samoobsługi",
   "portal.info.instructions": "Aby uzyskać dostęp do portalu organizacji, przejdź do unikalnego adresu URL swojej organizacji. Skontaktuj się z administratorem, jeśli nie znasz linku do portalu.",
 
+  "portal.disabled.title": "Portal niedostępny",
+  "portal.disabled.description": "Portal klienta został wyłączony przez administratora. Skontaktuj się ze swoją organizacją, aby uzyskać więcej informacji.",
+
   "portal.nav.dashboard": "Panel",
   "portal.nav.home": "Portal",
   "portal.nav.login": "Zaloguj się",

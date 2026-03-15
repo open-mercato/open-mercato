@@ -3,6 +3,9 @@
   "portal.subtitle": "Tu centro de autoservicio",
   "portal.info.instructions": "Para acceder al portal de su organización, navegue a la URL única de su organización. Contacte a su administrador si no conoce el enlace del portal.",
 
+  "portal.disabled.title": "Portal no disponible",
+  "portal.disabled.description": "El portal del cliente ha sido desactivado por el administrador. Contacte a su organización para más información.",
+
   "portal.nav.dashboard": "Panel",
   "portal.nav.home": "Portal",
   "portal.nav.login": "Iniciar sesión",

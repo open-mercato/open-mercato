@@ -3,6 +3,9 @@
   "portal.subtitle": "Ihr Self-Service-Hub",
   "portal.info.instructions": "Um auf das Portal Ihrer Organisation zuzugreifen, navigieren Sie zur eindeutigen URL Ihrer Organisation. Kontaktieren Sie Ihren Administrator, wenn Sie den Portal-Link nicht kennen.",
 
+  "portal.disabled.title": "Portal nicht verfügbar",
+  "portal.disabled.description": "Das Kundenportal wurde vom Administrator deaktiviert. Bitte kontaktieren Sie Ihre Organisation für weitere Informationen.",
+
   "portal.nav.dashboard": "Dashboard",
   "portal.nav.home": "Portal",
   "portal.nav.login": "Anmelden",
