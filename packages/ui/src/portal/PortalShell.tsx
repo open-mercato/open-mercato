@@ -165,7 +165,7 @@ export function PortalShell({
   const user = portalCtx?.auth.user ?? null
   const authenticated = authenticatedProp ?? !!user
   const onLogout = onLogoutProp ?? portalCtx?.auth.logout
-  const userName = userNameProp || user?.displayName || userEmailProp || user?.email
+  const userName = userNameProp ?? user?.displayName
   const userEmail = userEmailProp ?? user?.email
 
   const { items: injectedMainItems } = usePortalInjectedMenuItems('menu:portal:sidebar:main')
