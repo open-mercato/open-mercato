@@ -176,7 +176,9 @@ export function PortalShell({
   const signupHref = orgSlug ? `/${orgSlug}/portal/signup` : '/portal/signup'
   const dashboardHref = orgSlug ? `/${orgSlug}/portal/dashboard` : '/portal/dashboard'
   const profileHref = orgSlug ? `/${orgSlug}/portal/profile` : '/portal/profile'
-  const headerTitle = orgName || t('portal.title', 'Customer Portal')
+  // Use orgSlug as immediate fallback to prevent "Customer Portal" → "Acme Corp" flash
+  // while tenant is loading. The slug is available synchronously from the URL.
+  const headerTitle = orgName || orgSlug || t('portal.title', 'Customer Portal')
 
   const closeMobile = useCallback(() => setMobileOpen(false), [])
 
@@ -289,8 +291,16 @@ export function PortalShell({
         <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
           <UserAvatar name={userName} className="size-8" />
           <div className="min-w-0 flex-1">
-            {userName ? <p className="truncate text-[13px] font-medium leading-tight">{userName}</p> : null}
-            {userEmail ? <p className="truncate text-[11px] text-muted-foreground">{userEmail}</p> : null}
+            {userName ? (
+              <p className="truncate text-[13px] font-medium leading-tight">{userName}</p>
+            ) : (
+              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+            )}
+            {userEmail ? (
+              <p className="truncate text-[11px] text-muted-foreground">{userEmail}</p>
+            ) : (
+              <div className="mt-1 h-3 w-32 animate-pulse rounded bg-muted" />
+            )}
           </div>
         </div>
         <button

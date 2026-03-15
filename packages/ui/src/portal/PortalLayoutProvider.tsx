@@ -1,7 +1,7 @@
 "use client"
 import { type ReactNode, useMemo } from 'react'
 import { usePathname } from 'next/navigation'
-import { PortalProvider, usePortalContext } from './PortalContext'
+import { PortalProvider } from './PortalContext'
 import PortalShell from './PortalShell'
 
 type PortalLayoutProviderProps = {
@@ -9,10 +9,27 @@ type PortalLayoutProviderProps = {
 }
 
 /**
- * Renders the portal shell (sidebar, header, footer) in the layout
- * so it persists across page navigations. Only the content area swaps.
+ * Known public portal routes that render without sidebar.
+ * All other `/{orgSlug}/portal/*` routes get the authenticated sidebar layout.
+ */
+const PUBLIC_PORTAL_SUFFIXES = ['/portal/login', '/portal/signup']
+
+function isPublicPortalRoute(pathname: string): boolean {
+  // Exact match: /{orgSlug}/portal
+  if (/^\/[^/]+\/portal\/?$/.test(pathname)) return true
+  // Suffix match: /{orgSlug}/portal/login, /{orgSlug}/portal/signup
+  return PUBLIC_PORTAL_SUFFIXES.some((suffix) => pathname.endsWith(suffix))
+}
+
+/**
+ * Wraps portal routes in a persistent shell.
  *
- * For non-portal routes, children pass through unwrapped.
+ * Layout type (public vs authenticated) is determined from the URL path,
+ * NOT from async auth state. This eliminates the layout flash where the
+ * public layout briefly shows before switching to the authenticated sidebar.
+ *
+ * - Login, signup, landing → public layout (header only, no sidebar)
+ * - Dashboard, profile, all other pages → authenticated layout (sidebar)
  */
 export function PortalLayoutProvider({ children }: PortalLayoutProviderProps) {
   const pathname = usePathname()
@@ -26,28 +43,13 @@ export function PortalLayoutProvider({ children }: PortalLayoutProviderProps) {
     return <>{children}</>
   }
 
+  const isPublic = isPublicPortalRoute(pathname)
+
   return (
     <PortalProvider orgSlug={orgSlug}>
-      <PortalShellWrapper>{children}</PortalShellWrapper>
+      <PortalShell authenticated={!isPublic} enableEventBridge={!isPublic}>
+        {children}
+      </PortalShell>
     </PortalProvider>
-  )
-}
-
-/**
- * Inner wrapper that reads auth from context and renders PortalShell.
- * This component persists in the layout — only {children} (the page content) changes.
- */
-function PortalShellWrapper({ children }: { children: ReactNode }) {
-  const { auth, tenant } = usePortalContext()
-
-  const authenticated = !auth.loading && !!auth.user
-
-  return (
-    <PortalShell
-      authenticated={authenticated}
-      enableEventBridge={authenticated}
-    >
-      {children}
-    </PortalShell>
   )
 }
