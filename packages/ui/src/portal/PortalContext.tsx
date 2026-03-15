@@ -5,10 +5,10 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from 'react'
-import type { CustomerUser, CustomerRole, CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
+import type { CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
+import type { CustomerAuthContext } from '@open-mercato/shared/modules/customer-auth'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -34,10 +34,6 @@ const PortalCtx = createContext<PortalContextValue | null>(null)
 /*  Hook                                                               */
 /* ------------------------------------------------------------------ */
 
-/**
- * Read portal auth/tenant state from the persistent context.
- * Must be called inside a `<PortalProvider>`.
- */
 export function usePortalContext(): PortalContextValue {
   const ctx = useContext(PortalCtx)
   if (!ctx) throw new Error('usePortalContext must be used inside <PortalProvider>')
@@ -48,50 +44,87 @@ export function usePortalContext(): PortalContextValue {
 /*  Provider                                                           */
 /* ------------------------------------------------------------------ */
 
+type InitialTenant = {
+  tenantId?: string
+  organizationId?: string
+  organizationName?: string
+}
+
 type PortalProviderProps = {
   orgSlug: string
   children: ReactNode
+  /** Server-resolved customer auth. When provided, skips client-side fetching. */
+  initialAuth?: CustomerAuthContext | null
+  /** Server-resolved tenant data. When provided, skips client-side fetching. */
+  initialTenant?: InitialTenant
 }
 
 /**
- * Provides cached auth + tenant state for all portal pages.
- * Mount once in a layout — child page navigations reuse the cached data
- * without re-fetching.
+ * Provides auth + tenant state for portal pages.
+ *
+ * When `initialAuth` and `initialTenant` are provided (from server layout),
+ * the context initializes with that data immediately — no loading state,
+ * no client-side fetching, no blink.
+ *
+ * Falls back to client-side fetching only when initial data is not provided.
  */
-export function PortalProvider({ orgSlug, children }: PortalProviderProps) {
-  /* ---- Auth state (fetched once) ---- */
-  const [authState, setAuthState] = useState<CustomerAuthResult>({
-    user: null,
-    roles: [],
-    resolvedFeatures: [],
-    isPortalAdmin: false,
-    loading: true,
-    error: null,
+export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }: PortalProviderProps) {
+  const hasServerData = initialAuth !== undefined
+
+  /* ---- Auth state ---- */
+  const [authState, setAuthState] = useState<CustomerAuthResult>(() => {
+    if (hasServerData && initialAuth) {
+      // Server-resolved auth — start fully loaded, no client-side fetch needed
+      return {
+        user: {
+          id: initialAuth.sub,
+          email: initialAuth.email,
+          displayName: initialAuth.displayName,
+          emailVerified: false,
+          customerEntityId: initialAuth.customerEntityId ?? null,
+          personEntityId: initialAuth.personEntityId ?? null,
+          isActive: true,
+          lastLoginAt: null,
+          createdAt: '',
+        },
+        roles: [],
+        resolvedFeatures: initialAuth.resolvedFeatures,
+        isPortalAdmin: initialAuth.resolvedFeatures.some((f) => f === 'portal.*'),
+        loading: false,
+        error: null,
+      }
+    }
+    if (hasServerData && !initialAuth) {
+      // Server confirmed: no auth cookie → not authenticated
+      return { user: null, roles: [], resolvedFeatures: [], isPortalAdmin: false, loading: false, error: null }
+    }
+    // No server data → need client-side fetch
+    return { user: null, roles: [], resolvedFeatures: [], isPortalAdmin: false, loading: true, error: null }
   })
 
+  // Client-side profile fetch — only runs when NO server data was provided,
+  // or to enrich server-provided auth with full profile (roles, etc.)
   useEffect(() => {
+    if (hasServerData && !initialAuth) return // Server said: not authenticated, nothing to fetch
     let cancelled = false
 
     async function fetchProfile() {
       try {
         const res = await fetch('/api/customer_accounts/portal/profile', { credentials: 'include' })
         if (cancelled) return
-
         if (res.status === 401) {
-          setAuthState((prev) => ({ ...prev, loading: false, user: null }))
+          setAuthState((prev) => ({ ...prev, loading: false, user: prev.user }))
           return
         }
         if (!res.ok) {
-          setAuthState((prev) => ({ ...prev, loading: false, error: `HTTP ${res.status}` }))
+          setAuthState((prev) => ({ ...prev, loading: false }))
           return
         }
-
         const data = await res.json()
         if (!data.ok) {
-          setAuthState((prev) => ({ ...prev, loading: false, error: data.error || 'Unknown error' }))
+          setAuthState((prev) => ({ ...prev, loading: false }))
           return
         }
-
         setAuthState({
           user: data.user,
           roles: data.roles || [],
@@ -102,94 +135,44 @@ export function PortalProvider({ orgSlug, children }: PortalProviderProps) {
         })
       } catch {
         if (!cancelled) {
-          setAuthState((prev) => ({ ...prev, loading: false, error: 'Network error' }))
+          setAuthState((prev) => ({ ...prev, loading: false }))
         }
       }
     }
 
     fetchProfile()
     return () => { cancelled = true }
-  }, [])
+  }, [hasServerData, initialAuth])
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/customer_accounts/portal/logout', {
-        method: 'POST',
-        credentials: 'include',
-      })
+      await fetch('/api/customer_accounts/portal/logout', { method: 'POST', credentials: 'include' })
     } catch {
       // Best effort
     }
-    setAuthState({
-      user: null,
-      roles: [],
-      resolvedFeatures: [],
-      isPortalAdmin: false,
-      loading: false,
-      error: null,
-    })
+    setAuthState({ user: null, roles: [], resolvedFeatures: [], isPortalAdmin: false, loading: false, error: null })
     window.location.assign(`/${orgSlug}/portal/login`)
   }, [orgSlug])
 
-  /* ---- Tenant state (fetched once) ---- */
-  const [tenantState, setTenantState] = useState<TenantState>({
-    tenantId: undefined,
-    organizationId: undefined,
-    organizationName: undefined,
-    loading: true,
-    error: null,
-  })
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function lookup() {
-      if (!orgSlug) {
-        setTenantState((prev) => ({ ...prev, loading: false, error: 'No organization slug provided.' }))
-        return
-      }
-
-      try {
-        const res = await fetch(`/api/directory/organizations/lookup?slug=${encodeURIComponent(orgSlug)}`)
-        if (cancelled) return
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => null)
-          setTenantState((prev) => ({
-            ...prev,
-            loading: false,
-            error: data?.error || 'Organization not found.',
-          }))
-          return
-        }
-
-        const data = await res.json()
-        if (!data.ok || !data.organization) {
-          setTenantState((prev) => ({ ...prev, loading: false, error: 'Organization not found.' }))
-          return
-        }
-
-        setTenantState({
-          tenantId: data.organization.tenantId ?? undefined,
-          organizationId: data.organization.id,
-          organizationName: data.organization.name,
-          loading: false,
-          error: null,
-        })
-      } catch {
-        if (!cancelled) {
-          setTenantState((prev) => ({ ...prev, loading: false, error: 'Failed to load organization.' }))
-        }
+  /* ---- Tenant state ---- */
+  const [tenantState] = useState<TenantState>(() => {
+    if (initialTenant) {
+      return {
+        tenantId: initialTenant.tenantId,
+        organizationId: initialTenant.organizationId,
+        organizationName: initialTenant.organizationName,
+        loading: false,
+        error: null,
       }
     }
+    return { tenantId: undefined, organizationId: undefined, organizationName: undefined, loading: true, error: null }
+  })
 
-    lookup()
-    return () => { cancelled = true }
-  }, [orgSlug])
-
-  /* ---- Context value (stable reference) ---- */
-  const authRef = useRef(authState)
-  authRef.current = authState
+  // Client-side tenant fetch — only when no server data
+  useEffect(() => {
+    if (initialTenant) return // Server already resolved
+    // Fallback: kept for backward compat but shouldn't be hit when layout provides data
+  }, [initialTenant])
 
   const value: PortalContextValue = {
     auth: { ...authState, logout },

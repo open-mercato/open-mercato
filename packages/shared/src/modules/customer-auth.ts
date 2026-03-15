@@ -15,6 +15,7 @@ export interface CustomerAuthContext {
   tenantId: string
   orgId: string
   email: string
+  displayName: string
   customerEntityId?: string | null
   personEntityId?: string | null
   resolvedFeatures: string[]

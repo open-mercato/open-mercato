@@ -42,6 +42,7 @@ export class CustomerSessionService {
       tenantId: user.tenantId,
       orgId: user.organizationId,
       email: user.email,
+      displayName: user.displayName || '',
       customerEntityId: user.customerEntityId || null,
       personEntityId: user.personEntityId || null,
       resolvedFeatures,

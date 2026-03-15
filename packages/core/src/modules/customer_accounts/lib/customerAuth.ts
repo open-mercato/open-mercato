@@ -8,6 +8,7 @@ export interface CustomerAuthContext {
   tenantId: string
   orgId: string
   email: string
+  displayName: string
   customerEntityId?: string | null
   personEntityId?: string | null
   resolvedFeatures: string[]
@@ -56,6 +57,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       tenantId: String(payload.tenantId),
       orgId: String(payload.orgId),
       email: String(payload.email || ''),
+      displayName: String(payload.displayName || ''),
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
       personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
       resolvedFeatures: Array.isArray(payload.resolvedFeatures) ? payload.resolvedFeatures as string[] : [],

@@ -42,6 +42,7 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
       tenantId: String(payload.tenantId),
       orgId: String(payload.orgId),
       email: String(payload.email || ''),
+      displayName: String(payload.displayName || ''),
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
       personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
       resolvedFeatures: Array.isArray(payload.resolvedFeatures) ? payload.resolvedFeatures as string[] : [],
