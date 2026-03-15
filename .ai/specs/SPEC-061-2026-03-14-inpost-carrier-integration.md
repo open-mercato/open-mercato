@@ -304,6 +304,51 @@ Canonical env var names (`OM_INTEGRATION_<PROVIDER>_*`):
 | Spot | Widget | Purpose |
 |------|--------|---------|
 | Integration detail page (dynamic spot) | `carrier_inpost.injection.config` | InPost-specific configuration info tab |
+| `data-table:sales.orders:row-actions` | `shipping_carriers.injection.create-shipment-button` | "Create shipment" row action navigates to wizard |
+
+---
+
+## Sales / Shipments Hub Integration
+
+When a user clicks **Create shipment** on a sales order row, they are taken to a 3-step wizard page in the `shipping_carriers` module:
+
+### Route
+`GET /backend/shipping-carriers/create?orderId=<uuid>`
+
+Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
+
+### Wizard Steps
+
+| Step | Path component | Purpose |
+|------|---------------|---------|
+| 1 — Select carrier | `provider` | Loads `GET /api/shipping-carriers/providers`, shows clickable provider cards |
+| 2 — Configure shipment | `configure` | Origin address (blank, merchant fills), destination pre-filled from order's `shipping`/`delivery` document address; package dimensions editor; label format selector (PDF/ZPL/PNG) |
+| 3 — Select service & confirm | `confirm` | Calls `POST /api/shipping-carriers/rates`, shows selectable rate cards with price and estimated days badges; summary panel; submits to `POST /api/shipping-carriers/shipments`, redirects to order detail page on success |
+
+### New API Route
+
+`GET /api/shipping-carriers/providers` — lists all adapters registered via `registerShippingAdapter`. Returns `{ providers: [{ providerKey: string }] }`. Guarded by `shipping_carriers.manage`.
+
+### Files Added / Modified
+
+| File | Description |
+|------|-------------|
+| `packages/core/src/modules/shipping_carriers/api/providers/route.ts` | New GET endpoint |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/page.tsx` | 3-step wizard orchestrator; uses `ts-pattern` `match().with().exhaustive()` to dispatch step rendering |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/page.meta.ts` | Page auth guard metadata |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/types.ts` | Domain types shared across wizard files |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/components/AddressFields.tsx` | Reusable address form fragment |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/components/PackageEditor.tsx` | Package dimensions editor |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/components/WizardNav.tsx` | Step breadcrumb nav; uses `ts-pattern` `match()` instead of a nested ternary to compute per-step CSS class |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/components/ProviderStep.tsx` | Carrier selection step; uses `ts-pattern` `match(props)` with `P.string` / empty-array patterns to dispatch over the four mutually exclusive render states (loading / error / empty / loaded) |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/components/ConfigureStep.tsx` | Shipment configuration step |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/components/ConfirmStep.tsx` | Rate selection and submit step |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/hooks/shipmentApi.ts` | Pure async API functions extracted from the hook; uses `ts-pattern` `match(call).with({ ok: true, result: P.not(P.nullish) }, ...).otherwise(...)` for discriminated-union result handling across all four API calls |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/hooks/useShipmentWizard.ts` | React hook — state + orchestration only; calls `shipmentApi` functions, no direct `apiCall` usage |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/__tests__/shipmentApi.test.ts` | 17 unit tests for `shipmentApi` (success + error paths, URL/method/body assertions); uses `chance` for all data |
+| `packages/core/src/modules/shipping_carriers/backend/shipping-carriers/create/__tests__/useShipmentWizard.test.tsx` | 18 unit tests for `useShipmentWizard` (mount load, address prefill, step transitions, rate fetch, submit success/error); uses `@testing-library/react` `renderHook` with `@jest-environment jsdom` docblock |
+| `packages/core/src/modules/shipping_carriers/i18n/en.json` | ~50 new wizard i18n keys |
+| `packages/core/src/modules/shipping_carriers/i18n/pl.json` | Same keys in Polish |
 
 ---
 
@@ -344,6 +389,8 @@ Canonical env var names (`OM_INTEGRATION_<PROVIDER>_*`):
 | Status map covers all known statuses | All 19 statuses map correctly; unknown falls back |
 | `isLockerService` returns true for locker codes | `locker_standard`, `inpost_locker_allegro`, etc. → `true` |
 | `isLockerService` returns false for courier codes | `courier_standard`, `inpost_courier_standard` → `false` |
+| `GET /api/shipping-carriers/providers` returns array | Response has `providers` array; each entry has `providerKey` string |
+| `GET /api/shipping-carriers/providers` returns 401 unauthenticated | Unauthenticated request → 401 |
 
 ---
 
@@ -394,3 +441,5 @@ Canonical env var names (`OM_INTEGRATION_<PROVIDER>_*`):
 | 2026-03-14 | Initial spec created for issue #915 |
 | 2026-03-14 | Audit against ShipX Postman collection: fixed address shape (nested `address` key, `post_code`), parcel shape (courier dimensions/weight, locker lowercase template), replaced `locker_express` with `locker_economy`, added `custom_attributes.target_point`, added contact fields from credentials, noted cancelShipment has no official API endpoint, added `isLockerService` helper, added `errors.ts` to layout, renamed `api_spec/` to `postman_collection/`, added `de.json`/`es.json` to i18n list |
 | 2026-03-14 | Introduced `chance@1.1.13` as devDependency; refactored all 6 test files to use randomised test data via factory helpers (`makeCredentials`, `makeAddress`, `makePackage`, `makeShipmentInput`, `makeScope`, `makeWebhookBody`, `makeOkFetch`) — eliminates hardcoded strings/IDs/values, test count grows to 86 |
+| 2026-03-15 | Added Sales/Shipments Hub integration: 3-step wizard page (`/backend/shipping-carriers/create`), `GET /api/shipping-carriers/providers` endpoint, i18n keys (EN + PL), integration test TC-SHIP-008; fixed destination-only prefill from order addresses (billing address no longer used as origin) |
+| 2026-03-15 | Wizard refactored into colocated component and hook files; API calls extracted from `useShipmentWizard` into standalone `shipmentApi.ts` (pure async functions, no React); `ts-pattern` `match()` applied in three places: step dispatch in `page.tsx` (exhaustive), render-state dispatch in `ProviderStep.tsx` (loading/error/empty/loaded with `P.string` and empty-array patterns), per-step CSS class in `WizardNav.tsx` (replaces nested ternary), and `ok`/`result` result handling across all four functions in `shipmentApi.ts` (`P.not(P.nullish)` guard); 35 unit tests added (17 for `shipmentApi`, 18 for `useShipmentWizard`) |

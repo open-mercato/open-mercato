@@ -208,6 +208,7 @@
   },
   "dependencies": {
     "@types/html-to-text": "^9.0.4",
+    "ts-pattern": "^5.0.0",
     "@types/semver": "^7.5.8",
     "@xyflow/react": "^12.6.0",
     "ai": "^6.0.0",

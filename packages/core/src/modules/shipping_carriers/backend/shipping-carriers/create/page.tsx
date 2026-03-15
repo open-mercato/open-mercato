@@ -1,0 +1,74 @@
+"use client"
+
+import { match } from 'ts-pattern'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { WizardNav } from './components/WizardNav'
+import { ProviderStep } from './components/ProviderStep'
+import { ConfigureStep } from './components/ConfigureStep'
+import { ConfirmStep } from './components/ConfirmStep'
+import { useShipmentWizard } from './hooks/useShipmentWizard'
+
+const CreateCarrierShipmentPage = () => {
+  const t = useT()
+  const wizard = useShipmentWizard()
+
+  return (
+    <Page>
+      <PageBody>
+        <FormHeader
+          backHref={wizard.backHref}
+          title={t('shipping_carriers.create.title', 'Create carrier shipment')}
+        />
+
+        <WizardNav step={wizard.step} onNavigate={wizard.goToStep} />
+
+        {match(wizard.step)
+          .with('provider', () => (
+            <ProviderStep
+              isLoading={wizard.isLoadingProviders}
+              error={wizard.providerError}
+              providers={wizard.providers}
+              onSelect={wizard.handleProviderSelect}
+            />
+          ))
+          .with('configure', () => (
+            <ConfigureStep
+              origin={wizard.origin}
+              destination={wizard.destination}
+              packages={wizard.packages}
+              labelFormat={wizard.labelFormat}
+              isFetchingRates={wizard.isFetchingRates}
+              canProceed={wizard.canProceedFromConfigure}
+              onOriginChange={wizard.setOrigin}
+              onDestinationChange={wizard.setDestination}
+              onPackagesChange={wizard.setPackages}
+              onLabelFormatChange={wizard.setLabelFormat}
+              onBack={() => wizard.goToStep('provider')}
+              onNext={wizard.handleConfigureNext}
+            />
+          ))
+          .with('confirm', () => (
+            <ConfirmStep
+              rates={wizard.rates}
+              ratesError={wizard.ratesError}
+              selectedRate={wizard.selectedRate}
+              selectedProvider={wizard.selectedProvider ?? ''}
+              origin={wizard.origin}
+              destination={wizard.destination}
+              packages={wizard.packages}
+              labelFormat={wizard.labelFormat}
+              isSubmitting={wizard.isSubmitting}
+              onRateSelect={wizard.setSelectedRate}
+              onBack={() => wizard.goToStep('configure')}
+              onSubmit={wizard.handleSubmit}
+            />
+          ))
+          .exhaustive()}
+      </PageBody>
+    </Page>
+  )
+}
+
+export default CreateCarrierShipmentPage

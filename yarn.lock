@@ -19983,6 +19983,7 @@ __metadata:
     tailwind-merge: "npm:^3.4.0"
     ts-jest: "npm:^29.4.6"
     ts-node: "npm:^10.9.2"
+    ts-pattern: "npm:^5.9.0"
     tsconfig-paths: "npm:^4.2.0"
     tsx: "npm:^4.21.0"
     turbo: "npm:^2.3.3"
@@ -25035,6 +25036,13 @@ __metadata:
     ts-node-transpile-only: dist/bin-transpile.js
     ts-script: dist/bin-script-deprecated.js
   checksum: 10/a91a15b3c9f76ac462f006fa88b6bfa528130dcfb849dd7ef7f9d640832ab681e235b8a2bc58ecde42f72851cc1d5d4e22c901b0c11aa51001ea1d395074b794
+  languageName: node
+  linkType: hard
+
+"ts-pattern@npm:^5.9.0":
+  version: 5.9.0
+  resolution: "ts-pattern@npm:5.9.0"
+  checksum: 10/0df8cc63d731a596f3541a305eff10f055c9a761d1a8b3776781dc6d6430c6bd8be8cd333fac62138c5d88e1209b4d8dccf1f40041091b634e5018908281417b
   languageName: node
   linkType: hard
 
