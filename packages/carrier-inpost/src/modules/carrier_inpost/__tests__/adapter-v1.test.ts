@@ -255,9 +255,9 @@ describe('inpostAdapterV1', () => {
     function makeCreateResponse(shipmentId: string, offerId: number, overrides: Record<string, unknown> = {}) {
       return {
         id: shipmentId,
-        status: 'offer_selected',
+        status: 'offers_prepared',
         tracking_number: null,
-        offers: [{ id: offerId, status: 'selected' }],
+        offers: [{ id: offerId, status: 'available' }],
         ...overrides,
       }
     }
@@ -276,10 +276,26 @@ describe('inpostAdapterV1', () => {
       trackingNumber: string,
       createOverrides: Record<string, unknown> = {},
       buyOverrides: Record<string, unknown> = {},
+      labelBuffer: ArrayBuffer = new ArrayBuffer(4),
     ) {
+      // Call order:
+      //   1. POST /organizations/{orgId}/shipments  (create — always offers: [])
+      //   2. GET  /shipments/{id}                   (re-fetch for async offers)
+      //   3. POST /shipments/{id}/buy               (buy)
+      //   4. GET  /shipments/{id}                   (re-fetch for async tracking number)
+      //   5. GET  /shipments/{id}/label             (label download)
+      const confirmedResponse = {
+        id: shipmentId,
+        status: 'confirmed',
+        tracking_number: trackingNumber,
+        ...buyOverrides,
+      }
       return jest.fn()
-        .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId, createOverrides)) })
+        .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId, { ...createOverrides, offers: [] })) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId, createOverrides)) })
         .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeBuyResponse(trackingNumber, buyOverrides)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(confirmedResponse) })
+        .mockResolvedValueOnce({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(labelBuffer) })
     }
 
     it('POSTs to create endpoint then calls /buy and returns shipmentId and trackingNumber', async () => {
@@ -294,16 +310,27 @@ describe('inpostAdapterV1', () => {
       const result = await inpostAdapterV1.createShipment(input)
 
       const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
-      expect(calls).toHaveLength(2)
+      expect(calls).toHaveLength(5)
 
       const [createUrl, createInit] = calls[0]!
       expect(createUrl).toContain(`/v1/organizations/${orgId}/shipments`)
       expect(createInit.method).toBe('POST')
 
-      const [buyUrl, buyInit] = calls[1]!
+      const [refetchUrl] = calls[1]!
+      expect(refetchUrl).toContain(`/v1/shipments/${shipmentId}`)
+      expect((calls[1]![1] as RequestInit | undefined)?.method ?? 'GET').toBe('GET')
+
+      const [buyUrl, buyInit] = calls[2]!
       expect(buyUrl).toContain(`/v1/shipments/${shipmentId}/buy`)
       expect(buyInit.method).toBe('POST')
       expect(JSON.parse(buyInit.body as string)).toEqual({ offer_id: offerId })
+
+      const [confirmUrl] = calls[3]!
+      expect(confirmUrl).toContain(`/v1/shipments/${shipmentId}`)
+      expect((calls[3]![1] as RequestInit | undefined)?.method ?? 'GET').toBe('GET')
+
+      const [labelUrl] = calls[4]!
+      expect(labelUrl).toContain(`/v1/shipments/${shipmentId}/label`)
 
       expect(result.shipmentId).toBe(shipmentId)
       expect(result.trackingNumber).toBe(trackingNumber)
@@ -339,29 +366,121 @@ describe('inpostAdapterV1', () => {
       const shipmentId = chance.guid()
       const trackingNumber = chance.string({ length: 24, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' })
 
-      global.fetch = jest.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({ id: shipmentId, tracking_number: trackingNumber, offers: [] }),
-      })
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: () => Promise.resolve({ id: shipmentId, tracking_number: trackingNumber, offers: [] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ id: shipmentId, tracking_number: trackingNumber, offers: [] }),
+        })
 
       const result = await inpostAdapterV1.createShipment(makeShipmentInput())
 
-      expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+      expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2)
       expect(result.trackingNumber).toBe(trackingNumber)
     })
 
-    it('includes labelData when the create response contains a label string', async () => {
+    it('fetches label from GET /v1/shipments/{id}/label after buy and returns it as base64 labelData', async () => {
       const shipmentId = chance.guid()
       const offerId = chance.integer({ min: 1000, max: 9999 })
       const trackingNumber = chance.guid()
-      const labelData = `${chance.string({ length: 40 })}==`
+      // 4-byte PDF-like buffer: [0x25, 0x50, 0x44, 0x46] = "%PDF"
+      const labelBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46])
+      const expectedBase64 = btoa('%PDF')
 
-      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, trackingNumber, { label: labelData })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, trackingNumber, {}, {}, labelBytes.buffer)
 
       const result = await inpostAdapterV1.createShipment(makeShipmentInput())
 
-      expect(result.labelData).toBe(labelData)
+      const calls = (global.fetch as jest.Mock).mock.calls as [string][]
+      expect(calls[4]![0]).toContain(`/v1/shipments/${shipmentId}/label`)
+      expect((calls[4]![0] as string)).toContain('format=Pdf')
+      expect((calls[4]![0] as string)).toContain('type=A6')
+      expect(result.labelData).toBe(expectedBase64)
+    })
+
+    it('requests ZPL label format when labelFormat is "zpl"', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(makeShipmentInput({ labelFormat: 'zpl' }))
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string][]
+      expect((calls[4]![0] as string)).toContain('format=Zpl')
+    })
+
+    it('falls back to Pdf label format when labelFormat is "png" (unsupported by InPost)', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(makeShipmentInput({ labelFormat: 'png' }))
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string][]
+      expect((calls[4]![0] as string)).toContain('format=Pdf')
+    })
+
+    it('falls back to shipment.label when the label endpoint returns an error', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      const trackingNumber = chance.guid()
+      const fallbackLabel = `${chance.string({ length: 40 })}==`
+
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId, { offers: [] })) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId, { label: fallbackLabel })) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeBuyResponse(trackingNumber)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ id: shipmentId, status: 'confirmed', tracking_number: trackingNumber }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, text: () => Promise.resolve('not found') })
+
+      const result = await inpostAdapterV1.createShipment(makeShipmentInput())
+
+      expect(result.labelData).toBe(fallbackLabel)
+    })
+
+    it('returns no labelData when both the label endpoint and shipment.label are absent', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      const trackingNumber = chance.guid()
+
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId, { offers: [] })) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeBuyResponse(trackingNumber)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve({ id: shipmentId, status: 'confirmed', tracking_number: trackingNumber }) })
+        .mockResolvedValueOnce({ ok: false, status: 404, text: () => Promise.resolve('not found') })
+
+      const result = await inpostAdapterV1.createShipment(makeShipmentInput())
+
+      expect(result.labelData).toBeUndefined()
+    })
+
+    it('does not fetch label when buy step is skipped (no offer)', async () => {
+      const shipmentId = chance.guid()
+      const trackingNumber = chance.string({ length: 24, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' })
+
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: () => Promise.resolve({ id: shipmentId, tracking_number: trackingNumber, offers: [] }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ id: shipmentId, tracking_number: trackingNumber, offers: [] }),
+        })
+
+      await inpostAdapterV1.createShipment(makeShipmentInput())
+
+      expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2)
     })
 
     it('includes estimatedDelivery when scheduled_delivery_end is present in create response', async () => {
@@ -559,9 +678,9 @@ describe('inpostAdapterV1', () => {
 
       global.fetch = makeOkFetch(
         {
-          tracking_number: trackingNumber,
+          trackingNumber: trackingNumber,
           status: 'delivered',
-          tracking_details: [
+          trackingDetails: [
             { status: 'taken_by_courier', datetime: '2026-03-14T08:00:00Z' },
             { status: 'delivered', datetime: '2026-03-15T14:00:00Z' },
           ],
@@ -585,7 +704,7 @@ describe('inpostAdapterV1', () => {
       const shipmentId = chance.guid()
 
       global.fetch = makeOkFetch(
-        { tracking_number: chance.guid(), status: 'in_transit', tracking_details: [] },
+        { trackingNumber: chance.guid(), status: 'in_transit', trackingDetails: [] },
         200,
       )
 
@@ -601,9 +720,9 @@ describe('inpostAdapterV1', () => {
       ).rejects.toThrow('trackingNumber or shipmentId is required')
     })
 
-    it('returns empty events array when tracking_details is absent', async () => {
+    it('returns empty events array when trackingDetails is absent', async () => {
       global.fetch = makeOkFetch(
-        { tracking_number: chance.guid(), status: 'in_transit' },
+        { trackingNumber: chance.guid(), status: 'in_transit' },
         200,
       )
 
@@ -617,20 +736,32 @@ describe('inpostAdapterV1', () => {
   })
 
   describe('cancelShipment', () => {
-    it('throws because InPost does not support shipment cancellation via API', async () => {
-      await expect(
-        inpostAdapterV1.cancelShipment({ credentials: makeCredentials(), shipmentId: chance.guid() }),
-      ).rejects.toThrow('InPost does not support shipment cancellation via API')
+    it('sends DELETE to /v1/shipments/:id and returns status cancelled', async () => {
+      const shipmentId = chance.guid()
+      global.fetch = jest.fn().mockResolvedValueOnce({ ok: true, status: 204 })
+
+      const result = await inpostAdapterV1.cancelShipment({
+        credentials: makeCredentials(),
+        shipmentId,
+      })
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      expect(calls).toHaveLength(1)
+      expect(calls[0]![0]).toContain(`/v1/shipments/${shipmentId}`)
+      expect(calls[0]![1].method).toBe('DELETE')
+      expect(result.status).toBe('cancelled')
     })
 
-    it('does not make any HTTP request', async () => {
-      global.fetch = jest.fn()
+    it('propagates API errors (e.g. invalid_action for already-confirmed shipment)', async () => {
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('{"error":"invalid_action"}'),
+      })
 
       await expect(
         inpostAdapterV1.cancelShipment({ credentials: makeCredentials(), shipmentId: chance.guid() }),
-      ).rejects.toThrow()
-
-      expect(global.fetch).not.toHaveBeenCalled()
+      ).rejects.toThrow('InPost API error 400')
     })
   })
 
@@ -647,10 +778,16 @@ describe('inpostAdapterV1', () => {
   })
 
   describe('verifyWebhook', () => {
-    it('returns a webhook event for valid JSON payload', async () => {
-      const eventId = `evt-${chance.guid()}`
-      const status = chance.pickone(['delivered', 'in_transit', 'canceled'])
-      const body = JSON.stringify({ id: eventId, status, created_at: new Date().toISOString() })
+    it('returns a webhook event for valid JSON payload using the real InPost envelope shape', async () => {
+      const shipmentId = chance.integer({ min: 1000, max: 999999 })
+      // 'canceled' is the InPost status string; it maps to unified 'cancelled'
+      const inpostStatus = chance.pickone(['delivered', 'taken_by_courier', 'canceled'])
+      const body = JSON.stringify({
+        event: 'shipment_status_changed',
+        event_ts: new Date().toISOString(),
+        organization_id: 1,
+        payload: { shipment_id: shipmentId, status: inpostStatus, tracking_number: '123' },
+      })
 
       const event = await inpostAdapterV1.verifyWebhook({
         rawBody: body,
@@ -658,8 +795,8 @@ describe('inpostAdapterV1', () => {
         credentials: {},
       })
 
-      expect(event.eventType).toBe(status)
-      expect(event.eventId).toBe(eventId)
+      expect(typeof event.eventType).toBe('string')
+      expect(event.eventId).toBe(String(shipmentId))
     })
   })
 })

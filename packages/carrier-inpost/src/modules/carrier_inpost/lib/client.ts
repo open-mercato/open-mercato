@@ -75,3 +75,39 @@ export async function inpostRequest<T>(
 
   return response.json() as Promise<T>
 }
+
+/**
+ * Fetches a binary or text response from the InPost API (e.g. label download).
+ * Returns the raw response body as an ArrayBuffer so the caller can convert it
+ * to base64 or any other representation.
+ */
+export async function inpostRequestRaw(
+  credentials: Record<string, unknown>,
+  path: string,
+  query?: Record<string, string>,
+): Promise<ArrayBuffer> {
+  const baseUrl = resolveBaseUrl(credentials)
+  const token = resolveApiToken(credentials)
+
+  const url = new URL(`${baseUrl}${path}`)
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      url.searchParams.set(key, value)
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': '*/*',
+    },
+  })
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw inpostErrors.apiError(response.status, text)
+  }
+
+  return response.arrayBuffer()
+}

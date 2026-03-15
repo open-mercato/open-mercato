@@ -63,6 +63,7 @@ export type ShippingWebhookEvent = {
   idempotencyKey: string
   data: Record<string, unknown>
   timestamp: Date
+  trackingNumber?: string
 }
 
 export interface ShippingAdapter {

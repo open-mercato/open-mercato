@@ -9,7 +9,7 @@ import type {
   UnifiedShipmentStatus,
   Address,
 } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
-import { inpostRequest, resolveOrganizationId } from '../client'
+import { inpostRequest, inpostRequestRaw, resolveOrganizationId } from '../client'
 import { mapInpostStatus, mapServiceCodeToInpost, isLockerService } from '../status-map'
 import { verifyInpostWebhook } from '../webhook-handler'
 import { inpostErrors } from '../errors'
@@ -34,9 +34,10 @@ type InpostBuyResponse = {
 }
 
 type InpostTrackingResponse = {
-  tracking_number: string
+  // The live sandbox returns camelCase for top-level fields on this endpoint.
+  trackingNumber: string
   status: string
-  tracking_details?: Array<{
+  trackingDetails?: Array<{
     status: string
     datetime: string
     [key: string]: unknown
@@ -161,6 +162,68 @@ function resolveTargetPoint(credentials: Record<string, unknown>): string | unde
   return typeof point === 'string' && point.trim().length > 0 ? point.trim() : undefined
 }
 
+type InpostLabelFormat = 'Pdf' | 'Zpl'
+
+function resolveInpostLabelFormat(labelFormat: CreateShipmentInput['labelFormat']): InpostLabelFormat {
+  return match(labelFormat)
+    .with('zpl', () => 'Zpl' as const)
+    .otherwise(() => 'Pdf' as const)
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Poll shipment until status reaches 'confirmed' or max retries are exhausted.
+// InPost processes buy transactions asynchronously — the buy response arrives before
+// the transaction settles, so a single re-fetch is not always sufficient.
+async function pollUntilConfirmed(
+  credentials: Record<string, unknown>,
+  shipmentId: string,
+  maxRetries = 8,
+  retryDelayMs = 1000,
+): Promise<InpostShipmentResponse> {
+  let last = await inpostRequest<InpostShipmentResponse>(
+    credentials,
+    `/v1/shipments/${encodeURIComponent(shipmentId)}`,
+  )
+  for (let attempt = 1; attempt < maxRetries && last.status !== 'confirmed'; attempt++) {
+    await sleep(retryDelayMs)
+    last = await inpostRequest<InpostShipmentResponse>(
+      credentials,
+      `/v1/shipments/${encodeURIComponent(shipmentId)}`,
+    )
+  }
+  return last
+}
+
+async function fetchLabel(
+  credentials: Record<string, unknown>,
+  shipmentId: string,
+  labelFormat: CreateShipmentInput['labelFormat'],
+): Promise<string | undefined> {
+  const format = resolveInpostLabelFormat(labelFormat)
+  try {
+    const buffer = await inpostRequestRaw(
+      credentials,
+      `/v1/shipments/${encodeURIComponent(shipmentId)}/label`,
+      { format, type: 'A6' },
+    )
+    return arrayBufferToBase64(buffer)
+  } catch {
+    return undefined
+  }
+}
+
 function buildCalculateParcel(pkg: { weightKg: number; lengthCm: number; widthCm: number; heightCm: number } | undefined) {
   if (!pkg) return { template: 'small' }
   return {
@@ -262,12 +325,17 @@ export const inpostAdapterV1: ShippingAdapter = {
     const targetPoint = resolveTargetPoint(input.credentials)
     const customAttributes = targetPoint ? { target_point: targetPoint } : undefined
 
+    // InPost requires reference to be at least 3 characters (max 100).
+    // Pad short orderId values with leading zeros to meet the minimum.
+    const rawReference = input.orderId
+    const reference = rawReference.length >= 3 ? rawReference : rawReference.padStart(3, '0')
+
     const body: Record<string, unknown> = {
       receiver: buildReceiverAddress(input.destination, input.credentials),
       sender: buildSenderAddress(input.origin, input.credentials),
       parcels: [buildParcel(input)],
       service: inpostServiceCode,
-      reference: input.orderId,
+      reference,
       ...(customAttributes ? { custom_attributes: customAttributes } : {}),
     }
 
@@ -279,11 +347,23 @@ export const inpostAdapterV1: ShippingAdapter = {
 
     const shipmentId = String(shipment.id)
 
-    // After creation InPost automatically selects an offer (status = "offer_selected").
-    // We must call /buy with the selected offer_id to confirm and receive a tracking number.
-    const selectedOffer = (shipment.offers ?? []).find(
-      (o) => o.status === 'selected',
+    // InPost populates offers asynchronously after creation — the POST response
+    // always returns offers: []. A single GET re-fetch (which adds enough latency)
+    // resolves within ~500ms on the sandbox and returns the selected offer.
+    const refetched = await inpostRequest<InpostShipmentResponse>(
+      input.credentials,
+      `/v1/shipments/${encodeURIComponent(shipmentId)}`,
     )
+
+    // After creation InPost populates offers asynchronously. The re-fetched response
+    // contains one offer with status "available" (pre-buy), "selected", or "bought".
+    // Pick the first usable offer, or fall back to selected_offer if set.
+    const offerFromArray = (refetched.offers ?? []).find(
+      (o) => o.status === 'available' || o.status === 'selected' || o.status === 'bought',
+    )
+    const selectedOffer = offerFromArray
+      ?? (refetched.selected_offer as { id: number | string; status: string } | null | undefined)
+      ?? undefined
     const offerId = selectedOffer?.id
 
     const bought = offerId !== undefined
@@ -294,24 +374,40 @@ export const inpostAdapterV1: ShippingAdapter = {
         )
       : undefined
 
-    // Tracking number may appear at shipment level or on the first parcel after buy.
+    // The buy transaction is also processed asynchronously — the buy response returns the
+    // shipment with tracking_number: null and transactions: []. Poll with retries until
+    // status reaches "confirmed" and the real tracking number is available.
+    const confirmed = bought !== undefined
+      ? await pollUntilConfirmed(input.credentials, shipmentId)
+      : undefined
+
+    // Tracking number may appear at shipment level or on the first parcel after confirmation.
     // Use minLength(1) to treat empty strings the same as null/undefined.
     const nonEmptyString = P.string.minLength(1)
     const trackingNumber = match([
+      confirmed?.tracking_number,
+      confirmed?.parcels?.[0]?.tracking_number,
       bought?.tracking_number,
       bought?.parcels?.[0]?.tracking_number,
       shipment.tracking_number,
     ] as const)
-      .with([nonEmptyString, P._, P._], ([t]) => t)
-      .with([P._, nonEmptyString, P._], ([, t]) => t)
-      .with([P._, P._, nonEmptyString], ([, , t]) => t)
+      .with([nonEmptyString, P._, P._, P._, P._], ([t]) => t)
+      .with([P._, nonEmptyString, P._, P._, P._], ([, t]) => t)
+      .with([P._, P._, nonEmptyString, P._, P._], ([, , t]) => t)
+      .with([P._, P._, P._, nonEmptyString, P._], ([, , , t]) => t)
+      .with([P._, P._, P._, P._, nonEmptyString], ([, , , , t]) => t)
       .otherwise(() => shipmentId)
 
-    const labelData = match(shipment.label)
-      .with(P.string, (s) => s)
+    const fetchedLabelData = offerId !== undefined
+      ? await fetchLabel(input.credentials, shipmentId, input.labelFormat)
+      : undefined
+
+    const labelData = match([fetchedLabelData, confirmed?.label ?? refetched.label ?? shipment.label] as const)
+      .with([nonEmptyString, P._], ([l]) => l)
+      .with([P._, P.string], ([, l]) => l)
       .otherwise(() => undefined)
 
-    const estimatedDelivery = match(shipment.scheduled_delivery_end)
+    const estimatedDelivery = match(confirmed?.scheduled_delivery_end ?? refetched.scheduled_delivery_end)
       .with(P.string, (s) => new Date(s))
       .otherwise(() => undefined)
 
@@ -335,22 +431,30 @@ export const inpostAdapterV1: ShippingAdapter = {
     )
 
     const status = mapInpostStatus(response.status)
-    const events = (response.tracking_details ?? []).map((detail) => ({
+    const events = (response.trackingDetails ?? []).map((detail) => ({
       status: mapInpostStatus(detail.status) as UnifiedShipmentStatus,
       occurredAt: detail.datetime,
     }))
 
     return {
-      trackingNumber: response.tracking_number ?? trackingNumber,
+      trackingNumber: response.trackingNumber ?? trackingNumber,
       status,
       events,
     }
   },
 
-  async cancelShipment(_input): Promise<{ status: UnifiedShipmentStatus }> {
-    // InPost ShipX API does not expose a shipment cancellation endpoint.
-    // Cancellations must be performed manually via the InPost merchant portal.
-    throw inpostErrors.cancelNotSupported()
+  async cancelShipment(input): Promise<{ status: UnifiedShipmentStatus }> {
+    // InPost ShipX API supports cancellation via DELETE /v1/shipments/:id.
+    // The API returns 204 No Content on success. Cancellation is only permitted
+    // for shipments in 'created' or 'offers_prepared' status; attempting to cancel
+    // a shipment in any other status results in an 'invalid_action' error from the API
+    // which will surface as an inpostErrors.apiError throw from inpostRequest.
+    await inpostRequest<void>(
+      input.credentials,
+      `/v1/shipments/${encodeURIComponent(input.shipmentId)}`,
+      { method: 'DELETE' },
+    )
+    return { status: 'cancelled' }
   },
 
   async verifyWebhook(input): Promise<ShippingWebhookEvent> {

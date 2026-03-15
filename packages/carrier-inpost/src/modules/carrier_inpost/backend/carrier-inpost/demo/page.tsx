@@ -29,9 +29,8 @@ interface ShipmentRecord {
 }
 
 interface TrackingEvent {
-  timestamp: string
+  occurredAt: string
   status: string
-  description?: string
   location?: string
 }
 
@@ -758,9 +757,8 @@ export default function InpostDemoPage() {
                     <ul className="space-y-2">
                       {tracking.events.map((event, index) => (
                         <li key={index} className="flex gap-3 text-xs">
-                          <span className="text-muted-foreground whitespace-nowrap">{event.timestamp}</span>
+                          <span className="text-muted-foreground whitespace-nowrap">{event.occurredAt}</span>
                           <span className="font-medium">{event.status}</span>
-                          {event.description && <span className="text-muted-foreground">{event.description}</span>}
                           {event.location && (
                             <span className="text-muted-foreground">@ {event.location}</span>
                           )}
