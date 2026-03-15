@@ -103,6 +103,8 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - Use manual `useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)` wiring only when you need behavior that `useGuardedMutation` does not support.
 - Keep `CrudForm` implementations reusable: extract shared field/group builders and submit handlers into module-level helpers when multiple pages or dialogs need the same shape.
 - Drive validation with a Zod schema and surface field errors via `createCrudFormError`.
+- When using `CrudForm` with Zod, validation messages may be i18n keys because `CrudForm` translates them before display.
+- If you validate outside `CrudForm` or manually map `safeParse(...).error.issues`, you MUST translate `issue.message` before passing it to `createCrudFormError` or rendering it in the UI.
 - Keep `fields` and `groups` in memoized helpers (see customers person form config).
 - Pass `entityIds` when custom fields are involved so form helpers load correct custom-field sets.
 - Use `createCrud`/`updateCrud`/`deleteCrud` for submit actions and call `flash()` for success or failure messaging.

@@ -483,6 +483,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [extendedInjectionEventsEnabled, triggerInjectionEvent],
   )
 
+  const translateValidationMessage = React.useCallback(
+    (message: string | null | undefined): string => {
+      if (typeof message !== 'string') return ''
+      const trimmed = message.trim()
+      if (!trimmed) return ''
+      return t(trimmed, trimmed)
+    },
+    [t],
+  )
+
+  const translateValidationErrors = React.useCallback(
+    (fieldErrors: Record<string, string>): Record<string, string> =>
+      Object.fromEntries(
+        Object.entries(fieldErrors).map(([fieldId, message]) => [fieldId, translateValidationMessage(message)]),
+      ),
+    [translateValidationMessage],
+  )
+
   const canNavigateTo = React.useCallback(
     async (target: string): Promise<boolean> => {
       if (!extendedInjectionEventsEnabled) return true
@@ -1564,7 +1582,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           console.debug('[crud-form] Schema validation failed', res.error.issues)
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
-        setErrors(transformedErrors)
+        setErrors(translateValidationErrors(transformedErrors))
         flash(highlightedMessage, 'error')
         return
       }
