@@ -1,37 +1,33 @@
 "use client"
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import type { CustomerUser, CustomerRole, CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
 
-type CustomerUser = {
-  id: string
-  email: string
-  displayName: string
-  emailVerified: boolean
-  customerEntityId: string | null
-  personEntityId: string | null
-  isActive: boolean
-  lastLoginAt: string | null
-  createdAt: string
-}
+export type { CustomerUser, CustomerRole, CustomerAuthResult }
 
-type CustomerRole = {
-  id: string
-  name: string
-  slug: string
-}
-
-type AuthState = {
-  user: CustomerUser | null
-  roles: CustomerRole[]
-  resolvedFeatures: string[]
-  isPortalAdmin: boolean
-  loading: boolean
-  error: string | null
-}
-
+/**
+ * Client-side hook for customer portal authentication.
+ *
+ * Fetches the authenticated customer profile from `/api/customer_accounts/portal/profile`
+ * and provides auth state + logout capability.
+ *
+ * @param orgSlug - Optional organization slug for redirect paths
+ *
+ * @example
+ * ```tsx
+ * import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
+ *
+ * function MyPortalPage({ orgSlug }: { orgSlug: string }) {
+ *   const { user, roles, resolvedFeatures, loading, logout } = useCustomerAuth(orgSlug)
+ *   if (loading) return <LoadingMessage />
+ *   if (!user) return <Redirect to={`/${orgSlug}/portal/login`} />
+ *   return <div>Welcome, {user.displayName}</div>
+ * }
+ * ```
+ */
 export function useCustomerAuth(orgSlug?: string) {
   const router = useRouter()
-  const [state, setState] = useState<AuthState>({
+  const [state, setState] = useState<CustomerAuthResult>({
     user: null,
     roles: [],
     resolvedFeatures: [],

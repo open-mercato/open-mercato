@@ -14,6 +14,10 @@ export type PageMetadata = {
   requireRoles?: readonly string[]
   // Optional fine-grained feature requirements
   requireFeatures?: readonly string[]
+  // Portal: require customer (portal user) authentication instead of staff auth
+  requireCustomerAuth?: boolean
+  // Portal: require customer-specific features (checked against CustomerRbacService)
+  requireCustomerFeatures?: readonly string[]
   // Titles and grouping (aliases supported)
   title?: string
   titleKey?: string
@@ -58,6 +62,10 @@ export type ModuleRoute = {
   requireRoles?: string[]
   // Optional fine-grained feature requirements
   requireFeatures?: string[]
+  // Portal: require customer (portal user) authentication instead of staff auth
+  requireCustomerAuth?: boolean
+  // Portal: require customer-specific features (checked against CustomerRbacService)
+  requireCustomerFeatures?: string[]
   title?: string
   titleKey?: string
   group?: string

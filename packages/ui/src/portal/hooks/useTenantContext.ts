@@ -9,6 +9,26 @@ type OrgContext = {
   error: string | null
 }
 
+/**
+ * Client-side hook for resolving organization/tenant context by slug.
+ *
+ * Used in portal pages before login/signup to resolve the tenant and organization
+ * from the URL slug via `/api/directory/organizations/lookup`.
+ *
+ * @param orgSlug - Organization slug from the URL
+ *
+ * @example
+ * ```tsx
+ * import { useTenantContext } from '@open-mercato/ui/portal/hooks/useTenantContext'
+ *
+ * function LoginPage({ orgSlug }: { orgSlug: string }) {
+ *   const { tenantId, organizationId, organizationName, loading, error } = useTenantContext(orgSlug)
+ *   if (loading) return <LoadingMessage />
+ *   if (error) return <ErrorMessage error={error} />
+ *   // ...
+ * }
+ * ```
+ */
 export function useTenantContext(orgSlug: string): OrgContext {
   const [state, setState] = useState<OrgContext>({
     tenantId: undefined,
@@ -36,7 +56,7 @@ export function useTenantContext(orgSlug: string): OrgContext {
           setState((prev) => ({
             ...prev,
             loading: false,
-            error: data?.error || `Organization not found.`,
+            error: data?.error || 'Organization not found.',
           }))
           return
         }
