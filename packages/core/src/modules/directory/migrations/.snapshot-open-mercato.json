@@ -114,6 +114,15 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
@@ -226,6 +235,17 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "organizations_tenant_slug_uniq",
+          "columnNames": [
+            "tenant_id",
+            "slug"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
           "keyName": "organizations_pkey",
           "columnNames": [
             "id"
@@ -248,7 +268,6 @@
             "id"
           ],
           "referencedTableName": "public.tenants",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },

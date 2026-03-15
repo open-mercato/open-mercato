@@ -7,6 +7,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -39,7 +41,7 @@ function formatDate(value: string | null | undefined, fallback: string): string 
   return date.toLocaleDateString()
 }
 
-async function fetchRoleFilterOptions(): Promise<Array<{ value: string; label: string }>> {
+async function fetchRoleFilterOptions(): Promise<Array<{ value: string; label: string; id: string }>> {
   try {
     const call = await apiCall<{ items?: Array<{ id: string; name: string }> }>(
       '/api/customer_accounts/admin/roles?pageSize=100',
@@ -48,10 +50,172 @@ async function fetchRoleFilterOptions(): Promise<Array<{ value: string; label: s
     const items = Array.isArray(call.result?.items) ? call.result!.items : []
     return items
       .filter((item) => typeof item?.id === 'string' && typeof item?.name === 'string')
-      .map((item) => ({ value: item.id, label: item.name }))
+      .map((item) => ({ value: item.id, label: item.name, id: item.id }))
   } catch {
     return []
   }
+}
+
+function CreateUserDialog({
+  open,
+  onOpenChange,
+  roleOptions,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (next: boolean) => void
+  roleOptions: Array<{ id: string; label: string }>
+  onCreated: () => void
+}) {
+  const t = useT()
+  const [email, setEmail] = React.useState('')
+  const [displayName, setDisplayName] = React.useState('')
+  const [password, setPassword] = React.useState('')
+  const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const resetForm = React.useCallback(() => {
+    setEmail('')
+    setDisplayName('')
+    setPassword('')
+    setSelectedRoleIds([])
+  }, [])
+
+  const handleSubmit = React.useCallback(async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!email.trim() || !displayName.trim() || !password.trim()) {
+      flash(t('customer_accounts.admin.createUser.error.required', 'Email, name, and password are required'), 'error')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const call = await apiCall<{ ok: boolean; error?: string }>(
+        '/api/customer_accounts/admin/users',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            email: email.trim(),
+            displayName: displayName.trim(),
+            password,
+            roleIds: selectedRoleIds.length > 0 ? selectedRoleIds : undefined,
+          }),
+        },
+      )
+      if (!call.ok) {
+        flash(call.result?.error || t('customer_accounts.admin.createUser.error.save', 'Failed to create user'), 'error')
+        return
+      }
+      flash(t('customer_accounts.admin.createUser.flash.created', 'User created'), 'success')
+      resetForm()
+      onOpenChange(false)
+      onCreated()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customer_accounts.admin.createUser.error.save', 'Failed to create user')
+      flash(message, 'error')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [displayName, email, onCreated, onOpenChange, password, resetForm, selectedRoleIds, t])
+
+  const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault()
+      const form = (event.target as HTMLElement).closest('form')
+      if (form) form.requestSubmit()
+    }
+  }, [])
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) resetForm(); onOpenChange(next) }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('customer_accounts.admin.createUser.title', 'Create Customer User')}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={(event) => { void handleSubmit(event) }} onKeyDown={handleKeyDown} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="create-email">
+              {t('customer_accounts.admin.createUser.fields.email', 'Email')}
+            </label>
+            <input
+              id="create-email"
+              type="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder={t('customer_accounts.admin.createUser.fields.emailPlaceholder', 'user@example.com')}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="create-name">
+              {t('customer_accounts.admin.createUser.fields.displayName', 'Display Name')}
+            </label>
+            <input
+              id="create-name"
+              type="text"
+              required
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder={t('customer_accounts.admin.createUser.fields.displayNamePlaceholder', 'John Doe')}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="create-password">
+              {t('customer_accounts.admin.createUser.fields.password', 'Password')}
+            </label>
+            <input
+              id="create-password"
+              type="password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder={t('customer_accounts.admin.createUser.fields.passwordPlaceholder', 'Min. 8 characters')}
+            />
+          </div>
+          {roleOptions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">{t('customer_accounts.admin.createUser.fields.roles', 'Roles')}</p>
+              <div className="flex flex-wrap gap-2">
+                {roleOptions.map((role) => {
+                  const isSelected = selectedRoleIds.includes(role.id)
+                  return (
+                    <button
+                      key={role.id}
+                      type="button"
+                      onClick={() => setSelectedRoleIds((prev) =>
+                        prev.includes(role.id) ? prev.filter((rid) => rid !== role.id) : [...prev, role.id],
+                      )}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        isSelected
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                      }`}
+                    >
+                      {role.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => { resetForm(); onOpenChange(false) }}>
+              {t('customer_accounts.admin.createUser.actions.cancel', 'Cancel')}
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting
+                ? t('customer_accounts.admin.createUser.actions.creating', 'Creating...')
+                : t('customer_accounts.admin.createUser.actions.create', 'Create User')}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 export default function CustomerAccountsPage() {
@@ -67,7 +231,8 @@ export default function CustomerAccountsPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
-  const [roleOptions, setRoleOptions] = React.useState<Array<{ value: string; label: string }>>([])
+  const [roleOptions, setRoleOptions] = React.useState<Array<{ value: string; label: string; id: string }>>([])
+  const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -286,6 +451,11 @@ export default function CustomerAccountsPage() {
       <PageBody>
         <DataTable<UserRow>
           title={t('customer_accounts.admin.title', 'Customer Accounts')}
+          actions={(
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              {t('customer_accounts.admin.actions.createUser', 'Create User')}
+            </Button>
+          )}
           columns={columns}
           data={rows}
           searchValue={search}
@@ -323,6 +493,12 @@ export default function CustomerAccountsPage() {
           )}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
+        />
+        <CreateUserDialog
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          roleOptions={roleOptions}
+          onCreated={() => setReloadToken((token) => token + 1)}
         />
       </PageBody>
       {ConfirmDialogElement}

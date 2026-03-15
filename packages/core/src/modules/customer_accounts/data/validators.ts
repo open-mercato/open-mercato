@@ -87,7 +87,16 @@ export const assignRolesSchema = z.object({
   roleIds: z.array(z.string().uuid()).min(1),
 })
 
+export const adminCreateUserSchema = z.object({
+  email: emailField,
+  password: passwordField,
+  displayName: displayNameField,
+  roleIds: z.array(z.string().uuid()).optional(),
+  customerEntityId: z.string().uuid().optional(),
+})
+
 export const adminUpdateUserSchema = z.object({
+  displayName: displayNameField.optional(),
   isActive: z.boolean().optional(),
   lockedUntil: z.string().datetime().nullable().optional(),
   personEntityId: z.string().uuid().nullable().optional(),
@@ -95,6 +104,12 @@ export const adminUpdateUserSchema = z.object({
   roleIds: z.array(z.string().uuid()).optional(),
 })
 
+export const adminResetPasswordSchema = z.object({
+  newPassword: passwordField,
+})
+
+export type AdminCreateUserInput = z.infer<typeof adminCreateUserSchema>
+export type AdminResetPasswordInput = z.infer<typeof adminResetPasswordSchema>
 export type SignupInput = z.infer<typeof signupSchema>
 export type LoginInput = z.infer<typeof loginSchema>
 export type EmailVerifyInput = z.infer<typeof emailVerifySchema>

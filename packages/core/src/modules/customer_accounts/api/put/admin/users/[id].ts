@@ -48,6 +48,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 
   const updates: Record<string, unknown> = {}
+  if (parsed.data.displayName !== undefined) updates.displayName = parsed.data.displayName
   if (parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive
   if (parsed.data.lockedUntil !== undefined) updates.lockedUntil = parsed.data.lockedUntil ? new Date(parsed.data.lockedUntil) : null
   if (parsed.data.personEntityId !== undefined) updates.personEntityId = parsed.data.personEntityId
@@ -59,27 +60,24 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   let rolesChanged = false
   if (parsed.data.roleIds !== undefined) {
-    // Validate all role IDs exist for the tenant
+    const validRoles: InstanceType<typeof CustomerRole>[] = []
     for (const roleId of parsed.data.roleIds) {
       const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
       if (!role) {
         return NextResponse.json({ ok: false, error: `Role ${roleId} not found` }, { status: 400 })
       }
+      validRoles.push(role)
     }
 
-    // Replace all roles (staff bypass of customer_assignable check)
-    await em.nativeDelete(CustomerUserRole, { user: user.id as any })
+    await em.nativeDelete(CustomerUserRole, { user: user.id } as Record<string, unknown>)
 
-    for (const roleId of parsed.data.roleIds) {
-      const role = await em.findOne(CustomerRole, { id: roleId })
-      if (role) {
-        const userRole = em.create(CustomerUserRole, {
-          user,
-          role,
-          createdAt: new Date(),
-        } as any)
-        em.persist(userRole)
-      }
+    for (const role of validRoles) {
+      const userRole = em.create(CustomerUserRole, {
+        user,
+        role,
+        createdAt: new Date(),
+      } as Partial<InstanceType<typeof CustomerUserRole>>)
+      em.persist(userRole)
     }
     await em.flush()
     rolesChanged = true

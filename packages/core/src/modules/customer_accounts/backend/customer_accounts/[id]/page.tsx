@@ -7,6 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -41,6 +42,96 @@ function formatDate(value: string | null | undefined, fallback: string): string 
   return date.toLocaleString()
 }
 
+function ResetPasswordDialog({
+  open,
+  onOpenChange,
+  userId,
+}: {
+  open: boolean
+  onOpenChange: (next: boolean) => void
+  userId: string
+}) {
+  const t = useT()
+  const [newPassword, setNewPassword] = React.useState('')
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const handleSubmit = React.useCallback(async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!newPassword.trim() || newPassword.length < 8) {
+      flash(t('customer_accounts.admin.detail.resetPassword.error.minLength', 'Password must be at least 8 characters'), 'error')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const call = await apiCall<{ ok: boolean; error?: string }>(
+        `/api/customer_accounts/admin/users/${encodeURIComponent(userId)}/reset-password`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ newPassword }),
+        },
+      )
+      if (!call.ok) {
+        flash(call.result?.error || t('customer_accounts.admin.detail.resetPassword.error.save', 'Failed to reset password'), 'error')
+        return
+      }
+      flash(t('customer_accounts.admin.detail.resetPassword.flash.success', 'Password reset successfully'), 'success')
+      setNewPassword('')
+      onOpenChange(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.resetPassword.error.save', 'Failed to reset password')
+      flash(message, 'error')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [newPassword, onOpenChange, t, userId])
+
+  const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault()
+      const form = (event.target as HTMLElement).closest('form')
+      if (form) form.requestSubmit()
+    }
+  }, [])
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next) setNewPassword(''); onOpenChange(next) }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('customer_accounts.admin.detail.resetPassword.title', 'Reset Password')}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={(event) => { void handleSubmit(event) }} onKeyDown={handleKeyDown} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="reset-password">
+              {t('customer_accounts.admin.detail.resetPassword.fields.newPassword', 'New Password')}
+            </label>
+            <input
+              id="reset-password"
+              type="password"
+              required
+              minLength={8}
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder={t('customer_accounts.admin.detail.resetPassword.fields.placeholder', 'Min. 8 characters')}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => { setNewPassword(''); onOpenChange(false) }}>
+              {t('customer_accounts.admin.detail.resetPassword.actions.cancel', 'Cancel')}
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting
+                ? t('customer_accounts.admin.detail.resetPassword.actions.resetting', 'Resetting...')
+                : t('customer_accounts.admin.detail.resetPassword.actions.reset', 'Reset Password')}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function CustomerUserDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -51,8 +142,11 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
   const [error, setError] = React.useState<string | null>(null)
   const [isSaving, setIsSaving] = React.useState(false)
   const [editActive, setEditActive] = React.useState<boolean | null>(null)
+  const [editDisplayName, setEditDisplayName] = React.useState('')
   const [availableRoles, setAvailableRoles] = React.useState<Array<{ id: string; name: string }>>([])
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
+  const [resetPasswordOpen, setResetPasswordOpen] = React.useState(false)
+  const [isVerifying, setIsVerifying] = React.useState(false)
 
   React.useEffect(() => {
     if (!id) {
@@ -73,6 +167,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
         if (cancelled) return
         setData(payload)
         setEditActive(payload.isActive)
+        setEditDisplayName(payload.displayName)
         setSelectedRoleIds(payload.roles.map((role) => role.id))
       } catch (err) {
         if (cancelled) return
@@ -110,26 +205,35 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     if (!data || !id) return
     setIsSaving(true)
     try {
-      await apiCall(
+      const call = await apiCall<{ ok: boolean; error?: string }>(
         `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
+            displayName: editDisplayName.trim() || undefined,
             isActive: editActive,
             roleIds: selectedRoleIds,
           }),
         },
       )
+      if (!call.ok) {
+        flash(call.result?.error || t('customer_accounts.admin.detail.error.save', 'Failed to save user'), 'error')
+        return
+      }
       flash(t('customer_accounts.admin.detail.flash.saved', 'User updated'), 'success')
-      setData((prev) => prev ? { ...prev, isActive: editActive ?? prev.isActive } : prev)
+      setData((prev) => prev ? {
+        ...prev,
+        isActive: editActive ?? prev.isActive,
+        displayName: editDisplayName.trim() || prev.displayName,
+      } : prev)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.error.save', 'Failed to save user')
       flash(message, 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [data, editActive, id, selectedRoleIds, t])
+  }, [data, editActive, editDisplayName, id, selectedRoleIds, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!data || !id) return
@@ -156,6 +260,34 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
       flash(message, 'error')
     }
   }, [confirm, data, id, router, t])
+
+  const handleVerifyEmail = React.useCallback(async () => {
+    if (!data || !id) return
+    const confirmed = await confirm({
+      title: t('customer_accounts.admin.detail.verifyEmail.confirm', 'Mark email as verified for "{{name}}"?', {
+        name: data.displayName || data.email,
+      }),
+    })
+    if (!confirmed) return
+    setIsVerifying(true)
+    try {
+      const call = await apiCall<{ ok: boolean; error?: string }>(
+        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}/verify-email`,
+        { method: 'POST' },
+      )
+      if (!call.ok) {
+        flash(call.result?.error || t('customer_accounts.admin.detail.verifyEmail.error', 'Failed to verify email'), 'error')
+        return
+      }
+      flash(t('customer_accounts.admin.detail.verifyEmail.flash.success', 'Email marked as verified'), 'success')
+      setData((prev) => prev ? { ...prev, emailVerifiedAt: new Date().toISOString() } : prev)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.verifyEmail.error', 'Failed to verify email')
+      flash(message, 'error')
+    } finally {
+      setIsVerifying(false)
+    }
+  }, [confirm, data, id, t])
 
   const handleRevokeSession = React.useCallback(async (sessionId: string) => {
     if (!id) return
@@ -238,9 +370,9 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.email', 'Email')}</dt>
                 <dd>{data.email}</dd>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.emailVerified', 'Email Verified')}</dt>
-                <dd>
+                <dd className="flex items-center gap-2">
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                     data.emailVerifiedAt
                       ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
@@ -250,6 +382,18 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                       ? t('customer_accounts.admin.verified', 'Yes')
                       : t('customer_accounts.admin.unverified', 'No')}
                   </span>
+                  {!data.emailVerifiedAt && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { void handleVerifyEmail() }}
+                      disabled={isVerifying}
+                    >
+                      {isVerifying
+                        ? t('customer_accounts.admin.detail.verifyEmail.actions.verifying', 'Verifying...')
+                        : t('customer_accounts.admin.detail.verifyEmail.actions.verify', 'Mark Verified')}
+                    </Button>
+                  )}
                 </dd>
               </div>
               <div className="flex justify-between">
@@ -297,6 +441,19 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
         <div className="rounded-lg border p-4 space-y-4">
           <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.settings', 'Account Settings')}</h2>
           <div className="space-y-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="user-display-name">
+                {t('customer_accounts.admin.detail.fields.displayName', 'Display Name')}
+              </label>
+              <input
+                id="user-display-name"
+                type="text"
+                value={editDisplayName}
+                onChange={(event) => setEditDisplayName(event.target.value)}
+                className="flex h-9 w-full max-w-sm rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </div>
+
             <div className="flex items-center gap-3">
               <label className="text-sm font-medium" htmlFor="user-active-toggle">
                 {t('customer_accounts.admin.detail.fields.isActive', 'Active')}
@@ -356,6 +513,17 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
         </div>
 
         <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setResetPasswordOpen(true)}>
+              {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border p-4 space-y-3">
           <h2 className="text-sm font-semibold">
             {t('customer_accounts.admin.detail.sections.sessions', 'Active Sessions')}
             {data.sessions.length > 0 && (
@@ -393,6 +561,12 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
             </div>
           )}
         </div>
+
+        <ResetPasswordDialog
+          open={resetPasswordOpen}
+          onOpenChange={setResetPasswordOpen}
+          userId={id!}
+        />
       </PageBody>
       {ConfirmDialogElement}
     </Page>
