@@ -1,11 +1,17 @@
 "use client"
 import * as React from 'react'
 import { apiCall } from '../utils/apiCall'
-import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { useAppEvent } from '../injection/useAppEvent'
 import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
 
+function isVisibleProgressJob(job: ProgressJobDto): boolean {
+  return job.meta?.hiddenFromTopBar !== true
+}
+
 function upsertJob(list: ProgressJobDto[], job: ProgressJobDto): ProgressJobDto[] {
+  if (!isVisibleProgressJob(job)) {
+    return list.filter((item) => item.id !== job.id)
+  }
   const next = [job, ...list.filter((item) => item.id !== job.id)]
   return next.sort(
     (a, b) =>
@@ -26,8 +32,8 @@ export function useProgressSse(): UseProgressPollResult {
         '/api/progress/active',
       )
       if (result.ok && result.result) {
-        setActiveJobs(result.result.active)
-        setRecentlyCompleted(result.result.recentlyCompleted)
+        setActiveJobs(result.result.active.filter(isVisibleProgressJob))
+        setRecentlyCompleted(result.result.recentlyCompleted.filter(isVisibleProgressJob))
         setError(null)
       }
     } catch (err) {
@@ -47,7 +53,7 @@ export function useProgressSse(): UseProgressPollResult {
 
   useAppEvent(
     'progress.job.updated',
-    (event: AppEventPayload) => {
+    (event) => {
       const payload = event.payload as Partial<ProgressJobDto> & { jobId?: string }
       const jobId = payload?.jobId
       if (!jobId) {
@@ -60,6 +66,7 @@ export function useProgressSse(): UseProgressPollResult {
           jobType: payload.jobType ?? 'progress',
           name: payload.name ?? payload.jobType ?? 'Progress job',
           description: payload.description ?? null,
+          meta: (payload.meta && typeof payload.meta === 'object') ? payload.meta as Record<string, unknown> : null,
           status: (payload.status as ProgressJobDto['status']) ?? 'running',
           progressPercent: payload.progressPercent ?? 0,
           processedCount: payload.processedCount ?? 0,

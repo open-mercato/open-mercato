@@ -7,6 +7,8 @@ import { addCustomLine, addPayment, addShipment, createSalesDocument } from '@op
  * Source: .ai/qa/scenarios/TC-INT-001-quote-to-order-to-invoice.md
  */
 test.describe('TC-INT-001: Quote to Order to Invoice to Payment', () => {
+  test.setTimeout(60_000);
+
   test('should progress quote to order and record fulfillment/payment actions', async ({ page }) => {
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'quote' });

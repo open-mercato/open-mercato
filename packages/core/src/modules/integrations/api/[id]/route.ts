@@ -5,6 +5,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getBundle, getBundleIntegrations, getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../lib/credentials-service'
 import type { IntegrationStateService } from '../../lib/state-service'
+import {
+  finalizeIntegrationsReadResponse,
+  integrationApiRoutePaths,
+  runIntegrationsReadBeforeInterceptors,
+} from '../umes-read'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -38,47 +43,68 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const container = await createRequestContainer()
+  const beforeInterceptors = await runIntegrationsReadBeforeInterceptors({
+    routePath: integrationApiRoutePaths.detail,
+    request: req,
+    auth,
+    container,
+  })
+  if (!beforeInterceptors.ok) {
+    return NextResponse.json(beforeInterceptors.body, { status: beforeInterceptors.statusCode })
+  }
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
   const [credentials, state] = await Promise.all([
     credentialsService.resolve(integration.id, scope),
-    stateService.get(integration.id, scope),
+    stateService.resolveState(integration.id, scope),
   ])
 
   const bundle = integration.bundleId ? getBundle(integration.bundleId) : undefined
   const bundleIntegrations = integration.bundleId
     ? await Promise.all(
       getBundleIntegrations(integration.bundleId).map(async (item) => {
-        const itemState = await stateService.get(item.id, scope)
-        const resolvedState = {
-          isEnabled: itemState?.isEnabled ?? true,
-          apiVersion: itemState?.apiVersion ?? null,
-          reauthRequired: itemState?.reauthRequired ?? false,
-          lastHealthStatus: itemState?.lastHealthStatus ?? null,
-          lastHealthCheckedAt: itemState?.lastHealthCheckedAt?.toISOString() ?? null,
-        }
+        const resolvedState = await stateService.resolveState(item.id, scope)
         return {
           ...item,
           isEnabled: resolvedState.isEnabled,
-          state: resolvedState,
+          state: {
+            isEnabled: resolvedState.isEnabled,
+            apiVersion: resolvedState.apiVersion,
+            reauthRequired: resolvedState.reauthRequired,
+            lastHealthStatus: resolvedState.lastHealthStatus,
+            lastHealthCheckedAt: resolvedState.lastHealthCheckedAt?.toISOString() ?? null,
+          },
         }
       }),
     )
     : []
 
-  return NextResponse.json({
-    integration,
-    bundle,
-    bundleIntegrations,
-    state: {
-      isEnabled: state?.isEnabled ?? true,
-      apiVersion: state?.apiVersion ?? null,
-      reauthRequired: state?.reauthRequired ?? false,
-      lastHealthStatus: state?.lastHealthStatus ?? null,
-      lastHealthCheckedAt: state?.lastHealthCheckedAt?.toISOString() ?? null,
+  return finalizeIntegrationsReadResponse({
+    routePath: integrationApiRoutePaths.detail,
+    request: req,
+    auth,
+    container,
+    interceptorRequest: beforeInterceptors.request,
+    beforeMetadata: beforeInterceptors.metadataByInterceptor,
+    enrich: {
+      targetEntity: 'integrations.integration',
+      recordKeys: ['integration'],
+      listKeys: ['bundleIntegrations'],
     },
-    hasCredentials: Boolean(credentials),
+    body: {
+      integration,
+      bundle,
+      bundleIntegrations,
+      state: {
+        isEnabled: state.isEnabled,
+        apiVersion: state.apiVersion,
+        reauthRequired: state.reauthRequired,
+        lastHealthStatus: state.lastHealthStatus,
+        lastHealthCheckedAt: state.lastHealthCheckedAt?.toISOString() ?? null,
+      },
+      hasCredentials: Boolean(credentials),
+    },
   })
 }

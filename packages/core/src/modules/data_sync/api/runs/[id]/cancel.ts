@@ -44,12 +44,25 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     return NextResponse.json({ error: 'Only pending or running runs can be cancelled' }, { status: 409 })
   }
 
+  const progressCtx = {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId: auth.sub,
+  }
+
   if (run.progressJobId) {
-    await progressService.cancelJob(run.progressJobId, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      userId: auth.sub,
-    })
+    try {
+      await progressService.markCancelled(run.progressJobId, progressCtx)
+    } catch (error) {
+      const job = await progressService.getJob(run.progressJobId, progressCtx)
+      const cancelRequested = job && (job.status === 'running' || job.status === 'cancelled')
+        ? await progressService.isCancellationRequested(run.progressJobId)
+        : false
+
+      if (job?.status !== 'cancelled' && !cancelRequested) {
+        throw error
+      }
+    }
   }
 
   await syncRunService.markStatus(run.id, 'cancelled', scope)

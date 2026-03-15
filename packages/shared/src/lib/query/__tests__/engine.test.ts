@@ -232,6 +232,41 @@ describe('BasicQueryEngine', () => {
     ]))
   })
 
+  test('uses search tokens for index document fields on base entities', async () => {
+    const fakeKnex = createFakeKnex({
+      todos: [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeKnex as any)
+    const tableExistsSpy = jest.spyOn(engine as any, 'tableExists').mockResolvedValue(true)
+    const hasSearchTokensSpy = jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('example:todo', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      filters: {
+        search_text: { $ilike: '%avision%' },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(tableExistsSpy).toHaveBeenCalledWith('search_tokens')
+    expect(hasSearchTokensSpy).toHaveBeenCalledWith(
+      'example:todo',
+      't1',
+      expect.objectContaining({ ids: ['org1'] }),
+    )
+    expect(applySearchTokensSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entity: 'example:todo',
+        field: 'search_text',
+        recordIdColumn: 'todos.id',
+      }),
+    )
+  })
+
   test('join filters use whereExists with configured alias', async () => {
     const fakeKnex = createFakeKnex({
       customer_entities: [],

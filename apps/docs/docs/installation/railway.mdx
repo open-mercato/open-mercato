@@ -1,0 +1,109 @@
+---
+title: Deploy on Railway
+description: One-click deployment of Open Mercato on Railway with PostgreSQL, Redis, and Meilisearch.
+---
+
+# Deploy on Railway
+
+[Railway](https://railway.com) is a cloud platform that makes it easy to deploy Open Mercato with a full backing-service stack — PostgreSQL (with pgvector), Redis, and Meilisearch — in a few clicks.
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/TKvo95)
+
+:::warning Hobby plan required
+Open Mercato requires at least **2 GB of memory**. The Railway **Hobby plan** (or higher) is required — the free tier does not provide enough resources to run the full stack.
+:::
+
+---
+
+## What gets deployed
+
+The Railway template provisions the following services automatically:
+
+| Service | Details |
+|---------|---------|
+| **Open Mercato** | Production Docker image (Next.js 16 + Node 24) |
+| **PostgreSQL** | Managed PostgreSQL with pgvector extension |
+| **Redis** | Redis 7 for caching and event persistence |
+| **Meilisearch** | Full-text search engine |
+
+---
+
+## Environment variables
+
+After clicking the deploy button, Railway will prompt you to fill in the required environment variables before the first deploy starts.
+
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `JWT_SECRET` | A long random string used to sign auth tokens. Generate one with `openssl rand -base64 32`. |
+| `APP_URL` | The public URL of your deployment, e.g. `https://my-app.up.railway.app`. Used for email links and redirects. |
+
+### Optional but recommended
+
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | Enables AI features (OCR, vector search, AI assistant). |
+| `RESEND_API_KEY` | Transactional emails (invitations, password resets). |
+| `RESEND_FROM_EMAIL` | Sender address, e.g. `no-reply@yourdomain.com`. |
+| `DEMO_MODE` | Set to `false` to skip seeding demo CRM data on first boot. Defaults to `true`. |
+
+:::info Railway auto-wires services
+Railway automatically injects `DATABASE_URL`, `REDIS_URL`, and `MEILISEARCH_HOST` / `MEILISEARCH_API_KEY` from the provisioned services. You do not need to set these manually.
+:::
+
+---
+
+## First boot
+
+On the first deploy, the app container runs `yarn mercato init` which:
+
+1. Applies all database migrations
+2. Seeds default roles and permissions
+3. Creates an admin user
+4. Loads demo CRM data (companies, people, deals, activities) — skip with `DEMO_MODE=false`
+
+The admin credentials are printed in the deploy logs. Open the Railway dashboard → your service → **Logs** to retrieve them.
+
+---
+
+## Accessing your deployment
+
+Once all services show **Active** in the Railway dashboard, click the generated domain for the `open-mercato` service (or configure a custom domain under **Settings → Networking**) and navigate to `/backend` to sign in.
+
+---
+
+## Persistent storage
+
+Railway volumes are used for file uploads (attachments). The template mounts a volume at `/app/apps/mercato/storage`. If you redeploy without a volume, uploaded files will be lost — make sure the volume is attached before going to production.
+
+---
+
+## Custom domain
+
+1. Go to your service in the Railway dashboard
+2. Open **Settings → Networking → Custom Domain**
+3. Add your domain and follow the DNS instructions
+4. Update `APP_URL` to match your new domain
+
+---
+
+## Troubleshooting
+
+**Deployment stuck or failing**
+
+Check the build logs in the Railway dashboard. Common causes:
+- Missing required environment variables (`JWT_SECRET`, `APP_URL`)
+- Database not yet ready when the app starts (Railway retries automatically)
+
+**Cannot log in after first deploy**
+
+Open the service logs and search for `Admin credentials` to find the generated password printed during initialization.
+
+**Meilisearch not indexing**
+
+Verify `MEILISEARCH_HOST` and `MEILISEARCH_API_KEY` are set (Railway injects these automatically from the Meilisearch service). Trigger a manual re-index via **Settings → Search** in the admin panel.
+
+**Running out of memory**
+
+The default Railway plan may be tight for the full stack. Upgrade your plan or reduce `NODE_OPTIONS=--max-old-space-size` in the service environment variables.

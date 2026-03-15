@@ -23,6 +23,7 @@ PACKAGES=(
   "queue"
   "ui"
   "core"
+  "gateway-stripe"
   "search"
   "content"
   "onboarding"

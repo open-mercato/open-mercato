@@ -1,0 +1,179 @@
+---
+title: Stripe Payment Gateway
+description: Configure Stripe credentials, test payments with the demo page, and set up webhooks for production.
+sidebar_label: Stripe Payments
+---
+
+This guide walks you through connecting Stripe to Open Mercato, running your first test payment, and preparing for production with webhooks.
+
+## Optional env preconfiguration
+
+If your deployment already knows the Stripe credentials, you can preconfigure the Stripe integration automatically instead of filling the credentials form manually after every fresh install.
+
+Use these env vars:
+
+```env
+OM_INTEGRATION_STRIPE_PUBLISHABLE_KEY=pk_test_...
+OM_INTEGRATION_STRIPE_SECRET_KEY=sk_test_...
+OM_INTEGRATION_STRIPE_WEBHOOK_SECRET=whsec_...
+OM_INTEGRATION_STRIPE_API_VERSION=2025-02-24.acacia
+OM_INTEGRATION_STRIPE_ENABLED=true
+OM_INTEGRATION_STRIPE_FORCE_PRECONFIGURE=false
+```
+
+Notes:
+
+- the three key values are required for preconfiguration
+- if `OM_INTEGRATION_STRIPE_API_VERSION` is omitted, Open Mercato pins Stripe's default supported version
+- legacy aliases `OPENMERCATO_STRIPE_*` and `STRIPE_*` are still accepted
+
+To rerun the preset for an existing tenant:
+
+```bash
+yarn mercato gateway_stripe configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
+## Prerequisites
+
+- A Stripe account (test mode is fine for getting started).
+- Access to the Stripe Dashboard at [dashboard.stripe.com](https://dashboard.stripe.com).
+- The `integrations.credentials.manage` and `payment_gateways.manage` features enabled for your role.
+
+## Step 1 — Enter Stripe credentials
+
+1. Navigate to **External Systems → Integrations** and click **Configure** on the Stripe card.
+2. Open the **Credentials** tab.
+3. Fill in three fields from your Stripe Dashboard → Developers → API keys:
+
+![Stripe credentials](/screenshots/open-mercato-stripe-credentials.png)
+
+| Field | Where to find it | Example prefix |
+|-------|-----------------|----------------|
+| **Publishable Key** | API keys page — copy the publishable key for the mode (test or live) you want to use | `pk_test_...` or `pk_live_...` |
+| **Secret Key** | API keys page — reveal or rotate the secret key for the same mode | `sk_test_...` or `sk_live_...` |
+| **Webhook Signing Secret** | Webhooks page — the endpoint signing secret (see [Step 4](#step-4--set-up-webhooks)) | `whsec_...` |
+
+4. Click **Save Credentials**.
+
+:::caution
+Use keys from the **same mode** — do not mix test publishable keys with live secret keys. Stripe will reject cross-mode requests.
+:::
+
+## Step 2 — Verify health
+
+Switch to the **Health** tab and click **Run Check**.
+
+![Health check — Healthy](/screenshots/open-mercato-stripe-health.png)
+
+A **Healthy** result confirms Open Mercato can reach the Stripe API with your credentials. The details panel shows your Stripe account ID, country, business type, and whether charges and payouts are enabled.
+
+If the check fails, double-check the secret key and ensure it matches the mode of the publishable key.
+
+## Step 3 — Test with the Payment Gateway Demo
+
+Open Mercato ships with a built-in demo page for testing the full payment lifecycle without writing code. Navigate to the **Payment Gateway Demo** page (available in the example module).
+
+### Authorize a payment
+
+Click **Pay with Stripe**. The demo creates a payment session through the hub, then uses Stripe.js to confirm the card payment with the test card `4242 4242 4242 4242`.
+
+![Payment authorized](/screenshots/open-mercato-example-payments-authorize.png)
+
+On success you will see:
+
+- A **Success** banner with "Payment authorized successfully."
+- **Transaction Details** showing the provider, transaction ID, Stripe session (Payment Intent) ID, and the internal payment ID.
+- Action buttons: **Capture**, **Refund**, **Cancel**, and **Refresh Status**.
+
+### Capture, refund, and cancel
+
+From the Transaction Details card:
+
+- **Capture** — settles the authorized funds. After capture the status moves to `captured`.
+- **Refund** — returns funds to the customer. After refund the status moves to `refunded`.
+
+![Refund successful](/screenshots/open-mercato-example-payments-refund.png)
+
+- **Cancel** — voids the authorization before capture.
+- **Refresh Status** — polls Stripe for the latest Payment Intent status and updates the local transaction.
+
+Each action calls the corresponding Payment Gateway API endpoint under the hood.
+
+### Verify on Stripe Dashboard
+
+After running the demo, open **Stripe Dashboard → Payments**. You should see the matching transaction with the same amount and status:
+
+![Stripe transactions](/screenshots/stripe-transactions-referencing-om.png)
+
+The description field references the Open Mercato origin, making it easy to cross-reference.
+
+## Step 4 — Set up webhooks
+
+Webhooks allow Stripe to push status updates (captures, refunds, disputes) to Open Mercato in real time, instead of relying on polling. This is strongly recommended for production.
+
+### Configure the endpoint in Stripe
+
+1. Go to **Stripe Dashboard → Developers → Webhooks**.
+2. Click **Add endpoint**.
+3. Set the endpoint URL to:
+
+```text
+https://YOUR_APP_URL/api/payment_gateways/webhook/stripe
+```
+
+4. Subscribe to these events at minimum:
+
+```text
+payment_intent.succeeded
+payment_intent.payment_failed
+payment_intent.canceled
+payment_intent.requires_action
+charge.refunded
+charge.refund.updated
+charge.dispute.created
+charge.dispute.closed
+```
+
+5. After creating the endpoint, reveal the **Signing secret** (starts with `whsec_`).
+6. Paste it into the **Webhook Signing Secret** field in Open Mercato's Stripe credentials (see [Step 1](#step-1--enter-stripe-credentials)) and save.
+
+### Local development with ngrok
+
+Stripe cannot reach `localhost` directly. Use a tunnel:
+
+```bash
+ngrok http 3000
+```
+
+Then set the webhook endpoint URL in Stripe to:
+
+```text
+https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/stripe
+```
+
+Remember to update the signing secret in Open Mercato whenever you recreate the Stripe webhook endpoint.
+
+## Step 5 — Monitor via integration logs
+
+After running payments, check the **Logs** tab on the Stripe integration page to see a full audit trail:
+
+![Integration logs](/screenshots/open-mercato-stripe-refunded-status-log.png)
+
+Each log entry records the operation (session created, status updated, payment captured, payment refunded), the entity type and ID, and a structured payload you can copy for debugging.
+
+## Programmatic usage
+
+For building custom checkout flows, headless storefronts, or server-to-server integrations, see the [Payment Gateways REST API](/api/payment-gateways) reference. It covers:
+
+- Creating payment sessions (`POST /payment_gateways/sessions`)
+- Stripe.js integration with `clientSecret` and `publishableKey`
+- Capture, refund, and cancel operations
+- Status polling and webhook processing
+- End-to-end TypeScript code examples
+
+## Next steps
+
+- [Payment Transactions](./payment-transactions) — inspect all transactions, webhook activity, and gateway logs in one place.
+- [Integration Marketplace](./integrations) — manage all external service connections.
+- [Payment Gateways REST API](/api/payment-gateways) — full API reference with curl and TypeScript examples.
+- [Building a Gateway Provider](/framework/modules/building-gateway-provider) — create your own payment gateway adapter.

@@ -807,6 +807,7 @@ async function syncCategoryAssignments(
   product: CatalogProduct,
   categoryIds: string[] | undefined,
 ): Promise<void> {
+  if (categoryIds === undefined) return;
   const normalized = Array.from(
     new Set(
       (Array.isArray(categoryIds) ? categoryIds : [])
@@ -866,6 +867,7 @@ async function syncProductTags(
   product: CatalogProduct,
   tags: string[] | undefined,
 ): Promise<void> {
+  if (tags === undefined) return;
   const labelMap = new Map<string, string>();
   if (Array.isArray(tags)) {
     tags.forEach((raw) => {

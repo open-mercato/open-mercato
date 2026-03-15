@@ -42,6 +42,9 @@ jobs:
       - name: Rebuild packages with generated files
         run: yarn build:packages
 
+      - name: Check dependency version conflicts
+        run: yarn check:dep-versions
+
       - name: Check i18n sync
         run: yarn tsx scripts/i18n-check-sync.ts
 
@@ -147,7 +150,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
-          path: .ai/qa/test-results/
+          path: |
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
           if-no-files-found: ignore
 
   docker-build:

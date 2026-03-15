@@ -1,0 +1,180 @@
+# Agent Context Routing — {{PROJECT_NAME}}
+
+Read this file before any task. Load ONLY the files listed for your task type.
+Do NOT load the entire src/ tree — Open Mercato apps can have many modules.
+
+## What This Project Is
+
+A standalone Open Mercato application built ON TOP of the framework.
+The framework lives in `node_modules/@open-mercato/*`. Never edit `node_modules` directly.
+To customise a built-in module beyond extensions, eject with `yarn mercato eject <module>`.
+
+## Task → Context Map
+
+Match your task, then load the listed file(s) BEFORE writing code. A task may match multiple rows.
+
+### Module Development
+
+| Task | Load |
+|---|---|
+| Scaffold a new module from scratch | `.ai/skills/module-scaffold/SKILL.md` |
+| Design entities and relationships | `.ai/skills/data-model-design/SKILL.md` |
+| Build backend UI (forms, tables, pages) | `.ai/skills/backend-ui-design/SKILL.md` |
+| Build an integration provider | `.ai/skills/integration-builder/SKILL.md` |
+
+### Extending Core Modules (UMES)
+
+| Task | Load |
+|---|---|
+| Extend a core module (add fields, columns, menus, interceptors, enrichers) | `.ai/skills/system-extension/SKILL.md` |
+| Eject and customize a core module | `.ai/skills/eject-and-customize/SKILL.md` |
+| Add a response enricher to another module's API | `.ai/guides/core.md` → Response Enrichers |
+| Add an API interceptor (before/after hooks) | `.ai/guides/core.md` → API Interceptors |
+| Inject widgets into forms/tables/menus | `.ai/guides/core.md` → Widget Injection |
+| Replace or wrap a UI component | `.ai/guides/core.md` → Component Replacement |
+
+### Framework Feature Usage
+
+| Task | Load |
+|---|---|
+| Add/modify an entity, create migration | `.ai/guides/core.md` → Module Files, then `yarn db:generate` |
+| Add a REST API endpoint | `.ai/guides/core.md` → API Routes |
+| Add a backend page | `.ai/guides/ui.md` → CrudForm / DataTable |
+| Add event subscribers or emit events | `.ai/guides/events.md` |
+| Add real-time browser updates (SSE) | `.ai/guides/events.md` → DOM Event Bridge |
+| Add search to a module | `.ai/guides/search.md` |
+| Add caching | `.ai/guides/cache.md` |
+| Add background workers | `.ai/guides/queue.md` |
+| Use i18n (translations) | `.ai/guides/shared.md` → i18n |
+| Use encrypted queries | `.ai/guides/shared.md` → Encryption |
+| Use apiCall / UI components | `.ai/guides/ui.md` |
+| Add permissions (RBAC) | `.ai/guides/core.md` → Access Control |
+| Add notifications | `.ai/guides/core.md` → Notifications |
+| Add custom fields | `.ai/guides/core.md` → Custom Fields |
+
+### Quality & Process
+
+| Task | Load |
+|---|---|
+| Debug / fix errors | `.ai/skills/troubleshooter/SKILL.md` |
+| Review code changes | `.ai/skills/code-review/SKILL.md` |
+| Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
+
+## Module Anatomy
+
+Each module in `src/modules/<id>/` is self-contained and auto-discovered:
+
+```
+src/modules/<id>/
+├── index.ts              # Module metadata
+├── data/
+│   ├── entities.ts       # MikroORM entity classes
+│   ├── validators.ts     # Zod validation schemas
+│   ├── extensions.ts     # Cross-module entity links
+│   └── enrichers.ts      # Response enrichers
+├── api/
+│   ├── <resource>/route.ts  # REST handlers (auto-discovered by method)
+│   └── interceptors.ts      # API route interception hooks
+├── backend/              # Admin UI pages (auto-discovered)
+│   └── page.tsx          # → /backend/<module>
+├── frontend/             # Public pages (auto-discovered)
+├── subscribers/          # Event handlers (export metadata + default handler)
+├── workers/              # Background jobs (export metadata + default handler)
+├── widgets/
+│   ├── injection/        # UI widgets injected into other modules
+│   ├── injection-table.ts # Widget-to-slot mappings
+│   └── components.ts     # Component replacement/wrapper definitions
+├── di.ts                 # Awilix DI registrations
+├── acl.ts                # Permission features
+├── setup.ts              # Tenant init, role features, seed data
+├── events.ts             # Typed event declarations
+├── search.ts             # Search indexing configuration
+├── ce.ts                 # Custom entities / custom field sets
+├── translations.ts       # Translatable fields per entity
+├── notifications.ts      # Notification type definitions
+└── notifications.client.ts  # Client-side notification renderers
+```
+
+Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
+
+## Critical Conventions
+
+- After any module/entity change: `yarn generate`
+- After any entity edit: `yarn db:generate` (never hand-write migrations)
+- NEVER edit `.mercato/generated/*` — auto-generated
+- NEVER edit `node_modules/@open-mercato/*` — eject instead
+- Custom modules use `from: '@app'` in `src/modules.ts`
+- Confirm migrations with user before `yarn db:migrate`
+
+## Naming Conventions
+
+- Module IDs: plural, snake_case (`order_items`)
+- Event IDs: `module.entity.action` (singular entity, past tense: `sales.order.created`)
+- DB tables: plural, snake_case with module prefix (`catalog_products`)
+- DB columns: snake_case (`created_at`, `organization_id`)
+- JS/TS identifiers: camelCase
+- Feature IDs: `<module>.<action>` (`my_module.view`, `my_module.create`)
+- UUID primary keys, explicit foreign keys, junction tables for M2M
+
+## Key Imports Quick Reference
+
+```typescript
+// Translations
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+
+// API calls (MUST use — never raw fetch)
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+
+// CRUD forms
+import { CrudForm, createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+
+// UI components (MUST use — never raw <button>)
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { FormHeader, FormFooter } from '@open-mercato/ui/backend/forms'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+
+// Encrypted queries (MUST use instead of em.find)
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// Events
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
+
+// Widget injection
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+
+// Types
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+```
+
+## Key Commands
+
+| Command | Purpose |
+|---|---|
+| `yarn dev` | Start dev server |
+| `yarn generate` | Regenerate `.mercato/generated/` |
+| `yarn db:generate` | Create migration for entity changes |
+| `yarn db:migrate` | Apply pending migrations |
+| `yarn initialize` | Bootstrap DB + first admin account |
+| `yarn build` | Build for production |
+| `yarn mercato eject <module>` | Copy a core module into `src/modules/` |
+
+## Architecture Rules
+
+- NO direct ORM relationships between modules — use foreign key IDs
+- Always filter by `organization_id` for tenant-scoped entities
+- Validate all inputs with Zod; derive types via `z.infer`
+- Use DI (Awilix) for services; avoid `new`-ing directly
+- No `any` types — use Zod schemas with `z.infer`, narrow with runtime checks
+- Every dialog: `Cmd/Ctrl+Enter` submit, `Escape` cancel
+- Keep `pageSize` at or below 100
+- Every API route MUST export `openApi`
+
+## Stack
+
+Next.js App Router, TypeScript, MikroORM, Awilix DI, Zod

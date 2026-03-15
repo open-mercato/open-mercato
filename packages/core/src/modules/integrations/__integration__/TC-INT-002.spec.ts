@@ -1,8 +1,9 @@
-import { expect, test, type APIResponse } from '@playwright/test'
+import { expect, request as playwrightRequest, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 
 type JsonRecord = Record<string, unknown>
+const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
@@ -27,10 +28,13 @@ test.describe('TC-INT-002: Integrations foundation APIs', () => {
     }
     const integrationId = String(items[0].id)
 
-    const noTokenResponse = await request.get(
-      `${process.env.BASE_URL?.trim() || 'http://localhost:3000'}/api/integrations/${integrationId}/credentials`,
-    )
-    expect(noTokenResponse.status()).toBe(401)
+    const anonymousRequest = await playwrightRequest.newContext({ baseURL: BASE_URL })
+    try {
+      const noTokenResponse = await anonymousRequest.get(`/api/integrations/${integrationId}/credentials`)
+      expect(noTokenResponse.status()).toBe(401)
+    } finally {
+      await anonymousRequest.dispose()
+    }
 
     const employeeToken = await getAuthToken(request, 'employee')
     const forbiddenResponse = await apiRequest(
@@ -174,7 +178,7 @@ test.describe('TC-INT-002: Integrations foundation APIs', () => {
           isEnabled:
             typeof baselineState.isEnabled === 'boolean'
               ? baselineState.isEnabled
-              : true,
+              : false,
           reauthRequired:
             typeof baselineState.reauthRequired === 'boolean'
               ? baselineState.reauthRequired

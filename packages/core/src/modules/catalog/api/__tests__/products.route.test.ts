@@ -41,7 +41,9 @@ describe('catalog products route helpers', () => {
       { id: 'offer-1', product: 'prod-1' },
       { id: 'offer-2', product: { id: 'prod-2' } },
     ]
-    const forkedEm = { find: jest.fn().mockResolvedValue(offerRows) }
+    const forkedEm = {
+      find: jest.fn().mockResolvedValue(offerRows),
+    }
     const em = { fork: () => forkedEm }
     const container = { resolve: jest.fn().mockReturnValue(em) }
     const filters = await buildProductFilters(
@@ -64,7 +66,7 @@ describe('catalog products route helpers', () => {
       tenantId: 'tenant-1',
       fieldset: 'fashion',
     })
-    expect(filters.$or).toBeDefined()
+    expect(filters.search_text).toEqual({ $ilike: '%luxe%' })
     expect(filters.status_entry_id).toEqual({ $eq: 'status' })
     expect(filters.is_active).toBe(true)
     expect(filters.is_configurable).toBe(false)
@@ -73,7 +75,9 @@ describe('catalog products route helpers', () => {
   })
 
   it('falls back to sentinel id when restricted products exclude the requested record', async () => {
-    const forkedEm = { find: jest.fn().mockResolvedValue([{ product: 'prod-allowed' }]) }
+    const forkedEm = {
+      find: jest.fn().mockResolvedValue([{ product: 'prod-allowed' }]),
+    }
     const em = { fork: () => forkedEm }
     const container = { resolve: jest.fn().mockReturnValue(em) }
     ;(buildCustomFieldFiltersFromQuery as jest.Mock).mockResolvedValueOnce({})

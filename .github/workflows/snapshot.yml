@@ -281,5 +281,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: standalone-integration-results
-          path: .ai/qa/test-results/
+          path: |
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
           if-no-files-found: ignore

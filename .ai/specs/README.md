@@ -118,7 +118,8 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered�
 | [SPEC-045b](SPEC-045b-data-sync-hub.md) | 2026-02-24 | Integration Marketplace — Data Sync Hub | Import/export hub with delta streaming for bidirectional data synchronization |
 | [SPEC-045c](SPEC-045c-payment-shipping-hubs.md) | 2026-02-24 | Integration Marketplace — Payment & Shipping Hubs | Alignment of payment and shipping connector hub architecture with SPEC-044 |
 | [SPEC-045d](SPEC-045d-communication-notification-hubs.md) | 2026-02-24 | Integration Marketplace — Communication & Notification Hubs | Communication and notification provider hub (email, SMS, chat channels) |
-| [SPEC-045e](SPEC-045e-storage-webhook-hubs.md) | 2026-02-24 | Integration Marketplace — Storage & Webhook Hubs | File storage backend hub and inbound webhook receiver hub |
+| [SPEC-045e](SPEC-045e-webhook-hub.md) | 2026-02-24 | Integration Marketplace — Webhook Endpoints Hub | Inbound/outbound webhook receiver hub (delegates to SPEC-057) |
+| [SPEC-045i](SPEC-045i-storage-hub.md) | 2026-03-10 | Integration Marketplace — Storage Providers Hub | File storage backend hub with pluggable drivers (local, S3, database) |
 | [SPEC-045f](SPEC-045f-health-monitoring.md) | 2026-02-24 | Integration Marketplace — Health Monitoring | Integration health monitoring, status dashboard, and marketplace UI polish |
 | [SPEC-045g](SPEC-045g-google-workspace.md) | 2026-02-24 | Integration Marketplace — Google Workspace | Google Workspace integration: spreadsheet-based product import as a reference data-sync connector |
 | [SPEC-045h](SPEC-045h-stripe-payment-gateway.md) | 2026-02-24 | Integration Marketplace — Stripe Gateway | Stripe payment gateway reference implementation as a marketplace connector |

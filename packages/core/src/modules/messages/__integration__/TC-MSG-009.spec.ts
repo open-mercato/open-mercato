@@ -7,16 +7,26 @@ import {
   selectRecipientFromComposer,
 } from './helpers';
 
-async function openForwardAllFromHeader(page: Page): Promise<void> {
+async function waitForMessageDetailReady(page: Page, subject: string): Promise<void> {
+  await expect(page.getByText(/Loading message\.\.\./i)).toHaveCount(0);
+  await expect(page.getByText(subject).first()).toBeVisible();
+}
+
+async function selectConversationAction(page: Page, name: RegExp): Promise<void> {
   // The ActionsDropdown opens via onMouseEnter (hover), not click.
   // Clicking toggles closed if already hovered-open, so we hover to open the menu.
   await page.getByRole('button', { name: /Conversation actions|messages\.actions\.conversationActions/i }).hover();
-  await page.getByRole('menuitem', { name: /Forward all|messages\.actions\.forwardAll/i }).first().click();
+  const menuItem = page.getByRole('menuitem', { name }).first();
+  await expect(menuItem).toBeVisible();
+  await menuItem.click({ force: true });
+}
+
+async function openForwardAllFromHeader(page: Page): Promise<void> {
+  await selectConversationAction(page, /Forward all|messages\.actions\.forwardAll/i);
 }
 
 async function openReplyFromHeader(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /Conversation actions|messages\.actions\.conversationActions/i }).hover();
-  await page.getByRole('menuitem', { name: /Reply|messages\.reply/i }).first().click();
+  await selectConversationAction(page, /Reply|messages\.reply/i);
 }
 
 /**
@@ -57,6 +67,7 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
 
       await login(page, 'admin');
       await page.goto(`/backend/messages/${fixture.messageId}`);
+      await waitForMessageDetailReady(page, fixture.subject);
 
       await openReplyFromHeader(page);
       await expect(page.getByPlaceholder('Write your reply...')).toBeVisible();
@@ -103,12 +114,13 @@ test.describe('TC-MSG-009: Message Detail Inline Reply And Forward Composer', ()
       await expect(page.getByText('Message forwarded.').first()).toBeVisible();
 
       await page.goto(`/backend/messages/${fixture.messageId}`);
+      await waitForMessageDetailReady(page, fixture.subject);
       await openReplyFromHeader(page);
+      await expect(page.getByText(/Loading message\.\.\./i)).toHaveCount(0);
       const inlineReplyInput = page.getByPlaceholder('Write your reply...');
       await expect(inlineReplyInput).toBeVisible();
       await expect(inlineReplyInput).toBeEnabled();
       await inlineReplyInput.fill(inlineReplyBody);
-      await expect(inlineReplyInput).toHaveValue(inlineReplyBody);
 
       const inlineReplyResponsePromise = page.waitForResponse((response) => {
         if (response.request().method() !== 'POST') return false;

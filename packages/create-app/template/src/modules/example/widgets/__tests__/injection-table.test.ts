@@ -48,7 +48,6 @@ describe('example injection-table flag behavior', () => {
     expect(table['example:phase-c-handlers']).toBe('example.injection.crud-validation')
     expect(table['menu:sidebar:main']).toBeDefined()
     expect(table['menu:topbar:profile-dropdown']).toBeDefined()
-
     expect(table['crud-form:catalog.product']).toBeUndefined()
     expect(table['sales.document.detail.quote:tabs']).toBeUndefined()
     expect(table['data-table:catalog.products:header']).toBeUndefined()
@@ -67,7 +66,6 @@ describe('example injection-table flag behavior', () => {
     expect(table['widget:example.injection.crud-validation:addon']).toBeDefined()
     expect(table['menu:sidebar:main']).toBeDefined()
     expect(table['menu:topbar:profile-dropdown']).toBeDefined()
-
     expect(table['crud-form:catalog.product']).toBe('example.injection.crud-validation')
     expect(table['sales.document.detail.quote:tabs']).toBeDefined()
     expect(table['sales.document.detail.order:tabs']).toBeDefined()

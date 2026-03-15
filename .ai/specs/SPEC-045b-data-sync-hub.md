@@ -37,6 +37,7 @@ Enterprise integrations move large volumes of data — 100K+ products, millions 
 | 5 | **Progress observable** — real-time progress via the `progress` module (`ProgressService`) and `ProgressTopBar` UI | Admin sees progress bar, ETA, item counts in the unified top bar — no custom progress UI needed |
 | 6 | **Error coherent** — every item-level error is logged via `integrationLog` with entity context | Admin can filter errors, see which products failed, click through to fix |
 | 7 | **Idempotent** — re-running a sync with the same cursor produces the same result | Safe to retry, safe to resume |
+| 8 | **Provider-owned bootstrap defaults** — sync providers own env-backed defaults for credentials, mappings, locales, channels, and enabled state | Fresh installs must not depend on manual setup or core patches |
 
 ---
 
@@ -85,6 +86,23 @@ interface DataSyncAdapter {
   validateConnection?(input: ValidateConnectionInput): Promise<ValidationResult>
 }
 ```
+
+### 3.4 Provider Env Presets for Sync Providers
+
+Data sync providers often need deployment-managed defaults beyond credentials, such as locale, channel selection, family filters, or mapping overrides. Those defaults belong in the provider package.
+
+Rules:
+
+- implement the preset in the provider package, not in `data_sync`
+- apply it from provider `setup.ts`
+- expose a provider CLI rerun path such as `configure-from-env`
+- use canonical env names in the `OM_INTEGRATION_<PROVIDER>_*` namespace
+
+Example names:
+
+- `OM_INTEGRATION_AKENEO_PRODUCT_LOCALE`
+- `OM_INTEGRATION_AKENEO_IMPORT_CHANNELS`
+- `OM_INTEGRATION_AKENEO_PRODUCTS_SETTINGS_JSON`
 
 ### 3.1 Import Types
 

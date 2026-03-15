@@ -1,7 +1,34 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+
+async function openDefinitionDetailWithRetries(page: Page, definitionId: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto(`/backend/definitions/${definitionId}`)
+    const addTriggerButton = page.getByRole('button', { name: 'Add Trigger' })
+    if (await addTriggerButton.isVisible().catch(() => false)) {
+      return
+    }
+
+    const genericErrorHeading = page.getByRole('heading', { name: /^Something went wrong$/i }).first()
+    if (await genericErrorHeading.isVisible().catch(() => false)) {
+      const retryButton = page.getByRole('button', { name: /Try again/i }).first()
+      if (await retryButton.isVisible().catch(() => false)) {
+        await retryButton.click().catch(() => {})
+        if (await addTriggerButton.isVisible().catch(() => false)) {
+          return
+        }
+      }
+      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {})
+      if (await addTriggerButton.isVisible().catch(() => false)) {
+        return
+      }
+    }
+  }
+
+  await expect(page.getByRole('button', { name: 'Add Trigger' })).toBeVisible()
+}
 
 /**
  * TC-WF-001: Event Pattern Autocomplete in Trigger Editor
@@ -55,10 +82,13 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
       const createBody = await createRes.json()
       definitionId = createBody.data?.id
       expect(definitionId, 'Workflow definition ID should be present after creation').toBeTruthy()
+      if (!definitionId) {
+        throw new Error('Workflow definition ID should be present after creation')
+      }
 
       // --- Navigate to the workflow definition edit page ---
       await login(page, 'admin')
-      await page.goto(`/backend/definitions/${definitionId}`)
+      await openDefinitionDetailWithRetries(page, definitionId)
 
       // --- Open the Create Event Trigger dialog ---
       await page.getByRole('button', { name: 'Add Trigger' }).click()
@@ -106,7 +136,11 @@ test.describe('TC-WF-001: Event Pattern Autocomplete', () => {
 
       // Cancel without saving — trigger creation API is out of scope for this test
       if (await dialog.isVisible().catch(() => false)) {
-        await dialog.getByRole('button', { name: 'Cancel' }).click()
+        // Press Escape to dismiss dialog — avoids DOM detachment race from React re-renders
+        await page.keyboard.press('Escape')
+        if (await dialog.isVisible().catch(() => false)) {
+          await dialog.getByRole('button', { name: 'Cancel' }).click({ timeout: 5_000 }).catch(() => {})
+        }
       }
       await expect(dialog).toBeHidden()
     } finally {

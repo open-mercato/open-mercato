@@ -31,7 +31,14 @@ function createFakeKnex(config: {
     const b: any = {
       _ops: ops,
       select: function (...cols: any[]) { ops.selects.push(cols); return this },
-      where: function (...args: any[]) { ops.wheres.push(args); return this },
+      where: function (...args: any[]) {
+        if (typeof args[0] === 'function') {
+          args[0](this)
+          return this
+        }
+        ops.wheres.push(args)
+        return this
+      },
       andWhere: function (...args: any[]) { ops.wheres.push(args); return this },
       whereRaw: function (...args: any[]) { ops.wheres.push(['raw', ...args]); return this },
       andWhereRaw: function (...args: any[]) { ops.wheres.push(['andRaw', ...args]); return this },
@@ -39,6 +46,9 @@ function createFakeKnex(config: {
       whereNotIn: function (...args: any[]) { ops.wheres.push(['notIn', ...args]); return this },
       whereNull: function (col: any) { ops.wheres.push(['isNull', col]); return this },
       whereNotNull: function (col: any) { ops.wheres.push(['notNull', col]); return this },
+      whereExists: function (sub: any) { ops.wheres.push(['exists', sub]); return this },
+      orWhereExists: function (sub: any) { ops.wheres.push(['orExists', sub]); return this },
+      havingRaw: function (...args: any[]) { ops.wheres.push(['havingRaw', ...args]); return this },
       leftJoin: function (aliasObj: any, on: any) { ops.joins.push({ aliasObj, on }); return this },
       orderBy: function (col: any, dir?: any) { ops.orderBys.push([col, dir]); return this },
       limit: function (n: number) { ops.limits = n; return this },
@@ -349,6 +359,37 @@ describe('HybridQueryEngine', () => {
       }),
     ]))
     expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  test('uses search tokens for index document fields on base entities', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 1, indexCount: 1 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const searchSourcesSpy = jest.spyOn(engine as any, 'searchSourcesHaveTokens').mockResolvedValue(true)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('example:todo', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      filters: {
+        search_text: { $ilike: '%avision%' },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(searchSourcesSpy).toHaveBeenCalled()
+    expect(applySearchTokensSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entity: 'example:todo',
+        field: 'search_text',
+        recordIdColumn: 'b.id',
+      }),
+    )
   })
 
   test('does not auto reindex when disabled via env', async () => {

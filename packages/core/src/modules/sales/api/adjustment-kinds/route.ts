@@ -8,13 +8,12 @@ import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/dictionary_entry'
 import { statusDictionaryCreateSchema, statusDictionaryUpdateSchema } from '../../data/validators'
 import { getSalesDictionaryDefinition, ensureSalesDictionary, type SalesDictionaryKind } from '../../lib/dictionaries'
-import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { buildAggregateSearchFilter, parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,
   defaultDeleteRequestSchema,
 } from '../openapi'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -143,13 +142,8 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {
         dictionary_id: dictionaryId,
       }
-      if (query.search && query.search.trim().length > 0) {
-        const term = `%${escapeLikePattern(query.search.trim())}%`
-        filters.$or = [
-          { [F.value]: { $ilike: term } },
-          { [F.label]: { $ilike: term } },
-        ]
-      }
+      const searchFilter = buildAggregateSearchFilter(query.search)
+      if (searchFilter) Object.assign(filters, searchFilter)
       return filters
     },
     transformItem: (item: any) => ({

@@ -49,7 +49,10 @@ export function ProgressTopBar({ className, t }: ProgressTopBarProps) {
               </span>
               {activeJobs[0] && (
                 <span className="text-muted-foreground">
-                  — {activeJobs[0].name} ({activeJobs[0].progressPercent}%)
+                  — {activeJobs[0].name}{' '}
+                  {activeJobs[0].totalCount && activeJobs[0].totalCount > 0
+                    ? `(${activeJobs[0].progressPercent}%)`
+                    : `(${activeJobs[0].processedCount.toLocaleString()} ${t('progress.processed', 'processed')})`}
                 </span>
               )}
             </>
@@ -141,7 +144,11 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
 
       {isActive && (
         <div className="mt-2 space-y-1">
-          <Progress value={job.progressPercent} className="h-2" />
+          {job.totalCount && job.totalCount > 0 ? (
+            <Progress value={job.progressPercent} className="h-2" />
+          ) : (
+            <IndeterminateProgressBar className="h-2" />
+          )}
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>
               {job.totalCount
@@ -155,6 +162,15 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function IndeterminateProgressBar({ className }: { className?: string }) {
+  return (
+    <div className={cn('relative w-full overflow-hidden rounded-full bg-secondary', className)}>
+      <div className="absolute inset-y-0 left-0 w-1/2 animate-pulse rounded-full bg-primary/80" />
+      <div className="absolute inset-y-0 right-0 w-1/3 rounded-full bg-primary/40" />
     </div>
   )
 }
