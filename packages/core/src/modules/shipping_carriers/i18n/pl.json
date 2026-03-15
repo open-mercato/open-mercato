@@ -24,11 +24,17 @@
   "shipping_carriers.create.field.city": "Miasto",
   "shipping_carriers.create.field.postalCode": "Kod pocztowy",
   "shipping_carriers.create.field.countryCode": "Kod kraju (ISO)",
+  "shipping_carriers.create.field.phone": "Telefon",
+  "shipping_carriers.create.field.email": "E-mail",
+  "shipping_carriers.create.field.targetPoint": "ID paczkomatu (wymagane dla usług paczkomatowych)",
 
   "shipping_carriers.create.section.origin": "Adres nadania",
   "shipping_carriers.create.section.destination": "Adres dostawy",
   "shipping_carriers.create.section.packages": "Paczki",
   "shipping_carriers.create.section.labelFormat": "Format etykiety",
+  "shipping_carriers.create.section.senderContact": "Dane kontaktowe nadawcy",
+  "shipping_carriers.create.section.receiverContact": "Dane kontaktowe odbiorcy",
+  "shipping_carriers.create.section.lockerPoint": "Paczkomat",
   "shipping_carriers.create.section.selectRate": "Wybierz usługę",
   "shipping_carriers.create.section.summary": "Podsumowanie",
 
@@ -46,6 +52,9 @@
   "shipping_carriers.create.summary.to": "Odbiór",
   "shipping_carriers.create.summary.packages": "Paczki",
   "shipping_carriers.create.summary.labelFormat": "Format etykiety",
+  "shipping_carriers.create.summary.senderContact": "Dane nadawcy",
+  "shipping_carriers.create.summary.receiverContact": "Dane odbiorcy",
+  "shipping_carriers.create.summary.targetPoint": "Paczkomat",
 
   "shipping_carriers.create.error.loadProviders": "Nie udało się załadować przewoźników.",
   "shipping_carriers.create.error.fetchRates": "Nie udało się pobrać stawek.",

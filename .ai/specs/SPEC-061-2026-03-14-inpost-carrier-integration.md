@@ -119,10 +119,12 @@ Key endpoints used:
 
 | Operation | Method | Path |
 |-----------|--------|------|
-| Create shipment | POST | `/v1/organizations/{orgId}/shipments` |
+| Create shipment (step 1) | POST | `/v1/organizations/{orgId}/shipments` |
+| Buy shipment (step 2) | POST | `/v1/shipments/{shipmentId}/buy` |
 | Get tracking | GET | `/v1/tracking/{trackingNumber}` |
-| Cancel shipment (best-effort) | DELETE | `/v1/organizations/{orgId}/shipments/{shipmentId}` |
 | Health check | GET | `/v1/organizations/{orgId}` |
+
+> **No cancel endpoint**: The ShipX API has no `DELETE /shipments/{id}` endpoint. `cancelShipment()` throws immediately with a "not supported via API" error; the cancel route returns 502. Users must cancel via the InPost merchant portal.
 
 > **Note**: `calculateRates()` calls the real InPost `/v1/organizations/{orgId}/shipments/calculate` endpoint once per service using `Promise.allSettled`. Services that return errors (e.g. missing contract, unsupported service) are silently skipped; only services with a valid `calculated_charge_amount` appear in the result. Amounts are returned in minor units (grosz). Locker services include a placeholder `target_point` (`KRA010`) and `custom_attributes` required by the calculate endpoint; courier_c2c includes `custom_attributes.sending_method = 'dispatch_order'`.
 
@@ -146,22 +148,20 @@ All adapter method signatures follow `ShippingAdapter` exactly.
 
 ### calculateRates
 
-Returns InPost service options with estimated PLN prices. Since ShipX does not expose a public pricing API, this returns a pre-configured rate table.
-
-```typescript
-// Output: ShippingRate[]
-[
-  { serviceCode: 'locker_standard', serviceName: 'InPost Locker Standard (Paczkomat)', amount: 999,  currencyCode: 'PLN', estimatedDays: 2 },
-  { serviceCode: 'locker_economy',  serviceName: 'InPost Locker Economy (Paczkomat)',  amount: 799,  currencyCode: 'PLN', estimatedDays: 3 },
-  { serviceCode: 'courier_standard',serviceName: 'InPost Courier Standard',            amount: 1299, currencyCode: 'PLN', estimatedDays: 2 },
-  { serviceCode: 'courier_c2c',     serviceName: 'InPost Courier C2C',                 amount: 1099, currencyCode: 'PLN', estimatedDays: 3 },
-]
-// amounts are in minor units (grosz)
-```
+Calls `/v1/organizations/{orgId}/shipments/calculate` once per service using `Promise.allSettled`. Services that return errors (missing contract, unsupported service) are silently skipped. Only services with a valid `calculated_charge_amount` appear in the result. Amounts are returned in minor units (grosz). Locker services include a placeholder `target_point` (`KRA010`) and `custom_attributes`; `courier_c2c` includes `custom_attributes.sending_method = 'dispatch_order'`.
 
 ### createShipment
 
-POSTs to `/v1/organizations/{orgId}/shipments`. Maps `serviceCode` to InPost `service` field.
+Two-step offer flow:
+
+1. `POST /v1/organizations/{orgId}/shipments` — returns `status: 'offer_selected'` with an `offers` array; tracking number not yet assigned.
+2. `POST /v1/shipments/{shipmentId}/buy` with `{ "offer_id": <id> }` — confirms the shipment; tracking number available on `bought.tracking_number` or `bought.parcels[0].tracking_number`.
+
+If the create response contains no offer (legacy non-offer mode), the buy step is skipped and the tracking number is read directly from the create response.
+
+Tracking number resolution priority: `bought.tracking_number` → `bought.parcels[0].tracking_number` → `shipment.tracking_number` → fallback to `shipmentId`. Empty strings are treated the same as null.
+
+Maps `serviceCode` to InPost `service` field.
 
 #### Service code mapping
 
@@ -228,7 +228,7 @@ GETs `/v1/tracking/{trackingNumber}`. Maps `status` field through `status-map.ts
 
 ### cancelShipment
 
-Issues DELETE to `/v1/organizations/{orgId}/shipments/{shipmentId}` as a best-effort call. Always returns `{ status: 'cancelled' }` on 2xx/204.
+Not supported via API. The adapter throws `inpostErrors.cancelNotSupported()` immediately without making any HTTP request. The cancel route catches the thrown `Error` and returns 502 with an explanatory message. Users must cancel shipments through the InPost merchant portal.
 
 ---
 
@@ -240,7 +240,7 @@ credentials: {
     { key: 'apiToken',           label: 'API Token (Bearer)', type: 'secret', required: true,
       helpText: 'Organization API token from InPost Manager (Manager → API → Tokens).' },
     { key: 'organizationId',     label: 'Organization ID',    type: 'text',   required: true,
-      helpText: 'Your InPost organization UUID (visible in the InPost Manager URL).' },
+      helpText: 'Your InPost organization numeric ID (integer, e.g. 6183). Use GET /v1/organizations to discover it — do NOT use the JWT account UUID.' },
     { key: 'apiBaseUrl',         label: 'API Base URL',       type: 'url',    required: false,
       placeholder: 'https://api-shipx-pl.easypack24.net',
       helpText: 'Leave empty for production. Sandbox: https://sandbox-api-shipx-pl.easypack24.net' },
@@ -298,7 +298,7 @@ Canonical env var names (`OM_INTEGRATION_<PROVIDER>_*`):
 | Env Variable | Description |
 |---|---|
 | `OM_INTEGRATION_INPOST_API_TOKEN` | Bearer token |
-| `OM_INTEGRATION_INPOST_ORGANIZATION_ID` | Organization UUID |
+| `OM_INTEGRATION_INPOST_ORGANIZATION_ID` | Organization numeric ID (integer, e.g. `6183`) — use `GET /v1/organizations` to discover; do NOT use the JWT account UUID |
 | `OM_INTEGRATION_INPOST_API_BASE_URL` | Override base URL (optional) |
 | `OM_INTEGRATION_INPOST_WEBHOOK_SECRET` | Webhook HMAC secret (optional) |
 | `OM_INTEGRATION_INPOST_ENABLED` | `true`/`false` (default: `true`) |
@@ -370,7 +370,7 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | Webhook signature missing `X-Inpost-Signature` | Medium | Return `ShippingWebhookEvent` with `eventType: 'inpost.webhook.unverified'` when secret not configured; require signature when secret is set |
 | InPost returns non-standard HTTP errors | Medium | Wrap all API calls in `inpostErrors.apiError(status, text)`; never expose raw HTTP bodies |
 | Missing InPost status in status-map | Low | Default to `'unknown'` |
-| `cancelShipment` has no supported API endpoint | Medium | Best-effort DELETE; callers should treat non-2xx as a soft failure rather than a hard error |
+| `cancelShipment` has no supported API endpoint | Medium | Adapter throws `cancelNotSupported()` immediately; cancel route returns 502; UI must surface the error and direct users to the InPost merchant portal |
 | Locker shipment missing `target_point` | Medium | Caller must set `credentials.targetPoint`; ShipX API will reject the request without it |
 
 ---
@@ -403,8 +403,9 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | `GET /api/shipping-carriers/providers` returns 401 unauthenticated | Unauthenticated request → 401 |
 | TC-INPOST-001: InPost appears in provider list | `GET /api/shipping-carriers/providers` response includes `{ providerKey: 'inpost' }` |
 | TC-INPOST-002: Rates return 4 services in PLN | `POST /api/shipping-carriers/rates` returns `locker_standard`, `locker_economy`, `courier_standard`, `courier_c2c` with PLN amounts |
-| TC-INPOST-003: Cancel `label_created` shipment succeeds | Cancel request returns 200 |
-| TC-INPOST-004: Cancel already-cancelled shipment returns 422 | Cancel of cancelled shipment returns 422 (guard validation) |
+| `cancelShipment` throws immediately (no HTTP call) | `inpostErrors.cancelNotSupported()` thrown; `cancelShipment` mock never called |
+| `TC-INPOST-003`: Cancel InPost shipment returns 502 not-supported | `POST /api/shipping-carriers/cancel` → 502; body `error` contains "InPost does not support shipment cancellation via API" |
+| `TC-INPOST-004`: Repeated cancel attempts consistently return 502 | Both first and second cancel calls return 502 with same error message |
 
 ---
 
@@ -462,3 +463,8 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | 2026-03-15 | AC11: Integration tests added under `packages/carrier-inpost/src/modules/carrier_inpost/__integration__/`: `meta.ts`, `TC-INPOST-001.spec.ts` (provider list), `TC-INPOST-002.spec.ts` (rates 4 services PLN), `TC-INPOST-003.spec.ts` (cancel label_created → 200), `TC-INPOST-004.spec.ts` (cancel cancelled → 422) |
 | 2026-03-15 | Tracking widget: declared `detail:sales.order:shipping` injection spot in `SalesDocumentDetailPage` after `SalesShipmentsSection`; created `widgets/injection/inpost-tracking/widget.ts` + `widget.client.tsx` — fetches sales shipments by orderId, finds InPost shipment via `_carrier.providerKey`, calls tracking API, renders status badge + events timeline using `ts-pattern`; registered in `widgets/injection-table.ts`; 9 i18n keys added for tracking to `en.json` and `pl.json` |
 | 2026-03-15 | End-to-end demo page fixes and ShipX API conformance: `calculateRatesSchema` extended with `receiverPhone`/`receiverEmail`; `createShipmentSchema` extended with `senderPhone`, `senderEmail`, `receiverPhone`, `receiverEmail`, `targetPoint`; `shippingCarrierService.calculateRates()` and `createShipment()` accept and merge per-request contact/targetPoint overrides on top of stored credentials; adapter `buildContactAddress` now always emits `building_number` (`addr.line2 ?? '1'`); removed hardcoded phone/email fallbacks from adapter `calculateRates`; demo page updated with receiver/sender contact fieldsets, locker point ID field, fixed `DEMO_ORDER_ID` to valid Zod v4 UUID, corrected `ShipmentRecord` interface (`id`→`shipmentId`, `unifiedStatus`→`status`); adapter fallback test updated to assert `undefined` contact; DB migration run to create `carrier_shipments` table |
+| 2026-03-15 | Live sandbox testing against InPost ShipX API revealed two critical behaviours: (1) `createShipment` uses an offer-based two-step flow — `POST /shipments` returns `offer_selected` status with an `offers` array; must then call `POST /shipments/{id}/buy` with `{ offer_id }` to confirm; tracking number is on `bought.tracking_number` or `bought.parcels[0].tracking_number`. Adapter updated with buy step; tracking number resolution priority chain added; buy step skipped when no offer present. (2) `cancelShipment` DELETE endpoint does not exist in the ShipX API (confirmed via Postman collection); adapter now throws `inpostErrors.cancelNotSupported()` immediately; cancel route returns 502 with error message; `cancelNotSupported()` error factory added to `errors.ts`; spec API contracts table, cancelShipment section, risks table, and credentials helpText all updated to reflect live findings. Org ID is a numeric integer (not a UUID) — `OM_INTEGRATION_INPOST_ORGANIZATION_ID` must store the integer org ID; use `GET /v1/organizations` to discover it. |
+| 2026-03-15 | Wizard contact fields: `ContactInfo` and `ContactFieldsProps` types added to `types.ts`; `receiverPhone`/`receiverEmail` on `FetchRatesParams`; all 5 contact/locker fields on `CreateShipmentParams`; `useShipmentWizard` state + setters for `senderContact`, `receiverContact`, `targetPoint`; `ConfigureStep` sender/receiver contact cards + locker point card; `ConfirmStep` contact + targetPoint in summary; `page.tsx` props wired; `i18n/en.json` + `pl.json` new wizard keys; 11 new tests in `shipmentApi.test.ts`, 9 new in `useShipmentWizard.test.tsx` |
+| 2026-03-15 | Integration tests TC-INPOST-003 and TC-INPOST-004 rewritten to match cancel-not-supported behaviour: TC-INPOST-003 now asserts 502 + "InPost does not support shipment cancellation via API" error; TC-INPOST-004 now asserts both first and second cancel calls return 502 consistently (no state mutation) |
+| 2026-03-15 | `i18n/de.json` and `i18n/es.json` completed: all 47 keys from `en.json` now present in both German and Spanish, including `carrier_inpost.demo.*` (demo page) and `carrier_inpost.tracking.*` (tracking widget) sections |
+| 2026-03-15 | `shipping_carriers` module audit: `shipping-service-cancel.test.ts` extended with two new tests in "adapter error propagation" describe block — (1) adapter-throws re-throws to caller, (2) `em.flush` and `emitShippingEvent` are NOT called when adapter throws (unifiedStatus stays unchanged); `emitShippingEvent` import added for assertion use |

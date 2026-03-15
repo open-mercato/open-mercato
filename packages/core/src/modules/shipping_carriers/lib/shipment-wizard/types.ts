@@ -51,3 +51,15 @@ export type PackageEditorProps = {
   onChange: (packages: PackageDimension[]) => void
   disabled?: boolean
 }
+
+export type ContactInfo = {
+  phone: string
+  email: string
+}
+
+export type ContactFieldsProps = {
+  prefix: string
+  contact: ContactInfo
+  onChange: (contact: ContactInfo) => void
+  disabled?: boolean
+}

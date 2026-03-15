@@ -16,9 +16,11 @@ import type {
   ShippingRate,
   LabelFormat,
   DocumentAddress,
+  ContactInfo,
 } from '../types'
 
 const EMPTY_ADDRESS: Address = { countryCode: '', postalCode: '', city: '', line1: '' }
+const EMPTY_CONTACT: ContactInfo = { phone: '', email: '' }
 const DEFAULT_PACKAGE: PackageDimension = { weightKg: 1, lengthCm: 20, widthCm: 15, heightCm: 10 }
 
 const buildAddressFromDocument = (doc: DocumentAddress): Address => ({
@@ -53,6 +55,9 @@ export type ShipmentWizard = {
   destination: Address
   packages: PackageDimension[]
   labelFormat: LabelFormat
+  senderContact: ContactInfo
+  receiverContact: ContactInfo
+  targetPoint: string
   isFetchingRates: boolean
   canProceedFromConfigure: boolean
 
@@ -71,6 +76,9 @@ export type ShipmentWizard = {
   setDestination: (address: Address) => void
   setPackages: (packages: PackageDimension[]) => void
   setLabelFormat: (format: LabelFormat) => void
+  setSenderContact: (contact: ContactInfo) => void
+  setReceiverContact: (contact: ContactInfo) => void
+  setTargetPoint: (point: string) => void
   setSelectedRate: (rate: ShippingRate) => void
 }
 
@@ -90,6 +98,9 @@ export const useShipmentWizard = (): ShipmentWizard => {
   const [destination, setDestination] = React.useState<Address>(EMPTY_ADDRESS)
   const [packages, setPackages] = React.useState<PackageDimension[]>([DEFAULT_PACKAGE])
   const [labelFormat, setLabelFormat] = React.useState<LabelFormat>('pdf')
+  const [senderContact, setSenderContact] = React.useState<ContactInfo>(EMPTY_CONTACT)
+  const [receiverContact, setReceiverContact] = React.useState<ContactInfo>(EMPTY_CONTACT)
+  const [targetPoint, setTargetPoint] = React.useState<string>('')
 
   const [rates, setRates] = React.useState<ShippingRate[]>([])
   const [isFetchingRates, setIsFetchingRates] = React.useState(false)
@@ -136,7 +147,14 @@ export const useShipmentWizard = (): ShipmentWizard => {
     setRatesError(null)
     setRates([])
     setSelectedRate(null)
-    const result = await fetchRates({ providerKey: selectedProvider, origin, destination, packages })
+    const result = await fetchRates({
+      providerKey: selectedProvider,
+      origin,
+      destination,
+      packages,
+      ...(receiverContact.phone ? { receiverPhone: receiverContact.phone } : {}),
+      ...(receiverContact.email ? { receiverEmail: receiverContact.email } : {}),
+    })
     if (result.ok) {
       setRates(result.rates)
       if (result.rates.length > 0) setSelectedRate(result.rates[0])
@@ -157,6 +175,11 @@ export const useShipmentWizard = (): ShipmentWizard => {
       packages,
       serviceCode: selectedRate.serviceCode,
       labelFormat,
+      ...(senderContact.phone ? { senderPhone: senderContact.phone } : {}),
+      ...(senderContact.email ? { senderEmail: senderContact.email } : {}),
+      ...(receiverContact.phone ? { receiverPhone: receiverContact.phone } : {}),
+      ...(receiverContact.email ? { receiverEmail: receiverContact.email } : {}),
+      ...(targetPoint ? { targetPoint } : {}),
     })
     setIsSubmitting(false)
     if (result.ok) {
@@ -195,6 +218,9 @@ export const useShipmentWizard = (): ShipmentWizard => {
     destination,
     packages,
     labelFormat,
+    senderContact,
+    receiverContact,
+    targetPoint,
     isFetchingRates,
     canProceedFromConfigure,
     rates,
@@ -209,6 +235,9 @@ export const useShipmentWizard = (): ShipmentWizard => {
     setDestination,
     setPackages,
     setLabelFormat,
+    setSenderContact,
+    setReceiverContact,
+    setTargetPoint,
     setSelectedRate,
   }
 }

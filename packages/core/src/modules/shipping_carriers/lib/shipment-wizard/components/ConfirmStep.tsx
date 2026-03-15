@@ -7,7 +7,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Package, CheckCircle2 } from 'lucide-react'
-import type { Address, PackageDimension, ShippingRate, LabelFormat } from '../types'
+import type { Address, PackageDimension, ShippingRate, LabelFormat, ContactInfo } from '../types'
 
 export type ConfirmStepProps = {
   rates: ShippingRate[]
@@ -18,6 +18,9 @@ export type ConfirmStepProps = {
   destination: Address
   packages: PackageDimension[]
   labelFormat: LabelFormat
+  senderContact: ContactInfo
+  receiverContact: ContactInfo
+  targetPoint: string
   isSubmitting: boolean
   onRateSelect: (rate: ShippingRate) => void
   onBack: () => void
@@ -31,6 +34,7 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
   const {
     rates, ratesError, selectedRate, selectedProvider,
     origin, destination, packages, labelFormat,
+    senderContact, receiverContact, targetPoint,
     isSubmitting, onRateSelect, onBack, onSubmit,
   } = props
   const t = useT()
@@ -137,6 +141,34 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
               </dt>
               <dd className="mt-0.5 uppercase">{labelFormat}</dd>
             </div>
+            {(senderContact.phone || senderContact.email) ? (
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('shipping_carriers.create.summary.senderContact', 'Sender contact')}
+                </dt>
+                <dd className="mt-0.5">
+                  {[senderContact.phone, senderContact.email].filter(Boolean).join(' / ')}
+                </dd>
+              </div>
+            ) : null}
+            {(receiverContact.phone || receiverContact.email) ? (
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('shipping_carriers.create.summary.receiverContact', 'Receiver contact')}
+                </dt>
+                <dd className="mt-0.5">
+                  {[receiverContact.phone, receiverContact.email].filter(Boolean).join(' / ')}
+                </dd>
+              </div>
+            ) : null}
+            {targetPoint ? (
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('shipping_carriers.create.summary.targetPoint', 'Locker point')}
+                </dt>
+                <dd className="mt-0.5">{targetPoint}</dd>
+              </div>
+            ) : null}
           </dl>
         </CardContent>
       </Card>

@@ -1,10 +1,7 @@
 import { expect, test } from '@playwright/test'
 import Chance from 'chance'
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import {
-  createShipment,
-  cancelShipment,
-} from '@open-mercato/core/modules/shipping_carriers/__integration__/helpers/fixtures'
+import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { createShipment } from '@open-mercato/core/modules/shipping_carriers/__integration__/helpers/fixtures'
 
 const chance = new Chance()
 
@@ -27,13 +24,14 @@ function makeInpostPackage() {
 }
 
 /**
- * TC-INPOST-003: Cancel InPost shipment in label_created status succeeds
+ * TC-INPOST-003: Cancel InPost shipment returns 502 with "not supported" error
  *
- * Creates an InPost shipment (which starts in label_created status) then
- * immediately cancels it. Verifies the cancel endpoint returns 200.
+ * InPost does not support shipment cancellation via API (no DELETE endpoint exists
+ * in the ShipX API). The adapter throws cancelNotSupported() immediately, which
+ * the cancel route maps to a 502 response with an explanatory error message.
  */
-test.describe('TC-INPOST-003: Cancel InPost shipment in label_created status', () => {
-  test('should cancel an InPost shipment that is in label_created status', async ({ request }) => {
+test.describe('TC-INPOST-003: Cancel InPost shipment returns not-supported error', () => {
+  test('should return 502 with not-supported error when attempting to cancel an InPost shipment', async ({ request }) => {
     const token = await getAuthToken(request)
 
     const shipment = await createShipment(request, token, {
@@ -46,10 +44,17 @@ test.describe('TC-INPOST-003: Cancel InPost shipment in label_created status', (
 
     expect(shipment.shipmentId).toBeTruthy()
 
-    const result = await cancelShipment(request, token, shipment.shipmentId, {
-      providerKey: 'inpost',
+    const response = await apiRequest(request, 'POST', '/api/shipping-carriers/cancel', {
+      token,
+      data: {
+        providerKey: 'inpost',
+        shipmentId: shipment.shipmentId,
+      },
     })
 
-    expect(result.status).toBe('cancelled')
+    expect(response.status()).toBe(502)
+    const body = await response.json()
+    expect(body.error).toBeTruthy()
+    expect(body.error).toContain('InPost does not support shipment cancellation via API')
   })
 })

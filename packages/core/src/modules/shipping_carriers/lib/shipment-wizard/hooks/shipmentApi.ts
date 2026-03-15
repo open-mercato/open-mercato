@@ -15,6 +15,8 @@ export type FetchRatesParams = {
   origin: Address
   destination: Address
   packages: PackageDimension[]
+  receiverPhone?: string
+  receiverEmail?: string
 }
 
 export type FetchRatesResult =
@@ -29,6 +31,11 @@ export type CreateShipmentParams = {
   packages: PackageDimension[]
   serviceCode: string
   labelFormat: string
+  senderPhone?: string
+  senderEmail?: string
+  receiverPhone?: string
+  receiverEmail?: string
+  targetPoint?: string
 }
 
 export type CreateShipmentResult =
@@ -64,13 +71,20 @@ export const fetchOrderAddresses = async (orderId: string): Promise<FetchOrderAd
 }
 
 export const fetchRates = async (params: FetchRatesParams): Promise<FetchRatesResult> => {
-  const { providerKey, origin, destination, packages } = params
+  const { providerKey, origin, destination, packages, receiverPhone, receiverEmail } = params
   const call = await apiCall<{ rates: ShippingRate[] }>(
     '/api/shipping-carriers/rates',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ providerKey, origin, destination, packages }),
+      body: JSON.stringify({
+        providerKey,
+        origin,
+        destination,
+        packages,
+        ...(receiverPhone !== undefined ? { receiverPhone } : {}),
+        ...(receiverEmail !== undefined ? { receiverEmail } : {}),
+      }),
     },
     { fallback: { rates: [] } },
   )

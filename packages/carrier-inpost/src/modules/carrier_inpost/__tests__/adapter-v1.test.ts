@@ -252,50 +252,126 @@ describe('inpostAdapterV1', () => {
   })
 
   describe('createShipment', () => {
-    it('POSTs to the correct URL and returns shipmentId and trackingNumber', async () => {
+    function makeCreateResponse(shipmentId: string, offerId: number, overrides: Record<string, unknown> = {}) {
+      return {
+        id: shipmentId,
+        status: 'offer_selected',
+        tracking_number: null,
+        offers: [{ id: offerId, status: 'selected' }],
+        ...overrides,
+      }
+    }
+
+    function makeBuyResponse(trackingNumber: string, overrides: Record<string, unknown> = {}) {
+      return {
+        status: 'confirmed',
+        tracking_number: trackingNumber,
+        ...overrides,
+      }
+    }
+
+    function makeCreateAndBuyFetch(
+      shipmentId: string,
+      offerId: number,
+      trackingNumber: string,
+      createOverrides: Record<string, unknown> = {},
+      buyOverrides: Record<string, unknown> = {},
+    ) {
+      return jest.fn()
+        .mockResolvedValueOnce({ ok: true, status: 201, json: () => Promise.resolve(makeCreateResponse(shipmentId, offerId, createOverrides)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeBuyResponse(trackingNumber, buyOverrides)) })
+    }
+
+    it('POSTs to create endpoint then calls /buy and returns shipmentId and trackingNumber', async () => {
       const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
       const trackingNumber = chance.string({ length: 24, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' })
       const input = makeShipmentInput()
       const orgId = input.credentials.organizationId as string
 
-      global.fetch = makeOkFetch({ id: shipmentId, tracking_number: trackingNumber })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, trackingNumber)
 
       const result = await inpostAdapterV1.createShipment(input)
 
-      const [url, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
-      expect(url).toContain(`/v1/organizations/${orgId}/shipments`)
-      expect(init.method).toBe('POST')
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      expect(calls).toHaveLength(2)
+
+      const [createUrl, createInit] = calls[0]!
+      expect(createUrl).toContain(`/v1/organizations/${orgId}/shipments`)
+      expect(createInit.method).toBe('POST')
+
+      const [buyUrl, buyInit] = calls[1]!
+      expect(buyUrl).toContain(`/v1/shipments/${shipmentId}/buy`)
+      expect(buyInit.method).toBe('POST')
+      expect(JSON.parse(buyInit.body as string)).toEqual({ offer_id: offerId })
+
       expect(result.shipmentId).toBe(shipmentId)
       expect(result.trackingNumber).toBe(trackingNumber)
     })
 
-    it('falls back to shipment id when tracking_number is absent', async () => {
+    it('uses tracking_number from parcel when shipment-level tracking_number is absent after buy', async () => {
       const shipmentId = chance.guid()
-      global.fetch = makeOkFetch({ id: shipmentId })
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      const parcelTracking = chance.string({ length: 24, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' })
+
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, '', {}, {
+        tracking_number: null,
+        parcels: [{ tracking_number: parcelTracking }],
+      })
+
+      const result = await inpostAdapterV1.createShipment(makeShipmentInput())
+
+      expect(result.trackingNumber).toBe(parcelTracking)
+    })
+
+    it('falls back to shipmentId when no tracking number is returned at all', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, '')
 
       const result = await inpostAdapterV1.createShipment(makeShipmentInput())
 
       expect(result.trackingNumber).toBe(shipmentId)
     })
 
-    it('includes labelData when the response contains a label string', async () => {
+    it('skips the buy step when create response contains no offer', async () => {
+      const shipmentId = chance.guid()
+      const trackingNumber = chance.string({ length: 24, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' })
+
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: () => Promise.resolve({ id: shipmentId, tracking_number: trackingNumber, offers: [] }),
+      })
+
+      const result = await inpostAdapterV1.createShipment(makeShipmentInput())
+
+      expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
+      expect(result.trackingNumber).toBe(trackingNumber)
+    })
+
+    it('includes labelData when the create response contains a label string', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      const trackingNumber = chance.guid()
       const labelData = `${chance.string({ length: 40 })}==`
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid(), label: labelData })
+
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, trackingNumber, { label: labelData })
 
       const result = await inpostAdapterV1.createShipment(makeShipmentInput())
 
       expect(result.labelData).toBe(labelData)
     })
 
-    it('includes estimatedDelivery when scheduled_delivery_end is present', async () => {
+    it('includes estimatedDelivery when scheduled_delivery_end is present in create response', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      const trackingNumber = chance.guid()
       const deliveryDate = chance.date({ year: 2026 }) as Date
       const isoString = deliveryDate.toISOString()
 
-      global.fetch = makeOkFetch({
-        id: chance.guid(),
-        tracking_number: chance.guid(),
-        scheduled_delivery_end: isoString,
-      })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, trackingNumber, { scheduled_delivery_end: isoString })
 
       const result = await inpostAdapterV1.createShipment(makeShipmentInput())
 
@@ -304,7 +380,9 @@ describe('inpostAdapterV1', () => {
     })
 
     it('uses lowercase "small" template when no packages are provided', async () => {
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(makeShipmentInput({ packages: [] }))
 
@@ -314,7 +392,9 @@ describe('inpostAdapterV1', () => {
     })
 
     it('uses lowercase "small" template for locker services even when packages are provided', async () => {
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(makeShipmentInput({ serviceCode: 'locker_standard' }))
 
@@ -325,7 +405,9 @@ describe('inpostAdapterV1', () => {
 
     it('uses nested dimensions/weight structure for courier services', async () => {
       const pkg = makePackage()
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(
         makeShipmentInput({ serviceCode: 'courier_standard', packages: [pkg] }),
@@ -346,7 +428,9 @@ describe('inpostAdapterV1', () => {
     })
 
     it('maps serviceCode via mapServiceCodeToInpost before sending', async () => {
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(makeShipmentInput({ serviceCode: 'locker_standard' }))
 
@@ -357,7 +441,9 @@ describe('inpostAdapterV1', () => {
 
     it('nests address fields under receiver.address with post_code', async () => {
       const destination = makeAddress()
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(makeShipmentInput({ destination }))
 
@@ -373,7 +459,9 @@ describe('inpostAdapterV1', () => {
 
     it('nests address fields under sender.address with post_code', async () => {
       const origin = makeAddress()
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(makeShipmentInput({ origin }))
 
@@ -387,7 +475,9 @@ describe('inpostAdapterV1', () => {
 
     it('includes line2 as building_number nested under receiver.address', async () => {
       const buildingNumber = chance.character({ pool: '0123456789' }) + chance.character({ pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' })
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(
         makeShipmentInput({ destination: makeAddress({ line2: buildingNumber }) }),
@@ -405,8 +495,10 @@ describe('inpostAdapterV1', () => {
       const email = chance.email()
       const phone = chance.phone({ formatted: false })
       const companyName = chance.company()
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
 
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(
         makeShipmentInput({
@@ -432,7 +524,9 @@ describe('inpostAdapterV1', () => {
 
     it('includes custom_attributes.target_point for locker services when targetPoint is in credentials', async () => {
       const targetPoint = `${chance.string({ length: 3, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' })}${chance.integer({ min: 100, max: 999 })}M`
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(
         makeShipmentInput({
@@ -447,7 +541,9 @@ describe('inpostAdapterV1', () => {
     })
 
     it('does not include custom_attributes when targetPoint is absent', async () => {
-      global.fetch = makeOkFetch({ id: chance.guid(), tracking_number: chance.guid() })
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
       await inpostAdapterV1.createShipment(makeShipmentInput())
 
@@ -455,7 +551,7 @@ describe('inpostAdapterV1', () => {
       const body = JSON.parse(init.body as string) as Record<string, unknown>
       expect(body.custom_attributes).toBeUndefined()
     })
-  })
+  }),
 
   describe('getTracking', () => {
     it('fetches tracking by trackingNumber and maps status and events', async () => {
@@ -521,29 +617,20 @@ describe('inpostAdapterV1', () => {
   })
 
   describe('cancelShipment', () => {
-    it('sends DELETE to correct URL and returns cancelled status', async () => {
-      const shipmentId = chance.guid()
-      const credentials = makeCredentials()
-      const orgId = credentials.organizationId as string
-
-      global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204, json: jest.fn() })
-
-      const result = await inpostAdapterV1.cancelShipment({ credentials, shipmentId })
-
-      expect(result.status).toBe('cancelled')
-      const [url, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
-      expect(url).toContain(`/v1/organizations/${orgId}/shipments/${shipmentId}`)
-      expect(init.method).toBe('DELETE')
+    it('throws because InPost does not support shipment cancellation via API', async () => {
+      await expect(
+        inpostAdapterV1.cancelShipment({ credentials: makeCredentials(), shipmentId: chance.guid() }),
+      ).rejects.toThrow('InPost does not support shipment cancellation via API')
     })
 
-    it('URL-encodes shipmentId with special characters', async () => {
-      global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204, json: jest.fn() })
+    it('does not make any HTTP request', async () => {
+      global.fetch = jest.fn()
 
-      const rawId = `${chance.word()}/with spaces`
-      await inpostAdapterV1.cancelShipment({ credentials: makeCredentials(), shipmentId: rawId })
+      await expect(
+        inpostAdapterV1.cancelShipment({ credentials: makeCredentials(), shipmentId: chance.guid() }),
+      ).rejects.toThrow()
 
-      const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
-      expect(url).toContain(encodeURIComponent(rawId))
+      expect(global.fetch).not.toHaveBeenCalled()
     })
   })
 

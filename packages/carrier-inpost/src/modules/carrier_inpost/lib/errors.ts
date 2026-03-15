@@ -15,6 +15,10 @@ export const inpostErrors = {
   missingTrackingIdentifier: () => throwError('trackingNumber or shipmentId is required for InPost tracking'),
   cancelNotAllowed: (status: string) =>
     throwError(`Shipment cannot be cancelled in its current status: ${status}`),
+  cancelNotSupported: () =>
+    throwError(
+      'InPost does not support shipment cancellation via API. Cancel through the InPost merchant portal.',
+    ),
   incompleteEnvPreset: () =>
     throwError(
       '[carrier_inpost] Incomplete InPost env preset. Set OM_INTEGRATION_INPOST_API_TOKEN and OM_INTEGRATION_INPOST_ORGANIZATION_ID.',

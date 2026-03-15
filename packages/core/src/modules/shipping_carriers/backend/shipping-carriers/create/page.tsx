@@ -39,12 +39,18 @@ const CreateCarrierShipmentPage = () => {
               destination={wizard.destination}
               packages={wizard.packages}
               labelFormat={wizard.labelFormat}
+              senderContact={wizard.senderContact}
+              receiverContact={wizard.receiverContact}
+              targetPoint={wizard.targetPoint}
               isFetchingRates={wizard.isFetchingRates}
               canProceed={wizard.canProceedFromConfigure}
               onOriginChange={wizard.setOrigin}
               onDestinationChange={wizard.setDestination}
               onPackagesChange={wizard.setPackages}
               onLabelFormatChange={wizard.setLabelFormat}
+              onSenderContactChange={wizard.setSenderContact}
+              onReceiverContactChange={wizard.setReceiverContact}
+              onTargetPointChange={wizard.setTargetPoint}
               onBack={() => wizard.goToStep('provider')}
               onNext={wizard.handleConfigureNext}
             />
@@ -59,6 +65,9 @@ const CreateCarrierShipmentPage = () => {
               destination={wizard.destination}
               packages={wizard.packages}
               labelFormat={wizard.labelFormat}
+              senderContact={wizard.senderContact}
+              receiverContact={wizard.receiverContact}
+              targetPoint={wizard.targetPoint}
               isSubmitting={wizard.isSubmitting}
               onRateSelect={wizard.setSelectedRate}
               onBack={() => wizard.goToStep('configure')}

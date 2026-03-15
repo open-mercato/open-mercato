@@ -24,11 +24,17 @@
   "shipping_carriers.create.field.city": "City",
   "shipping_carriers.create.field.postalCode": "Postal code",
   "shipping_carriers.create.field.countryCode": "Country code (ISO)",
+  "shipping_carriers.create.field.phone": "Phone",
+  "shipping_carriers.create.field.email": "Email",
+  "shipping_carriers.create.field.targetPoint": "Locker point ID (required for locker services)",
 
   "shipping_carriers.create.section.origin": "Origin address",
   "shipping_carriers.create.section.destination": "Destination address",
   "shipping_carriers.create.section.packages": "Packages",
   "shipping_carriers.create.section.labelFormat": "Label format",
+  "shipping_carriers.create.section.senderContact": "Sender contact",
+  "shipping_carriers.create.section.receiverContact": "Receiver contact",
+  "shipping_carriers.create.section.lockerPoint": "Locker point",
   "shipping_carriers.create.section.selectRate": "Select service",
   "shipping_carriers.create.section.summary": "Summary",
 
@@ -46,6 +52,9 @@
   "shipping_carriers.create.summary.to": "To",
   "shipping_carriers.create.summary.packages": "Packages",
   "shipping_carriers.create.summary.labelFormat": "Label format",
+  "shipping_carriers.create.summary.senderContact": "Sender contact",
+  "shipping_carriers.create.summary.receiverContact": "Receiver contact",
+  "shipping_carriers.create.summary.targetPoint": "Locker point",
 
   "shipping_carriers.create.error.loadProviders": "Failed to load shipping providers.",
   "shipping_carriers.create.error.fetchRates": "Failed to fetch shipping rates.",

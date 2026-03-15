@@ -15,10 +15,21 @@ import { verifyInpostWebhook } from '../webhook-handler'
 import { inpostErrors } from '../errors'
 
 type InpostShipmentResponse = {
-  id: string
+  id: string | number
+  status?: string
   tracking_number?: string
   label?: string
   scheduled_delivery_end?: string
+  offers?: Array<{ id: number | string; status: string; [key: string]: unknown }>
+  parcels?: Array<{ tracking_number?: string; [key: string]: unknown }>
+  [key: string]: unknown
+}
+
+type InpostBuyResponse = {
+  id: string | number
+  status?: string
+  tracking_number?: string
+  parcels?: Array<{ tracking_number?: string; [key: string]: unknown }>
   [key: string]: unknown
 }
 
@@ -266,6 +277,36 @@ export const inpostAdapterV1: ShippingAdapter = {
       { method: 'POST', body },
     )
 
+    const shipmentId = String(shipment.id)
+
+    // After creation InPost automatically selects an offer (status = "offer_selected").
+    // We must call /buy with the selected offer_id to confirm and receive a tracking number.
+    const selectedOffer = (shipment.offers ?? []).find(
+      (o) => o.status === 'selected',
+    )
+    const offerId = selectedOffer?.id
+
+    const bought = offerId !== undefined
+      ? await inpostRequest<InpostBuyResponse>(
+          input.credentials,
+          `/v1/shipments/${encodeURIComponent(shipmentId)}/buy`,
+          { method: 'POST', body: { offer_id: offerId } },
+        )
+      : undefined
+
+    // Tracking number may appear at shipment level or on the first parcel after buy.
+    // Use minLength(1) to treat empty strings the same as null/undefined.
+    const nonEmptyString = P.string.minLength(1)
+    const trackingNumber = match([
+      bought?.tracking_number,
+      bought?.parcels?.[0]?.tracking_number,
+      shipment.tracking_number,
+    ] as const)
+      .with([nonEmptyString, P._, P._], ([t]) => t)
+      .with([P._, nonEmptyString, P._], ([, t]) => t)
+      .with([P._, P._, nonEmptyString], ([, , t]) => t)
+      .otherwise(() => shipmentId)
+
     const labelData = match(shipment.label)
       .with(P.string, (s) => s)
       .otherwise(() => undefined)
@@ -275,8 +316,8 @@ export const inpostAdapterV1: ShippingAdapter = {
       .otherwise(() => undefined)
 
     return {
-      shipmentId: String(shipment.id),
-      trackingNumber: shipment.tracking_number ?? String(shipment.id),
+      shipmentId,
+      trackingNumber,
       ...(labelData ? { labelData } : {}),
       ...(estimatedDelivery ? { estimatedDelivery } : {}),
     }
@@ -306,16 +347,10 @@ export const inpostAdapterV1: ShippingAdapter = {
     }
   },
 
-  async cancelShipment(input): Promise<{ status: UnifiedShipmentStatus }> {
-    const orgId = resolveOrganizationId(input.credentials)
-
-    await inpostRequest<void>(
-      input.credentials,
-      `/v1/organizations/${orgId}/shipments/${encodeURIComponent(input.shipmentId)}`,
-      { method: 'DELETE' },
-    )
-
-    return { status: 'cancelled' }
+  async cancelShipment(_input): Promise<{ status: UnifiedShipmentStatus }> {
+    // InPost ShipX API does not expose a shipment cancellation endpoint.
+    // Cancellations must be performed manually via the InPost merchant portal.
+    throw inpostErrors.cancelNotSupported()
   },
 
   async verifyWebhook(input): Promise<ShippingWebhookEvent> {

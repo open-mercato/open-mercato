@@ -305,6 +305,96 @@ describe('useShipmentWizard', () => {
     })
   })
 
+  describe('contact fields', () => {
+    it('initialises senderContact, receiverContact, and targetPoint to empty', async () => {
+      setupBaseMocks()
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      expect(result.current.senderContact).toEqual({ phone: '', email: '' })
+      expect(result.current.receiverContact).toEqual({ phone: '', email: '' })
+      expect(result.current.targetPoint).toBe('')
+    })
+
+    it('setSenderContact updates senderContact', async () => {
+      setupBaseMocks()
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      act(() => result.current.setSenderContact({ phone: '111', email: 'a@b.com' }))
+
+      expect(result.current.senderContact).toEqual({ phone: '111', email: 'a@b.com' })
+    })
+
+    it('setReceiverContact updates receiverContact', async () => {
+      setupBaseMocks()
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      act(() => result.current.setReceiverContact({ phone: '222', email: 'c@d.com' }))
+
+      expect(result.current.receiverContact).toEqual({ phone: '222', email: 'c@d.com' })
+    })
+
+    it('setTargetPoint updates targetPoint', async () => {
+      setupBaseMocks()
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      act(() => result.current.setTargetPoint('WAW100'))
+
+      expect(result.current.targetPoint).toBe('WAW100')
+    })
+
+    it('passes receiverContact fields to fetchRates when non-empty', async () => {
+      setupBaseMocks()
+      mockFetchRates.mockResolvedValue({ ok: true, rates: [] })
+
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      act(() => {
+        result.current.setReceiverContact({ phone: '500000000', email: 'recv@example.com' })
+        result.current.handleProviderSelect(chance.word())
+      })
+      act(() => result.current.handleConfigureNext())
+
+      await waitFor(() => expect(mockFetchRates).toHaveBeenCalled())
+      const callArgs = mockFetchRates.mock.calls[0][0]
+      expect(callArgs.receiverPhone).toBe('500000000')
+      expect(callArgs.receiverEmail).toBe('recv@example.com')
+    })
+
+    it('passes contact and targetPoint to createShipment when provided', async () => {
+      const orderId = chance.guid()
+      setupBaseMocks(orderId)
+      const rate = makeRate()
+      mockFetchRates.mockResolvedValue({ ok: true, rates: [rate] })
+      mockCreateShipment.mockResolvedValue({ ok: true })
+
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      act(() => {
+        result.current.setSenderContact({ phone: '111', email: 'send@x.com' })
+        result.current.setReceiverContact({ phone: '222', email: 'recv@x.com' })
+        result.current.setTargetPoint('KRA010')
+        result.current.handleProviderSelect(chance.word())
+      })
+      act(() => result.current.handleConfigureNext())
+      await waitFor(() => expect(result.current.step).toBe('confirm'))
+      act(() => result.current.handleSubmit())
+
+      await waitFor(() => expect(mockCreateShipment).toHaveBeenCalled())
+      const callArgs = mockCreateShipment.mock.calls[0][0]
+      expect(callArgs.senderPhone).toBe('111')
+      expect(callArgs.senderEmail).toBe('send@x.com')
+      expect(callArgs.receiverPhone).toBe('222')
+      expect(callArgs.receiverEmail).toBe('recv@x.com')
+      expect(callArgs.targetPoint).toBe('KRA010')
+    })
+  })
+
   describe('canProceedFromConfigure', () => {
     it('is false with default empty addresses', async () => {
       setupBaseMocks()

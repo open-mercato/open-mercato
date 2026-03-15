@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import Chance from 'chance'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { createShipment, cancelShipment } from '@open-mercato/core/modules/shipping_carriers/__integration__/helpers/fixtures'
+import { createShipment } from '@open-mercato/core/modules/shipping_carriers/__integration__/helpers/fixtures'
 
 const chance = new Chance()
 
@@ -24,17 +24,15 @@ function makeInpostPackage() {
 }
 
 /**
- * TC-INPOST-004: Cancel guard returns 422 for non-cancellable shipment
+ * TC-INPOST-004: Repeated cancel attempts for InPost all return 502 not-supported
  *
- * Creates an InPost shipment, cancels it (first cancel succeeds), then
- * attempts a second cancel. The second attempt should return 422 because
- * the shipment is already in the 'cancelled' terminal status.
- *
- * This validates the pre-condition guard introduced in shipping-service.ts
- * which throws ShipmentCancelNotAllowedError for terminal status shipments.
+ * Because InPost does not support cancellation via API, every cancel attempt
+ * returns 502 regardless of how many times it is called. This test verifies
+ * that the behaviour is consistent across two successive attempts (no state
+ * change that would produce a different error code on the second call).
  */
-test.describe('TC-INPOST-004: Cancel guard returns 422 for non-cancellable status', () => {
-  test('should return 422 when attempting to cancel an already-cancelled shipment', async ({ request }) => {
+test.describe('TC-INPOST-004: Repeated cancel attempts consistently return 502', () => {
+  test('should return 502 on both first and second cancel attempts for InPost', async ({ request }) => {
     const token = await getAuthToken(request)
 
     const shipment = await createShipment(request, token, {
@@ -47,24 +45,27 @@ test.describe('TC-INPOST-004: Cancel guard returns 422 for non-cancellable statu
 
     expect(shipment.shipmentId).toBeTruthy()
 
-    // First cancel — should succeed
-    const firstCancel = await cancelShipment(request, token, shipment.shipmentId, {
+    const cancelPayload = {
       providerKey: 'inpost',
-    })
-    expect(firstCancel.status).toBe('cancelled')
+      shipmentId: shipment.shipmentId,
+    }
 
-    // Second cancel — shipment is now in terminal 'cancelled' status; guard should reject with 422
-    const secondCancelResponse = await apiRequest(request, 'POST', '/api/shipping-carriers/cancel', {
+    // First cancel attempt
+    const firstResponse = await apiRequest(request, 'POST', '/api/shipping-carriers/cancel', {
       token,
-      data: {
-        providerKey: 'inpost',
-        shipmentId: shipment.shipmentId,
-      },
+      data: cancelPayload,
     })
+    expect(firstResponse.status()).toBe(502)
+    const firstBody = await firstResponse.json()
+    expect(firstBody.error).toContain('InPost does not support shipment cancellation via API')
 
-    expect(secondCancelResponse.status()).toBe(422)
-    const body = await secondCancelResponse.json()
-    expect(body.error).toBeTruthy()
-    expect(body.error).toContain('cancelled')
+    // Second cancel attempt — same result, no state mutation
+    const secondResponse = await apiRequest(request, 'POST', '/api/shipping-carriers/cancel', {
+      token,
+      data: cancelPayload,
+    })
+    expect(secondResponse.status()).toBe(502)
+    const secondBody = await secondResponse.json()
+    expect(secondBody.error).toContain('InPost does not support shipment cancellation via API')
   })
 })

@@ -18,6 +18,7 @@ jest.mock('../../events', () => ({
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getShippingAdapter } from '../adapter-registry'
+import { emitShippingEvent } from '../../events'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockGetAdapter = getShippingAdapter as jest.MockedFunction<typeof getShippingAdapter>
@@ -166,5 +167,59 @@ describe('ShippingCarrierService.cancelShipment pre-condition guard', () => {
     await service.cancelShipment({ ...makeCancelInput(), ...scope })
 
     expect(adapter.cancelShipment).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ShippingCarrierService.cancelShipment adapter error propagation', () => {
+  const mockEmitEvent = emitShippingEvent as jest.MockedFunction<typeof emitShippingEvent>
+
+  afterEach(() => jest.clearAllMocks())
+
+  it('re-throws when the adapter rejects (provider does not support cancel)', async () => {
+    const scope = makeScope()
+    const shipment = makeShipment({ unifiedStatus: 'label_created', ...scope })
+    mockFindOne.mockResolvedValueOnce(shipment as any)
+
+    const adapter = {
+      ...makeAdapter(),
+      cancelShipment: jest.fn().mockRejectedValue(
+        new Error('Provider does not support shipment cancellation via API'),
+      ),
+    }
+    mockGetAdapter.mockReturnValueOnce(adapter as any)
+
+    const em = makeEm()
+    const service = createShippingCarrierService({
+      em: em as any,
+      integrationCredentialsService: makeCredentialsService() as any,
+    })
+
+    await expect(
+      service.cancelShipment({ ...makeCancelInput(), ...scope }),
+    ).rejects.toThrow('Provider does not support shipment cancellation via API')
+  })
+
+  it('does not write status or emit event when the adapter rejects', async () => {
+    const scope = makeScope()
+    const shipment = makeShipment({ unifiedStatus: 'label_created', ...scope })
+    mockFindOne.mockResolvedValueOnce(shipment as any)
+
+    const adapter = {
+      ...makeAdapter(),
+      cancelShipment: jest.fn().mockRejectedValue(new Error('cancel not supported')),
+    }
+    mockGetAdapter.mockReturnValueOnce(adapter as any)
+
+    const em = makeEm()
+    const service = createShippingCarrierService({
+      em: em as any,
+      integrationCredentialsService: makeCredentialsService() as any,
+    })
+
+    await service.cancelShipment({ ...makeCancelInput(), ...scope }).catch(() => {})
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockEmitEvent).not.toHaveBeenCalled()
+    expect(shipment.unifiedStatus).toBe('label_created')
   })
 })

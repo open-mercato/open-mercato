@@ -195,6 +195,33 @@ describe('fetchRates', () => {
     expect(body.destination).toEqual(params.destination)
     expect(body.packages).toEqual(params.packages)
   })
+
+  it('includes receiverPhone and receiverEmail when provided', async () => {
+    mockApiCall.mockResolvedValueOnce({ ok: true, result: { rates: [] } } as any)
+    const params = {
+      ...makeParams(),
+      receiverPhone: '500000000',
+      receiverEmail: 'receiver@example.com',
+    }
+
+    await fetchRates(params)
+
+    const requestInit = mockApiCall.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(requestInit.body as string)
+    expect(body.receiverPhone).toBe('500000000')
+    expect(body.receiverEmail).toBe('receiver@example.com')
+  })
+
+  it('omits receiverPhone and receiverEmail when not provided', async () => {
+    mockApiCall.mockResolvedValueOnce({ ok: true, result: { rates: [] } } as any)
+
+    await fetchRates(makeParams())
+
+    const requestInit = mockApiCall.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(requestInit.body as string)
+    expect(body).not.toHaveProperty('receiverPhone')
+    expect(body).not.toHaveProperty('receiverEmail')
+  })
 })
 
 describe('createShipment', () => {
@@ -265,5 +292,27 @@ describe('createShipment', () => {
     expect(body.orderId).toBe(params.orderId)
     expect(body.serviceCode).toBe(params.serviceCode)
     expect(body.labelFormat).toBe(params.labelFormat)
+  })
+
+  it('includes contact fields and targetPoint when provided', async () => {
+    mockApiCall.mockResolvedValueOnce({ ok: true, result: null } as any)
+    const params = {
+      ...makeParams(),
+      senderPhone: '100000001',
+      senderEmail: 'sender@example.com',
+      receiverPhone: '200000002',
+      receiverEmail: 'receiver@example.com',
+      targetPoint: 'KRA010',
+    }
+
+    await createShipment(params)
+
+    const requestInit = mockApiCall.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(requestInit.body as string)
+    expect(body.senderPhone).toBe('100000001')
+    expect(body.senderEmail).toBe('sender@example.com')
+    expect(body.receiverPhone).toBe('200000002')
+    expect(body.receiverEmail).toBe('receiver@example.com')
+    expect(body.targetPoint).toBe('KRA010')
   })
 })
