@@ -4,11 +4,11 @@ import { match } from 'ts-pattern'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { WizardNav } from './components/WizardNav'
-import { ProviderStep } from './components/ProviderStep'
-import { ConfigureStep } from './components/ConfigureStep'
-import { ConfirmStep } from './components/ConfirmStep'
-import { useShipmentWizard } from './hooks/useShipmentWizard'
+import { WizardNav } from '../../../../lib/shipment-wizard/components/WizardNav'
+import { ProviderStep } from '../../../../lib/shipment-wizard/components/ProviderStep'
+import { ConfigureStep } from '../../../../lib/shipment-wizard/components/ConfigureStep'
+import { ConfirmStep } from '../../../../lib/shipment-wizard/components/ConfirmStep'
+import { useShipmentWizard } from '../../../../lib/shipment-wizard/hooks/useShipmentWizard'
 
 const CreateCarrierShipmentPage = () => {
   const t = useT()
