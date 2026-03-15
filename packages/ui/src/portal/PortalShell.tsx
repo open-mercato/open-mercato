@@ -165,7 +165,7 @@ export function PortalShell({
   const user = portalCtx?.auth.user ?? null
   const authenticated = authenticatedProp ?? !!user
   const onLogout = onLogoutProp ?? portalCtx?.auth.logout
-  const userName = userNameProp ?? user?.displayName
+  const userName = userNameProp || user?.displayName || userEmailProp || user?.email
   const userEmail = userEmailProp ?? user?.email
 
   const { items: injectedMainItems } = usePortalInjectedMenuItems('menu:portal:sidebar:main')
@@ -348,10 +348,6 @@ export function PortalShell({
           </div>
           <div className="flex items-center gap-3">
             <PortalNotificationBell t={t} />
-            {userName ? (
-              <span className="hidden text-[13px] text-muted-foreground sm:inline">{userName}</span>
-            ) : null}
-            <UserAvatar name={userName} className="size-7 text-[10px]" />
           </div>
         </header>
 
