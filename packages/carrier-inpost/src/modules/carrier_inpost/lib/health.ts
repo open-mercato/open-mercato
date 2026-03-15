@@ -1,3 +1,4 @@
+import { match } from 'ts-pattern'
 import { inpostRequest, resolveOrganizationId } from './client'
 
 export interface HealthCheckResult {
@@ -32,7 +33,9 @@ export const inpostHealthCheck = {
         checkedAt: new Date(),
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
+      const message = match(err)
+        .when((e): e is Error => e instanceof Error, (e) => e.message)
+        .otherwise(() => 'Unknown error')
       return {
         status: 'unhealthy',
         message: `InPost connection failed: ${message}`,

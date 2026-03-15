@@ -61,7 +61,8 @@
   },
   "dependencies": {
     "@open-mercato/core": "workspace:*",
-    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/queue": "workspace:*",
+    "ts-pattern": "^5.0.0"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^6.5.9",

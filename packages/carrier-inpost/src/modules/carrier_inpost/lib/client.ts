@@ -18,7 +18,11 @@ export function resolveApiToken(credentials: Record<string, unknown>): string {
   if (typeof token !== 'string' || token.trim().length === 0) {
     throw inpostErrors.missingApiToken()
   }
-  return token.trim()
+  const stripped = token.trim().replace(/^Bearer\s*/i, '').trim()
+  if (stripped.length === 0) {
+    throw inpostErrors.missingApiToken()
+  }
+  return stripped
 }
 
 export function resolveOrganizationId(credentials: Record<string, unknown>): string {

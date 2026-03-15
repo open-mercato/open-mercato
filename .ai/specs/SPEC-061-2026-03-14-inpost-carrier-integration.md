@@ -81,7 +81,10 @@ packages/carrier-inpost/
             ├── widgets/
             │   ├── injection-table.ts
             │   └── injection/
-            │       └── inpost-config/
+            │       ├── inpost-config/
+            │       │   ├── widget.ts
+            │       │   └── widget.client.tsx
+            │       └── inpost-tracking/
             │           ├── widget.ts
             │           └── widget.client.tsx
             ├── i18n/
@@ -89,6 +92,10 @@ packages/carrier-inpost/
             │   ├── pl.json
             │   ├── de.json
             │   └── es.json
+            ├── backend/
+            │   └── carrier-inpost/demo/
+            │       ├── page.tsx                  # 6-section demo page
+            │       └── page.meta.ts
             └── __tests__/
                 ├── adapter-v1.test.ts
                 ├── client.test.ts
@@ -117,7 +124,7 @@ Key endpoints used:
 | Cancel shipment (best-effort) | DELETE | `/v1/organizations/{orgId}/shipments/{shipmentId}` |
 | Health check | GET | `/v1/organizations/{orgId}` |
 
-> **Note**: InPost does not provide a true rate-calculation endpoint. `calculateRates()` returns pre-defined service options with static PLN pricing that reflects typical InPost pricing.
+> **Note**: `calculateRates()` calls the real InPost `/v1/organizations/{orgId}/shipments/calculate` endpoint once per service using `Promise.allSettled`. Services that return errors (e.g. missing contract, unsupported service) are silently skipped; only services with a valid `calculated_charge_amount` appear in the result. Amounts are returned in minor units (grosz). Locker services include a placeholder `target_point` (`KRA010`) and `custom_attributes` required by the calculate endpoint; courier_c2c includes `custom_attributes.sending_method = 'dispatch_order'`.
 
 > **Note**: The ShipX API does not expose a dedicated cancel-shipment endpoint. The `cancelShipment` adapter method issues a best-effort DELETE; the API may respond with 404 or 405. Cancellations are typically handled via InPost customer service or Dispatch Order management.
 
@@ -305,6 +312,9 @@ Canonical env var names (`OM_INTEGRATION_<PROVIDER>_*`):
 |------|--------|---------|
 | Integration detail page (dynamic spot) | `carrier_inpost.injection.config` | InPost-specific configuration info tab |
 | `data-table:sales.orders:row-actions` | `shipping_carriers.injection.create-shipment-button` | "Create shipment" row action navigates to wizard |
+| `detail:sales.order:shipping` | `carrier_inpost.injection.tracking` | Live InPost tracking panel on order detail shipments tab |
+
+The `detail:sales.order:shipping` injection spot is declared in `SalesDocumentDetailPage` (`packages/core/src/modules/sales/backend/sales/documents/[id]/page.tsx`) immediately after `<SalesShipmentsSection />` in the shipments tab render path. The tracking widget fetches sales shipments for the order, finds the InPost carrier shipment via `_carrier.providerKey === 'inpost'`, then calls `GET /api/shipping-carriers/tracking` to display status and events timeline.
 
 ---
 
@@ -391,6 +401,10 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | `isLockerService` returns false for courier codes | `courier_standard`, `inpost_courier_standard` → `false` |
 | `GET /api/shipping-carriers/providers` returns array | Response has `providers` array; each entry has `providerKey` string |
 | `GET /api/shipping-carriers/providers` returns 401 unauthenticated | Unauthenticated request → 401 |
+| TC-INPOST-001: InPost appears in provider list | `GET /api/shipping-carriers/providers` response includes `{ providerKey: 'inpost' }` |
+| TC-INPOST-002: Rates return 4 services in PLN | `POST /api/shipping-carriers/rates` returns `locker_standard`, `locker_economy`, `courier_standard`, `courier_c2c` with PLN amounts |
+| TC-INPOST-003: Cancel `label_created` shipment succeeds | Cancel request returns 200 |
+| TC-INPOST-004: Cancel already-cancelled shipment returns 422 | Cancel of cancelled shipment returns 422 (guard validation) |
 
 ---
 
@@ -443,3 +457,8 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | 2026-03-14 | Introduced `chance@1.1.13` as devDependency; refactored all 6 test files to use randomised test data via factory helpers (`makeCredentials`, `makeAddress`, `makePackage`, `makeShipmentInput`, `makeScope`, `makeWebhookBody`, `makeOkFetch`) — eliminates hardcoded strings/IDs/values, test count grows to 86 |
 | 2026-03-15 | Added Sales/Shipments Hub integration: 3-step wizard page (`/backend/shipping-carriers/create`), `GET /api/shipping-carriers/providers` endpoint, i18n keys (EN + PL), integration test TC-SHIP-008; fixed destination-only prefill from order addresses (billing address no longer used as origin) |
 | 2026-03-15 | Wizard refactored into colocated component and hook files; API calls extracted from `useShipmentWizard` into standalone `shipmentApi.ts` (pure async functions, no React); `ts-pattern` `match()` applied in three places: step dispatch in `page.tsx` (exhaustive), render-state dispatch in `ProviderStep.tsx` (loading/error/empty/loaded with `P.string` and empty-array patterns), per-step CSS class in `WizardNav.tsx` (replaces nested ternary), and `ok`/`result` result handling across all four functions in `shipmentApi.ts` (`P.not(P.nullish)` guard); 35 unit tests added (17 for `shipmentApi`, 18 for `useShipmentWizard`) |
+| 2026-03-15 | AC6: Added `ShipmentCancelNotAllowedError` to `shipping_carriers/lib/status-sync.ts`; `cancelShipment` in `shipping-service.ts` now checks `isValidShippingTransition` before calling adapter and throws `ShipmentCancelNotAllowedError` for terminal statuses; cancel route returns 422 for this error; 7 unit tests added in `shipping-service-cancel.test.ts`; `cancelNotAllowed` error variant added to `carrier-inpost/lib/errors.ts` |
+| 2026-03-15 | AC9: Demo page created at `packages/carrier-inpost/src/modules/carrier_inpost/backend/carrier-inpost/demo/` with 6 sections (provider check, rate calculator, create shipment, track shipment, cancel shipment, webhook log); `ts-pattern` used throughout; `~30` i18n keys added to `en.json` and `pl.json` |
+| 2026-03-15 | AC11: Integration tests added under `packages/carrier-inpost/src/modules/carrier_inpost/__integration__/`: `meta.ts`, `TC-INPOST-001.spec.ts` (provider list), `TC-INPOST-002.spec.ts` (rates 4 services PLN), `TC-INPOST-003.spec.ts` (cancel label_created → 200), `TC-INPOST-004.spec.ts` (cancel cancelled → 422) |
+| 2026-03-15 | Tracking widget: declared `detail:sales.order:shipping` injection spot in `SalesDocumentDetailPage` after `SalesShipmentsSection`; created `widgets/injection/inpost-tracking/widget.ts` + `widget.client.tsx` — fetches sales shipments by orderId, finds InPost shipment via `_carrier.providerKey`, calls tracking API, renders status badge + events timeline using `ts-pattern`; registered in `widgets/injection-table.ts`; 9 i18n keys added for tracking to `en.json` and `pl.json` |
+| 2026-03-15 | End-to-end demo page fixes and ShipX API conformance: `calculateRatesSchema` extended with `receiverPhone`/`receiverEmail`; `createShipmentSchema` extended with `senderPhone`, `senderEmail`, `receiverPhone`, `receiverEmail`, `targetPoint`; `shippingCarrierService.calculateRates()` and `createShipment()` accept and merge per-request contact/targetPoint overrides on top of stored credentials; adapter `buildContactAddress` now always emits `building_number` (`addr.line2 ?? '1'`); removed hardcoded phone/email fallbacks from adapter `calculateRates`; demo page updated with receiver/sender contact fieldsets, locker point ID field, fixed `DEMO_ORDER_ID` to valid Zod v4 UUID, corrected `ShipmentRecord` interface (`id`→`shipmentId`, `unifiedStatus`→`status`); adapter fallback test updated to assert `undefined` contact; DB migration run to create `carrier_shipments` table |

@@ -10,6 +10,12 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'detail:sales.order:shipping': [
+    {
+      widgetId: 'carrier_inpost.injection.tracking',
+      priority: 50,
+    },
+  ],
 }
 
 export default injectionTable

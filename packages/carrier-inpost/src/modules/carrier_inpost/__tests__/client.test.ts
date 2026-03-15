@@ -34,6 +34,19 @@ describe('resolveApiToken', () => {
     expect(() => resolveApiToken({ apiToken: '   ' })).toThrow('InPost API token is required')
     expect(() => resolveApiToken({ apiToken: chance.integer() })).toThrow('InPost API token is required')
   })
+
+  it('strips a leading Bearer prefix (case-insensitive) stored by users copying from InPost Manager', () => {
+    const token = chance.guid()
+    expect(resolveApiToken({ apiToken: `Bearer ${token}` })).toBe(token)
+    expect(resolveApiToken({ apiToken: `bearer ${token}` })).toBe(token)
+    expect(resolveApiToken({ apiToken: `BEARER   ${token}` })).toBe(token)
+    expect(resolveApiToken({ apiToken: `  Bearer ${token}  ` })).toBe(token)
+  })
+
+  it('throws when the token is only a Bearer prefix with no actual token', () => {
+    expect(() => resolveApiToken({ apiToken: 'Bearer ' })).toThrow('InPost API token is required')
+    expect(() => resolveApiToken({ apiToken: 'Bearer   ' })).toThrow('InPost API token is required')
+  })
 })
 
 describe('resolveOrganizationId', () => {
@@ -171,6 +184,22 @@ describe('inpostRequest', () => {
 
     const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
     expect(url.startsWith(customBase)).toBe(true)
+  })
+
+  it('strips Bearer prefix from credentials before building the Authorization header', async () => {
+    const rawToken = chance.guid()
+    const credentials = { apiToken: `Bearer ${rawToken}`, organizationId: chance.guid() }
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+    })
+
+    await inpostRequest(credentials, '/v1/organizations/org-1')
+
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+    expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${rawToken}`)
   })
 
   it('throws when API token is missing', async () => {

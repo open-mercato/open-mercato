@@ -13,6 +13,8 @@ export const inpostErrors = {
   webhookSignatureMismatch: () => throwError('InPost webhook signature verification failed'),
   webhookInvalidJson: () => throwError('InPost webhook payload is not valid JSON'),
   missingTrackingIdentifier: () => throwError('trackingNumber or shipmentId is required for InPost tracking'),
+  cancelNotAllowed: (status: string) =>
+    throwError(`Shipment cannot be cancelled in its current status: ${status}`),
   incompleteEnvPreset: () =>
     throwError(
       '[carrier_inpost] Incomplete InPost env preset. Set OM_INTEGRATION_INPOST_API_TOKEN and OM_INTEGRATION_INPOST_ORGANIZATION_ID.',

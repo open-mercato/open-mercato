@@ -20,6 +20,8 @@ export const calculateRatesSchema = z.object({
   origin: addressSchema,
   destination: addressSchema,
   packages: z.array(packageSchema).min(1),
+  receiverPhone: z.string().optional(),
+  receiverEmail: z.string().optional(),
 })
 
 export const createShipmentSchema = z.object({
@@ -30,6 +32,11 @@ export const createShipmentSchema = z.object({
   packages: z.array(packageSchema).min(1),
   serviceCode: z.string().min(1),
   labelFormat: z.enum(['pdf', 'zpl', 'png']).optional(),
+  senderPhone: z.string().optional(),
+  senderEmail: z.string().optional(),
+  receiverPhone: z.string().optional(),
+  receiverEmail: z.string().optional(),
+  targetPoint: z.string().optional(),
 })
 
 export const trackingQuerySchema = z.object({

@@ -4,6 +4,8 @@ import type { CredentialsService } from '../../integrations/lib/credentials-serv
 import { CarrierShipment } from '../data/entities'
 import { emitShippingEvent } from '../events'
 import { getShippingAdapter } from './adapter-registry'
+import type { UnifiedShipmentStatus } from './adapter'
+import { isValidShippingTransition, ShipmentCancelNotAllowedError } from './status-sync'
 
 export function createShippingCarrierService(deps: {
   em: EntityManager
@@ -46,6 +48,8 @@ export function createShippingCarrierService(deps: {
       origin: { countryCode: string; postalCode: string; city: string; line1: string; line2?: string }
       destination: { countryCode: string; postalCode: string; city: string; line1: string; line2?: string }
       packages: Array<{ weightKg: number; lengthCm: number; widthCm: number; heightCm: number }>
+      receiverPhone?: string
+      receiverEmail?: string
       organizationId: string
       tenantId: string
     }) {
@@ -53,11 +57,16 @@ export function createShippingCarrierService(deps: {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })
+      const mergedCredentials = {
+        ...credentials,
+        ...(input.receiverPhone !== undefined ? { receiverPhone: input.receiverPhone } : {}),
+        ...(input.receiverEmail !== undefined ? { receiverEmail: input.receiverEmail } : {}),
+      }
       return adapter.calculateRates({
         origin: input.origin,
         destination: input.destination,
         packages: input.packages,
-        credentials,
+        credentials: mergedCredentials,
       })
     },
 
@@ -69,6 +78,11 @@ export function createShippingCarrierService(deps: {
       packages: Array<{ weightKg: number; lengthCm: number; widthCm: number; heightCm: number }>
       serviceCode: string
       labelFormat?: 'pdf' | 'zpl' | 'png'
+      senderPhone?: string
+      senderEmail?: string
+      receiverPhone?: string
+      receiverEmail?: string
+      targetPoint?: string
       organizationId: string
       tenantId: string
     }) {
@@ -76,13 +90,21 @@ export function createShippingCarrierService(deps: {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })
+      const mergedCredentials = {
+        ...credentials,
+        ...(input.senderPhone !== undefined ? { senderPhone: input.senderPhone } : {}),
+        ...(input.senderEmail !== undefined ? { senderEmail: input.senderEmail } : {}),
+        ...(input.receiverPhone !== undefined ? { receiverPhone: input.receiverPhone } : {}),
+        ...(input.receiverEmail !== undefined ? { receiverEmail: input.receiverEmail } : {}),
+        ...(input.targetPoint !== undefined ? { targetPoint: input.targetPoint } : {}),
+      }
       const created = await adapter.createShipment({
         orderId: input.orderId,
         origin: input.origin,
         destination: input.destination,
         packages: input.packages,
         serviceCode: input.serviceCode,
-        credentials,
+        credentials: mergedCredentials,
         labelFormat: input.labelFormat,
       })
       const shipment = em.create(CarrierShipment, {
@@ -159,6 +181,9 @@ export function createShippingCarrierService(deps: {
     }) {
       const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
       const shipment = await findShipmentOrThrow(input.shipmentId, scope)
+      if (!isValidShippingTransition(shipment.unifiedStatus as UnifiedShipmentStatus, 'cancelled')) {
+        throw new ShipmentCancelNotAllowedError(shipment.unifiedStatus)
+      }
       const { adapter, credentials } = await resolveAdapter(input.providerKey, {
         organizationId: input.organizationId,
         tenantId: input.tenantId,

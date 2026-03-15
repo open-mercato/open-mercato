@@ -57,9 +57,38 @@ describe('inpostAdapterV1', () => {
   })
 
   describe('calculateRates', () => {
-    it('returns 4 fixed PLN rates for any input', async () => {
-      const rates = await inpostAdapterV1.calculateRates(makeShipmentInput())
+    function makeServiceResult(serviceCode: string, chargeAmount: string | null) {
+      return [{ id: serviceCode, calculated_charge_amount: chargeAmount }]
+    }
 
+    function makeAllServicesOkFetch(amounts: Record<string, string | null> = {}) {
+      const defaults: Record<string, string> = {
+        locker_standard: '9.99',
+        locker_economy: '7.99',
+        courier_standard: '12.99',
+        courier_c2c: '10.99',
+      }
+      const resolved = { ...defaults, ...amounts }
+      // Each service fires one fetch call in order: locker_standard, locker_economy, courier_standard, courier_c2c
+      return jest.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('locker_standard', resolved['locker_standard'] ?? null)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('locker_economy', resolved['locker_economy'] ?? null)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('courier_standard', resolved['courier_standard'] ?? null)) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('courier_c2c', resolved['courier_c2c'] ?? null)) })
+    }
+
+    it('POSTs to the calculate endpoint and returns rates with amounts in minor units', async () => {
+      const input = makeShipmentInput()
+      const orgId = input.credentials.organizationId as string
+      global.fetch = makeAllServicesOkFetch()
+
+      const rates = await inpostAdapterV1.calculateRates(input)
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      for (const [url, init] of calls) {
+        expect(url).toContain(`/v1/organizations/${orgId}/shipments/calculate`)
+        expect(init.method).toBe('POST')
+      }
       expect(rates).toHaveLength(4)
       for (const rate of rates) {
         expect(rate.currencyCode).toBe('PLN')
@@ -69,7 +98,26 @@ describe('inpostAdapterV1', () => {
       }
     })
 
+    it('converts decimal charge amounts to minor units (×100)', async () => {
+      global.fetch = makeAllServicesOkFetch({
+        locker_standard: '9.99',
+        locker_economy: '7.99',
+        courier_standard: '12.99',
+        courier_c2c: '10.99',
+      })
+
+      const rates = await inpostAdapterV1.calculateRates(makeShipmentInput())
+      const byCode = Object.fromEntries(rates.map((r) => [r.serviceCode, r.amount]))
+
+      expect(byCode['locker_standard']).toBe(999)
+      expect(byCode['locker_economy']).toBe(799)
+      expect(byCode['courier_standard']).toBe(1299)
+      expect(byCode['courier_c2c']).toBe(1099)
+    })
+
     it('includes expected service codes', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
       const rates = await inpostAdapterV1.calculateRates(makeShipmentInput())
       const codes = rates.map((r) => r.serviceCode)
 
@@ -79,9 +127,127 @@ describe('inpostAdapterV1', () => {
       expect(codes).toContain('courier_c2c')
     })
 
+    it('omits services where calculated_charge_amount is null (debit clients)', async () => {
+      global.fetch = makeAllServicesOkFetch({ locker_economy: null })
+
+      const rates = await inpostAdapterV1.calculateRates(makeShipmentInput())
+      const codes = rates.map((r) => r.serviceCode)
+
+      expect(codes).not.toContain('locker_economy')
+      expect(rates.length).toBe(3)
+    })
+
+    it('silently skips services that return a non-ok HTTP error (e.g. missing_trucker_id)', async () => {
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('locker_standard', '9.99')) })
+        .mockResolvedValueOnce({ ok: false, status: 400, text: () => Promise.resolve('{"error":"validation_failed"}') })
+        .mockResolvedValueOnce({ ok: false, status: 400, text: () => Promise.resolve('{"error":"missing_trucker_id"}') })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('courier_c2c', '10.99')) })
+
+      const rates = await inpostAdapterV1.calculateRates(makeShipmentInput())
+      const codes = rates.map((r) => r.serviceCode)
+
+      expect(codes).toContain('locker_standard')
+      expect(codes).toContain('courier_c2c')
+      expect(codes).not.toContain('locker_economy')
+      expect(codes).not.toContain('courier_standard')
+      expect(rates).toHaveLength(2)
+    })
+
     it('does not include the deprecated locker_express service', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
       const rates = await inpostAdapterV1.calculateRates(makeShipmentInput())
       expect(rates.map((r) => r.serviceCode)).not.toContain('locker_express')
+    })
+
+    it('sends parcel dimensions derived from the first package', async () => {
+      const pkg = makePackage()
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput({ packages: [pkg] }))
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      // Check the first call (locker_standard) — all calls share the same parcel
+      const body = JSON.parse(calls[0]![1]!.body as string) as { shipments: Array<{ parcels: Array<Record<string, unknown>> }> }
+      const parcel = body.shipments[0]!.parcels[0]!
+      expect(parcel).toEqual({
+        dimensions: {
+          length: String(Math.round(pkg.lengthCm * 10)),
+          width: String(Math.round(pkg.widthCm * 10)),
+          height: String(Math.round(pkg.heightCm * 10)),
+          unit: 'mm',
+        },
+        weight: { amount: String(pkg.weightKg), unit: 'kg' },
+      })
+    })
+
+    it('uses small template when packages array is empty', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput({ packages: [] }))
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      const body = JSON.parse(calls[0]![1]!.body as string) as { shipments: Array<{ parcels: Array<Record<string, unknown>> }> }
+      expect(body.shipments[0]!.parcels[0]).toEqual({ template: 'small' })
+    })
+
+    it('uses receiverPhone and receiverEmail from credentials in the calculate payload', async () => {
+      const phone = '600100200'
+      const email = 'buyer@shop.example'
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput({
+        credentials: makeCredentials({ receiverPhone: phone, receiverEmail: email }),
+      }))
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      // locker call (index 0) gets both phone and email
+      const lockerBody = JSON.parse(calls[0]![1]!.body as string) as { shipments: Array<Record<string, unknown>> }
+      const lockerReceiver = lockerBody.shipments[0]!.receiver as Record<string, unknown>
+      expect(lockerReceiver.phone).toBe(phone)
+      expect(lockerReceiver.email).toBe(email)
+      // courier call (index 2) gets phone only
+      const courierBody = JSON.parse(calls[2]![1]!.body as string) as { shipments: Array<Record<string, unknown>> }
+      const courierReceiver = courierBody.shipments[0]!.receiver as Record<string, unknown>
+      expect(courierReceiver.phone).toBe(phone)
+    })
+
+    it('omits phone and email from receiver when credentials do not have receiver contact', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput())
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      const body = JSON.parse(calls[0]![1]!.body as string) as { shipments: Array<Record<string, unknown>> }
+      const receiver = body.shipments[0]!.receiver as Record<string, unknown>
+      expect(receiver.phone).toBeUndefined()
+    })
+
+    it('adds custom_attributes.target_point for locker services', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput())
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      // calls[0] = locker_standard, calls[1] = locker_economy
+      for (const callIndex of [0, 1]) {
+        const body = JSON.parse(calls[callIndex]![1]!.body as string) as { shipments: Array<Record<string, unknown>> }
+        const shipment = body.shipments[0]!
+        expect((shipment.custom_attributes as Record<string, unknown>).target_point).toBeTruthy()
+      }
+    })
+
+    it('adds custom_attributes.sending_method for courier_c2c', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput())
+
+      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
+      // calls[3] = courier_c2c
+      const body = JSON.parse(calls[3]![1]!.body as string) as { shipments: Array<Record<string, unknown>> }
+      const shipment = body.shipments[0]!
+      expect((shipment.custom_attributes as Record<string, unknown>).sending_method).toBeTruthy()
     })
   })
 

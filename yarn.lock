@@ -5469,6 +5469,7 @@ __metadata:
     glob: "npm:^11.0.3"
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"
+    ts-pattern: "npm:^5.0.0"
   peerDependencies:
     "@mikro-orm/postgresql": ^6.5.9
     "@open-mercato/shared": "workspace:*"
@@ -5530,6 +5531,7 @@ __metadata:
     jest-environment-jsdom: "npm:^30.2.0"
     semver: "npm:^7.6.3"
     ts-jest: "npm:^29.4.6"
+    ts-pattern: "npm:^5.0.0"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
   languageName: unknown
@@ -25039,7 +25041,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ts-pattern@npm:^5.9.0":
+"ts-pattern@npm:^5.0.0, ts-pattern@npm:^5.9.0":
   version: 5.9.0
   resolution: "ts-pattern@npm:5.9.0"
   checksum: 10/0df8cc63d731a596f3541a305eff10f055c9a761d1a8b3776781dc6d6430c6bd8be8cd333fac62138c5d88e1209b4d8dccf1f40041091b634e5018908281417b

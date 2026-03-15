@@ -1,3 +1,4 @@
+import { match, P } from 'ts-pattern'
 import type {
   ShippingAdapter,
   ShippingRate,
@@ -47,6 +48,31 @@ type InpostContactAddress = {
   phone?: string
 }
 
+type InpostCalculateResult = {
+  id: string
+  calculated_charge_amount: string | null
+  [key: string]: unknown
+}
+
+type ServiceKind = 'locker' | 'courier_c2c' | 'courier'
+
+const INPOST_SERVICES: ReadonlyArray<{ serviceCode: string; inpostCode: string; serviceName: string; kind: ServiceKind }> = [
+  { serviceCode: 'locker_standard', inpostCode: 'inpost_locker_standard', serviceName: 'InPost Locker Standard (Paczkomat)', kind: 'locker' },
+  { serviceCode: 'locker_economy', inpostCode: 'inpost_locker_economy', serviceName: 'InPost Locker Economy (Paczkomat)', kind: 'locker' },
+  { serviceCode: 'courier_standard', inpostCode: 'inpost_courier_standard', serviceName: 'InPost Courier Standard', kind: 'courier' },
+  { serviceCode: 'courier_c2c', inpostCode: 'inpost_courier_c2c', serviceName: 'InPost Courier C2C', kind: 'courier_c2c' },
+]
+
+// Placeholder locker point used only for rate calculation — InPost requires target_point
+// in the calculate payload even though the actual delivery point is chosen at checkout.
+const CALCULATE_PLACEHOLDER_LOCKER_POINT = 'KRA010'
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return match(value)
+    .with(P.string, (s) => s)
+    .otherwise(() => undefined)
+}
+
 function buildContactAddress(
   addr: Address,
   contact: { companyName?: string; firstName?: string; lastName?: string; email?: string; phone?: string },
@@ -54,7 +80,7 @@ function buildContactAddress(
   return {
     address: {
       street: addr.line1,
-      ...(addr.line2 ? { building_number: addr.line2 } : {}),
+      building_number: addr.line2 ?? '1',
       city: addr.city,
       post_code: addr.postalCode,
       country_code: addr.countryCode,
@@ -72,11 +98,11 @@ function buildSenderAddress(
   credentials: Record<string, unknown>,
 ): InpostContactAddress {
   return buildContactAddress(origin, {
-    companyName: typeof credentials.senderCompanyName === 'string' ? credentials.senderCompanyName : undefined,
-    firstName: typeof credentials.senderFirstName === 'string' ? credentials.senderFirstName : undefined,
-    lastName: typeof credentials.senderLastName === 'string' ? credentials.senderLastName : undefined,
-    email: typeof credentials.senderEmail === 'string' ? credentials.senderEmail : undefined,
-    phone: typeof credentials.senderPhone === 'string' ? credentials.senderPhone : undefined,
+    companyName: stringOrUndefined(credentials.senderCompanyName),
+    firstName: stringOrUndefined(credentials.senderFirstName),
+    lastName: stringOrUndefined(credentials.senderLastName),
+    email: stringOrUndefined(credentials.senderEmail),
+    phone: stringOrUndefined(credentials.senderPhone),
   })
 }
 
@@ -85,11 +111,11 @@ function buildReceiverAddress(
   credentials: Record<string, unknown>,
 ): InpostContactAddress {
   return buildContactAddress(destination, {
-    companyName: typeof credentials.receiverCompanyName === 'string' ? credentials.receiverCompanyName : undefined,
-    firstName: typeof credentials.receiverFirstName === 'string' ? credentials.receiverFirstName : undefined,
-    lastName: typeof credentials.receiverLastName === 'string' ? credentials.receiverLastName : undefined,
-    email: typeof credentials.receiverEmail === 'string' ? credentials.receiverEmail : undefined,
-    phone: typeof credentials.receiverPhone === 'string' ? credentials.receiverPhone : undefined,
+    companyName: stringOrUndefined(credentials.receiverCompanyName),
+    firstName: stringOrUndefined(credentials.receiverFirstName),
+    lastName: stringOrUndefined(credentials.receiverLastName),
+    email: stringOrUndefined(credentials.receiverEmail),
+    phone: stringOrUndefined(credentials.receiverPhone),
   })
 }
 
@@ -102,12 +128,30 @@ type InpostParcel =
 
 function buildParcel(input: CreateShipmentInput): InpostParcel {
   const pkg = input.packages[0]
-  if (!pkg) {
-    return { template: 'small' }
-  }
-  if (isLockerService(input.serviceCode)) {
-    return { template: 'small' }
-  }
+  return match([pkg, isLockerService(input.serviceCode)] as const)
+    .with([P.nullish, P._], () => ({ template: 'small' }))
+    .with([P._, true], () => ({ template: 'small' }))
+    .otherwise(([p]) => ({
+      dimensions: {
+        length: String(Math.round(p!.lengthCm * 10)),
+        width: String(Math.round(p!.widthCm * 10)),
+        height: String(Math.round(p!.heightCm * 10)),
+        unit: 'mm' as const,
+      },
+      weight: {
+        amount: String(p!.weightKg),
+        unit: 'kg' as const,
+      },
+    }))
+}
+
+function resolveTargetPoint(credentials: Record<string, unknown>): string | undefined {
+  const point = credentials.targetPoint
+  return typeof point === 'string' && point.trim().length > 0 ? point.trim() : undefined
+}
+
+function buildCalculateParcel(pkg: { weightKg: number; lengthCm: number; widthCm: number; heightCm: number } | undefined) {
+  if (!pkg) return { template: 'small' }
   return {
     dimensions: {
       length: String(Math.round(pkg.lengthCm * 10)),
@@ -122,49 +166,81 @@ function buildParcel(input: CreateShipmentInput): InpostParcel {
   }
 }
 
-function resolveTargetPoint(credentials: Record<string, unknown>): string | undefined {
-  const point = credentials.targetPoint
-  return typeof point === 'string' && point.trim().length > 0 ? point.trim() : undefined
-}
-
 export const inpostAdapterV1: ShippingAdapter = {
   providerKey: 'inpost',
 
-  async calculateRates(_input) {
-    const rates: ShippingRate[] = [
-      {
-        serviceCode: 'locker_standard',
-        serviceName: 'InPost Locker Standard (Paczkomat)',
-        amount: 999,
-        currencyCode: 'PLN',
-        estimatedDays: 2,
-        guaranteedDelivery: false,
-      },
-      {
-        serviceCode: 'locker_economy',
-        serviceName: 'InPost Locker Economy (Paczkomat)',
-        amount: 799,
-        currencyCode: 'PLN',
-        estimatedDays: 3,
-        guaranteedDelivery: false,
-      },
-      {
-        serviceCode: 'courier_standard',
-        serviceName: 'InPost Courier Standard',
-        amount: 1299,
-        currencyCode: 'PLN',
-        estimatedDays: 2,
-        guaranteedDelivery: false,
-      },
-      {
-        serviceCode: 'courier_c2c',
-        serviceName: 'InPost Courier C2C',
-        amount: 1099,
-        currencyCode: 'PLN',
-        estimatedDays: 3,
-        guaranteedDelivery: false,
-      },
-    ]
+  async calculateRates(input) {
+    const orgId = resolveOrganizationId(input.credentials)
+    const parcel = buildCalculateParcel(input.packages[0])
+
+    // Each service has different required fields for the calculate endpoint.
+    // We send one request per service and silently skip services that return errors
+    // (e.g. org not contracted for couriers → missing_trucker_id, locker_economy
+    // needing commercial_product_identifier, etc.).
+    const settled = await Promise.allSettled(
+      INPOST_SERVICES.map(async ({ serviceCode, inpostCode, serviceName, kind }) => {
+        const lockerPoint = match(kind)
+          .with('locker', () => CALCULATE_PLACEHOLDER_LOCKER_POINT)
+          .otherwise(() => undefined)
+
+        const customAttributes = match(kind)
+          .with('locker', () => ({ target_point: CALCULATE_PLACEHOLDER_LOCKER_POINT }))
+          .with('courier_c2c', () => ({ sending_method: 'dispatch_order' }))
+          .otherwise(() => undefined)
+
+        // All services require receiver.phone; locker services also require email.
+        // Contact details must be supplied via credentials (from stored integration
+        // credentials or request-level overrides merged by the shipping service).
+        const receiverPhone = stringOrUndefined(input.credentials.receiverPhone)
+        const receiverEmail = stringOrUndefined(input.credentials.receiverEmail)
+
+        const baseAddress = {
+          street: input.destination.line1,
+          building_number: input.destination.line2 ?? '1',
+          city: input.destination.city,
+          post_code: input.destination.postalCode,
+          country_code: input.destination.countryCode,
+        }
+        const receiver = match(kind)
+          .with('locker', () => ({
+            address: baseAddress,
+            email: receiverEmail,
+            phone: receiverPhone,
+          }))
+          .otherwise(() => ({
+            address: baseAddress,
+            phone: receiverPhone,
+          }))
+
+        const shipmentPayload: Record<string, unknown> = {
+          id: serviceCode,
+          receiver,
+          parcels: [parcel],
+          service: inpostCode,
+          ...(customAttributes ? { custom_attributes: customAttributes } : {}),
+        }
+
+        const results = await inpostRequest<InpostCalculateResult[]>(
+          input.credentials,
+          `/v1/organizations/${orgId}/shipments/calculate`,
+          { method: 'POST', body: { shipments: [shipmentPayload] } },
+        )
+
+        return { serviceCode, serviceName, result: results[0] ?? null }
+      }),
+    )
+
+    const rates: ShippingRate[] = []
+    for (const outcome of settled) {
+      if (outcome.status === 'rejected') continue
+      const { serviceCode, serviceName, result } = outcome.value
+      const chargeAmount = result?.calculated_charge_amount
+      if (typeof chargeAmount !== 'string' || chargeAmount === null) continue
+      const amount = Math.round(parseFloat(chargeAmount) * 100)
+      if (!Number.isFinite(amount) || amount <= 0) continue
+      rates.push({ serviceCode, serviceName, amount, currencyCode: 'PLN' })
+    }
+
     return rates
   },
 
@@ -190,10 +266,13 @@ export const inpostAdapterV1: ShippingAdapter = {
       { method: 'POST', body },
     )
 
-    const labelData = typeof shipment.label === 'string' ? shipment.label : undefined
-    const estimatedDelivery = shipment.scheduled_delivery_end
-      ? new Date(shipment.scheduled_delivery_end)
-      : undefined
+    const labelData = match(shipment.label)
+      .with(P.string, (s) => s)
+      .otherwise(() => undefined)
+
+    const estimatedDelivery = match(shipment.scheduled_delivery_end)
+      .with(P.string, (s) => new Date(s))
+      .otherwise(() => undefined)
 
     return {
       shipmentId: String(shipment.id),
