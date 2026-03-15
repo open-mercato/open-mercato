@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
@@ -77,78 +76,72 @@ export default function PortalDashboardPage({ params }: Props) {
   )
 
   if (loading) {
-    return (
-      <PortalShell authenticated>
-        <div className="flex items-center justify-center py-20"><Spinner /></div>
-      </PortalShell>
-    )
+    return <div className="flex items-center justify-center py-20"><Spinner /></div>
   }
 
   if (!user) return null
 
   return (
-    <PortalShell authenticated enableEventBridge>
-      <div className="flex flex-col gap-8">
-        <PortalPageHeader
-          label={t('portal.dashboard.title', 'Dashboard')}
-          title={t('portal.dashboard.welcome', { name: user.displayName })}
-          action={
-            dashboardWidgets.length > 0 ? (
-              <Button
-                type="button"
-                variant={editing ? 'default' : 'outline'}
-                size="sm"
-                className="rounded-lg text-[13px]"
-                onClick={() => setEditing((prev) => !prev)}
-              >
-                {editing ? t('portal.dashboard.done', 'Done') : t('portal.dashboard.customize', 'Customize')}
-              </Button>
-            ) : null
-          }
-        />
+    <div className="flex flex-col gap-8">
+      <PortalPageHeader
+        label={t('portal.dashboard.title', 'Dashboard')}
+        title={t('portal.dashboard.welcome', { name: user.displayName })}
+        action={
+          dashboardWidgets.length > 0 ? (
+            <Button
+              type="button"
+              variant={editing ? 'default' : 'outline'}
+              size="sm"
+              className="rounded-lg text-[13px]"
+              onClick={() => setEditing((prev) => !prev)}
+            >
+              {editing ? t('portal.dashboard.done', 'Done') : t('portal.dashboard.customize', 'Customize')}
+            </Button>
+          ) : null
+        }
+      />
 
-        {editing && dashboardWidgets.length > 0 ? (
-          <PortalCard>
-            <PortalCardHeader
-              label={t('portal.dashboard.customize', 'Customize')}
-              title={t('portal.dashboard.widgets', 'Dashboard Widgets')}
-            />
-            <div className="flex flex-wrap gap-2">
-              {dashboardWidgets.map((widget) => {
-                const isHidden = hiddenWidgets.has(widget.metadata.id)
-                return (
-                  <Button key={widget.metadata.id} type="button" variant={isHidden ? 'outline' : 'default'} size="sm" className="rounded-lg text-[13px]" onClick={() => toggleWidget(widget.metadata.id)}>
-                    {widget.metadata.title || widget.metadata.id}
-                  </Button>
-                )
-              })}
-            </div>
-          </PortalCard>
-        ) : null}
-
-        {visibleWidgets.length > 0 ? (
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {visibleWidgets.map((widget) => {
-              const WidgetComponent = widget.Widget
-              if (!WidgetComponent) return null
+      {editing && dashboardWidgets.length > 0 ? (
+        <PortalCard>
+          <PortalCardHeader
+            label={t('portal.dashboard.customize', 'Customize')}
+            title={t('portal.dashboard.widgets', 'Dashboard Widgets')}
+          />
+          <div className="flex flex-wrap gap-2">
+            {dashboardWidgets.map((widget) => {
+              const isHidden = hiddenWidgets.has(widget.metadata.id)
               return (
-                <PortalCard key={widget.metadata.id}>
-                  <PortalCardHeader title={widget.metadata.title || widget.metadata.id} />
-                  <WidgetComponent context={{ orgSlug: params.orgSlug, user, roles: auth.roles, resolvedFeatures: auth.resolvedFeatures }} />
-                </PortalCard>
+                <Button key={widget.metadata.id} type="button" variant={isHidden ? 'outline' : 'default'} size="sm" className="rounded-lg text-[13px]" onClick={() => toggleWidget(widget.metadata.id)}>
+                  {widget.metadata.title || widget.metadata.id}
+                </Button>
               )
             })}
           </div>
-        ) : null}
+        </PortalCard>
+      ) : null}
 
-        {dashboardWidgets.length === 0 && !widgetsLoading ? (
-          <PortalEmptyState
-            icon={<WidgetIcon className="size-5" />}
-            title={t('portal.dashboard.emptyWidgets', 'No dashboard widgets yet')}
-            description="Modules can inject widgets into this dashboard via the portal:dashboard:sections injection spot."
-          />
-        ) : null}
-      </div>
-    </PortalShell>
+      {visibleWidgets.length > 0 ? (
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {visibleWidgets.map((widget) => {
+            const WidgetComponent = widget.Widget
+            if (!WidgetComponent) return null
+            return (
+              <PortalCard key={widget.metadata.id}>
+                <PortalCardHeader title={widget.metadata.title || widget.metadata.id} />
+                <WidgetComponent context={{ orgSlug: params.orgSlug, user, roles: auth.roles, resolvedFeatures: auth.resolvedFeatures }} />
+              </PortalCard>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {dashboardWidgets.length === 0 && !widgetsLoading ? (
+        <PortalEmptyState
+          icon={<WidgetIcon className="size-5" />}
+          title={t('portal.dashboard.emptyWidgets', 'No dashboard widgets yet')}
+          description="Modules can inject widgets into this dashboard via the portal:dashboard:sections injection spot."
+        />
+      ) : null}
+    </div>
   )
 }

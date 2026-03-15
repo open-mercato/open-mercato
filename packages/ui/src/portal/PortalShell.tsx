@@ -230,7 +230,7 @@ export function PortalShell({
               <span className="text-sm font-medium text-foreground">{headerTitle}</span>
             </Link>
             <p className="text-xs text-muted-foreground/60">
-              {t('portal.footer.copyright', `\u00A9 ${new Date().getFullYear()} All rights reserved.`)}
+              {t('portal.footer.copyright', '\u00A9 {year} All rights reserved.', { year: new Date().getFullYear() })}
             </p>
           </div>
         </footer>
@@ -353,7 +353,7 @@ export function PortalShell({
 
         <footer className="border-t px-4 py-4 lg:px-8" data-portal-handle={PORTAL_FOOTER_HANDLE}>
           <p className="text-[11px] text-muted-foreground/50">
-            {t('portal.footer.copyright', `\u00A9 ${new Date().getFullYear()} All rights reserved.`)}
+            {t('portal.footer.copyright', '\u00A9 {year} All rights reserved.', { year: new Date().getFullYear() })}
           </p>
         </footer>
       </div>

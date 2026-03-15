@@ -1,10 +1,11 @@
 "use client"
+import { useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
-import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalFeatureCard } from '@open-mercato/ui/portal/components/PortalFeatureCard'
 
@@ -36,29 +37,34 @@ function ShieldIcon({ className }: { className?: string }) {
 
 export default function PortalLandingPage({ params }: Props) {
   const t = useT()
+  const router = useRouter()
   const orgSlug = params.orgSlug
-  const { tenant } = usePortalContext()
+  const { auth, tenant } = usePortalContext()
 
-  if (tenant.loading) {
-    return (
-      <PortalShell orgSlug={orgSlug}>
-        <div className="flex items-center justify-center py-20"><Spinner /></div>
-      </PortalShell>
-    )
+  // Redirect authenticated users to dashboard
+  useEffect(() => {
+    if (!auth.loading && auth.user) {
+      router.replace(`/${orgSlug}/portal/dashboard`)
+    }
+  }, [auth.loading, auth.user, router, orgSlug])
+
+  if (auth.loading || tenant.loading) {
+    return <div className="flex items-center justify-center py-20"><Spinner /></div>
   }
 
   if (tenant.error) {
     return (
-      <PortalShell orgSlug={orgSlug}>
-        <div className="mx-auto w-full max-w-md py-12">
-          <Notice variant="error">{t('portal.org.invalid', 'Organization not found.')}</Notice>
-        </div>
-      </PortalShell>
+      <div className="mx-auto w-full max-w-md py-12">
+        <Notice variant="error">{t('portal.org.invalid', 'Organization not found.')}</Notice>
+      </div>
     )
   }
 
+  // Authenticated user — redirect is in progress
+  if (auth.user) return null
+
   return (
-    <PortalShell orgSlug={orgSlug}>
+    <>
       <section className="flex flex-col items-center gap-5 py-8 text-center sm:py-16">
         <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/60">
           {t('portal.nav.home', 'Customer Portal')}
@@ -96,6 +102,6 @@ export default function PortalLandingPage({ params }: Props) {
           description={t('portal.landing.feature.security.description', 'Role-based permissions, session management, and full audit trail.')}
         />
       </section>
-    </PortalShell>
+    </>
   )
 }
