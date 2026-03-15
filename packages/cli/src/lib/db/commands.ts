@@ -84,7 +84,7 @@ export function validateTableName(tableName: string): void {
   }
 }
 
-function makeConstraintDropsIdempotent(sql: string): string {
+export function makeConstraintDropsIdempotent(sql: string): string {
   return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
 }
 
@@ -92,20 +92,24 @@ let tsxLoaderRegistered = false
 
 async function importWithTypeScriptFile(filePath: string): Promise<any> {
   const fileUrl = pathToFileURL(filePath).href
+  let tsImportFn: ((fileUrl: string, cwd: string) => Promise<any>) | undefined
   try {
     const { register, tsImport } = await import('tsx/esm/api')
     if (!tsxLoaderRegistered) {
       register()
       tsxLoaderRegistered = true
     }
-    return await tsImport(fileUrl, pathToFileURL(process.cwd() + '/').href)
+    tsImportFn = tsImport
   } catch {
     // Fallback to default import, in case tsx is unavailable in this environment.
   }
 
+  if (tsImportFn) {
+    return await tsImportFn(fileUrl, pathToFileURL(process.cwd() + '/').href)
+  }
+
   return import(fileUrl)
 }
-
 
 async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver): Promise<any[]> {
   const roots = resolver.getModulePaths(entry)
@@ -125,7 +129,7 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
         const fromApp = base.startsWith(roots.appBase)
-        const importPath = fromApp ? pathToFileURL(p).href : `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+        const importPath = fromApp ? pathToFileURL(p).href : `${imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
         try {
           const mod = isAppModule && fromApp
             ? await importWithTypeScriptFile(p)
@@ -285,7 +289,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
 
-    // dbMigrate only runs existing migration files -- entities are intentionally
+    // dbMigrate only runs existing migration files — entities are intentionally
     // omitted so MikroORM does not compare them against the snapshot and
     // auto-generate a phantom diff migration (that would duplicate tables
     // already created by committed migrations).
@@ -493,4 +497,3 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
 
   console.log('Greenfield reset complete! Fresh migrations generated and applied.')
 }
-
