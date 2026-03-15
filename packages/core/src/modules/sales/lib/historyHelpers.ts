@@ -21,10 +21,13 @@ function extractStatusFromSnapshot(snapshot: unknown): string | null {
   const s = snapshot as Record<string, unknown>
   // Dedicated logStatusChange entries: { status: "value" }
   if (typeof s.status === 'string') return s.status
-  // Regular update snapshots: { order: { status: "value", ... } }
+  // Regular update snapshots: { order: { status, fulfillment_status, payment_status, ... } }
   if (s.order && typeof s.order === 'object') {
     const order = s.order as Record<string, unknown>
-    if (typeof order.status === 'string') return order.status
+    const orderStatus = typeof order.status === 'string' ? order.status : null
+    const fulfillmentStatus = typeof order.fulfillment_status === 'string' ? order.fulfillment_status : null
+    const paymentStatus = typeof order.payment_status === 'string' ? order.payment_status : null
+    return orderStatus ?? fulfillmentStatus ?? paymentStatus ?? null
   }
   // Regular update snapshots: { quote: { status: "value", ... } }
   if (s.quote && typeof s.quote === 'object') {
@@ -65,9 +68,13 @@ export function normalizeActionLogToHistoryEntry(
   let action = log.actionLabel || log.commandId
   let metadata: HistoryEntry['metadata'] = { documentKind: kind, commandId: log.commandId }
   if (statusChange) {
-    entryKind = 'status'
-    action = statusChange.statusTo ?? 'unknown'
-    metadata = { ...metadata, statusFrom: statusChange.statusFrom, statusTo: statusChange.statusTo }
+    const hasStatusValues = statusChange.statusFrom != null || statusChange.statusTo != null
+    if (hasStatusValues) {
+      entryKind = 'status'
+      action = statusChange.statusTo ?? 'unknown'
+      metadata = { ...metadata, statusFrom: statusChange.statusFrom, statusTo: statusChange.statusTo }
+    }
+    // When both are null (e.g. Create return/shipment/payment with non-document snapshot), keep as action and use actionLabel
   }
   const actorLabel = log.actorUserId
     ? (displayUsers?.[log.actorUserId] ?? log.actorUserId)

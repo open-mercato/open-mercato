@@ -110,8 +110,8 @@ export function ReturnDialog({ open, orderId, lines, onClose, onSaved }: ReturnD
         },
       })
       flash(t('sales.returns.created', 'Return created.'), 'success')
-      await onSaved()
       onClose()
+      await onSaved()
     } catch {
       flash(t('sales.returns.errors.create', 'Failed to create return.'), 'error')
     } finally {

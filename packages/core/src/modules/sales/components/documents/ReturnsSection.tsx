@@ -195,13 +195,15 @@ export function SalesReturnsSection({ orderId, currencyCode }: SalesReturnsSecti
   if (!rows.length) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-end">
-          <Button type="button" onClick={() => setDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" aria-hidden />
-            {t('sales.returns.create', 'Create return')}
-          </Button>
-        </div>
-        <TabEmptyState title={emptyState.title} description={emptyState.description} />
+        <TabEmptyState
+          title={emptyState.title}
+          description={emptyState.description}
+          action={{
+            label: t('sales.returns.create', 'Create return'),
+            icon: <Plus className="mr-2 h-4 w-4" aria-hidden />,
+            onClick: () => setDialogOpen(true),
+          }}
+        />
         <ReturnDialog
           open={dialogOpen}
           orderId={orderId}
