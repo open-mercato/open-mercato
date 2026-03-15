@@ -8,14 +8,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
-import { useTenantContext } from '@open-mercato/ui/portal/hooks/useTenantContext'
+import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 
 type Props = { params: { orgSlug: string } }
 
 export default function PortalSignupPage({ params }: Props) {
   const t = useT()
   const orgSlug = params.orgSlug
-  const { tenantId, organizationId, organizationName, loading: ctxLoading, error: ctxError } = useTenantContext(orgSlug)
+  const { tenant } = usePortalContext()
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
@@ -29,7 +29,7 @@ export default function PortalSignupPage({ params }: Props) {
       event.preventDefault()
       setError(null)
 
-      if (!tenantId || !organizationId) {
+      if (!tenant.tenantId || !tenant.organizationId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
         return
       }
@@ -40,7 +40,7 @@ export default function PortalSignupPage({ params }: Props) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ email, password, displayName, tenantId, organizationId }),
+          body: JSON.stringify({ email, password, displayName, tenantId: tenant.tenantId, organizationId: tenant.organizationId }),
         })
 
         const data = await res.json().catch(() => null)
@@ -57,20 +57,18 @@ export default function PortalSignupPage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [displayName, email, password, tenantId, organizationId, t],
+    [displayName, email, password, tenant.tenantId, tenant.organizationId, t],
   )
 
-  if (ctxLoading) {
+  if (tenant.loading) {
     return (
       <PortalShell orgSlug={orgSlug}>
-        <div className="flex items-center justify-center py-20">
-          <Spinner />
-        </div>
+        <div className="flex items-center justify-center py-20"><Spinner /></div>
       </PortalShell>
     )
   }
 
-  if (ctxError) {
+  if (tenant.error) {
     return (
       <PortalShell orgSlug={orgSlug}>
         <div className="mx-auto w-full max-w-md py-12">
@@ -82,7 +80,7 @@ export default function PortalSignupPage({ params }: Props) {
 
   if (success) {
     return (
-      <PortalShell orgSlug={orgSlug} organizationName={organizationName}>
+      <PortalShell orgSlug={orgSlug}>
         <div className="mx-auto w-full max-w-sm text-center">
           <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-foreground text-background">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-6">
@@ -100,7 +98,7 @@ export default function PortalSignupPage({ params }: Props) {
   }
 
   return (
-    <PortalShell orgSlug={orgSlug} organizationName={organizationName}>
+    <PortalShell orgSlug={orgSlug}>
       <div className="mx-auto w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight">{t('portal.signup.title', 'Create Account')}</h1>
@@ -112,47 +110,17 @@ export default function PortalSignupPage({ params }: Props) {
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="signup-name" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.displayName', 'Full Name')}</Label>
-            <Input
-              id="signup-name"
-              type="text"
-              autoComplete="name"
-              required
-              placeholder={t('portal.signup.displayName.placeholder', 'Jane Smith')}
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              disabled={submitting}
-              className="rounded-lg"
-            />
+            <Input id="signup-name" type="text" autoComplete="name" required placeholder={t('portal.signup.displayName.placeholder', 'Jane Smith')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={submitting} className="rounded-lg" />
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="signup-email" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
-            <Input
-              id="signup-email"
-              type="email"
-              autoComplete="email"
-              required
-              placeholder={t('portal.signup.email.placeholder', 'you@example.com')}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              disabled={submitting}
-              className="rounded-lg"
-            />
+            <Input id="signup-email" type="email" autoComplete="email" required placeholder={t('portal.signup.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="signup-password" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
-            <Input
-              id="signup-password"
-              type="password"
-              autoComplete="new-password"
-              required
-              placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={submitting}
-              className="rounded-lg"
-            />
+            <Input id="signup-password" type="password" autoComplete="new-password" required placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
           </div>
 
           <Button type="submit" disabled={submitting} className="mt-1 w-full rounded-lg">

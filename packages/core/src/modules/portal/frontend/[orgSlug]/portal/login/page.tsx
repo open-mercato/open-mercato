@@ -9,7 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
-import { useTenantContext } from '@open-mercato/ui/portal/hooks/useTenantContext'
+import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 
 type Props = { params: { orgSlug: string } }
 
@@ -17,7 +17,7 @@ export default function PortalLoginPage({ params }: Props) {
   const t = useT()
   const router = useRouter()
   const orgSlug = params.orgSlug
-  const { tenantId, organizationName, loading: ctxLoading, error: ctxError } = useTenantContext(orgSlug)
+  const { tenant } = usePortalContext()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -29,7 +29,7 @@ export default function PortalLoginPage({ params }: Props) {
       event.preventDefault()
       setError(null)
 
-      if (!tenantId) {
+      if (!tenant.tenantId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
         return
       }
@@ -40,13 +40,14 @@ export default function PortalLoginPage({ params }: Props) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ email, password, tenantId }),
+          body: JSON.stringify({ email, password, tenantId: tenant.tenantId }),
         })
 
         const data = await res.json().catch(() => null)
 
         if (res.ok && data?.ok) {
-          router.push(`/${orgSlug}/portal/dashboard`)
+          // Full reload to re-initialize context with new auth cookies
+          window.location.assign(`/${orgSlug}/portal/dashboard`)
           return
         }
 
@@ -63,20 +64,18 @@ export default function PortalLoginPage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [email, password, tenantId, orgSlug, router, t],
+    [email, password, tenant.tenantId, orgSlug, t],
   )
 
-  if (ctxLoading) {
+  if (tenant.loading) {
     return (
       <PortalShell orgSlug={orgSlug}>
-        <div className="flex items-center justify-center py-20">
-          <Spinner />
-        </div>
+        <div className="flex items-center justify-center py-20"><Spinner /></div>
       </PortalShell>
     )
   }
 
-  if (ctxError) {
+  if (tenant.error) {
     return (
       <PortalShell orgSlug={orgSlug}>
         <div className="mx-auto w-full max-w-md py-12">
@@ -87,7 +86,7 @@ export default function PortalLoginPage({ params }: Props) {
   }
 
   return (
-    <PortalShell orgSlug={orgSlug} organizationName={organizationName}>
+    <PortalShell orgSlug={orgSlug}>
       <div className="mx-auto w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight">{t('portal.login.title', 'Sign In')}</h1>
@@ -99,32 +98,12 @@ export default function PortalLoginPage({ params }: Props) {
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="login-email" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.email', 'Email')}</Label>
-            <Input
-              id="login-email"
-              type="email"
-              autoComplete="email"
-              required
-              placeholder={t('portal.login.email.placeholder', 'you@example.com')}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              disabled={submitting}
-              className="rounded-lg"
-            />
+            <Input id="login-email" type="email" autoComplete="email" required placeholder={t('portal.login.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} className="rounded-lg" />
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="login-password" className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.login.password', 'Password')}</Label>
-            <Input
-              id="login-password"
-              type="password"
-              autoComplete="current-password"
-              required
-              placeholder={t('portal.login.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={submitting}
-              className="rounded-lg"
-            />
+            <Input id="login-password" type="password" autoComplete="current-password" required placeholder={t('portal.login.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} className="rounded-lg" />
           </div>
 
           <Button type="submit" disabled={submitting} className="mt-1 w-full rounded-lg">

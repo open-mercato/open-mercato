@@ -4,10 +4,8 @@ import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
-import { useTenantContext } from '@open-mercato/ui/portal/hooks/useTenantContext'
-import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
+import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
@@ -46,9 +44,8 @@ function WidgetIcon({ className }: { className?: string }) {
 export default function PortalDashboardPage({ params }: Props) {
   const t = useT()
   const router = useRouter()
-  const orgSlug = params.orgSlug
-  const { organizationName, loading: ctxLoading, error: ctxError } = useTenantContext(orgSlug)
-  const { user, roles, resolvedFeatures, loading, logout } = useCustomerAuth(orgSlug)
+  const { auth } = usePortalContext()
+  const { user, loading } = auth
 
   const [editing, setEditing] = useState(false)
   const [hiddenWidgets, setHiddenWidgets] = useState<Set<string>>(() => loadHiddenWidgets())
@@ -57,9 +54,9 @@ export default function PortalDashboardPage({ params }: Props) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${orgSlug}/portal/login`)
+      router.replace(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, orgSlug])
+  }, [loading, user, router, params.orgSlug])
 
   const toggleWidget = useCallback((widgetId: string) => {
     setHiddenWidgets((prev) => {
@@ -79,22 +76,10 @@ export default function PortalDashboardPage({ params }: Props) {
     [dashboardWidgets, hiddenWidgets],
   )
 
-  if (ctxLoading || loading) {
+  if (loading) {
     return (
-      <PortalShell orgSlug={orgSlug} authenticated>
-        <div className="flex items-center justify-center py-20">
-          <Spinner />
-        </div>
-      </PortalShell>
-    )
-  }
-
-  if (ctxError) {
-    return (
-      <PortalShell orgSlug={orgSlug}>
-        <div className="mx-auto w-full max-w-md py-12">
-          <Notice variant="error">{t('portal.org.invalid', 'Organization not found.')}</Notice>
-        </div>
+      <PortalShell authenticated>
+        <div className="flex items-center justify-center py-20"><Spinner /></div>
       </PortalShell>
     )
   }
@@ -102,17 +87,8 @@ export default function PortalDashboardPage({ params }: Props) {
   if (!user) return null
 
   return (
-    <PortalShell
-      orgSlug={orgSlug}
-      organizationName={organizationName}
-      authenticated
-      onLogout={logout}
-      enableEventBridge
-      userName={user.displayName}
-      userEmail={user.email}
-    >
+    <PortalShell authenticated enableEventBridge>
       <div className="flex flex-col gap-8">
-        {/* Page header */}
         <PortalPageHeader
           label={t('portal.dashboard.title', 'Dashboard')}
           title={t('portal.dashboard.welcome', { name: user.displayName })}
@@ -125,34 +101,23 @@ export default function PortalDashboardPage({ params }: Props) {
                 className="rounded-lg text-[13px]"
                 onClick={() => setEditing((prev) => !prev)}
               >
-                {editing
-                  ? t('portal.dashboard.done', 'Done')
-                  : t('portal.dashboard.customize', 'Customize')}
+                {editing ? t('portal.dashboard.done', 'Done') : t('portal.dashboard.customize', 'Customize')}
               </Button>
             ) : null
           }
         />
 
-        {/* Widget toggle panel (edit mode) */}
         {editing && dashboardWidgets.length > 0 ? (
           <PortalCard>
             <PortalCardHeader
               label={t('portal.dashboard.customize', 'Customize')}
               title={t('portal.dashboard.widgets', 'Dashboard Widgets')}
-              description="Toggle widgets on or off to customize your dashboard."
             />
             <div className="flex flex-wrap gap-2">
               {dashboardWidgets.map((widget) => {
                 const isHidden = hiddenWidgets.has(widget.metadata.id)
                 return (
-                  <Button
-                    key={widget.metadata.id}
-                    type="button"
-                    variant={isHidden ? 'outline' : 'default'}
-                    size="sm"
-                    className="rounded-lg text-[13px]"
-                    onClick={() => toggleWidget(widget.metadata.id)}
-                  >
+                  <Button key={widget.metadata.id} type="button" variant={isHidden ? 'outline' : 'default'} size="sm" className="rounded-lg text-[13px]" onClick={() => toggleWidget(widget.metadata.id)}>
                     {widget.metadata.title || widget.metadata.id}
                   </Button>
                 )
@@ -161,7 +126,6 @@ export default function PortalDashboardPage({ params }: Props) {
           </PortalCard>
         ) : null}
 
-        {/* Widget grid */}
         {visibleWidgets.length > 0 ? (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {visibleWidgets.map((widget) => {
@@ -170,14 +134,13 @@ export default function PortalDashboardPage({ params }: Props) {
               return (
                 <PortalCard key={widget.metadata.id}>
                   <PortalCardHeader title={widget.metadata.title || widget.metadata.id} />
-                  <WidgetComponent context={{ orgSlug, user, roles, resolvedFeatures }} />
+                  <WidgetComponent context={{ orgSlug: params.orgSlug, user, roles: auth.roles, resolvedFeatures: auth.resolvedFeatures }} />
                 </PortalCard>
               )
             })}
           </div>
         ) : null}
 
-        {/* Empty state */}
         {dashboardWidgets.length === 0 && !widgetsLoading ? (
           <PortalEmptyState
             icon={<WidgetIcon className="size-5" />}

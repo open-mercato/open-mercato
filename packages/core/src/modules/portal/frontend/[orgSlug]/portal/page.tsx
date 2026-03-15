@@ -5,7 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
-import { useTenantContext } from '@open-mercato/ui/portal/hooks/useTenantContext'
+import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalFeatureCard } from '@open-mercato/ui/portal/components/PortalFeatureCard'
 
 type Props = { params: { orgSlug: string } }
@@ -37,19 +37,17 @@ function ShieldIcon({ className }: { className?: string }) {
 export default function PortalLandingPage({ params }: Props) {
   const t = useT()
   const orgSlug = params.orgSlug
-  const { organizationName, loading, error } = useTenantContext(orgSlug)
+  const { tenant } = usePortalContext()
 
-  if (loading) {
+  if (tenant.loading) {
     return (
       <PortalShell orgSlug={orgSlug}>
-        <div className="flex items-center justify-center py-20">
-          <Spinner />
-        </div>
+        <div className="flex items-center justify-center py-20"><Spinner /></div>
       </PortalShell>
     )
   }
 
-  if (error) {
+  if (tenant.error) {
     return (
       <PortalShell orgSlug={orgSlug}>
         <div className="mx-auto w-full max-w-md py-12">
@@ -60,8 +58,7 @@ export default function PortalLandingPage({ params }: Props) {
   }
 
   return (
-    <PortalShell orgSlug={orgSlug} organizationName={organizationName}>
-      {/* Hero */}
+    <PortalShell orgSlug={orgSlug}>
       <section className="flex flex-col items-center gap-5 py-8 text-center sm:py-16">
         <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/60">
           {t('portal.nav.home', 'Customer Portal')}
@@ -82,7 +79,6 @@ export default function PortalLandingPage({ params }: Props) {
         </div>
       </section>
 
-      {/* Feature cards — matching landing page 3-column grid */}
       <section className="grid gap-4 sm:grid-cols-3">
         <PortalFeatureCard
           icon={<ShoppingBagIcon className="size-5" />}

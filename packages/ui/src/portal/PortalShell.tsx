@@ -1,5 +1,5 @@
 "use client"
-import { type ReactNode, useState, useCallback, useMemo } from 'react'
+import { type ReactNode, useState, useCallback, useMemo, useContext } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -11,6 +11,7 @@ import { usePortalEventBridge } from './hooks/usePortalEventBridge'
 import { mergeMenuItems } from '../backend/injection/mergeMenuItems'
 import type { MergedMenuItem } from '../backend/injection/mergeMenuItems'
 import { PortalNotificationBell } from './components/PortalNotificationBell'
+import { usePortalContext } from './PortalContext'
 
 // Component replacement handle IDs (FROZEN once shipped)
 export const PORTAL_SHELL_HANDLE = 'page:portal:layout'
@@ -21,12 +22,18 @@ export const PORTAL_USER_MENU_HANDLE = 'section:portal:user-menu'
 
 export type PortalShellProps = {
   children: ReactNode
+  /** Override orgSlug (used on public pages without context) */
   orgSlug?: string
+  /** Override organization name (used on public pages without context) */
   organizationName?: string
+  /** Whether to show authenticated layout. Auto-detected from context when omitted. */
   authenticated?: boolean
+  /** Logout handler. Auto-provided from context when omitted. */
   onLogout?: () => void
   enableEventBridge?: boolean
+  /** Override user name. Auto-read from context when omitted. */
   userName?: string
+  /** Override user email. Auto-read from context when omitted. */
   userEmail?: string
 }
 
@@ -35,7 +42,7 @@ function PortalEventBridgeMount() {
   return null
 }
 
-/* ---- Inline SVG icons (avoid lucide-react dep) ---- */
+/* ---- Inline SVG icons ---- */
 
 function MenuIcon({ className }: { className?: string }) {
   return (
@@ -114,23 +121,52 @@ function UserAvatar({ name, className }: { name?: string; className?: string }) 
   )
 }
 
+/* ---- Try reading from PortalContext ---- */
+
+function useOptionalPortalContext() {
+  try {
+    return usePortalContext()
+  } catch {
+    return null
+  }
+}
+
 /* ================================================================== */
 /*  PortalShell                                                       */
 /* ================================================================== */
 
+/**
+ * Portal layout shell.
+ *
+ * When a `PortalProvider` is mounted in a parent layout, PortalShell reads
+ * auth/tenant state from context — no re-fetching on navigation. Props are
+ * used as overrides or for public pages that don't have a context.
+ */
 export function PortalShell({
   children,
-  orgSlug,
-  organizationName,
-  authenticated,
-  onLogout,
+  orgSlug: orgSlugProp,
+  organizationName: orgNameProp,
+  authenticated: authenticatedProp,
+  onLogout: onLogoutProp,
   enableEventBridge = false,
-  userName,
-  userEmail,
+  userName: userNameProp,
+  userEmail: userEmailProp,
 }: PortalShellProps) {
   const t = useT()
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Read from context when available (persists across navigations)
+  const portalCtx = useOptionalPortalContext()
+
+  // Resolve values: context takes priority, props are fallback/override
+  const orgSlug = portalCtx?.orgSlug ?? orgSlugProp
+  const orgName = portalCtx?.tenant.organizationName ?? orgNameProp
+  const user = portalCtx?.auth.user ?? null
+  const authenticated = authenticatedProp ?? !!user
+  const onLogout = onLogoutProp ?? portalCtx?.auth.logout
+  const userName = userNameProp ?? user?.displayName
+  const userEmail = userEmailProp ?? user?.email
 
   const { items: injectedMainItems } = usePortalInjectedMenuItems('menu:portal:sidebar:main')
   const { items: injectedAccountItems } = usePortalInjectedMenuItems('menu:portal:sidebar:account')
@@ -139,11 +175,10 @@ export function PortalShell({
   const loginHref = orgSlug ? `/${orgSlug}/portal/login` : '/portal/login'
   const signupHref = orgSlug ? `/${orgSlug}/portal/signup` : '/portal/signup'
   const dashboardHref = orgSlug ? `/${orgSlug}/portal/dashboard` : '/portal/dashboard'
-  const headerTitle = organizationName || t('portal.title', 'Customer Portal')
+  const profileHref = orgSlug ? `/${orgSlug}/portal/profile` : '/portal/profile'
+  const headerTitle = orgName || t('portal.title', 'Customer Portal')
 
   const closeMobile = useCallback(() => setMobileOpen(false), [])
-
-  const profileHref = orgSlug ? `/${orgSlug}/portal/profile` : '/portal/profile'
 
   const mergedNavItems = useMemo(() => {
     if (!authenticated) return []
@@ -165,7 +200,6 @@ export function PortalShell({
   if (!authenticated) {
     return (
       <div className="flex min-h-svh flex-col bg-background" data-portal-handle={PORTAL_SHELL_HANDLE}>
-        {/* Sticky header matching landing page nav style */}
         <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80" data-portal-handle={PORTAL_HEADER_HANDLE}>
           <div className="mx-auto flex h-16 w-full max-w-screen-lg items-center justify-between px-6">
             <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
@@ -208,7 +242,6 @@ export function PortalShell({
 
   const sidebarContent = (
     <div className="flex h-full flex-col" data-portal-handle={PORTAL_SIDEBAR_HANDLE}>
-      {/* Logo */}
       <div className="flex h-16 items-center gap-2.5 border-b px-5">
         <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
           <Image src="/open-mercato.svg" alt="" width={22} height={22} className="dark:invert" />
@@ -216,9 +249,7 @@ export function PortalShell({
         </Link>
       </div>
 
-      {/* Navigation */}
       <nav aria-label="Portal navigation" className="flex-1 overflow-y-auto px-3 py-5">
-        {/* Section label */}
         <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/50">
           {t('portal.nav.home', 'Portal')}
         </p>
@@ -234,7 +265,6 @@ export function PortalShell({
           ))}
         </div>
 
-        {/* Account section (injected) */}
         {mergedAccountItems.length > 0 ? (
           <div className="mt-8">
             <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/50">
@@ -255,7 +285,6 @@ export function PortalShell({
         ) : null}
       </nav>
 
-      {/* User section */}
       <div className="border-t px-3 py-3">
         <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
           <UserAvatar name={userName} className="size-8" />
@@ -282,12 +311,10 @@ export function PortalShell({
     <div className="flex min-h-svh bg-background" data-portal-handle={PORTAL_SHELL_HANDLE}>
       {enableEventBridge ? <PortalEventBridgeMount /> : null}
 
-      {/* Desktop sidebar */}
       <aside className="hidden w-[240px] shrink-0 border-r lg:block">
         {sidebarContent}
       </aside>
 
-      {/* Mobile drawer */}
       {mobileOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={closeMobile} />
@@ -302,9 +329,7 @@ export function PortalShell({
         </div>
       ) : null}
 
-      {/* Main area */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top header */}
         <header className="flex h-16 items-center justify-between border-b px-4 lg:px-8" data-portal-handle={PORTAL_HEADER_HANDLE}>
           <div className="flex items-center gap-3">
             <IconButton variant="ghost" size="sm" type="button" onClick={() => setMobileOpen(true)} className="lg:hidden" aria-label="Open menu">
@@ -320,14 +345,12 @@ export function PortalShell({
           </div>
         </header>
 
-        {/* Content */}
         <main className="flex-1 overflow-y-auto">
           <div className="w-full px-4 py-6 lg:px-8 lg:py-8">
             {children}
           </div>
         </main>
 
-        {/* Footer */}
         <footer className="border-t px-4 py-4 lg:px-8" data-portal-handle={PORTAL_FOOTER_HANDLE}>
           <p className="text-[11px] text-muted-foreground/50">
             {t('portal.footer.copyright', `\u00A9 ${new Date().getFullYear()} All rights reserved.`)}
