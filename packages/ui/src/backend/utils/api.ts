@@ -35,6 +35,8 @@ export function redirectToSessionRefresh() {
   const current = window.location.pathname + window.location.search
   // Avoid redirect loops if already on an auth/session route
   if (window.location.pathname.startsWith('/api/auth')) return
+  // Portal routes have their own customer auth — never redirect to staff login
+  if (/\/[^/]+\/portal(\/|$)/.test(window.location.pathname)) return
   try {
     flash('Session expired. Redirecting to sign in…', 'warning')
     setTimeout(() => {
@@ -64,6 +66,8 @@ export function setAuthRedirectConfig(cfg: { defaultForbiddenRoles?: readonly st
 export function redirectToForbiddenLogin(options?: { requiredRoles?: string[] | null; requiredFeatures?: string[] | null }) {
   if (typeof window === 'undefined') return
   if (window.location.pathname.startsWith('/login')) return
+  // Portal routes have their own customer auth — never redirect to staff login
+  if (/\/[^/]+\/portal(\/|$)/.test(window.location.pathname)) return
   try {
     const current = window.location.pathname + window.location.search
     const features = options?.requiredFeatures?.filter(Boolean) ?? []
@@ -104,10 +108,13 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
     : init
   const res = await baseFetch(input, mergedInit)
-  const onLoginPage = typeof window !== 'undefined' && window.location.pathname.startsWith('/login')
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
+  const onLoginPage = pathname.startsWith('/login')
+  const onPortalRoute = /\/[^/]+\/portal(\/|$)/.test(pathname)
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
-    if (!onLoginPage) {
+    // Skip for staff login page and all portal routes (portal has its own auth)
+    if (!onLoginPage && !onPortalRoute) {
       redirectToSessionRefresh()
       // Throw a typed error for callers that might still handle it
       throw new UnauthorizedError(await res.text().catch(() => 'Unauthorized'))
@@ -126,8 +133,8 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       if (Array.isArray(data?.requiredFeatures)) features = data.requiredFeatures.map((f: any) => String(f))
       if (data && typeof data === 'object') payload = data
     } catch {}
-    // Only redirect if not already on login page
-    if (!onLoginPage) {
+    // Only redirect if not already on login page or a portal route
+    if (!onLoginPage && !onPortalRoute) {
       const target =
         typeof input === 'string'
           ? input
