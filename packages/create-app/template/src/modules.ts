@@ -52,13 +52,26 @@ export const enabledModules: ModuleEntry[] = [
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 
-if (enterpriseModulesEnabled) {
+// Check if enterprise package is available before trying to use it
+function isEnterprisePackageAvailable(): boolean {
+  try {
+    // Try to resolve the enterprise package without importing it
+    require.resolve('@open-mercato/enterprise/package.json')
+    return true
+  } catch {
+    return false
+  }
+}
+
+if (enterpriseModulesEnabled && isEnterprisePackageAvailable()) {
   enabledModules.push(
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
   )
+} else if (enterpriseModulesEnabled && !isEnterprisePackageAvailable()) {
+  console.warn('[modules] Enterprise modules requested but @open-mercato/enterprise package not found. Skipping enterprise modules.')
 }
 
-if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
+if (enterpriseModulesEnabled && enterpriseSsoEnabled && isEnterprisePackageAvailable()) {
   enabledModules.push({ id: 'sso', from: '@open-mercato/enterprise' })
 }
