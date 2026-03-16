@@ -4,8 +4,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'customer_accounts.user.signup',
     module: 'customer_accounts',
-    titleKey: 'customer_accounts.notifications.signup.title',
-    bodyKey: 'customer_accounts.notifications.signup.body',
+    titleKey: 'customer_accounts.notifications.user.signup.title',
+    bodyKey: 'customer_accounts.notifications.user.signup.body',
     icon: 'user-plus',
     severity: 'info',
     actions: [
@@ -23,8 +23,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'customer_accounts.user.locked',
     module: 'customer_accounts',
-    titleKey: 'customer_accounts.notifications.locked.title',
-    bodyKey: 'customer_accounts.notifications.locked.body',
+    titleKey: 'customer_accounts.notifications.user.locked.title',
+    bodyKey: 'customer_accounts.notifications.user.locked.body',
     icon: 'lock',
     severity: 'warning',
     actions: [

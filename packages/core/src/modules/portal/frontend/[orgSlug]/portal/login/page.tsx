@@ -7,6 +7,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 
 type Props = { params: { orgSlug: string } }
@@ -33,26 +34,23 @@ export default function PortalLoginPage({ params }: Props) {
 
       setSubmitting(true)
       try {
-        const res = await fetch('/api/customer_accounts/login', {
+        const result = await apiCall<{ ok: boolean; error?: string }>('/api/customer_accounts/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
           body: JSON.stringify({ email, password, tenantId: tenant.tenantId }),
         })
 
-        const data = await res.json().catch(() => null)
-
-        if (res.ok && data?.ok) {
+        if (result.ok && result.result?.ok) {
           window.location.assign(`/${orgSlug}/portal/dashboard`)
           return
         }
 
-        if (res.status === 423) {
+        if (result.status === 423) {
           setError(t('portal.login.error.locked', 'Account locked. Try again later.'))
-        } else if (res.status === 401) {
+        } else if (result.status === 401) {
           setError(t('portal.login.error.invalidCredentials', 'Invalid email or password.'))
         } else {
-          setError(data?.error || t('portal.login.error.generic', 'Login failed. Please try again.'))
+          setError(result.result?.error || t('portal.login.error.generic', 'Login failed. Please try again.'))
         }
       } catch {
         setError(t('portal.login.error.generic', 'Login failed. Please try again.'))

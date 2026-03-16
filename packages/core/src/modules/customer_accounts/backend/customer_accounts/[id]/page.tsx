@@ -12,6 +12,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type UserDetail = {
   id: string
@@ -46,10 +47,12 @@ function ResetPasswordDialog({
   open,
   onOpenChange,
   userId,
+  onRunMutation,
 }: {
   open: boolean
   onOpenChange: (next: boolean) => void
   userId: string
+  onRunMutation: <T>(operation: () => Promise<T>) => Promise<T>
 }) {
   const t = useT()
   const [newPassword, setNewPassword] = React.useState('')
@@ -63,28 +66,30 @@ function ResetPasswordDialog({
     }
     setIsSubmitting(true)
     try {
-      const call = await apiCall<{ ok: boolean; error?: string }>(
-        `/api/customer_accounts/admin/users/${encodeURIComponent(userId)}/reset-password`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ newPassword }),
-        },
-      )
-      if (!call.ok) {
-        flash(call.result?.error || t('customer_accounts.admin.detail.resetPassword.error.save', 'Failed to reset password'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.detail.resetPassword.flash.success', 'Password reset successfully'), 'success')
-      setNewPassword('')
-      onOpenChange(false)
+      await onRunMutation(async () => {
+        const call = await apiCall<{ ok: boolean; error?: string }>(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(userId)}/reset-password`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ newPassword }),
+          },
+        )
+        if (!call.ok) {
+          flash(call.result?.error || t('customer_accounts.admin.detail.resetPassword.error.save', 'Failed to reset password'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.detail.resetPassword.flash.success', 'Password reset successfully'), 'success')
+        setNewPassword('')
+        onOpenChange(false)
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.resetPassword.error.save', 'Failed to reset password')
       flash(message, 'error')
     } finally {
       setIsSubmitting(false)
     }
-  }, [newPassword, onOpenChange, t, userId])
+  }, [newPassword, onOpenChange, onRunMutation, t, userId])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -148,6 +153,25 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
   const [resetPasswordOpen, setResetPasswordOpen] = React.useState(false)
   const [isVerifying, setIsVerifying] = React.useState(false)
 
+  const mutationContextId = `customer_accounts:user:${id ?? 'pending'}`
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    entityType: string
+    entityId?: string
+  }>({
+    contextId: mutationContextId,
+  })
+
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { entityType: 'customer_accounts:user', entityId: id },
+      })
+    },
+    [id, runMutation],
+  )
+
   React.useEffect(() => {
     if (!id) {
       setError(t('customer_accounts.admin.detail.error.notFound', 'User not found'))
@@ -205,35 +229,37 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     if (!data || !id) return
     setIsSaving(true)
     try {
-      const call = await apiCall<{ ok: boolean; error?: string }>(
-        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            displayName: editDisplayName.trim() || undefined,
-            isActive: editActive,
-            roleIds: selectedRoleIds,
-          }),
-        },
-      )
-      if (!call.ok) {
-        flash(call.result?.error || t('customer_accounts.admin.detail.error.save', 'Failed to save user'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.detail.flash.saved', 'User updated'), 'success')
-      setData((prev) => prev ? {
-        ...prev,
-        isActive: editActive ?? prev.isActive,
-        displayName: editDisplayName.trim() || prev.displayName,
-      } : prev)
+      await runMutationWithContext(async () => {
+        const call = await apiCall<{ ok: boolean; error?: string }>(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              displayName: editDisplayName.trim() || undefined,
+              isActive: editActive,
+              roleIds: selectedRoleIds,
+            }),
+          },
+        )
+        if (!call.ok) {
+          flash(call.result?.error || t('customer_accounts.admin.detail.error.save', 'Failed to save user'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.detail.flash.saved', 'User updated'), 'success')
+        setData((prev) => prev ? {
+          ...prev,
+          isActive: editActive ?? prev.isActive,
+          displayName: editDisplayName.trim() || prev.displayName,
+        } : prev)
+      }, { displayName: editDisplayName, isActive: editActive, roleIds: selectedRoleIds })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.error.save', 'Failed to save user')
       flash(message, 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [data, editActive, editDisplayName, id, selectedRoleIds, t])
+  }, [data, editActive, editDisplayName, id, runMutationWithContext, selectedRoleIds, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!data || !id) return
@@ -245,21 +271,23 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(
-        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
-        { method: 'DELETE' },
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.flash.deleted', 'User deleted'), 'success')
-      router.push('/backend/customer_accounts')
+      await runMutationWithContext(async () => {
+        const call = await apiCall(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.flash.deleted', 'User deleted'), 'success')
+        router.push('/backend/customer_accounts')
+      }, { id })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.error.delete', 'Failed to delete user')
       flash(message, 'error')
     }
-  }, [confirm, data, id, router, t])
+  }, [confirm, data, id, router, runMutationWithContext, t])
 
   const handleVerifyEmail = React.useCallback(async () => {
     if (!data || !id) return
@@ -271,45 +299,49 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     if (!confirmed) return
     setIsVerifying(true)
     try {
-      const call = await apiCall<{ ok: boolean; error?: string }>(
-        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}/verify-email`,
-        { method: 'POST' },
-      )
-      if (!call.ok) {
-        flash(call.result?.error || t('customer_accounts.admin.detail.verifyEmail.error', 'Failed to verify email'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.detail.verifyEmail.flash.success', 'Email marked as verified'), 'success')
-      setData((prev) => prev ? { ...prev, emailVerifiedAt: new Date().toISOString() } : prev)
+      await runMutationWithContext(async () => {
+        const call = await apiCall<{ ok: boolean; error?: string }>(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(id)}/verify-email`,
+          { method: 'POST' },
+        )
+        if (!call.ok) {
+          flash(call.result?.error || t('customer_accounts.admin.detail.verifyEmail.error', 'Failed to verify email'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.detail.verifyEmail.flash.success', 'Email marked as verified'), 'success')
+        setData((prev) => prev ? { ...prev, emailVerifiedAt: new Date().toISOString() } : prev)
+      }, { id })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.verifyEmail.error', 'Failed to verify email')
       flash(message, 'error')
     } finally {
       setIsVerifying(false)
     }
-  }, [confirm, data, id, t])
+  }, [confirm, data, id, runMutationWithContext, t])
 
   const handleRevokeSession = React.useCallback(async (sessionId: string) => {
     if (!id) return
     try {
-      const call = await apiCall(
-        `/api/customer_accounts/admin/users/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`,
-        { method: 'DELETE' },
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.detail.error.revokeSession', 'Failed to revoke session'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.detail.flash.sessionRevoked', 'Session revoked'), 'success')
-      setData((prev) => {
-        if (!prev) return prev
-        return { ...prev, sessions: prev.sessions.filter((session) => session.id !== sessionId) }
-      })
+      await runMutationWithContext(async () => {
+        const call = await apiCall(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.detail.error.revokeSession', 'Failed to revoke session'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.detail.flash.sessionRevoked', 'Session revoked'), 'success')
+        setData((prev) => {
+          if (!prev) return prev
+          return { ...prev, sessions: prev.sessions.filter((session) => session.id !== sessionId) }
+        })
+      }, { sessionId })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.error.revokeSession', 'Failed to revoke session')
       flash(message, 'error')
     }
-  }, [id, t])
+  }, [id, runMutationWithContext, t])
 
   const handleRoleToggle = React.useCallback((roleId: string) => {
     setSelectedRoleIds((prev) =>
@@ -566,6 +598,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           open={resetPasswordOpen}
           onOpenChange={setResetPasswordOpen}
           userId={id!}
+          onRunMutation={runMutationWithContext}
         />
       </PageBody>
       {ConfirmDialogElement}

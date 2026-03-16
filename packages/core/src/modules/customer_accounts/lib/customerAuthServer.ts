@@ -48,6 +48,7 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
       resolvedFeatures: Array.isArray(payload.resolvedFeatures) ? payload.resolvedFeatures as string[] : [],
     }
   } catch {
+    // Invalid or expired JWT — treat as unauthenticated
     return null
   }
 }

@@ -1,7 +1,7 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import AccountStatusWidget from './widget.client'
 
-const widget: InjectionWidgetModule<any, any> = {
+const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unknown>> = {
   metadata: {
     id: 'customer_accounts.injection.account-status',
     title: 'Customer Account Status',

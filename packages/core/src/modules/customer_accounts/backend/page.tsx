@@ -13,6 +13,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type UserRow = {
@@ -61,11 +62,13 @@ function CreateUserDialog({
   onOpenChange,
   roleOptions,
   onCreated,
+  onRunMutation,
 }: {
   open: boolean
   onOpenChange: (next: boolean) => void
   roleOptions: Array<{ id: string; label: string }>
   onCreated: () => void
+  onRunMutation: <T>(operation: () => Promise<T>) => Promise<T>
 }) {
   const t = useT()
   const [email, setEmail] = React.useState('')
@@ -89,34 +92,36 @@ function CreateUserDialog({
     }
     setIsSubmitting(true)
     try {
-      const call = await apiCall<{ ok: boolean; error?: string }>(
-        '/api/customer_accounts/admin/users',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            email: email.trim(),
-            displayName: displayName.trim(),
-            password,
-            roleIds: selectedRoleIds.length > 0 ? selectedRoleIds : undefined,
-          }),
-        },
-      )
-      if (!call.ok) {
-        flash(call.result?.error || t('customer_accounts.admin.createUser.error.save', 'Failed to create user'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.createUser.flash.created', 'User created'), 'success')
-      resetForm()
-      onOpenChange(false)
-      onCreated()
+      await onRunMutation(async () => {
+        const call = await apiCall<{ ok: boolean; error?: string }>(
+          '/api/customer_accounts/admin/users',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              email: email.trim(),
+              displayName: displayName.trim(),
+              password,
+              roleIds: selectedRoleIds.length > 0 ? selectedRoleIds : undefined,
+            }),
+          },
+        )
+        if (!call.ok) {
+          flash(call.result?.error || t('customer_accounts.admin.createUser.error.save', 'Failed to create user'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.createUser.flash.created', 'User created'), 'success')
+        resetForm()
+        onOpenChange(false)
+        onCreated()
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.createUser.error.save', 'Failed to create user')
       flash(message, 'error')
     } finally {
       setIsSubmitting(false)
     }
-  }, [displayName, email, onCreated, onOpenChange, password, resetForm, selectedRoleIds, t])
+  }, [displayName, email, onCreated, onOpenChange, onRunMutation, password, resetForm, selectedRoleIds, t])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -234,6 +239,24 @@ export default function CustomerAccountsPage() {
   const [roleOptions, setRoleOptions] = React.useState<Array<{ value: string; label: string; id: string }>>([])
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    entityType: string
+    entityId?: string
+  }>({
+    contextId: 'customer_accounts:users-list',
+  })
+
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { entityType: 'customer_accounts:user' },
+      })
+    },
+    [runMutation],
+  )
+
   React.useEffect(() => {
     let cancelled = false
     fetchRoleFilterOptions().then((opts) => {
@@ -315,30 +338,32 @@ export default function CustomerAccountsPage() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(
-        `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ isActive: nextActive }),
-        },
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.error.toggleActive', 'Failed to update user status'), 'error')
-        return
-      }
-      flash(
-        nextActive
-          ? t('customer_accounts.admin.flash.activated', 'User activated')
-          : t('customer_accounts.admin.flash.deactivated', 'User deactivated'),
-        'success',
-      )
-      setReloadToken((token) => token + 1)
+      await runMutationWithContext(async () => {
+        const call = await apiCall(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ isActive: nextActive }),
+          },
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.error.toggleActive', 'Failed to update user status'), 'error')
+          return
+        }
+        flash(
+          nextActive
+            ? t('customer_accounts.admin.flash.activated', 'User activated')
+            : t('customer_accounts.admin.flash.deactivated', 'User deactivated'),
+          'success',
+        )
+        setReloadToken((token) => token + 1)
+      }, { userId: user.id, isActive: nextActive })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.error.toggleActive', 'Failed to update user status')
       flash(message, 'error')
     }
-  }, [confirm, t])
+  }, [confirm, runMutationWithContext, t])
 
   const handleDelete = React.useCallback(async (user: UserRow) => {
     const confirmed = await confirm({
@@ -349,21 +374,23 @@ export default function CustomerAccountsPage() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(
-        `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
-        { method: 'DELETE' },
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.flash.deleted', 'User deleted'), 'success')
-      setReloadToken((token) => token + 1)
+      await runMutationWithContext(async () => {
+        const call = await apiCall(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(user.id)}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.error.delete', 'Failed to delete user'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.flash.deleted', 'User deleted'), 'success')
+        setReloadToken((token) => token + 1)
+      }, { id: user.id })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.error.delete', 'Failed to delete user')
       flash(message, 'error')
     }
-  }, [confirm, t])
+  }, [confirm, runMutationWithContext, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     setFilterValues(values)
@@ -499,6 +526,7 @@ export default function CustomerAccountsPage() {
           onOpenChange={setCreateDialogOpen}
           roleOptions={roleOptions}
           onCreated={() => setReloadToken((token) => token + 1)}
+          onRunMutation={runMutationWithContext}
         />
       </PageBody>
       {ConfirmDialogElement}

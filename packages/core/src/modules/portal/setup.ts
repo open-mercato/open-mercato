@@ -13,7 +13,7 @@ export const setup: ModuleSetupConfig = {
       description: 'Controls whether the customer portal is accessible. When disabled, all portal routes show "Portal not available".',
       category: 'portal',
       type: 'boolean',
-      defaultValue: true,
+      defaultValue: true as any,
     })
     em.persist(toggle)
     await em.flush()

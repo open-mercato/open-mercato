@@ -14,7 +14,7 @@ export interface CustomerAuthContext {
   resolvedFeatures: string[]
 }
 
-function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
+export function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
   if (!header) return undefined
   const parts = header.split(';')
   for (const part of parts) {
@@ -40,6 +40,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       try {
         token = decodeURIComponent(cookieValue)
       } catch {
+        // Malformed percent-encoding; use raw value
         token = cookieValue
       }
     }
@@ -63,6 +64,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
       resolvedFeatures: Array.isArray(payload.resolvedFeatures) ? payload.resolvedFeatures as string[] : [],
     }
   } catch {
+    // Invalid or expired JWT — treat as unauthenticated
     return null
   }
 }

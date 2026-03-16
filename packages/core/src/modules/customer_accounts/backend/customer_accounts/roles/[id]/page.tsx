@@ -11,6 +11,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 type RoleDetail = {
   id: string
@@ -78,6 +79,25 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
   const [editCustomerAssignable, setEditCustomerAssignable] = React.useState(false)
   const [editFeatures, setEditFeatures] = React.useState<string[]>([])
 
+  const mutationContextId = `customer_accounts:role:${id ?? 'pending'}`
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    entityType: string
+    entityId?: string
+  }>({
+    contextId: mutationContextId,
+  })
+
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { entityType: 'customer_accounts:role', entityId: id },
+      })
+    },
+    [id, runMutation],
+  )
+
   React.useEffect(() => {
     if (!id) {
       setError(t('customer_accounts.admin.roleDetail.error.notFound', 'Role not found'))
@@ -139,40 +159,42 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     if (!data || !id) return
     setIsSaving(true)
     try {
-      const call = await apiCall(
-        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            name: editName.trim(),
-            description: editDescription.trim() || null,
-            isDefault: editIsDefault,
-            customerAssignable: editCustomerAssignable,
-            features: editFeatures,
-          }),
-        },
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.roleDetail.flash.saved', 'Role updated'), 'success')
-      setData((prev) => prev ? {
-        ...prev,
-        name: editName.trim(),
-        description: editDescription.trim() || null,
-        isDefault: editIsDefault,
-        customerAssignable: editCustomerAssignable,
-        features: editFeatures,
-      } : prev)
+      await runMutationWithContext(async () => {
+        const call = await apiCall(
+          `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              name: editName.trim(),
+              description: editDescription.trim() || null,
+              isDefault: editIsDefault,
+              customerAssignable: editCustomerAssignable,
+              features: editFeatures,
+            }),
+          },
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.roleDetail.flash.saved', 'Role updated'), 'success')
+        setData((prev) => prev ? {
+          ...prev,
+          name: editName.trim(),
+          description: editDescription.trim() || null,
+          isDefault: editIsDefault,
+          customerAssignable: editCustomerAssignable,
+          features: editFeatures,
+        } : prev)
+      }, { name: editName, description: editDescription, isDefault: editIsDefault, customerAssignable: editCustomerAssignable, features: editFeatures })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role')
       flash(message, 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [data, editCustomerAssignable, editDescription, editFeatures, editIsDefault, editName, id, t])
+  }, [data, editCustomerAssignable, editDescription, editFeatures, editIsDefault, editName, id, runMutationWithContext, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!data || !id) return
@@ -186,21 +208,23 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(
-        `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
-        { method: 'DELETE' },
-      )
-      if (!call.ok) {
-        flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
-        return
-      }
-      flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
-      router.push('/backend/customer_accounts/roles')
+      await runMutationWithContext(async () => {
+        const call = await apiCall(
+          `/api/customer_accounts/admin/roles/${encodeURIComponent(id)}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
+          return
+        }
+        flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
+        router.push('/backend/customer_accounts/roles')
+      }, { id })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.roles.error.delete', 'Failed to delete role')
       flash(message, 'error')
     }
-  }, [confirm, data, id, router, t])
+  }, [confirm, data, id, router, runMutationWithContext, t])
 
   if (isLoading) {
     return (

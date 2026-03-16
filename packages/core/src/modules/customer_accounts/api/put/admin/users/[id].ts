@@ -76,7 +76,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
         user,
         role,
         createdAt: new Date(),
-      } as Partial<InstanceType<typeof CustomerUserRole>>)
+      } as any)
       em.persist(userRole)
     }
     await em.flush()

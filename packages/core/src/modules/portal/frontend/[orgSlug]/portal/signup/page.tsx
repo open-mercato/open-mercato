@@ -7,6 +7,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 
 type Props = { params: { orgSlug: string } }
@@ -35,21 +36,18 @@ export default function PortalSignupPage({ params }: Props) {
 
       setSubmitting(true)
       try {
-        const res = await fetch('/api/customer_accounts/signup', {
+        const result = await apiCall<{ ok: boolean; error?: string }>('/api/customer_accounts/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
           body: JSON.stringify({ email, password, displayName, tenantId: tenant.tenantId, organizationId: tenant.organizationId }),
         })
 
-        const data = await res.json().catch(() => null)
-
-        if (res.status === 201 && data?.ok) {
+        if (result.status === 201 && result.result?.ok) {
           setSuccess(true)
           return
         }
 
-        setError(data?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+        setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
       } catch {
         setError(t('portal.signup.error.generic', 'Signup failed. Please try again.'))
       } finally {

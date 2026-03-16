@@ -1,25 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
-import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { getCustomerAuthFromRequest, readCookieFromHeader } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 
 export const metadata: { path?: string } = {}
-
-function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
-  if (!header) return undefined
-  const parts = header.split(';')
-  for (const part of parts) {
-    const trimmed = part.trim()
-    if (trimmed.startsWith(`${name}=`)) {
-      return trimmed.slice(name.length + 1)
-    }
-  }
-  return undefined
-}
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const auth = await getCustomerAuthFromRequest(req)
@@ -52,7 +40,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
         return NextResponse.json({ ok: false, error: 'Cannot revoke current session. Use logout instead.' }, { status: 400 })
       }
     } catch {
-      // ignore
+      // Malformed cookie value — proceed with revocation since we can't confirm it's the current session
     }
   }
 

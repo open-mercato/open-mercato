@@ -1,7 +1,7 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import CompanyUsersWidget from './widget.client'
 
-const widget: InjectionWidgetModule<any, any> = {
+const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unknown>> = {
   metadata: {
     id: 'customer_accounts.injection.company-users',
     title: 'Company Portal Users',

@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 
 function slugify(value: string): string {
   return value
@@ -28,6 +29,23 @@ export default function CreateCustomerRolePage() {
   const [isDefault, setIsDefault] = React.useState(false)
   const [customerAssignable, setCustomerAssignable] = React.useState(false)
 
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    entityType: string
+  }>({
+    contextId: 'customer_accounts:role:create',
+  })
+
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { entityType: 'customer_accounts:role' },
+      })
+    },
+    [runMutation],
+  )
+
   const handleNameChange = React.useCallback((value: string) => {
     setName(value)
     if (!slugTouched) {
@@ -47,40 +65,42 @@ export default function CreateCustomerRolePage() {
     }
     setIsSaving(true)
     try {
-      const call = await apiCall(
-        '/api/customer_accounts/admin/roles',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            name: name.trim(),
-            slug: slug.trim(),
-            description: description.trim() || undefined,
-            isDefault,
-            customerAssignable,
-          }),
-        },
-      )
-      if (!call.ok) {
+      await runMutationWithContext(async () => {
+        const call = await apiCall(
+          '/api/customer_accounts/admin/roles',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              name: name.trim(),
+              slug: slug.trim(),
+              description: description.trim() || undefined,
+              isDefault,
+              customerAssignable,
+            }),
+          },
+        )
+        if (!call.ok) {
+          const data = call.result as Record<string, unknown> | null
+          flash((data?.error as string) || t('customer_accounts.admin.roleCreate.error.save', 'Failed to create role'), 'error')
+          return
+        }
         const data = call.result as Record<string, unknown> | null
-        flash((data?.error as string) || t('customer_accounts.admin.roleCreate.error.save', 'Failed to create role'), 'error')
-        return
-      }
-      const data = call.result as Record<string, unknown> | null
-      flash(t('customer_accounts.admin.roleCreate.flash.created', 'Role created'), 'success')
-      const role = data?.role as Record<string, unknown> | undefined
-      if (role?.id) {
-        router.push(`/backend/customer_accounts/roles/${role.id}`)
-      } else {
-        router.push('/backend/customer_accounts/roles')
-      }
+        flash(t('customer_accounts.admin.roleCreate.flash.created', 'Role created'), 'success')
+        const role = data?.role as Record<string, unknown> | undefined
+        if (role?.id) {
+          router.push(`/backend/customer_accounts/roles/${role.id}`)
+        } else {
+          router.push('/backend/customer_accounts/roles')
+        }
+      }, { name: name.trim(), slug: slug.trim(), isDefault, customerAssignable })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.roleCreate.error.save', 'Failed to create role')
       flash(message, 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [customerAssignable, description, isDefault, name, router, slug, t])
+  }, [customerAssignable, description, isDefault, name, router, runMutationWithContext, slug, t])
 
   return (
     <Page>

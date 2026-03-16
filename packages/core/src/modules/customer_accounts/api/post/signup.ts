@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerRole, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
@@ -47,16 +48,18 @@ export async function POST(req: Request) {
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  // Check for existing user
+  const org = await em.findOne(Organization, { id: organizationId, deletedAt: null })
+  if (!org) {
+    return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
+  }
+
   const existing = await customerUserService.findByEmail(email, tenantId)
   if (existing) {
     return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
   }
 
-  // Create user
   const user = await customerUserService.createUser(email, password, displayName, { tenantId, organizationId })
 
-  // Assign default role
   const defaultRole = await em.findOne(CustomerRole, {
     tenantId,
     isDefault: true,
@@ -73,15 +76,13 @@ export async function POST(req: Request) {
 
   await em.persistAndFlush(user)
 
-  // Create email verification token
-  const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
+  await customerTokenService.createEmailVerification(user.id, tenantId)
 
   void emitCustomerAccountsEvent('customer_accounts.user.created', {
     id: user.id,
     email: user.email,
     tenantId,
     organizationId,
-    verificationToken,
   }).catch(() => undefined)
 
   return NextResponse.json({
