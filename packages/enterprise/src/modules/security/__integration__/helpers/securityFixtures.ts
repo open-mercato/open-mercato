@@ -37,19 +37,16 @@ type UserFixture = {
 type TotpEnrollmentResult = {
   setupId: string
   secret: string
-  recoveryCodes: string[]
 }
 
 type OtpEmailEnrollmentResult = {
   setupId: string
-  recoveryCodes: string[]
 }
 
 type PasskeyEnrollmentResult = {
   setupId: string
   credentialId: string
   challenge: string
-  recoveryCodes: string[]
 }
 
 export function decodeJwtPayload(token: string): JwtPayload {
@@ -173,7 +170,7 @@ export async function enrollTotp(
   expect(setup.status).toBe(200)
   const secret = setup.body.clientData?.secret
   expect(typeof secret).toBe('string')
-  const confirm = await fetchJson<{ ok: true; recoveryCodes?: string[] }>(
+  const confirm = await fetchJson<{ ok: true }>(
     request,
     'PUT',
     '/api/security/mfa/provider/totp',
@@ -191,7 +188,6 @@ export async function enrollTotp(
   return {
     setupId: setup.body.setupId,
     secret: secret as string,
-    recoveryCodes: Array.isArray(confirm.body.recoveryCodes) ? confirm.body.recoveryCodes : [],
   }
 }
 
@@ -206,7 +202,7 @@ export async function enrollOtpEmail(
     { token, data: {} },
   )
   expect(setup.status).toBe(200)
-  const confirm = await fetchJson<{ ok: true; recoveryCodes?: string[] }>(
+  const confirm = await fetchJson<{ ok: true }>(
     request,
     'PUT',
     '/api/security/mfa/provider/otp_email',
@@ -221,7 +217,6 @@ export async function enrollOtpEmail(
   expect(confirm.status).toBe(200)
   return {
     setupId: setup.body.setupId,
-    recoveryCodes: Array.isArray(confirm.body.recoveryCodes) ? confirm.body.recoveryCodes : [],
   }
 }
 
@@ -240,7 +235,7 @@ export async function enrollPasskey(
   const challenge = setup.body.clientData?.challenge
   expect(typeof challenge).toBe('string')
   const credentialId = `qa-passkey-${Date.now()}`
-  const confirm = await fetchJson<{ ok: true; recoveryCodes?: string[] }>(
+  const confirm = await fetchJson<{ ok: true }>(
     request,
     'PUT',
     '/api/security/mfa/provider/passkey',
@@ -263,7 +258,6 @@ export async function enrollPasskey(
     setupId: setup.body.setupId,
     credentialId,
     challenge: challenge as string,
-    recoveryCodes: Array.isArray(confirm.body.recoveryCodes) ? confirm.body.recoveryCodes : [],
   }
 }
 

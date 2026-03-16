@@ -79,17 +79,14 @@ export async function PUT(req: Request, context: { params: Promise<{ providernam
     : Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'setupId'))
 
   try {
-    const result = await requestContext.mfaService.confirmMethod(
+    await requestContext.mfaService.confirmMethod(
       requestContext.auth.sub,
       setupId,
       payload,
       providerType,
       { request: req },
     )
-    return NextResponse.json({
-      ok: true,
-      ...(result.recoveryCodes ? { recoveryCodes: result.recoveryCodes } : {}),
-    })
+    return NextResponse.json({ ok: true })
   } catch (error) {
     return await mapMfaError(error)
   }

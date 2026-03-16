@@ -42,7 +42,6 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(providerResponse.body.providers.map((provider) => provider.type)).toContain('totp')
 
     const enrollment = await enrollTotp(request, userToken)
-    expect(enrollment.recoveryCodes).toHaveLength(10)
 
     await setAuthCookie(page, userToken)
     await page.goto('/backend/profile/security/mfa')
@@ -74,6 +73,18 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(totpVerify.body.ok).toBe(true)
     expect(totpVerify.body.redirect).toBe('/backend')
 
+    const regenerateResponse = await fetchJson<{ recoveryCodes?: string[] }>(
+      request,
+      'POST',
+      '/api/security/mfa/recovery-codes/regenerate',
+      {
+        token: userToken,
+        data: {},
+      },
+    )
+    expect(regenerateResponse.status).toBe(200)
+    expect(regenerateResponse.body.recoveryCodes).toHaveLength(10)
+
     const recoveryLogin = await loginViaApi(request, userEmail, userPassword)
     const recoveryVerify = await fetchJson<{ ok?: boolean; redirect?: string }>(
       request,
@@ -81,14 +92,14 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
       '/api/security/mfa/recovery',
       {
         token: recoveryLogin.token,
-        data: { code: enrollment.recoveryCodes[0] },
+        data: { code: regenerateResponse.body.recoveryCodes?.[0] },
       },
     )
     expect(recoveryVerify.status).toBe(200)
     expect(recoveryVerify.body.ok).toBe(true)
 
     const verifiedToken = typeof totpVerify.body.token === 'string' ? totpVerify.body.token : userToken
-    const regenerateResponse = await fetchJson<{ recoveryCodes?: string[] }>(
+    const rotateResponse = await fetchJson<{ recoveryCodes?: string[] }>(
       request,
       'POST',
       '/api/security/mfa/recovery-codes/regenerate',
@@ -97,12 +108,8 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
         data: {},
       },
     )
-    test.skip(
-      regenerateResponse.status === 500,
-      'Recovery-code regeneration currently fails in the running app, so this workspace cannot verify the final rotation step end to end.',
-    )
-    expect(regenerateResponse.status).toBe(200)
-    expect(regenerateResponse.body.recoveryCodes).toHaveLength(10)
+    expect(rotateResponse.status).toBe(200)
+    expect(rotateResponse.body.recoveryCodes).toHaveLength(10)
 
     const staleRecoveryLogin = await loginViaApi(request, userEmail, userPassword)
     const staleRecoveryResponse = await fetchJson<{ error?: string }>(
@@ -111,7 +118,7 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
       '/api/security/mfa/recovery',
       {
         token: staleRecoveryLogin.token,
-        data: { code: enrollment.recoveryCodes[0] },
+        data: { code: regenerateResponse.body.recoveryCodes?.[0] },
       },
     )
     expect(staleRecoveryResponse.status).toBe(401)

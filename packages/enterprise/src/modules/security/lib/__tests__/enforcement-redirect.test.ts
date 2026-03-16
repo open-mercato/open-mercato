@@ -28,7 +28,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
     delete process.env.SECURITY_MFA_EMERGENCY_BYPASS
   })
 
-  test('returns redirect for enforced non-compliant user', async () => {
+  test('returns redirect immediately when deadline is not set', async () => {
     const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
     expect(redirect).toBe(
       '/backend/profile/security/mfa?redirect=%2Fbackend%2Fcustomers%2Fpeople&reason=mfa_enrollment_required',
@@ -63,6 +63,23 @@ describe('resolveMfaEnrollmentRedirect', () => {
       buildArgs({
         container: {
           resolve: () => null,
+        },
+      }),
+    )
+    expect(redirect).toBeNull()
+  })
+
+  test('returns null when deadline is set but not overdue', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => ({
+              compliant: false,
+              enforced: true,
+              deadline: new Date(Date.now() + 60_000),
+            }),
+          }),
         },
       }),
     )

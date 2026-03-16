@@ -120,12 +120,6 @@ export class MfaService {
 
     await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple)
 
-    const activeMethodsBefore = await this.em.count(UserMfaMethod, {
-      userId,
-      isActive: true,
-      deletedAt: null,
-    })
-
     const confirmation = await provider.confirmSetup(userId, setupId, payload, context)
     method.providerMetadata = confirmation.metadata
     method.secret = confirmation.secret ?? null
@@ -133,10 +127,6 @@ export class MfaService {
     method.isActive = true
     method.updatedAt = new Date()
     await this.em.flush()
-
-    const recoveryCodes = activeMethodsBefore === 0
-      ? await this.generateRecoveryCodes(userId)
-      : undefined
 
     await emitSecurityEvent('security.mfa.enrolled', {
       userId,
@@ -147,7 +137,7 @@ export class MfaService {
       enrolledAt: new Date().toISOString(),
     })
 
-    return { recoveryCodes }
+    return {}
   }
 
   async getUserMethods(userId: string): Promise<UserMfaMethod[]> {

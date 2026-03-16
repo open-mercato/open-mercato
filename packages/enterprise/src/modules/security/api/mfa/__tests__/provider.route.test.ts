@@ -74,6 +74,7 @@ describe('security MFA provider route', () => {
     })
 
     expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
     expect(context.mfaService.confirmMethod).toHaveBeenCalledWith(
       'user-1',
       'setup-1',
@@ -87,7 +88,7 @@ describe('security MFA provider route', () => {
     const context = buildContext()
     mockedResolveMfaRequestContext.mockResolvedValue(context)
 
-    await PUT(new Request('https://example.test/api/security/mfa/provider/totp', {
+    const response = await PUT(new Request('https://example.test/api/security/mfa/provider/totp', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ setupId: 'setup-1', code: '123456', label: 'Phone' }),
@@ -95,6 +96,8 @@ describe('security MFA provider route', () => {
       params: Promise.resolve({ providername: 'totp' }),
     })
 
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
     expect(context.mfaService.confirmMethod).toHaveBeenCalledWith(
       'user-1',
       'setup-1',
@@ -102,6 +105,22 @@ describe('security MFA provider route', () => {
       'totp',
       { request: expect.any(Request) },
     )
+  })
+
+  test('PUT does not expose recovery codes returned by the service', async () => {
+    const context = buildContext()
+    mockedResolveMfaRequestContext.mockResolvedValue(context)
+
+    const response = await PUT(new Request('https://example.test/api/security/mfa/provider/totp', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ setupId: 'setup-1', payload: { code: '123456' } }),
+    }), {
+      params: Promise.resolve({ providername: 'totp' }),
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
   })
 
   test('PUT maps provider mismatch errors through MFA error mapper', async () => {

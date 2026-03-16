@@ -188,17 +188,18 @@ describe('MfaService', () => {
     expect(methods[0].secret).toBe('setup-1')
   })
 
-  test('confirmMethod activates method and generates recovery codes on first enrollment', async () => {
+  test('confirmMethod activates the first method without generating recovery codes', async () => {
     const { service, methods } = createServiceContext()
     const generateSpy = jest.spyOn(service, 'generateRecoveryCodes').mockResolvedValue(['A1B2C3D4E5'])
 
     await service.setupMethod('user-1', 'totp', {})
-    await service.confirmMethod('user-1', 'setup-1', { code: '123456' })
+    const result = await service.confirmMethod('user-1', 'setup-1', { code: '123456' })
 
+    expect(result).toEqual({})
     expect(methods[0].isActive).toBe(true)
     expect(methods[0].secret).toBe('SECRET')
     expect(methods[0].providerMetadata).toEqual({ label: 'Phone Authenticator' })
-    expect(generateSpy).toHaveBeenCalledWith('user-1')
+    expect(generateSpy).not.toHaveBeenCalled()
     expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.enrolled', expect.objectContaining({
       userId: 'user-1',
       methodType: 'totp',
@@ -287,7 +288,7 @@ describe('MfaService', () => {
     })
   })
 
-  test('confirmMethod skips recovery code regeneration when MFA already exists', async () => {
+  test('confirmMethod does not generate recovery codes when MFA already exists', async () => {
     const { service, methods } = createServiceContext()
     const generateSpy = jest.spyOn(service, 'generateRecoveryCodes').mockResolvedValue(['SHOULD-NOT-HAPPEN'])
 

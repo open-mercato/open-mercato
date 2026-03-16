@@ -18,6 +18,18 @@ type ServiceContainerLike = {
   resolve: (name: string) => unknown
 }
 
+function resolveDeadlineRedirectState(deadline?: Date): {
+  overdue: boolean
+  shouldRedirect: boolean
+} {
+  if (!(deadline instanceof Date) || Number.isNaN(deadline.getTime())) {
+    return { overdue: false, shouldRedirect: true }
+  }
+
+  const overdue = isEnforcementDeadlineOverdue(deadline)
+  return { overdue, shouldRedirect: overdue }
+}
+
 function isExemptPath(pathname: string): boolean {
   return pathname.startsWith('/backend/profile/security')
 }
@@ -58,11 +70,14 @@ export async function resolveMfaEnrollmentRedirect(args: {
     const compliance = await enforcementService.checkUserCompliance(auth.sub)
     if (!compliance.enforced || compliance.compliant) return null
 
+    const deadlineState = resolveDeadlineRedirectState(compliance.deadline)
+    if (!deadlineState.shouldRedirect) return null
+
     const searchParams = new URLSearchParams({
       redirect: pathname,
       reason: 'mfa_enrollment_required',
     })
-    if (isEnforcementDeadlineOverdue(compliance.deadline)) {
+    if (deadlineState.overdue) {
       searchParams.set('overdue', '1')
     }
     return `${MFA_ENROLLMENT_PATH}?${searchParams.toString()}`

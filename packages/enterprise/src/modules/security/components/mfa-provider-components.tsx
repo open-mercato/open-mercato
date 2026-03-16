@@ -33,8 +33,20 @@ export const TotpProviderListComponent = TotpProviderListItem
 export const PasskeyProviderListComponent = PasskeyProviderListItem
 export const OtpEmailProviderListComponent = OtpEmailProviderListItem
 
-export function TotpProviderDetailsComponent(_props: ProviderDetailsComponentProps) {
-  return <TotpProviderDetails />
+export function TotpProviderDetailsComponent({
+  methods,
+  saving,
+  onRemoveMethod,
+  onMethodsChanged,
+}: ProviderDetailsComponentProps) {
+  return (
+    <TotpProviderDetails
+      methods={methods}
+      saving={saving}
+      onRemoveMethod={onRemoveMethod}
+      onMethodsChanged={onMethodsChanged}
+    />
+  )
 }
 
 export function PasskeyProviderDetailsComponent({

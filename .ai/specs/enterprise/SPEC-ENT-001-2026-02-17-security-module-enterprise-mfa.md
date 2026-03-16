@@ -304,7 +304,7 @@ CREATE INDEX "idx_user_mfa_methods_tenant" ON "user_mfa_methods" ("tenant_id");
 
 ### 4.2 `mfa_recovery_codes`
 
-Stores hashed recovery codes. 10 codes are generated per user; each code is a random alphanumeric string, bcrypt-hashed before storage.
+Stores hashed recovery codes. Recovery codes are generated on demand through `POST /api/security/mfa/recovery-codes/regenerate`; each regeneration creates 10 random alphanumeric codes, bcrypt-hashed before storage.
 
 ```sql
 CREATE TABLE "mfa_recovery_codes" (
@@ -842,7 +842,7 @@ Read-only endpoints (`GET ...`) remain direct query/service reads. Login/sudo ve
 | `DELETE` | `/api/security/mfa/methods/:id` | `security.mfa.manage` | Remove an MFA method (soft delete) |
 | `POST` | `/api/security/mfa/verify` | (public — requires `challenge_id`) | Verify MFA during login flow |
 | `POST` | `/api/security/mfa/recovery` | (public — requires `challenge_id`) | Use recovery code for login |
-| `POST` | `/api/security/mfa/recovery-codes/regenerate` | `security.mfa.manage` | Generate new set of 10 recovery codes |
+| `POST` | `/api/security/mfa/recovery-codes/regenerate` | `security.mfa.manage` | Generate a new set of 10 recovery codes. This is the only recovery-code creation path. |
 
 ### 7.3 MFA enforcement (superadmin)
 
@@ -889,12 +889,12 @@ Methods:
 
 **File:** `services/MfaService.ts`
 
-Manages MFA method lifecycle by **delegating to the `MfaProviderRegistry`** for all provider-specific operations. The service itself handles cross-cutting concerns (recording methods, generating recovery codes, enforcing method limits, emitting events) while each provider handles its own setup/verify logic.
+Manages MFA method lifecycle by **delegating to the `MfaProviderRegistry`** for all provider-specific operations. The service itself handles cross-cutting concerns (recording methods, enforcing method limits, emitting events, and explicit recovery-code rotation) while each provider handles its own setup/verify logic.
 
 Methods:
 
 - `setupMethod(userId: string, providerType: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }>` — resolves the provider from registry, calls `provider.setup()`, creates an inactive `UserMfaMethod` record, returns provider-specific client data. This is the **unified entry point** for all provider types (built-in and custom).
-- `confirmMethod(userId: string, setupId: string, payload: unknown): Promise<void>` — resolves the provider, calls `provider.confirmSetup()`, stores returned metadata in `provider_metadata`, activates the method, generates recovery codes if this is the user's first MFA method. Emits `security.mfa.enrolled`.
+- `confirmMethod(userId: string, setupId: string, payload: unknown): Promise<{ recoveryCodes?: string[] }>` — resolves the provider, calls `provider.confirmSetup()`, stores returned metadata in `provider_metadata`, and activates the method. It does **not** generate recovery codes during setup; current route handlers return `{ ok: true }` and omit the compatibility `recoveryCodes` field. Emits `security.mfa.enrolled`.
 - `setupTotp(userId: string, label?: string): Promise<{ setupId: string; uri: string; secret: string; qrDataUrl: string }>` — convenience wrapper around `setupMethod('totp', ...)` that extracts TOTP-specific fields.
 - `confirmTotp(userId: string, setupId: string, code: string): Promise<void>` — convenience wrapper around `confirmMethod`.
 - `getRegistrationOptions(userId: string): Promise<PublicKeyCredentialCreationOptionsJSON>` — convenience wrapper for passkey provider setup.
@@ -904,7 +904,7 @@ Methods:
 - `getUserMethods(userId: string): Promise<UserMfaMethod[]>` — lists active MFA methods for a user.
 - `getAvailableProviders(tenantId: string, orgId?: string): Promise<Array<{ type: string; label: string; icon: string; allowMultiple: boolean }>>` — lists all registered providers, filtered by enforcement policy's `allowed_methods` if set.
 - `removeMethod(userId: string, methodId: string): Promise<void>` — soft-deletes an MFA method. Prevents removing the last method if MFA enforcement is active for the user's scope. Emits `security.mfa.removed` event.
-- `generateRecoveryCodes(userId: string): Promise<string[]>` — generates 10 random alphanumeric codes using `crypto.randomBytes`, bcrypt-hashes each, stores in `mfa_recovery_codes`, soft-deletes any existing codes. Returns plaintext codes (shown once only). Emits `security.recovery.regenerated` event.
+- `generateRecoveryCodes(userId: string): Promise<string[]>` — generates 10 random alphanumeric codes using `crypto.randomBytes`, bcrypt-hashes each, stores them in `mfa_recovery_codes`, and invalidates any existing unused codes. This is invoked only via the dedicated `security.mfa.recovery_codes.regenerate` command / `POST /api/security/mfa/recovery-codes/regenerate` route. Returns plaintext codes (shown once only). Emits `security.recovery.regenerated` event.
 
 ### 8.3 `MfaVerificationService`
 
@@ -1273,9 +1273,9 @@ export const securityEvents = {
 | Page path | Description |
 |---|---|
 | `backend/profile/security/page.tsx` | Security profile page (owned by security module, routed under the existing auth profile area). Contains hardened password change form (current password required) and links to MFA management. No overrides/replacements of auth profile pages are required. |
-| `backend/profile/security/mfa/page.tsx` | MFA management page. Dynamically renders all registered providers from `MfaProviderRegistry`. Displays current enrolled methods with status badges, provides setup wizards for each available provider type (built-in + custom), shows recovery code management section. The "Add method" UI queries `/api/security/mfa/providers` to list available providers and renders each provider's `SetupComponent` or a generic form if none is provided. |
-| `backend/profile/security/mfa/setup-totp/page.tsx` | TOTP setup wizard: QR code display, manual secret entry toggle, 6-digit verification input, recovery codes display on first MFA enrollment. |
-| `backend/profile/security/mfa/setup-passkey/page.tsx` | Passkey registration flow using WebAuthn browser API. Browser compatibility check, authenticator selection (platform vs roaming), label input. |
+| `backend/profile/security/mfa/page.tsx` | MFA management page. Dynamically renders all registered providers from `MfaProviderRegistry`, displays current enrolled methods with status badges, and links to the dedicated recovery-codes page. The "Add method" UI queries `/api/security/mfa/providers` to list available providers and renders each provider's setup/details component. |
+| `backend/profile/security/mfa/[providername]/page.tsx` | Provider-specific MFA management page. Renders the provider details component for TOTP, passkey, OTP email, or a custom provider. Method setup here activates the MFA method only; recovery codes are generated separately from the dedicated recovery-codes page. |
+| `backend/profile/security/mfa/recovery-codes/page.tsx` | Recovery-code management page. Generates, displays, downloads, prints, and copies recovery codes through `POST /api/security/mfa/recovery-codes/regenerate`. |
 
 ### 13.2 Admin pages (`backend/security/`)
 
@@ -1294,12 +1294,13 @@ export const securityEvents = {
 | `GenericProviderSetup` | `components/GenericProviderSetup.tsx` | Fallback setup component for custom providers that don't supply `SetupComponent`. Renders a form based on the provider's `setupSchema` (Zod → form fields). |
 | `GenericProviderVerify` | `components/GenericProviderVerify.tsx` | Fallback verify component for custom providers that don't supply `VerifyComponent`. Renders a single code input field. |
 | `MfaMethodCard` | `components/MfaMethodCard.tsx` | Card displaying one MFA method: icon per type, label, active/inactive badge, last-used timestamp, remove button with confirmation. |
-| `TotpSetupWizard` | `components/TotpSetupWizard.tsx` | Multi-step: (1) QR code + manual secret, (2) verification input, (3) recovery codes display. Uses `qrcode` for client-side QR or receives data URI from server. |
-| `PasskeySetupFlow` | `components/PasskeySetupFlow.tsx` | Handles `navigator.credentials.create()` ceremony. Browser support check, authenticator prompt, label input, success confirmation. |
+| `TotpProviderDetails` | `components/TotpProviderDetails.tsx` | TOTP provider view. Starts setup, renders QR/manual secret guidance, and confirms enrollment with a 6-digit code. It does not display recovery codes. |
+| `PasskeyProviderDetails` | `components/PasskeyProviderDetails.tsx` | Passkey management view. Handles `navigator.credentials.create()` ceremony, browser support checks, labeling, and existing key removal. |
+| `OtpEmailProviderDetails` | `components/OtpEmailProviderDetails.tsx` | OTP email management view for enabling or removing the single email OTP method. |
 | `PasswordChangeForm` | `components/PasswordChangeForm.tsx` | Current password + new password + confirmation. Real-time policy validation feedback (length, complexity). Submit calls `PUT /api/security/profile/password`. |
 | `EnforcementPolicyForm` | `components/EnforcementPolicyForm.tsx` | Scope selector, tenant/org picker (conditional), deadline date picker, method checkboxes, affected users preview count. |
 | `MfaComplianceBadge` | `components/MfaComplianceBadge.tsx` | Status badge: "Enrolled" (green), "Pending" (yellow), "Overdue" (red), "Not Required" (grey). |
-| `RecoveryCodesDisplay` | `components/RecoveryCodesDisplay.tsx` | Grid of recovery codes with copy-all button and download-as-txt button. Shown once during generation with warning. |
+| `RecoveryCodesProviderDetails` | `components/RecoveryCodesProviderDetails.tsx` | Recovery-code management view. Generates the codes on demand, then offers copy/download/print actions for the current one-time-visible set. |
 | `SudoProvider` | `components/SudoProvider.tsx` | React context provider wrapping app layout. Manages sudo token state, renders `SudoChallengeModal` when triggered, exposes `openChallenge()` to children via context. |
 
 ### 13.4 Widget injection points
@@ -1821,13 +1822,13 @@ Integration tests for this module must be implemented under the existing QA harn
 ### Test placement
 
 - Primary suite folder:
-  - `/.ai/qa/tests/integration/security/`
+  - `packages/enterprise/src/modules/security/__integration__/`
 - Suggested file split:
-  - `/.ai/qa/tests/integration/security/security-mfa-flows.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-enforcement.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-sudo.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-admin.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-provider-registry.spec.ts`
+  - `TC-SEC-002.spec.ts` for MFA enrollment, verification, recovery-code regeneration, and recovery login
+  - `TC-SEC-003.spec.ts` for OTP email verification attempts
+  - `TC-SEC-004.spec.ts` for passkey enrollment and MFA login
+  - `TC-SEC-007.spec.ts` for admin MFA reset and status reporting
+  - `TC-SEC-008.spec.ts` for provider registry coverage
 
 ### Mandatory test scenarios
 
@@ -1836,7 +1837,8 @@ Integration tests for this module must be implemented under the existing QA harn
    - enroll/verify passkey (feature-detected; skip with explicit reason when unsupported in CI runtime)
    - enroll/verify OTP email
    - challenge verification success/failure attempt counters
-   - recovery code usage and regeneration
+   - recovery code regeneration via `POST /api/security/mfa/recovery-codes/regenerate`
+   - recovery code usage during login with invalidation after the next regeneration
 2. Enforcement:
    - policy cascade resolution (organisation > tenant > platform)
    - grace-period redirect to MFA enrollment
@@ -1877,6 +1879,12 @@ Integration tests for this module must be implemented under the existing QA harn
 ### Coverage gate for this module
 
 - No phase in this ADR is considered complete without corresponding integration coverage for new API paths and key UI paths introduced in that phase.
+
+## Migration & Backward Compatibility
+
+- `POST /api/security/mfa/recovery-codes/regenerate` remains the stable, supported path for creating recovery codes and is now the only generation path.
+- MFA provider confirmation routes keep the existing response shape compatibility bridge (`recoveryCodes?: string[]` remains tolerated by local types/OpenAPI), but the platform no longer populates that field during setup. Consumers must call the regeneration endpoint after enrollment when they need a fresh recovery-code set.
+- No route URLs, HTTP methods, command IDs, or event IDs changed as part of this adjustment.
 
 ---
 
@@ -2037,6 +2045,7 @@ security/
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
+| Phase 2 — Recovery-code lifecycle correction | Implemented | 2026-03-16 | Removed automatic recovery-code generation from MFA setup confirmation, kept regeneration exclusively behind the dedicated command/route, and aligned unit + integration coverage |
 | Phase 4 — Sudo system and protection APIs | In Progress | 2026-03-10 | Implemented sudo service, middleware, commands with undo tests, provider/hook/modal, admin configuration page, and bootstrap developer defaults |
 | Phase 4 — Email templates (OTP/MFA/enforcement) | In Progress | 2026-03-09 | Implemented MFA enrolled/reset/enforcement reminder email templates and notification subscribers |
 | Phase 3 — Enforcement notification handlers | In Progress | 2026-03-09 | Added deadline reminder request event + reminder subscriber for 7/3/1-day windows |
