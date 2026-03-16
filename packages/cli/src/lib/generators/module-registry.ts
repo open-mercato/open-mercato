@@ -405,12 +405,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const eventsChecksumFile = path.join(outputDir, 'events.generated.checksum')
   const analyticsOutFile = path.join(outputDir, 'analytics.generated.ts')
   const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
+  const bootstrapRegsOutFile = path.join(outputDir, 'bootstrap-registrations.generated.ts')
+  const bootstrapRegsChecksumFile = path.join(outputDir, 'bootstrap-registrations.generated.checksum')
   const transFieldsOutFile = path.join(outputDir, 'translations-fields.generated.ts')
   const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
-  const securityMfaProvidersOutFile = path.join(outputDir, 'security-mfa-providers.generated.ts')
-  const securityMfaProvidersChecksumFile = path.join(outputDir, 'security-mfa-providers.generated.checksum')
-  const securitySudoOutFile = path.join(outputDir, 'security-sudo.generated.ts')
-  const securitySudoChecksumFile = path.join(outputDir, 'security-sudo.generated.checksum')
   const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
   const enrichersChecksumFile = path.join(outputDir, 'enrichers.generated.checksum')
   const interceptorsOutFile = path.join(outputDir, 'interceptors.generated.ts')
@@ -429,6 +427,31 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const backendMiddlewareChecksumFile = path.join(outputDir, 'backend-middleware.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+
+  // Pre-pass: collect generator plugins from each enabled module's generators.ts
+  const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>()
+  const pluginState = new Map<string, { imports: string[]; configs: string[] }>()
+  for (const entry of enabled) {
+    const roots = resolver.getModulePaths(entry)
+    const rawImps = resolver.getModuleImportBase(entry)
+    const isAppMod = entry.from === '@app'
+    const appImportBase = isAppMod ? `../../src/modules/${entry.id}` : rawImps.appBase
+    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    const resolved = resolveModuleFile(roots, imps, 'generators.ts')
+    if (!resolved) continue
+    try {
+      const pluginMod = await import(resolved.absolutePath)
+      const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
+        pluginMod.generatorPlugins ?? pluginMod.default ?? []
+      for (const plugin of plugins) {
+        if (!pluginRegistry.has(plugin.id)) {
+          pluginRegistry.set(plugin.id, plugin)
+          pluginState.set(plugin.id, { imports: [], configs: [] })
+        }
+      }
+    } catch {}
+  }
+
   const imports: string[] = []
   const moduleDecls: string[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
@@ -458,10 +481,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const analyticsImports: string[] = []
   const transFieldsConfigs: string[] = []
   const transFieldsImports: string[] = []
-  const securityMfaProviderConfigs: string[] = []
-  const securityMfaProviderImports: string[] = []
-  const securitySudoConfigs: string[] = []
-  const securitySudoImports: string[] = []
   const enricherConfigs: string[] = []
   const enricherImports: string[] = []
   const interceptorConfigs: string[] = []
@@ -751,23 +770,17 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
     })
 
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'security.mfa-providers.ts',
-      prefix: 'SECURITY_MFA_PROVIDERS',
-      standaloneImports: securityMfaProviderImports,
-      standaloneConfigs: securityMfaProviderConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', providers: ((${n}.default ?? ${n}.mfaProviders ?? []) as unknown[]) }`,
-    })
-
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'security.sudo.ts',
-      prefix: 'SECURITY_SUDO',
-      standaloneImports: securitySudoImports,
-      standaloneConfigs: securitySudoConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', targets: ((${n}.default ?? ${n}.sudoTargets ?? []) as Array<Record<string, unknown>>) }`,
-    })
+    // Generator plugins: process each registered plugin's convention file
+    for (const plugin of pluginRegistry.values()) {
+      processStandaloneConfig({
+        roots, imps, modId, importIdRef,
+        relativePath: plugin.conventionFile,
+        prefix: plugin.importPrefix,
+        standaloneImports: pluginState.get(plugin.id)!.imports,
+        standaloneConfigs: pluginState.get(plugin.id)!.configs,
+        configExpr: plugin.configExpr,
+      })
+    }
 
     // Inbox Actions: inbox-actions.ts
     {
@@ -1207,31 +1220,6 @@ export const allTranslatableEntityTypes = Object.keys(allFields)
 registerTranslatableFields(allFields)
 `
 
-  const securityMfaProviderEntriesLiteral = securityMfaProviderConfigs.join(',\n  ')
-  const securityMfaProviderImportSection = securityMfaProviderImports.join('\n')
-  const securityMfaProvidersOutput = `// AUTO-GENERATED by mercato generate registry
-${securityMfaProviderImportSection ? `${securityMfaProviderImportSection}\n` : ''}type SecurityMfaProviderEntry = { moduleId: string; providers: unknown[] }
-
-export const securityMfaProviderEntries: SecurityMfaProviderEntry[] = [
-${securityMfaProviderEntriesLiteral ? `  ${securityMfaProviderEntriesLiteral}\n` : ''}]
-`
-
-  const securitySudoEntriesLiteral = securitySudoConfigs.join(',\n  ')
-  const securitySudoImportSection = securitySudoImports.join('\n')
-  const securitySudoOutput = `// AUTO-GENERATED by mercato generate registry
-import type { SecuritySudoTarget, SecuritySudoTargetEntry } from '@open-mercato/enterprise/modules/security'
-${securitySudoImportSection ? `\n${securitySudoImportSection}\n` : '\n'}
-type SecuritySudoTargetEntryRaw = { moduleId: string; targets: Array<Record<string, unknown>> }
-
-const entriesRaw: SecuritySudoTargetEntryRaw[] = [
-${securitySudoEntriesLiteral ? `  ${securitySudoEntriesLiteral}\n` : ''}]
-
-export const securitySudoTargetEntries: SecuritySudoTargetEntry[] = entriesRaw.map((entry) => ({
-  moduleId: entry.moduleId,
-  targets: entry.targets as SecuritySudoTarget[],
-}))
-`
-
   const notificationEntriesLiteral = notificationTypes.join(',\n  ')
   const notificationImportSection = notificationImports.join('\n')
   const notificationsOutput = `// AUTO-GENERATED by mercato generate registry
@@ -1508,8 +1496,43 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: securityMfaProvidersOutFile, checksumFile: securityMfaProvidersChecksumFile, content: securityMfaProvidersOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: securitySudoOutFile, checksumFile: securitySudoChecksumFile, content: securitySudoOutput, structureChecksum, result, quiet })
+
+  // Generator plugin outputs (registered via modules' generators.ts)
+  for (const [pluginId, plugin] of pluginRegistry) {
+    const state = pluginState.get(pluginId)!
+    const importSection = state.imports.join('\n')
+    const entriesLiteral = state.configs.join(',\n  ')
+    const content = plugin.buildOutput({ importSection, entriesLiteral })
+    const outFile = path.join(outputDir, plugin.outputFileName)
+    const checksumFile = outFile.replace('.ts', '.checksum')
+    writeGeneratedFile({ outFile, checksumFile, content, structureChecksum, result, quiet })
+  }
+
+  // Bootstrap registrations: aggregate all plugin bootstrap-registration hooks into one file.
+  // Always written (even when empty) so bootstrap.ts can unconditionally import it.
+  {
+    const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
+    const allEntryImports: string[] = []
+    const allRegImports: string[] = []
+    const allCalls: string[] = []
+    for (const plugin of bootstrapPlugins) {
+      const reg = plugin.bootstrapRegistration!
+      const outputBase = plugin.outputFileName.replace('.ts', '')
+      allEntryImports.push(`import { ${reg.entriesExportName} } from './${outputBase}'`)
+      allRegImports.push(...reg.registrationImports)
+      allCalls.push(reg.buildCall(reg.entriesExportName))
+    }
+    const uniqueImports = [...new Set([...allEntryImports, ...allRegImports])]
+    const importSection = uniqueImports.join('\n')
+    const body = allCalls.length ? `  ${allCalls.join('\n  ')}` : ''
+    const bootstrapRegsOutput = `// AUTO-GENERATED by mercato generate registry
+${importSection ? `${importSection}\n` : ''}
+export function runBootstrapRegistrations(): void {
+${body}
+}
+`
+    writeGeneratedFile({ outFile: bootstrapRegsOutFile, checksumFile: bootstrapRegsChecksumFile, content: bootstrapRegsOutput, structureChecksum, result, quiet })
+  }
 
   // Enrichers generated file
   const enricherEntriesLiteral = enricherConfigs.join(',\n  ')

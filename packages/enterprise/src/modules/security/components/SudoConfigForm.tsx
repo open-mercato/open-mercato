@@ -1,8 +1,12 @@
 'use client'
 
+import * as React from 'react'
 import { z } from 'zod'
-import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
+import type { CrudCustomFieldRenderProps, CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
+import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ChallengeMethod, SudoTargetType } from '../data/constants'
 import { defaultSecurityModuleConfig } from '../lib/security-config'
 
@@ -63,6 +67,119 @@ export function createSudoConfigFormSchema(t: TranslateFn, config?: SudoFormConf
   })
 }
 
+type FeatureItem = { id: string; title: string; module: string }
+
+function SudoTenantField({ value, setValue, disabled }: CrudCustomFieldRenderProps) {
+  const t = useT()
+  const normalized = typeof value === 'string' && value.trim().length > 0 ? value : null
+  return (
+    <TenantSelect
+      id="sudo-config-tenant-id"
+      value={normalized}
+      onChange={(next) => setValue(next ?? '')}
+      disabled={disabled}
+      includeEmptyOption
+      emptyOptionLabel={t('security.admin.sudo.form.tenantPlaceholder', 'Any tenant (platform-wide)')}
+      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+    />
+  )
+}
+
+function SudoOrganizationField({ value, setValue, values, disabled }: CrudCustomFieldRenderProps) {
+  const t = useT()
+  const tenantId = typeof values?.tenantId === 'string' && values.tenantId.trim().length > 0
+    ? values.tenantId : null
+  const normalized = typeof value === 'string' && value.trim().length > 0 ? value : null
+  const prevTenantRef = React.useRef<string | null>(tenantId)
+  const hydratedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!hydratedRef.current) {
+      hydratedRef.current = true
+      prevTenantRef.current = tenantId
+      return
+    }
+    if (prevTenantRef.current !== tenantId) {
+      prevTenantRef.current = tenantId
+      setValue('')
+    }
+  }, [setValue, tenantId])
+
+  return (
+    <OrganizationSelect
+      id="sudo-config-organization-id"
+      value={normalized}
+      onChange={(next) => setValue(next ?? '')}
+      disabled={disabled || !tenantId}
+      includeEmptyOption
+      emptyOptionLabel={t('security.admin.sudo.form.organizationPlaceholder', 'Any organization')}
+      tenantId={tenantId}
+      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+    />
+  )
+}
+
+function SudoTargetIdentifierField({ value, setValue, values, disabled, autoFocus }: CrudCustomFieldRenderProps) {
+  const t = useT()
+  const targetType = values?.targetType
+  const stringValue = typeof value === 'string' ? value : ''
+  const [features, setFeatures] = React.useState<FeatureItem[]>([])
+
+  React.useEffect(() => {
+    if (targetType !== SudoTargetType.FEATURE) return
+    let cancelled = false
+    void apiCall<{ items: FeatureItem[] }>('/api/auth/features').then((res) => {
+      if (!cancelled && res.ok && Array.isArray(res.result?.items)) {
+        setFeatures(res.result.items)
+      }
+    })
+    return () => { cancelled = true }
+  }, [targetType])
+
+  if (targetType === SudoTargetType.FEATURE) {
+    const grouped = features.reduce<Record<string, FeatureItem[]>>((acc, f) => {
+      ;(acc[f.module] ??= []).push(f)
+      return acc
+    }, {})
+    const knownIds = new Set(features.map((f) => f.id))
+    return (
+      <select
+        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+        value={stringValue}
+        onChange={(e) => setValue(e.target.value)}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
+      >
+        <option value="">{t('security.admin.sudo.form.targetIdentifierSelectPlaceholder', '— Select a feature —')}</option>
+        {stringValue && !knownIds.has(stringValue) && (
+          <option value={stringValue}>{stringValue}</option>
+        )}
+        {Object.entries(grouped).map(([module, items]) => (
+          <optgroup key={module} label={module}>
+            {items.map((f) => (
+              <option key={f.id} value={f.id}>{f.title} ({f.id})</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    )
+  }
+
+  return (
+    <input
+      type="text"
+      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+      value={stringValue}
+      onChange={(e) => setValue(e.target.value)}
+      placeholder={t('security.admin.sudo.form.targetIdentifierPlaceholder', 'security.sudo.manage')}
+      disabled={disabled}
+      autoFocus={autoFocus}
+      data-crud-focus-target=""
+    />
+  )
+}
+
 export function createSudoConfigFormFields(
   t: TranslateFn,
   options?: { disabled?: boolean },
@@ -85,24 +202,24 @@ export function createSudoConfigFormFields(
     {
       id: 'targetIdentifier',
       label: t('security.admin.sudo.form.targetIdentifier', 'Target identifier'),
-      type: 'text',
-      placeholder: t('security.admin.sudo.form.targetIdentifierPlaceholder', 'security.sudo.manage'),
+      type: 'custom',
       required: true,
       disabled,
+      component: SudoTargetIdentifierField,
     },
     {
       id: 'tenantId',
-      label: t('security.admin.sudo.form.tenantId', 'Tenant ID'),
-      type: 'text',
-      placeholder: t('security.admin.sudo.form.tenantIdPlaceholder', 'Optional tenant scope'),
+      label: t('security.admin.sudo.form.tenantId', 'Tenant'),
+      type: 'custom',
       disabled,
+      component: SudoTenantField,
     },
     {
       id: 'organizationId',
-      label: t('security.admin.sudo.form.organizationId', 'Organization ID'),
-      type: 'text',
-      placeholder: t('security.admin.sudo.form.organizationIdPlaceholder', 'Optional organization scope'),
+      label: t('security.admin.sudo.form.organizationId', 'Organization'),
+      type: 'custom',
       disabled,
+      component: SudoOrganizationField,
     },
     {
       id: 'ttlSeconds',
