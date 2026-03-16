@@ -11,7 +11,7 @@ const sudoIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['security.sudo.view'],
+  requireFeatures: ['security.sudo.manage'],
   pageTitle: 'Sudo protection',
   pageTitleKey: 'security.admin.sudo.title',
   pageGroup: 'Security',
