@@ -6,18 +6,34 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export default function ResetPage() {
   const t = useT()
   const [sent, setSent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState<string | null>(null)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
+    setFieldError(null)
+
+    const form = new FormData(e.currentTarget)
+    const email = String(form.get('email') ?? '').trim()
+
+    if (!email) {
+      setFieldError(t('auth.reset.errors.emailRequired', 'Please enter your email address.'))
+      return
+    }
+    if (!EMAIL_REGEX.test(email)) {
+      setFieldError(t('auth.reset.errors.emailInvalid', 'Please enter a valid email address.'))
+      return
+    }
+
     setSubmitting(true)
     try {
-      const form = new FormData(e.currentTarget)
       const res = await fetch('/api/auth/reset', { method: 'POST', body: form })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
@@ -47,7 +63,8 @@ export default function ResetPage() {
               {error && <div className="text-sm text-red-600">{error}</div>}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input id="email" name="email" type="email" required />
+                <Input id="email" name="email" type="email" required aria-invalid={!!fieldError} aria-describedby={fieldError ? 'email-error' : undefined} />
+                {fieldError && <p id="email-error" className="text-sm text-red-600">{fieldError}</p>}
               </div>
               <Button type="submit" className="mt-2 w-full" disabled={submitting}>
                 {submitting ? '...' : t('auth.sendResetLink')}

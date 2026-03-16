@@ -87,6 +87,8 @@
   "auth.profile.title": "Profil",
   "auth.reset.description": "Gib deine E-Mail-Adresse ein, um einen Zurücksetzungslink zu erhalten",
   "auth.reset.error": "Etwas ist schiefgelaufen",
+  "auth.reset.errors.emailRequired": "Bitte gib deine E-Mail-Adresse ein.",
+  "auth.reset.errors.emailInvalid": "Bitte gib eine gültige E-Mail-Adresse ein.",
   "auth.reset.errors.failed": "Passwort konnte nicht zurückgesetzt werden",
   "auth.reset.form.loading": "...",
   "auth.reset.form.password": "Neues Passwort",
