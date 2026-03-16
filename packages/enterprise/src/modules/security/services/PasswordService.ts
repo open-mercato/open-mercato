@@ -70,7 +70,15 @@ export class PasswordService {
 
     user.passwordHash = await hash(newPassword, BCRYPT_COST)
     await this.em.flush()
-    await emitSecurityEvent('security.password.changed', { userId })
+    const changedAt = new Date().toISOString()
+    const eventPayload = {
+      userId,
+      tenantId: user.tenantId ?? null,
+      organizationId: user.organizationId ?? null,
+      changedAt,
+    }
+    await emitSecurityEvent('security.password.changed', eventPayload)
+    await emitSecurityEvent('security.password.notification_requested', eventPayload)
   }
 
   private async findUserById(userId: string): Promise<User | null> {

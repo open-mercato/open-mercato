@@ -1,7 +1,21 @@
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
 const events = [
-  { id: 'security.password.changed', label: 'Password Changed', category: 'lifecycle' },
+  {
+    id: 'security.password.changed',
+    label: 'Password Changed',
+    entity: 'password',
+    category: 'lifecycle',
+    description: 'Emitted after a user successfully changes their password.',
+  },
+  {
+    id: 'security.password.notification_requested',
+    label: 'Password Change Notification Requested',
+    entity: 'password',
+    category: 'lifecycle',
+    description: 'Requests creation of a user-facing password change notification.',
+    excludeFromTriggers: true,
+  },
   { id: 'security.mfa.method.added', label: 'MFA Method Added', category: 'lifecycle' },
   { id: 'security.mfa.method.removed', label: 'MFA Method Removed', category: 'lifecycle' },
   { id: 'security.mfa.enrolled', label: 'MFA Enrolled', category: 'lifecycle' },

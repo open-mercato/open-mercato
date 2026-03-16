@@ -2,8 +2,8 @@ import * as React from 'react'
 import { Body, Container, Head, Html, Preview, Section, Text, Link } from '@react-email/components'
 
 export type EnforcementDeadlineEmailProps = {
-  daysRemaining: number
-  deadlineIsoDate: string
+  daysRemaining: number | null
+  deadlineIsoDate: string | null
   setupUrl: string
 }
 
@@ -12,8 +12,14 @@ export function EnforcementDeadlineEmail({
   deadlineIsoDate,
   setupUrl,
 }: EnforcementDeadlineEmailProps) {
+  const hasDeadline = typeof daysRemaining === 'number' && daysRemaining > 0 && typeof deadlineIsoDate === 'string'
+  const isOverdue = !hasDeadline && typeof deadlineIsoDate === 'string'
   const dayLabel = daysRemaining === 1 ? 'day' : 'days'
-  const previewText = `MFA enrollment required in ${daysRemaining} ${dayLabel}`
+  const previewText = hasDeadline
+    ? `MFA enrollment required in ${daysRemaining} ${dayLabel}`
+    : isOverdue
+      ? 'MFA enrollment deadline has passed'
+      : 'MFA enrollment required immediately'
 
   return (
     <Html>
@@ -23,18 +29,42 @@ export function EnforcementDeadlineEmail({
         <Container style={container}>
           <Section>
             <Text style={title}>MFA enforcement reminder</Text>
-            <Text style={paragraph}>
-              Your organization requires MFA enrollment. You have <strong>{daysRemaining} {dayLabel}</strong> left to
-              complete setup.
-            </Text>
-            <Text style={paragraph}>Deadline: {deadlineIsoDate}</Text>
-            <Text style={paragraph}>
-              <Link href={setupUrl}>Open Security &amp; MFA settings</Link> and enroll at least one MFA method before
-              the deadline.
-            </Text>
-            <Text style={hint}>
-              Accounts without MFA after the deadline may lose access until enrollment is completed.
-            </Text>
+            {hasDeadline ? (
+              <>
+                <Text style={paragraph}>
+                  Your organization requires MFA enrollment. You have <strong>{daysRemaining} {dayLabel}</strong> left
+                  to complete setup.
+                </Text>
+                <Text style={paragraph}>Deadline: {deadlineIsoDate}</Text>
+                <Text style={paragraph}>
+                  <Link href={setupUrl}>Open Security &amp; MFA settings</Link> and enroll at least one MFA method
+                  before the deadline.
+                </Text>
+                <Text style={hint}>
+                  Accounts without MFA after the deadline may lose access until enrollment is completed.
+                </Text>
+              </>
+            ) : isOverdue ? (
+              <>
+                <Text style={paragraph}>
+                  Your MFA enrollment deadline has passed. Set up MFA immediately to keep account access.
+                </Text>
+                <Text style={paragraph}>Previous deadline: {deadlineIsoDate}</Text>
+                <Text style={paragraph}>
+                  <Link href={setupUrl}>Open Security &amp; MFA settings</Link> and enroll at least one MFA method now.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={paragraph}>
+                  Your organization requires MFA enrollment with no grace period. Set up MFA immediately to keep account
+                  access.
+                </Text>
+                <Text style={paragraph}>
+                  <Link href={setupUrl}>Open Security &amp; MFA settings</Link> and enroll at least one MFA method now.
+                </Text>
+              </>
+            )}
           </Section>
         </Container>
       </Body>

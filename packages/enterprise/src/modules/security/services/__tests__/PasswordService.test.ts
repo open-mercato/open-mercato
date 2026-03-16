@@ -20,6 +20,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 type TestUser = {
   id: string
   passwordHash: string | null
+  tenantId: string | null
+  organizationId: string | null
   deletedAt: Date | null
 }
 
@@ -27,6 +29,8 @@ function createUser(passwordHash: string | null): TestUser {
   return {
     id: '00000000-0000-4000-8000-000000000001',
     passwordHash,
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
     deletedAt: null,
   }
 }
@@ -82,7 +86,27 @@ describe('PasswordService', () => {
     expect(user.passwordHash).toBeTruthy()
     expect(user.passwordHash).not.toBe(currentHash)
     expect(await compare(newPassword, String(user.passwordHash))).toBe(true)
-    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.password.changed', { userId: user.id })
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledTimes(2)
+    expect(mockedEmitSecurityEvent).toHaveBeenNthCalledWith(
+      1,
+      'security.password.changed',
+      expect.objectContaining({
+        userId: user.id,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        changedAt: expect.any(String),
+      }),
+    )
+    expect(mockedEmitSecurityEvent).toHaveBeenNthCalledWith(
+      2,
+      'security.password.notification_requested',
+      expect.objectContaining({
+        userId: user.id,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        changedAt: expect.any(String),
+      }),
+    )
   })
 
   test('changePassword throws when current password is invalid', async () => {

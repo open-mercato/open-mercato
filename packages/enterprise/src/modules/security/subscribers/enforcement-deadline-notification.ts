@@ -9,15 +9,19 @@ import { MfaEnforcementPolicy, UserMfaMethod } from '../data/entities'
 import { notificationTypes } from '../notifications'
 
 const DAY_MS = 24 * 60 * 60 * 1000
-const REMINDER_WINDOWS = new Set([1, 3, 7])
+const ENFORCEMENT_BODY_KEYS = {
+  withDeadline: 'security.notifications.enforcementDeadline.bodyWithDeadline',
+  immediate: 'security.notifications.enforcementDeadline.bodyImmediate',
+  overdue: 'security.notifications.enforcementDeadline.bodyOverdue',
+} as const
 
 export const metadata = {
-  event: 'security.enforcement.deadline_reminder_requested',
+  event: 'security.enforcement.created',
   persistent: true,
   id: 'security:enforcement-deadline-notification',
 }
 
-type EnforcementDeadlinePayload = {
+type EnforcementLifecyclePayload = {
   policyId: string
 }
 
@@ -30,6 +34,14 @@ type ResolvedUser = {
   email: string | null
   tenantId: string
   organizationId: string | null
+}
+
+type EnforcementMessage = {
+  bodyKey: string
+  bodyVariables: Record<string, string> | undefined
+  deadlineIsoDate: string | null
+  daysRemaining: number | null
+  emailMode: 'deadline' | 'immediate' | 'overdue'
 }
 
 function toIsoDate(value: Date): string {
@@ -82,8 +94,55 @@ async function resolveScopedUsers(
   return resolvedUsers
 }
 
-export default async function enforcementDeadlineNotificationSubscriber(
-  payload: EnforcementDeadlinePayload,
+function resolveEnforcementMessage(deadline?: Date | null): EnforcementMessage {
+  if (!(deadline instanceof Date) || Number.isNaN(deadline.getTime())) {
+    return {
+      bodyKey: ENFORCEMENT_BODY_KEYS.immediate,
+      bodyVariables: undefined,
+      deadlineIsoDate: null,
+      daysRemaining: null,
+      emailMode: 'immediate',
+    }
+  }
+
+  const daysRemaining = Math.ceil((deadline.getTime() - Date.now()) / DAY_MS)
+  const deadlineIsoDate = toIsoDate(deadline)
+  if (daysRemaining <= 0) {
+    return {
+      bodyKey: ENFORCEMENT_BODY_KEYS.overdue,
+      bodyVariables: {
+        deadline: deadlineIsoDate,
+      },
+      deadlineIsoDate,
+      daysRemaining: null,
+      emailMode: 'overdue',
+    }
+  }
+
+  return {
+    bodyKey: ENFORCEMENT_BODY_KEYS.withDeadline,
+    bodyVariables: {
+      days: String(daysRemaining),
+      deadline: deadlineIsoDate,
+    },
+    deadlineIsoDate,
+    daysRemaining,
+    emailMode: 'deadline',
+  }
+}
+
+function resolveEmailSubject(message: EnforcementMessage): string {
+  if (message.emailMode === 'deadline' && message.daysRemaining !== null) {
+    return `MFA enrollment required within ${message.daysRemaining} day${message.daysRemaining === 1 ? '' : 's'}`
+  }
+  if (message.emailMode === 'overdue') {
+    return 'MFA enrollment deadline has passed'
+  }
+  return 'MFA enrollment required immediately'
+}
+
+export async function notifyEnforcementPolicyChange(
+  payload: EnforcementLifecyclePayload,
   ctx: ResolverContext,
 ) {
   const typeDef = notificationTypes.find((type) => type.type === 'security.mfa.enforcement_deadline')
@@ -95,10 +154,7 @@ export default async function enforcementDeadlineNotificationSubscriber(
     id: payload.policyId,
     deletedAt: null,
   })
-  if (!policy?.isEnforced || !policy.enforcementDeadline) return
-
-  const daysRemaining = Math.ceil((policy.enforcementDeadline.getTime() - Date.now()) / DAY_MS)
-  if (!REMINDER_WINDOWS.has(daysRemaining)) return
+  if (!policy?.isEnforced) return
 
   const users = await resolveScopedUsers(em, policy)
   if (users.length === 0) return
@@ -113,23 +169,26 @@ export default async function enforcementDeadlineNotificationSubscriber(
   })
   const enrolledUserIds = new Set(methods.map((method) => method.userId))
 
-  const deadlineIsoDate = toIsoDate(policy.enforcementDeadline)
+  const message = resolveEnforcementMessage(policy.enforcementDeadline)
   const setupUrl = resolveSetupUrl()
   for (const user of users) {
     if (enrolledUserIds.has(user.id)) continue
 
+    const notificationInput = buildNotificationFromType(typeDef, {
+      recipientUserId: user.id,
+      bodyVariables: message.bodyVariables,
+      sourceEntityType: 'security:mfa_enforcement_policy',
+      sourceEntityId: policy.id,
+      linkHref: '/backend/profile/security/mfa',
+      groupKey: `security.mfa.enforcement_deadline:${policy.id}`,
+    })
+
     await notificationService.create(
-      buildNotificationFromType(typeDef, {
-        recipientUserId: user.id,
-        bodyVariables: {
-          days: String(daysRemaining),
-          deadline: deadlineIsoDate,
-        },
-        sourceEntityType: 'security:mfa_enforcement_policy',
-        sourceEntityId: policy.id,
-        linkHref: '/backend/profile/security/mfa',
-        groupKey: `security.mfa.enforcement_deadline:${policy.id}:${daysRemaining}`,
-      }),
+      {
+        ...notificationInput,
+        bodyKey: message.bodyKey,
+        body: message.bodyKey,
+      },
       {
         tenantId: user.tenantId,
         organizationId: user.organizationId,
@@ -139,13 +198,20 @@ export default async function enforcementDeadlineNotificationSubscriber(
     if (user.email) {
       await sendEmail({
         to: user.email,
-        subject: `MFA enrollment deadline in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}`,
+        subject: resolveEmailSubject(message),
         react: EnforcementDeadlineEmail({
-          daysRemaining,
-          deadlineIsoDate,
+          daysRemaining: message.daysRemaining,
+          deadlineIsoDate: message.deadlineIsoDate,
           setupUrl,
         }),
       })
     }
   }
+}
+
+export default async function enforcementDeadlineNotificationSubscriber(
+  payload: EnforcementLifecyclePayload,
+  ctx: ResolverContext,
+) {
+  await notifyEnforcementPolicyChange(payload, ctx)
 }
