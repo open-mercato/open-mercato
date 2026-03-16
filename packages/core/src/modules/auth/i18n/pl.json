@@ -85,6 +85,7 @@
   "auth.profile.form.success": "Profil zaktualizowany.",
   "auth.profile.subtitle": "Zmiana hasła",
   "auth.profile.title": "Profil",
+  "auth.reset.backToLogin": "Powrót do logowania",
   "auth.reset.description": "Podaj swój adres e-mail, aby otrzymać link do resetowania",
   "auth.reset.error": "Coś poszło nie tak",
   "auth.reset.errors.failed": "Nie udało się zresetować hasła",
