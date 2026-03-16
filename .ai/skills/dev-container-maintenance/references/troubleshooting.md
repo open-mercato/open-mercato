@@ -137,10 +137,19 @@ Container is running but development workflow has problems.
 **Diagnose**: User edited `.env` directly instead of `.env.local`.
 **Fix**: Move custom overrides to `apps/mercato/.env.local` (Next.js native priority, never overwritten).
 
-### Cannot connect to database from host tools
-**Symptom**: Host-based DB tools (pgAdmin, DBeaver) cannot connect to postgres.
-**Diagnose**: Check `devcontainer.json` `forwardPorts` includes `5432`.
-**Fix**: Port must be forwarded. Connection string from host: `postgresql://postgres:postgres@localhost:5432/open-mercato`.
+### Cannot connect to database/Redis/Meilisearch from host tools
+**Symptom**: Host-based tools (pgAdmin, DBeaver, redis-cli, Meilisearch dashboard) get "connection refused" or "server closed the connection unexpectedly".
+**Diagnose**: Check `devcontainer.json` `forwardPorts`. Non-workspace services must use named service syntax (`"postgres:5432"`, not `5432`). Numeric entries forward the port on the workspace container, not on the service that actually listens.
+**Fix**: Ensure `forwardPorts` uses named syntax for all non-workspace services:
+```json
+"forwardPorts": [3000, "postgres:5432", "redis:6379", "meilisearch:7700"]
+```
+Rebuild the container after changing `devcontainer.json`.
+
+Connection strings from host after forwarding:
+- PostgreSQL: `postgresql://postgres:postgres@localhost:5432/open-mercato`
+- Redis: `redis://localhost:6379`
+- Meilisearch: `http://localhost:7700`
 
 ### New package missing dist/ in container
 **Symptom**: Import errors for a newly added package. Its `dist/` is empty inside the container.

@@ -1,3 +1,4 @@
+
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import AkeneoConfigWidget from './widget.client'
 

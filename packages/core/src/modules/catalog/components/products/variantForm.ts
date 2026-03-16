@@ -2,7 +2,7 @@
 
 import type { ProductMediaItem } from './ProductMediaManager'
 import { createLocalId, type PriceKindSummary } from './productForm'
-import { parseNumericInput } from './productFormUtils'
+import { isCatalogPriceAmountInputValid } from '../../lib/priceValidation'
 
 export type OptionDefinition = {
   id: string
@@ -107,8 +107,7 @@ export function findInvalidVariantPriceKinds(
     const draft = priceDrafts?.[kind.id]
     const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
     if (!amount) continue
-    const numeric = parseNumericInput(amount)
-    if (!Number.isFinite(numeric) || numeric < 0) invalid.push(kind.id)
+    if (!isCatalogPriceAmountInputValid(amount)) invalid.push(kind.id)
   }
   return invalid
 }
