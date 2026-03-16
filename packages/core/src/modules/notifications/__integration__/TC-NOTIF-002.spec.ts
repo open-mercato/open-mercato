@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonResponse } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 
 type NotificationSettingsResponse = {
   settings?: Record<string, unknown>
@@ -12,7 +12,7 @@ test.describe('TC-NOTIF-002: Notification settings APIs', () => {
 
     const originalResponse = await apiRequest(request, 'GET', '/api/notifications/settings', { token })
     expect(originalResponse.status()).toBe(200)
-    const originalBody = await readJsonResponse<NotificationSettingsResponse>(originalResponse)
+    const originalBody = await readJsonSafe<NotificationSettingsResponse>(originalResponse)
     const originalSettings = originalBody?.settings ?? {}
 
     const updatedSettings = {
@@ -46,7 +46,7 @@ test.describe('TC-NOTIF-002: Notification settings APIs', () => {
 
       const verifyResponse = await apiRequest(request, 'GET', '/api/notifications/settings', { token })
       expect(verifyResponse.status()).toBe(200)
-      const verifyBody = await readJsonResponse<NotificationSettingsResponse>(verifyResponse)
+      const verifyBody = await readJsonSafe<NotificationSettingsResponse>(verifyResponse)
       expect(verifyBody?.settings).toMatchObject(updatedSettings)
     } finally {
       const restoreResponse = await apiRequest(request, 'POST', '/api/notifications/settings', {

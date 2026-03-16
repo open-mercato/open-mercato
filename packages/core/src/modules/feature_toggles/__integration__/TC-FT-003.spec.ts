@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonResponse } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createFeatureToggleFixture,
   deleteFeatureToggleIfExists,
@@ -43,7 +43,7 @@ test.describe('TC-FT-003: Typed feature toggle check APIs', () => {
         `/api/feature_toggles/check/string?identifier=${encodeURIComponent(identifiers.string)}`,
         { token: adminToken },
       )
-      const stringBody = await readJsonResponse<{
+      const stringBody = await readJsonSafe<{
         ok?: boolean
         value?: string
         resolution?: { source?: string; valueType?: string }
@@ -60,7 +60,7 @@ test.describe('TC-FT-003: Typed feature toggle check APIs', () => {
         `/api/feature_toggles/check/number?identifier=${encodeURIComponent(identifiers.number)}`,
         { token: adminToken },
       )
-      const numberBody = await readJsonResponse<{
+      const numberBody = await readJsonSafe<{
         ok?: boolean
         value?: number
         resolution?: { valueType?: string }
@@ -76,7 +76,7 @@ test.describe('TC-FT-003: Typed feature toggle check APIs', () => {
         `/api/feature_toggles/check/json?identifier=${encodeURIComponent(identifiers.json)}`,
         { token: adminToken },
       )
-      const jsonBody = await readJsonResponse<{
+      const jsonBody = await readJsonSafe<{
         ok?: boolean
         value?: { enabled?: boolean; channels?: string[] }
         resolution?: { valueType?: string }

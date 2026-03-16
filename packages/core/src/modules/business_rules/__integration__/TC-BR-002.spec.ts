@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   getTokenScope,
-  readJsonResponse,
+  readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createBusinessRuleFixture,
@@ -44,7 +44,7 @@ test.describe('TC-BR-002: Business rule CRUD APIs', () => {
         { token },
       )
       expect(listResponse.status()).toBe(200)
-      const listBody = await readJsonResponse<{ items?: Array<Record<string, unknown>> }>(listResponse)
+      const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
       expect(listBody?.items?.some((item) => item.id === ruleId && item.ruleId === ruleKey)).toBe(true)
 
       const updateResponse = await apiRequest(request, 'PUT', '/api/business_rules/rules', {
@@ -64,7 +64,7 @@ test.describe('TC-BR-002: Business rule CRUD APIs', () => {
         `/api/business_rules/rules/${encodeURIComponent(ruleId)}`,
         { token },
       )
-      const detailBody = await readJsonResponse<{
+      const detailBody = await readJsonSafe<{
         ruleName?: string
         priority?: number
         enabled?: boolean
@@ -89,7 +89,7 @@ test.describe('TC-BR-002: Business rule CRUD APIs', () => {
         `/api/business_rules/rules?ruleId=${encodeURIComponent(ruleKey)}`,
         { token },
       )
-      const afterDeleteBody = await readJsonResponse<{ items?: Array<Record<string, unknown>> }>(afterDeleteResponse)
+      const afterDeleteBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(afterDeleteResponse)
       expect(afterDeleteBody?.items?.some((item) => item.ruleId === ruleKey)).toBe(false)
     } finally {
       await deleteBusinessRuleIfExists(request, token, ruleId)

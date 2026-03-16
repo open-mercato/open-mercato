@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   getTokenScope,
-  readJsonResponse,
+  readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createRuleSetFixture,
@@ -33,7 +33,7 @@ test.describe('TC-BR-001: Rule set CRUD APIs', () => {
         { token },
       )
       expect(listResponse.status()).toBe(200)
-      const listBody = await readJsonResponse<{ items?: Array<Record<string, unknown>> }>(listResponse)
+      const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
       expect(listBody?.items?.some((item) => item.id === ruleSetId && item.setId === setId)).toBe(true)
 
       const updateResponse = await apiRequest(request, 'PUT', '/api/business_rules/sets', {
@@ -52,7 +52,7 @@ test.describe('TC-BR-001: Rule set CRUD APIs', () => {
         `/api/business_rules/sets/${encodeURIComponent(ruleSetId)}`,
         { token },
       )
-      const detailBody = await readJsonResponse<{ setName?: string; enabled?: boolean }>(detailResponse)
+      const detailBody = await readJsonSafe<{ setName?: string; enabled?: boolean }>(detailResponse)
       expect(detailResponse.status()).toBe(200)
       expect(detailBody?.setName).toBe('QA Rule Set Updated')
       expect(detailBody?.enabled).toBe(false)
@@ -72,7 +72,7 @@ test.describe('TC-BR-001: Rule set CRUD APIs', () => {
         `/api/business_rules/sets?setId=${encodeURIComponent(setId)}`,
         { token },
       )
-      const afterDeleteBody = await readJsonResponse<{ items?: Array<Record<string, unknown>> }>(afterDeleteResponse)
+      const afterDeleteBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(afterDeleteResponse)
       expect(afterDeleteBody?.items?.some((item) => item.setId === setId)).toBe(false)
     } finally {
       await deleteRuleSetIfExists(request, token, ruleSetId)

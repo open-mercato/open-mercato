@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonResponse } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createFeatureToggleFixture,
   deleteFeatureToggleIfExists,
@@ -24,7 +24,7 @@ test.describe('TC-FT-001: Global feature toggle CRUD APIs', () => {
 
       const listResponse = await apiRequest(request, 'GET', '/api/feature_toggles/global?page=1&pageSize=100', { token })
       expect(listResponse.status()).toBe(200)
-      const listBody = await readJsonResponse<{ items?: Array<Record<string, unknown>> }>(listResponse)
+      const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
       expect(Array.isArray(listBody?.items)).toBe(true)
       expect(listBody?.items?.some((item) => item.id === toggleId)).toBe(true)
 
@@ -46,7 +46,7 @@ test.describe('TC-FT-001: Global feature toggle CRUD APIs', () => {
         { token },
       )
       expect(verifyResponse.status()).toBe(200)
-      const item = await readJsonResponse<Record<string, unknown>>(verifyResponse)
+      const item = await readJsonSafe<Record<string, unknown>>(verifyResponse)
       expect(item?.name).toBe('QA Toggle Updated')
       expect(item?.defaultValue).toBe(false)
       expect(item?.category).toBe('qa-updated')

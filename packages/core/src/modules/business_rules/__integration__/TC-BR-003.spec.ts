@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   getTokenScope,
-  readJsonResponse,
+  readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createBusinessRuleFixture,
@@ -59,7 +59,7 @@ test.describe('TC-BR-003: Rule set membership ordering APIs', () => {
           data: { ruleId: firstRuleId, sequence: 20, enabled: true },
         },
       )
-      const addFirstBody = await readJsonResponse<{ id?: string }>(addFirstResponse)
+      const addFirstBody = await readJsonSafe<{ id?: string }>(addFirstResponse)
       expect(addFirstResponse.status()).toBe(201)
 
       const addSecondResponse = await apiRequest(
@@ -71,7 +71,7 @@ test.describe('TC-BR-003: Rule set membership ordering APIs', () => {
           data: { ruleId: secondRuleId, sequence: 10, enabled: true },
         },
       )
-      const addSecondBody = await readJsonResponse<{ id?: string }>(addSecondResponse)
+      const addSecondBody = await readJsonSafe<{ id?: string }>(addSecondResponse)
       expect(addSecondResponse.status()).toBe(201)
 
       const detailResponse = await apiRequest(
@@ -80,7 +80,7 @@ test.describe('TC-BR-003: Rule set membership ordering APIs', () => {
         `/api/business_rules/sets/${encodeURIComponent(ruleSetId)}`,
         { token },
       )
-      const detailBody = await readJsonResponse<{
+      const detailBody = await readJsonSafe<{
         members?: Array<{ id: string; ruleId: string; sequence: number; enabled: boolean }>
       }>(detailResponse)
       expect(detailResponse.status()).toBe(200)
@@ -107,7 +107,7 @@ test.describe('TC-BR-003: Rule set membership ordering APIs', () => {
         `/api/business_rules/sets/${encodeURIComponent(ruleSetId)}`,
         { token },
       )
-      const updatedDetailBody = await readJsonResponse<{
+      const updatedDetailBody = await readJsonSafe<{
         members?: Array<{ id: string; ruleId: string; sequence: number; enabled: boolean }>
       }>(updatedDetailResponse)
       expect(updatedDetailBody?.members?.map((member) => member.ruleId)).toEqual([firstRuleId, secondRuleId])
@@ -127,7 +127,7 @@ test.describe('TC-BR-003: Rule set membership ordering APIs', () => {
         `/api/business_rules/sets/${encodeURIComponent(ruleSetId)}`,
         { token },
       )
-      const finalDetailBody = await readJsonResponse<{
+      const finalDetailBody = await readJsonSafe<{
         members?: Array<{ id: string; ruleId: string }>
       }>(finalDetailResponse)
       expect(finalDetailBody?.members).toHaveLength(1)

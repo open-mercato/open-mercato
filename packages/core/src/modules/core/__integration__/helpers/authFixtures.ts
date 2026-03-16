@@ -1,11 +1,6 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
-import { readJsonSafe } from './crmFixtures';
-
-function expectId(value: unknown, message: string): string {
-  expect(typeof value === 'string' && value.length > 0, message).toBe(true);
-  return value as string;
-}
+import { expectId, readJsonSafe } from './generalFixtures';
 
 export async function createRoleFixture(
   request: APIRequestContext,

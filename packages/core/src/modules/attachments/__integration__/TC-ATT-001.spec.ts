@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonResponse } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   deleteAttachmentIfExists,
   uploadAttachmentFixture,
@@ -32,7 +32,7 @@ test.describe('TC-ATT-001: Attachment upload and library APIs', () => {
         { token },
       )
       expect(recordListResponse.status()).toBe(200)
-      const recordListBody = await readJsonResponse<{ items?: Array<{ id: string }> }>(recordListResponse)
+      const recordListBody = await readJsonSafe<{ items?: Array<{ id: string }> }>(recordListResponse)
       expect(recordListBody?.items?.some((item) => item.id === attachmentId)).toBe(true)
 
       const libraryListResponse = await apiRequest(
@@ -42,7 +42,7 @@ test.describe('TC-ATT-001: Attachment upload and library APIs', () => {
         { token },
       )
       expect(libraryListResponse.status()).toBe(200)
-      const libraryListBody = await readJsonResponse<{
+      const libraryListBody = await readJsonSafe<{
         items?: Array<{ id: string }>
         availableTags?: string[]
       }>(libraryListResponse)
@@ -56,7 +56,7 @@ test.describe('TC-ATT-001: Attachment upload and library APIs', () => {
         { token },
       )
       expect(detailResponse.status()).toBe(200)
-      const detailBody = await readJsonResponse<{
+      const detailBody = await readJsonSafe<{
         item?: { id: string; fileName: string; tags: string[]; content?: string | null }
       }>(detailResponse)
       expect(detailBody?.item?.id).toBe(attachmentId)
@@ -82,7 +82,7 @@ test.describe('TC-ATT-001: Attachment upload and library APIs', () => {
         },
       )
       expect(patchResponse.status()).toBe(200)
-      const patchBody = await readJsonResponse<{
+      const patchBody = await readJsonSafe<{
         item?: {
           id?: string
           tags?: string[]

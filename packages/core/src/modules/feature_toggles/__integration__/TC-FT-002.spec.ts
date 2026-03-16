@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonResponse } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createFeatureToggleFixture,
   deleteFeatureToggleIfExists,
@@ -29,7 +29,7 @@ test.describe('TC-FT-002: Feature toggle override APIs', () => {
         { token: superadminToken },
       )
       expect(listResponse.status()).toBe(200)
-      const listBody = await readJsonResponse<{ items?: Array<Record<string, unknown>> }>(listResponse)
+      const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
       expect(listBody?.items?.some((item) => item.toggleId === toggleId && item.isOverride === false)).toBe(true)
 
       const detailBeforeResponse = await apiRequest(
@@ -39,7 +39,7 @@ test.describe('TC-FT-002: Feature toggle override APIs', () => {
         { token: superadminToken },
       )
       expect(detailBeforeResponse.status()).toBe(200)
-      const detailBeforeBody = await readJsonResponse<{ value?: boolean; id?: string }>(detailBeforeResponse)
+      const detailBeforeBody = await readJsonSafe<{ value?: boolean; id?: string }>(detailBeforeResponse)
       expect(detailBeforeBody?.value).toBe(true)
 
       const updateResponse = await apiRequest(request, 'PUT', '/api/feature_toggles/overrides', {
@@ -59,7 +59,7 @@ test.describe('TC-FT-002: Feature toggle override APIs', () => {
         `/api/feature_toggles/global/${encodeURIComponent(toggleId)}/override`,
         { token: superadminToken },
       )
-      const detailAfterBody = await readJsonResponse<{ value?: boolean; id?: string }>(detailAfterResponse)
+      const detailAfterBody = await readJsonSafe<{ value?: boolean; id?: string }>(detailAfterResponse)
       expect(detailAfterBody?.value).toBe(false)
       expect(typeof detailAfterBody?.id).toBe('string')
 
@@ -70,7 +70,7 @@ test.describe('TC-FT-002: Feature toggle override APIs', () => {
         { token: adminToken },
       )
       expect(checkResponse.status()).toBe(200)
-      const checkBody = await readJsonResponse<{
+      const checkBody = await readJsonSafe<{
         ok?: boolean
         value?: boolean
         resolution?: { source?: string }
@@ -94,7 +94,7 @@ test.describe('TC-FT-002: Feature toggle override APIs', () => {
         `/api/feature_toggles/check/boolean?identifier=${encodeURIComponent(identifier)}`,
         { token: adminToken },
       )
-      const checkDefaultBody = await readJsonResponse<{
+      const checkDefaultBody = await readJsonSafe<{
         ok?: boolean
         value?: boolean
         resolution?: { source?: string }

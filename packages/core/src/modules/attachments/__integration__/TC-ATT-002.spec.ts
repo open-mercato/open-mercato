@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonResponse } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   deleteAttachmentIfExists,
   deleteAttachmentPartitionIfExists,
@@ -19,7 +19,7 @@ test.describe('TC-ATT-002: Attachment partition and transfer APIs', () => {
     try {
       const partitionsResponse = await apiRequest(request, 'GET', '/api/attachments/partitions', { token })
       expect(partitionsResponse.status()).toBe(200)
-      const partitionsBody = await readJsonResponse<{
+      const partitionsBody = await readJsonSafe<{
         items?: Array<{ id: string; code: string; title: string; isPublic: boolean }>
       }>(partitionsResponse)
       expect(partitionsBody?.items?.some((item) => item.code === 'privateAttachments')).toBe(true)
@@ -39,7 +39,7 @@ test.describe('TC-ATT-002: Attachment partition and transfer APIs', () => {
 
       const partitionsLocked = createPartitionResponse.status() === 403
       if (partitionsLocked) {
-        const createBody = await readJsonResponse<{ error?: string }>(createPartitionResponse)
+        const createBody = await readJsonSafe<{ error?: string }>(createPartitionResponse)
         expect(createBody?.error).toContain('managed by the environment')
 
         expect(existingPartition).toBeTruthy()
@@ -65,8 +65,8 @@ test.describe('TC-ATT-002: Attachment partition and transfer APIs', () => {
         )
         expect(deletePartitionResponse.status()).toBe(403)
       } else {
-        const createBody = await readJsonResponse<{ item?: { id?: string } }>(createPartitionResponse)
         expect(createPartitionResponse.status()).toBe(201)
+        const createBody = await readJsonSafe<{ item?: { id?: string } }>(createPartitionResponse)
         partitionId = createBody?.item?.id ?? null
 
         const updatePartitionResponse = await apiRequest(request, 'PUT', '/api/attachments/partitions', {
@@ -114,7 +114,7 @@ test.describe('TC-ATT-002: Attachment partition and transfer APIs', () => {
         },
       })
       expect(transferResponse.status()).toBe(200)
-      const transferBody = await readJsonResponse<{ ok?: boolean; updated?: number }>(transferResponse)
+      const transferBody = await readJsonSafe<{ ok?: boolean; updated?: number }>(transferResponse)
       expect(transferBody?.ok).toBe(true)
       expect(transferBody?.updated).toBe(1)
 
@@ -125,7 +125,7 @@ test.describe('TC-ATT-002: Attachment partition and transfer APIs', () => {
         { token },
       )
       expect(detailResponse.status()).toBe(200)
-      const detailBody = await readJsonResponse<{
+      const detailBody = await readJsonSafe<{
         item?: {
           assignments?: Array<{ type: string; id: string }>
           partitionCode?: string

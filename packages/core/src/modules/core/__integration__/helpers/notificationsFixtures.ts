@@ -1,11 +1,6 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
-import { readJsonSafe } from './crmFixtures';
-
-function expectId(value: unknown, message: string): string {
-  expect(typeof value === 'string' && value.length > 0, message).toBe(true);
-  return value as string;
-}
+import { expectId, readJsonSafe } from './generalFixtures';
 
 export async function createNotificationFixture(
   request: APIRequestContext,
@@ -39,4 +34,34 @@ export async function listNotifications(
     items: body?.items ?? [],
     total: body?.total ?? 0,
   };
+}
+
+export async function dismissNotificationIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  notificationId: string | null,
+): Promise<void> {
+  if (!token || !notificationId) return;
+  await apiRequest(
+    request,
+    'PUT',
+    `/api/notifications/${encodeURIComponent(notificationId)}/dismiss`,
+    { token },
+  ).catch(() => undefined);
+}
+
+export async function dismissNotificationsByType(
+  request: APIRequestContext,
+  token: string | null,
+  type: string | null,
+): Promise<void> {
+  if (!token || !type) return;
+  const notifications = await listNotifications(request, token, { type, pageSize: 100 }).catch(() => null);
+  if (!notifications) return;
+  await Promise.all(
+    notifications.items
+      .map((item) => (typeof item.id === 'string' ? item.id : null))
+      .filter((id): id is string => Boolean(id))
+      .map((id) => dismissNotificationIfExists(request, token, id)),
+  );
 }

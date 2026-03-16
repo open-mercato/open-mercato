@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   getTokenScope,
-  readJsonResponse,
+  readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createBusinessRuleFixture,
@@ -39,7 +39,7 @@ test.describe('TC-BR-004: Rule execution and logs APIs', () => {
         },
       })
       expect(executeResponse.status()).toBe(200)
-      const executeBody = await readJsonResponse<{
+      const executeBody = await readJsonSafe<{
         allowed?: boolean
         executedRules?: Array<{ ruleId?: string; logId?: string }>
       }>(executeResponse)
@@ -61,7 +61,7 @@ test.describe('TC-BR-004: Rule execution and logs APIs', () => {
         },
       )
       expect(directExecuteResponse.status()).toBe(200)
-      const directExecuteBody = await readJsonResponse<{ success?: boolean; logId?: string }>(directExecuteResponse)
+      const directExecuteBody = await readJsonSafe<{ success?: boolean; logId?: string }>(directExecuteResponse)
       expect(directExecuteBody?.success).toBe(true)
       expect(typeof directExecuteBody?.logId).toBe('string')
 
@@ -72,7 +72,7 @@ test.describe('TC-BR-004: Rule execution and logs APIs', () => {
         { token },
       )
       expect(logsResponse.status()).toBe(200)
-      const logsBody = await readJsonResponse<{
+      const logsBody = await readJsonSafe<{
         items?: Array<{ id: string; ruleId: string; entityType: string }>
       }>(logsResponse)
       expect((logsBody?.items?.length ?? 0) >= 1).toBe(true)
@@ -88,7 +88,7 @@ test.describe('TC-BR-004: Rule execution and logs APIs', () => {
         { token },
       )
       expect(logDetailResponse.status()).toBe(200)
-      const logDetailBody = await readJsonResponse<{
+      const logDetailBody = await readJsonSafe<{
         id?: string
         rule?: { id?: string; entityType?: string }
         entityType?: string

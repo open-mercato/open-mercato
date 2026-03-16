@@ -1,6 +1,6 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
-import { readJsonSafe } from './crmFixtures';
+import { expectId, readJsonSafe } from './generalFixtures';
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 
@@ -13,11 +13,6 @@ type AttachmentAssignment = {
 
 function resolveApiUrl(path: string): string {
   return `${BASE_URL}${path}`;
-}
-
-function expectId(value: unknown, message: string): string {
-  expect(typeof value === 'string' && value.length > 0, message).toBe(true);
-  return value as string;
 }
 
 export async function uploadAttachmentFixture(
