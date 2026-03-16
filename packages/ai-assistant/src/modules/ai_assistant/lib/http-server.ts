@@ -23,6 +23,46 @@ export type McpHttpServerOptions = {
   port: number
 }
 
+// ---------------------------------------------------------------------------
+// Form State Store — in-memory store for form state per session token.
+// Set via POST /form-state from the chat route; read during tool execution.
+// Entries auto-expire after 2 hours (matching session token TTL).
+// ---------------------------------------------------------------------------
+
+const FORM_STATE_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
+
+interface FormStateEntry {
+  formState: Record<string, unknown>
+  expiresAt: number
+}
+
+const formStateStore = new Map<string, FormStateEntry>()
+
+function setFormState(sessionToken: string, formState: Record<string, unknown>): void {
+  formStateStore.set(sessionToken, {
+    formState,
+    expiresAt: Date.now() + FORM_STATE_TTL_MS,
+  })
+}
+
+function getFormState(sessionToken: string): Record<string, unknown> | null {
+  const entry = formStateStore.get(sessionToken)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    formStateStore.delete(sessionToken)
+    return null
+  }
+  return entry.formState
+}
+
+/** Periodically clean up expired form state entries. */
+function cleanupFormStateStore(): void {
+  const now = Date.now()
+  for (const [key, entry] of formStateStore) {
+    if (now > entry.expiresAt) formStateStore.delete(key)
+  }
+}
+
 /**
  * Resolve user context from session token.
  * Returns null if session token is invalid or expired.
@@ -72,6 +112,12 @@ async function resolveSessionContext(
       })
     }
 
+    // Look up any form state stored for this session
+    const formState = getFormState(sessionToken)
+    if (formState) {
+      console.error(`[MCP HTTP] Form state loaded for session ${sessionToken.slice(0, 12)}... (formType: ${(formState as Record<string, unknown>)?.formType ?? 'unknown'})`)
+    }
+
     return {
       tenantId: sessionKey.tenantId ?? null,
       organizationId: sessionKey.organizationId ?? null,
@@ -81,6 +127,7 @@ async function resolveSessionContext(
       isSuperAdmin: acl.isSuperAdmin,
       // Use the decrypted session secret for API calls (not the MCP server key)
       apiKeySecret: sessionSecret,
+      ...(formState ? { formState } : {}),
     }
   } catch (error) {
     if (debug) {
@@ -405,6 +452,27 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       return
     }
 
+    // Form state endpoint — stores form state for a session token.
+    // Called by the chat route so MCP tools can access the current form state.
+    if (url.pathname === '/form-state' && req.method === 'POST') {
+      try {
+        const body = await parseJsonBody(req) as { sessionToken?: string; formState?: Record<string, unknown> } | undefined
+        if (!body?.sessionToken || !body?.formState) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'sessionToken and formState are required' }))
+          return
+        }
+        setFormState(body.sessionToken, body.formState)
+        console.error(`[MCP HTTP] Form state stored for session ${body.sessionToken.slice(0, 12)}... (formType: ${(body.formState as Record<string, unknown>)?.formType ?? 'unknown'})`)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid request body' }))
+      }
+      return
+    }
+
     if (url.pathname !== '/mcp') {
       res.writeHead(404, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Not found' }))
@@ -523,6 +591,9 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   console.error(`[MCP HTTP] Server Auth: API key validated against database (x-api-key header)`)
   console.error(`[MCP HTTP] User Auth: Session token in _sessionToken parameter`)
 
+  // Periodically clean up expired form state entries (every 10 minutes)
+  const cleanupInterval = setInterval(cleanupFormStateStore, 10 * 60 * 1000)
+
   // Return a Promise that keeps the process alive until shutdown
   return new Promise<void>((resolve) => {
     httpServer.listen(port, () => {
@@ -531,6 +602,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
 
     const shutdown = async () => {
       console.error('[MCP HTTP] Shutting down...')
+      clearInterval(cleanupInterval)
       httpServer.close(() => {
         console.error('[MCP HTTP] Server closed')
         resolve()

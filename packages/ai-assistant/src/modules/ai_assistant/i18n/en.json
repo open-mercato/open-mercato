@@ -41,5 +41,19 @@
   "ai_assistant.status.executing": "Executing tools...",
   "ai_assistant.status.responding": "Responding...",
   "ai_assistant.status.thinking": "Thinking...",
-  "ai_assistant.status.working": "Working..."
+  "ai_assistant.status.working": "Working...",
+  "ai_assistant.form_bridge.suggestion_title": "AI Suggestion",
+  "ai_assistant.form_bridge.accept": "Accept",
+  "ai_assistant.form_bridge.reject": "Reject",
+  "ai_assistant.form_bridge.undo_accept": "Undo",
+  "ai_assistant.form_bridge.preview_diff": "Preview changes",
+  "ai_assistant.form_bridge.hide_diff": "Hide changes",
+  "ai_assistant.form_bridge.stale_warning": "Form was modified since this suggestion was generated",
+  "ai_assistant.form_bridge.generating": "AI is generating a suggestion...",
+  "ai_assistant.form_bridge.accept_shortcut": "Cmd+Enter to accept",
+  "ai_assistant.form_bridge.reject_shortcut": "Escape to reject",
+  "ai_assistant.form_bridge.section_conditions": "Conditions",
+  "ai_assistant.form_bridge.section_success_actions": "Success Actions",
+  "ai_assistant.form_bridge.section_failure_actions": "Failure Actions",
+  "ai_assistant.form_bridge.ai_connected": "AI-connected"
 }

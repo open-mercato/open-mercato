@@ -1,4 +1,5 @@
 export { useCommandPalette } from './useCommandPalette'
+export { useAiFormBridge } from './useAiFormBridge'
 export { useMcpTools } from './useMcpTools'
 export { usePageContext } from './usePageContext'
 export { useRecentActions } from './useRecentActions'
