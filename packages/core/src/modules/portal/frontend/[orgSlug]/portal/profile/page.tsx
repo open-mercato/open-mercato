@@ -1,5 +1,5 @@
 "use client"
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -7,6 +7,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader, PortalStatRow, PortalCardDivider } from '@open-mercato/ui/portal/components/PortalCard'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 
@@ -21,6 +23,11 @@ export default function PortalProfilePage({ params }: Props) {
       router.replace(`/${params.orgSlug}/portal/login`)
     }
   }, [loading, user, router, params.orgSlug])
+
+  const injectionContext = useMemo(
+    () => ({ orgSlug: params.orgSlug, user, roles, resolvedFeatures, isPortalAdmin }),
+    [params.orgSlug, user, roles, resolvedFeatures, isPortalAdmin],
+  )
 
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Spinner /></div>
@@ -41,6 +48,8 @@ export default function PortalProfilePage({ params }: Props) {
         label={t('portal.profile.label', 'Account')}
         title={t('portal.profile.title', 'Profile')}
       />
+
+      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('profile')} context={injectionContext} />
 
       <div className="grid gap-5 md:grid-cols-2">
         <PortalCard>
@@ -96,6 +105,8 @@ export default function PortalProfilePage({ params }: Props) {
           )}
         </PortalCard>
       </div>
+
+      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('profile')} context={injectionContext} />
     </div>
   )
 }

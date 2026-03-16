@@ -9,6 +9,8 @@ import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageH
 import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
 import { usePortalDashboardWidgets } from '@open-mercato/ui/portal/hooks/usePortalDashboardWidgets'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 
@@ -75,6 +77,11 @@ export default function PortalDashboardPage({ params }: Props) {
     [dashboardWidgets, hiddenWidgets],
   )
 
+  const injectionContext = useMemo(
+    () => ({ orgSlug: params.orgSlug, user, roles: auth.roles, resolvedFeatures: auth.resolvedFeatures }),
+    [params.orgSlug, user, auth.roles, auth.resolvedFeatures],
+  )
+
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Spinner /></div>
   }
@@ -100,6 +107,8 @@ export default function PortalDashboardPage({ params }: Props) {
           ) : null
         }
       />
+
+      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('dashboard')} context={injectionContext} />
 
       {editing && dashboardWidgets.length > 0 ? (
         <PortalCard>
@@ -142,6 +151,8 @@ export default function PortalDashboardPage({ params }: Props) {
           description="Modules can inject widgets into this dashboard via the portal:dashboard:sections injection spot."
         />
       ) : null}
+
+      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('dashboard')} context={injectionContext} />
     </div>
   )
 }

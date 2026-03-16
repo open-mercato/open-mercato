@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -9,6 +9,8 @@ import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 
@@ -61,6 +63,11 @@ export default function PortalLoginPage({ params }: Props) {
     [email, password, tenant.tenantId, orgSlug, t],
   )
 
+  const injectionContext = useMemo(
+    () => ({ orgSlug }),
+    [orgSlug],
+  )
+
   if (tenant.loading) {
     return <div className="flex items-center justify-center py-20"><Spinner /></div>
   }
@@ -79,6 +86,8 @@ export default function PortalLoginPage({ params }: Props) {
         <h1 className="text-2xl font-bold tracking-tight">{t('portal.login.title', 'Sign In')}</h1>
         <p className="mt-1.5 text-sm text-muted-foreground">{t('portal.login.description', 'Enter your credentials to access the portal.')}</p>
       </div>
+
+      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('login')} context={injectionContext} />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error ? <Notice variant="error">{error}</Notice> : null}
@@ -104,6 +113,8 @@ export default function PortalLoginPage({ params }: Props) {
           </Link>
         </p>
       </form>
+
+      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('login')} context={injectionContext} />
     </div>
   )
 }

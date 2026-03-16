@@ -1,5 +1,5 @@
 "use client"
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -8,6 +8,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalFeatureCard } from '@open-mercato/ui/portal/components/PortalFeatureCard'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 
@@ -48,6 +50,11 @@ export default function PortalLandingPage({ params }: Props) {
     }
   }, [auth.loading, auth.user, router, orgSlug])
 
+  const injectionContext = useMemo(
+    () => ({ orgSlug }),
+    [orgSlug],
+  )
+
   if (auth.loading || tenant.loading) {
     return <div className="flex items-center justify-center py-20"><Spinner /></div>
   }
@@ -65,6 +72,8 @@ export default function PortalLandingPage({ params }: Props) {
 
   return (
     <>
+      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('home')} context={injectionContext} />
+
       <section className="flex flex-col items-center gap-5 py-8 text-center sm:py-16">
         <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/60">
           {t('portal.nav.home', 'Customer Portal')}
@@ -102,6 +111,8 @@ export default function PortalLandingPage({ params }: Props) {
           description={t('portal.landing.feature.security.description', 'Role-based permissions, session management, and full audit trail.')}
         />
       </section>
+
+      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('home')} context={injectionContext} />
     </>
   )
 }
