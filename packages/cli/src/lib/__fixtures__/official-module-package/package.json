@@ -1,0 +1,37 @@
+{
+  "name": "@open-mercato/test-package",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": "./src/*/*.ts",
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*": {
+      "types": "./src/*/*/*.ts",
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*": {
+      "types": "./src/*/*/*/*.ts",
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*": {
+      "types": "./src/*/*/*/*/*.ts",
+      "default": "./dist/*/*/*/*/*.js"
+    }
+  },
+  "peerDependencies": {
+    "@open-mercato/core": ">=0.4.7 <0.5.0"
+  },
+  "open-mercato": {
+    "kind": "module-package",
+    "moduleId": "test_package",
+    "ejectable": true
+  }
+}

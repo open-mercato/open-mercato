@@ -53,6 +53,74 @@ async function ensureEnvLoaded() {
   } catch {}
 }
 
+function parseModuleInstallArgs(args: string[]): { packageSpec: string | null; mode: 'package' | 'source' } {
+  let packageSpec: string | null = null
+  let mode: 'package' | 'source' = 'package'
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (!arg) continue
+
+    if (arg === '--mode') {
+      const next = args[index + 1]
+      if (next === 'package' || next === 'source') {
+        mode = next
+        index += 1
+        continue
+      }
+      throw new Error(`Unsupported module install mode: ${next ?? '(missing value)'}`)
+    }
+
+    if (arg.startsWith('--mode=')) {
+      const rawMode = arg.slice('--mode='.length)
+      if (rawMode === 'package' || rawMode === 'source') {
+        mode = rawMode
+        continue
+      }
+      throw new Error(`Unsupported module install mode: ${rawMode}`)
+    }
+
+    if (!arg.startsWith('-') && !packageSpec) {
+      packageSpec = arg
+    }
+  }
+
+  return { packageSpec, mode }
+}
+
+async function handleDirectEjectCommand(args: string[]): Promise<number> {
+  const { createResolver } = await import('./lib/resolver')
+  const { listEjectableModules, ejectModule } = await import('./lib/eject')
+  const resolver = createResolver()
+  const commandArgs = args.filter(Boolean)
+  const isList = commandArgs.includes('--list') || commandArgs.includes('-l')
+  const moduleId = isList ? undefined : commandArgs.find((arg) => !arg.startsWith('-'))
+
+  if (isList || !moduleId) {
+    const ejectable = listEjectableModules(resolver)
+    if (ejectable.length === 0) {
+      console.log('No ejectable modules found.')
+    } else {
+      console.log('Ejectable modules:\n')
+      for (const mod of ejectable) {
+        const desc = mod.description ? ` — ${mod.description}` : ''
+        console.log(`  ${mod.id} (from: ${mod.from})${desc}`)
+      }
+      console.log('\nUsage: yarn mercato eject <moduleId>')
+    }
+    return 0
+  }
+
+  console.log(`Ejecting module "${moduleId}"...`)
+  ejectModule(resolver, moduleId)
+  console.log(`\n✅ Module "${moduleId}" ejected successfully!\n`)
+  console.log('Next steps:')
+  console.log('  1. Run generators:  yarn mercato generate all')
+  console.log(`  2. Customize:       edit src/modules/${moduleId}/`)
+  console.log('  3. Start dev:       yarn dev')
+  return 0
+}
+
 // Helper to run a CLI command directly (without spawning a process)
 async function runModuleCommand(
   allModules: Module[],
@@ -274,13 +342,14 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateOpenApi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistry({ resolver, quiet: true })
       await generateModuleRegistryCli({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
+      await generateModulePackageSources({ resolver, quiet: true })
       await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
@@ -524,39 +593,71 @@ export async function run(argv = process.argv) {
     return exitCode
   }
 
-  // Handle eject command directly (bootstrap-free)
-  if (first === 'eject') {
+  if (first === 'module') {
     try {
-      const { createResolver } = await import('./lib/resolver')
-      const { listEjectableModules, ejectModule } = await import('./lib/eject')
-      const resolver = createResolver()
+      const subcommand = second
+      const commandArgs = remaining.filter(Boolean)
 
-      const isList = second === '--list' || second === '-l'
-      const moduleId = !isList ? second : undefined
-
-      if (isList || !moduleId) {
-        const ejectable = listEjectableModules(resolver)
-        if (ejectable.length === 0) {
-          console.log('No ejectable modules found.')
-        } else {
-          console.log('Ejectable modules:\n')
-          for (const mod of ejectable) {
-            const desc = mod.description ? ` — ${mod.description}` : ''
-            console.log(`  ${mod.id} (from: ${mod.from})${desc}`)
-          }
-          console.log('\nUsage: yarn mercato eject <moduleId>')
-        }
+      if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
+        console.log('Usage: yarn mercato module <add|enable|eject> ...')
+        console.log('  yarn mercato module add <packageSpec> [--mode package|source]')
+        console.log('  yarn mercato module enable <packageName>')
+        console.log('  yarn mercato module eject <moduleId>')
         return 0
       }
 
-      console.log(`Ejecting module "${moduleId}"...`)
-      ejectModule(resolver, moduleId)
-      console.log(`\n✅ Module "${moduleId}" ejected successfully!\n`)
-      console.log('Next steps:')
-      console.log('  1. Run generators:  yarn mercato generate all')
-      console.log(`  2. Customize:       edit src/modules/${moduleId}/`)
-      console.log('  3. Start dev:       yarn dev')
-      return 0
+      if (subcommand === 'add') {
+        const { createResolver } = await import('./lib/resolver')
+        const { addOfficialModule } = await import('./lib/module-install')
+        const { packageSpec, mode } = parseModuleInstallArgs(commandArgs)
+
+        if (!packageSpec) {
+          console.error('Usage: yarn mercato module add <packageSpec> [--mode package|source]')
+          return 1
+        }
+
+        const result = await addOfficialModule(createResolver(), packageSpec, mode)
+        console.log(`\n✅ Module "${result.moduleId}" enabled from ${mode === 'source' ? '@app' : result.packageName}.\n`)
+        console.log('Next steps:')
+        console.log('  1. Review generated files if needed: .mercato/generated/')
+        console.log('  2. Start dev:                         yarn dev')
+        return 0
+      }
+
+      if (subcommand === 'enable') {
+        const packageName = commandArgs.find((arg) => !arg.startsWith('-'))
+        if (!packageName) {
+          console.error('Usage: yarn mercato module enable <packageName>')
+          return 1
+        }
+
+        const { createResolver } = await import('./lib/resolver')
+        const { enableOfficialModule } = await import('./lib/module-install')
+        const result = await enableOfficialModule(createResolver(), packageName)
+        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.packageName}.\n`)
+        console.log('Next steps:')
+        console.log('  1. Review generated files if needed: .mercato/generated/')
+        console.log('  2. Start dev:                         yarn dev')
+        return 0
+      }
+
+      if (subcommand === 'eject') {
+        return handleDirectEjectCommand(commandArgs)
+      }
+
+      console.error(`Unknown module subcommand "${subcommand}".`)
+      return 1
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`❌ Module command failed: ${message}`)
+      return 1
+    }
+  }
+
+  // Handle eject command directly (bootstrap-free)
+  if (first === 'eject') {
+    try {
+      return handleDirectEjectCommand(parts.slice(1))
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error)
       console.error(`❌ Eject failed: ${message}`)
@@ -880,7 +981,7 @@ export async function run(argv = process.argv) {
         command: 'all',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateOpenApi } = await import('./lib/generators')
+          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
           const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
 
@@ -890,6 +991,7 @@ export async function run(argv = process.argv) {
           await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
           await generateModuleDi({ resolver, quiet })
+          await generateModulePackageSources({ resolver, quiet })
           await generateOpenApi({ resolver, quiet })
           console.log('All generators completed.')
         },
@@ -907,9 +1009,10 @@ export async function run(argv = process.argv) {
         command: 'registry',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateModuleRegistry } = await import('./lib/generators')
+          const { generateModulePackageSources, generateModuleRegistry } = await import('./lib/generators')
           const resolver = createResolver()
           await generateModuleRegistry({ resolver, quiet: args.includes('--quiet') })
+          await generateModulePackageSources({ resolver, quiet: args.includes('--quiet') })
         },
       },
       {
