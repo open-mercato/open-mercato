@@ -11,6 +11,16 @@ type AttachmentAssignment = {
   label?: string | null;
 };
 
+type MultipartFieldValue =
+  | string
+  | number
+  | boolean
+  | {
+      name: string;
+      mimeType: string;
+      buffer: Buffer;
+    };
+
 function resolveApiUrl(path: string): string {
   return `${BASE_URL}${path}`;
 }
@@ -35,7 +45,7 @@ export async function uploadAttachmentFixture(
   tags: string[];
   assignments: AttachmentAssignment[];
 }> {
-  const multipart: Record<string, unknown> = {
+  const multipart: Record<string, MultipartFieldValue> = {
     entityId: input.entityId,
     recordId: input.recordId,
     file: {
