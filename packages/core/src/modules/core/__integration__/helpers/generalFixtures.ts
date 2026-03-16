@@ -1,10 +1,33 @@
-import { expect, type APIRequestContext } from '@playwright/test';
+import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { apiRequest } from './api';
+import { readJsonSafe } from './crmFixtures';
 
 export function getTokenContext(token: string): { organizationId: string; tenantId: string } {
   const parts = token.split('.');
   const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as { orgId?: string; tenantId?: string };
   return { organizationId: payload.orgId ?? '', tenantId: payload.tenantId ?? '' };
+}
+
+export function getTokenScope(token: string): {
+  organizationId: string;
+  tenantId: string;
+  userId: string;
+} {
+  const parts = token.split('.');
+  const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as {
+    orgId?: string;
+    tenantId?: string;
+    sub?: string;
+  };
+  return {
+    organizationId: payload.orgId ?? '',
+    tenantId: payload.tenantId ?? '',
+    userId: payload.sub ?? '',
+  };
+}
+
+export async function readJsonResponse<T>(response: APIResponse): Promise<T | null> {
+  return readJsonSafe<T>(response);
 }
 
 export async function deleteEntityByPathIfExists(
