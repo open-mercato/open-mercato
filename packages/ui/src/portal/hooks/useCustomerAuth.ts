@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { CustomerUser, CustomerRole, CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
+import { apiCall } from '../../backend/utils/apiCall'
 
 export type { CustomerUser, CustomerRole, CustomerAuthResult }
 
@@ -41,22 +42,16 @@ export function useCustomerAuth(orgSlug?: string) {
 
     async function fetchProfile() {
       try {
-        const res = await fetch('/api/customer_accounts/portal/profile', { credentials: 'include' })
+        const { ok, status, result: data } = await apiCall<{ ok: boolean; user: CustomerAuthResult['user']; roles: CustomerAuthResult['roles']; resolvedFeatures: string[]; isPortalAdmin: boolean; error?: string }>('/api/customer_accounts/portal/profile')
         if (cancelled) return
 
-        if (res.status === 401) {
+        if (status === 401) {
           setState((prev) => ({ ...prev, loading: false, user: null }))
           return
         }
 
-        if (!res.ok) {
-          setState((prev) => ({ ...prev, loading: false, error: `HTTP ${res.status}` }))
-          return
-        }
-
-        const data = await res.json()
-        if (!data.ok) {
-          setState((prev) => ({ ...prev, loading: false, error: data.error || 'Unknown error' }))
+        if (!ok || !data?.ok) {
+          setState((prev) => ({ ...prev, loading: false, error: data?.error || `HTTP ${status}` }))
           return
         }
 
@@ -83,12 +78,9 @@ export function useCustomerAuth(orgSlug?: string) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/customer_accounts/portal/logout', {
-        method: 'POST',
-        credentials: 'include',
-      })
+      await apiCall('/api/customer_accounts/portal/logout', { method: 'POST' })
     } catch {
-      // Best effort
+      // Best-effort logout — redirect regardless
     }
     setState({
       user: null,

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { useInjectionDataWidgets } from '../../backend/injection/useInjectionDataWidgets'
+import { apiCall } from '../../backend/utils/apiCall'
 
 export type PortalMenuSurfaceId =
   | 'menu:portal:sidebar:main'
@@ -30,15 +31,12 @@ function collectRequiredFeatures(items: InjectionMenuItem[]): string[] {
 async function readPortalGrantedFeatures(features: string[]): Promise<Set<string>> {
   if (features.length === 0) return new Set()
   try {
-    const res = await fetch('/api/customer_accounts/portal/feature-check', {
+    const { ok, result: data } = await apiCall<PortalFeatureCheckResponse>('/api/customer_accounts/portal/feature-check', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ features }),
-      credentials: 'include',
     })
-    if (!res.ok) return new Set()
-    const data = await res.json() as PortalFeatureCheckResponse
-    if (!data.ok) return new Set()
+    if (!ok || !data?.ok) return new Set()
     return new Set(data.granted ?? [])
   } catch {
     return new Set()

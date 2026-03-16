@@ -9,6 +9,7 @@ import {
 } from 'react'
 import type { CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
 import type { CustomerAuthContext } from '@open-mercato/shared/modules/customer-auth'
+import { apiCall } from '../backend/utils/apiCall'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -110,26 +111,21 @@ export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }
 
     async function fetchProfile() {
       try {
-        const res = await fetch('/api/customer_accounts/portal/profile', { credentials: 'include' })
+        const { ok, status, result: data } = await apiCall<{ ok: boolean; user: CustomerAuthResult['user']; roles: CustomerAuthResult['roles']; resolvedFeatures: string[]; isPortalAdmin: boolean }>('/api/customer_accounts/portal/profile')
         if (cancelled) return
-        if (res.status === 401) {
+        if (status === 401) {
           setAuthState((prev) => ({ ...prev, loading: false, user: prev.user }))
           return
         }
-        if (!res.ok) {
-          setAuthState((prev) => ({ ...prev, loading: false }))
-          return
-        }
-        const data = await res.json()
-        if (!data.ok) {
+        if (!ok || !data?.ok) {
           setAuthState((prev) => ({ ...prev, loading: false }))
           return
         }
         setAuthState({
-          user: data.user,
-          roles: data.roles || [],
-          resolvedFeatures: data.resolvedFeatures || [],
-          isPortalAdmin: data.isPortalAdmin || false,
+          user: data!.user,
+          roles: data!.roles || [],
+          resolvedFeatures: data!.resolvedFeatures || [],
+          isPortalAdmin: data!.isPortalAdmin || false,
           loading: false,
           error: null,
         })
@@ -146,9 +142,9 @@ export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }
 
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/customer_accounts/portal/logout', { method: 'POST', credentials: 'include' })
+      await apiCall('/api/customer_accounts/portal/logout', { method: 'POST' })
     } catch {
-      // Best effort
+      // Best-effort logout — redirect regardless
     }
     setAuthState({ user: null, roles: [], resolvedFeatures: [], isPortalAdmin: false, loading: false, error: null })
     window.location.assign(`/${orgSlug}/portal/login`)

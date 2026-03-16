@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useState } from 'react'
+import { apiCall } from '../../backend/utils/apiCall'
 
 type OrgContext = {
   tenantId: string | undefined
@@ -48,22 +49,15 @@ export function useTenantContext(orgSlug: string): OrgContext {
       }
 
       try {
-        const res = await fetch(`/api/directory/organizations/lookup?slug=${encodeURIComponent(orgSlug)}`)
+        const { ok, result: data } = await apiCall<{ ok: boolean; organization: { id: string; tenantId: string; name: string }; error?: string }>(`/api/directory/organizations/lookup?slug=${encodeURIComponent(orgSlug)}`)
         if (cancelled) return
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => null)
+        if (!ok || !data?.ok || !data.organization) {
           setState((prev) => ({
             ...prev,
             loading: false,
             error: data?.error || 'Organization not found.',
           }))
-          return
-        }
-
-        const data = await res.json()
-        if (!data.ok || !data.organization) {
-          setState((prev) => ({ ...prev, loading: false, error: 'Organization not found.' }))
           return
         }
 

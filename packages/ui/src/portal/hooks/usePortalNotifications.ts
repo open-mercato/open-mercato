@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { apiCall } from '../../backend/utils/apiCall'
 
 export type UsePortalNotificationsResult = {
   notifications: NotificationDto[]
@@ -18,9 +19,9 @@ const BASE = '/api/customer_accounts/portal/notifications'
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
   try {
-    const res = await fetch(url, { credentials: 'include', ...init })
-    if (!res.ok) return null
-    return (await res.json()) as T
+    const { ok, result } = await apiCall<T>(url, init)
+    if (!ok) return null
+    return result
   } catch {
     return null
   }
