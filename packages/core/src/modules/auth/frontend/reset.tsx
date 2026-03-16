@@ -6,8 +6,6 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 export default function ResetPage() {
   const t = useT()
   const [sent, setSent] = useState(false)
@@ -19,24 +17,16 @@ export default function ResetPage() {
     e.preventDefault()
     setError(null)
     setFieldError(null)
-
-    const form = new FormData(e.currentTarget)
-    const email = String(form.get('email') ?? '').trim()
-
-    if (!email) {
-      setFieldError(t('auth.reset.errors.emailRequired', 'Please enter your email address.'))
-      return
-    }
-    if (!EMAIL_REGEX.test(email)) {
-      setFieldError(t('auth.reset.errors.emailInvalid', 'Please enter a valid email address.'))
-      return
-    }
-
     setSubmitting(true)
     try {
+      const form = new FormData(e.currentTarget)
       const res = await fetch('/api/auth/reset', { method: 'POST', body: form })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
+        if (data?.fieldErrors?.email?.length) {
+          setFieldError(t('auth.reset.errors.emailInvalid', 'Please enter a valid email address.'))
+          return
+        }
         setError(data?.error || t('auth.reset.error', 'Something went wrong'))
         return
       }

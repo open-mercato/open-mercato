@@ -87,7 +87,6 @@
   "auth.profile.title": "Perfil",
   "auth.reset.description": "Ingresa tu correo para recibir un enlace de restablecimiento",
   "auth.reset.error": "Algo salió mal",
-  "auth.reset.errors.emailRequired": "Ingresa tu dirección de correo electrónico.",
   "auth.reset.errors.emailInvalid": "Ingresa una dirección de correo electrónico válida.",
   "auth.reset.errors.failed": "No se pudo restablecer la contraseña",
   "auth.reset.form.loading": "...",
