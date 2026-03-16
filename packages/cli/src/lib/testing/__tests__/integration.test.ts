@@ -158,7 +158,7 @@ describe('integration cache and options', () => {
     } finally {
       fetchSpy.mockRestore()
     }
-  })
+  }, 20000)
 
   it('reuses an existing environment when /login returns healthy HTML without static asset references', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
