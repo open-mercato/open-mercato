@@ -7,7 +7,6 @@ import {
   ExecutionError,
   executeCommand,
   resolveProductDiscrepanciesInProposal,
-  userHasFeature,
 } from '../inbox_ops/lib/executionHelpers'
 import { CatalogPriceKind } from './data/entities'
 
@@ -40,33 +39,31 @@ async function executeCreateProductAction(
     throw new ExecutionError('Product creation did not return a product ID', 500)
   }
 
+  // Create default variant so the product works with quotes/orders (issue #891)
+  // No separate permission check — the user already passed catalog.products.manage
+  // in the execution engine, and variant/price creation is an integral part of
+  // product setup, not a separate user action.
   let variantId: string | null = null
-  const canCreateVariant = await userHasFeature(hCtx, 'catalog.variants.manage')
-  if (canCreateVariant) {
-    try {
-      const variantResult = await executeCommand<Record<string, unknown>, { variantId?: string }>(
-        hCtx,
-        'catalog.variants.create',
-        {
-          productId: result.productId,
-          organizationId: hCtx.organizationId,
-          tenantId: hCtx.tenantId,
-          isDefault: true,
-          isActive: true,
-          sku: payload.sku || null,
-        },
-      )
-      variantId = variantResult.variantId ?? null
-    } catch (variantErr) {
-      console.warn('[catalog:inbox-action] Failed to create default variant (non-fatal):', variantErr)
-    }
+  try {
+    const variantResult = await executeCommand<Record<string, unknown>, { variantId?: string }>(
+      hCtx,
+      'catalog.variants.create',
+      {
+        productId: result.productId,
+        organizationId: hCtx.organizationId,
+        tenantId: hCtx.tenantId,
+        name: 'Default',
+        isDefault: true,
+        isActive: true,
+        sku: payload.sku || undefined,
+      },
+    )
+    variantId = variantResult.variantId ?? null
+  } catch (variantErr) {
+    console.warn('[catalog:inbox-action] Failed to create default variant (non-fatal):', variantErr instanceof Error ? variantErr.message : variantErr)
   }
 
-  const canManagePricing =
-    variantId && payload.unitPrice && payload.currencyCode
-      ? await userHasFeature(hCtx, 'catalog.pricing.manage')
-      : false
-  if (variantId && payload.unitPrice && payload.currencyCode && canManagePricing) {
+  if (variantId && payload.unitPrice && payload.currencyCode) {
     try {
       const priceKind = await findOneWithDecryption(
         hCtx.em,

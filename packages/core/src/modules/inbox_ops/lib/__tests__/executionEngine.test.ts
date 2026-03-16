@@ -1031,7 +1031,7 @@ describe('executionEngine', () => {
   })
 
   describe('executeAction — create_contact company', () => {
-    it('creates company via customers.companies.create when type is company', async () => {
+    it('creates company via resolveOrCreateCompany when type is company', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(1)
 
@@ -1043,11 +1043,12 @@ describe('executionEngine', () => {
           type: 'company',
           name: 'Acme Corp',
           email: 'info@acme.com',
-          companyName: 'Acme Corporation Ltd',
           source: 'inbox_ops',
         },
       })
       mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+      // resolveOrCreateCompany: no existing company found
+      mockFindWithDecryption.mockResolvedValueOnce([])
       mockCommandBus.execute.mockResolvedValue({ result: { entityId: 'company-1' } })
 
       const action = makeAction({
@@ -1057,7 +1058,6 @@ describe('executionEngine', () => {
           type: 'company',
           name: 'Acme Corp',
           email: 'info@acme.com',
-          companyName: 'Acme Corporation Ltd',
           source: 'inbox_ops',
         },
       })
@@ -1072,7 +1072,6 @@ describe('executionEngine', () => {
         expect.objectContaining({
           input: expect.objectContaining({
             displayName: 'Acme Corp',
-            legalName: 'Acme Corporation Ltd',
           }),
         }),
       )
@@ -1119,6 +1118,49 @@ describe('executionEngine', () => {
       expect(result.createdEntityId).toBe('existing-company-1')
       expect(result.createdEntityType).toBe('customer_company')
       expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    it('reuses existing company by name when type is company (no duplicate)', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-company-name-dedup',
+        actionType: 'create_contact',
+        status: 'processing',
+        payload: {
+          type: 'company',
+          name: 'MedCore Solutions Ltd',
+          source: 'inbox_ops',
+        },
+      })
+      // First call: load fresh action
+      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
+      // No email match (no email on payload)
+      // resolveOrCreateCompany: findWithDecryption returns existing company
+      mockFindWithDecryption.mockResolvedValueOnce([
+        { id: 'existing-medcore', displayName: 'MedCore Solutions Ltd', kind: 'company' },
+      ])
+
+      const action = makeAction({
+        id: 'a-company-name-dedup',
+        actionType: 'create_contact',
+        payload: {
+          type: 'company',
+          name: 'MedCore Solutions Ltd',
+          source: 'inbox_ops',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe('existing-medcore')
+      expect(result.createdEntityType).toBe('customer_company')
+      expect(mockCommandBus.execute).not.toHaveBeenCalledWith(
+        'customers.companies.create',
+        expect.anything(),
+      )
     })
   })
 
@@ -1187,21 +1229,18 @@ describe('executionEngine', () => {
       )
     })
 
-    it('creates only the person when the user lacks company permissions', async () => {
-      mockRbacService.userHasAllFeatures
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false)
+    it('reuses existing company instead of creating a duplicate', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(1)
 
       const freshAction = makeAction({
-        id: 'a-person-no-company-perm',
+        id: 'a-person-existing-company',
         actionType: 'create_contact',
         status: 'processing',
         payload: {
           type: 'person',
-          name: 'Katarzyna Lewandowska',
-          email: 'k.lewandowska@vitamed.pl',
+          name: 'Jan Kowalski',
+          email: 'jan@vitamed.pl',
           companyName: 'VitaMed Sp. z o.o.',
           source: 'inbox_ops',
         },
@@ -1209,16 +1248,21 @@ describe('executionEngine', () => {
       mockFindOneWithDecryption
         .mockResolvedValueOnce(freshAction)
         .mockResolvedValueOnce(null)
-      mockFindWithDecryption.mockResolvedValueOnce([])
-      mockCommandBus.execute.mockResolvedValueOnce({ result: { entityId: 'person-2' } })
+      // resolveOrCreateCompany finds existing company via findWithDecryption
+      mockFindWithDecryption
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'existing-company', displayName: 'VitaMed Sp. z o.o.', kind: 'company' }])
+
+      mockCommandBus.execute
+        .mockResolvedValueOnce({ result: { entityId: 'person-new' } })
 
       const action = makeAction({
-        id: 'a-person-no-company-perm',
+        id: 'a-person-existing-company',
         actionType: 'create_contact',
         payload: {
           type: 'person',
-          name: 'Katarzyna Lewandowska',
-          email: 'k.lewandowska@vitamed.pl',
+          name: 'Jan Kowalski',
+          email: 'jan@vitamed.pl',
           companyName: 'VitaMed Sp. z o.o.',
           source: 'inbox_ops',
         },
@@ -1231,6 +1275,60 @@ describe('executionEngine', () => {
         'customers.companies.create',
         expect.anything(),
       )
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'customers.people.create',
+        expect.objectContaining({
+          input: expect.objectContaining({
+            companyEntityId: 'existing-company',
+          }),
+        }),
+      )
+    })
+
+    it('creates person even when company creation fails (non-fatal)', async () => {
+      const em = createMockEm()
+      em.nativeUpdate.mockResolvedValue(1)
+
+      const freshAction = makeAction({
+        id: 'a-person-company-fail',
+        actionType: 'create_contact',
+        status: 'processing',
+        payload: {
+          type: 'person',
+          name: 'Anna Nowak',
+          email: 'anna@example.com',
+          companyName: 'Failing Corp',
+          source: 'inbox_ops',
+        },
+      })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(freshAction)
+        .mockResolvedValueOnce(null)
+      // resolveOrCreateCompany: no existing match, then company creation throws
+      mockFindWithDecryption
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+
+      mockCommandBus.execute
+        .mockRejectedValueOnce(new Error('Company creation failed'))
+        .mockResolvedValueOnce({ result: { entityId: 'person-fallback' } })
+
+      const action = makeAction({
+        id: 'a-person-company-fail',
+        actionType: 'create_contact',
+        payload: {
+          type: 'person',
+          name: 'Anna Nowak',
+          email: 'anna@example.com',
+          companyName: 'Failing Corp',
+          source: 'inbox_ops',
+        },
+      })
+
+      const result = await executeAction(action, makeCtx(em))
+
+      expect(result.success).toBe(true)
+      expect(result.createdEntityId).toBe('person-fallback')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
         'customers.people.create',
         expect.objectContaining({
@@ -1644,49 +1742,6 @@ describe('executionEngine', () => {
       )
     })
 
-    it('skips variant and price creation when the user lacks variant permissions', async () => {
-      mockRbacService.userHasAllFeatures
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false)
-      const em = createMockEm()
-      em.nativeUpdate.mockResolvedValue(1)
-
-      const freshAction = makeAction({
-        id: 'a-product-no-variant-perm',
-        actionType: 'create_product',
-        status: 'processing',
-        payload: {
-          title: 'Steel Bearing',
-          sku: 'SB-001',
-          unitPrice: '12.50',
-          currencyCode: 'EUR',
-        },
-      })
-      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
-      mockCommandBus.execute.mockResolvedValueOnce({ result: { productId: 'product-3' } })
-
-      const action = makeAction({
-        id: 'a-product-no-variant-perm',
-        actionType: 'create_product',
-        payload: {
-          title: 'Steel Bearing',
-          sku: 'SB-001',
-          unitPrice: '12.50',
-          currencyCode: 'EUR',
-        },
-      })
-
-      const result = await executeAction(action, makeCtx(em))
-
-      expect(result.success).toBe(true)
-      expect(result.createdEntityId).toBe('product-3')
-      expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
-      expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'catalog.products.create',
-        expect.anything(),
-      )
-    })
-
     it('creates product with default variant and price when unitPrice and currencyCode are provided', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(1)
@@ -1736,48 +1791,6 @@ describe('executionEngine', () => {
       )
     })
 
-    it('skips price creation when the user lacks pricing permissions', async () => {
-      mockRbacService.userHasAllFeatures
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(true)
-        .mockResolvedValueOnce(false)
-      const em = createMockEm()
-      em.nativeUpdate.mockResolvedValue(1)
-
-      const freshAction = makeAction({
-        id: 'a-product-no-price-perm',
-        actionType: 'create_product',
-        status: 'processing',
-        payload: {
-          title: 'Widget',
-          unitPrice: '12.50',
-          currencyCode: 'EUR',
-        },
-      })
-      mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
-      mockCommandBus.execute
-        .mockResolvedValueOnce({ result: { productId: 'product-4' } })
-        .mockResolvedValueOnce({ result: { variantId: 'variant-4' } })
-
-      const action = makeAction({
-        id: 'a-product-no-price-perm',
-        actionType: 'create_product',
-        payload: {
-          title: 'Widget',
-          unitPrice: '12.50',
-          currencyCode: 'EUR',
-        },
-      })
-
-      const result = await executeAction(action, makeCtx(em))
-
-      expect(result.success).toBe(true)
-      expect(mockCommandBus.execute).toHaveBeenCalledTimes(2)
-      expect(mockCommandBus.execute).not.toHaveBeenCalledWith(
-        'catalog.prices.create',
-        expect.anything(),
-      )
-    })
   })
 
   describe('getRequiredFeature', () => {

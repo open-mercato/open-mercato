@@ -372,6 +372,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       contactMatches,
       extractionResult.proposedActions,
       email.toAddress,
+      email.forwardedByAddress,
     )
 
     // Step 6d-2: Also generate create_contact for LLM-discovered unmatched participants
@@ -391,8 +392,15 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       email.toAddress,
     )
 
+    // Step 6f: Deduplicate — remove company create_contact actions when a person
+    // action with the same companyName already exists (person creation auto-creates
+    // the company, so the separate company action would be redundant).
+    const dedupedProposedActions = deduplicateCompanyActions([
+      ...autoContactActions, ...autoLinkActions, ...autoProductActions, ...extractionResult.proposedActions,
+    ])
+
     // Create actions — contact & product creation actions go first so they're executed before orders
-    const combinedProposedActions = [...autoContactActions, ...autoLinkActions, ...autoProductActions, ...extractionResult.proposedActions]
+    const combinedProposedActions = dedupedProposedActions
     const allActions = [
       ...combinedProposedActions.map((action, index) => {
         const parsedPayload = safeParsePayloadJson(action.payloadJson)
@@ -619,6 +627,7 @@ function buildContactActionsForUnmatchedParticipants(
   contactMatches: { participant: { name: string; email: string }; match?: { contactId: string } | null }[],
   existingActions: { actionType: string; payloadJson: string }[],
   inboxAddress: string,
+  forwardedByAddress?: string,
 ): { actionType: 'create_contact'; description: string; confidence: number; requiredFeature: string; payloadJson: string }[] {
   const alreadyProposed = new Set(
     existingActions
@@ -631,14 +640,17 @@ function buildContactActionsForUnmatchedParticipants(
   )
 
   const inboxLower = (inboxAddress || '').toLowerCase()
+  const forwardedByLower = (forwardedByAddress || '').toLowerCase()
   const systemPatterns = ['noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster']
 
   return contactMatches
     .filter((m) => {
       if (m.match?.contactId) return false
       const emailLower = m.participant.email.toLowerCase()
+      if (!emailLower || !emailLower.includes('@')) return false
       if (alreadyProposed.has(emailLower)) return false
       if (emailLower === inboxLower) return false
+      if (forwardedByLower && emailLower === forwardedByLower) return false
       return !systemPatterns.some((p) => emailLower.includes(p))
     })
     .map((m) => ({
@@ -881,6 +893,29 @@ function buildFullTextForExtraction(email: InboxEmail): string {
     .replace(/ {2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+function deduplicateCompanyActions<T extends { actionType: string; payloadJson: string }>(
+  actions: T[],
+): T[] {
+  // Collect company names that will be auto-created by person actions via companyName field
+  const personCompanyNames = new Set<string>()
+  for (const action of actions) {
+    if (action.actionType !== 'create_contact') continue
+    const payload = safeParsePayloadJson(action.payloadJson)
+    if (payload.type === 'person' && typeof payload.companyName === 'string' && payload.companyName.trim()) {
+      personCompanyNames.add(payload.companyName.trim().toLowerCase())
+    }
+  }
+  if (personCompanyNames.size === 0) return actions
+
+  return actions.filter((action) => {
+    if (action.actionType !== 'create_contact') return true
+    const payload = safeParsePayloadJson(action.payloadJson)
+    if (payload.type !== 'company') return true
+    const companyName = typeof payload.name === 'string' ? payload.name.trim().toLowerCase() : ''
+    return !companyName || !personCompanyNames.has(companyName)
+  })
 }
 
 function findPartialNameMatch(name: string, map: Map<string, string>): string | undefined {

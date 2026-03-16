@@ -39,6 +39,40 @@ interface DraftReplyData {
   body: string
 }
 
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
+
+/**
+ * Resolve a real user ID to use as the message sender.
+ * Tries to find the forwarding user by email in the auth users table,
+ * then falls back to the first recipient (admin with proposals.view).
+ * Last resort: SYSTEM_USER_ID (zero UUID).
+ */
+export async function resolveMessageSenderUserId(
+  em: EntityManager,
+  forwardedByEmail: string,
+  recipientUserIds: string[],
+  scope: { tenantId: string; organizationId: string },
+): Promise<string> {
+  try {
+    // Direct knex: users.email is a plaintext login field, not encrypted at
+    // field level, so findOneWithDecryption is unnecessary here.
+    const knex = em.getKnex()
+    const normalizedEmail = forwardedByEmail.trim().toLowerCase()
+    if (normalizedEmail) {
+      const row = await knex('users')
+        .select('id')
+        .where('email', normalizedEmail)
+        .whereNull('deleted_at')
+        .first()
+      if (row?.id) return row.id
+    }
+  } catch {
+    // User lookup failed — fall through
+  }
+  if (recipientUserIds.length > 0) return recipientUserIds[0]
+  return SYSTEM_USER_ID
+}
+
 function resolveCommandBus(container: ResolverLike): CommandBus | null {
   try {
     const bus = container.resolve('commandBus') as CommandBus
@@ -72,7 +106,16 @@ export async function createMessageRecordForEmail(
     )
 
     const recipients = recipientUserIds.map((userId) => ({ userId, type: 'to' as const }))
-    const bodyText = email.cleanedText || email.rawText || ''
+    // Use rawText (full thread) instead of cleanedText (stripped quotes) so
+    // the Messages module preserves the complete email conversation.
+    const bodyText = email.rawText || email.cleanedText || ''
+
+    // Resolve a real user as sender — prefer the forwarding user, fall back
+    // to the first recipient (admin with proposals.view feature) so the
+    // Messages UI can display an actual user name instead of the zero UUID.
+    const senderUserId = await resolveMessageSenderUserId(
+      em, email.forwardedByAddress, recipientUserIds, ctx.scope,
+    )
 
     const { result } = await commandBus.execute('messages.messages.compose', {
       input: {
@@ -99,7 +142,7 @@ export async function createMessageRecordForEmail(
         ],
         tenantId: ctx.scope.tenantId,
         organizationId: ctx.scope.organizationId,
-        userId: ctx.scope.userId,
+        userId: senderUserId,
       },
       ctx: {
         container: asContainer(ctx.container),
