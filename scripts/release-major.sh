@@ -9,6 +9,9 @@ else
   echo "==> Skipping template sync in CI"
 fi
 
+echo "==> Checking version alignment across packages..."
+./scripts/check-version-alignment.sh
+
 echo "==> Bumping major version..."
 yarn workspaces foreach -A --no-private version major
 
