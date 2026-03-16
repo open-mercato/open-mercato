@@ -25,6 +25,6 @@ echo "==> Rebuilding packages with generated files..."
 yarn build:packages
 
 echo "==> Publishing with @latest tag..."
-yarn workspaces foreach -A --no-private npm publish --access public
+./scripts/publish-packages.sh
 
 echo "==> Done!"
