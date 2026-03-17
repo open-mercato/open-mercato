@@ -85,6 +85,8 @@ const createPaymentSessionExample = {
     customerCapture: {
       enabled: true,
       companyRequired: false,
+      termsRequired: true,
+      termsMarkdown: '## Terms\n\nI consent to the processing of my data for payment handling.',
     },
   },
 }
@@ -234,6 +236,19 @@ export async function POST(req: Request) {
       },
     }, { status: 422 })
   }
+  if (
+    parsed.data.paymentLink?.enabled &&
+    parsed.data.paymentLink.customerCapture?.enabled &&
+    parsed.data.paymentLink.customerCapture.termsRequired === true &&
+    !parsed.data.paymentLink.customerCapture.termsMarkdown?.trim()
+  ) {
+    return NextResponse.json({
+      error: 'Invalid payload',
+      fieldErrors: {
+        paymentLinkTermsMarkdown: 'Enter the markdown content that the customer must accept.',
+      },
+    }, { status: 422 })
+  }
 
   const paymentLinkTokenOverride = normalizeCustomPaymentLinkToken(parsed.data.paymentLink?.token)
   if (parsed.data.paymentLink?.enabled && paymentLinkTokenOverride && !isValidCustomPaymentLinkToken(paymentLinkTokenOverride)) {
@@ -332,6 +347,10 @@ export async function POST(req: Request) {
             ? {
                 enabled: true,
                 companyRequired: parsed.data.paymentLink.customerCapture.companyRequired === true,
+                termsRequired: parsed.data.paymentLink.customerCapture.termsRequired === true,
+                termsMarkdown: parsed.data.paymentLink.customerCapture.termsRequired
+                  ? parsed.data.paymentLink.customerCapture.termsMarkdown?.trim() || null
+                  : null,
               }
             : undefined,
         }),

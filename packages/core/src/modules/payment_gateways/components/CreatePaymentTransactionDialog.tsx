@@ -72,6 +72,8 @@ type CreatePaymentTransactionFormValues = {
   paymentLinkCustomFieldsetCode?: string
   paymentLinkCollectCustomer: boolean
   paymentLinkRequireCompany: boolean
+  paymentLinkRequireTerms: boolean
+  paymentLinkTermsMarkdown: string
 } & Record<string, unknown>
 
 const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
@@ -88,6 +90,8 @@ const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
   paymentLinkCustomFieldsetCode: '',
   paymentLinkCollectCustomer: false,
   paymentLinkRequireCompany: false,
+  paymentLinkRequireTerms: false,
+  paymentLinkTermsMarkdown: '',
 }
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -331,6 +335,8 @@ function PaymentLinkSection({
                   setValue('paymentLinkCollectCustomer', enabled)
                   if (!enabled) {
                     setValue('paymentLinkRequireCompany', false)
+                    setValue('paymentLinkRequireTerms', false)
+                    setValue('paymentLinkTermsMarkdown', '')
                   }
                 }}
               />
@@ -348,23 +354,67 @@ function PaymentLinkSection({
             </label>
 
             {values.paymentLinkCollectCustomer === true ? (
-              <label className="mt-4 flex items-start gap-3 text-sm">
-                <Checkbox
-                  checked={values.paymentLinkRequireCompany === true}
-                  onCheckedChange={(checked) => setValue('paymentLinkRequireCompany', checked === true)}
-                />
-                <span className="space-y-1">
-                  <span className="block font-medium">
-                    {t('payment_gateways.create.paymentLinkRequireCompany', 'Require company name')}
+              <div className="mt-4 space-y-4">
+                <label className="flex items-start gap-3 text-sm">
+                  <Checkbox
+                    checked={values.paymentLinkRequireCompany === true}
+                    onCheckedChange={(checked) => setValue('paymentLinkRequireCompany', checked === true)}
+                  />
+                  <span className="space-y-1">
+                    <span className="block font-medium">
+                      {t('payment_gateways.create.paymentLinkRequireCompany', 'Require company name')}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {t(
+                        'payment_gateways.create.paymentLinkRequireCompanyHelp',
+                        'Require a company and link the created person to that company.',
+                      )}
+                    </span>
                   </span>
-                  <span className="block text-xs text-muted-foreground">
-                    {t(
-                      'payment_gateways.create.paymentLinkRequireCompanyHelp',
-                      'Require a company and link the created person to that company.',
-                    )}
+                </label>
+                <label className="flex items-start gap-3 text-sm">
+                  <Checkbox
+                    checked={values.paymentLinkRequireTerms === true}
+                    onCheckedChange={(checked) => {
+                      const enabled = checked === true
+                      setValue('paymentLinkRequireTerms', enabled)
+                      if (!enabled) setValue('paymentLinkTermsMarkdown', '')
+                    }}
+                  />
+                  <span className="space-y-1">
+                    <span className="block font-medium">
+                      {t('payment_gateways.create.paymentLinkRequireTerms', 'Require terms / GDPR acceptance')}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {t(
+                        'payment_gateways.create.paymentLinkRequireTermsHelp',
+                        'Render markdown terms content and require the customer to accept it before filling customer details.',
+                      )}
+                    </span>
                   </span>
-                </span>
-              </label>
+                </label>
+                {values.paymentLinkRequireTerms === true ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="paymentLinkTermsMarkdown">
+                      {t('payment_gateways.create.paymentLinkTermsMarkdown', 'Terms content (Markdown)')}
+                    </Label>
+                    <Textarea
+                      id="paymentLinkTermsMarkdown"
+                      value={typeof values.paymentLinkTermsMarkdown === 'string' ? values.paymentLinkTermsMarkdown : ''}
+                      onChange={(event) => setValue('paymentLinkTermsMarkdown', event.target.value)}
+                      aria-invalid={errors.paymentLinkTermsMarkdown ? 'true' : 'false'}
+                      className="min-h-40"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'payment_gateways.create.paymentLinkTermsMarkdownHelp',
+                        'Paste the markdown terms, GDPR notice, or consent copy shown before the customer form.',
+                      )}
+                    </p>
+                    {errors.paymentLinkTermsMarkdown ? <p className="text-xs text-destructive">{errors.paymentLinkTermsMarkdown}</p> : null}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -470,6 +520,8 @@ export function CreatePaymentTransactionDialog({
     paymentLinkCustomFieldsetCode: z.string().optional(),
     paymentLinkCollectCustomer: z.boolean(),
     paymentLinkRequireCompany: z.boolean(),
+    paymentLinkRequireTerms: z.boolean(),
+    paymentLinkTermsMarkdown: z.string(),
   }).catchall(z.unknown()).superRefine((value, ctx) => {
     const provider = providers.find((item) => item.providerKey === value.providerKey) ?? null
     const paymentLinkEnabled = provider?.supportsPaymentLinks === true && value.createPaymentLink === true
@@ -525,6 +577,19 @@ export function CreatePaymentTransactionDialog({
         code: z.ZodIssueCode.custom,
         path: ['paymentLinkPassword'],
         message: t('payment_gateways.create.paymentLinkPasswordInvalid', 'Password must be at least 4 characters.'),
+      })
+    }
+
+    if (
+      paymentLinkEnabled &&
+      value.paymentLinkCollectCustomer === true &&
+      value.paymentLinkRequireTerms === true &&
+      value.paymentLinkTermsMarkdown.trim().length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['paymentLinkTermsMarkdown'],
+        message: t('payment_gateways.create.paymentLinkTermsMarkdownRequired', 'Enter the markdown content that the customer must accept.'),
       })
     }
   }), [providers, t])
@@ -664,6 +729,9 @@ export function CreatePaymentTransactionDialog({
         : undefined
     const paymentLinkCollectCustomer = paymentLinkEnabled && values.paymentLinkCollectCustomer === true
     const paymentLinkRequireCompany = paymentLinkCollectCustomer && values.paymentLinkRequireCompany === true
+    const paymentLinkRequireTerms = paymentLinkCollectCustomer && values.paymentLinkRequireTerms === true
+    const paymentLinkTermsMarkdown =
+      typeof values.paymentLinkTermsMarkdown === 'string' ? values.paymentLinkTermsMarkdown.trim() : ''
     if (paymentLinkEnabled && !paymentLinkTitle) {
       fieldErrors.paymentLinkTitle = t('payment_gateways.create.paymentLinkTitleRequired', 'Enter a title for the payment link.')
     }
@@ -677,6 +745,12 @@ export function CreatePaymentTransactionDialog({
       fieldErrors.paymentLinkCustomPath = t(
         'payment_gateways.create.paymentLinkCustomPathInvalid',
         'Custom link path must use only letters, numbers, and dashes, and be 3 to 80 characters long.',
+      )
+    }
+    if (paymentLinkCollectCustomer && paymentLinkRequireTerms && paymentLinkTermsMarkdown.length === 0) {
+      fieldErrors.paymentLinkTermsMarkdown = t(
+        'payment_gateways.create.paymentLinkTermsMarkdownRequired',
+        'Enter the markdown content that the customer must accept.',
       )
     }
 
@@ -720,6 +794,8 @@ export function CreatePaymentTransactionDialog({
             ? {
                 enabled: true,
                 companyRequired: paymentLinkRequireCompany,
+                termsRequired: paymentLinkRequireTerms,
+                termsMarkdown: paymentLinkRequireTerms ? paymentLinkTermsMarkdown : undefined,
               }
             : undefined,
         } : undefined,

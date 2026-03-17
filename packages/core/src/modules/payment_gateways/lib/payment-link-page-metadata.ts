@@ -7,7 +7,10 @@ export type PaymentLinkPageStoredMetadata = {
   customerCapture?: {
     enabled?: boolean
     companyRequired?: boolean
+    termsRequired?: boolean
+    termsMarkdown?: string | null
     collectedAt?: string | null
+    termsAcceptedAt?: string | null
     companyEntityId?: string | null
     personEntityId?: string | null
     companyName?: string | null
@@ -47,7 +50,10 @@ function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['custo
   return {
     enabled: source.enabled === true,
     companyRequired: source.companyRequired !== false,
+    termsRequired: source.termsRequired === true,
+    termsMarkdown: toStringOrNull(source.termsMarkdown),
     collectedAt: toStringOrNull(source.collectedAt),
+    termsAcceptedAt: toStringOrNull(source.termsAcceptedAt),
     companyEntityId: toStringOrNull(source.companyEntityId),
     personEntityId: toStringOrNull(source.personEntityId),
     companyName: toStringOrNull(source.companyName),

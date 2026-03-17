@@ -26,7 +26,10 @@ export type PublicPaymentLinkState = {
   customerCapture: {
     enabled: boolean
     companyRequired: boolean
+    termsRequired: boolean
+    termsMarkdown: string | null
     collectedAt: string | null
+    termsAcceptedAt: string | null
     companyEntityId: string | null
     personEntityId: string | null
     companyName: string | null
@@ -110,7 +113,10 @@ export async function loadPublicPaymentLinkState({
       ? {
           enabled: true,
           companyRequired: storedMetadata.customerCapture.companyRequired === true,
+          termsRequired: storedMetadata.customerCapture.termsRequired === true,
+          termsMarkdown: storedMetadata.customerCapture.termsMarkdown ?? null,
           collectedAt: storedMetadata.customerCapture.collectedAt ?? null,
+          termsAcceptedAt: storedMetadata.customerCapture.termsAcceptedAt ?? null,
           companyEntityId: storedMetadata.customerCapture.companyEntityId ?? null,
           personEntityId: storedMetadata.customerCapture.personEntityId ?? null,
           companyName: storedMetadata.customerCapture.companyName ?? null,

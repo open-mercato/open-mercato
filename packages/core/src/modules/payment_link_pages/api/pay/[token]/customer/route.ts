@@ -17,6 +17,7 @@ const customerCapturePayloadSchema = z.object({
   email: z.string().trim().email().max(320),
   phone: z.string().trim().max(50).optional(),
   companyName: z.string().trim().max(200).optional(),
+  acceptedTerms: z.boolean().optional(),
 })
 
 type RequestContainer = AwilixContainer & {
@@ -83,6 +84,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
 
   if (state.customerCapture.companyRequired && !companyName) {
     return NextResponse.json({ error: 'Company name is required' }, { status: 422 })
+  }
+  if (state.customerCapture.termsRequired && parsed.data.acceptedTerms !== true) {
+    return NextResponse.json({ error: 'Terms must be accepted' }, { status: 422 })
   }
 
   let companyEntityId = state.customerCapture.companyEntityId ?? null
@@ -198,7 +202,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     customerCapture: {
       enabled: true,
       companyRequired: state.customerCapture.companyRequired,
+      termsRequired: state.customerCapture.termsRequired,
+      termsMarkdown: state.customerCapture.termsMarkdown ?? null,
       collectedAt: new Date().toISOString(),
+      termsAcceptedAt: state.customerCapture.termsRequired ? new Date().toISOString() : null,
       companyEntityId,
       personEntityId,
       companyName,
@@ -230,7 +237,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     customerCapture: {
       enabled: true,
       companyRequired: state.customerCapture.companyRequired,
+      termsRequired: state.customerCapture.termsRequired,
+      termsMarkdown: state.customerCapture.termsMarkdown ?? null,
       collectedAt: new Date().toISOString(),
+      termsAcceptedAt: state.customerCapture.termsRequired ? new Date().toISOString() : null,
       companyEntityId,
       personEntityId,
       companyName,

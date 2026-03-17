@@ -37,6 +37,8 @@ export const createSessionSchema = z.object({
     customerCapture: z.object({
       enabled: z.boolean().default(false),
       companyRequired: z.boolean().default(false).optional(),
+      termsRequired: z.boolean().default(false).optional(),
+      termsMarkdown: z.string().trim().max(20000).optional(),
     }).optional(),
   }).optional(),
 })

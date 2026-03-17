@@ -11,6 +11,7 @@ import {
   PAYMENT_LINK_PAGE_COMPONENT_HANDLE,
 } from '@open-mercato/shared/modules/payment_link_pages/types'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -42,7 +43,10 @@ export type PaymentLinkPageResponse = {
     customerCapture?: {
       enabled: boolean
       companyRequired: boolean
+      termsRequired?: boolean
+      termsMarkdown?: string | null
       collectedAt?: string | null
+      termsAcceptedAt?: string | null
       companyEntityId?: string | null
       personEntityId?: string | null
       companyName?: string | null
@@ -90,9 +94,11 @@ type CheckoutSectionProps = SharedSectionProps & {
   }
   customerSubmitting: boolean
   customerError: string | null
+  customerTermsAccepted: boolean
   onPasswordChange: (value: string) => void
   onUnlock: () => void
   onCustomerFieldChange: (field: 'companyName' | 'firstName' | 'lastName' | 'email' | 'phone', value: string) => void
+  onCustomerTermsAcceptedChange: (accepted: boolean) => void
   onSubmitCustomer: () => void
   onRefreshLink: () => Promise<void>
 }
@@ -288,9 +294,11 @@ function DefaultCheckoutSection({
   customerForm,
   customerSubmitting,
   customerError,
+  customerTermsAccepted,
   onPasswordChange,
   onUnlock,
   onCustomerFieldChange,
+  onCustomerTermsAcceptedChange,
   onSubmitCustomer,
   onRefreshLink,
 }: CheckoutSectionProps) {
@@ -305,10 +313,13 @@ function DefaultCheckoutSection({
   const isSettled = data?.link?.status === 'completed'
     || ['authorized', 'captured', 'partially_captured', 'refunded', 'partially_refunded'].includes(data?.transaction?.unifiedStatus ?? '')
   const customerCaptureRequired = customerCapture?.enabled === true && !customerCapture.collectedAt
+  const termsRequired = customerCapture?.termsRequired === true && !!customerCapture?.termsMarkdown
+  const canFillCustomerForm = !termsRequired || customerTermsAccepted
   const customerFormReady = customerForm.firstName.trim().length > 0
     && customerForm.lastName.trim().length > 0
     && customerForm.email.trim().length > 0
     && (!customerCapture?.companyRequired || customerForm.companyName.trim().length > 0)
+    && (!termsRequired || customerTermsAccepted)
 
   return (
     <section
@@ -379,6 +390,32 @@ function DefaultCheckoutSection({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
+            {termsRequired ? (
+              <div className="space-y-3 sm:col-span-2">
+                <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+                  <div className="mb-3 text-sm font-medium text-slate-200">
+                    {t('payment_gateways.paymentLink.customerCapture.termsTitle', 'Terms / GDPR consent')}
+                  </div>
+                  <MarkdownContent
+                    body={customerCapture?.termsMarkdown ?? ''}
+                    format="markdown"
+                    className="prose prose-invert max-w-none text-sm"
+                  />
+                </div>
+                <label className="flex items-start gap-3 rounded-2xl border border-slate-700 bg-slate-950/50 p-4 text-sm text-slate-200">
+                  <Checkbox
+                    checked={customerTermsAccepted}
+                    onCheckedChange={(checked) => onCustomerTermsAcceptedChange(checked === true)}
+                  />
+                  <span>
+                    {t(
+                      'payment_gateways.paymentLink.customerCapture.acceptTerms',
+                      'I have read and accept the terms / GDPR notice above.',
+                    )}
+                  </span>
+                </label>
+              </div>
+            ) : null}
             {customerCapture?.companyRequired ? (
               <div className="space-y-2 sm:col-span-2">
                 <div className="text-sm font-medium text-slate-200">
@@ -388,6 +425,7 @@ function DefaultCheckoutSection({
                   value={customerForm.companyName}
                   onChange={(event) => onCustomerFieldChange('companyName', event.target.value)}
                   className="border-slate-700 bg-slate-950 text-white"
+                  disabled={!canFillCustomerForm}
                 />
               </div>
             ) : null}
@@ -400,6 +438,7 @@ function DefaultCheckoutSection({
                   value={customerForm.companyName}
                   onChange={(event) => onCustomerFieldChange('companyName', event.target.value)}
                   className="border-slate-700 bg-slate-950 text-white"
+                  disabled={!canFillCustomerForm}
                 />
               </div>
             ) : null}
@@ -411,6 +450,7 @@ function DefaultCheckoutSection({
                 value={customerForm.firstName}
                 onChange={(event) => onCustomerFieldChange('firstName', event.target.value)}
                 className="border-slate-700 bg-slate-950 text-white"
+                disabled={!canFillCustomerForm}
               />
             </div>
             <div className="space-y-2">
@@ -421,6 +461,7 @@ function DefaultCheckoutSection({
                 value={customerForm.lastName}
                 onChange={(event) => onCustomerFieldChange('lastName', event.target.value)}
                 className="border-slate-700 bg-slate-950 text-white"
+                disabled={!canFillCustomerForm}
               />
             </div>
             <div className="space-y-2">
@@ -432,6 +473,7 @@ function DefaultCheckoutSection({
                 value={customerForm.email}
                 onChange={(event) => onCustomerFieldChange('email', event.target.value)}
                 className="border-slate-700 bg-slate-950 text-white"
+                disabled={!canFillCustomerForm}
               />
             </div>
             <div className="space-y-2">
@@ -442,6 +484,7 @@ function DefaultCheckoutSection({
                 value={customerForm.phone}
                 onChange={(event) => onCustomerFieldChange('phone', event.target.value)}
                 className="border-slate-700 bg-slate-950 text-white"
+                disabled={!canFillCustomerForm}
               />
             </div>
           </div>
@@ -535,6 +578,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
   const [error, setError] = React.useState<string | null>(null)
   const [customerSubmitting, setCustomerSubmitting] = React.useState(false)
   const [customerError, setCustomerError] = React.useState<string | null>(null)
+  const [customerTermsAccepted, setCustomerTermsAccepted] = React.useState(false)
   const [customerForm, setCustomerForm] = React.useState({
     companyName: '',
     firstName: '',
@@ -574,6 +618,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
   React.useEffect(() => {
     const customerCapture = data?.link?.customerCapture
     if (customerCapture?.collectedAt) return
+    setCustomerTermsAccepted(customerCapture?.termsAcceptedAt != null)
     setCustomerForm((current) => ({
       companyName: current.companyName || customerCapture?.companyName || '',
       firstName: current.firstName,
@@ -643,7 +688,10 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
           'x-om-handle-forbidden': 'true',
           ...(accessToken ? { 'x-payment-link-access': accessToken } : {}),
         },
-        body: JSON.stringify(customerForm),
+        body: JSON.stringify({
+          ...customerForm,
+          acceptedTerms: customerTermsAccepted,
+        }),
       },
       { fallback: null },
     )
@@ -656,7 +704,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
 
     setCustomerSubmitting(false)
     setCustomerError(call.result?.error ?? t('payment_gateways.paymentLink.customerCapture.error', 'Unable to save your details.'))
-  }, [accessToken, customerForm, loadLink, t, token])
+  }, [accessToken, customerForm, customerTermsAccepted, loadLink, t, token])
 
   const redirectUrl = typeof data?.transaction?.redirectUrl === 'string' && data.transaction.redirectUrl.trim().length > 0
     ? data.transaction.redirectUrl
@@ -759,11 +807,13 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
             customerForm={customerForm}
             customerSubmitting={customerSubmitting}
             customerError={customerError}
+            customerTermsAccepted={customerTermsAccepted}
             onPasswordChange={setPassword}
             onUnlock={() => {
               void handleUnlock()
             }}
             onCustomerFieldChange={handleCustomerFieldChange}
+            onCustomerTermsAcceptedChange={setCustomerTermsAccepted}
             onSubmitCustomer={() => {
               void handleCustomerSubmit()
             }}
