@@ -1,14 +1,17 @@
 import { NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { loadPublicPaymentLinkState } from '../../../lib/public-payment-links'
-import { paymentGatewaysTag } from '../../openapi'
+import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
+import { PAYMENT_LINK_PAGE_ENRICHER_ENTITY } from '@open-mercato/shared/modules/payment_link_pages/types'
+import { loadPublicPaymentLinkState } from '../../../../payment_gateways/lib/public-payment-links'
+import { emitPaymentLinkPageEvent } from '../../../events'
 
 function toIso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null
 }
 
 export const metadata = {
-  path: '/payment_gateways/pay/[token]',
+  path: '/payment_link_pages/pay/[token]',
   GET: { requireAuth: false },
 }
 
@@ -27,6 +30,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
   if (!state) {
     return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
   }
+
   if (state.passwordRequired) {
     return NextResponse.json({
       passwordRequired: true,
@@ -40,7 +44,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     }, { status: 403 })
   }
 
-  return NextResponse.json({
+  await emitPaymentLinkPageEvent('payment_link_pages.page.viewed', {
+    paymentLinkId: state.link.id,
+    paymentLinkToken: state.link.token,
+    transactionId: state.transaction.id,
+    paymentId: state.transaction.paymentId,
+    providerKey: state.transaction.providerKey,
+    organizationId: state.link.organizationId,
+    tenantId: state.link.tenantId,
+  })
+
+  const baseRecord = {
     passwordRequired: false,
     accessGranted: state.accessGranted,
     link: {
@@ -73,18 +87,32 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
       createdAt: toIso(state.transaction.createdAt),
       updatedAt: toIso(state.transaction.updatedAt),
     },
+  }
+
+  const enriched = await applyResponseEnricherToRecord(baseRecord, PAYMENT_LINK_PAGE_ENRICHER_ENTITY, {
+    organizationId: state.link.organizationId,
+    tenantId: state.link.tenantId,
+    userId: '',
+    em: container.resolve('em') as EntityManager,
+    container,
+    userFeatures: [],
+  })
+
+  return NextResponse.json({
+    ...enriched.record,
+    _meta: enriched._meta,
   })
 }
 
 export const openApi = {
-  tags: [paymentGatewaysTag],
-  summary: 'Read a public payment link',
+  tags: ['Payment Link Pages'],
+  summary: 'Read the UMES-aware public payment link page payload',
   methods: {
     GET: {
-      summary: 'Get payment link details',
-      tags: [paymentGatewaysTag],
+      summary: 'Get payment link page payload',
+      tags: ['Payment Link Pages'],
       responses: [
-        { status: 200, description: 'Payment link details' },
+        { status: 200, description: 'Payment link page payload' },
         { status: 403, description: 'Password required' },
         { status: 404, description: 'Payment link not found' },
       ],

@@ -13,6 +13,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSessionSchema } from '../../data/validators'
 import { GatewayPaymentLink } from '../../data/entities'
 import { emitPaymentGatewayEvent } from '../../events'
+import { buildPaymentLinkStoredMetadata } from '../../lib/payment-link-page-metadata'
 import { buildPaymentLinkUrl, createPaymentLinkToken, hashPaymentLinkPassword } from '../../lib/payment-links'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
@@ -64,6 +65,15 @@ const createPaymentSessionExample = {
     title: 'Invoice INV-10024',
     description: 'Secure payment for invoice INV-10024.',
     password: '2486',
+    metadata: {
+      logoUrl: 'https://merchant.example.com/logo.svg',
+      accentColor: '#0f766e',
+    },
+    customFieldsetCode: 'invoice',
+    customFields: {
+      supportEmail: 'billing@example.com',
+      companyName: 'Acme Commerce Ltd',
+    },
   },
 }
 
@@ -265,10 +275,13 @@ export async function POST(req: Request) {
           ? await hashPaymentLinkPassword(parsed.data.paymentLink.password.trim())
           : null,
         status: 'active',
-        metadata: {
+        metadata: buildPaymentLinkStoredMetadata({
           amount: parsed.data.amount,
           currencyCode: parsed.data.currencyCode,
-        },
+          pageMetadata: parsed.data.paymentLink.metadata,
+          customFields: parsed.data.paymentLink.customFields,
+          customFieldsetCode: parsed.data.paymentLink.customFieldsetCode ?? null,
+        }),
         organizationId: auth.orgId as string,
         tenantId: auth.tenantId,
       })

@@ -11,9 +11,11 @@ import {
   type CrudFormGroupComponentProps,
 } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { InjectedField } from '@open-mercato/ui/backend/injection/InjectedField'
 import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -27,6 +29,7 @@ import {
   buildPaymentGatewayTransactionCreateFieldSpotId,
   PAYMENT_GATEWAY_TRANSACTION_CREATE_FORM_SPOT_ID,
 } from '@open-mercato/shared/modules/payment_gateways/types'
+import { PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID } from '@open-mercato/shared/modules/payment_link_pages/types'
 import type { InjectionFieldDefinition } from '@open-mercato/shared/modules/widgets/injection'
 import { CheckCircle2, Copy, ExternalLink, Share2 } from 'lucide-react'
 
@@ -64,6 +67,8 @@ type CreatePaymentTransactionFormValues = {
   paymentLinkTitle: string
   paymentLinkDescription: string
   paymentLinkPassword: string
+  paymentLinkMetadata: Record<string, unknown>
+  paymentLinkCustomFieldsetCode?: string
 } & Record<string, unknown>
 
 const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
@@ -75,6 +80,24 @@ const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
   paymentLinkTitle: '',
   paymentLinkDescription: '',
   paymentLinkPassword: '',
+  paymentLinkMetadata: {},
+  paymentLinkCustomFieldsetCode: '',
+}
+
+const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.filter((entry) => entry !== undefined)
+  if (value === undefined) return null
+  return value
+}
+
+function PaymentLinkMetadataField({ value, setValue, disabled }: CrudCustomFieldRenderProps) {
+  return (
+    <JsonBuilder
+      value={value && typeof value === 'object' && !Array.isArray(value) ? value : {}}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  )
 }
 
 function formatProviderLabel(provider: ProviderItem): string {
@@ -373,6 +396,8 @@ export function CreatePaymentTransactionDialog({
     paymentLinkTitle: z.string(),
     paymentLinkDescription: z.string(),
     paymentLinkPassword: z.string(),
+    paymentLinkMetadata: z.record(z.string(), z.unknown()),
+    paymentLinkCustomFieldsetCode: z.string().optional(),
   }).catchall(z.unknown()).superRefine((value, ctx) => {
     const provider = providers.find((item) => item.providerKey === value.providerKey) ?? null
     const paymentLinkEnabled = provider?.supportsPaymentLinks === true && value.createPaymentLink === true
@@ -477,6 +502,12 @@ export function CreatePaymentTransactionDialog({
       type: 'text',
       layout: 'half',
     },
+    {
+      id: 'paymentLinkMetadata',
+      label: t('payment_gateways.create.paymentLinkMetadata', 'Page metadata (JSON)'),
+      type: 'custom',
+      component: (props) => <PaymentLinkMetadataField {...props} />,
+    },
   ], [currencies, loadingCurrencies, loadingProviders, providers, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
@@ -503,6 +534,16 @@ export function CreatePaymentTransactionDialog({
       id: 'paymentLink',
       bare: true,
       component: (ctx) => <PaymentLinkSection {...ctx} provider={selectedProvider} />,
+    },
+    {
+      id: 'paymentLinkMetadata',
+      title: t('payment_gateways.create.paymentLinkMetadataGroup', 'Page metadata'),
+      fields: ['paymentLinkMetadata'],
+    },
+    {
+      id: 'paymentLinkCustomFields',
+      title: t('payment_gateways.create.paymentLinkCustomFieldsGroup', 'Page metadata custom fields'),
+      kind: 'customFields',
     },
   ], [currentProviderKey, selectedProvider])
 
@@ -534,6 +575,17 @@ export function CreatePaymentTransactionDialog({
       typeof values.paymentLinkDescription === 'string' ? values.paymentLinkDescription.trim() : ''
     const paymentLinkPassword =
       typeof values.paymentLinkPassword === 'string' ? values.paymentLinkPassword.trim() : ''
+    const paymentLinkMetadata =
+      values.paymentLinkMetadata && typeof values.paymentLinkMetadata === 'object' && !Array.isArray(values.paymentLinkMetadata)
+        ? values.paymentLinkMetadata as Record<string, unknown>
+        : {}
+    const paymentLinkCustomFields = collectCustomFieldValues(values, {
+      transform: normalizeCustomFieldSubmitValue,
+    })
+    const paymentLinkCustomFieldsetCode =
+      typeof values.paymentLinkCustomFieldsetCode === 'string' && values.paymentLinkCustomFieldsetCode.trim().length > 0
+        ? values.paymentLinkCustomFieldsetCode.trim()
+        : undefined
     if (paymentLinkEnabled && !paymentLinkTitle) {
       fieldErrors.paymentLinkTitle = t('payment_gateways.create.paymentLinkTitleRequired', 'Enter a title for the payment link.')
     }
@@ -576,6 +628,9 @@ export function CreatePaymentTransactionDialog({
           title: paymentLinkTitle || undefined,
           description: paymentLinkDescription || undefined,
           password: paymentLinkPassword || undefined,
+          metadata: Object.keys(paymentLinkMetadata).length > 0 ? paymentLinkMetadata : undefined,
+          customFields: Object.keys(paymentLinkCustomFields).length > 0 ? paymentLinkCustomFields : undefined,
+          customFieldsetCode: paymentLinkCustomFieldsetCode,
         } : undefined,
       }),
     }, {
@@ -737,6 +792,7 @@ export function CreatePaymentTransactionDialog({
             key={formResetKey}
             embedded
             schema={schema}
+            entityId={PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID}
             fields={fields}
             groups={groups}
             initialValues={formInitialValues}
@@ -744,6 +800,9 @@ export function CreatePaymentTransactionDialog({
             loadingMessage={t('ui.forms.loading', 'Loading data...')}
             submitLabel={t('payment_gateways.create.submit', 'Create transaction')}
             injectionSpotId={PAYMENT_GATEWAY_TRANSACTION_CREATE_FORM_SPOT_ID}
+            customFieldsetBindings={{
+              [PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]: { valueKey: 'paymentLinkCustomFieldsetCode' },
+            }}
             onSubmit={handleSubmit}
           />
         )}

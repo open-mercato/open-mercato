@@ -7,6 +7,8 @@ description: Build and register payment gateway adapters with unified status tra
 
 The `payment_gateways` module provides a provider-agnostic hub for payment processing. Each payment provider (Stripe, PayU, etc.) is a separate npm package implementing the `GatewayAdapter` interface — zero provider-specific code lives in core.
 
+The hosted public `/pay/[token]` UI is now owned by the separate `payment_link_pages` module. `payment_gateways` still creates links and stores transactions, while `payment_link_pages` owns the customizable page host.
+
 ## Architecture
 
 The system uses a two-layer architecture:
@@ -15,6 +17,18 @@ The system uses a two-layer architecture:
 - **Provider packages** (`packages/gateway-<provider>/`) — each provider implements `GatewayAdapter`, registers adapters and webhook handlers, and is developed independently.
 
 Providers plug into the Integration Marketplace for credentials management, health checks, and admin UI.
+
+## Pay-by-link page customization
+
+Use the dedicated `payment_link_pages` module when you need to customize the hosted public page. That module exposes:
+
+- component replacement handles for the full page and its major sections
+- injection spots before, inside, and after the hosted page layout
+- a dedicated enricher target for public page payloads
+- pay-link-specific events for page view and unlock flows
+- custom-field-backed metadata collection from the create-transaction dialog
+
+See the dedicated guide: [`Payment Link Pages`](./payment-link-pages).
 
 ## GatewayAdapter interface
 

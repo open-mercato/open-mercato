@@ -30,6 +30,9 @@ export const createSessionSchema = z.object({
     title: z.string().trim().max(160).optional(),
     description: z.string().trim().max(500).optional(),
     password: z.string().min(4).max(128).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    customFields: z.record(z.string(), z.unknown()).optional(),
+    customFieldsetCode: z.string().trim().max(100).optional(),
   }).optional(),
 })
 

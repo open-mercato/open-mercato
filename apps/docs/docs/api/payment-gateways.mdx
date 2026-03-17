@@ -186,6 +186,9 @@ curl -X POST "$BASE_URL/payment_gateways/sessions" \
 | `paymentLink.title` | string | no* | Required when `paymentLink.enabled` is `true` |
 | `paymentLink.description` | string | no | Optional text shown on the hosted payment page |
 | `paymentLink.password` | string | no | Optional 4-128 character password required before checkout |
+| `paymentLink.metadata` | object | no | Arbitrary JSON metadata passed to the public pay-link page |
+| `paymentLink.customFieldsetCode` | string | no | Selected custom-field fieldset code for pay-link page metadata |
+| `paymentLink.customFields` | object | no | Values collected from pay-link page custom fields |
 
 **Response (201):**
 
@@ -231,7 +234,17 @@ curl -X POST "$BASE_URL/payment_gateways/sessions" \
       "enabled": true,
       "title": "Invoice INV-10024",
       "description": "Secure payment for invoice INV-10024.",
-      "password": "2486"
+      "password": "2486",
+      "metadata": {
+        "logoUrl": "https://merchant.example.com/logo.svg",
+        "brandName": "Acme Commerce",
+        "customCss": ".payment-link-accent { color: #0f766e; }"
+      },
+      "customFieldsetCode": "invoice",
+      "customFields": {
+        "supportEmail": "billing@example.com",
+        "companyName": "Acme Commerce Ltd"
+      }
     }
   }'
 ```
@@ -263,6 +276,18 @@ curl -X POST "$BASE_URL/payment_gateways/sessions" \
 - Share `paymentLinkUrl` with the customer. That is the public URL intended for email, chat, or invoice documents.
 - Treat `paymentLinkToken` as an implementation detail unless you need to build a custom link record around it.
 - If you send `paymentLink.password`, the customer must unlock the link before checkout.
+- `paymentLink.metadata`, `paymentLink.customFieldsetCode`, and `paymentLink.customFields` are stored on the hosted page record and returned by the `payment_link_pages` page API.
+
+### Public page customization
+
+The public `/pay/[token]` page is hosted by the separate `payment_link_pages` module. Use that module when you need to:
+
+- replace the whole page through UMES component replacement
+- inject brand, summary, or checkout-adjacent widgets
+- eject the page into an app module without removing `payment_gateways`
+- pass arbitrary JSON metadata or custom-field-driven metadata into the public page
+
+See [`Payment Link Pages`](../framework/modules/payment-link-pages) for the stable handles and ejection/custom-field workflow.
 
 ### JavaScript example
 

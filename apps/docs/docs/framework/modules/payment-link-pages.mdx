@@ -1,0 +1,127 @@
+---
+title: Payment Link Pages
+description: Customize, extend, or eject the hosted public /pay/[token] page without disabling payment gateways.
+---
+
+# Payment Link Pages
+
+The `payment_link_pages` module owns the hosted public `/pay/[token]` route. It is intentionally separate from `payment_gateways` so apps can replace or eject the public page without removing gateway adapters, transaction APIs, or webhook handling.
+
+## Architecture
+
+- `payment_gateways` creates payment links and stores `GatewayPaymentLink` / `GatewayTransaction`.
+- `payment_link_pages` renders the public page and exposes a dedicated page-data API.
+- Gateway provider packages still inject provider checkout widgets through `payment-gateways.payment-link:<providerKey>`.
+
+## Stable UMES surfaces
+
+### Component replacement
+
+- Page handle: `page:/pay/[token]`
+- Section handles:
+  - `section:payment_link_pages.brand`
+  - `section:payment_link_pages.summary`
+  - `section:payment_link_pages.checkout`
+
+Use wrapper/props overrides first. Use full replacement only when you need a different page layout.
+
+### Injection spots
+
+- `payment-link-pages.pay:before`
+- `payment-link-pages.pay:hero`
+- `payment-link-pages.pay:summary`
+- `payment-link-pages.pay:checkout`
+- `payment-link-pages.pay:after`
+
+These spots receive the current page payload under `data` and `context`, including:
+
+- `paymentLink`
+- `transaction`
+- `metadata`
+- `customFields`
+- `enrichedBy`
+
+### Enrichers
+
+The public page API is `GET /api/payment_link_pages/pay/[token]`.
+
+Target entity for response enrichers:
+
+```text
+payment_link_pages.payment_link_page
+```
+
+Enrichers must remain additive-only and should namespace their additions under `_<module>`.
+
+### Events
+
+The module emits:
+
+- `payment_link_pages.page.viewed`
+- `payment_link_pages.page.unlocked`
+
+Use these for notifications, workflow triggers, analytics side effects, or link-distribution follow-ups.
+
+## JSON metadata
+
+The create-transaction API accepts arbitrary JSON for the public page:
+
+```json
+{
+  "paymentLink": {
+    "enabled": true,
+    "title": "Invoice INV-10024",
+    "metadata": {
+      "brandName": "Acme Commerce",
+      "logoUrl": "https://merchant.example.com/logo.svg",
+      "customCss": ".payment-link-accent { color: #0f766e; }"
+    }
+  }
+}
+```
+
+That metadata is returned to the page under `link.metadata`.
+
+The default host already reads a few optional keys:
+
+- `brandName`
+- `logoUrl`
+- `securitySubtitle`
+- `customCss`
+
+Everything else is left available for custom replacements, injections, or app-specific ejected pages.
+
+## Custom fields and fieldsets
+
+Pay-link page metadata can also be collected with the custom-fields engine.
+
+Entity id:
+
+```text
+payment_link_pages:payment_link_page
+```
+
+Recommended flow:
+
+1. Define fieldsets and custom fields for `payment_link_pages:payment_link_page`.
+2. In the create transaction dialog, select the desired fieldset.
+3. Fill the generated custom fields.
+4. Open Mercato stores:
+   - `paymentLink.customFieldsetCode`
+   - `paymentLink.customFields`
+5. The public page API returns them as:
+   - `link.customFieldsetCode`
+   - `link.customFields`
+
+This makes it practical to maintain multiple predefined page variants, for example invoice links, event-payment links, or pickup-payment links.
+
+## Ejecting the page
+
+If you want to build the page entirely from scratch:
+
+1. Remove `{ id: 'payment_link_pages', from: '@open-mercato/core' }` from your app `src/modules.ts`.
+2. Create an app module that owns `frontend/pay/[token]/page.tsx`.
+3. Keep `payment_gateways` enabled so session creation, providers, and webhooks continue to work.
+4. Read from `GET /api/payment_link_pages/pay/[token]` or build your own host against the gateway data model.
+
+This keeps the payment infrastructure intact while letting the public page diverge completely.

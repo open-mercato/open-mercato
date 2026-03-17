@@ -5,7 +5,7 @@
 | Status | Draft |
 | Author | Codex |
 | Created | 2026-03-05 |
-| Updated | 2026-03-12 |
+| Updated | 2026-03-17 |
 | Related | SPEC-044, SPEC-045c, SPEC-045h, sales module |
 
 ---
@@ -1175,3 +1175,4 @@ All tests must be self-contained and clean up created records.
 | 2026-03-11 | Major expansion: added Pay Links (Phase 4), Wire Transfer Provider (Phase 3a), Cash Payment Provider (Phase 3b), Payment Transactions Hub (Phase 2), Unified Order Payment UX (Phase 5). Added UI designs, data models, API contracts, events, ACL features, 35 integration test cases. Restructured into 6 phases. |
 | 2026-03-12 | Documented the payment transaction UMES contract: CrudForm-based create dialog, stable create/payment-link spot IDs, transaction-centric event emission, and mutation-guard/interceptor coverage for `POST /api/payment-gateways/sessions`. |
 | 2026-03-12 | Clarified pay-link sales integration: `sales` owns the order-summary shell, provider modules own only the checkout surface. Added support note for embedded Stripe Elements vs redirect-capable online methods. |
+| 2026-03-17 | Split the hosted public `/pay/[token]` UI into the dedicated `payment_link_pages` module. Added page-level UMES surfaces (component replacement, injection spots, events, enrichers), JSON metadata support, and custom-field/fieldset-backed pay-link metadata capture in the transaction create dialog. |

@@ -14,6 +14,9 @@ export async function createPaymentSession(
       title?: string
       description?: string
       password?: string
+      metadata?: Record<string, unknown>
+      customFieldsetCode?: string
+      customFields?: Record<string, unknown>
     }
   },
 ): Promise<{

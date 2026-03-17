@@ -51,6 +51,36 @@ Current spot shape:
 payment-gateways.payment-link:<providerKey>
 ```
 
+## Payment Link Page Host
+
+The public `/pay/[token]` page now lives in the separate `payment_link_pages` module so apps can eject or replace it without disabling `payment_gateways`.
+
+Stable customization surfaces:
+
+- Page replacement handle: `page:/pay/[token]`
+- Section replacement handles:
+  - `section:payment_link_pages.brand`
+  - `section:payment_link_pages.summary`
+  - `section:payment_link_pages.checkout`
+- Injection spots:
+  - `payment-link-pages.pay:before`
+  - `payment-link-pages.pay:hero`
+  - `payment-link-pages.pay:summary`
+  - `payment-link-pages.pay:checkout`
+  - `payment-link-pages.pay:after`
+
+The page consumes `GET /api/payment_link_pages/pay/[token]`, which is enricher-aware and returns additive metadata fields:
+
+- `link.metadata`
+- `link.customFields`
+- `link.customFieldsetCode`
+
+The transaction create dialog supports pay-link page metadata and custom-field-driven fieldsets via:
+
+- `paymentLink.metadata`
+- `paymentLink.customFieldsetCode`
+- `paymentLink.customFields`
+
 ## DataTable Extension Surface
 
 The transactions hub uses the stable table id:

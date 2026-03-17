@@ -184,6 +184,13 @@ describe('payment gateway sessions route', () => {
       paymentLink: {
         enabled: true,
         title: 'Invoice INV-10024',
+        metadata: {
+          logoUrl: 'https://merchant.example.com/logo.svg',
+        },
+        customFieldsetCode: 'invoice',
+        customFields: {
+          supportEmail: 'billing@example.com',
+        },
       },
     })
     expect(postDoc?.responses?.find((response) => response.status === 201)?.example).toMatchObject({
