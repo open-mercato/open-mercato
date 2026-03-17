@@ -664,7 +664,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             }
             if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
               const transformedErrors = await transformValidationErrors(result.fieldErrors)
-              setErrors(transformedErrors)
+              setErrors(translateValidationErrors(transformedErrors))
             }
             const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
             flash(message, 'error')
@@ -1544,14 +1544,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             const mapped: Record<string, string> = {}
             for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
             const transformedErrors = await transformValidationErrors(mapped)
-            setErrors((prev) => ({ ...prev, ...transformedErrors }))
+            setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
           } else {
             const transformedErrors = await transformValidationErrors(
               Object.fromEntries(
                 Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
               ),
             )
-            setErrors((prev) => ({ ...prev, ...transformedErrors }))
+            setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
           }
           flash(highlightedMessage, 'error')
           return
@@ -1636,7 +1636,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
             const transformedErrors = await transformValidationErrors(result.fieldErrors)
-            setErrors(transformedErrors)
+            setErrors(translateValidationErrors(transformedErrors))
           }
           const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
@@ -1711,12 +1711,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             const firstKey = Object.keys(combinedFieldErrors)[0]
             if (!firstKey) return null
             const value = combinedFieldErrors[firstKey]
-            return typeof value === 'string' && value.trim().length ? value.trim() : null
+            if (typeof value !== 'string' || !value.trim().length) return null
+            return translateValidationMessage(value)
           })()
         : null
       if (hasFieldErrors) {
         const transformedErrors = await transformValidationErrors(combinedFieldErrors)
-        setErrors(transformedErrors)
+        setErrors(translateValidationErrors(transformedErrors))
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[crud-form] Submission failed with field errors', transformedErrors)
         }
