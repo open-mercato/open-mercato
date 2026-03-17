@@ -1,4 +1,4 @@
-# SPEC-061 — Simple Checkout (Single-Page Checkout Links)
+# SPEC-2026-03-17 — Simple Checkout (Single-Page Checkout Links)
 
 | Field | Value |
 |-------|-------|

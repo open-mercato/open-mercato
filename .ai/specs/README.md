@@ -18,16 +18,19 @@ The `.ai/specs/` folder is the central repository for:
 ### Specification Files
 Specification files follow scope-specific patterns:
 
-- OSS specs: `SPEC-{number}-{date}-{title}.md`
-- Enterprise specs: `SPEC-ENT-{number}-{date}-{title}.md`
+- OSS specs: `SPEC-{date}-{title}.md`
+- Enterprise specs: `SPEC-ENT-{date}-{title}.md`
 
-- **Number**: Sequential identifier (e.g., `001`, `002`, `003`)
 - **Date**: Creation date in ISO format (`YYYY-MM-DD`)
 - **Title**: Descriptive kebab-case title (e.g., `sidebar-reorganization`, `messages-module`)
 
+If two specs share the same date and title, append a short disambiguator (`-a`, `-b`).
+
 **Examples**:
-- `SPEC-007-2026-01-26-sidebar-reorganization.md`
-- `SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md`
+- `SPEC-2026-01-26-sidebar-reorganization.md`
+- `SPEC-ENT-2026-02-17-security-module-enterprise-mfa.md`
+
+> **Legacy**: Existing specs use the old `SPEC-{number}-{date}-{title}.md` format and are not renamed.
 
 ### Meta-Documentation Files
 Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered—they provide guidelines for working with the specs themselves.
@@ -189,8 +192,8 @@ Every ADR must maintain a changelog at the bottom:
 ### When Creating New Modules
 
 1. Create a new specification file at:
-   - `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Open Source edition scope
-   - `.ai/specs/enterprise/SPEC-ENT-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Enterprise Edition scope (enterprise numbering starts at `SPEC-ENT-001` in that folder)
+   - `.ai/specs/SPEC-{YYYY-MM-DD}-{module-name}.md` for Open Source edition scope
+   - `.ai/specs/enterprise/SPEC-ENT-{YYYY-MM-DD}-{module-name}.md` for Enterprise Edition scope
 2. Document the initial design before or alongside implementation
 3. Include a changelog entry for the initial specification
 4. Update this README.md with a link to the new specification

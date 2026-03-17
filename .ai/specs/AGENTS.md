@@ -23,16 +23,19 @@ For detailed spec writing and review, use the spec-writing skill:
 ## File Naming Convention
 
 Use the naming format that matches scope:
-- OSS: `SPEC-{number}-{date}-{title}.md`
-- Enterprise: `SPEC-ENT-{number}-{date}-{title}.md`
-- `number`: sequential zero-padded ID (`001`, `002`, ...)
+- OSS: `SPEC-{date}-{title}.md`
+- Enterprise: `SPEC-ENT-{date}-{title}.md`
 - `date`: `YYYY-MM-DD`
 - `title`: kebab-case summary
 
 Examples:
-- `SPEC-023-2026-02-11-confirmation-dialog-migration.md`
-- `SPEC-024-2026-02-12-example-module.md`
-- `SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md`
+- `SPEC-2026-02-11-confirmation-dialog-migration.md`
+- `SPEC-2026-02-12-example-module.md`
+- `SPEC-ENT-2026-02-17-security-module-enterprise-mfa.md`
+
+If two specs share the same date and title, append a short disambiguator: `SPEC-2026-03-17-checkout-a.md`, `SPEC-2026-03-17-checkout-b.md`.
+
+> **Legacy**: Existing specs use the old `SPEC-{number}-{date}-{title}.md` format. Do not rename them — only new specs use the date-based format.
 
 ## Workflow Triggers
 

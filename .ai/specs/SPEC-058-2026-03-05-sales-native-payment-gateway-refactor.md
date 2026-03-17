@@ -6,7 +6,7 @@
 | Author | Codex |
 | Created | 2026-03-05 |
 | Updated | 2026-03-17 |
-| Related | SPEC-044, SPEC-045c, SPEC-045h, SPEC-061, sales module |
+| Related | SPEC-044, SPEC-045c, SPEC-045h, SPEC-2026-03-17-simple-checkout, sales module |
 
 ---
 
@@ -27,7 +27,7 @@ This spec covers five interconnected capabilities that together create a complet
    - **Cash** — Cash, check, or other in-person payments with instant confirmation.
 4. **Pay Links** — Generate shareable payment links that let customers choose a payment method and pay for an order without logging in.
 5. **Unified Order Payment UX** — Redesigned payments section on the order detail page with pay link management, transaction deep links, and outstanding-amount prominence.
-6. **Simple Checkout Integration** — Bridge between sales orders/quotes and the `simple_checkout` module (SPEC-061): generate pay-by-links from existing orders, or use a quote/order as a template to create a new checkout page.
+6. **Simple Checkout Integration** — Bridge between sales orders/quotes and the `simple_checkout` module (SPEC-2026-03-17-simple-checkout): generate pay-by-links from existing orders, or use a quote/order as a template to create a new checkout page.
 
 ---
 
@@ -90,7 +90,7 @@ This spec covers five interconnected capabilities that together create a complet
 | **Phase 3b** | Cash Payment Provider | Phase 1 |
 | **Phase 4** | Pay Links | Phase 1, Phase 3a |
 | **Phase 5** | Unified Order Payment UX | Phase 2, Phase 3a, Phase 3b, Phase 4 |
-| **Phase 6** | Simple Checkout Integration | Phase 4, SPEC-061 |
+| **Phase 6** | Simple Checkout Integration | Phase 4, SPEC-2026-03-17-simple-checkout |
 
 ---
 
@@ -959,7 +959,7 @@ When a customer pays via a pay link while the admin has the order open:
 
 ### Goal
 
-Bridge the sales module with the `simple_checkout` module (SPEC-061) so merchants can:
+Bridge the sales module with the `simple_checkout` module (SPEC-2026-03-17-simple-checkout) so merchants can:
 1. **Generate a pay-by-link** from an existing order or quote — customer pays for that specific document.
 2. **Create a checkout page from an order/quote template** — uses the order's product(s) as the basis for a new checkout that creates a *new* quote/order (not paying for the existing one).
 
@@ -986,7 +986,7 @@ New row action on quote detail:
 
 ### 6.2 Create Checkout from Order/Quote Template
 
-This is the integration with SPEC-061's `simple_checkout` module. From an order or quote, the merchant can create a reusable checkout page pre-filled with the document's product.
+This is the integration with SPEC-2026-03-17-simple-checkout's `simple_checkout` module. From an order or quote, the merchant can create a reusable checkout page pre-filled with the document's product.
 
 #### UI: "Create Checkout Page" Action
 
@@ -1046,7 +1046,7 @@ The `simple_checkout` module does NOT import from `sales` directly. Instead:
 // Sales module emits (extends Phase 4 events):
 'sales.checkout.created_from_template'  // When a checkout is created from an order/quote template
 
-// simple_checkout module emits (SPEC-061):
+// simple_checkout module emits (SPEC-2026-03-17-simple-checkout):
 'simple_checkout.session.completed'     // Sales can subscribe to track conversions from template-originated checkouts
 ```
 
@@ -1061,7 +1061,7 @@ Sales module injects a widget into the simple_checkout admin detail page showing
 
 ### 6.5 Differences: Pay Link vs Checkout
 
-| Aspect | Pay Link (Phase 4) | Checkout (SPEC-061) |
+| Aspect | Pay Link (Phase 4) | Checkout (SPEC-2026-03-17-simple-checkout) |
 |--------|-------------------|---------------------|
 | **Purpose** | Pay for existing order | Create new order + pay |
 | **Quote/Order** | Already exists | Created during checkout |
@@ -1303,4 +1303,4 @@ All tests must be self-contained and clean up created records.
 | 2026-03-17 | Split the hosted public `/pay/[token]` UI into the dedicated `payment_link_pages` module. Added page-level UMES surfaces (component replacement, injection spots, events, enrichers), JSON metadata support, and custom-field/fieldset-backed pay-link metadata capture in the transaction create dialog. |
 | 2026-03-17 | Added optional customer-capture mode for pay links. Hosted pages can now switch language reliably, collect customer/company details before checkout, reuse or create customer records through the public pay-link flow, and expose the captured state via `link.customerCapture`. |
 | 2026-03-17 | Added optional terms / GDPR consent gating for pay links. Merchants can now paste markdown consent content, require acceptance before the customer form, and persist the acceptance state in `link.customerCapture`. |
-| 2026-03-17 | Added Phase 6 — Simple Checkout Integration (SPEC-061). Bridges sales orders/quotes with the simple_checkout module: pay-by-link from existing orders, and "Create Checkout Page" to use an order/quote as a template for a reusable self-service checkout. |
+| 2026-03-17 | Added Phase 6 — Simple Checkout Integration (SPEC-2026-03-17-simple-checkout). Bridges sales orders/quotes with the simple_checkout module: pay-by-link from existing orders, and "Create Checkout Page" to use an order/quote as a template for a reusable self-service checkout. |
