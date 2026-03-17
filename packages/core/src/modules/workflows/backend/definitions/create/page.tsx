@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   workflowDefinitionFormSchema,
@@ -26,15 +26,16 @@ export default function CreateWorkflowDefinitionPage() {
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
     const payload = buildWorkflowPayload(values)
 
-    await apiCallOrThrow(
-      '/api/workflows/definitions',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-      { errorMessage: t('workflows.errors.createFailed') }
-    )
+    const response = await apiFetch('/api/workflows/definitions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || t('workflows.errors.createFailed'))
+    }
 
     router.push('/backend/definitions')
     router.refresh()
