@@ -67,8 +67,11 @@ type CreatePaymentTransactionFormValues = {
   paymentLinkTitle: string
   paymentLinkDescription: string
   paymentLinkPassword: string
+  paymentLinkCustomPath: string
   paymentLinkMetadata: Record<string, unknown>
   paymentLinkCustomFieldsetCode?: string
+  paymentLinkCollectCustomer: boolean
+  paymentLinkRequireCompany: boolean
 } & Record<string, unknown>
 
 const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
@@ -80,8 +83,11 @@ const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
   paymentLinkTitle: '',
   paymentLinkDescription: '',
   paymentLinkPassword: '',
+  paymentLinkCustomPath: '',
   paymentLinkMetadata: {},
   paymentLinkCustomFieldsetCode: '',
+  paymentLinkCollectCustomer: false,
+  paymentLinkRequireCompany: false,
 }
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -298,6 +304,69 @@ function PaymentLinkSection({
             />
             {errors.paymentLinkPassword ? <p className="text-xs text-destructive">{errors.paymentLinkPassword}</p> : null}
           </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="paymentLinkCustomPath">
+              {t('payment_gateways.create.paymentLinkCustomPath', 'Custom link path (optional)')}
+            </Label>
+            <Input
+              id="paymentLinkCustomPath"
+              value={typeof values.paymentLinkCustomPath === 'string' ? values.paymentLinkCustomPath : ''}
+              onChange={(event) => setValue('paymentLinkCustomPath', event.target.value)}
+              aria-invalid={errors.paymentLinkCustomPath ? 'true' : 'false'}
+              placeholder={t('payment_gateways.create.paymentLinkCustomPathPlaceholder', 'invoice-inv-10024')}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('payment_gateways.create.paymentLinkCustomPathHelp', 'Use lowercase letters, numbers, and dashes. This becomes the last part of the /pay/... URL.')}
+            </p>
+            {errors.paymentLinkCustomPath ? <p className="text-xs text-destructive">{errors.paymentLinkCustomPath}</p> : null}
+          </div>
+
+          <div className="rounded-lg border border-border/60 bg-background/80 p-4">
+            <label className="flex items-start gap-3 text-sm font-medium">
+              <Checkbox
+                checked={values.paymentLinkCollectCustomer === true}
+                onCheckedChange={(checked) => {
+                  const enabled = checked === true
+                  setValue('paymentLinkCollectCustomer', enabled)
+                  if (!enabled) {
+                    setValue('paymentLinkRequireCompany', false)
+                  }
+                }}
+              />
+              <span className="space-y-1">
+                <span className="block">
+                  {t('payment_gateways.create.paymentLinkCollectCustomer', 'Collect customer details before checkout')}
+                </span>
+                <span className="block text-xs font-normal text-muted-foreground">
+                  {t(
+                    'payment_gateways.create.paymentLinkCollectCustomerHelp',
+                    'Show a checkout-style customer form on the pay link and create or reuse the matching customer records before payment starts.',
+                  )}
+                </span>
+              </span>
+            </label>
+
+            {values.paymentLinkCollectCustomer === true ? (
+              <label className="mt-4 flex items-start gap-3 text-sm">
+                <Checkbox
+                  checked={values.paymentLinkRequireCompany === true}
+                  onCheckedChange={(checked) => setValue('paymentLinkRequireCompany', checked === true)}
+                />
+                <span className="space-y-1">
+                  <span className="block font-medium">
+                    {t('payment_gateways.create.paymentLinkRequireCompany', 'Require company name')}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {t(
+                      'payment_gateways.create.paymentLinkRequireCompanyHelp',
+                      'Require a company and link the created person to that company.',
+                    )}
+                  </span>
+                </span>
+              </label>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>
@@ -396,8 +465,11 @@ export function CreatePaymentTransactionDialog({
     paymentLinkTitle: z.string(),
     paymentLinkDescription: z.string(),
     paymentLinkPassword: z.string(),
+    paymentLinkCustomPath: z.string(),
     paymentLinkMetadata: z.record(z.string(), z.unknown()),
     paymentLinkCustomFieldsetCode: z.string().optional(),
+    paymentLinkCollectCustomer: z.boolean(),
+    paymentLinkRequireCompany: z.boolean(),
   }).catchall(z.unknown()).superRefine((value, ctx) => {
     const provider = providers.find((item) => item.providerKey === value.providerKey) ?? null
     const paymentLinkEnabled = provider?.supportsPaymentLinks === true && value.createPaymentLink === true
@@ -506,6 +578,7 @@ export function CreatePaymentTransactionDialog({
       id: 'paymentLinkMetadata',
       label: t('payment_gateways.create.paymentLinkMetadata', 'Page metadata (JSON)'),
       type: 'custom',
+      layout: 'full',
       component: (props) => <PaymentLinkMetadataField {...props} />,
     },
   ], [currencies, loadingCurrencies, loadingProviders, providers, t])
@@ -537,12 +610,13 @@ export function CreatePaymentTransactionDialog({
     },
     {
       id: 'paymentLinkMetadata',
-      title: t('payment_gateways.create.paymentLinkMetadataGroup', 'Page metadata'),
+      column: 2,
       fields: ['paymentLinkMetadata'],
     },
     {
       id: 'paymentLinkCustomFields',
       title: t('payment_gateways.create.paymentLinkCustomFieldsGroup', 'Page metadata custom fields'),
+      column: 2,
       kind: 'customFields',
     },
   ], [currentProviderKey, selectedProvider])
@@ -575,6 +649,8 @@ export function CreatePaymentTransactionDialog({
       typeof values.paymentLinkDescription === 'string' ? values.paymentLinkDescription.trim() : ''
     const paymentLinkPassword =
       typeof values.paymentLinkPassword === 'string' ? values.paymentLinkPassword.trim() : ''
+    const paymentLinkCustomPath =
+      typeof values.paymentLinkCustomPath === 'string' ? values.paymentLinkCustomPath.trim() : ''
     const paymentLinkMetadata =
       values.paymentLinkMetadata && typeof values.paymentLinkMetadata === 'object' && !Array.isArray(values.paymentLinkMetadata)
         ? values.paymentLinkMetadata as Record<string, unknown>
@@ -586,6 +662,8 @@ export function CreatePaymentTransactionDialog({
       typeof values.paymentLinkCustomFieldsetCode === 'string' && values.paymentLinkCustomFieldsetCode.trim().length > 0
         ? values.paymentLinkCustomFieldsetCode.trim()
         : undefined
+    const paymentLinkCollectCustomer = paymentLinkEnabled && values.paymentLinkCollectCustomer === true
+    const paymentLinkRequireCompany = paymentLinkCollectCustomer && values.paymentLinkRequireCompany === true
     if (paymentLinkEnabled && !paymentLinkTitle) {
       fieldErrors.paymentLinkTitle = t('payment_gateways.create.paymentLinkTitleRequired', 'Enter a title for the payment link.')
     }
@@ -594,6 +672,12 @@ export function CreatePaymentTransactionDialog({
     }
     if (paymentLinkEnabled && paymentLinkPassword.length > 0 && paymentLinkPassword.length < 4) {
       fieldErrors.paymentLinkPassword = t('payment_gateways.create.paymentLinkPasswordInvalid', 'Password must be at least 4 characters.')
+    }
+    if (paymentLinkEnabled && paymentLinkCustomPath.length > 0 && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{1,78}[A-Za-z0-9])?$/.test(paymentLinkCustomPath)) {
+      fieldErrors.paymentLinkCustomPath = t(
+        'payment_gateways.create.paymentLinkCustomPathInvalid',
+        'Custom link path must use only letters, numbers, and dashes, and be 3 to 80 characters long.',
+      )
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -628,9 +712,16 @@ export function CreatePaymentTransactionDialog({
           title: paymentLinkTitle || undefined,
           description: paymentLinkDescription || undefined,
           password: paymentLinkPassword || undefined,
+          token: paymentLinkCustomPath || undefined,
           metadata: Object.keys(paymentLinkMetadata).length > 0 ? paymentLinkMetadata : undefined,
           customFields: Object.keys(paymentLinkCustomFields).length > 0 ? paymentLinkCustomFields : undefined,
           customFieldsetCode: paymentLinkCustomFieldsetCode,
+          customerCapture: paymentLinkCollectCustomer
+            ? {
+                enabled: true,
+                companyRequired: paymentLinkRequireCompany,
+              }
+            : undefined,
         } : undefined,
       }),
     }, {
@@ -700,7 +791,7 @@ export function CreatePaymentTransactionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         ref={dialogContentRef}
-        className="max-w-2xl"
+        className="max-w-5xl"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault()
@@ -795,6 +886,7 @@ export function CreatePaymentTransactionDialog({
             entityId={PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID}
             fields={fields}
             groups={groups}
+            twoColumn
             initialValues={formInitialValues}
             isLoading={loadingProviders || loadingCurrencies}
             loadingMessage={t('ui.forms.loading', 'Loading data...')}

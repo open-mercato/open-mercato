@@ -13,6 +13,16 @@ export function createPaymentLinkToken(): string {
   return crypto.randomBytes(18).toString('base64url')
 }
 
+export function normalizeCustomPaymentLinkToken(input: string | null | undefined): string | null {
+  if (typeof input !== 'string') return null
+  const trimmed = input.trim().toLowerCase()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+export function isValidCustomPaymentLinkToken(token: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?$/.test(token)
+}
+
 export async function hashPaymentLinkPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10)
 }

@@ -91,6 +91,63 @@ The default host already reads a few optional keys:
 
 Everything else is left available for custom replacements, injections, or app-specific ejected pages.
 
+## Custom public URL
+
+When creating a pay link you can optionally choose the final public path segment instead of using a random token.
+
+```json
+{
+  "paymentLink": {
+    "enabled": true,
+    "title": "Invoice INV-10024",
+    "token": "invoice-inv-10024"
+  }
+}
+```
+
+Rules:
+
+- optional; when omitted, Open Mercato generates a random secure token
+- must be unique per tenant and organization
+- must use only lowercase letters, numbers, and dashes
+- becomes the last segment of `/pay/<token>`
+
+## Optional customer capture
+
+Pay links can optionally act like a lightweight checkout and collect customer data before the gateway widget is shown.
+
+Create-session payload:
+
+```json
+{
+  "paymentLink": {
+    "enabled": true,
+    "title": "Invoice INV-10024",
+    "customerCapture": {
+      "enabled": true,
+      "companyRequired": false
+    }
+  }
+}
+```
+
+When enabled:
+
+- the hosted page blocks the payment widget until the customer form is submitted
+- the public API returns the state under `link.customerCapture`
+- the hosted page submits to `POST /api/payment_link_pages/pay/[token]/customer`
+- Open Mercato reuses existing customer records when it can, and creates missing company/person records when it cannot
+
+The default hosted form collects:
+
+- company name (optional unless `companyRequired` is true)
+- first name
+- last name
+- email
+- phone
+
+After submission, the stored state includes the matched/created entity ids and a small snapshot (`companyEntityId`, `personEntityId`, `companyName`, `personName`, `email`, `collectedAt`), which is returned to the page and available to UMES injections, replacements, and enrichers.
+
 ## Custom fields and fieldsets
 
 Pay-link page metadata can also be collected with the custom-fields engine.
@@ -114,6 +171,13 @@ Recommended flow:
    - `link.customFields`
 
 This makes it practical to maintain multiple predefined page variants, for example invoice links, event-payment links, or pickup-payment links.
+
+You can combine this with JSON metadata and pay-link custom fields. A common pattern is:
+
+1. define a page fieldset for a specific pay-link variant
+2. enable `customerCapture`
+3. use custom fields for page-specific metadata
+4. use `link.customerCapture`, `link.metadata`, and `link.customFields` together inside custom page components
 
 ## Ejecting the page
 

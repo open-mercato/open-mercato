@@ -66,6 +66,16 @@ describe('payment link pages pay route', () => {
       pageMetadata: { brandName: 'Acme Commerce' },
       customFields: { supportEmail: 'billing@example.com' },
       customFieldsetCode: 'invoice',
+      customerCapture: {
+        enabled: true,
+        companyRequired: false,
+        collectedAt: '2026-03-17T10:10:00.000Z',
+        companyEntityId: 'company-1',
+        personEntityId: 'person-1',
+        companyName: 'Acme Commerce',
+        personName: 'Jane Doe',
+        email: 'jane@example.com',
+      },
     })
     mockApplyResponseEnricherToRecord.mockImplementation(async (record: Record<string, unknown>) => ({
       record: {
@@ -91,6 +101,11 @@ describe('payment link pages pay route', () => {
         metadata: { brandName: 'Acme Commerce' },
         customFields: { supportEmail: 'billing@example.com' },
         customFieldsetCode: 'invoice',
+        customerCapture: {
+          enabled: true,
+          personEntityId: 'person-1',
+          email: 'jane@example.com',
+        },
       },
       transaction: {
         id: 'txn-1',

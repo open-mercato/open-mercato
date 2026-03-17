@@ -23,6 +23,16 @@ export type PublicPaymentLinkState = {
   pageMetadata: Record<string, unknown> | null
   customFields: Record<string, unknown> | null
   customFieldsetCode: string | null
+  customerCapture: {
+    enabled: boolean
+    companyRequired: boolean
+    collectedAt: string | null
+    companyEntityId: string | null
+    personEntityId: string | null
+    companyName: string | null
+    personName: string | null
+    email: string | null
+  } | null
 }
 
 export async function loadPublicPaymentLinkState({
@@ -62,6 +72,7 @@ export async function loadPublicPaymentLinkState({
       pageMetadata: null,
       customFields: null,
       customFieldsetCode: null,
+      customerCapture: null,
     }
   }
 
@@ -95,5 +106,17 @@ export async function loadPublicPaymentLinkState({
     pageMetadata: storedMetadata.pageMetadata ?? null,
     customFields: storedMetadata.customFields ?? null,
     customFieldsetCode: storedMetadata.customFieldsetCode ?? null,
+    customerCapture: storedMetadata.customerCapture?.enabled
+      ? {
+          enabled: true,
+          companyRequired: storedMetadata.customerCapture.companyRequired === true,
+          collectedAt: storedMetadata.customerCapture.collectedAt ?? null,
+          companyEntityId: storedMetadata.customerCapture.companyEntityId ?? null,
+          personEntityId: storedMetadata.customerCapture.personEntityId ?? null,
+          companyName: storedMetadata.customerCapture.companyName ?? null,
+          personName: storedMetadata.customerCapture.personName ?? null,
+          email: storedMetadata.customerCapture.email ?? null,
+        }
+      : null,
   }
 }

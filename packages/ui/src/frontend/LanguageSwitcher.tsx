@@ -1,14 +1,12 @@
 "use client"
-import { useId, useTransition } from 'react'
+import { useId, useState } from 'react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
-import { useRouter } from 'next/navigation'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 
 export function LanguageSwitcher() {
   const current = useLocale()
   const t = useT()
-  const router = useRouter()
-  const [pending, startTransition] = useTransition()
+  const [pending, setPending] = useState(false)
   const selectId = useId()
 
   const languageLabels: Record<Locale, string> = {
@@ -20,22 +18,13 @@ export function LanguageSwitcher() {
 
   async function setLocale(locale: Locale) {
     if (locale === current) return
-    try {
-      const res = await fetch('/api/auth/locale', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ locale }),
-      })
-      if (!res.ok) return
-      startTransition(() => router.refresh())
-      try {
-        window.dispatchEvent(new Event('om:refresh-sidebar'))
-      } catch {
-        // Ignore if window is unavailable
-      }
-    } catch {
-      // Ignore network errors; UX fallback keeps previous locale
-    }
+    if (typeof window === 'undefined') return
+    setPending(true)
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    const redirectUrl = new URL('/api/auth/locale', window.location.origin)
+    redirectUrl.searchParams.set('locale', locale)
+    redirectUrl.searchParams.set('redirect', currentUrl)
+    window.location.assign(redirectUrl.toString())
   }
 
   return (

@@ -39,6 +39,16 @@ export type PaymentLinkPageResponse = {
     metadata?: Record<string, unknown> | null
     customFields?: Record<string, unknown> | null
     customFieldsetCode?: string | null
+    customerCapture?: {
+      enabled: boolean
+      companyRequired: boolean
+      collectedAt?: string | null
+      companyEntityId?: string | null
+      personEntityId?: string | null
+      companyName?: string | null
+      personName?: string | null
+      email?: string | null
+    } | null
   }
   transaction?: {
     id: string
@@ -71,8 +81,20 @@ type SummarySectionProps = SharedSectionProps
 type CheckoutSectionProps = SharedSectionProps & {
   password: string
   unlocking: boolean
+  customerForm: {
+    companyName: string
+    firstName: string
+    lastName: string
+    email: string
+    phone: string
+  }
+  customerSubmitting: boolean
+  customerError: string | null
   onPasswordChange: (value: string) => void
   onUnlock: () => void
+  onCustomerFieldChange: (field: 'companyName' | 'firstName' | 'lastName' | 'email' | 'phone', value: string) => void
+  onSubmitCustomer: () => void
+  onRefreshLink: () => Promise<void>
 }
 
 type RootProps = {
@@ -263,10 +285,17 @@ function DefaultCheckoutSection({
   error,
   password,
   unlocking,
+  customerForm,
+  customerSubmitting,
+  customerError,
   onPasswordChange,
   onUnlock,
+  onCustomerFieldChange,
+  onSubmitCustomer,
+  onRefreshLink,
 }: CheckoutSectionProps) {
   const t = useT()
+  const customerCapture = data?.link?.customerCapture
   const providerWidgetSpotId =
     data?.link?.paymentLinkWidgetSpotId ||
     (data?.transaction?.providerKey ? buildPaymentGatewayPaymentLinkWidgetSpotId(data.transaction.providerKey) : null)
@@ -275,6 +304,11 @@ function DefaultCheckoutSection({
     : null
   const isSettled = data?.link?.status === 'completed'
     || ['authorized', 'captured', 'partially_captured', 'refunded', 'partially_refunded'].includes(data?.transaction?.unifiedStatus ?? '')
+  const customerCaptureRequired = customerCapture?.enabled === true && !customerCapture.collectedAt
+  const customerFormReady = customerForm.firstName.trim().length > 0
+    && customerForm.lastName.trim().length > 0
+    && customerForm.email.trim().length > 0
+    && (!customerCapture?.companyRequired || customerForm.companyName.trim().length > 0)
 
   return (
     <section
@@ -327,20 +361,124 @@ function DefaultCheckoutSection({
             </div>
           </div>
         </div>
+      ) : customerCaptureRequired ? (
+        <div className="mx-auto flex min-h-[420px] max-w-xl flex-col justify-center space-y-5">
+          <div className="space-y-2">
+            <div className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
+              {t('payment_gateways.paymentLink.customerCapture.eyebrow', 'Customer details')}
+            </div>
+            <h2 className="text-3xl font-semibold text-white">
+              {t('payment_gateways.paymentLink.customerCapture.title', 'Continue to secure checkout')}
+            </h2>
+            <p className="text-sm leading-6 text-slate-300">
+              {t(
+                'payment_gateways.paymentLink.customerCapture.body',
+                'Enter your customer details first. The merchant will use them to match or create your customer record before payment.',
+              )}
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {customerCapture?.companyRequired ? (
+              <div className="space-y-2 sm:col-span-2">
+                <div className="text-sm font-medium text-slate-200">
+                  {t('payment_gateways.paymentLink.customerCapture.companyName', 'Company name')}
+                </div>
+                <Input
+                  value={customerForm.companyName}
+                  onChange={(event) => onCustomerFieldChange('companyName', event.target.value)}
+                  className="border-slate-700 bg-slate-950 text-white"
+                />
+              </div>
+            ) : null}
+            {!customerCapture?.companyRequired ? (
+              <div className="space-y-2 sm:col-span-2">
+                <div className="text-sm font-medium text-slate-200">
+                  {t('payment_gateways.paymentLink.customerCapture.companyOptional', 'Company name (optional)')}
+                </div>
+                <Input
+                  value={customerForm.companyName}
+                  onChange={(event) => onCustomerFieldChange('companyName', event.target.value)}
+                  className="border-slate-700 bg-slate-950 text-white"
+                />
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-200">
+                {t('payment_gateways.paymentLink.customerCapture.firstName', 'First name')}
+              </div>
+              <Input
+                value={customerForm.firstName}
+                onChange={(event) => onCustomerFieldChange('firstName', event.target.value)}
+                className="border-slate-700 bg-slate-950 text-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-200">
+                {t('payment_gateways.paymentLink.customerCapture.lastName', 'Last name')}
+              </div>
+              <Input
+                value={customerForm.lastName}
+                onChange={(event) => onCustomerFieldChange('lastName', event.target.value)}
+                className="border-slate-700 bg-slate-950 text-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-200">
+                {t('payment_gateways.paymentLink.customerCapture.email', 'Email')}
+              </div>
+              <Input
+                type="email"
+                value={customerForm.email}
+                onChange={(event) => onCustomerFieldChange('email', event.target.value)}
+                className="border-slate-700 bg-slate-950 text-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-200">
+                {t('payment_gateways.paymentLink.customerCapture.phone', 'Phone (optional)')}
+              </div>
+              <Input
+                value={customerForm.phone}
+                onChange={(event) => onCustomerFieldChange('phone', event.target.value)}
+                className="border-slate-700 bg-slate-950 text-white"
+              />
+            </div>
+          </div>
+
+          {customerError ? (
+            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
+              {customerError}
+            </div>
+          ) : null}
+
+          <div>
+            <Button type="button" disabled={customerSubmitting || !customerFormReady} onClick={onSubmitCustomer}>
+              {customerSubmitting
+                ? t('payment_gateways.paymentLink.customerCapture.submitting', 'Saving details...')
+                : t('payment_gateways.paymentLink.customerCapture.submit', 'Continue to payment')}
+            </Button>
+          </div>
+        </div>
       ) : providerWidgetSpotId ? (
         <div className="min-h-[420px]">
           <InjectionSpot
             spotId={providerWidgetSpotId}
             context={{
+              link: data?.link ?? null,
               paymentLink: data?.link ?? null,
               transaction: data?.transaction ?? null,
               metadata: data?.link?.metadata ?? null,
               customFields: data?.link?.customFields ?? null,
+              customerCapture: data?.link?.customerCapture ?? null,
+              refreshLink: onRefreshLink,
             }}
             data={{
+              link: data?.link ?? null,
               paymentLink: data?.link ?? null,
               transaction: data?.transaction ?? null,
               redirectUrl,
+              customerCapture: data?.link?.customerCapture ?? null,
             }}
           />
         </div>
@@ -395,6 +533,15 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
   const [unlocking, setUnlocking] = React.useState(false)
   const [password, setPassword] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
+  const [customerSubmitting, setCustomerSubmitting] = React.useState(false)
+  const [customerError, setCustomerError] = React.useState<string | null>(null)
+  const [customerForm, setCustomerForm] = React.useState({
+    companyName: '',
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+  })
 
   const loadLink = React.useCallback(async () => {
     if (!token) return
@@ -409,6 +556,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     if (call.ok && call.result) {
       setData(call.result)
       setError(null)
+      setCustomerError(null)
       setLoading(false)
       return
     }
@@ -422,6 +570,18 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     setError(t('payment_gateways.paymentLink.loadError', 'Unable to load this payment link.'))
     setLoading(false)
   }, [accessToken, t, token])
+
+  React.useEffect(() => {
+    const customerCapture = data?.link?.customerCapture
+    if (customerCapture?.collectedAt) return
+    setCustomerForm((current) => ({
+      companyName: current.companyName || customerCapture?.companyName || '',
+      firstName: current.firstName,
+      lastName: current.lastName,
+      email: current.email || customerCapture?.email || '',
+      phone: current.phone,
+    }))
+  }, [data?.link?.customerCapture])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
@@ -463,6 +623,41 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     setError(t('payment_gateways.paymentLink.passwordError', 'The password is incorrect.'))
   }, [accessStorageKey, loadLink, password, t, token])
 
+  const handleCustomerFieldChange = React.useCallback(
+    (field: 'companyName' | 'firstName' | 'lastName' | 'email' | 'phone', value: string) => {
+      setCustomerForm((current) => ({ ...current, [field]: value }))
+    },
+    [],
+  )
+
+  const handleCustomerSubmit = React.useCallback(async () => {
+    if (!token) return
+    setCustomerSubmitting(true)
+    setCustomerError(null)
+    const call = await apiCall<{ error?: string }>(
+      `/api/payment_link_pages/pay/${encodeURIComponent(token)}/customer`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-om-handle-forbidden': 'true',
+          ...(accessToken ? { 'x-payment-link-access': accessToken } : {}),
+        },
+        body: JSON.stringify(customerForm),
+      },
+      { fallback: null },
+    )
+
+    if (call.ok) {
+      setCustomerSubmitting(false)
+      await loadLink()
+      return
+    }
+
+    setCustomerSubmitting(false)
+    setCustomerError(call.result?.error ?? t('payment_gateways.paymentLink.customerCapture.error', 'Unable to save your details.'))
+  }, [accessToken, customerForm, loadLink, t, token])
+
   const redirectUrl = typeof data?.transaction?.redirectUrl === 'string' && data.transaction.redirectUrl.trim().length > 0
     ? data.transaction.redirectUrl
     : null
@@ -474,6 +669,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     && !loading
     && !error
     && !data?.passwordRequired
+    && !(data?.link?.customerCapture?.enabled && !data.link.customerCapture.collectedAt)
     && !isSettled
     && !checkoutReturnState,
   )
@@ -510,6 +706,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     transaction: data?.transaction ?? null,
     metadata: data?.link?.metadata ?? null,
     customFields: data?.link?.customFields ?? null,
+    customerCapture: data?.link?.customerCapture ?? null,
     enrichedBy: data?._meta?.enrichedBy ?? [],
   }), [data, token])
 
@@ -559,10 +756,18 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
             locale={locale}
             password={password}
             unlocking={unlocking}
+            customerForm={customerForm}
+            customerSubmitting={customerSubmitting}
+            customerError={customerError}
             onPasswordChange={setPassword}
             onUnlock={() => {
               void handleUnlock()
             }}
+            onCustomerFieldChange={handleCustomerFieldChange}
+            onSubmitCustomer={() => {
+              void handleCustomerSubmit()
+            }}
+            onRefreshLink={loadLink}
           />
           <InjectionSpot
             spotId={buildPaymentLinkPageInjectionSpotId('checkout')}

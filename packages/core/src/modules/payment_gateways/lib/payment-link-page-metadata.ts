@@ -4,6 +4,16 @@ export type PaymentLinkPageStoredMetadata = {
   pageMetadata?: Record<string, unknown>
   customFields?: Record<string, unknown>
   customFieldsetCode?: string | null
+  customerCapture?: {
+    enabled?: boolean
+    companyRequired?: boolean
+    collectedAt?: string | null
+    companyEntityId?: string | null
+    personEntityId?: string | null
+    companyName?: string | null
+    personName?: string | null
+    email?: string | null
+  }
 }
 
 const RESERVED_KEYS = new Set([
@@ -12,6 +22,7 @@ const RESERVED_KEYS = new Set([
   'pageMetadata',
   'customFields',
   'customFieldsetCode',
+  'customerCapture',
 ])
 
 function toPlainObject(input: unknown): Record<string, unknown> {
@@ -30,6 +41,21 @@ function toStringOrNull(input: unknown): string | null {
   return trimmed.length ? trimmed : null
 }
 
+function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['customerCapture'] | undefined {
+  const source = toPlainObject(input)
+  if (!Object.keys(source).length) return undefined
+  return {
+    enabled: source.enabled === true,
+    companyRequired: source.companyRequired !== false,
+    collectedAt: toStringOrNull(source.collectedAt),
+    companyEntityId: toStringOrNull(source.companyEntityId),
+    personEntityId: toStringOrNull(source.personEntityId),
+    companyName: toStringOrNull(source.companyName),
+    personName: toStringOrNull(source.personName),
+    email: toStringOrNull(source.email),
+  }
+}
+
 export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetadata): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
   if (typeof input.amount === 'number' && Number.isFinite(input.amount)) payload.amount = input.amount
@@ -44,6 +70,9 @@ export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetad
   }
   if (typeof input.customFieldsetCode === 'string' && input.customFieldsetCode.trim().length > 0) {
     payload.customFieldsetCode = input.customFieldsetCode.trim()
+  }
+  if (input.customerCapture && Object.keys(input.customerCapture).length > 0) {
+    payload.customerCapture = input.customerCapture
   }
   return payload
 }
@@ -68,5 +97,6 @@ export function readPaymentLinkStoredMetadata(input: unknown): PaymentLinkPageSt
       ? toPlainObject(source.customFields)
       : undefined,
     customFieldsetCode: toStringOrNull(source.customFieldsetCode),
+    customerCapture: toCustomerCapture(source.customerCapture),
   }
 }

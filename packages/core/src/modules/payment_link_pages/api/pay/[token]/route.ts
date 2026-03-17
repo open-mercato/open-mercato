@@ -71,6 +71,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
       metadata: state.pageMetadata,
       customFields: state.customFields,
       customFieldsetCode: state.customFieldsetCode,
+      customerCapture: state.customerCapture,
     },
     transaction: {
       id: state.transaction.id,

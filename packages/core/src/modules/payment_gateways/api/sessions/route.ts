@@ -14,7 +14,14 @@ import { createSessionSchema } from '../../data/validators'
 import { GatewayPaymentLink } from '../../data/entities'
 import { emitPaymentGatewayEvent } from '../../events'
 import { buildPaymentLinkStoredMetadata } from '../../lib/payment-link-page-metadata'
-import { buildPaymentLinkUrl, createPaymentLinkToken, hashPaymentLinkPassword } from '../../lib/payment-links'
+import {
+  buildPaymentLinkUrl,
+  createPaymentLinkToken,
+  hashPaymentLinkPassword,
+  isValidCustomPaymentLinkToken,
+  normalizeCustomPaymentLinkToken,
+} from '../../lib/payment-links'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
 
@@ -65,6 +72,7 @@ const createPaymentSessionExample = {
     title: 'Invoice INV-10024',
     description: 'Secure payment for invoice INV-10024.',
     password: '2486',
+    token: 'invoice-inv-10024',
     metadata: {
       logoUrl: 'https://merchant.example.com/logo.svg',
       accentColor: '#0f766e',
@@ -73,6 +81,10 @@ const createPaymentSessionExample = {
     customFields: {
       supportEmail: 'billing@example.com',
       companyName: 'Acme Commerce Ltd',
+    },
+    customerCapture: {
+      enabled: true,
+      companyRequired: false,
     },
   },
 }
@@ -149,6 +161,9 @@ function mapCreateSessionFieldErrors(error: z.ZodError): Record<string, string> 
       case 'paymentLink.password':
         fieldErrors.paymentLinkPassword = 'Password must be at least 4 characters.'
         break
+      case 'paymentLink.token':
+        fieldErrors.paymentLinkCustomPath = 'Enter a valid custom link path.'
+        break
       default:
         break
     }
@@ -220,6 +235,16 @@ export async function POST(req: Request) {
     }, { status: 422 })
   }
 
+  const paymentLinkTokenOverride = normalizeCustomPaymentLinkToken(parsed.data.paymentLink?.token)
+  if (parsed.data.paymentLink?.enabled && paymentLinkTokenOverride && !isValidCustomPaymentLinkToken(paymentLinkTokenOverride)) {
+    return NextResponse.json({
+      error: 'Invalid payload',
+      fieldErrors: {
+        paymentLinkCustomPath: 'Custom link path must use only letters, numbers, and dashes, and be 3 to 80 characters long.',
+      },
+    }, { status: 422 })
+  }
+
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
   const guardValidation = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -242,7 +267,29 @@ export async function POST(req: Request) {
     let paymentLinkId: string | null = null
 
     if (parsed.data.paymentLink?.enabled) {
-      paymentLinkToken = createPaymentLinkToken()
+      if (paymentLinkTokenOverride) {
+        const existingLink = await findOneWithDecryption(
+          em,
+          GatewayPaymentLink,
+          {
+            token: paymentLinkTokenOverride,
+            organizationId: auth.orgId as string,
+            tenantId: auth.tenantId,
+            deletedAt: null,
+          },
+          undefined,
+          { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+        )
+        if (existingLink) {
+          return NextResponse.json({
+            error: 'Invalid payload',
+            fieldErrors: {
+              paymentLinkCustomPath: 'This custom link path is already in use.',
+            },
+          }, { status: 422 })
+        }
+      }
+      paymentLinkToken = paymentLinkTokenOverride ?? createPaymentLinkToken()
       paymentLinkUrl = buildPaymentLinkUrl(new URL(req.url).origin, paymentLinkToken)
     }
 
@@ -281,6 +328,12 @@ export async function POST(req: Request) {
           pageMetadata: parsed.data.paymentLink.metadata,
           customFields: parsed.data.paymentLink.customFields,
           customFieldsetCode: parsed.data.paymentLink.customFieldsetCode ?? null,
+          customerCapture: parsed.data.paymentLink.customerCapture?.enabled
+            ? {
+                enabled: true,
+                companyRequired: parsed.data.paymentLink.customerCapture.companyRequired === true,
+              }
+            : undefined,
         }),
         organizationId: auth.orgId as string,
         tenantId: auth.tenantId,
