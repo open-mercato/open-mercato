@@ -15,7 +15,12 @@ import { extractParticipantsFromThread } from '../lib/emailParser'
 import { runExtractionWithConfiguredProvider } from '../lib/llmProvider'
 import { safeParsePayloadJson } from '../lib/validation'
 import { htmlToPlainText } from '../lib/htmlToPlainText'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { emitInboxOpsEvent } from '../events'
+import { createMessageRecordForEmail } from '../lib/messagesIntegration'
+import { resolveCache, invalidateCountsCache } from '../lib/cache'
+
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 
 export const metadata = {
   event: 'inbox_ops.email.received',
@@ -348,6 +353,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       id: proposalId,
       inboxEmailId: email.id,
       summary: extractionResult.summary,
+      category: extractionResult.category || null,
       participants: enrichedParticipants,
       confidence: String(extractionResult.confidence.toFixed(2)),
       detectedLanguage: extractionResult.detectedLanguage || email.detectedLanguage,
@@ -366,6 +372,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       contactMatches,
       extractionResult.proposedActions,
       email.toAddress,
+      email.forwardedByAddress,
     )
 
     // Step 6d-2: Also generate create_contact for LLM-discovered unmatched participants
@@ -385,8 +392,15 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
       email.toAddress,
     )
 
+    // Step 6f: Deduplicate — remove company create_contact actions when a person
+    // action with the same companyName already exists (person creation auto-creates
+    // the company, so the separate company action would be redundant).
+    const dedupedProposedActions = deduplicateCompanyActions([
+      ...autoContactActions, ...autoLinkActions, ...autoProductActions, ...extractionResult.proposedActions,
+    ])
+
     // Create actions — contact & product creation actions go first so they're executed before orders
-    const combinedProposedActions = [...autoContactActions, ...autoLinkActions, ...autoProductActions, ...extractionResult.proposedActions]
+    const combinedProposedActions = dedupedProposedActions
     const allActions = [
       ...combinedProposedActions.map((action, index) => {
         const parsedPayload = safeParsePayloadJson(action.payloadJson)
@@ -518,6 +532,39 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
 
     await em.flush()
 
+    // Step 8b: Invalidate counts cache (new proposal affects counts)
+    try {
+      const cache = resolveCache(ctx)
+      await runWithCacheTenant(email.tenantId, () => invalidateCountsCache(cache, email.tenantId))
+    } catch (cacheErr) {
+      console.warn('[inbox_ops:extraction-worker] Cache invalidation failed (non-fatal):', cacheErr)
+    }
+
+    // Step 8c: Register email as a message record (graceful degradation)
+    try {
+      await createMessageRecordForEmail(
+        {
+          id: email.id,
+          subject: email.subject,
+          cleanedText: email.cleanedText,
+          rawText: email.rawText,
+          forwardedByAddress: email.forwardedByAddress,
+          forwardedByName: email.forwardedByName,
+          status: email.status,
+        },
+        {
+          container: ctx,
+          scope: {
+            tenantId: email.tenantId,
+            organizationId: email.organizationId,
+            userId: SYSTEM_USER_ID,
+          },
+        },
+      )
+    } catch (msgErr) {
+      console.error('[inbox_ops:extraction-worker] Messages integration failed (non-fatal):', msgErr)
+    }
+
     // Step 9: Emit events
     try {
       await emitInboxOpsEvent('inbox_ops.email.processed', {
@@ -580,6 +627,7 @@ function buildContactActionsForUnmatchedParticipants(
   contactMatches: { participant: { name: string; email: string }; match?: { contactId: string } | null }[],
   existingActions: { actionType: string; payloadJson: string }[],
   inboxAddress: string,
+  forwardedByAddress?: string,
 ): { actionType: 'create_contact'; description: string; confidence: number; requiredFeature: string; payloadJson: string }[] {
   const alreadyProposed = new Set(
     existingActions
@@ -592,14 +640,17 @@ function buildContactActionsForUnmatchedParticipants(
   )
 
   const inboxLower = (inboxAddress || '').toLowerCase()
+  const forwardedByLower = (forwardedByAddress || '').toLowerCase()
   const systemPatterns = ['noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster']
 
   return contactMatches
     .filter((m) => {
       if (m.match?.contactId) return false
       const emailLower = m.participant.email.toLowerCase()
+      if (!emailLower || !emailLower.includes('@')) return false
       if (alreadyProposed.has(emailLower)) return false
       if (emailLower === inboxLower) return false
+      if (forwardedByLower && emailLower === forwardedByLower) return false
       return !systemPatterns.some((p) => emailLower.includes(p))
     })
     .map((m) => ({
@@ -842,6 +893,29 @@ function buildFullTextForExtraction(email: InboxEmail): string {
     .replace(/ {2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+function deduplicateCompanyActions<T extends { actionType: string; payloadJson: string }>(
+  actions: T[],
+): T[] {
+  // Collect company names that will be auto-created by person actions via companyName field
+  const personCompanyNames = new Set<string>()
+  for (const action of actions) {
+    if (action.actionType !== 'create_contact') continue
+    const payload = safeParsePayloadJson(action.payloadJson)
+    if (payload.type === 'person' && typeof payload.companyName === 'string' && payload.companyName.trim()) {
+      personCompanyNames.add(payload.companyName.trim().toLowerCase())
+    }
+  }
+  if (personCompanyNames.size === 0) return actions
+
+  return actions.filter((action) => {
+    if (action.actionType !== 'create_contact') return true
+    const payload = safeParsePayloadJson(action.payloadJson)
+    if (payload.type !== 'company') return true
+    const companyName = typeof payload.name === 'string' ? payload.name.trim().toLowerCase() : ''
+    return !companyName || !personCompanyNames.has(companyName)
+  })
 }
 
 function findPartialNameMatch(name: string, map: Map<string, string>): string | undefined {

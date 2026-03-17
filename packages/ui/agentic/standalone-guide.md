@@ -153,3 +153,98 @@ For replacement-aware surfaces, resolve components by handle:
 const MyComponent = useRegisteredComponent('page:my-module:detail', DefaultDetailPage)
 return <MyComponent {...props} />
 ```
+
+## Portal UI
+
+### Key Imports
+
+```typescript
+// Portal hooks
+import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
+import { useTenantContext } from '@open-mercato/ui/portal/hooks/useTenantContext'
+import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
+import { usePortalEventBridge } from '@open-mercato/ui/portal/hooks/usePortalEventBridge'
+import { usePortalInjectedMenuItems } from '@open-mercato/ui/portal/hooks/usePortalInjectedMenuItems'
+import { usePortalNotifications } from '@open-mercato/ui/portal/hooks/usePortalNotifications'
+import { usePortalDashboardWidgets } from '@open-mercato/ui/portal/hooks/usePortalDashboardWidgets'
+
+// Portal layout
+import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
+import { PortalProvider, usePortalContext } from '@open-mercato/ui/portal/PortalContext'
+
+// Portal components
+import {
+  PortalCard, PortalCardHeader, PortalStatRow, PortalCardDivider,
+  PortalPageHeader, PortalEmptyState, PortalFeatureCard,
+  PortalNotificationBell, PortalNotificationPanel,
+} from '@open-mercato/ui/portal/components'
+```
+
+### Portal Hooks Reference
+
+| Hook | Purpose |
+|------|---------|
+| `useCustomerAuth(orgSlug?)` | Customer auth state: `{ user, roles, resolvedFeatures, isPortalAdmin, loading, error, logout }` |
+| `useTenantContext(orgSlug)` | Resolve tenant/org from URL slug: `{ tenantId, organizationId, organizationName, loading, error }` |
+| `usePortalAppEvent(pattern, handler, deps?)` | Listen for portal SSE events by glob pattern (e.g., `'sales.order.*'`) |
+| `usePortalEventBridge()` | Establish singleton SSE connection — mount once in shell/layout |
+| `usePortalInjectedMenuItems(surfaceId)` | Load feature-gated menu items for portal nav surfaces: `{ items, isLoading }` |
+| `usePortalNotifications()` | Poll portal notifications: `{ notifications, unreadCount, hasNew, isLoading, refresh, markAsRead, dismiss, markAllRead }` |
+| `usePortalDashboardWidgets(spotId)` | Load UI injection widgets (with `Widget` component) for a portal spot: `{ widgets, isLoading, error }` |
+
+### Portal Components
+
+| Component | Props | Purpose |
+|-----------|-------|---------|
+| `PortalCard` | `children, className?` | Card container with border and padding |
+| `PortalCardHeader` | `title, description?, label?, action?` | Card header with optional uppercase label and action slot |
+| `PortalStatRow` | `label, value` | Key-value row inside a card (uppercase label, right-aligned value) |
+| `PortalCardDivider` | — | Horizontal divider between stat rows |
+| `PortalPageHeader` | `title, description?, label?, action?` | Page-level header with large title and action slot |
+| `PortalEmptyState` | `title, description?, icon?, action?` | Dashed-border empty state with optional icon and CTA |
+| `PortalFeatureCard` | `title, description?, icon?, href?, onClick?` | Feature grid card — renders as link, button, or static div |
+| `PortalNotificationBell` | `t` | Header bell icon with unread badge |
+| `PortalNotificationPanel` | — | Notification dropdown panel |
+
+### PortalShell Usage
+
+```tsx
+import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
+import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
+
+function MyPortalPage({ orgSlug }: { orgSlug: string }) {
+  const { user, logout } = useCustomerAuth(orgSlug)
+  return (
+    <PortalShell orgSlug={orgSlug} authenticated={!!user} onLogout={logout} enableEventBridge>
+      <PortalPageHeader title="My Orders" description="View and track your orders" />
+      {/* page content */}
+    </PortalShell>
+  )
+}
+```
+
+When `PortalProvider` is mounted in a parent layout, `PortalShell` reads auth/tenant state from context automatically — props act as overrides or are used on public pages without a provider.
+
+### Portal Widget Injection Spots (FROZEN)
+
+| Spot ID | Purpose |
+|---------|---------|
+| `menu:portal:sidebar:main` | Main portal navigation items |
+| `menu:portal:sidebar:account` | Account/settings navigation items |
+| `menu:portal:header:actions` | Header action buttons |
+| `menu:portal:user-dropdown` | User dropdown menu items |
+| `portal:dashboard:sections` | Dashboard section cards |
+| `portal:dashboard:profile` | Dashboard profile area |
+| `portal:dashboard:sidebar` | Dashboard sidebar |
+| `portal:<pageId>:before` | Before page content |
+| `portal:<pageId>:after` | After page content |
+
+### Portal Component Replacement Handles (FROZEN)
+
+| Handle | Constant | Purpose |
+|--------|----------|---------|
+| `page:portal:layout` | `PORTAL_SHELL_HANDLE` | Entire portal shell |
+| `section:portal:header` | `PORTAL_HEADER_HANDLE` | Header bar |
+| `section:portal:footer` | `PORTAL_FOOTER_HANDLE` | Footer |
+| `section:portal:sidebar` | `PORTAL_SIDEBAR_HANDLE` | Navigation sidebar |
+| `section:portal:user-menu` | `PORTAL_USER_MENU_HANDLE` | User menu / logout area |

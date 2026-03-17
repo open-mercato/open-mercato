@@ -95,6 +95,7 @@ Homebrew is available in all terminal sessions (bash, zsh). Install tools as nee
 | Decision | Rationale |
 |----------|-----------|
 | Self-contained compose (not reusing `docker-compose.yml`) | Existing file includes unneeded services, uses `container_name` directives that conflict with Dev Containers |
+| Named service syntax for `forwardPorts` (e.g., `"postgres:5432"`) | When the Dev Container's primary `service` is `workspace`, numeric port entries (e.g., `5432`) are forwarded on the workspace container, not on the service that actually listens on that port. Named syntax (`"<service>:<port>"`) tells VS Code which service owns the port, fixing connection failures for PostgreSQL, Redis, and Meilisearch. |
 | Debian-slim instead of Alpine | Homebrew requires glibc (Alpine uses musl); Debian-slim provides glibc with a modest image size increase |
 | `init: true` on workspace | Proper signal forwarding and zombie process reaping for the complex process tree (`yarn dev` spawns turbo + watchers + Next.js + workers) |
 | `WATCHPACK_POLLING` + `CHOKIDAR_USEPOLLING` | macOS Docker bind mounts don't support native filesystem events — polling is required |
@@ -154,3 +155,4 @@ When the project evolves, the Dev Container setup may need updates. Here's when 
 | `brew: command not found` | Shell profile not loaded | Run `eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"` or open a new terminal |
 | `Syntax error: "(" unexpected` during build (Claude CLI install) | Install script piped to `sh` (dash on Debian) instead of `bash` | Already fixed in Dockerfile — `curl ... \| bash`. If you see this, pull latest `.devcontainer/Dockerfile` and rebuild |
 | Stale build artifacts | Named volumes persisted old `dist/` | Wipe all: `docker volume ls -q \| grep open-mercato_devcontainer \| xargs docker volume rm` then reopen |
+| Host DB/Redis/Meilisearch tools show "connection refused" or "server closed connection unexpectedly" | `forwardPorts` used numeric port entries for non-workspace services | Fixed — `devcontainer.json` now uses named service syntax (`"postgres:5432"`, `"redis:6379"`, `"meilisearch:7700"`). Rebuild the container to pick up the change. |

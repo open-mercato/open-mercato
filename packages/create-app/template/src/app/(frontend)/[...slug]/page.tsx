@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
@@ -46,6 +47,27 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const match = findFrontendMatch(modules, pathname)
   if (!match) return notFound()
+
+  // Customer portal auth gate — separate from staff auth
+  if (match.route.requireCustomerAuth) {
+    const { getCustomerAuthFromCookies } = await import('@open-mercato/core/modules/customer_accounts/lib/customerAuthServer')
+    const customerAuth = await getCustomerAuthFromCookies()
+    if (!customerAuth) {
+      // Extract orgSlug from pathname for redirect (e.g., /my-org/portal/orders → my-org)
+      const segments = pathname.split('/').filter(Boolean)
+      const orgSlug = segments[0] ?? ''
+      redirect(`/${orgSlug}/portal/login`)
+    }
+    const customerFeatures = match.route.requireCustomerFeatures
+    if (customerFeatures && customerFeatures.length) {
+      const ok = hasAllFeatures(customerFeatures as string[], customerAuth.resolvedFeatures)
+      if (!ok) return renderAccessDenied()
+    }
+    const Component = match.route.Component
+    return <Component params={match.params} />
+  }
+
+  // Staff auth gate
   if (match.route.requireAuth) {
     const auth = await getAuthFromCookies()
     if (!auth) redirect('/api/auth/session/refresh?redirect=' + encodeURIComponent(pathname))

@@ -75,12 +75,15 @@ Read `devcontainer.json` `remoteEnv` section. Verify all API keys that developer
 1. Read `.devcontainer/docker-compose.yml` — extract all exposed ports from services
 2. Read `.devcontainer/devcontainer.json` `forwardPorts` array
 3. Every service port should appear in `forwardPorts` with appropriate `portsAttributes` (label + onAutoForward)
+4. **Non-workspace services MUST use named service syntax** — numeric entries (e.g., `5432`) are forwarded on the workspace container, not on the service that actually listens on that port. This breaks host tool connections.
 
-Standard ports:
-- `3000` — App (Next.js) — `onAutoForward: "notify"`
-- `5432` — PostgreSQL — `onAutoForward: "silent"`
-- `6379` — Redis — `onAutoForward: "silent"`
-- `7700` — Meilisearch — `onAutoForward: "silent"`
+Standard ports and required `forwardPorts` entries:
+- `3000` — App (Next.js, workspace service) — numeric OK — `onAutoForward: "notify"`
+- `"postgres:5432"` — PostgreSQL — named syntax required — `onAutoForward: "silent"`
+- `"redis:6379"` — Redis — named syntax required — `onAutoForward: "silent"`
+- `"meilisearch:7700"` — Meilisearch — named syntax required — `onAutoForward: "silent"`
+
+**Action on mismatch**: Replace numeric entries for non-workspace services with `"<service>:<port>"` named syntax.
 
 ## 7. Build Sequence
 

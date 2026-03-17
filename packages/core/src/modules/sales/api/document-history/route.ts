@@ -29,6 +29,26 @@ const querySchema = z.object({
   types: z.string().optional(), // comma-separated: status,action,comment
 })
 
+export type DocumentHistoryEntryKind = 'status' | 'action' | 'comment'
+
+const HISTORY_TYPES: ReadonlySet<DocumentHistoryEntryKind> = new Set(['status', 'action', 'comment'])
+
+export function parseDocumentHistoryTypes(input: string | null | undefined): Set<DocumentHistoryEntryKind> {
+  const raw = typeof input === 'string' ? input.trim() : ''
+  if (!raw) return new Set()
+  const values = raw
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((value) => value.length > 0)
+  const result = new Set<DocumentHistoryEntryKind>()
+  values.forEach((value) => {
+    if (HISTORY_TYPES.has(value as DocumentHistoryEntryKind)) {
+      result.add(value as DocumentHistoryEntryKind)
+    }
+  })
+  return result
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url)
@@ -92,7 +112,11 @@ export async function GET(req: Request) {
       organizationIds: [],
     })
 
-    const items = buildHistoryEntries({ actionLogs: logs, notes, kind: query.kind, displayUsers: displayMaps.users })
+    let items = buildHistoryEntries({ actionLogs: logs, notes, kind: query.kind, displayUsers: displayMaps.users })
+    const typesFilter = parseDocumentHistoryTypes(query.types)
+    if (typesFilter.size > 0) {
+      items = items.filter((entry) => typesFilter.has(entry.kind as DocumentHistoryEntryKind))
+    }
 
     let nextCursor: string | undefined = undefined
     if (logs.length === query.limit && items.length > 0) {

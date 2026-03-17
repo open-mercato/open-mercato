@@ -1,4 +1,9 @@
-import { sanitizeModuleId, validateTableName, dbGreenfield } from '../commands'
+import {
+  sanitizeModuleId,
+  validateTableName,
+  makeConstraintDropsIdempotent,
+  dbGreenfield,
+} from '../commands'
 
 describe('db commands security', () => {
   describe('sanitizeModuleId', () => {
@@ -80,6 +85,49 @@ describe('db commands security', () => {
     it('should include the invalid table name in error message', () => {
       expect(() => validateTableName('invalid-name')).toThrow(/invalid-name/)
     })
+  })
+})
+
+describe('makeConstraintDropsIdempotent', () => {
+  it('adds IF EXISTS to standard drop constraint statements', () => {
+    const sql = 'alter table "users" drop constraint "fk_user_org";'
+
+    const result = makeConstraintDropsIdempotent(sql)
+
+    expect(result).toBe('alter table "users" drop constraint if exists "fk_user_org";')
+  })
+
+  it('keeps already idempotent statements unchanged', () => {
+    const sql = 'alter table "users" drop constraint if exists "fk_user_org";'
+
+    const result = makeConstraintDropsIdempotent(sql)
+
+    expect(result).toBe(sql)
+  })
+
+  it('handles multiple statements and multiline SQL', () => {
+    const sql = [
+      'alter table "users" drop constraint "fk_user_org";',
+      'alter table orders drop constraint fk_order_user;',
+      'alter table public_logs',
+      '  drop constraint   "ck_log_created";',
+    ].join('\n')
+
+    const result = makeConstraintDropsIdempotent(sql)
+
+    expect(result).toBe([
+      'alter table "users" drop constraint if exists "fk_user_org";',
+      'alter table orders drop constraint if exists fk_order_user;',
+      'alter table public_logs drop constraint if exists "ck_log_created";',
+    ].join('\n'))
+  })
+
+  it('does not alter DROP CONSTRAINT with CASCADE suffix', () => {
+    const sql = 'alter table "users" drop constraint "fk_user_org" cascade;'
+
+    const result = makeConstraintDropsIdempotent(sql)
+
+    expect(result).toBe(sql)
   })
 })
 

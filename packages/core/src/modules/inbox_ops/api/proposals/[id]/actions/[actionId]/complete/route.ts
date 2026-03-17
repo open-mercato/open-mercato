@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxProposal, InboxProposalAction } from '../../../../../../data/entities'
 import { recalculateProposalStatus } from '../../../../../../lib/executionEngine'
 import { formatZodErrors } from '../../../../../../lib/validation'
+import { resolveCache, invalidateCountsCache } from '../../../../../../lib/cache'
 import {
   resolveRequestContext,
   resolveActionAndProposal,
@@ -77,6 +79,9 @@ export async function PATCH(req: Request) {
       undefined,
       ctx.scope,
     )
+
+    const cache = resolveCache(ctx.container)
+    await runWithCacheTenant(ctx.tenantId, () => invalidateCountsCache(cache, ctx.tenantId))
 
     return NextResponse.json({
       ok: true,
