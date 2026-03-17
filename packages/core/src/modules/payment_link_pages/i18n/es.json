@@ -1,0 +1,22 @@
+{
+  "payment_link_pages.templates.title": "Plantillas de enlaces",
+  "payment_link_pages.templates.description": "Plantillas reutilizables para crear enlaces de pago con marca",
+  "payment_link_pages.templates.create.title": "Crear plantilla",
+  "payment_link_pages.templates.edit.title": "Editar plantilla",
+  "payment_link_pages.templates.form.name": "Nombre de plantilla",
+  "payment_link_pages.templates.form.submit": "Guardar plantilla",
+  "payment_link_pages.templates.created": "Plantilla creada",
+  "payment_link_pages.templates.updated": "Plantilla actualizada",
+  "payment_link_pages.templates.deleted": "Plantilla archivada",
+  "payment_link_pages.templates.columns.name": "Nombre",
+  "payment_link_pages.templates.columns.description": "Descripción",
+  "payment_link_pages.templates.columns.isDefault": "Predeterminada",
+  "payment_link_pages.templates.columns.createdAt": "Creada",
+  "payment_link_pages.templates.actions.edit": "Editar",
+  "payment_link_pages.templates.actions.duplicate": "Duplicar",
+  "payment_link_pages.templates.actions.setDefault": "Establecer como predeterminada",
+  "payment_link_pages.templates.actions.archive": "Archivar",
+  "payment_link_pages.templates.actions.archive.confirm": "¿Estás seguro de que quieres archivar esta plantilla?",
+  "payment_link_pages.templates.empty": "Sin plantillas",
+  "payment_link_pages.templates.nav.title": "Plantillas de enlaces"
+}

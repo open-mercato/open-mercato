@@ -294,6 +294,8 @@ Define route interceptors in `api/interceptors.ts` and export `interceptors`.
 Define component overrides in `widgets/components.ts` and export `componentOverrides`.
 - Prefer handle-based targets (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic replacement.
 - Use wrapper/props-transform modes when possible; replacement mode should preserve props compatibility.
+- Backend pages resolve replacements at the router level via `resolveRegisteredComponent()`
+- Frontend pages (e.g., `/pay/[token]`) resolve replacements at the component level via `useRegisteredComponent()` — the mechanism is the same, modules declare overrides in `widgets/components.ts` identically
 - `menu:sidebar:profile` — profile sidebar
 - `menu:topbar:profile-dropdown` — user/profile dropdown
 - `menu:topbar:actions` — header action area

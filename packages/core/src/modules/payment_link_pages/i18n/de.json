@@ -1,0 +1,22 @@
+{
+  "payment_link_pages.templates.title": "Link-Vorlagen",
+  "payment_link_pages.templates.description": "Wiederverwendbare Vorlagen für gebrandete Zahlungslinks",
+  "payment_link_pages.templates.create.title": "Vorlage erstellen",
+  "payment_link_pages.templates.edit.title": "Vorlage bearbeiten",
+  "payment_link_pages.templates.form.name": "Vorlagenname",
+  "payment_link_pages.templates.form.submit": "Vorlage speichern",
+  "payment_link_pages.templates.created": "Vorlage erstellt",
+  "payment_link_pages.templates.updated": "Vorlage aktualisiert",
+  "payment_link_pages.templates.deleted": "Vorlage archiviert",
+  "payment_link_pages.templates.columns.name": "Name",
+  "payment_link_pages.templates.columns.description": "Beschreibung",
+  "payment_link_pages.templates.columns.isDefault": "Standard",
+  "payment_link_pages.templates.columns.createdAt": "Erstellt",
+  "payment_link_pages.templates.actions.edit": "Bearbeiten",
+  "payment_link_pages.templates.actions.duplicate": "Duplizieren",
+  "payment_link_pages.templates.actions.setDefault": "Als Standard festlegen",
+  "payment_link_pages.templates.actions.archive": "Archivieren",
+  "payment_link_pages.templates.actions.archive.confirm": "Möchten Sie diese Vorlage wirklich archivieren?",
+  "payment_link_pages.templates.empty": "Keine Vorlagen",
+  "payment_link_pages.templates.nav.title": "Link-Vorlagen"
+}

@@ -41,7 +41,8 @@ const PAYMENT_LINK_PAGE_FIELD_SETS = [
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
-    admin: ['payment_gateways.*'],
+    admin: ['payment_gateways.*', 'payment_link_pages.templates.*'],
+    employee: ['payment_link_pages.templates.view'],
   },
 
   seedDefaults: async (ctx) => {

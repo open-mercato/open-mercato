@@ -25,6 +25,82 @@ The `payment_link_pages` module owns the hosted public `/pay/[token]` route. It 
 
 Use wrapper/props overrides first. Use full replacement only when you need a different page layout.
 
+#### Replacing a section from your app module
+
+Create `widgets/components.ts` in your module and target a section handle:
+
+```typescript
+// apps/mercato/src/modules/my_checkout/widgets/components.ts
+import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import { buildPaymentLinkPageSectionHandle } from '@open-mercato/shared/modules/payment_link_pages/types'
+
+export const componentOverrides: ComponentOverride[] = [
+  {
+    target: { componentId: buildPaymentLinkPageSectionHandle('brand') },
+    priority: 50,
+    metadata: { module: 'my_checkout' },
+    replacement: (await import('./CustomBrandSection')).default,
+  },
+]
+```
+
+The replacement component receives the same props as the default — `data`, `loading`, `error`, `locale`:
+
+```tsx
+// apps/mercato/src/modules/my_checkout/widgets/CustomBrandSection.tsx
+'use client'
+
+export default function CustomBrandSection({ data, loading }: {
+  data: { link?: { metadata?: Record<string, unknown> } } | null
+  loading: boolean
+}) {
+  const brandName = (data?.link?.metadata?.brandName as string) ?? 'My Store'
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-xl font-bold">{brandName}</span>
+    </div>
+  )
+}
+```
+
+#### Wrapping the entire page layout
+
+To wrap the page root (change layout, add a banner, etc.) without fully replacing it:
+
+```typescript
+// widgets/components.ts
+import { PAYMENT_LINK_PAGE_COMPONENT_HANDLE } from '@open-mercato/shared/modules/payment_link_pages/types'
+
+export const componentOverrides: ComponentOverride[] = [
+  {
+    target: { componentId: PAYMENT_LINK_PAGE_COMPONENT_HANDLE },
+    priority: 50,
+    metadata: { module: 'my_checkout' },
+    wrapper: (Original) => {
+      const WrappedPage = (props: object) => (
+        <div className="my-custom-theme">
+          <Original {...props} />
+          <footer className="text-center text-sm py-4">Powered by My Store</footer>
+        </div>
+      )
+      WrappedPage.displayName = 'MyCheckoutPageWrapper'
+      return WrappedPage
+    },
+  },
+]
+```
+
+Run `npm run modules:prepare` after adding or modifying `widgets/components.ts`.
+
+#### Available section prop types
+
+| Handle | Props type | Key fields |
+|--------|-----------|------------|
+| `section:payment_link_pages.brand` | `BrandSectionProps` | `data`, `loading`, `error`, `locale` |
+| `section:payment_link_pages.summary` | `SummarySectionProps` | `data`, `loading`, `error`, `locale` |
+| `section:payment_link_pages.checkout` | `CheckoutSectionProps` | `data`, `loading`, `error`, `locale`, `password`, `unlocking`, `customerForm`, `customerSubmitting`, `customerError`, `customerTermsAccepted`, `onPasswordChange`, `onUnlock`, `onCustomerFieldChange`, `onCustomerTermsAcceptedChange`, `onSubmitCustomer`, `onRefreshLink` |
+| `page:/pay/[token]` | `RootProps` | `data`, `loading`, `error`, `customCss`, `beforeContent`, `heroContent`, `summaryContent`, `checkoutContent`, `afterContent` |
+
 ### Injection spots
 
 - `payment-link-pages.pay:before`
@@ -39,7 +115,59 @@ These spots receive the current page payload under `data` and `context`, includi
 - `transaction`
 - `metadata`
 - `customFields`
+- `customerCapture`
 - `enrichedBy`
+
+#### Injecting a widget from your app module
+
+Create an injection widget and map it to a spot:
+
+```tsx
+// apps/mercato/src/modules/my_checkout/widgets/injection/trust-badge/Widget.tsx
+'use client'
+
+export default function TrustBadgeWidget({ context }: {
+  context: { paymentLink: { amount?: number; currencyCode?: string } | null }
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+      <span>Secured by SSL</span>
+      <span>Money-back guarantee</span>
+    </div>
+  )
+}
+```
+
+```typescript
+// apps/mercato/src/modules/my_checkout/widgets/injection/trust-badge/widget.meta.ts
+export const metadata = { id: 'my-checkout-trust-badge', label: 'Trust Badge' }
+```
+
+```typescript
+// apps/mercato/src/modules/my_checkout/widgets/injection-table.ts
+export default [
+  { widgetPath: 'trust-badge', spotId: 'payment-link-pages.pay:summary' },
+]
+```
+
+#### Spot layout
+
+```text
+┌───────────────────────────────────────────┐
+│ payment-link-pages.pay:before             │ ← full-width, above both columns
+├──────────────────┬────────────────────────┤
+│ [Brand Section]  │                        │
+│ payment-link-    │                        │
+│   pages.pay:hero │  [Checkout Section]    │
+│                  │                        │
+│ [Summary Section]│  payment-link-         │
+│ payment-link-    │    pages.pay:checkout   │
+│   pages.pay:     │                        │
+│     summary      │                        │
+├──────────────────┴────────────────────────┤
+│ payment-link-pages.pay:after              │ ← full-width, below both columns
+└───────────────────────────────────────────┘
+```
 
 ### Enrichers
 

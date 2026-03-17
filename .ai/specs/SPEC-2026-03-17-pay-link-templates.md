@@ -124,7 +124,12 @@ Visual editor with live preview:
 ┌─────────────────────────────────────────────────────┐
 │  Branding                                            │
 │                                                      │
-│  Logo URL    [https://example.com/logo.svg    ] [📎] │
+│  Logo                                                │
+│  ┌──────────┐                                        │
+│  │  [logo]  │  [Upload] [Remove]                     │
+│  │  preview  │  PNG, SVG, or JPG. Max 2 MB.          │
+│  └──────────┘                                        │
+│                                                      │
 │  Brand Name  [Acme Corp                       ]     │
 │  Subtitle    [Secure payment                  ]     │
 │  Accent Color [#1a73e8] [████]                      │
@@ -141,6 +146,13 @@ Visual editor with live preview:
 │  └─────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────┘
 ```
+
+**Logo upload** uses the `attachments` module:
+- Upload button opens the attachment library picker or a direct file upload (PNG, SVG, JPG, max 2 MB)
+- Uploaded file is stored via `POST /api/attachments/library` as a library attachment with `entityType: 'payment_link_templates'` and `entityId` set to the template ID
+- The attachment's public URL is saved in `branding.logoUrl`
+- Remove button clears `branding.logoUrl` (attachment stays in the library for reuse)
+- Logo preview shown inline as a thumbnail
 
 #### Section 3: Default Content
 
