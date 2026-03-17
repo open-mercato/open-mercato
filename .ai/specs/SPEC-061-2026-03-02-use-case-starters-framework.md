@@ -1,4 +1,4 @@
-# SPEC-052: Use-Case Starters Framework
+# SPEC-061: Use-Case Starters Framework
 
 | Field | Value |
 |-------|-------|
