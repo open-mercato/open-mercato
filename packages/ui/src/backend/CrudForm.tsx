@@ -1104,11 +1104,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const allFields = React.useMemo(() => {
     const base = [...fields, ...injectedCrudFields]
+    // Include inline field definitions from groups so their options/loadOptions are resolved
+    if (groups) {
+      const provided = new Set(base.map(f => f.id))
+      for (const group of groups) {
+        if (!group.fields) continue
+        for (const entry of group.fields) {
+          if (typeof entry === 'string') continue
+          if (!provided.has(entry.id)) {
+            provided.add(entry.id)
+            base.push(entry)
+          }
+        }
+      }
+    }
     if (!cfFields.length) return base
     const provided = new Set(base.map(f => f.id))
     const extras = cfFields.filter(f => !provided.has(f.id))
     return [...base, ...extras]
-  }, [fields, injectedCrudFields, cfFields])
+  }, [fields, injectedCrudFields, cfFields, groups])
 
   const fieldById = React.useMemo(() => {
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
