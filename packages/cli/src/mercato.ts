@@ -53,6 +53,18 @@ async function ensureEnvLoaded() {
   } catch {}
 }
 
+function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): string {
+  const checked = new Set<string>()
+  for (const baseDir of baseDirs) {
+    const candidate = path.join(baseDir, 'node_modules', relativeBinPath)
+    checked.add(candidate)
+    if (fs.existsSync(candidate)) return candidate
+  }
+  throw new Error(
+    `Could not find installed binary "${relativeBinPath}". Checked: ${Array.from(checked).join(', ')}`,
+  )
+}
+
 function parseModuleInstallArgs(args: string[]): { packageSpec: string | null; mode: 'package' | 'source' } {
   let packageSpec: string | null = null
   let mode: 'package' | 'source' = 'package'
@@ -1079,13 +1091,10 @@ export async function run(argv = process.argv) {
         command: 'dev',
         run: async () => {
           const { spawn } = await import('child_process')
-          const path = await import('path')
-          const { createResolver } = await import('./lib/resolver')
-          const resolver = createResolver()
-          const appDir = resolver.getAppDir()
-
-          // In monorepo, packages are hoisted to root; in standalone, they're in app's node_modules
-          const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+          const { resolveEnvironment } = await import('./lib/resolver')
+          const env = resolveEnvironment()
+          const appDir = env.appDir
+          const nodeModulesBases = Array.from(new Set([env.rootDir, appDir]))
 
           const processes: ChildProcess[] = []
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
@@ -1106,9 +1115,8 @@ export async function run(argv = process.argv) {
 
           console.log('[server] Starting Open Mercato in dev mode...')
 
-          // Resolve paths relative to where node_modules are located
-          const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
-          const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+          const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
+          const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
           // Start Next.js dev
           const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
@@ -1156,13 +1164,10 @@ export async function run(argv = process.argv) {
         command: 'start',
         run: async () => {
           const { spawn } = await import('child_process')
-          const path = await import('path')
-          const { createResolver } = await import('./lib/resolver')
-          const resolver = createResolver()
-          const appDir = resolver.getAppDir()
-
-          // In monorepo, packages are hoisted to root; in standalone, they're in app's node_modules
-          const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+          const { resolveEnvironment } = await import('./lib/resolver')
+          const env = resolveEnvironment()
+          const appDir = env.appDir
+          const nodeModulesBases = Array.from(new Set([env.rootDir, appDir]))
 
           const processes: ChildProcess[] = []
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
@@ -1183,9 +1188,8 @@ export async function run(argv = process.argv) {
 
           console.log('[server] Starting Open Mercato in production mode...')
 
-          // Resolve paths relative to where node_modules are located
-          const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
-          const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+          const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
+          const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
           // Start Next.js production server
           const nextProcess = spawn('node', [nextBin, 'start'], {

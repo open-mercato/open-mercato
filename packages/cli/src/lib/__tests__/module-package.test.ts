@@ -64,7 +64,7 @@ describe('module-package', () => {
 
     const resolver = {
       getAppDir: () => appDir,
-      getPackageRoot: () => path.join(tmpDir, 'packages', 'test-package'),
+      getPackageRoot: () => installedPackageRoot,
     } as unknown as PackageResolver
 
     const modulePackage = resolveInstalledOfficialModulePackage(

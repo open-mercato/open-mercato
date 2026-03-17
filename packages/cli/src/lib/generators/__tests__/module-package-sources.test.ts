@@ -110,7 +110,7 @@ describe('generateModulePackageSources', () => {
         pkgBase: '@open-mercato/test-package/modules/test_package',
       }),
       getPackageOutputDir: () => outputDir,
-      getPackageRoot: () => path.join(tmpDir, 'packages', 'test-package'),
+      getPackageRoot: () => installedPackageRoot,
     } as PackageResolver
 
     await generateModulePackageSources({ resolver, quiet: true })

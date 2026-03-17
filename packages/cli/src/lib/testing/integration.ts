@@ -1,12 +1,13 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
-import { createResolver } from '../resolver'
+import { resolveEnvironment } from '../resolver'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
@@ -162,8 +163,50 @@ const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
 const ANSI_ESCAPE_REGEX = /\x1b\[[0-?]*[ -/]*[@-~]/g // NOSONAR — ANSI escape sequence pattern
-const resolver = createResolver()
-const projectRootDirectory = resolver.getRootDir()
+const env = resolveEnvironment()
+const projectRootDirectory = env.rootDir
+const appDirectory = env.appDir
+const corePackageRootDirectory = env.packageRoot('@open-mercato/core')
+const uiPackageRootDirectory = env.packageRoot('@open-mercato/ui')
+
+function resolveFirstExistingPath(...candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
+function collectExistingPaths(candidates: Array<string | null | undefined>): string[] {
+  const collected = new Set<string>()
+  for (const candidate of candidates) {
+    if (candidate && existsSync(candidate)) {
+      collected.add(candidate)
+    }
+  }
+  return Array.from(collected)
+}
+
+function readPackageScripts(packageRoot: string): Record<string, string> {
+  try {
+    const raw = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>
+    }
+    return raw.scripts ?? {}
+  } catch {
+    return {}
+  }
+}
+
+const projectScripts = readPackageScripts(projectRootDirectory)
+const appNextConfigPath = resolveFirstExistingPath(
+  path.join(appDirectory, 'next.config.ts'),
+  path.join(appDirectory, 'next.config.js'),
+  path.join(appDirectory, 'next.config.mjs'),
+)
+const APP_MODULES_CHECKSUM_PATH = path.join(appDirectory, '.mercato', 'generated', 'modules.generated.checksum')
+const PROJECT_SUPPORTS_PACKAGE_BUILDS = typeof projectScripts['build:packages'] === 'string'
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
 const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.lock')
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
@@ -172,26 +215,26 @@ const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
 const APP_BUILD_ARTIFACTS = [
-  path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'next', 'BUILD_ID'),
-  path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.ts'),
-  path.join(projectRootDirectory, 'packages', 'core', 'dist', 'index.js'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'dist', 'index.js'),
+  path.join(appDirectory, '.mercato', 'next', 'BUILD_ID'),
+  path.join(appDirectory, '.mercato', 'generated', 'modules.generated.ts'),
+  path.join(corePackageRootDirectory, 'dist', 'index.js'),
+  path.join(uiPackageRootDirectory, 'dist', 'index.js'),
 ]
-const APP_BUILD_INPUT_PATHS = [
-  path.join(projectRootDirectory, 'apps', 'mercato', 'src'),
-  path.join(projectRootDirectory, 'apps', 'mercato', 'package.json'),
-  path.join(projectRootDirectory, 'apps', 'mercato', 'next.config.ts'),
-  path.join(projectRootDirectory, 'apps', 'mercato', 'tsconfig.json'),
-  path.join(projectRootDirectory, 'packages', 'core', 'src'),
-  path.join(projectRootDirectory, 'packages', 'core', 'package.json'),
-  path.join(projectRootDirectory, 'packages', 'core', 'tsconfig.json'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'src'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'package.json'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'tsconfig.json'),
+const APP_BUILD_INPUT_PATHS = collectExistingPaths([
+  path.join(appDirectory, 'src'),
+  path.join(appDirectory, 'package.json'),
+  appNextConfigPath,
+  path.join(appDirectory, 'tsconfig.json'),
+  resolveFirstExistingPath(path.join(corePackageRootDirectory, 'src'), path.join(corePackageRootDirectory, 'dist')),
+  path.join(corePackageRootDirectory, 'package.json'),
+  path.join(corePackageRootDirectory, 'tsconfig.json'),
+  resolveFirstExistingPath(path.join(uiPackageRootDirectory, 'src'), path.join(uiPackageRootDirectory, 'dist')),
+  path.join(uiPackageRootDirectory, 'package.json'),
+  path.join(uiPackageRootDirectory, 'tsconfig.json'),
   path.join(projectRootDirectory, 'package.json'),
   path.join(projectRootDirectory, 'tsconfig.base.json'),
   path.join(projectRootDirectory, 'yarn.lock'),
-]
+])
 const EXPECTED_TEST_FOLDERS = ['auth', 'catalog', 'crm', 'sales', 'admin', 'api', 'integration'] as const
 const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   admin: 'ADMIN',
@@ -295,8 +338,9 @@ function runYarnCommand(
   args: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): Promise<void> {
-  return runYarnRawCommand(['run', ...args], environment, opts)
+  return runYarnRawCommand(['run', ...args], environment, opts, cwd)
 }
 
 async function runTimedStep<T>(
@@ -543,11 +587,12 @@ function runYarnRawCommand(
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
     const command: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
-      cwd: projectRootDirectory,
+      cwd,
       env: environment,
       stdio: outputMode,
     })
@@ -593,24 +638,15 @@ function runNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<
   })
 }
 
-function runYarnWorkspaceCommand(
-  workspaceName: string,
-  commandName: string,
-  commandArgs: string[],
-  environment: NodeJS.ProcessEnv,
-  opts: { silent?: boolean } = {},
-): Promise<void> {
-  return runYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
-}
-
 function startYarnRawCommand(
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): ChildProcess {
   const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
   const processHandle: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
-    cwd: projectRootDirectory,
+    cwd,
     env: environment,
     stdio: outputMode,
   })
@@ -621,14 +657,13 @@ function startYarnRawCommand(
   return processHandle
 }
 
-function startYarnWorkspaceCommand(
-  workspaceName: string,
-  commandName: string,
-  commandArgs: string[],
+function startYarnCommand(
+  args: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): ChildProcess {
-  return startYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
+  return startYarnRawCommand(['run', ...args], environment, opts, cwd)
 }
 
 async function assertContainerRuntimeAvailable(): Promise<void> {
@@ -2501,7 +2536,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       }
     }
 
-    const appWorkspace = '@open-mercato/app'
     const shouldUseIsolatedPort = shouldUseIsolatedPortForFreshEnvironment({
       reuseExisting: options.reuseExisting,
       existingStateBeforeReuseAttempt,
@@ -2607,9 +2641,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
       console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
       await runTimedStep(options.logPrefix, 'Initializing application data', { expectedSeconds: 45 }, async () =>
-        runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
+        runYarnCommand(['initialize'], commandEnvironment, {
           silent: !options.verbose,
-        }))
+        }, appDirectory))
 
       if (!needsBuild) {
         console.log(
@@ -2621,32 +2655,38 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         } else {
           console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
         }
-        console.log(`[${options.logPrefix}] Building packages...`)
-        await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
-          runYarnCommand(['build:packages'], commandEnvironment, {
-            silent: !options.verbose,
-          }))
+        if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
+          console.log(`[${options.logPrefix}] Building packages...`)
+          await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
+            runYarnCommand(['build:packages'], commandEnvironment, {
+              silent: !options.verbose,
+            }))
+        } else {
+          console.log(`[${options.logPrefix}] Skipping package build step (no build:packages script at project root).`)
+        }
 
         console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
-        await rm(path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.checksum'), {
+        await rm(APP_MODULES_CHECKSUM_PATH, {
           force: true,
         })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
           runYarnCommand(['generate'], commandEnvironment, {
             silent: !options.verbose,
-          }))
+          }, appDirectory))
 
-        console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
-        await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
-          runYarnCommand(['build:packages'], commandEnvironment, {
-            silent: !options.verbose,
-          }))
+        if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
+          console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
+          await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
+            runYarnCommand(['build:packages'], commandEnvironment, {
+              silent: !options.verbose,
+            }))
+        }
 
         console.log(`[${options.logPrefix}] Building application...`)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
-          runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
+          runYarnCommand(['build'], commandEnvironment, {
             silent: !options.verbose,
-          }))
+          }, appDirectory))
       }
 
       if (shouldPersistBuildCache && sourceFingerprintValue) {
@@ -2654,9 +2694,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
-      const startedAppProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
+      const startedAppProcess = startYarnCommand(['start'], commandEnvironment, {
         silent: !options.verbose,
-      })
+      }, appDirectory)
       applicationProcess = startedAppProcess
 
       await runTimedStep(
