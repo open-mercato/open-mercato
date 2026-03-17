@@ -505,12 +505,101 @@ describe('inpostAdapterV1', () => {
       expect((body.parcels as Array<{ template: string }>)[0]).toEqual({ template: 'small' })
     })
 
-    it('uses lowercase "small" template for locker services even when packages are provided', async () => {
+    it('uses lowercase "small" template for locker services when package height is within small range (≤8 cm)', async () => {
       const shipmentId = chance.guid()
       const offerId = chance.integer({ min: 1000, max: 9999 })
       global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
 
-      await inpostAdapterV1.createShipment(makeShipmentInput({ serviceCode: 'locker_standard' }))
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'locker_standard', packages: [{ ...makePackage(), heightCm: 8 }] }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.parcels as Array<{ template: string }>)[0]).toEqual({ template: 'small' })
+    })
+
+    it('selects medium template for locker when package height is in 8.1–19 cm range', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'locker_standard', packages: [{ ...makePackage(), heightCm: 15 }] }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.parcels as Array<{ template: string }>)[0]).toEqual({ template: 'medium' })
+    })
+
+    it('selects large template for locker when package height is in 19.1–41 cm range', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'locker_standard', packages: [{ ...makePackage(), heightCm: 30 }] }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.parcels as Array<{ template: string }>)[0]).toEqual({ template: 'large' })
+    })
+
+    it('uses nested dimensions/weight structure for courier services', async () => {
+      const pkg = makePackage()
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'locker_standard', packages: [{ ...makePackage(), heightCm: 50 }] }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.parcels as Array<{ template: string }>)[0]).toEqual({ template: 'large' })
+    })
+
+    it('uses template for courier_c2c (not free-form dimensions)', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'courier_c2c', packages: [{ ...makePackage(), heightCm: 5 }] }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      const parcel = (body.parcels as Array<Record<string, unknown>>)[0]!
+      expect('template' in parcel).toBe(true)
+      expect('dimensions' in parcel).toBe(false)
+    })
+
+    it('selects xlarge template for courier_c2c when package height exceeds 41 cm', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'courier_c2c', packages: [{ ...makePackage(), heightCm: 45 }] }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.parcels as Array<{ template: string }>)[0]).toEqual({ template: 'xlarge' })
+    })
+
+    it('selects small template for courier_c2c when package height is ≤8 cm', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'courier_c2c', packages: [{ ...makePackage(), heightCm: 6 }] }),
+      )
 
       const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
       const body = JSON.parse(init.body as string) as Record<string, unknown>

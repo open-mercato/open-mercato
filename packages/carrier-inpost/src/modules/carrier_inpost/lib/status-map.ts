@@ -70,6 +70,10 @@ export const SERVICE_CODE_MAP: Record<string, string> = {
   courier_c2c: 'inpost_courier_c2c',
 }
 
+// Locker services use template-based parcel sizing (small/medium/large).
+// courier_c2c also uses templates (small/medium/large/xlarge) but is NOT
+// included here because isLockerService is used to add locker-specific
+// API fields (e.g. target_point, receiver email) — courier_c2c does not need those.
 const LOCKER_SERVICE_CODES = new Set([
   'locker_standard',
   'inpost_locker_standard',

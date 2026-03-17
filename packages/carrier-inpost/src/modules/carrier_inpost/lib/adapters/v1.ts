@@ -68,6 +68,22 @@ type InpostCalculateResult = {
 
 type ServiceKind = 'locker' | 'courier_c2c' | 'courier'
 
+// Template thresholds are defined by InPost in mm (height of the parcel).
+// Input dimensions are in cm so we multiply by 10 before comparing.
+//   small  : height ≤ 80 mm
+//   medium : height 81 – 190 mm
+//   large  : height 191 – 410 mm
+//   xlarge : height > 410 mm  (courier_c2c only — not available for locker services)
+function selectLockerTemplate(heightCm: number, allowXlarge: boolean): string {
+  const heightMm = Math.round(heightCm * 10)
+  return match({ heightMm, allowXlarge })
+    .with({ heightMm: P.number.lte(80) }, () => 'small')
+    .with({ heightMm: P.number.lte(190) }, () => 'medium')
+    .with({ heightMm: P.number.lte(410) }, () => 'large')
+    .with({ allowXlarge: true }, () => 'xlarge')
+    .otherwise(() => 'large')
+}
+
 const INPOST_SERVICES: ReadonlyArray<{ serviceCode: string; inpostCode: string; serviceName: string; kind: ServiceKind }> = [
   { serviceCode: 'locker_standard', inpostCode: 'inpost_locker_standard', serviceName: 'InPost Locker Standard (Paczkomat)', kind: 'locker' },
   { serviceCode: 'courier_standard', inpostCode: 'inpost_courier_standard', serviceName: 'InPost Courier Standard', kind: 'courier' },
@@ -139,9 +155,12 @@ type InpostParcel =
 
 function buildParcel(input: CreateShipmentInput): InpostParcel {
   const pkg = input.packages[0]
-  return match([pkg, isLockerService(input.serviceCode)] as const)
+  const kind = INPOST_SERVICES.find((s) => s.serviceCode === input.serviceCode)?.kind
+
+  return match([pkg, kind] as const)
     .with([P.nullish, P._], () => ({ template: 'small' }))
-    .with([P._, true], () => ({ template: 'small' }))
+    .with([P._, 'locker'], ([p]) => ({ template: selectLockerTemplate(p!.heightCm, false) }))
+    .with([P._, 'courier_c2c'], ([p]) => ({ template: selectLockerTemplate(p!.heightCm, true) }))
     .otherwise(([p]) => ({
       dimensions: {
         length: String(Math.round(p!.lengthCm * 10)),

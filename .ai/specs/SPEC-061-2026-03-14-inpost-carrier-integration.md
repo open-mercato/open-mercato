@@ -218,14 +218,22 @@ courier_c2c      → 'inpost_courier_c2c'
       "country_code":    "<destination.countryCode>"
     }
   },
-  "parcels": [
-    // Locker service (no packages): { "template": "small" }
-    // Locker service (with packages): { "template": "small" }
-    // Courier service: {
-    //   "dimensions": { "length": "<mm>", "width": "<mm>", "height": "<mm>", "unit": "mm" },
-    //   "weight":     { "amount": "<kg>", "unit": "kg" }
-    // }
-  ],
+   "parcels": [
+     // No packages provided: { "template": "small" }
+     // Locker service (locker_standard, etc.) — template selected by package height:
+     //   height ≤ 8 cm  → { "template": "small" }
+     //   height 8.1–19 cm  → { "template": "medium" }
+     //   height 19.1–41 cm → { "template": "large" }
+     //   (xlarge not available for locker services)
+     // Courier C2C (courier_c2c) — template selected by package height (supports xlarge):
+     //   height ≤ 8 cm  → { "template": "small" }
+     //   height 8.1–19 cm  → { "template": "medium" }
+     //   height 19.1–41 cm → { "template": "large" }
+     //   height > 41 cm → { "template": "xlarge" }
+     // Courier Standard (courier_standard) — free-form dimensions:
+     //   { "dimensions": { "length": "<mm>", "width": "<mm>", "height": "<mm>", "unit": "mm" },
+     //     "weight": { "amount": "<kg>", "unit": "kg" } }
+   ],
   "custom_attributes": {
     "target_point": "<credentials.targetPoint>"  // locker machine ID; only sent when present
   }
@@ -421,7 +429,9 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | `calculateRates` does not include `locker_economy` or deprecated `locker_express` | Neither code present in rate list |
 | `createShipment` nests address under `address` key | `sender.address.post_code` and `receiver.address.post_code` present |
 | `createShipment` maps serviceCode correctly | Request body `service` equals `inpost_locker_standard` |
-| `createShipment` locker → `{ template: 'small' }` parcel | Parcel shape is `{ template: 'small' }` |
+| `createShipment` locker → height-based template parcel | Locker: height ≤8cm→`small`, 8.1–19cm→`medium`, 19.1–41cm→`large`; xlarge capped at `large` |
+| `createShipment` courier_c2c → height-based template with xlarge | C2C: height ≤8cm→`small`, 8.1–19cm→`medium`, 19.1–41cm→`large`, >41cm→`xlarge` |
+| `createShipment` courier_c2c does not send free-form dimensions | Parcel has `template` key, not `dimensions` |
 | `createShipment` courier → dimensions/weight parcel | Parcel has `dimensions` (mm) and `weight` (kg) |
 | `createShipment` sends `custom_attributes.target_point` from credentials | `target_point` present when `credentials.targetPoint` is set |
 | `createShipment` omits `custom_attributes` when targetPoint absent | `custom_attributes` undefined |
@@ -516,3 +526,4 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | 2026-03-16 | Live test hardened: `describe` block converted to `xdescribe` to skip in CI; hardcoded sandbox Bearer token and org ID removed from source and replaced with `process.env.INPOST_SANDBOX_TOKEN` / `process.env.INPOST_SANDBOX_ORG_ID`; header comment updated with required env vars. A third test for successful cancellation (cancel before buy step) was investigated but deemed infeasible against the InPost sandbox — the API transitions from `created` → `offer_selected` in under 100 ms, before any subsequent call can reach `DELETE /v1/shipments/{id}`. Cancellation is fully covered by unit tests (`adapter-v1.test.ts:739`). |
 | 2026-03-16 | Demo page `TrackingEvent` interface corrected: `timestamp` renamed to `occurredAt` and `description` field removed, matching the `TrackingResult.events` shape in `lib/adapter.ts`; render updated to use `event.occurredAt` and `event.location` only. |
 | 2026-03-17 | `locker_economy` removed from `INPOST_SERVICES` in `v1.ts` — confirmed absent from the official InPost service list (`GET /v1/statuses`); `SERVICE_CODE_MAP` and `LOCKER_SERVICE_CODES` in `status-map.ts` already did not include it. `calculateRates` now returns 3 services. Unit tests updated (service count 4→3, `makeAllServicesOkFetch` mocks 3 calls, call indices for courier/c2c tests adjusted). TC-INPOST-002 integration test updated to expect 3 services. TC-INPOST-004 integration test corrected: was asserting 502/"does not support" from the stale cancel-not-supported era; now correctly accepts 200 (cancelled) or 502 (invalid_action for already-confirmed shipment) matching TC-INPOST-003 semantics. Status map table in spec updated to show all 47 official statuses (was showing only the original 19). Overview section updated to list 3 services. |
+| 2026-03-17 | Parcel template selection fixed based on official InPost docs analysis. Bug 1: `courier_c2c` was incorrectly sending free-form `dimensions`/`weight` — official docs confirm it uses template-based sizing. `buildParcel()` in `v1.ts` now detects service kind from `INPOST_SERVICES` and uses `selectLockerTemplate()` for both locker and `courier_c2c` kinds. Bug 2: All locker/c2c services were always sending `{ template: 'small' }` regardless of dimensions — corrected to height-based selection: height ≤80mm → `small`, 81–190mm → `medium`, 191–410mm → `large`. Bug 3: `courier_c2c` additionally supports `xlarge` (height >410mm) which is unavailable for locker services; `allowXlarge` flag controls this. `isLockerService()` intentionally excludes `courier_c2c` (locker-specific API fields like `target_point` and receiver email are not required for c2c). Spec parcel shape table updated. 6 new unit tests added (150 total, 148 passing + 2 xdescribe-skipped). |
