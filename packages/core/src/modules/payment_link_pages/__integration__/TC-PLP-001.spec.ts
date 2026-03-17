@@ -27,7 +27,10 @@ test.describe('TC-PLP-001: pay-link page payload', () => {
     expect(session.paymentLinkUrl).toBeTruthy()
     const publicToken = session.paymentLinkUrl!.split('/').pop()!
     const response = await request.get(`/api/payment_link_pages/pay/${publicToken}`)
-    expect(response.ok()).toBe(true)
+    if (!response.ok()) {
+      const errorBody = await response.text()
+      throw new Error(`Expected 200 but got ${response.status()}: ${errorBody}`)
+    }
 
     const payload = await response.json()
     expect(payload.link.metadata).toMatchObject({

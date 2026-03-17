@@ -16,101 +16,106 @@ export const metadata = {
 }
 
 export async function GET(req: Request, { params }: { params: Promise<{ token: string }> | { token: string } }) {
-  const { token } = await params
-  if (!token) {
-    return NextResponse.json({ error: 'Payment link token is required' }, { status: 400 })
-  }
+  try {
+    const { token } = await params
+    if (!token) {
+      return NextResponse.json({ error: 'Payment link token is required' }, { status: 400 })
+    }
 
-  const container = await createRequestContainer()
-  const state = await loadPublicPaymentLinkState({
-    container: container as any,
-    req,
-    token,
-  })
-  if (!state) {
-    return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
-  }
+    const container = await createRequestContainer()
+    const state = await loadPublicPaymentLinkState({
+      container: container as any,
+      req,
+      token,
+    })
+    if (!state) {
+      return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
+    }
 
-  if (state.passwordRequired) {
-    return NextResponse.json({
-      passwordRequired: true,
+    if (state.passwordRequired) {
+      return NextResponse.json({
+        passwordRequired: true,
+        link: {
+          token: state.link.token,
+          title: state.link.title,
+          description: state.link.description ?? null,
+          providerKey: state.link.providerKey,
+          status: state.link.status,
+        },
+      }, { status: 403 })
+    }
+
+    await emitPaymentLinkPageEvent('payment_link_pages.page.viewed', {
+      paymentLinkId: state.link.id,
+      paymentLinkToken: state.link.token,
+      transactionId: state.transaction.id,
+      paymentId: state.transaction.paymentId,
+      providerKey: state.transaction.providerKey,
+      organizationId: state.link.organizationId,
+      tenantId: state.link.tenantId,
+    })
+
+    const baseRecord = {
+      passwordRequired: false,
+      accessGranted: state.accessGranted,
       link: {
+        id: state.link.id,
         token: state.link.token,
         title: state.link.title,
         description: state.link.description ?? null,
         providerKey: state.link.providerKey,
         status: state.link.status,
+        completedAt: toIso(state.link.completedAt),
+        amount: state.amount,
+        currencyCode: state.currencyCode,
+        paymentLinkWidgetSpotId: state.paymentLinkWidgetSpotId,
+        metadata: state.pageMetadata,
+        customFields: state.customFields,
+        customFieldsetCode: state.customFieldsetCode,
+        customerCapture: state.customerCapture
+          ? {
+              enabled: state.customerCapture.enabled,
+              companyRequired: state.customerCapture.companyRequired,
+              termsRequired: state.customerCapture.termsRequired,
+              termsMarkdown: state.customerCapture.termsMarkdown,
+              collected: !!state.customerCapture.collectedAt,
+            }
+          : null,
       },
-    }, { status: 403 })
+      transaction: {
+        id: state.transaction.id,
+        paymentId: state.transaction.paymentId,
+        providerKey: state.transaction.providerKey,
+        providerSessionId: state.transaction.providerSessionId ?? null,
+        unifiedStatus: state.transaction.unifiedStatus,
+        gatewayStatus: state.transaction.gatewayStatus ?? null,
+        redirectUrl: state.transaction.redirectUrl ?? null,
+        clientSecret: state.transaction.clientSecret ?? null,
+        amount: Number(state.transaction.amount),
+        currencyCode: state.transaction.currencyCode,
+        gatewayMetadata: state.transaction.gatewayMetadata ?? null,
+        createdAt: toIso(state.transaction.createdAt),
+        updatedAt: toIso(state.transaction.updatedAt),
+      },
+    }
+
+    const enriched = await applyResponseEnricherToRecord(baseRecord, PAYMENT_LINK_PAGE_ENRICHER_ENTITY, {
+      organizationId: state.link.organizationId,
+      tenantId: state.link.tenantId,
+      userId: '',
+      em: container.resolve('em') as EntityManager,
+      container,
+      userFeatures: [],
+    })
+
+    return NextResponse.json({
+      ...enriched.record,
+      _meta: enriched._meta,
+    })
+  } catch (error) {
+    console.error('[payment_link_pages] GET /pay/[token] error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  await emitPaymentLinkPageEvent('payment_link_pages.page.viewed', {
-    paymentLinkId: state.link.id,
-    paymentLinkToken: state.link.token,
-    transactionId: state.transaction.id,
-    paymentId: state.transaction.paymentId,
-    providerKey: state.transaction.providerKey,
-    organizationId: state.link.organizationId,
-    tenantId: state.link.tenantId,
-  })
-
-  const baseRecord = {
-    passwordRequired: false,
-    accessGranted: state.accessGranted,
-    link: {
-      id: state.link.id,
-      token: state.link.token,
-      title: state.link.title,
-      description: state.link.description ?? null,
-      providerKey: state.link.providerKey,
-      status: state.link.status,
-      completedAt: toIso(state.link.completedAt),
-      amount: state.amount,
-      currencyCode: state.currencyCode,
-      paymentLinkWidgetSpotId: state.paymentLinkWidgetSpotId,
-      metadata: state.pageMetadata,
-      customFields: state.customFields,
-      customFieldsetCode: state.customFieldsetCode,
-      customerCapture: state.customerCapture
-        ? {
-            enabled: state.customerCapture.enabled,
-            companyRequired: state.customerCapture.companyRequired,
-            termsRequired: state.customerCapture.termsRequired,
-            termsMarkdown: state.customerCapture.termsMarkdown,
-            collected: !!state.customerCapture.collectedAt,
-          }
-        : null,
-    },
-    transaction: {
-      id: state.transaction.id,
-      paymentId: state.transaction.paymentId,
-      providerKey: state.transaction.providerKey,
-      providerSessionId: state.transaction.providerSessionId ?? null,
-      unifiedStatus: state.transaction.unifiedStatus,
-      gatewayStatus: state.transaction.gatewayStatus ?? null,
-      redirectUrl: state.transaction.redirectUrl ?? null,
-      clientSecret: state.transaction.clientSecret ?? null,
-      amount: Number(state.transaction.amount),
-      currencyCode: state.transaction.currencyCode,
-      gatewayMetadata: state.transaction.gatewayMetadata ?? null,
-      createdAt: toIso(state.transaction.createdAt),
-      updatedAt: toIso(state.transaction.updatedAt),
-    },
-  }
-
-  const enriched = await applyResponseEnricherToRecord(baseRecord, PAYMENT_LINK_PAGE_ENRICHER_ENTITY, {
-    organizationId: state.link.organizationId,
-    tenantId: state.link.tenantId,
-    userId: '',
-    em: container.resolve('em') as EntityManager,
-    container,
-    userFeatures: [],
-  })
-
-  return NextResponse.json({
-    ...enriched.record,
-    _meta: enriched._meta,
-  })
 }
 
 export const openApi = {
