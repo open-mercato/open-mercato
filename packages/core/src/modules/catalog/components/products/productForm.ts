@@ -2,7 +2,11 @@ import { z } from "zod";
 import { slugify } from "@open-mercato/shared/lib/slugify";
 import { parseObjectLike } from "@open-mercato/shared/lib/json/parseObjectLike";
 import type { ReferenceUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
-import type { CatalogProductOptionSchema } from "../../data/types";
+import {
+  CATALOG_CONFIGURABLE_PRODUCT_TYPES,
+  type CatalogProductOptionSchema,
+  type CatalogProductType,
+} from "../../data/types";
 import type { ProductMediaItem } from "./ProductMediaManager";
 
 export { slugify };
@@ -83,6 +87,8 @@ export type ProductFormValues = {
   title: string;
   subtitle: string;
   handle: string;
+  sku: string;
+  productType: CatalogProductType;
   description: string;
   useMarkdown: boolean;
   taxRateId: string | null;
@@ -139,6 +145,16 @@ export const productFormSchema = z
       )
       .max(150)
       .optional(),
+    sku: z
+      .string()
+      .trim()
+      .regex(
+        /^[A-Za-z0-9\-_\.]*$/,
+        "catalog.products.validation.skuFormat",
+      )
+      .max(191)
+      .optional(),
+    productType: z.string().optional(),
     description: z.string().optional(),
     useMarkdown: z.boolean().optional(),
     taxRateId: z.string().uuid().nullable().optional(),
@@ -216,6 +232,8 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   title: "",
   subtitle: "",
   handle: "",
+  sku: "",
+  productType: "simple",
   description: "",
   useMarkdown: false,
   mediaDraftId: "",
@@ -244,6 +262,9 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   tags: [],
   optionSchemaId: null,
 };
+
+export const isConfigurableProductType = (type: string): boolean =>
+  (CATALOG_CONFIGURABLE_PRODUCT_TYPES as readonly string[]).includes(type);
 
 export const createInitialProductFormValues = (): ProductFormValues => ({
   ...BASE_INITIAL_VALUES,
