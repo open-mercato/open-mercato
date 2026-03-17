@@ -111,11 +111,11 @@ export async function POST(req: Request) {
         } : null,
         executionTime: r.executionTime,
         error: r.error,
-        logId: r.logId,
+        logId: r.logId ? String(r.logId) : undefined,
       })),
       totalExecutionTime: result.totalExecutionTime,
       errors: result.errors,
-      logIds: result.logIds,
+      logIds: result.logIds?.map((entry) => String(entry)),
     }
 
     return NextResponse.json(response, { status: 200 })

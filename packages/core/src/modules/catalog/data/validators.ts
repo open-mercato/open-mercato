@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { CATALOG_PRICE_DISPLAY_MODES, CATALOG_PRODUCT_TYPES } from './types'
 import { REFERENCE_UNIT_CODES } from '../lib/unitCodes'
+import {
+  getCatalogPriceAmountValidationMessage,
+  validateCatalogPriceAmountInput,
+} from '../lib/priceValidation'
 
 const uuid = () => z.string().uuid()
 
@@ -115,6 +119,18 @@ const unitPriceConfigSchema = z.object({
   referenceUnit: unitPriceReferenceUnitSchema.nullable().optional(),
   baseQuantity: z.coerce.number().positive().optional(),
 })
+
+const catalogPriceAmountSchema = z
+  .custom<number>((value) => validateCatalogPriceAmountInput(value).ok, {
+    message: getCatalogPriceAmountValidationMessage(),
+  })
+  .transform((value) => {
+    const result = validateCatalogPriceAmountInput(value)
+    if (!result.ok) {
+      throw new Error('catalogPriceAmountSchema transform reached invalid state')
+    }
+    return result.numeric
+  })
 
 function productUomCrossFieldRefinement(
   input: {
@@ -295,8 +311,8 @@ export const priceCreateSchema = scoped.extend({
   priceKindId: uuid(),
   minQuantity: z.coerce.number().int().min(1).optional(),
   maxQuantity: z.coerce.number().int().min(1).optional(),
-  unitPriceNet: z.coerce.number().min(0).optional(),
-  unitPriceGross: z.coerce.number().min(0).optional(),
+  unitPriceNet: catalogPriceAmountSchema.optional(),
+  unitPriceGross: catalogPriceAmountSchema.optional(),
   taxRate: z.coerce.number().min(0).max(100).optional(),
   taxRateId: uuid().nullable().optional(),
   channelId: uuid().optional(),

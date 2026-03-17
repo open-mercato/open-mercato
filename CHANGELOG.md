@@ -1,3 +1,64 @@
+# 0.4.8 (2026-03-17)
+
+## Highlights
+This release delivers the **Customer Accounts & Portal** (SPEC-060) — a full customer identity and portal authentication module with RBAC, magic links, CRM auto-linking, and an extensible customer portal with dashboard, sidebar, and widget injection. It also ships **Order Returns**, **AI Inbox Phase 2** enhancements, migration generation improvements for standalone apps, and numerous security, validation, and UX fixes.
+
+## ✨ Features
+
+### 👤 Customer Accounts & Portal (SPEC-060)
+- Customer Accounts module — two-tier `CustomerUser` identity model with JWT pipeline, invitation system, signup/login/magic links, customer RBAC, and CRM auto-linking. (#973) *(@pat-lewczuk)*
+- Customer Portal — extensible portal shell with dashboard, sidebar navigation, notifications, and full UMES widget injection support. (#973) *(@pat-lewczuk)*
+- Portal feature toggle gate — portal access gated behind a feature flag for controlled rollout. *(@pat-lewczuk)*
+- Admin user management — staff-facing APIs for managing customer accounts from the backoffice. *(@pat-lewczuk)*
+- Server-side portal auth and org resolution — eliminated all layout blink on portal pages. *(@pat-lewczuk)*
+
+### 📦 Order Returns
+- Full order returns workflow — customers and staff can initiate, review, and process product returns with status tracking. (#907) *(@Sawarz)*
+
+### 🤖 AI Inbox Phase 2
+- Enhanced AI-powered inbox operations with improved message processing, action fixes, and agent capabilities. (#976) *(@haxiorz)*
+
+### 🗃️ Other Features
+- Integration tests Phase 2 coverage for AI Inbox flows. (#975) *(@janzaremski)*
+
+## 🔒 Security
+- 🔑 Require current password for self-service password change — prevents unauthorized password changes from stolen sessions. (#961) *(@mkadziolka)*
+
+## 🐛 Fixes
+- 📧 Add client-side email validation to reset password form — prevents invalid submissions before server round-trip. (#974) *(@JSzarras)*
+- 📎 Avoid duplicate file-required validation message on attachment fields. (#986) *(@musman)*
+- 👥 Fix duplicate "Add address" actions in Customer addresses empty state. (#977) *(@mkadziolka)*
+- 💰 Validate price amounts before DB flush to avoid 500 on overflow for very large values (fixes #908). (#963) *(@mkadziolka)*
+- 🌍 Translate CRUD validation messages — server-side zod errors now return localized strings. (#962) *(@mkadziolka)*
+- 🔐 Localize profile update validation errors in auth module. *(@mkadziolka)*
+- 📦 Resolve `workspace:*` protocol leaking into published npm packages. (#985) *(@pat-lewczuk)*
+- 🔧 Add missing `"type": "module"` to standalone app template. *(@pat-lewczuk)*
+- 🔄 Replace raw `fetch` with `apiCall` in portal hooks and sync template. *(@pat-lewczuk)*
+
+## 🛠️ Improvements
+- 🗂️ Migration generation improvements for `@app` modules — separate tsx detection from ts import fallback, idempotent constraint drops, CLI jest alias mapping. (#905) *(@armal)*
+- 🐳 Forward ports for PostgreSQL, Redis, and Meilisearch services in dev container. (#957) *(@jhorubala)*
+- 📖 Customer accounts AGENTS.md documentation and standalone app guide updates. *(@pat-lewczuk)*
+
+## 🚀 CI/CD & Infrastructure
+- 🔧 CI release flow and canary publish fixes. *(@pkarw)*
+- 📦 Dependabot security insights integration. *(@pkarw)*
+
+## 👥 Contributors
+
+- @pat-lewczuk
+- @Sawarz
+- @haxiorz
+- @mkadziolka
+- @janzaremski
+- @JSzarras
+- @armal
+- @pkarw
+- @jhorubala
+- @musman
+
+---
+
 # 0.4.7 (2026-03-12)
 
 ## Highlights
@@ -33,12 +94,16 @@ This release delivers the **Integration Marketplace** with Payment Gateways, Shi
 - 💰 Handle price variant validation properly with improved coverage (#904). (#913) *(@Magiczne)*
 - 📦 Return user-friendly validation error for duplicate SKU instead of 500 (#909). (#912) *(@michal1986)*
 - 🔄 Finish duplicate definition flow in workflows and add regression tests. (#887) *(@mkadziolka)*
+- 🔢 Validate quantity limit on sales line items to prevent `NUMERIC field overflow` on extremely large values (#920). (#925) *(@michal1986)*
+- 🕐 Consistent timestamp format in Payments table tooltip — localized time instead of raw UTC ISO string (#946). (#951) *(@michal1986)*
+- 💳 Fix payment method not displayed in Order Details after adding a payment (#947). (#952) *(@michal1986)*
 
 ## 🧪 Testing
 - 🔍 Cover search fallback presenter and improve name/title resolution with unit tests. (#886) *(@mkadziolka)*
 - 🔑 Add route-level GET tests for `/api/auth/users` and `/api/auth/roles` with tenant/RBAC filtering. (#885) *(@mkadziolka)*
 
-## 📝 Docs & Documentation
+## 📝 Specs & Documentation
+- 📋 SPEC-060: Customer Identity & Portal Authentication — two-tier `CustomerUser` identity model with RBAC, JWT pipeline, invitation system, and CRM auto-linking. (#863) *(@pat-lewczuk)*
 - 📖 Add screenshots and fix search documentation to match actual codebase state (#331). (#881) *(@MrBuldops)*
 
 ## 🚀 CI/CD & Infrastructure

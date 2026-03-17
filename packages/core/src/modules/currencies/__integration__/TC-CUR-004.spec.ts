@@ -29,7 +29,7 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
       const code = `B${randLetter()}${randLetter()}`;
       currencyId = await createCurrencyFixture(request, token, {
         code,
-        name: `QA TC-CUR-004 Base Test`,
+        name: 'QA TC-CUR-004 Target Currency',
       });
 
       // Record the current base currency so we can restore it
@@ -61,7 +61,7 @@ test.describe('TC-CUR-004: Set Base Currency from UI', () => {
 
       // Verify the row now shows the base badge after reload
       await expect(
-        row.getByText(/base|currencies\.list\.base/i),
+        row.getByText(/^base$/i),
       ).toBeVisible({ timeout: 10_000 });
     } finally {
       // Restore original base currency if we changed it

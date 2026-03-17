@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { actionEditSchema, validateActionPayloadForType } from '../../../../../data/validators'
 import { emitInboxOpsEvent } from '../../../../../events'
+import { resolveCache, invalidateCountsCache } from '../../../../../lib/cache'
 import {
   resolveRequestContext,
   resolveActionAndProposal,
@@ -39,6 +41,9 @@ export async function PATCH(req: Request) {
 
     action.payload = mergedPayload
     await ctx.em.flush()
+
+    const cache = resolveCache(ctx.container)
+    await runWithCacheTenant(ctx.tenantId, () => invalidateCountsCache(cache, ctx.tenantId))
 
     try {
       await emitInboxOpsEvent('inbox_ops.action.edited', {

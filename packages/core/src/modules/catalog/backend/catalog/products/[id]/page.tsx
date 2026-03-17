@@ -808,6 +808,12 @@ export default function EditCatalogProductPage({
 
   const handleSubmit = React.useCallback(
     async (formValues: ProductFormValues) => {
+      const translateValidationMessage = (message: string | null | undefined) => {
+        if (typeof message !== "string") return "";
+        const trimmed = message.trim();
+        if (!trimmed) return "";
+        return t(trimmed, trimmed);
+      };
       if (!productId) {
         throw createCrudFormError(
           t(
@@ -822,10 +828,12 @@ export default function EditCatalogProductPage({
         const fieldErrors: Record<string, string> = {};
         issues.forEach((issue) => {
           const path = issue.path.join(".") || "form";
-          if (!fieldErrors[path]) fieldErrors[path] = issue.message;
+          if (!fieldErrors[path]) {
+            fieldErrors[path] = translateValidationMessage(issue.message);
+          }
         });
         const message =
-          issues[0]?.message ??
+          translateValidationMessage(issues[0]?.message) ||
           t(
             "catalog.products.edit.errors.validation",
             "Fix highlighted fields.",

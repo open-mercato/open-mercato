@@ -1,0 +1,162 @@
+"use client"
+import { useEffect, useRef } from 'react'
+import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
+import { PORTAL_EVENT_DOM_NAME } from './usePortalAppEvent'
+
+const PORTAL_SSE_ENDPOINT = '/api/customer_accounts/portal/events/stream'
+const HEARTBEAT_TIMEOUT = 45_000
+const RECONNECT_BASE_MS = 1_000
+const RECONNECT_MAX_MS = 30_000
+const DEDUP_WINDOW_MS = 500
+const PORTAL_BRIDGE_RECONNECTED_EVENT_ID = 'om:portal-bridge:reconnected'
+
+/**
+ * React hook that establishes a singleton SSE connection to the portal event bridge.
+ *
+ * Mount once in the portal shell/layout. Receives server-side events with
+ * `portalBroadcast: true` and dispatches them as `om:portal-event` CustomEvents
+ * on the window object for consumption by `usePortalAppEvent`.
+ *
+ * Uses customer auth (cookie-based JWT) instead of staff auth.
+ *
+ * @example
+ * ```tsx
+ * import { usePortalEventBridge } from '@open-mercato/ui/portal/hooks/usePortalEventBridge'
+ *
+ * function PortalShell({ children }) {
+ *   usePortalEventBridge()
+ *   return <div>{children}</div>
+ * }
+ * ```
+ */
+export function usePortalEventBridge(): void {
+  const sourceRef = useRef<EventSource | null>(null)
+  const reconnectAttempts = useRef(0)
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const heartbeatTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const recentEvents = useRef<Map<string, number>>(new Map())
+  const hasEverConnected = useRef(false)
+  const reconnectPending = useRef(false)
+
+  useEffect(() => {
+    let mounted = true
+
+    function isDuplicate(eventPayload: AppEventPayload): boolean {
+      const key = `${eventPayload.id}:${JSON.stringify(eventPayload.payload ?? {})}`
+      const lastSeen = recentEvents.current.get(key)
+      if (lastSeen && Date.now() - lastSeen < DEDUP_WINDOW_MS) return true
+      recentEvents.current.set(key, Date.now())
+      if (recentEvents.current.size > 100) {
+        const now = Date.now()
+        for (const [k, v] of recentEvents.current) {
+          if (now - v > DEDUP_WINDOW_MS * 2) recentEvents.current.delete(k)
+        }
+      }
+      return false
+    }
+
+    function resetHeartbeatTimer() {
+      if (heartbeatTimer.current) clearTimeout(heartbeatTimer.current)
+      heartbeatTimer.current = setTimeout(() => {
+        console.warn('[PortalEventBridge] Heartbeat timeout — reconnecting')
+        disconnect()
+        scheduleReconnect()
+      }, HEARTBEAT_TIMEOUT)
+    }
+
+    function connect() {
+      if (!mounted) return
+      if (sourceRef.current) return
+
+      try {
+        const source = new EventSource(PORTAL_SSE_ENDPOINT, { withCredentials: true })
+        sourceRef.current = source
+
+        source.onopen = () => {
+          const shouldEmitReconnect = hasEverConnected.current && reconnectPending.current
+          hasEverConnected.current = true
+          reconnectPending.current = false
+          reconnectAttempts.current = 0
+          resetHeartbeatTimer()
+          if (shouldEmitReconnect) {
+            window.dispatchEvent(
+              new CustomEvent(PORTAL_EVENT_DOM_NAME, {
+                detail: {
+                  id: PORTAL_BRIDGE_RECONNECTED_EVENT_ID,
+                  payload: {},
+                  timestamp: Date.now(),
+                  organizationId: '',
+                } satisfies AppEventPayload,
+              }),
+            )
+          }
+        }
+
+        source.onmessage = (event) => {
+          resetHeartbeatTimer()
+          if (!event.data || event.data === ':heartbeat') return
+
+          try {
+            const parsed = JSON.parse(event.data) as AppEventPayload
+            if (!parsed.id || typeof parsed.id !== 'string') return
+            if (isDuplicate(parsed)) return
+
+            window.dispatchEvent(
+              new CustomEvent(PORTAL_EVENT_DOM_NAME, { detail: parsed }),
+            )
+          } catch {
+            // Ignore malformed events
+          }
+        }
+
+        source.onerror = () => {
+          if (hasEverConnected.current) {
+            reconnectPending.current = true
+          }
+          disconnect()
+          if (mounted) scheduleReconnect()
+        }
+      } catch {
+        if (hasEverConnected.current) {
+          reconnectPending.current = true
+        }
+        if (mounted) scheduleReconnect()
+      }
+    }
+
+    function disconnect() {
+      if (sourceRef.current) {
+        sourceRef.current.close()
+        sourceRef.current = null
+      }
+      if (heartbeatTimer.current) {
+        clearTimeout(heartbeatTimer.current)
+        heartbeatTimer.current = null
+      }
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer.current) return
+      const delay = Math.min(
+        RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts.current),
+        RECONNECT_MAX_MS,
+      )
+      reconnectAttempts.current++
+      reconnectTimer.current = setTimeout(() => {
+        reconnectTimer.current = null
+        connect()
+      }, delay)
+    }
+
+    connect()
+
+    return () => {
+      mounted = false
+      disconnect()
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current)
+        reconnectTimer.current = null
+      }
+    }
+  }, [])
+}

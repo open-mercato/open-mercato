@@ -1,4 +1,5 @@
 import { detectStatusChange, normalizeActionLogToHistoryEntry } from '../../lib/historyHelpers'
+import { parseDocumentHistoryTypes } from '../document-history/route'
 
 function makeLog(overrides: Partial<{
   id: string
@@ -22,9 +23,14 @@ function makeLog(overrides: Partial<{
 }
 
 describe('detectStatusChange', () => {
-  it('returns null for creations (null snapshotBefore)', () => {
+  it('treats creation with initial status as status transition (for Status history)', () => {
     const log = makeLog({ snapshotBefore: null, snapshotAfter: { order: { status: 'draft' } } })
-    expect(detectStatusChange(log)).toBeNull()
+    expect(detectStatusChange(log)).toEqual({ statusFrom: null, statusTo: 'draft' })
+  })
+
+  it('returns created entry with null status when snapshotAfter has no status', () => {
+    const log = makeLog({ snapshotBefore: null, snapshotAfter: { order: { note: 'x' } } })
+    expect(detectStatusChange(log)).toEqual({ statusFrom: null, statusTo: null })
   })
 
   it('detects direct status change from logStatusChange entries', () => {
@@ -74,6 +80,30 @@ describe('detectStatusChange', () => {
     })
     expect(detectStatusChange(log)).toBeNull()
   })
+
+  it('extracts fulfillment_status when order.status is missing', () => {
+    const log = makeLog({
+      snapshotBefore: { order: { fulfillment_status: null } },
+      snapshotAfter: { order: { fulfillment_status: 'fulfilled' } },
+    })
+    expect(detectStatusChange(log)).toEqual({ statusFrom: null, statusTo: 'fulfilled' })
+  })
+
+  it('extracts payment_status when order.status and fulfillment_status are missing', () => {
+    const log = makeLog({
+      snapshotBefore: { order: { payment_status: null } },
+      snapshotAfter: { order: { payment_status: 'received' } },
+    })
+    expect(detectStatusChange(log)).toEqual({ statusFrom: null, statusTo: 'received' })
+  })
+
+  it('returns status change with both null when snapshot has no status (e.g. Create return)', () => {
+    const log = makeLog({
+      snapshotBefore: null,
+      snapshotAfter: { id: 'ret-1', orderId: 'ord-1', lines: [], adjustmentIds: [] },
+    })
+    expect(detectStatusChange(log)).toEqual({ statusFrom: null, statusTo: null })
+  })
 })
 
 describe('normalizeActionLogToHistoryEntry', () => {
@@ -101,15 +131,17 @@ describe('normalizeActionLogToHistoryEntry', () => {
     expect(entry.action).toBe('Update sales order')
   })
 
-  it('classifies create as action (null snapshotBefore)', () => {
+  it('classifies create as status entry (null snapshotBefore) so it appears in Status changes filter', () => {
     const log = makeLog({
       snapshotBefore: null,
       snapshotAfter: { order: { status: 'draft' } },
       actionLabel: 'Create sales order',
     })
     const entry = normalizeActionLogToHistoryEntry(log, 'order')
-    expect(entry.kind).toBe('action')
-    expect(entry.action).toBe('Create sales order')
+    expect(entry.kind).toBe('status')
+    expect(entry.metadata?.statusFrom).toBeNull()
+    expect(entry.metadata?.statusTo).toBe('draft')
+    expect(entry.action).toBe('draft')
   })
 
   it('resolves actor name from displayUsers map', () => {
@@ -132,9 +164,15 @@ describe('normalizeActionLogToHistoryEntry', () => {
     expect(entry.actor.id).toBeNull()
   })
 
-  it('uses commandId as action fallback when actionLabel is null', () => {
-    const log = makeLog({ actionLabel: null, commandId: 'my-command-id' })
+  it('uses commandId as action fallback when actionLabel is null and no status change', () => {
+    const log = makeLog({
+      actionLabel: null,
+      commandId: 'my-command-id',
+      snapshotBefore: { order: { status: 'draft' } },
+      snapshotAfter: { order: { status: 'draft', note: 'updated' } },
+    })
     const entry = normalizeActionLogToHistoryEntry(log, 'order')
+    expect(entry.kind).toBe('action')
     expect(entry.action).toBe('my-command-id')
   })
 
@@ -142,5 +180,36 @@ describe('normalizeActionLogToHistoryEntry', () => {
     const log = makeLog()
     expect(normalizeActionLogToHistoryEntry(log, 'order').metadata?.documentKind).toBe('order')
     expect(normalizeActionLogToHistoryEntry(log, 'quote').metadata?.documentKind).toBe('quote')
+  })
+
+  it('treats Create return (no status in snapshot) as action with actionLabel', () => {
+    const log = makeLog({
+      snapshotBefore: null,
+      snapshotAfter: { id: 'ret-1', orderId: 'ord-1', lines: [], adjustmentIds: [] },
+      actionLabel: 'Create return',
+      commandId: 'sales.returns.create',
+    })
+    const entry = normalizeActionLogToHistoryEntry(log, 'order')
+    expect(entry.kind).toBe('action')
+    expect(entry.action).toBe('Create return')
+  })
+})
+
+describe('parseDocumentHistoryTypes', () => {
+  it('returns empty set for empty input', () => {
+    expect(Array.from(parseDocumentHistoryTypes(undefined))).toEqual([])
+    expect(Array.from(parseDocumentHistoryTypes(''))).toEqual([])
+    expect(Array.from(parseDocumentHistoryTypes(' , '))).toEqual([])
+  })
+
+  it('parses and sanitizes known types', () => {
+    expect(Array.from(parseDocumentHistoryTypes('status'))).toEqual(['status'])
+    expect(Array.from(parseDocumentHistoryTypes('status,action'))).toEqual(['status', 'action'])
+    expect(Array.from(parseDocumentHistoryTypes(' Status ,  COMMENT '))).toEqual(['status', 'comment'])
+  })
+
+  it('ignores unknown types', () => {
+    expect(Array.from(parseDocumentHistoryTypes('status,invalid,comment'))).toEqual(['status', 'comment'])
+    expect(Array.from(parseDocumentHistoryTypes('invalid'))).toEqual([])
   })
 })

@@ -36,6 +36,11 @@ const events = [
   { id: 'sales.shipment.updated', label: 'Shipment Updated', entity: 'shipment', category: 'crud' },
   { id: 'sales.shipment.deleted', label: 'Shipment Deleted', entity: 'shipment', category: 'crud' },
 
+  // Returns
+  { id: 'sales.return.created', label: 'Return Created', entity: 'return', category: 'crud' },
+  { id: 'sales.return.updated', label: 'Return Updated', entity: 'return', category: 'crud' },
+  { id: 'sales.return.deleted', label: 'Return Deleted', entity: 'return', category: 'crud' },
+
   // Notes
   { id: 'sales.note.created', label: 'Note Created', entity: 'note', category: 'crud' },
   { id: 'sales.note.updated', label: 'Note Updated', entity: 'note', category: 'crud' },

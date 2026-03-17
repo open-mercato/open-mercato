@@ -486,7 +486,7 @@ export function AddressTiles<C = unknown>({
 
   return (
     <div className="space-y-4">
-      {!hideAddButton ? (
+      {!hideAddButton && hasAddresses ? (
         <div className="flex justify-end">
           <Button
             type="button"

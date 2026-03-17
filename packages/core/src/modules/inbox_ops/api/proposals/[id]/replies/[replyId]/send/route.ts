@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxProposalAction, InboxEmail } from '../../../../../../data/entities'
 import { draftReplyPayloadSchema } from '../../../../../../data/validators'
 import { emitInboxOpsEvent } from '../../../../../../events'
+import { createMessageRecordForReply } from '../../../../../../lib/messagesIntegration'
 import {
   resolveRequestContext,
   resolveProposal,
@@ -20,18 +21,6 @@ export const metadata = {
 
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.RESEND_API_KEY
-    if (!apiKey) {
-      return NextResponse.json({ error: 'Email service not configured' }, { status: 503 })
-    }
-
-    const emailDisabled =
-      parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false) ||
-      parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
-    if (emailDisabled) {
-      return NextResponse.json({ error: 'Email delivery is disabled' }, { status: 503 })
-    }
-
     const ctx = await resolveRequestContext(req)
     const url = new URL(req.url)
     const proposal = await resolveProposal(url, ctx)
@@ -80,8 +69,21 @@ export async function POST(req: Request) {
     if (!payloadResult.success) {
       return NextResponse.json({ error: 'Reply payload missing required fields (to, subject, body)' }, { status: 400 })
     }
-    const { to: toAddress, subject, body, inReplyToMessageId, references: payloadReferences } = payloadResult.data
+    const { to: toAddress, toName, subject, body } = payloadResult.data
 
+    const apiKey = process.env.RESEND_API_KEY
+    if (!apiKey) {
+      return NextResponse.json({ error: 'Email service not configured' }, { status: 503 })
+    }
+
+    const emailDisabled =
+      parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false) ||
+      parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
+    if (emailDisabled) {
+      return NextResponse.json({ error: 'Email delivery is disabled' }, { status: 503 })
+    }
+
+    const { inReplyToMessageId, references: payloadReferences } = payloadResult.data
     const fromAddress = process.env.EMAIL_FROM || `inbox@${process.env.INBOX_OPS_DOMAIN || 'inbox.mercato.local'}`
 
     const headers: Record<string, string> = {}
@@ -109,11 +111,24 @@ export async function POST(req: Request) {
     }
 
     const sentMessageId = sendData?.id || null
+    const messagesResult = await createMessageRecordForReply(
+      { to: toAddress, toName, subject, body },
+      proposal.inboxEmailId,
+      {
+        container: ctx.container,
+        scope: {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          userId: ctx.userId,
+        },
+      },
+    )
 
     action.metadata = {
       ...(action.metadata && typeof action.metadata === 'object' ? action.metadata : {}),
       replySentAt: new Date().toISOString(),
       sentMessageId,
+      ...(messagesResult ? { messageRecordId: messagesResult.messageId } : {}),
     }
     await ctx.em.flush()
 
@@ -125,12 +140,17 @@ export async function POST(req: Request) {
         organizationId: ctx.organizationId,
         toAddress,
         sentMessageId,
+        messageRecordId: messagesResult?.messageId ?? null,
       })
     } catch (eventError) {
       console.error('[inbox_ops:reply:send] Failed to emit event:', eventError)
     }
 
-    return NextResponse.json({ ok: true, sentMessageId })
+    return NextResponse.json({
+      ok: true,
+      sentMessageId,
+      ...(messagesResult ? { messageRecordId: messagesResult.messageId } : {}),
+    })
   } catch (err) {
     return handleRouteError(err, 'send reply')
   }
@@ -141,8 +161,8 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Send draft reply',
   methods: {
     POST: {
-      summary: 'Send a draft reply email via the configured email provider',
-      description: 'Sends the draft_reply action payload as an email. Sets In-Reply-To and References headers for threading.',
+      summary: 'Send a draft reply email and register it in messages when available',
+      description: 'Sends the draft_reply action payload via the configured email provider. When the messages module is available, also records the sent reply as an internal message record. Sets In-Reply-To and References headers for threading.',
       responses: [
         { status: 200, description: 'Reply sent successfully' },
         { status: 400, description: 'Missing required payload fields' },

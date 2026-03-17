@@ -5,6 +5,7 @@ import { discoverIntegrationSpecFiles } from '../../../packages/cli/src/lib/test
 const captureScreenshots = process.env.PW_CAPTURE_SCREENSHOTS === '1';
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
+const qaTestResultsRoot = path.join(projectRoot, '.ai', 'qa', 'test-results');
 const normalizePath = (value: string) => value.split(path.sep).join('/');
 const STATIC_TEST_IGNORES = [
   `${normalizePath(path.join(projectRoot, '.claude'))}/**`,
@@ -35,13 +36,13 @@ export default defineConfig({
     ? [
         ['github'],
         ['list'],
-        ['json', { outputFile: '.ai/qa/test-results/results.json' }],
-        ['html', { outputFolder: '.ai/qa/test-results/html', open: 'never' }],
+        ['json', { outputFile: path.join(qaTestResultsRoot, 'results.json') }],
+        ['html', { outputFolder: path.join(qaTestResultsRoot, 'html'), open: 'never' }],
       ]
     : [
         ['list'],
-        ['json', { outputFile: '.ai/qa/test-results/results.json' }],
-        ['html', { outputFolder: '.ai/qa/test-results/html', open: 'never' }],
+        ['json', { outputFile: path.join(qaTestResultsRoot, 'results.json') }],
+        ['html', { outputFolder: path.join(qaTestResultsRoot, 'html'), open: 'never' }],
       ],
-  outputDir: '.ai/qa/test-results/artifacts',
+  outputDir: path.join(qaTestResultsRoot, 'artifacts'),
 });

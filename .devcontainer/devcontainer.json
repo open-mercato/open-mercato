@@ -9,7 +9,7 @@
   "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
   "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
 
-  "forwardPorts": [3000, 5432, 6379, 7700],
+  "forwardPorts": [3000, "postgres:5432", "redis:6379", "meilisearch:7700"],
   "portsAttributes": {
     "3000": { "label": "App", "onAutoForward": "notify" },
     "5432": { "label": "PostgreSQL", "onAutoForward": "silent" },

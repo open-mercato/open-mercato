@@ -103,6 +103,8 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - Use manual `useInjectionSpotEvents(GLOBAL_MUTATION_INJECTION_SPOT_ID)` wiring only when you need behavior that `useGuardedMutation` does not support.
 - Keep `CrudForm` implementations reusable: extract shared field/group builders and submit handlers into module-level helpers when multiple pages or dialogs need the same shape.
 - Drive validation with a Zod schema and surface field errors via `createCrudFormError`.
+- When using `CrudForm` with Zod, validation messages may be i18n keys because `CrudForm` translates them before display.
+- If you validate outside `CrudForm` or manually map `safeParse(...).error.issues`, you MUST translate `issue.message` before passing it to `createCrudFormError` or rendering it in the UI.
 - Keep `fields` and `groups` in memoized helpers (see customers person form config).
 - Pass `entityIds` when custom fields are involved so form helpers load correct custom-field sets.
 - Use `createCrud`/`updateCrud`/`deleteCrud` for submit actions and call `flash()` for success or failure messaging.
@@ -179,3 +181,106 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - When a host surface is replacement-aware, resolve implementations via `useRegisteredComponent(handle, Fallback)` instead of hardcoded component references.
 - Prefer additive override modes (`wrapper`, `props`) before full `replace`; reserve `replace` for cases where compatibility is preserved.
 - Keep handle IDs stable and document them when introducing new replacement-aware surfaces.
+
+## Portal Extension
+
+The portal extensibility system lets app modules build customer-facing pages that integrate with the shared portal shell, navigation, auth, and event bridge.
+
+### Portal Hooks (`packages/ui/src/portal/hooks/`)
+
+| Hook | Import | Purpose |
+|------|--------|---------|
+| `useCustomerAuth` | `@open-mercato/ui/portal/hooks/useCustomerAuth` | Customer auth state (user, roles, features, logout) |
+| `useTenantContext` | `@open-mercato/ui/portal/hooks/useTenantContext` | Resolve tenant/org from URL slug |
+| `usePortalInjectedMenuItems` | `@open-mercato/ui/portal/hooks/usePortalInjectedMenuItems` | Load feature-gated menu items for portal surfaces |
+| `usePortalEventBridge` | `@open-mercato/ui/portal/hooks/usePortalEventBridge` | SSE connection for portal real-time events |
+| `usePortalAppEvent` | `@open-mercato/ui/portal/hooks/usePortalAppEvent` | Listen for portal events by pattern |
+
+### Portal Shell (`packages/ui/src/portal/PortalShell.tsx`)
+
+Shared layout with header, nav (built-in + injected), main content, and footer. Supports event bridge and component replacement handles.
+
+```tsx
+import { PortalShell } from '@open-mercato/ui/portal/PortalShell'
+import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'
+
+function MyPage({ orgSlug }) {
+  const { user, logout } = useCustomerAuth(orgSlug)
+  return (
+    <PortalShell orgSlug={orgSlug} authenticated={!!user} onLogout={logout} enableEventBridge>
+      {/* page content */}
+    </PortalShell>
+  )
+}
+```
+
+### Portal Menu Injection Spots (FROZEN)
+
+| Spot ID | Purpose |
+|---------|---------|
+| `menu:portal:sidebar:main` | Main portal navigation items |
+| `menu:portal:sidebar:account` | Account/settings navigation items |
+| `menu:portal:header:actions` | Header action buttons |
+| `menu:portal:user-dropdown` | User dropdown menu items |
+
+### Portal Widget Injection Spots (FROZEN)
+
+| Spot ID | Purpose |
+|---------|---------|
+| `portal:dashboard:sections` | Dashboard section cards |
+| `portal:dashboard:profile` | Dashboard profile area |
+| `portal:dashboard:sidebar` | Dashboard sidebar |
+| `portal:<pageId>:before` | Before page content |
+| `portal:<pageId>:after` | After page content |
+
+### Portal Component Replacement Handles (FROZEN)
+
+| Handle | Purpose |
+|--------|---------|
+| `page:portal:layout` | Entire portal shell |
+| `section:portal:header` | Header bar |
+| `section:portal:footer` | Footer |
+| `section:portal:sidebar` | Navigation sidebar |
+| `section:portal:user-menu` | User dropdown |
+
+### Declarative Customer Auth in Page Metadata
+
+Portal pages can declare `requireCustomerAuth: true` and `requireCustomerFeatures` in their page metadata:
+
+```typescript
+// frontend/[orgSlug]/portal/orders/page.meta.ts
+export const metadata = {
+  requireCustomerAuth: true,
+  requireCustomerFeatures: ['portal.orders.view'],
+  navHidden: true,
+}
+```
+
+### Declarative Customer Role Features in setup.ts
+
+Modules can declare features to be merged into customer role ACLs:
+
+```typescript
+// setup.ts
+export const setup: ModuleSetupConfig = {
+  defaultCustomerRoleFeatures: {
+    buyer: ['portal.orders.view', 'portal.orders.create'],
+    viewer: ['portal.orders.view'],
+  },
+}
+```
+
+### Portal Event Bridge
+
+Events with `portalBroadcast: true` are streamed to authenticated portal users via `/api/customer_accounts/portal/events/stream`.
+
+```typescript
+// events.ts
+const events = [
+  { id: 'sales.order.status_changed', label: 'Order Status Changed', portalBroadcast: true },
+] as const
+
+// In portal component
+import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
+usePortalAppEvent('sales.order.status_changed', (event) => { refetch() })
+```

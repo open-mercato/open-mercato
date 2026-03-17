@@ -1,8 +1,8 @@
 # SPEC-052: Integration Test Coverage Quick Wins (API Tests)
 
 **Date:** 2026-02-22
-**Updated:** 2026-02-23
-**Status:** In Progress — Phase 1 complete
+**Updated:** 2026-03-16
+**Status:** In Progress — Phases 1-2 complete
 **Scope:** Integration test coverage improvement across all core modules
 
 ---
@@ -26,9 +26,11 @@ Baseline integration test coverage: **56.51% lines, 26.1% functions, 55.98% bran
 
 **15 new pure-API test files** across 6 modules, bringing the total to **117 tests** (~28 pure-API).
 
-### Modules Still with Zero Integration Tests
+### Modules Still with Zero Module-Local Integration Tests
 
-workflows (18 routes), notifications (12), business_rules (9), attachments (7), planner (6), perspectives (3), feature_toggles (8, UI-only admin tests)
+workflows (18 routes), business_rules (9), attachments (7), planner (6), perspectives (3), feature_toggles (8, UI-only admin tests)
+
+`notifications` no longer belongs in the zero-coverage bucket because [`packages/core/src/modules/notifications/__integration__/TC-ADMIN-013.spec.ts`](../../packages/core/src/modules/notifications/__integration__/TC-ADMIN-013.spec.ts) already covers notification creation and batch-creation SSE delivery. Phase 2 below targets only the remaining API gaps.
 
 ### Critically Undertested Files (0% function coverage)
 
@@ -95,33 +97,80 @@ The following production bugs were discovered and fixed while writing tests:
 
 ---
 
-### Phase 2 — Medium Effort (~12 test files)
+### Phase 2 — Medium Effort (~12 test files, refreshed 2026-03-15) ✅ COMPLETE
 
 Modules with more endpoints or logic requiring richer fixture setup.
 
 | Module | Routes | Tests | What's Covered |
 |--------|--------|-------|----------------|
-| **notifications** | 12 | 4 | List + read/dismiss, batch ops, settings, role/feature config |
-| **feature_toggles** | 8 | 3 | Global toggle CRUD, override CRUD, check endpoints |
-| **business_rules** | 9 | 3 | Rule set CRUD, rule CRUD + ordering, rule execution |
-| **attachments** | 7 | 2 | File upload + library CRUD, image retrieval + partitions |
+| **notifications** | 11 API route files + existing SSE integration coverage | 3 new files | Inbox lifecycle, settings, bulk targeting by user-role-feature |
+| **feature_toggles** | 8 | 3 | Global toggle CRUD, override list/detail/change-state, typed check endpoints |
+| **business_rules** | 9 | 3-4 | Rule set CRUD, rule CRUD, set membership ordering, execution + logs |
+| **attachments** | 7 | 2 medium-effort files + 1 deferred binary-access file | Upload/list/detail/patch/delete, partitions + transfer, optional file/image access |
+
+**Why this refresh is needed**
+
+- `notifications` already has one integration spec (`TC-ADMIN-013`) covering notification creation and batch creation SSE delivery, so the remaining work is narrower than the original table implied.
+- `notifications` "role/feature notification config" was inaccurate. The current APIs are recipient-targeted bulk creation endpoints: `/api/notifications/role` and `/api/notifications/feature`.
+- `attachments` now has broader API behavior than "file upload + library CRUD, image retrieval + partitions" captured. The current surface includes upload/list/detail/patch/delete, partitions, transfer, raw file download, and resized image rendering.
+- `business_rules` execution coverage should account for the live log endpoints as part of the public route surface.
 
 **Test files:**
 
-| File | Test ID | Scope |
-|------|---------|-------|
-| `packages/core/src/modules/notifications/__integration__/TC-NOTIF-001.spec.ts` | TC-NOTIF-001 | Notification list + read/dismiss |
-| `packages/core/src/modules/notifications/__integration__/TC-NOTIF-002.spec.ts` | TC-NOTIF-002 | Batch operations |
-| `packages/core/src/modules/notifications/__integration__/TC-NOTIF-003.spec.ts` | TC-NOTIF-003 | Notification settings |
-| `packages/core/src/modules/notifications/__integration__/TC-NOTIF-004.spec.ts` | TC-NOTIF-004 | Role/feature notification config |
-| `packages/core/src/modules/feature_toggles/__integration__/TC-FT-001.spec.ts` | TC-FT-001 | Global toggle CRUD |
-| `packages/core/src/modules/feature_toggles/__integration__/TC-FT-002.spec.ts` | TC-FT-002 | Override CRUD |
-| `packages/core/src/modules/feature_toggles/__integration__/TC-FT-003.spec.ts` | TC-FT-003 | Check endpoints (boolean/string/number/json) |
-| `packages/core/src/modules/business_rules/__integration__/TC-BR-001.spec.ts` | TC-BR-001 | Rule set CRUD |
-| `packages/core/src/modules/business_rules/__integration__/TC-BR-002.spec.ts` | TC-BR-002 | Rule CRUD + ordering |
-| `packages/core/src/modules/business_rules/__integration__/TC-BR-003.spec.ts` | TC-BR-003 | Rule execution |
-| `packages/core/src/modules/attachments/__integration__/TC-ATT-001.spec.ts` | TC-ATT-001 | File upload + library CRUD |
-| `packages/core/src/modules/attachments/__integration__/TC-ATT-002.spec.ts` | TC-ATT-002 | Image retrieval + partitions |
+| File | Test ID | Scope | Notes |
+|------|---------|-------|-------|
+| `packages/core/src/modules/notifications/__integration__/TC-NOTIF-001.spec.ts` | TC-NOTIF-001 | Inbox lifecycle: list, unread count, mark read, dismiss, restore, mark-all-read | ✅ Complements existing `TC-ADMIN-013`; does not duplicate SSE creation coverage |
+| `packages/core/src/modules/notifications/__integration__/TC-NOTIF-002.spec.ts` | TC-NOTIF-002 | Notification settings (`GET/POST /api/notifications/settings`) | ✅ Delivery config read/write only |
+| `packages/core/src/modules/notifications/__integration__/TC-NOTIF-003.spec.ts` | TC-NOTIF-003 | Bulk targeting endpoints (`/batch`, `/role`, `/feature`) | ✅ Treats role/feature as recipient-targeted creation, not config |
+| `packages/core/src/modules/feature_toggles/__integration__/TC-FT-001.spec.ts` | TC-FT-001 | Global toggle CRUD (`/api/feature_toggles/global`, `/api/feature_toggles/global/[id]`) | ✅ Superadmin-only |
+| `packages/core/src/modules/feature_toggles/__integration__/TC-FT-002.spec.ts` | TC-FT-002 | Override list/detail/change-state (`/api/feature_toggles/overrides`, `/api/feature_toggles/global/[id]/override`) | ✅ Requires explicit tenant context |
+| `packages/core/src/modules/feature_toggles/__integration__/TC-FT-003.spec.ts` | TC-FT-003 | Check endpoints (boolean/string/number/json) | ✅ Asserts source resolution and typed values |
+| `packages/core/src/modules/business_rules/__integration__/TC-BR-001.spec.ts` | TC-BR-001 | Rule set CRUD (`/api/business_rules/sets`) | ✅ Includes soft-delete assertions |
+| `packages/core/src/modules/business_rules/__integration__/TC-BR-002.spec.ts` | TC-BR-002 | Rule CRUD (`/api/business_rules/rules`) | ✅ Covers create, update, list, delete |
+| `packages/core/src/modules/business_rules/__integration__/TC-BR-003.spec.ts` | TC-BR-003 | Rule set membership ordering (`/api/business_rules/sets/[id]/members`) | ✅ Add/update/remove membership and sequence handling |
+| `packages/core/src/modules/business_rules/__integration__/TC-BR-004.spec.ts` | TC-BR-004 | Rule execution + logs (`/api/business_rules/execute`, `/api/business_rules/execute/[ruleId]`, `/api/business_rules/logs`) | ✅ Implemented with execution-log serialization fix |
+| `packages/core/src/modules/attachments/__integration__/TC-ATT-001.spec.ts` | TC-ATT-001 | Upload/list/detail/patch/delete (`/api/attachments`, `/api/attachments/library`, `/api/attachments/library/[id]`) | ✅ Focus on metadata, tags, assignments, cleanup |
+| `packages/core/src/modules/attachments/__integration__/TC-ATT-002.spec.ts` | TC-ATT-002 | Partition CRUD + transfer (`/api/attachments/partitions`, `/api/attachments/transfer`) | ✅ Handles both writable partitions and demo-mode partition lock behavior |
+| `packages/core/src/modules/attachments/__integration__/TC-ATT-003.spec.ts` | TC-ATT-003 | Raw file + image access (`/api/attachments/file/[id]`, `/api/attachments/image/[id]`) | Defer to Phase 3 if Phase 2 must stay medium-effort |
+
+**Route coverage map**
+
+- `notifications`
+  - `GET/POST /api/notifications`
+  - `POST /api/notifications/[id]/read`
+  - `POST /api/notifications/[id]/dismiss`
+  - `POST /api/notifications/[id]/restore`
+  - `POST /api/notifications/mark-all-read`
+  - `GET /api/notifications/unread-count`
+  - `POST /api/notifications/batch`
+  - `POST /api/notifications/role`
+  - `POST /api/notifications/feature`
+  - `GET/POST /api/notifications/settings`
+  - `POST /api/notifications/[id]/action` remains optional in Phase 2 because it needs a fixtureable action payload
+- `feature_toggles`
+  - `GET/POST/PUT/DELETE /api/feature_toggles/global`
+  - `GET /api/feature_toggles/global/[id]`
+  - `GET /api/feature_toggles/global/[id]/override`
+  - `GET/PUT /api/feature_toggles/overrides`
+  - `GET /api/feature_toggles/check/{boolean|string|number|json}`
+- `business_rules`
+  - `GET/POST/PUT/DELETE /api/business_rules/sets`
+  - `GET /api/business_rules/sets/[id]`
+  - `POST/PUT/DELETE /api/business_rules/sets/[id]/members`
+  - `GET/POST/PUT/DELETE /api/business_rules/rules`
+  - `GET /api/business_rules/rules/[id]`
+  - `POST /api/business_rules/execute`
+  - `POST /api/business_rules/execute/[ruleId]`
+  - `GET /api/business_rules/logs`
+  - `GET /api/business_rules/logs/[id]`
+- `attachments`
+  - `GET/POST/DELETE /api/attachments`
+  - `GET /api/attachments/library`
+  - `GET/PATCH/DELETE /api/attachments/library/[id]`
+  - `GET/POST/PUT/DELETE /api/attachments/partitions`
+  - `POST /api/attachments/transfer`
+  - `GET /api/attachments/file/[id]`
+  - `GET /api/attachments/image/[id]/[[...slug]]`
 
 ---
 
@@ -190,3 +239,10 @@ Per module:
    - Verify function coverage is climbing (main target metric)
 
 5. **Data isolation check**: confirm no test relies on seeded/demo data and all created records are cleaned up in `finally` blocks
+
+---
+
+## Changelog
+
+- 2026-03-15: Refreshed Phase 2 after post-Phase-1 repo changes. Removed `notifications` from the zero-coverage list, aligned planned tests to current route behavior, added explicit route coverage mapping, and split `attachments` binary file/image checks into an optional deferred file.
+- 2026-03-16: Completed Phase 2 API-first coverage with 12 passing integration tests across `notifications`, `feature_toggles`, `business_rules`, and `attachments`. Updated route paths to the live underscore-based endpoints where applicable, aligned attachment partition coverage with demo-mode lock behavior, and fixed `business_rules` execution/log response serialization for bigint log IDs.
