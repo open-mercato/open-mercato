@@ -46,13 +46,7 @@ export type PaymentLinkPageResponse = {
       companyRequired: boolean
       termsRequired?: boolean
       termsMarkdown?: string | null
-      collectedAt?: string | null
-      termsAcceptedAt?: string | null
-      companyEntityId?: string | null
-      personEntityId?: string | null
-      companyName?: string | null
-      personName?: string | null
-      email?: string | null
+      collected?: boolean
     } | null
   }
   transaction?: {
@@ -313,7 +307,7 @@ function DefaultCheckoutSection({
     : null
   const isSettled = data?.link?.status === 'completed'
     || ['authorized', 'captured', 'partially_captured', 'refunded', 'partially_refunded'].includes(data?.transaction?.unifiedStatus ?? '')
-  const customerCaptureRequired = customerCapture?.enabled === true && !customerCapture.collectedAt
+  const customerCaptureRequired = customerCapture?.enabled === true && !customerCapture.collected
   const termsRequired = customerCapture?.termsRequired === true && !!customerCapture?.termsMarkdown
   const canFillCustomerForm = !termsRequired || customerTermsAccepted
   const customerFormReady = customerForm.firstName.trim().length > 0
@@ -618,15 +612,8 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
 
   React.useEffect(() => {
     const customerCapture = data?.link?.customerCapture
-    if (customerCapture?.collectedAt) return
-    setCustomerTermsAccepted(customerCapture?.termsAcceptedAt != null)
-    setCustomerForm((current) => ({
-      companyName: current.companyName || customerCapture?.companyName || '',
-      firstName: current.firstName,
-      lastName: current.lastName,
-      email: current.email || customerCapture?.email || '',
-      phone: current.phone,
-    }))
+    if (customerCapture?.collected) return
+    setCustomerTermsAccepted(false)
   }, [data?.link?.customerCapture])
 
   React.useEffect(() => {
@@ -718,7 +705,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     && !loading
     && !error
     && !data?.passwordRequired
-    && !(data?.link?.customerCapture?.enabled && !data.link.customerCapture.collectedAt)
+    && !(data?.link?.customerCapture?.enabled && !data.link.customerCapture.collected)
     && !isSettled
     && !checkoutReturnState,
   )

@@ -71,6 +71,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   if (!state.customerCapture?.enabled) {
     return NextResponse.json({ error: 'Customer capture is disabled for this payment link' }, { status: 409 })
   }
+  if (state.customerCapture.collectedAt) {
+    return NextResponse.json({ error: 'Customer details have already been captured' }, { status: 409 })
+  }
 
   const commandBus = (container as RequestContainer).resolve('commandBus')
   const em = (container as RequestContainer).resolve('em')
@@ -187,11 +190,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   }
 
   if (personEntityId && !companyEntityId && companyName) {
-    const profile = await em.findOne(CustomerPersonProfile, { entity: personEntityId })
+    const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: personEntityId }, undefined, scope)
     if (profile?.company) {
       companyEntityId = typeof profile.company === 'string' ? profile.company : profile.company.id
     }
   }
+
+  const collectedAt = new Date().toISOString()
+  const termsAcceptedAt = state.customerCapture.termsRequired ? collectedAt : null
+  const personName = buildDisplayName(firstName, lastName)
 
   state.link.metadata = buildPaymentLinkStoredMetadata({
     amount: state.amount,
@@ -204,12 +211,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       companyRequired: state.customerCapture.companyRequired,
       termsRequired: state.customerCapture.termsRequired,
       termsMarkdown: state.customerCapture.termsMarkdown ?? null,
-      collectedAt: new Date().toISOString(),
-      termsAcceptedAt: state.customerCapture.termsRequired ? new Date().toISOString() : null,
+      collectedAt,
+      termsAcceptedAt,
       companyEntityId,
       personEntityId,
       companyName,
-      personName: buildDisplayName(firstName, lastName),
+      personName,
       email,
     },
   })
@@ -227,7 +234,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       companyEntityId,
       personEntityId,
       companyName,
-      personName: buildDisplayName(firstName, lastName),
+      personName,
       email,
     },
   })
@@ -235,17 +242,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   return NextResponse.json({
     ok: true,
     customerCapture: {
-      enabled: true,
-      companyRequired: state.customerCapture.companyRequired,
-      termsRequired: state.customerCapture.termsRequired,
-      termsMarkdown: state.customerCapture.termsMarkdown ?? null,
-      collectedAt: new Date().toISOString(),
-      termsAcceptedAt: state.customerCapture.termsRequired ? new Date().toISOString() : null,
-      companyEntityId,
-      personEntityId,
-      companyName,
-      personName: buildDisplayName(firstName, lastName),
-      email,
+      collected: true,
     },
   })
 }

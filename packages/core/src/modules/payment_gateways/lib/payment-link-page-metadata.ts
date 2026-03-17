@@ -49,7 +49,7 @@ function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['custo
   if (!Object.keys(source).length) return undefined
   return {
     enabled: source.enabled === true,
-    companyRequired: source.companyRequired !== false,
+    companyRequired: source.companyRequired === true,
     termsRequired: source.termsRequired === true,
     termsMarkdown: toStringOrNull(source.termsMarkdown),
     collectedAt: toStringOrNull(source.collectedAt),

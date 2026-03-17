@@ -71,7 +71,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
       metadata: state.pageMetadata,
       customFields: state.customFields,
       customFieldsetCode: state.customFieldsetCode,
-      customerCapture: state.customerCapture,
+      customerCapture: state.customerCapture
+        ? {
+            enabled: state.customerCapture.enabled,
+            companyRequired: state.customerCapture.companyRequired,
+            termsRequired: state.customerCapture.termsRequired,
+            termsMarkdown: state.customerCapture.termsMarkdown,
+            collected: !!state.customerCapture.collectedAt,
+          }
+        : null,
     },
     transaction: {
       id: state.transaction.id,

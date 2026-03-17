@@ -139,11 +139,7 @@ describe('payment link customer capture route', () => {
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
       customerCapture: {
-        companyEntityId: 'company-1',
-        personEntityId: 'person-1',
-        companyName: 'Acme Commerce',
-        personName: 'Jane Doe',
-        email: 'jane@example.com',
+        collected: true,
       },
     })
   })

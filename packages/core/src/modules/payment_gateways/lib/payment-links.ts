@@ -19,8 +19,16 @@ export function normalizeCustomPaymentLinkToken(input: string | null | undefined
   return trimmed.length > 0 ? trimmed : null
 }
 
+const RESERVED_TOKENS = new Set([
+  'api', 'app', 'admin', 'backend', 'auth', 'login', 'logout', 'signup',
+  'pay', 'static', 'public', 'assets', 'health', 'status', 'webhook',
+  'webhooks', 'callback', 'oauth', 'portal', 'docs', 'help',
+])
+
 export function isValidCustomPaymentLinkToken(token: string): boolean {
-  return /^[a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?$/.test(token)
+  if (!(/^[a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?$/.test(token))) return false
+  if (RESERVED_TOKENS.has(token)) return false
+  return true
 }
 
 export async function hashPaymentLinkPassword(password: string): Promise<string> {

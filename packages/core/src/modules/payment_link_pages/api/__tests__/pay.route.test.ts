@@ -103,8 +103,8 @@ describe('payment link pages pay route', () => {
         customFieldsetCode: 'invoice',
         customerCapture: {
           enabled: true,
-          personEntityId: 'person-1',
-          email: 'jane@example.com',
+          companyRequired: false,
+          collected: true,
         },
       },
       transaction: {
