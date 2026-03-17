@@ -1,7 +1,8 @@
-export type SalesDocumentNumberKind = 'quote' | 'order'
+export type SalesDocumentNumberKind = 'quote' | 'order' | 'return'
 
 export const DEFAULT_ORDER_NUMBER_FORMAT = 'ORDER-{yyyy}{mm}{dd}-{seq:5}'
 export const DEFAULT_QUOTE_NUMBER_FORMAT = 'QUOTE-{yyyy}{mm}{dd}-{seq:5}'
+export const DEFAULT_RETURN_NUMBER_FORMAT = 'RET-{yyyy}{mm}{dd}-{seq:5}'
 
 export const DOCUMENT_NUMBER_TOKENS: Array<{ token: string; description: string }> = [
   { token: '{yyyy}', description: '4-digit year, e.g. 2025' },

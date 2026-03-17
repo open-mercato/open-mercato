@@ -173,6 +173,7 @@ const ADJUSTMENT_KIND_DEFAULTS: SalesDictionarySeed[] = [
   { value: 'tax', label: 'Tax' },
   { value: 'shipping', label: 'Shipping' },
   { value: 'surcharge', label: 'Surcharge' },
+  { value: 'return', label: 'Return' },
   { value: 'custom', label: 'Custom' },
 ]
 
