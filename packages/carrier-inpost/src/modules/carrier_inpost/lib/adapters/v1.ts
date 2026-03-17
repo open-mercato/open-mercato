@@ -70,7 +70,6 @@ type ServiceKind = 'locker' | 'courier_c2c' | 'courier'
 
 const INPOST_SERVICES: ReadonlyArray<{ serviceCode: string; inpostCode: string; serviceName: string; kind: ServiceKind }> = [
   { serviceCode: 'locker_standard', inpostCode: 'inpost_locker_standard', serviceName: 'InPost Locker Standard (Paczkomat)', kind: 'locker' },
-  { serviceCode: 'locker_economy', inpostCode: 'inpost_locker_economy', serviceName: 'InPost Locker Economy (Paczkomat)', kind: 'locker' },
   { serviceCode: 'courier_standard', inpostCode: 'inpost_courier_standard', serviceName: 'InPost Courier Standard', kind: 'courier' },
   { serviceCode: 'courier_c2c', inpostCode: 'inpost_courier_c2c', serviceName: 'InPost Courier C2C', kind: 'courier_c2c' },
 ]
@@ -249,8 +248,7 @@ export const inpostAdapterV1: ShippingAdapter = {
 
     // Each service has different required fields for the calculate endpoint.
     // We send one request per service and silently skip services that return errors
-    // (e.g. org not contracted for couriers → missing_trucker_id, locker_economy
-    // needing commercial_product_identifier, etc.).
+    // (e.g. org not contracted for couriers → missing_trucker_id, etc.).
     const settled = await Promise.allSettled(
       INPOST_SERVICES.map(async ({ serviceCode, inpostCode, serviceName, kind }) => {
         const lockerPoint = match(kind)

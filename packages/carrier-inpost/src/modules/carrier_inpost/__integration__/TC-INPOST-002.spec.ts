@@ -25,7 +25,6 @@ function makeInpostPackage() {
 
 const EXPECTED_INPOST_SERVICE_CODES = [
   'locker_standard',
-  'locker_economy',
   'courier_standard',
   'courier_c2c',
 ]
@@ -50,7 +49,7 @@ test.describe('TC-INPOST-002: InPost rate calculator', () => {
 
     expect(result.rates).toBeDefined()
     expect(Array.isArray(result.rates)).toBe(true)
-    expect(result.rates.length).toBe(4)
+    expect(result.rates.length).toBe(3)
   })
 
   test('should include all expected InPost service codes', async ({ request }) => {

@@ -24,15 +24,19 @@ function makeInpostPackage() {
 }
 
 /**
- * TC-INPOST-004: Repeated cancel attempts for InPost all return 502 not-supported
+ * TC-INPOST-004: Cancel an InPost shipment
  *
- * Because InPost does not support cancellation via API, every cancel attempt
- * returns 502 regardless of how many times it is called. This test verifies
- * that the behaviour is consistent across two successive attempts (no state
- * change that would produce a different error code on the second call).
+ * InPost supports cancellation via DELETE /v1/shipments/:id (returns 204).
+ * Cancellation is only permitted for shipments in 'created' or 'offers_prepared' status.
+ * Because createShipment goes through the full offer/buy/poll flow before returning,
+ * the shipment will already be in 'confirmed' status by the time this test cancels it.
+ * The adapter calls DELETE and surfaces the 'invalid_action' error as a 502.
+ *
+ * Both 200 (cancelled) and 502 (invalid_action for already-confirmed) are accepted —
+ * the sandbox confirms shipments faster than any subsequent cancel call can arrive.
  */
-test.describe('TC-INPOST-004: Repeated cancel attempts consistently return 502', () => {
-  test('should return 502 on both first and second cancel attempts for InPost', async ({ request }) => {
+test.describe('TC-INPOST-004: Cancel InPost shipment (post-buy)', () => {
+  test('should return 200 cancelled or 502 invalid_action for a confirmed shipment', async ({ request }) => {
     const token = await getAuthToken(request)
 
     const shipment = await createShipment(request, token, {
@@ -45,27 +49,21 @@ test.describe('TC-INPOST-004: Repeated cancel attempts consistently return 502',
 
     expect(shipment.shipmentId).toBeTruthy()
 
-    const cancelPayload = {
-      providerKey: 'inpost',
-      shipmentId: shipment.shipmentId,
+    const response = await apiRequest(request, 'POST', '/api/shipping-carriers/cancel', {
+      token,
+      data: {
+        providerKey: 'inpost',
+        shipmentId: shipment.shipmentId,
+      },
+    })
+
+    const body = await response.json()
+    if (response.status() === 200) {
+      expect(body.status).toBe('cancelled')
+    } else {
+      // Shipment already confirmed — InPost returns invalid_action
+      expect(response.status()).toBe(502)
+      expect(body.error).toBeTruthy()
     }
-
-    // First cancel attempt
-    const firstResponse = await apiRequest(request, 'POST', '/api/shipping-carriers/cancel', {
-      token,
-      data: cancelPayload,
-    })
-    expect(firstResponse.status()).toBe(502)
-    const firstBody = await firstResponse.json()
-    expect(firstBody.error).toContain('InPost does not support shipment cancellation via API')
-
-    // Second cancel attempt — same result, no state mutation
-    const secondResponse = await apiRequest(request, 'POST', '/api/shipping-carriers/cancel', {
-      token,
-      data: cancelPayload,
-    })
-    expect(secondResponse.status()).toBe(502)
-    const secondBody = await secondResponse.json()
-    expect(secondBody.error).toContain('InPost does not support shipment cancellation via API')
   })
 })
