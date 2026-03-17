@@ -1,12 +1,13 @@
 "use client"
 
+import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AddressFields } from './AddressFields'
 import { PackageEditor } from './PackageEditor'
-import type { Address, PackageDimension, LabelFormat, ContactInfo } from '../types'
+import type { Address, PackageDimension, LabelFormat, ContactInfo, DropOffPoint } from '../types'
 
 export type ConfigureStepProps = {
   origin: Address
@@ -16,8 +17,13 @@ export type ConfigureStepProps = {
   senderContact: ContactInfo
   receiverContact: ContactInfo
   targetPoint: string
+  c2cSendingMethod: string
   isFetchingRates: boolean
   canProceed: boolean
+  dropOffPointQuery: string
+  dropOffPoints: DropOffPoint[]
+  isFetchingDropOffPoints: boolean
+  dropOffPointsError: string | null
   onOriginChange: (address: Address) => void
   onDestinationChange: (address: Address) => void
   onPackagesChange: (packages: PackageDimension[]) => void
@@ -25,6 +31,8 @@ export type ConfigureStepProps = {
   onSenderContactChange: (contact: ContactInfo) => void
   onReceiverContactChange: (contact: ContactInfo) => void
   onTargetPointChange: (point: string) => void
+  onC2cSendingMethodChange: (method: string) => void
+  onSearchDropOffPoints: (query: string) => void
   onBack: () => void
   onNext: () => void
 }
@@ -34,13 +42,16 @@ const LABEL_FORMATS: LabelFormat[] = ['pdf', 'zpl', 'png']
 export const ConfigureStep = (props: ConfigureStepProps) => {
   const {
     origin, destination, packages, labelFormat,
-    senderContact, receiverContact, targetPoint,
+    senderContact, receiverContact, targetPoint, c2cSendingMethod,
     isFetchingRates, canProceed,
+    dropOffPointQuery, dropOffPoints, isFetchingDropOffPoints, dropOffPointsError,
     onOriginChange, onDestinationChange, onPackagesChange, onLabelFormatChange,
-    onSenderContactChange, onReceiverContactChange, onTargetPointChange,
+    onSenderContactChange, onReceiverContactChange, onTargetPointChange, onC2cSendingMethodChange,
+    onSearchDropOffPoints,
     onBack, onNext,
   } = props
   const t = useT()
+  const [searchInput, setSearchInput] = React.useState(dropOffPointQuery)
 
   return (
     <section className="space-y-6">
@@ -160,24 +171,118 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            {t('shipping_carriers.create.section.lockerPoint', 'Locker point')}
+            {t('shipping_carriers.create.section.c2cSendingMethod', 'C2C sending method')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              {t('shipping_carriers.create.field.targetPoint', 'Locker point ID (required for locker services)')}
+              {t('shipping_carriers.create.field.c2cSendingMethod', 'Sending method (applies to courier_c2c service only)')}
             </label>
-            <input
+            <select
               className="w-full rounded border bg-background px-2 py-1.5 text-sm"
-              value={targetPoint}
-              onChange={(e) => onTargetPointChange(e.target.value)}
+              value={c2cSendingMethod}
+              onChange={(e) => onC2cSendingMethodChange(e.target.value)}
               disabled={isFetchingRates}
-              placeholder="e.g. KRA010"
-            />
+            >
+              <option value="">{t('shipping_carriers.create.c2cSendingMethod.default', 'Default (dispatch_order)')}</option>
+              <option value="parcel_locker">{t('shipping_carriers.create.c2cSendingMethod.parcel_locker', 'Parcel locker')}</option>
+              <option value="dispatch_order">{t('shipping_carriers.create.c2cSendingMethod.dispatch_order', 'Dispatch order')}</option>
+              <option value="pop">{t('shipping_carriers.create.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</option>
+              <option value="any_point">{t('shipping_carriers.create.c2cSendingMethod.any_point', 'Any point')}</option>
+            </select>
           </div>
         </CardContent>
       </Card>
+
+      {(c2cSendingMethod === 'parcel_locker' || c2cSendingMethod === 'pop') && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {t('shipping_carriers.create.section.dropOffPoint', 'Drop-off / locker point')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {targetPoint && (
+              <div className="rounded border border-primary bg-primary/5 px-3 py-2 text-sm">
+                <span className="font-medium text-xs text-muted-foreground mr-2">
+                  {t('shipping_carriers.create.field.selectedPoint', 'Selected:')}
+                </span>
+                <span className="font-mono font-medium">{targetPoint}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="ml-2 h-auto py-0 text-xs"
+                  onClick={() => onTargetPointChange('')}
+                  disabled={isFetchingRates}
+                >
+                  {t('shipping_carriers.create.action.clearPoint', 'Clear')}
+                </Button>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded border bg-background px-2 py-1.5 text-sm"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    onSearchDropOffPoints(searchInput)
+                  }
+                }}
+                disabled={isFetchingRates}
+                placeholder={t('shipping_carriers.create.field.dropOffSearch', 'Postal code (e.g. 30-624) or point name (e.g. KRA012)')}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onSearchDropOffPoints(searchInput)}
+                disabled={isFetchingRates || isFetchingDropOffPoints || searchInput.trim().length === 0}
+              >
+                {isFetchingDropOffPoints ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  t('shipping_carriers.create.action.searchPoints', 'Search')
+                )}
+              </Button>
+            </div>
+
+            {dropOffPointsError && (
+              <p className="text-xs text-destructive">{dropOffPointsError}</p>
+            )}
+
+            {dropOffPoints.length > 0 && (
+              <ul className="max-h-60 overflow-y-auto divide-y rounded border text-sm">
+                {dropOffPoints.map((point) => (
+                  <li key={point.id}>
+                    <button
+                      type="button"
+                      className={`w-full px-3 py-2 text-left hover:bg-accent ${targetPoint === point.id ? 'bg-primary/5 font-medium' : ''}`}
+                      onClick={() => onTargetPointChange(point.id)}
+                      disabled={isFetchingRates}
+                    >
+                      <span className="font-mono mr-2">{point.name}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {[point.street, point.city, point.postalCode].filter(Boolean).join(', ')}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {!isFetchingDropOffPoints && dropOffPoints.length === 0 && dropOffPointQuery && !dropOffPointsError && (
+              <p className="text-xs text-muted-foreground">
+                {t('shipping_carriers.create.dropOffPoints.noResults', 'No drop-off points found for this search.')}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -221,3 +326,4 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
     </section>
   )
 }
+

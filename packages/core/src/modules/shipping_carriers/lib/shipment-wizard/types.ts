@@ -63,3 +63,14 @@ export type ContactFieldsProps = {
   onChange: (contact: ContactInfo) => void
   disabled?: boolean
 }
+
+export type DropOffPoint = {
+  id: string
+  name: string
+  type: string
+  city: string
+  postalCode: string
+  street: string
+  latitude?: number
+  longitude?: number
+}

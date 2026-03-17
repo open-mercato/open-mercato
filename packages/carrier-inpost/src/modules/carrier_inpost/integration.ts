@@ -46,6 +46,14 @@ export const integration: IntegrationDefinition = {
         helpText: 'Leave empty for production. Use the sandbox URL for testing.',
       },
       {
+        key: 'apiPointsBaseUrl',
+        label: 'Points API Base URL',
+        type: 'url',
+        required: false,
+        placeholder: 'https://api.inpost.pl',
+        helpText: 'Leave empty for production. Use the sandbox Points API URL for testing.',
+      },
+      {
         key: 'webhookSecret',
         label: 'Webhook Secret',
         type: 'secret',

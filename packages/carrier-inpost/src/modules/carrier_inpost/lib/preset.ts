@@ -11,6 +11,7 @@ type InpostCredentialShape = {
   apiToken: string
   organizationId: string
   apiBaseUrl?: string
+  apiPointsBaseUrl?: string
   webhookSecret?: string
 }
 
@@ -45,6 +46,7 @@ export function readInpostEnvPreset(env: NodeJS.ProcessEnv = process.env): Inpos
     apiToken: ['OM_INTEGRATION_INPOST_API_TOKEN'],
     organizationId: ['OM_INTEGRATION_INPOST_ORGANIZATION_ID'],
     apiBaseUrl: ['OM_INTEGRATION_INPOST_API_BASE_URL'],
+    apiPointsBaseUrl: ['OM_INTEGRATION_INPOST_API_POINTS_BASE_URL'],
     webhookSecret: ['OM_INTEGRATION_INPOST_WEBHOOK_SECRET'],
   } as const
 
@@ -65,6 +67,7 @@ export function readInpostEnvPreset(env: NodeJS.ProcessEnv = process.env): Inpos
   }
 
   const apiBaseUrl = readEnvValue(env, [...credentialKeys.apiBaseUrl])
+  const apiPointsBaseUrl = readEnvValue(env, [...credentialKeys.apiPointsBaseUrl])
   const webhookSecret = readEnvValue(env, [...credentialKeys.webhookSecret])
 
   return {
@@ -72,6 +75,7 @@ export function readInpostEnvPreset(env: NodeJS.ProcessEnv = process.env): Inpos
       apiToken,
       organizationId,
       ...(apiBaseUrl ? { apiBaseUrl } : {}),
+      ...(apiPointsBaseUrl ? { apiPointsBaseUrl } : {}),
       ...(webhookSecret ? { webhookSecret } : {}),
     },
     force: readBooleanEnv(env, ['OM_INTEGRATION_INPOST_FORCE_PRECONFIGURE']) ?? false,

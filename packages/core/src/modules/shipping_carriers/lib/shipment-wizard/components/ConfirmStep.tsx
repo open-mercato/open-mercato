@@ -21,6 +21,7 @@ export type ConfirmStepProps = {
   senderContact: ContactInfo
   receiverContact: ContactInfo
   targetPoint: string
+  c2cSendingMethod: string
   isSubmitting: boolean
   onRateSelect: (rate: ShippingRate) => void
   onBack: () => void
@@ -34,7 +35,7 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
   const {
     rates, ratesError, selectedRate, selectedProvider,
     origin, destination, packages, labelFormat,
-    senderContact, receiverContact, targetPoint,
+    senderContact, receiverContact, targetPoint, c2cSendingMethod,
     isSubmitting, onRateSelect, onBack, onSubmit,
   } = props
   const t = useT()
@@ -167,6 +168,14 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
                   {t('shipping_carriers.create.summary.targetPoint', 'Locker point')}
                 </dt>
                 <dd className="mt-0.5">{targetPoint}</dd>
+              </div>
+            ) : null}
+            {c2cSendingMethod ? (
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('shipping_carriers.create.summary.c2cSendingMethod', 'C2C sending method')}
+                </dt>
+                <dd className="mt-0.5">{c2cSendingMethod}</dd>
               </div>
             ) : null}
           </dl>

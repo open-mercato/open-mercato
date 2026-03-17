@@ -42,8 +42,13 @@ const CreateCarrierShipmentPage = () => {
               senderContact={wizard.senderContact}
               receiverContact={wizard.receiverContact}
               targetPoint={wizard.targetPoint}
+              c2cSendingMethod={wizard.c2cSendingMethod}
               isFetchingRates={wizard.isFetchingRates}
               canProceed={wizard.canProceedFromConfigure}
+              dropOffPointQuery={wizard.dropOffPointQuery}
+              dropOffPoints={wizard.dropOffPoints}
+              isFetchingDropOffPoints={wizard.isFetchingDropOffPoints}
+              dropOffPointsError={wizard.dropOffPointsError}
               onOriginChange={wizard.setOrigin}
               onDestinationChange={wizard.setDestination}
               onPackagesChange={wizard.setPackages}
@@ -51,6 +56,8 @@ const CreateCarrierShipmentPage = () => {
               onSenderContactChange={wizard.setSenderContact}
               onReceiverContactChange={wizard.setReceiverContact}
               onTargetPointChange={wizard.setTargetPoint}
+              onC2cSendingMethodChange={wizard.setC2cSendingMethod}
+              onSearchDropOffPoints={wizard.searchDropOffPoints}
               onBack={() => wizard.goToStep('provider')}
               onNext={wizard.handleConfigureNext}
             />
@@ -68,6 +75,7 @@ const CreateCarrierShipmentPage = () => {
               senderContact={wizard.senderContact}
               receiverContact={wizard.receiverContact}
               targetPoint={wizard.targetPoint}
+              c2cSendingMethod={wizard.c2cSendingMethod}
               isSubmitting={wizard.isSubmitting}
               onRateSelect={wizard.setSelectedRate}
               onBack={() => wizard.goToStep('configure')}

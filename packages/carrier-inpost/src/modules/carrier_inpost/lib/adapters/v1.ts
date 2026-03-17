@@ -8,11 +8,39 @@ import type {
   ShippingWebhookEvent,
   UnifiedShipmentStatus,
   Address,
+  DropOffPoint,
+  SearchDropOffPointsInput,
 } from '@open-mercato/core/modules/shipping_carriers/lib/adapter'
-import { inpostRequest, inpostRequestRaw, resolveOrganizationId } from '../client'
+import { inpostRequest, inpostRequestRaw, inpostPointsRequest, resolveOrganizationId } from '../client'
 import { mapInpostStatus, mapServiceCodeToInpost, isLockerService } from '../status-map'
 import { verifyInpostWebhook } from '../webhook-handler'
 import { inpostErrors } from '../errors'
+
+type InpostPointAddress = {
+  street?: string
+  building_number?: string
+  city?: string
+  post_code?: string
+  province?: string
+  country_code?: string
+}
+
+type InpostPoint = {
+  name: string
+  type: string
+  status?: string
+  location?: { latitude?: number; longitude?: number }
+  location_description?: string
+  address?: InpostPointAddress
+  address_details?: InpostPointAddress
+  [key: string]: unknown
+}
+
+type InpostPointsResponse = {
+  items?: InpostPoint[]
+  total_count?: number
+  [key: string]: unknown
+}
 
 type InpostShipmentResponse = {
   id: string | number
@@ -180,6 +208,22 @@ function resolveTargetPoint(credentials: Record<string, unknown>): string | unde
   return typeof point === 'string' && point.trim().length > 0 ? point.trim() : undefined
 }
 
+// Valid sending methods for courier_c2c per InPost docs:
+//   parcel_locker — sender drops parcel at a locker
+//   dispatch_order — courier picks up from sender address (default)
+//   pop            — sender drops at a POP (Post Office Point)
+//   any_point      — sender may use any available drop-off point
+const VALID_C2C_SENDING_METHODS = ['parcel_locker', 'dispatch_order', 'pop', 'any_point'] as const
+type C2cSendingMethod = (typeof VALID_C2C_SENDING_METHODS)[number]
+
+function resolveC2cSendingMethod(credentials: Record<string, unknown>): C2cSendingMethod {
+  const raw = credentials.c2cSendingMethod
+  if (typeof raw === 'string' && (VALID_C2C_SENDING_METHODS as ReadonlyArray<string>).includes(raw)) {
+    return raw as C2cSendingMethod
+  }
+  return 'dispatch_order'
+}
+
 type InpostLabelFormat = 'Pdf' | 'Zpl'
 
 function resolveInpostLabelFormat(labelFormat: CreateShipmentInput['labelFormat']): InpostLabelFormat {
@@ -276,7 +320,7 @@ export const inpostAdapterV1: ShippingAdapter = {
 
         const customAttributes = match(kind)
           .with('locker', () => ({ target_point: CALCULATE_PLACEHOLDER_LOCKER_POINT }))
-          .with('courier_c2c', () => ({ sending_method: 'dispatch_order' }))
+          .with('courier_c2c', () => ({ sending_method: resolveC2cSendingMethod(input.credentials) }))
           .otherwise(() => undefined)
 
         // All services require receiver.phone; locker services also require email.
@@ -340,7 +384,17 @@ export const inpostAdapterV1: ShippingAdapter = {
     const inpostServiceCode = mapServiceCodeToInpost(input.serviceCode)
 
     const targetPoint = resolveTargetPoint(input.credentials)
-    const customAttributes = targetPoint ? { target_point: targetPoint } : undefined
+    const isC2c = input.serviceCode === 'courier_c2c'
+    const c2cSendingMethod = resolveC2cSendingMethod(input.credentials)
+    const c2cNeedsTargetPoint = c2cSendingMethod === 'parcel_locker' || c2cSendingMethod === 'pop'
+    const customAttributes = match({ targetPoint, isC2c })
+      .with({ targetPoint: P.string, isC2c: true }, ({ targetPoint: tp }) => ({
+        sending_method: c2cSendingMethod,
+        ...(c2cNeedsTargetPoint ? { target_point: tp } : {}),
+      }))
+      .with({ targetPoint: P.string }, ({ targetPoint: tp }) => ({ target_point: tp }))
+      .with({ isC2c: true }, () => ({ sending_method: c2cSendingMethod }))
+      .otherwise(() => undefined)
 
     // InPost requires reference to be at least 3 characters (max 100).
     // Pad short orderId values with leading zeros to meet the minimum.
@@ -480,5 +534,50 @@ export const inpostAdapterV1: ShippingAdapter = {
 
   mapStatus(carrierStatus: string): UnifiedShipmentStatus {
     return mapInpostStatus(carrierStatus)
+  },
+
+  async searchDropOffPoints(input: SearchDropOffPointsInput): Promise<DropOffPoint[]> {
+    // The `functions` filter is intentionally omitted: the InPost sandbox does not
+    // populate courier_c2c function tags on any points, so filtering by function
+    // always returns zero results. The `type` param (parcel_locker / pop) is
+    // sufficient to find the correct point category in both sandbox and production.
+    const query: Record<string, string> = {}
+
+    if (input.postCode && input.postCode.trim().length > 0) {
+      // Proximity searches (relative_post_code) use `limit`, not `per_page`
+      query['relative_post_code'] = input.postCode.trim()
+      query['limit'] = '50'
+    } else {
+      query['per_page'] = '50'
+    }
+
+    if (input.type && input.type.trim().length > 0) {
+      query['type'] = input.type.trim()
+    }
+
+    if (input.query && input.query.trim().length > 0) {
+      query['name'] = input.query.trim()
+    }
+
+    const response = await inpostPointsRequest<InpostPointsResponse>(
+      input.credentials,
+      '/v1/points',
+      query,
+    )
+
+    const items = response.items ?? []
+    return items.map((point) => {
+      const addr = point.address_details ?? point.address ?? {}
+      return {
+        id: point.name,
+        name: point.name,
+        type: point.type,
+        city: addr.city ?? '',
+        postalCode: addr.post_code ?? '',
+        street: [addr.street, addr.building_number].filter(Boolean).join(' '),
+        ...(point.location?.latitude !== undefined ? { latitude: point.location.latitude } : {}),
+        ...(point.location?.longitude !== undefined ? { longitude: point.location.longitude } : {}),
+      }
+    })
   },
 }

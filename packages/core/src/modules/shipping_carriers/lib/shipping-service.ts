@@ -83,6 +83,7 @@ export function createShippingCarrierService(deps: {
       receiverPhone?: string
       receiverEmail?: string
       targetPoint?: string
+      c2cSendingMethod?: string
       organizationId: string
       tenantId: string
     }) {
@@ -97,6 +98,7 @@ export function createShippingCarrierService(deps: {
         ...(input.receiverPhone !== undefined ? { receiverPhone: input.receiverPhone } : {}),
         ...(input.receiverEmail !== undefined ? { receiverEmail: input.receiverEmail } : {}),
         ...(input.targetPoint !== undefined ? { targetPoint: input.targetPoint } : {}),
+        ...(input.c2cSendingMethod !== undefined ? { c2cSendingMethod: input.c2cSendingMethod } : {}),
       }
       const created = await adapter.createShipment({
         orderId: input.orderId,
@@ -160,7 +162,7 @@ export function createShippingCarrierService(deps: {
         : null
       const tracking = await adapter.getTracking({
         shipmentId: shipment?.carrierShipmentId ?? input.shipmentId,
-        trackingNumber: input.trackingNumber,
+        trackingNumber: input.trackingNumber ?? shipment?.trackingNumber,
         credentials,
       })
       if (shipment) {
@@ -222,6 +224,29 @@ export function createShippingCarrierService(deps: {
         undefined,
         scope,
       )
+    },
+
+    async searchDropOffPoints(input: {
+      providerKey: string
+      query?: string
+      type?: string
+      postCode?: string
+      organizationId: string
+      tenantId: string
+    }) {
+      const { adapter, credentials } = await resolveAdapter(input.providerKey, {
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+      })
+      if (!adapter.searchDropOffPoints) {
+        throw new Error(`Provider ${input.providerKey} does not support drop-off point search`)
+      }
+      return adapter.searchDropOffPoints({
+        query: input.query,
+        type: input.type,
+        postCode: input.postCode,
+        credentials,
+      })
     },
   }
 }

@@ -118,13 +118,16 @@ packages/carrier-inpost/
 
 Key endpoints used:
 
-| Operation | Method | Path |
-|-----------|--------|------|
-| Create shipment (step 1) | POST | `/v1/organizations/{orgId}/shipments` |
-| Buy shipment (step 2) | POST | `/v1/shipments/{shipmentId}/buy` |
-| Cancel shipment | DELETE | `/v1/shipments/{shipmentId}` |
-| Get tracking | GET | `/v1/tracking/{trackingNumber}` |
-| Health check | GET | `/v1/organizations/{orgId}` |
+| Operation | Method | Path | Base URL |
+|-----------|--------|------|----------|
+| Create shipment (step 1) | POST | `/v1/organizations/{orgId}/shipments` | ShipX |
+| Buy shipment (step 2) | POST | `/v1/shipments/{shipmentId}/buy` | ShipX |
+| Cancel shipment | DELETE | `/v1/shipments/{shipmentId}` | ShipX |
+| Get tracking | GET | `/v1/tracking/{trackingNumber}` | ShipX |
+| Health check | GET | `/v1/organizations/{orgId}` | ShipX |
+| Search drop-off points | GET | `/v1/points` | Points API |
+
+> **Two separate base URLs**: The ShipX API (shipments, rates, tracking) lives at `https://api-shipx-pl.easypack24.net` (sandbox: `https://sandbox-api-shipx-pl.easypack24.net`). The Points API lives at a different host: `https://api.inpost.pl` (sandbox: `https://sandbox-api-gateway-pl.easypack24.net`). The adapter uses `inpostRequest` for ShipX calls and `inpostPointsRequest` (via `resolvePointsBaseUrl`) for Points API calls.
 
 > **Cancel endpoint**: `DELETE /v1/shipments/{id}` returns `204 No Content` on success. Cancellation is only permitted for shipments in `created` or `offers_prepared` status; the API returns `invalid_action` for confirmed/delivered shipments. The adapter surfaces API errors directly; the cancel route returns 502 for API-level errors.
 
@@ -250,6 +253,24 @@ GETs `/v1/tracking/{trackingNumber}`. Maps `status` field through `status-map.ts
 
 Calls `DELETE /v1/shipments/{shipmentId}`. The ShipX API returns `204 No Content` on success; the adapter returns `{ status: 'cancelled' }`. Cancellation is only permitted for shipments in `created` or `offers_prepared` status. Attempting to cancel a confirmed or later-status shipment causes the API to return an `invalid_action` error, which the adapter surfaces as an `inpostErrors.apiError` throw; the cancel route maps this to a 502 response.
 
+### searchDropOffPoints
+
+GETs `/v1/points` on the **Points API** (`https://api.inpost.pl`, not the ShipX host). Uses `inpostPointsRequest` which resolves the base URL from `credentials.apiPointsBaseUrl` with fallback to `https://api.inpost.pl`.
+
+Query parameters:
+- `type` — `parcel_locker` or `pop` (from `input.type`)
+- When searching by postcode (`input.postCode`): sends `relative_post_code=<postCode>` + `limit=50` (proximity search uses `limit`, not `per_page`)
+- When searching by name/query (`input.query`): sends `name=<query>` + `per_page=50`
+- The `functions` filter is intentionally omitted — InPost sandbox does not populate `courier_c2c` function tags, so filtering by function always returns zero results; `type` alone is sufficient
+
+Returns a `DropOffPoint[]` mapped from `response.items`.
+
+The wizard UI (`ConfigureStep`) uses this to let users search for and select a valid drop-off point. The picker is shown only when `c2cSendingMethod` is `parcel_locker` or `pop` — hidden for `dispatch_order`, `any_point`, and the default empty value.
+
+### GET /api/shipping-carriers/points
+
+`GET /api/shipping-carriers/points?providerKey=inpost&type=parcel_locker&postCode=30-624` — delegates to `ShippingService.searchDropOffPoints()`. Guarded by `shipping_carriers.manage`. Returns `{ points: DropOffPoint[] }`.
+
 ---
 
 ## Credentials Schema
@@ -264,6 +285,9 @@ credentials: {
     { key: 'apiBaseUrl',         label: 'API Base URL',       type: 'url',    required: false,
       placeholder: 'https://api-shipx-pl.easypack24.net',
       helpText: 'Leave empty for production. Sandbox: https://sandbox-api-shipx-pl.easypack24.net' },
+    { key: 'apiPointsBaseUrl',   label: 'Points API Base URL', type: 'url',   required: false,
+      placeholder: 'https://api.inpost.pl',
+      helpText: 'Leave empty for production. Sandbox: https://sandbox-api-gateway-pl.easypack24.net' },
     { key: 'webhookSecret',      label: 'Webhook Secret',     type: 'secret', required: false,
       helpDetails: inpostWebhookSetupGuide },
     { key: 'targetPoint',        label: 'Default Target Locker (Paczkomat ID)', type: 'text', required: false,
@@ -344,7 +368,8 @@ Canonical env var names (`OM_INTEGRATION_<PROVIDER>_*`):
 |---|---|
 | `OM_INTEGRATION_INPOST_API_TOKEN` | Bearer token |
 | `OM_INTEGRATION_INPOST_ORGANIZATION_ID` | Organization numeric ID (integer, e.g. `6183`) — use `GET /v1/organizations` to discover; do NOT use the JWT account UUID |
-| `OM_INTEGRATION_INPOST_API_BASE_URL` | Override base URL (optional) |
+| `OM_INTEGRATION_INPOST_API_BASE_URL` | Override ShipX base URL (optional) |
+| `OM_INTEGRATION_INPOST_API_POINTS_BASE_URL` | Override Points API base URL (optional; sandbox: `https://sandbox-api-gateway-pl.easypack24.net`) |
 | `OM_INTEGRATION_INPOST_WEBHOOK_SECRET` | Webhook HMAC secret (optional) |
 | `OM_INTEGRATION_INPOST_ENABLED` | `true`/`false` (default: `true`) |
 | `OM_INTEGRATION_INPOST_FORCE_PRECONFIGURE` | Overwrite existing credentials (default: `false`) |
@@ -527,3 +552,4 @@ Protected by `requireAuth` + `requireFeatures: ['shipping_carriers.manage']`.
 | 2026-03-16 | Demo page `TrackingEvent` interface corrected: `timestamp` renamed to `occurredAt` and `description` field removed, matching the `TrackingResult.events` shape in `lib/adapter.ts`; render updated to use `event.occurredAt` and `event.location` only. |
 | 2026-03-17 | `locker_economy` removed from `INPOST_SERVICES` in `v1.ts` — confirmed absent from the official InPost service list (`GET /v1/statuses`); `SERVICE_CODE_MAP` and `LOCKER_SERVICE_CODES` in `status-map.ts` already did not include it. `calculateRates` now returns 3 services. Unit tests updated (service count 4→3, `makeAllServicesOkFetch` mocks 3 calls, call indices for courier/c2c tests adjusted). TC-INPOST-002 integration test updated to expect 3 services. TC-INPOST-004 integration test corrected: was asserting 502/"does not support" from the stale cancel-not-supported era; now correctly accepts 200 (cancelled) or 502 (invalid_action for already-confirmed shipment) matching TC-INPOST-003 semantics. Status map table in spec updated to show all 47 official statuses (was showing only the original 19). Overview section updated to list 3 services. |
 | 2026-03-17 | Parcel template selection fixed based on official InPost docs analysis. Bug 1: `courier_c2c` was incorrectly sending free-form `dimensions`/`weight` — official docs confirm it uses template-based sizing. `buildParcel()` in `v1.ts` now detects service kind from `INPOST_SERVICES` and uses `selectLockerTemplate()` for both locker and `courier_c2c` kinds. Bug 2: All locker/c2c services were always sending `{ template: 'small' }` regardless of dimensions — corrected to height-based selection: height ≤80mm → `small`, 81–190mm → `medium`, 191–410mm → `large`. Bug 3: `courier_c2c` additionally supports `xlarge` (height >410mm) which is unavailable for locker services; `allowXlarge` flag controls this. `isLockerService()` intentionally excludes `courier_c2c` (locker-specific API fields like `target_point` and receiver email are not required for c2c). Spec parcel shape table updated. 6 new unit tests added (150 total, 148 passing + 2 xdescribe-skipped). |
+| 2026-03-17 | Drop-off point search implemented end-to-end. **Adapter**: `searchDropOffPoints` in `v1.ts` now calls `inpostPointsRequest` targeting the Points API (`https://api.inpost.pl`) via `resolvePointsBaseUrl(credentials)` — a separate host from ShipX. `inpostPointsRequest` and `resolvePointsBaseUrl` added to `client.ts`. Proximity (postcode) searches send `relative_post_code` + `limit=50`; name/query searches send `name` + `per_page=50` — the distinction matters because InPost's proximity endpoint uses `limit`, not `per_page`. The `functions` filter is omitted (sandbox never populates `courier_c2c` tags; `type` param alone is sufficient). **Credentials**: `apiPointsBaseUrl` field added to `integration.ts`, `InpostCredentialShape`, and `credentialKeys` in `preset.ts`; env var `OM_INTEGRATION_INPOST_API_POINTS_BASE_URL` supported. **Core**: `DropOffPoint` and `SearchDropOffPointsInput` types added to `lib/adapter.ts`; optional `searchDropOffPoints?` method added to `ShippingAdapter` interface; `searchDropOffPointsQuerySchema` added to `data/validators.ts`; `ShippingService.searchDropOffPoints()` added; `GET /api/shipping-carriers/points` route added and registered in `modules.generated.ts`. **Wizard**: `fetchDropOffPoints` added to `shipmentApi.ts`; drop-off state and `searchDropOffPoints` function added to `useShipmentWizard`; `ConfigureStep` drop-off picker shown only when `c2cSendingMethod === 'parcel_locker'` or `=== 'pop'` (hidden for `dispatch_order`, `any_point`, and empty default). **Tests**: 8 `searchDropOffPoints` unit tests (base URL assertion, postcode→`limit`, name→`per_page`, type param, empty result, API error propagation, `apiPointsBaseUrl` credential override, no `functions=` in request); all 164 carrier-inpost tests and 56 core shipping_carriers tests pass. |

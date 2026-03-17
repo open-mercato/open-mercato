@@ -5,12 +5,24 @@ import { inpostErrors } from './errors'
 
 const INPOST_DEFAULT_BASE_URL = 'https://api-shipx-pl.easypack24.net'
 
+// The Points API lives on a completely separate host from the ShipX (shipments) API.
+// Production: https://api.inpost.pl  — Sandbox: https://sandbox-api-gateway-pl.easypack24.net
+const INPOST_DEFAULT_POINTS_BASE_URL = 'https://api.inpost.pl'
+
 export function resolveBaseUrl(credentials: Record<string, unknown>): string {
   const override = credentials.apiBaseUrl
   if (typeof override === 'string' && override.trim().length > 0) {
     return override.trim().replace(/\/$/, '')
   }
   return INPOST_DEFAULT_BASE_URL
+}
+
+export function resolvePointsBaseUrl(credentials: Record<string, unknown>): string {
+  const override = credentials.apiPointsBaseUrl
+  if (typeof override === 'string' && override.trim().length > 0) {
+    return override.trim().replace(/\/$/, '')
+  }
+  return INPOST_DEFAULT_POINTS_BASE_URL
 }
 
 export function resolveApiToken(credentials: Record<string, unknown>): string {
@@ -71,6 +83,42 @@ export async function inpostRequest<T>(
 
   if (response.status === 204) {
     return undefined as unknown as T
+  }
+
+  return response.json() as Promise<T>
+}
+
+/**
+ * Makes a GET request to the InPost Points API (separate host from ShipX).
+ * The Points API base URL is resolved via resolvePointsBaseUrl.
+ */
+export async function inpostPointsRequest<T>(
+  credentials: Record<string, unknown>,
+  path: string,
+  query?: Record<string, string>,
+): Promise<T> {
+  const baseUrl = resolvePointsBaseUrl(credentials)
+  const token = resolveApiToken(credentials)
+
+  const url = new URL(`${baseUrl}${path}`)
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      url.searchParams.set(key, value)
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw inpostErrors.apiError(response.status, text)
   }
 
   return response.json() as Promise<T>

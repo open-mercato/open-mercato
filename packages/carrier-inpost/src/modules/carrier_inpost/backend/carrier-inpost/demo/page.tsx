@@ -12,6 +12,7 @@ type RatesStatus = 'idle' | 'loading' | 'done' | 'error'
 type ShipmentStatus = 'idle' | 'loading' | 'done' | 'error'
 type TrackingStatus = 'idle' | 'loading' | 'done' | 'error'
 type CancelStatus = 'idle' | 'loading' | 'done' | 'error'
+type DropOffSearchStatus = 'idle' | 'loading' | 'done' | 'error'
 
 interface Rate {
   serviceCode: string
@@ -39,6 +40,15 @@ interface TrackingResult {
   events: TrackingEvent[]
 }
 
+interface DropOffPoint {
+  id: string
+  name: string
+  type: string
+  city: string
+  postalCode: string
+  street: string
+}
+
 interface AddressFields {
   countryCode: string
   postalCode: string
@@ -63,6 +73,8 @@ interface PackageTemplate {
 }
 
 const INPOST_PROVIDER_KEY = 'inpost'
+
+const LOCKER_SERVICES = new Set(['locker_standard', 'locker_economy'])
 
 // Physical dimensions sourced from official InPost API documentation.
 // The adapter uses these for the /calculate endpoint; for locker services
@@ -206,7 +218,14 @@ export default function InpostDemoPage() {
   const [receiverEmail, setReceiverEmail] = React.useState<string>('test@test.pl')
   const [senderPhone, setSenderPhone] = React.useState<string>('500000000')
   const [senderEmail, setSenderEmail] = React.useState<string>('test@test.pl')
-  const [targetPoint, setTargetPoint] = React.useState<string>('KRA010')
+  const [targetPoint, setTargetPoint] = React.useState<string>('')
+  const [c2cSendingMethod, setC2cSendingMethod] = React.useState<string>('')
+
+  const [dropOffSearchInput, setDropOffSearchInput] = React.useState<string>('')
+  const [dropOffSearchStatus, setDropOffSearchStatus] = React.useState<DropOffSearchStatus>('idle')
+  const [dropOffPoints, setDropOffPoints] = React.useState<DropOffPoint[]>([])
+  const [dropOffSearchError, setDropOffSearchError] = React.useState<string | null>(null)
+  const [dropOffLastQuery, setDropOffLastQuery] = React.useState<string>('')
 
   function resetRates() {
     setRatesStatus('idle')
@@ -222,6 +241,36 @@ export default function InpostDemoPage() {
     setCancelStatus('idle')
     setCancelError(null)
     setCancelMessage(null)
+  }
+
+  async function handleSearchDropOffPoints() {
+    const trimmed = dropOffSearchInput.trim()
+    if (trimmed.length === 0) return
+    setDropOffLastQuery(trimmed)
+    setDropOffSearchStatus('loading')
+    setDropOffSearchError(null)
+    setDropOffPoints([])
+
+    const isPostCode = /^\d{2}-?\d{3}$/.test(trimmed)
+    const resolvedType = c2cSendingMethod === 'pop' ? 'pop' : 'parcel_locker'
+    const params = new URLSearchParams({
+      providerKey: INPOST_PROVIDER_KEY,
+      ...(isPostCode ? { postCode: trimmed } : { query: trimmed }),
+      type: resolvedType,
+    })
+
+    const res = await apiCall(`/api/shipping-carriers/points?${params.toString()}`, undefined, {})
+    if (!res.ok || !res.result) {
+      setDropOffSearchStatus('error')
+      setDropOffSearchError(
+        (res.result as { error?: string } | null)?.error ??
+        t('carrier_inpost.demo.dropOffSearchFailed', 'Failed to search drop-off points'),
+      )
+      return
+    }
+    const points = ((res.result as { points?: DropOffPoint[] }).points ?? []) as DropOffPoint[]
+    setDropOffPoints(points)
+    setDropOffSearchStatus('done')
   }
 
   function handleOriginChange(next: AddressFields) {
@@ -326,7 +375,8 @@ export default function InpostDemoPage() {
           ...(receiverEmail.trim() !== '' ? { receiverEmail: receiverEmail.trim() } : {}),
           ...(senderPhone.trim() !== '' ? { senderPhone: senderPhone.trim() } : {}),
           ...(senderEmail.trim() !== '' ? { senderEmail: senderEmail.trim() } : {}),
-          ...(targetPoint.trim() !== '' ? { targetPoint: targetPoint.trim() } : { targetPoint: 'KRA010' }),
+          ...(targetPoint.trim() !== '' ? { targetPoint: targetPoint.trim() } : {}),
+          ...(selectedRate.serviceCode === 'courier_c2c' && c2cSendingMethod !== '' ? { c2cSendingMethod } : {}),
         }),
       },
       {},
@@ -592,9 +642,8 @@ export default function InpostDemoPage() {
                     <div key={key}>
                       <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
                       <input
-                        type="number"
-                        min="0"
-                        step="0.1"
+                        type="text"
+                        inputMode="decimal"
                         className="w-full rounded border bg-background px-2 py-1.5 text-sm"
                         value={customPackage[key]}
                         onChange={handleCustomPackageField(key)}
@@ -605,21 +654,8 @@ export default function InpostDemoPage() {
               )}
             </div>
 
-            {/* Locker point — required for locker services when creating a shipment */}
-            <div className="mb-5">
-              <label className="mb-1 block text-xs text-muted-foreground">
-                {t('carrier_inpost.demo.label.targetPoint', 'Locker point ID (required for locker services)')}
-              </label>
-              <input
-                className="w-full rounded border bg-background px-2 py-1.5 text-sm"
-                value={targetPoint}
-                onChange={(e) => { setTargetPoint(e.target.value); resetRates() }}
-                placeholder="e.g. KRA010"
-              />
-            </div>
-
             <button
-              className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
+              className="mt-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
               onClick={handleFetchRates}
               disabled={ratesStatus === 'loading'}
             >
@@ -684,6 +720,101 @@ export default function InpostDemoPage() {
                 'Creates a shipment using the selected rate. Requires rates to be fetched first.',
               )}
             </p>
+            {selectedRate?.serviceCode === 'courier_c2c' && (
+              <div className="mb-4">
+                <label className="mb-1 block text-xs text-muted-foreground">
+                  {t('carrier_inpost.demo.label.c2cSendingMethod', 'C2C sending method')}
+                </label>
+                <select
+                  className="w-full max-w-xs rounded border bg-background px-2 py-1.5 text-sm"
+                  value={c2cSendingMethod}
+                  onChange={(e) => setC2cSendingMethod(e.target.value)}
+                >
+                  <option value="">{t('carrier_inpost.demo.c2cSendingMethod.default', 'Default (dispatch_order)')}</option>
+                  <option value="parcel_locker">{t('carrier_inpost.demo.c2cSendingMethod.parcel_locker', 'Parcel locker')}</option>
+                  <option value="dispatch_order">{t('carrier_inpost.demo.c2cSendingMethod.dispatch_order', 'Dispatch order')}</option>
+                  <option value="pop">{t('carrier_inpost.demo.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</option>
+                  <option value="any_point">{t('carrier_inpost.demo.c2cSendingMethod.any_point', 'Any point')}</option>
+                </select>
+                {(c2cSendingMethod === 'parcel_locker' || c2cSendingMethod === 'pop') && (
+                  <p className="mt-1.5 text-xs text-amber-600">
+                    {t(
+                      'carrier_inpost.demo.c2cSendingMethod.sandboxWarning',
+                      'Note: the InPost sandbox does not configure any parcel locker or POP points with the courier_c2c function, so shipment creation with this method will return invalid_box_machine_function. This works correctly in production.',
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+            {(selectedRate != null && (
+              LOCKER_SERVICES.has(selectedRate.serviceCode) ||
+              (selectedRate.serviceCode === 'courier_c2c' && (c2cSendingMethod === 'parcel_locker' || c2cSendingMethod === 'pop'))
+            )) && (
+              <div className="mb-4">
+                <p className="mb-2 text-sm font-medium">
+                  {t('carrier_inpost.demo.label.dropOffPoint', 'Drop-off point')}
+                </p>
+                {targetPoint !== '' && (
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="rounded bg-primary/10 px-2 py-1 text-sm font-medium text-primary">
+                      {targetPoint}
+                    </span>
+                    <button
+                      className="text-xs text-muted-foreground underline"
+                      onClick={() => setTargetPoint('')}
+                      type="button"
+                    >
+                      {t('carrier_inpost.demo.action.clearPoint', 'Clear')}
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded border bg-background px-2 py-1.5 text-sm"
+                    value={dropOffSearchInput}
+                    onChange={(e) => setDropOffSearchInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { void handleSearchDropOffPoints() } }}
+                    placeholder={t('carrier_inpost.demo.placeholder.dropOffSearch', 'Postal code (30-624) or point name (KRA012)')}
+                  />
+                  <button
+                    className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
+                    onClick={() => { void handleSearchDropOffPoints() }}
+                    disabled={dropOffSearchStatus === 'loading'}
+                    type="button"
+                  >
+                    {dropOffSearchStatus === 'loading'
+                      ? t('carrier_inpost.demo.searching', 'Searching...')
+                      : t('carrier_inpost.demo.action.searchDropOff', 'Search')}
+                  </button>
+                </div>
+                {dropOffSearchStatus === 'error' && (
+                  <p className="mt-2 text-sm text-destructive">{dropOffSearchError}</p>
+                )}
+                {dropOffSearchStatus === 'done' && dropOffPoints.length === 0 && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {t('carrier_inpost.demo.noDropOffPoints', 'No points found for "{query}".').replace('{query}', dropOffLastQuery)}
+                  </p>
+                )}
+                {dropOffPoints.length > 0 && (
+                  <ul className="mt-2 max-h-48 overflow-y-auto divide-y rounded-md border text-sm">
+                    {dropOffPoints.map((point) => (
+                      <li key={point.id}>
+                        <button
+                          type="button"
+                          className={`w-full px-3 py-2 text-left hover:bg-muted ${targetPoint === point.id ? 'bg-primary/5 font-medium' : ''}`}
+                          onClick={() => setTargetPoint(point.id)}
+                        >
+                          <span className="font-medium">{point.name}</span>
+                          <span className="ml-2 text-muted-foreground text-xs">
+                            {[point.street, point.city, point.postalCode].filter(Boolean).join(', ')}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <button
               className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
               onClick={handleCreateShipment}

@@ -754,6 +754,106 @@ describe('inpostAdapterV1', () => {
       const body = JSON.parse(init.body as string) as Record<string, unknown>
       expect(body.custom_attributes).toBeUndefined()
     })
+
+    it('includes custom_attributes.sending_method for courier_c2c defaulting to dispatch_order', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(makeShipmentInput({ serviceCode: 'courier_c2c' }))
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.custom_attributes as Record<string, unknown>).sending_method).toBe('dispatch_order')
+    })
+
+    it('uses c2cSendingMethod from credentials for courier_c2c when valid', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'courier_c2c', credentials: makeCredentials({ c2cSendingMethod: 'parcel_locker' }) }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.custom_attributes as Record<string, unknown>).sending_method).toBe('parcel_locker')
+    })
+
+    it('falls back to dispatch_order when c2cSendingMethod credential is invalid', async () => {
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({ serviceCode: 'courier_c2c', credentials: makeCredentials({ c2cSendingMethod: 'invalid_method' }) }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      expect((body.custom_attributes as Record<string, unknown>).sending_method).toBe('dispatch_order')
+    })
+
+    it('includes both sending_method and target_point for courier_c2c with parcel_locker sending method', async () => {
+      const targetPoint = `${chance.string({ length: 3, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' })}${chance.integer({ min: 100, max: 999 })}M`
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({
+          serviceCode: 'courier_c2c',
+          credentials: makeCredentials({ c2cSendingMethod: 'parcel_locker', targetPoint }),
+        }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      const attrs = body.custom_attributes as Record<string, unknown>
+      expect(attrs.sending_method).toBe('parcel_locker')
+      expect(attrs.target_point).toBe(targetPoint)
+    })
+
+    it('omits target_point for courier_c2c with dispatch_order even when targetPoint is in credentials', async () => {
+      const targetPoint = `${chance.string({ length: 3, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' })}${chance.integer({ min: 100, max: 999 })}M`
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({
+          serviceCode: 'courier_c2c',
+          credentials: makeCredentials({ c2cSendingMethod: 'dispatch_order', targetPoint }),
+        }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      const attrs = body.custom_attributes as Record<string, unknown>
+      expect(attrs.sending_method).toBe('dispatch_order')
+      expect(attrs.target_point).toBeUndefined()
+    })
+
+    it('omits target_point for courier_c2c with any_point even when targetPoint is in credentials', async () => {
+      const targetPoint = `${chance.string({ length: 3, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' })}${chance.integer({ min: 100, max: 999 })}M`
+      const shipmentId = chance.guid()
+      const offerId = chance.integer({ min: 1000, max: 9999 })
+      global.fetch = makeCreateAndBuyFetch(shipmentId, offerId, chance.guid())
+
+      await inpostAdapterV1.createShipment(
+        makeShipmentInput({
+          serviceCode: 'courier_c2c',
+          credentials: makeCredentials({ c2cSendingMethod: 'any_point', targetPoint }),
+        }),
+      )
+
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit]
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      const attrs = body.custom_attributes as Record<string, unknown>
+      expect(attrs.sending_method).toBe('any_point')
+      expect(attrs.target_point).toBeUndefined()
+    })
   }),
 
   describe('getTracking', () => {
@@ -881,6 +981,181 @@ describe('inpostAdapterV1', () => {
 
       expect(typeof event.eventType).toBe('string')
       expect(event.eventId).toBe(String(shipmentId))
+    })
+  })
+
+  describe('searchDropOffPoints', () => {
+    function makePointsResponse(points: Array<{
+      name: string
+      type: string
+      address_details?: { street?: string; building_number?: string; city?: string; post_code?: string }
+      location?: { latitude: number; longitude: number }
+    }>) {
+      return { items: points, total_count: points.length }
+    }
+
+    function makePoint(overrides: Partial<{
+      name: string
+      type: string
+      city: string
+      post_code: string
+      street: string
+      building_number: string
+    }> = {}) {
+      return {
+        name: overrides.name ?? `${chance.string({ length: 3, pool: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' })}${chance.integer({ min: 100, max: 999 })}`,
+        type: overrides.type ?? 'parcel_locker',
+        address_details: {
+          street: overrides.street ?? chance.street(),
+          building_number: overrides.building_number ?? String(chance.integer({ min: 1, max: 99 })),
+          city: overrides.city ?? chance.city(),
+          post_code: overrides.post_code ?? '30-624',
+        },
+      }
+    }
+
+    it('returns mapped DropOffPoint array from a successful /v1/points response', async () => {
+      const point = makePoint({ name: 'KRA012', city: 'Kraków', post_code: '30-624', street: 'ul. Malborska', building_number: '130' })
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(makePointsResponse([point])),
+      })
+
+      const results = await inpostAdapterV1.searchDropOffPoints!({
+        credentials: makeCredentials(),
+        query: 'KRA',
+      })
+
+      expect(results).toHaveLength(1)
+      expect(results[0]!.id).toBe('KRA012')
+      expect(results[0]!.name).toBe('KRA012')
+      expect(results[0]!.city).toBe('Kraków')
+      expect(results[0]!.postalCode).toBe('30-624')
+      expect(results[0]!.street).toContain('ul. Malborska')
+
+      const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+      expect(url).toContain('api.inpost.pl')
+    })
+
+    it('sends relative_post_code and limit (not per_page or name) when input is a postcode', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(makePointsResponse([])),
+      })
+
+      await inpostAdapterV1.searchDropOffPoints!({
+        credentials: makeCredentials(),
+        postCode: '30-624',
+      })
+
+      const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+      expect(url).toContain('relative_post_code=30-624')
+      expect(url).toContain('limit=50')
+      expect(url).not.toContain('per_page=')
+      expect(url).not.toContain('name=')
+    })
+
+    it('sends name and per_page (not limit or relative_post_code) when input is a name query', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(makePointsResponse([])),
+      })
+
+      await inpostAdapterV1.searchDropOffPoints!({
+        credentials: makeCredentials(),
+        query: 'KRA012',
+      })
+
+      const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+      expect(url).toContain('name=KRA012')
+      expect(url).toContain('per_page=50')
+      expect(url).not.toContain('limit=')
+      expect(url).not.toContain('relative_post_code')
+    })
+
+    it('passes type param through when provided', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(makePointsResponse([])),
+      })
+
+      await inpostAdapterV1.searchDropOffPoints!({
+        credentials: makeCredentials(),
+        query: 'KRA',
+        type: 'pop',
+      })
+
+      const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+      expect(url).toContain('type=pop')
+    })
+
+    it('returns empty array when items is empty', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(makePointsResponse([])),
+      })
+
+      const results = await inpostAdapterV1.searchDropOffPoints!({
+        credentials: makeCredentials(),
+        query: 'NONEXISTENT',
+      })
+
+      expect(results).toEqual([])
+    })
+
+    it('propagates API errors', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('{"error":"unauthorized"}'),
+      })
+
+      await expect(
+        inpostAdapterV1.searchDropOffPoints!({
+          credentials: makeCredentials(),
+          query: 'KRA',
+        }),
+      ).rejects.toThrow('InPost API error 401')
+    })
+
+    it('uses apiPointsBaseUrl credential when provided instead of default Points API host', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(makePointsResponse([])),
+      })
+
+      await inpostAdapterV1.searchDropOffPoints!({
+        credentials: makeCredentials({ apiPointsBaseUrl: 'https://sandbox-api-gateway-pl.easypack24.net' }),
+        query: 'KRA',
+      })
+
+      const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+      expect(url).toContain('sandbox-api-gateway-pl.easypack24.net')
+      expect(url).not.toContain('api.inpost.pl')
+    })
+
+    it('does not include functions= filter in the request', async () => {
+      // The InPost sandbox does not populate courier_c2c function tags, so
+      // filtering by function always returns zero results. Type param alone suffices.
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(makePointsResponse([])),
+      })
+
+      await inpostAdapterV1.searchDropOffPoints!({
+        credentials: makeCredentials(),
+        query: 'KRA',
+      })
+
+      const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string]
+      expect(url).not.toContain('functions=')
     })
   })
 })

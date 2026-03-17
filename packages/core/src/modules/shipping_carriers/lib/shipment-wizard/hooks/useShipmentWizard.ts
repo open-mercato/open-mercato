@@ -7,6 +7,7 @@ import {
   fetchOrderAddresses,
   fetchRates,
   createShipment,
+  fetchDropOffPoints,
 } from './shipmentApi'
 import type {
   WizardStep,
@@ -17,6 +18,7 @@ import type {
   LabelFormat,
   DocumentAddress,
   ContactInfo,
+  DropOffPoint,
 } from '../types'
 
 const EMPTY_ADDRESS: Address = { countryCode: '', postalCode: '', city: '', line1: '' }
@@ -58,8 +60,15 @@ export type ShipmentWizard = {
   senderContact: ContactInfo
   receiverContact: ContactInfo
   targetPoint: string
+  c2cSendingMethod: string
   isFetchingRates: boolean
   canProceedFromConfigure: boolean
+
+  // Drop-off point search
+  dropOffPointQuery: string
+  dropOffPoints: DropOffPoint[]
+  isFetchingDropOffPoints: boolean
+  dropOffPointsError: string | null
 
   // Confirm step
   rates: ShippingRate[]
@@ -79,7 +88,9 @@ export type ShipmentWizard = {
   setSenderContact: (contact: ContactInfo) => void
   setReceiverContact: (contact: ContactInfo) => void
   setTargetPoint: (point: string) => void
+  setC2cSendingMethod: (method: string) => void
   setSelectedRate: (rate: ShippingRate) => void
+  searchDropOffPoints: (query: string) => void
 }
 
 export const useShipmentWizard = (): ShipmentWizard => {
@@ -101,6 +112,12 @@ export const useShipmentWizard = (): ShipmentWizard => {
   const [senderContact, setSenderContact] = React.useState<ContactInfo>(EMPTY_CONTACT)
   const [receiverContact, setReceiverContact] = React.useState<ContactInfo>(EMPTY_CONTACT)
   const [targetPoint, setTargetPoint] = React.useState<string>('')
+  const [c2cSendingMethod, setC2cSendingMethod] = React.useState<string>('')
+
+  const [dropOffPointQuery, setDropOffPointQuery] = React.useState<string>('')
+  const [dropOffPoints, setDropOffPoints] = React.useState<DropOffPoint[]>([])
+  const [isFetchingDropOffPoints, setIsFetchingDropOffPoints] = React.useState(false)
+  const [dropOffPointsError, setDropOffPointsError] = React.useState<string | null>(null)
 
   const [rates, setRates] = React.useState<ShippingRate[]>([])
   const [isFetchingRates, setIsFetchingRates] = React.useState(false)
@@ -180,6 +197,7 @@ export const useShipmentWizard = (): ShipmentWizard => {
       ...(receiverContact.phone ? { receiverPhone: receiverContact.phone } : {}),
       ...(receiverContact.email ? { receiverEmail: receiverContact.email } : {}),
       ...(targetPoint ? { targetPoint } : {}),
+      ...(c2cSendingMethod ? { c2cSendingMethod } : {}),
     })
     setIsSubmitting(false)
     if (result.ok) {
@@ -199,6 +217,27 @@ export const useShipmentWizard = (): ShipmentWizard => {
 
   const handleConfigureNext = () => {
     void loadRates().then(() => goToStep('confirm'))
+  }
+
+  const searchDropOffPoints = async (query: string) => {
+    if (!selectedProvider) return
+    setDropOffPointQuery(query)
+    setIsFetchingDropOffPoints(true)
+    setDropOffPointsError(null)
+    const isPostCode = /^\d{2}-?\d{3}$/.test(query.trim())
+    const resolvedType = c2cSendingMethod === 'pop' ? 'pop' : 'parcel_locker'
+    const result = await fetchDropOffPoints({
+      providerKey: selectedProvider,
+      ...(isPostCode ? { postCode: query.trim() } : { query: query.trim() }),
+      type: resolvedType,
+    })
+    if (result.ok) {
+      setDropOffPoints(result.points)
+    } else {
+      setDropOffPointsError(t('shipping_carriers.create.error.fetchDropOffPoints', result.error))
+      setDropOffPoints([])
+    }
+    setIsFetchingDropOffPoints(false)
   }
 
   const canProceedFromConfigure =
@@ -221,8 +260,13 @@ export const useShipmentWizard = (): ShipmentWizard => {
     senderContact,
     receiverContact,
     targetPoint,
+    c2cSendingMethod,
     isFetchingRates,
     canProceedFromConfigure,
+    dropOffPointQuery,
+    dropOffPoints,
+    isFetchingDropOffPoints,
+    dropOffPointsError,
     rates,
     ratesError,
     selectedRate,
@@ -238,6 +282,8 @@ export const useShipmentWizard = (): ShipmentWizard => {
     setSenderContact,
     setReceiverContact,
     setTargetPoint,
+    setC2cSendingMethod,
     setSelectedRate,
+    searchDropOffPoints: (query: string) => void searchDropOffPoints(query),
   }
 }

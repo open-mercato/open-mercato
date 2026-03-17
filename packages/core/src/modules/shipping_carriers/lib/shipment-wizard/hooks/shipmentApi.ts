@@ -1,6 +1,6 @@
 import { match, P } from 'ts-pattern'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import type { Provider, Address, PackageDimension, ShippingRate, DocumentAddress } from '../types'
+import type { Provider, Address, PackageDimension, ShippingRate, DocumentAddress, DropOffPoint } from '../types'
 
 export type FetchProvidersResult =
   | { ok: true; providers: Provider[] }
@@ -36,10 +36,22 @@ export type CreateShipmentParams = {
   receiverPhone?: string
   receiverEmail?: string
   targetPoint?: string
+  c2cSendingMethod?: string
 }
 
 export type CreateShipmentResult =
   | { ok: true }
+  | { ok: false; error: string }
+
+export type FetchDropOffPointsParams = {
+  providerKey: string
+  query?: string
+  type?: string
+  postCode?: string
+}
+
+export type FetchDropOffPointsResult =
+  | { ok: true; points: DropOffPoint[] }
   | { ok: false; error: string }
 
 export const fetchProviders = async (): Promise<FetchProvidersResult> => {
@@ -114,5 +126,28 @@ export const createShipment = async (params: CreateShipmentParams): Promise<Crea
     .otherwise(({ result }) => ({
       ok: false as const,
       error: (result as { error?: string } | null)?.error ?? 'Failed to create shipment.',
+    }))
+}
+
+export const fetchDropOffPoints = async (params: FetchDropOffPointsParams): Promise<FetchDropOffPointsResult> => {
+  const url = new URL('/api/shipping-carriers/points', 'http://placeholder')
+  url.searchParams.set('providerKey', params.providerKey)
+  if (params.query) url.searchParams.set('query', params.query)
+  if (params.type) url.searchParams.set('type', params.type)
+  if (params.postCode) url.searchParams.set('postCode', params.postCode)
+
+  const call = await apiCall<{ points: DropOffPoint[] }>(
+    `${url.pathname}${url.search}`,
+    undefined,
+    { fallback: { points: [] } },
+  )
+  return match(call)
+    .with({ ok: true, result: P.not(P.nullish) }, ({ result }) => ({
+      ok: true as const,
+      points: result.points,
+    }))
+    .otherwise(({ result }) => ({
+      ok: false as const,
+      error: (result as { error?: string } | null)?.error ?? 'Failed to fetch drop-off points.',
     }))
 }

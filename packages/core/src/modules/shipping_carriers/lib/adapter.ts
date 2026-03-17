@@ -66,6 +66,24 @@ export type ShippingWebhookEvent = {
   trackingNumber?: string
 }
 
+export type DropOffPoint = {
+  id: string
+  name: string
+  type: string
+  city: string
+  postalCode: string
+  street: string
+  latitude?: number
+  longitude?: number
+}
+
+export type SearchDropOffPointsInput = {
+  query?: string
+  type?: string
+  postCode?: string
+  credentials: Record<string, unknown>
+}
+
 export interface ShippingAdapter {
   readonly providerKey: string
   calculateRates(input: {
@@ -91,4 +109,5 @@ export interface ShippingAdapter {
     credentials: Record<string, unknown>
   }): Promise<ShippingWebhookEvent>
   mapStatus(carrierStatus: string): UnifiedShipmentStatus
+  searchDropOffPoints?(input: SearchDropOffPointsInput): Promise<DropOffPoint[]>
 }
