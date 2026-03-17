@@ -32,7 +32,10 @@ export async function POST(req: Request) {
   })
   if (rateLimitError) return rateLimitError
   const parsed = requestPasswordResetSchema.safeParse({ email })
-  if (!parsed.success) return NextResponse.json({ ok: true }) // do not reveal
+  if (!parsed.success) {
+    const fieldErrors = parsed.error.flatten().fieldErrors
+    return NextResponse.json({ error: 'Validation failed', fieldErrors }, { status: 422 })
+  }
   const c = await createRequestContainer()
   const auth = c.resolve<AuthService>('authService')
   const resReq = await auth.requestPasswordReset(parsed.data.email)
