@@ -7032,7 +7032,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@restart/hooks@npm:^0.4.7":
+"@restart/hooks@npm:^0.4.8":
   version: 0.4.16
   resolution: "@restart/hooks@npm:0.4.16"
   dependencies:
@@ -22191,7 +22191,7 @@ __metadata:
   dependencies:
     "@babel/runtime": "npm:^7.13.8"
     "@popperjs/core": "npm:^2.11.6"
-    "@restart/hooks": "npm:^0.4.7"
+    "@restart/hooks": "npm:^0.4.8"
     "@types/warning": "npm:^3.0.0"
     dom-helpers: "npm:^5.2.0"
     prop-types: "npm:^15.7.2"
