@@ -1,17 +1,10 @@
-import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
+import { readJsonSafe } from './generalFixtures';
 
 type JsonRecord = Record<string, unknown>;
 
-export async function readJsonSafe<T = unknown>(response: APIResponse): Promise<T | null> {
-  const raw = await response.text();
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
+export { readJsonSafe } from './generalFixtures';
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null;
