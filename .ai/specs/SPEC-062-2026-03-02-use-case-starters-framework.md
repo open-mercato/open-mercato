@@ -1,4 +1,4 @@
-# SPEC-061: Use-Case Starters Framework
+# SPEC-062: Use-Case Starters Framework
 
 | Field | Value |
 |-------|-------|
@@ -114,3 +114,11 @@ Furthermore, commands like `mercato init --starter` are unnecessary. The standar
 
 ## Final Compliance Report
 - Validated against core architecture principles: keep the core un-opinionated and highly extensible.
+
+## Changelog
+
+### 2026-03-17
+- Renumbered from SPEC-061 to SPEC-062 to resolve numbering conflict with PR #1003 (Official Modules Lifecycle Management, SPEC-061–067) which already contains implementation code.
+
+### 2026-03-02
+- Initial specification.
