@@ -107,6 +107,16 @@ describe('GET /api/inbox_ops/proposals', () => {
     )
   })
 
+  it('validates category filters before querying the database', async () => {
+    const response = await GET(makeRequest({ category: 'rfq,not-a-real-category' }))
+    const payload = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(payload.error).toContain('Invalid query parameters')
+    expect(mockFindAndCountWithDecryption).not.toHaveBeenCalled()
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
   it('escapes LIKE wildcards in search', async () => {
     mockFindAndCountWithDecryption.mockResolvedValueOnce([[], 0])
 
