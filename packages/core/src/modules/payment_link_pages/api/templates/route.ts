@@ -64,7 +64,6 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       isDefault: 'is_default',
     },
-    defaultSort: { field: 'created_at', dir: 'desc' },
     buildFilters: async (query: Record<string, unknown>) => {
       const filters: Record<string, unknown> = {}
       if (typeof query.search === 'string' && query.search.length > 0) {
@@ -84,35 +83,54 @@ const crud = makeCrudRoute({
   },
   create: {
     schema: templateCreateSchema,
-    async after(record, ctx) {
-      await emitPaymentLinkPageEvent('payment_link_pages.template.created', {
-        templateId: record.id,
-        name: record.name,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      })
-      return record
-    },
+    mapToEntity: (input: z.infer<typeof templateCreateSchema>) => ({
+      name: input.name,
+      description: input.description ?? null,
+      isDefault: input.isDefault ?? false,
+      branding: input.branding ?? null,
+      defaultTitle: input.defaultTitle ?? null,
+      defaultDescription: input.defaultDescription ?? null,
+      customFields: input.customFields ?? null,
+      customFieldsetCode: input.customFieldsetCode ?? null,
+      customerCapture: input.customerCapture ?? null,
+      metadata: input.metadata ?? null,
+    }),
   },
   update: {
     schema: templateUpdateSchema,
-    async after(record, ctx) {
-      await emitPaymentLinkPageEvent('payment_link_pages.template.updated', {
-        templateId: record.id,
-        name: record.name,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      })
-      return record
+    applyToEntity: (entity: PaymentLinkTemplate, input: z.infer<typeof templateUpdateSchema>) => {
+      if (input.name !== undefined) entity.name = input.name
+      if (input.description !== undefined) entity.description = input.description ?? null
+      if (input.isDefault !== undefined) entity.isDefault = input.isDefault
+      if (input.branding !== undefined) entity.branding = input.branding ?? null
+      if (input.defaultTitle !== undefined) entity.defaultTitle = input.defaultTitle ?? null
+      if (input.defaultDescription !== undefined) entity.defaultDescription = input.defaultDescription ?? null
+      if (input.customFields !== undefined) entity.customFields = input.customFields ?? null
+      if (input.customFieldsetCode !== undefined) entity.customFieldsetCode = input.customFieldsetCode ?? null
+      if (input.customerCapture !== undefined) entity.customerCapture = input.customerCapture ?? null
+      if (input.metadata !== undefined) entity.metadata = input.metadata ?? null
     },
   },
-  delete: {
-    async after(record, ctx) {
+  hooks: {
+    afterCreate: async (entity) => {
+      await emitPaymentLinkPageEvent('payment_link_pages.template.created', {
+        templateId: entity.id,
+        name: entity.name,
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+      })
+    },
+    afterUpdate: async (entity) => {
+      await emitPaymentLinkPageEvent('payment_link_pages.template.updated', {
+        templateId: entity.id,
+        name: entity.name,
+        organizationId: entity.organizationId,
+        tenantId: entity.tenantId,
+      })
+    },
+    afterDelete: async (id) => {
       await emitPaymentLinkPageEvent('payment_link_pages.template.deleted', {
-        templateId: record.id,
-        name: record.name,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
+        templateId: id,
       })
     },
   },

@@ -54,5 +54,7 @@
   "payment_link_pages.templates.empty": "No templates yet",
   "payment_link_pages.templates.empty.description": "Create a template to quickly generate branded payment links",
   "payment_link_pages.templates.nav.title": "Link Templates",
-  "payment_link_pages.templates.branding.preview": "Preview"
+  "payment_link_pages.templates.branding.preview": "Preview",
+  "payment_link_pages.templates.branding.preview.fallbackBrand": "Open Mercato",
+  "payment_link_pages.templates.branding.preview.fallbackSubtitle": "Protected checkout"
 }

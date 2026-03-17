@@ -27,6 +27,7 @@ export const createSessionSchema = z.object({
   providerInput: z.record(z.string(), z.unknown()).optional(),
   paymentLink: z.object({
     enabled: z.boolean().default(false),
+    templateId: z.string().uuid().optional(),
     title: z.string().trim().max(160).optional(),
     description: z.string().trim().max(500).optional(),
     password: z.string().min(4).max(128).optional(),

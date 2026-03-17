@@ -12,6 +12,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSessionSchema } from '../../data/validators'
 import { GatewayPaymentLink } from '../../data/entities'
+import { PaymentLinkTemplate } from '../../../payment_link_pages/data/entities'
 import { emitPaymentGatewayEvent } from '../../events'
 import { buildPaymentLinkStoredMetadata } from '../../lib/payment-link-page-metadata'
 import {
@@ -174,6 +175,87 @@ function mapCreateSessionFieldErrors(error: z.ZodError): Record<string, string> 
   return Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined
 }
 
+function shallowMergeObjects(
+  base: Record<string, unknown> | null | undefined,
+  override: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | undefined {
+  const baseObj = base && typeof base === 'object' && !Array.isArray(base) ? base : {}
+  const overrideObj = override && typeof override === 'object' && !Array.isArray(override) ? override : {}
+  const merged = { ...baseObj, ...overrideObj }
+  return Object.keys(merged).length > 0 ? merged : undefined
+}
+
+type ResolvedPaymentLinkValues = {
+  title: string | undefined
+  description: string | undefined
+  pageMetadata: Record<string, unknown> | undefined
+  customFields: Record<string, unknown> | undefined
+  customFieldsetCode: string | undefined
+  customerCapture: {
+    enabled: boolean
+    companyRequired: boolean
+    termsRequired: boolean
+    termsMarkdown: string | undefined
+  } | undefined
+}
+
+function mergePaymentLinkWithTemplate(
+  request: {
+    title?: string
+    description?: string
+    metadata?: Record<string, unknown>
+    customFields?: Record<string, unknown>
+    customFieldsetCode?: string
+    customerCapture?: {
+      enabled?: boolean
+      companyRequired?: boolean
+      termsRequired?: boolean
+      termsMarkdown?: string
+    }
+  },
+  template: PaymentLinkTemplate,
+): ResolvedPaymentLinkValues {
+  const templateBranding = template.branding && typeof template.branding === 'object' && !Array.isArray(template.branding)
+    ? template.branding as Record<string, unknown>
+    : {}
+  const templateMetadata = template.metadata && typeof template.metadata === 'object' && !Array.isArray(template.metadata)
+    ? template.metadata as Record<string, unknown>
+    : {}
+  const templatePageMetadata = shallowMergeObjects(templateBranding, templateMetadata)
+  const pageMetadata = shallowMergeObjects(templatePageMetadata, request.metadata)
+
+  const customFields = shallowMergeObjects(
+    template.customFields as Record<string, unknown> | null | undefined,
+    request.customFields,
+  )
+
+  const templateCapture = template.customerCapture && typeof template.customerCapture === 'object' && !Array.isArray(template.customerCapture)
+    ? template.customerCapture as Record<string, unknown>
+    : undefined
+
+  let customerCapture: ResolvedPaymentLinkValues['customerCapture']
+  if (request.customerCapture?.enabled || (templateCapture?.enabled === true && request.customerCapture?.enabled !== false)) {
+    customerCapture = {
+      enabled: true,
+      companyRequired: request.customerCapture?.companyRequired
+        ?? (templateCapture?.companyRequired === true),
+      termsRequired: request.customerCapture?.termsRequired
+        ?? (templateCapture?.termsRequired === true),
+      termsMarkdown: request.customerCapture?.termsMarkdown
+        ?? (typeof templateCapture?.termsMarkdown === 'string' ? templateCapture.termsMarkdown : undefined),
+    }
+  }
+
+  return {
+    title: request.title?.trim() || template.defaultTitle?.trim() || undefined,
+    description: request.description?.trim() || template.defaultDescription?.trim() || undefined,
+    pageMetadata,
+    customFields,
+    customFieldsetCode: request.customFieldsetCode?.trim() || template.customFieldsetCode?.trim() || undefined,
+    customerCapture,
+  }
+}
+
 function buildPaymentLinkReturnUrl(baseUrl: string, state: 'success' | 'cancelled'): string {
   const url = new URL(baseUrl)
   url.searchParams.set('checkout', state)
@@ -228,7 +310,7 @@ export async function POST(req: Request) {
     }, { status: 422 })
   }
 
-  if (parsed.data.paymentLink?.enabled && !parsed.data.paymentLink.title?.trim()) {
+  if (parsed.data.paymentLink?.enabled && !parsed.data.paymentLink.title?.trim() && !parsed.data.paymentLink.templateId) {
     return NextResponse.json({
       error: 'Invalid payload',
       fieldErrors: {
@@ -238,6 +320,7 @@ export async function POST(req: Request) {
   }
   if (
     parsed.data.paymentLink?.enabled &&
+    !parsed.data.paymentLink.templateId &&
     parsed.data.paymentLink.customerCapture?.enabled &&
     parsed.data.paymentLink.customerCapture.termsRequired === true &&
     !parsed.data.paymentLink.customerCapture.termsMarkdown?.trim()
@@ -327,12 +410,72 @@ export async function POST(req: Request) {
     })
 
     if (parsed.data.paymentLink?.enabled) {
+      let resolvedTitle = parsed.data.paymentLink.title?.trim() || parsed.data.description?.trim() || `${transaction.providerKey} payment`
+      let resolvedDescription: string | null = parsed.data.paymentLink.description?.trim() || null
+      let resolvedPageMetadata = parsed.data.paymentLink.metadata
+      let resolvedCustomFields = parsed.data.paymentLink.customFields
+      let resolvedCustomFieldsetCode: string | null = parsed.data.paymentLink.customFieldsetCode ?? null
+      let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null } | undefined =
+        parsed.data.paymentLink.customerCapture?.enabled
+          ? {
+              enabled: true,
+              companyRequired: parsed.data.paymentLink.customerCapture.companyRequired === true,
+              termsRequired: parsed.data.paymentLink.customerCapture.termsRequired === true,
+              termsMarkdown: parsed.data.paymentLink.customerCapture.termsRequired
+                ? parsed.data.paymentLink.customerCapture.termsMarkdown?.trim() || null
+                : null,
+            }
+          : undefined
+
+      if (parsed.data.paymentLink.templateId) {
+        const template = await findOneWithDecryption(
+          em,
+          PaymentLinkTemplate,
+          {
+            id: parsed.data.paymentLink.templateId,
+            organizationId: auth.orgId as string,
+            tenantId: auth.tenantId,
+            deletedAt: null,
+          },
+          undefined,
+          { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+        )
+
+        if (template) {
+          const merged = mergePaymentLinkWithTemplate(
+            {
+              title: parsed.data.paymentLink.title,
+              description: parsed.data.paymentLink.description,
+              metadata: parsed.data.paymentLink.metadata,
+              customFields: parsed.data.paymentLink.customFields,
+              customFieldsetCode: parsed.data.paymentLink.customFieldsetCode,
+              customerCapture: parsed.data.paymentLink.customerCapture,
+            },
+            template,
+          )
+
+          resolvedTitle = merged.title || parsed.data.description?.trim() || `${transaction.providerKey} payment`
+          resolvedDescription = merged.description || null
+          resolvedPageMetadata = merged.pageMetadata
+          resolvedCustomFields = merged.customFields
+          resolvedCustomFieldsetCode = merged.customFieldsetCode ?? null
+          resolvedCustomerCapture = merged.customerCapture
+            ? {
+                enabled: merged.customerCapture.enabled,
+                companyRequired: merged.customerCapture.companyRequired,
+                termsRequired: merged.customerCapture.termsRequired,
+                termsMarkdown: merged.customerCapture.termsMarkdown?.trim() || null,
+              }
+            : undefined
+        }
+      }
+
       const paymentLink = em.create(GatewayPaymentLink, {
         transactionId: transaction.id,
         token: paymentLinkToken as string,
         providerKey: transaction.providerKey,
-        title: parsed.data.paymentLink.title?.trim() || parsed.data.description?.trim() || `${transaction.providerKey} payment`,
-        description: parsed.data.paymentLink.description?.trim() || null,
+        title: resolvedTitle,
+        description: resolvedDescription,
         passwordHash: parsed.data.paymentLink.password?.trim()
           ? await hashPaymentLinkPassword(parsed.data.paymentLink.password.trim())
           : null,
@@ -340,19 +483,10 @@ export async function POST(req: Request) {
         metadata: buildPaymentLinkStoredMetadata({
           amount: parsed.data.amount,
           currencyCode: parsed.data.currencyCode,
-          pageMetadata: parsed.data.paymentLink.metadata,
-          customFields: parsed.data.paymentLink.customFields,
-          customFieldsetCode: parsed.data.paymentLink.customFieldsetCode ?? null,
-          customerCapture: parsed.data.paymentLink.customerCapture?.enabled
-            ? {
-                enabled: true,
-                companyRequired: parsed.data.paymentLink.customerCapture.companyRequired === true,
-                termsRequired: parsed.data.paymentLink.customerCapture.termsRequired === true,
-                termsMarkdown: parsed.data.paymentLink.customerCapture.termsRequired
-                  ? parsed.data.paymentLink.customerCapture.termsMarkdown?.trim() || null
-                  : null,
-              }
-            : undefined,
+          pageMetadata: resolvedPageMetadata,
+          customFields: resolvedCustomFields,
+          customFieldsetCode: resolvedCustomFieldsetCode,
+          customerCapture: resolvedCustomerCapture,
         }),
         organizationId: auth.orgId as string,
         tenantId: auth.tenantId,

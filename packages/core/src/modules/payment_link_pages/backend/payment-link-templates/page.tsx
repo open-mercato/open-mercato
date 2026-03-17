@@ -33,9 +33,10 @@ type TemplatesResponse = {
 export default function PaymentLinkTemplatesListPage() {
   const t = useT()
   const router = useRouter()
-  const { confirm } = useConfirmDialog()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [data, setData] = React.useState<TemplateRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
   const pageSize = 50
@@ -56,8 +57,9 @@ export default function PaymentLinkTemplatesListPage() {
       }))
       setData(items)
       setTotal(typeof response.total === 'number' ? response.total : items.length)
+      setTotalPages(typeof response.totalPages === 'number' ? response.totalPages : Math.ceil((typeof response.total === 'number' ? response.total : items.length) / pageSize))
     } catch {
-      flash('error', t('payment_link_pages.templates.empty'))
+      flash(t('payment_link_pages.templates.empty'), 'error')
     } finally {
       setLoading(false)
     }
@@ -70,8 +72,8 @@ export default function PaymentLinkTemplatesListPage() {
   const handleArchive = React.useCallback(async (row: TemplateRow) => {
     const confirmed = await confirm({
       title: t('payment_link_pages.templates.actions.archive'),
-      description: t('payment_link_pages.templates.actions.archive.confirm'),
-      confirmLabel: t('payment_link_pages.templates.actions.archive'),
+      text: t('payment_link_pages.templates.actions.archive.confirm'),
+      confirmText: t('payment_link_pages.templates.actions.archive'),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -81,10 +83,10 @@ export default function PaymentLinkTemplatesListPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id: row.id }),
       })
-      flash('success', t('payment_link_pages.templates.deleted'))
+      flash(t('payment_link_pages.templates.deleted'), 'success')
       fetchData(page)
     } catch {
-      flash('error', t('payment_link_pages.templates.deleted'))
+      flash(t('payment_link_pages.templates.deleted'), 'error')
     }
   }, [confirm, t, fetchData, page])
 
@@ -93,19 +95,19 @@ export default function PaymentLinkTemplatesListPage() {
       await apiCallOrThrow(`/api/payment_link_pages/templates/${row.id}/set-default`, {
         method: 'POST',
       })
-      flash('success', t('payment_link_pages.templates.setDefault.success'))
+      flash(t('payment_link_pages.templates.setDefault.success'), 'success')
       fetchData(page)
     } catch {
-      flash('error', t('payment_link_pages.templates.setDefault.success'))
+      flash(t('payment_link_pages.templates.setDefault.success'), 'error')
     }
   }, [t, fetchData, page])
 
   const handleDuplicate = React.useCallback(async (row: TemplateRow) => {
     try {
-      const detailRes = await readApiResultOrThrow<Record<string, unknown>>(
+      const detailRes = await readApiResultOrThrow<TemplatesResponse>(
         `/api/payment_link_pages/templates?id=${row.id}&pageSize=1`
       )
-      const source = (detailRes.items as Array<Record<string, unknown>>)?.[0]
+      const source = (detailRes.items ?? [])[0]
       if (!source) return
       await apiCallOrThrow('/api/payment_link_pages/templates', {
         method: 'POST',
@@ -123,10 +125,10 @@ export default function PaymentLinkTemplatesListPage() {
           metadata: source.metadata,
         }),
       })
-      flash('success', t('payment_link_pages.templates.duplicate.success'))
+      flash(t('payment_link_pages.templates.duplicate.success'), 'success')
       fetchData(page)
     } catch {
-      flash('error', t('payment_link_pages.templates.duplicate.success'))
+      flash(t('payment_link_pages.templates.duplicate.success'), 'error')
     }
   }, [t, fetchData, page])
 
@@ -167,38 +169,7 @@ export default function PaymentLinkTemplatesListPage() {
         }
       },
     },
-    {
-      id: 'actions',
-      cell: ({ row }) => (
-        <RowActions
-          id={`template-${row.original.id}`}
-          items={[
-            {
-              id: 'edit',
-              label: t('payment_link_pages.templates.actions.edit'),
-              onClick: () => router.push(`/backend/payment-link-templates/${row.original.id}`),
-            },
-            {
-              id: 'duplicate',
-              label: t('payment_link_pages.templates.actions.duplicate'),
-              onClick: () => handleDuplicate(row.original),
-            },
-            ...(!row.original.isDefault ? [{
-              id: 'set-default',
-              label: t('payment_link_pages.templates.actions.setDefault'),
-              onClick: () => handleSetDefault(row.original),
-            }] : []),
-            {
-              id: 'archive',
-              label: t('payment_link_pages.templates.actions.archive'),
-              variant: 'destructive' as const,
-              onClick: () => handleArchive(row.original),
-            },
-          ]}
-        />
-      ),
-    },
-  ], [t, router, handleArchive, handleSetDefault, handleDuplicate])
+  ], [t])
 
   return (
     <Page>
@@ -218,16 +189,49 @@ export default function PaymentLinkTemplatesListPage() {
         <DataTable
           columns={columns}
           data={data}
-          loading={loading}
+          isLoading={loading}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  id: 'edit',
+                  label: t('payment_link_pages.templates.actions.edit'),
+                  onSelect: () => router.push(`/backend/payment-link-templates/${row.id}`),
+                },
+                {
+                  id: 'duplicate',
+                  label: t('payment_link_pages.templates.actions.duplicate'),
+                  onSelect: () => handleDuplicate(row),
+                },
+                ...(!row.isDefault ? [{
+                  id: 'set-default',
+                  label: t('payment_link_pages.templates.actions.setDefault'),
+                  onSelect: () => handleSetDefault(row),
+                }] : []),
+                {
+                  id: 'archive',
+                  label: t('payment_link_pages.templates.actions.archive'),
+                  destructive: true,
+                  onSelect: () => handleArchive(row),
+                },
+              ]}
+            />
+          )}
           pagination={{
             page,
             pageSize,
             total,
+            totalPages,
             onPageChange: setPage,
           }}
-          emptyMessage={t('payment_link_pages.templates.empty')}
-          emptyDescription={t('payment_link_pages.templates.empty.description')}
+          emptyState={
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">{t('payment_link_pages.templates.empty')}</p>
+              <p className="text-sm text-muted-foreground">{t('payment_link_pages.templates.empty.description')}</p>
+            </div>
+          }
         />
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

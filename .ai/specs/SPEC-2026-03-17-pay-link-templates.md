@@ -235,8 +235,17 @@ Payment Gateways
   └── Link Templates  ← NEW
 ```
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Entity + API + Admin CRUD | Done | 2026-03-17 | Entity, validators, CRUD API, list/create/edit pages, ACL, events, i18n |
+| Phase 2 — Branding Editor + Preview | Done | 2026-03-17 | BrandingPreview component, shared form config extraction, integrated into create/edit pages |
+| Phase 3 — Session Creation Integration | Done | 2026-03-17 | templateId added to session schema, deep-merge logic in session route, template loading with tenant scoping |
+
 ## Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-03-17 | Initial draft |
+| 2026-03-17 | All phases implemented — entity, API, admin pages, branding preview, session integration with template deep-merge |
