@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
-import { ChallengeMethod, EnforcementScope, SudoTargetType } from './entities'
+import { ChallengeMethod, EnforcementScope } from './entities'
 import { readSecurityModuleConfig } from '../lib/security-config'
 
 const passwordSchema = buildPasswordSchema()
@@ -35,7 +35,6 @@ export const enforcementPolicySchema = z.object({
 export const updateEnforcementPolicySchema = enforcementPolicySchema.partial()
 
 export const sudoChallengeInitSchema = z.object({
-  targetType: z.nativeEnum(SudoTargetType).default(SudoTargetType.FEATURE),
   targetIdentifier: z.string().min(1),
 })
 
@@ -46,7 +45,6 @@ export const sudoChallengePrepareSchema = z.object({
 
 export const sudoChallengeVerifySchema = z.object({
   sessionId: z.string().uuid(),
-  targetType: z.nativeEnum(SudoTargetType).default(SudoTargetType.FEATURE),
   targetIdentifier: z.string().min(1),
   methodType: z.string().min(1),
   payload: z.record(z.string(), z.unknown()).default({}),
@@ -55,7 +53,7 @@ export const sudoChallengeVerifySchema = z.object({
 export const sudoConfigSchema = z.object({
   tenantId: z.string().uuid().nullable().optional(),
   organizationId: z.string().uuid().nullable().optional(),
-  targetType: z.nativeEnum(SudoTargetType),
+  label: z.string().max(200).nullable().optional(),
   targetIdentifier: z.string().min(1),
   isEnabled: z.boolean().default(true),
   ttlSeconds: z.coerce.number()

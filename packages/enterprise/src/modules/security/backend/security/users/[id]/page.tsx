@@ -14,7 +14,6 @@ import type { ComplianceItem, ComplianceResponse, UserStatus } from '../_shared'
 import SecurityUserForm, { type SecurityUserFormValue } from '../../../../components/SecurityUserForm'
 import { SudoProvider } from '../../../../components/SudoProvider'
 import { useSudoChallenge } from '../../../../components/hooks/useSudoChallenge'
-import { SudoTargetType } from '../../../../data/constants'
 
 type SecurityUserDetailPageProps = {
   params?: {
@@ -110,9 +109,7 @@ function SecurityUserDetailPageInner({ params }: SecurityUserDetailPageProps) {
 
     setSaving(true)
     try {
-      const sudoToken = await requireSudo('security.admin.mfa.reset', {
-        targetType: SudoTargetType.FEATURE,
-      })
+      const sudoToken = await requireSudo('security.admin.mfa.reset')
       if (!sudoToken) {
         flash(t('security.admin.sudo.flash.cancelled', 'Sudo challenge cancelled.'), 'error')
         return

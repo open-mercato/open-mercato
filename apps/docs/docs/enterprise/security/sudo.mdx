@@ -19,7 +19,7 @@ The challenge method depends on the policy configured for the target:
 | `password` | Always requires the user's password, regardless of MFA enrollment |
 | `mfa` | Always requires a second factor; fails if the user has no MFA method configured |
 
-Tokens are scoped to a specific target identifier and type. A token issued for one target cannot be reused for another.
+Tokens are scoped to a specific target identifier. A token issued for one target cannot be reused for another.
 
 ![Sudo verification dialog](/screenshots/open-mercato-security-sudo-challenge.png)
 <!-- Placeholder: screenshot of the sudo verification dialog — password or MFA input with the action name displayed -->
@@ -49,15 +49,6 @@ Typical operations protected with sudo:
 
 The following steps describe how to protect a custom module feature with sudo using `@open-mercato/enterprise/modules/security`.
 
-### Target types
-
-| Type | When to use |
-| --- | --- |
-| `feature` | A named business capability (e.g. `inventory.adjust-stock`). Preferred in most cases — explicit and stable. |
-| `route` | A single API endpoint |
-| `module` | All operations within a module |
-| `package` | All operations within a package surface |
-
 ### 1. Declare a developer default
 
 Create `security.sudo.ts` in your module directory:
@@ -67,7 +58,6 @@ import type { SecuritySudoTarget } from '@open-mercato/enterprise/modules/securi
 
 export const sudoTargets: SecuritySudoTarget[] = [
   {
-    type: 'feature',
     identifier: 'inventory.adjust-stock',
     challengeMethod: 'auto',
     ttlSeconds: 300,
@@ -85,19 +75,17 @@ Call `requireSudo` at the top of the route handler. If the token is missing or i
 
 ```ts
 import { NextResponse } from 'next/server'
-import { requireSudo, SudoTargetType } from '@open-mercato/enterprise/modules/security'
+import { requireSudo } from '@open-mercato/enterprise/modules/security'
 
 export async function POST(req: Request) {
-  await requireSudo(req, 'inventory.adjust-stock', {
-    targetType: SudoTargetType.FEATURE,
-  })
+  await requireSudo(req, 'inventory.adjust-stock')
 
   await adjustStock()
   return NextResponse.json({ ok: true })
 }
 ```
 
-The `targetIdentifier` and `targetType` on the server must match exactly what the client passes. The token is cryptographically bound to both values.
+The `targetIdentifier` on the server must match exactly what the client passes. The token is cryptographically bound to that value.
 
 ### 3. Request sudo on the client
 
@@ -120,16 +108,14 @@ Call `requireSudo` from `useSudoChallenge` before sending the mutation. If the r
 ```tsx
 'use client'
 
-import { useSudoChallenge, SudoTargetType } from '@open-mercato/enterprise/modules/security'
+import { useSudoChallenge } from '@open-mercato/enterprise/modules/security'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 function InventoryDangerZone() {
   const { requireSudo } = useSudoChallenge()
 
   async function handleAdjustStock() {
-    const sudoToken = await requireSudo('inventory.adjust-stock', {
-      targetType: SudoTargetType.FEATURE,
-    })
+    const sudoToken = await requireSudo('inventory.adjust-stock')
 
     await apiCallOrThrow('/api/inventory/adjust-stock', {
       method: 'POST',
@@ -162,6 +148,7 @@ Avoid hardcoding `mfa` if there is any chance that affected users have not enrol
 Admins can modify any field of a developer-declared default without a code change:
 
 - enable or disable the protection
+- set a human-readable label (e.g. "MFA Reset", "Billing Settings")
 - override the TTL
 - change the challenge method
 - narrow or widen the scope to tenant or organization level

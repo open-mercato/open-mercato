@@ -10,13 +10,6 @@ export enum EnforcementScope {
   ORGANISATION = 'organisation',
 }
 
-export enum SudoTargetType {
-  PACKAGE = 'package',
-  MODULE = 'module',
-  ROUTE = 'route',
-  FEATURE = 'feature',
-}
-
 export enum ChallengeMethod {
   AUTO = 'auto',
   PASSWORD = 'password',

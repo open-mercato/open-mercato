@@ -1,8 +1,8 @@
 import type { MfaProviderSetup } from './mfa-provider-interface'
 
 export type SecuritySudoTarget = {
-  type: 'package' | 'module' | 'route' | 'feature'
   identifier: string
+  label?: string
   ttlSeconds?: number
   challengeMethod?: 'auto' | 'password' | 'mfa'
 }
@@ -73,7 +73,7 @@ export function dedupeSudoTargets(targets: SecuritySudoTarget[]): SecuritySudoTa
   const deduped: SecuritySudoTarget[] = []
 
   for (const target of targets) {
-    const key = `${target.type}:${target.identifier}`
+    const key = target.identifier
     if (seen.has(key)) continue
     seen.add(key)
     deduped.push(target)

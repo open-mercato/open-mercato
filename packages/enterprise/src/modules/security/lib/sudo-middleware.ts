@@ -1,6 +1,5 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { SudoTargetType } from '../data/constants'
 import type { SudoChallengeService } from '../services/SudoChallengeService'
 
 type SudoRequiredBody = {
@@ -31,7 +30,6 @@ export function isSudoRequiredError(error: unknown): error is SudoRequiredError 
 export async function requireSudo(
   req: Request,
   targetIdentifier: string,
-  options?: { targetType?: SudoTargetType },
 ): Promise<void> {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
@@ -40,8 +38,7 @@ export async function requireSudo(
 
   const container = await createRequestContainer()
   const sudoChallengeService = container.resolve<SudoChallengeService>('sudoChallengeService')
-  const targetType = options?.targetType ?? SudoTargetType.FEATURE
-  const protection = await sudoChallengeService.isProtected(targetType, targetIdentifier, auth.tenantId, auth.orgId)
+  const protection = await sudoChallengeService.isProtected(targetIdentifier, auth.tenantId, auth.orgId)
   if (!protection.protected) return
 
   const token = req.headers.get('x-sudo-token')
@@ -50,7 +47,6 @@ export async function requireSudo(
   }
 
   const valid = await sudoChallengeService.validateToken(token, targetIdentifier, {
-    targetType,
     expectedUserId: auth.sub,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,

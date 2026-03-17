@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChallengeMethod, SudoTargetType } from '../../data/entities'
+import { ChallengeMethod } from '../../data/entities'
 import { registerSecuritySudoTargetEntries } from '../../lib/module-security-registry'
 import {
   defaultSecurityModuleConfig,
@@ -16,7 +16,7 @@ type ConfigRecord = {
   id: string
   tenantId: string | null
   organizationId: string | null
-  targetType: SudoTargetType
+  label: string | null
   targetIdentifier: string
   isEnabled: boolean
   isDeveloperDefault: boolean
@@ -54,7 +54,7 @@ function createServiceContext(
           id: data.id ?? `config-${configs.length + 1}`,
           tenantId: (data.tenantId as string | null | undefined) ?? null,
           organizationId: (data.organizationId as string | null | undefined) ?? null,
-          targetType: data.targetType as SudoTargetType,
+          label: (data.label as string | null | undefined) ?? null,
           targetIdentifier: String(data.targetIdentifier),
           isEnabled: Boolean(data.isEnabled),
           isDeveloperDefault: Boolean(data.isDeveloperDefault),
@@ -85,8 +85,7 @@ function createServiceContext(
     find: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
       if ('targetIdentifier' in query) {
         return configs.filter((config) =>
-          config.targetType === query.targetType
-          && config.targetIdentifier === query.targetIdentifier
+          config.targetIdentifier === query.targetIdentifier
           && config.deletedAt === query.deletedAt,
         )
       }
@@ -95,11 +94,10 @@ function createServiceContext(
     findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
       if ('targetIdentifier' in query) {
         return configs.find((config) =>
-          config.targetType === query.targetType
-          && config.targetIdentifier === query.targetIdentifier
+          config.targetIdentifier === query.targetIdentifier
           && config.tenantId === (query.tenantId as string | null | undefined)
           && config.organizationId === (query.organizationId as string | null | undefined)
-          && config.isDeveloperDefault === query.isDeveloperDefault
+          && (query.isDeveloperDefault === undefined || config.isDeveloperDefault === query.isDeveloperDefault)
           && (query.deletedAt === undefined || config.deletedAt === query.deletedAt)
         ) ?? null
       }
@@ -171,7 +169,7 @@ describe('SudoChallengeService', () => {
   test('registers developer defaults on demand and resolves protection', async () => {
     const { service, configs } = createServiceContext()
 
-    const result = await service.isProtected(SudoTargetType.FEATURE, 'security.sudo.manage', 'tenant-1', 'org-1')
+    const result = await service.isProtected('security.sudo.manage', 'tenant-1', 'org-1')
 
     expect(result.protected).toBe(true)
     expect(configs).toHaveLength(1)
@@ -182,7 +180,6 @@ describe('SudoChallengeService', () => {
     const { service, sessions } = createServiceContext()
 
     const result = await service.initiate('user-1', 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })
@@ -197,7 +194,6 @@ describe('SudoChallengeService', () => {
     mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
 
     const initiated = await service.initiate('user-1', 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })
@@ -209,16 +205,12 @@ describe('SudoChallengeService', () => {
       initiated.sessionId!,
       'totp',
       { code: '123456' },
-      {
-        targetType: SudoTargetType.FEATURE,
-        targetIdentifier: 'security.sudo.manage',
-      },
+      { targetIdentifier: 'security.sudo.manage' },
     )
 
     expect(verified.sudoToken).toBeTruthy()
     expect(sessions[0].sessionToken).toBe(verified.sudoToken)
     await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       expectedUserId: 'user-1',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
@@ -230,7 +222,6 @@ describe('SudoChallengeService', () => {
     mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
 
     const initiated = await service.initiate('user-1', 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       tenantId: 'tenant-override',
       organizationId: 'org-override',
     })
@@ -243,20 +234,17 @@ describe('SudoChallengeService', () => {
         expectedUserId: 'user-1',
         tenantId: 'tenant-override',
         organizationId: 'org-override',
-        targetType: SudoTargetType.FEATURE,
         targetIdentifier: 'security.sudo.manage',
       },
     )
 
     await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       expectedUserId: 'user-1',
       tenantId: 'tenant-override',
       organizationId: 'org-override',
     })).resolves.toBe(true)
 
     await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       expectedUserId: 'user-1',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
@@ -268,7 +256,6 @@ describe('SudoChallengeService', () => {
     mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
 
     const initiated = await service.initiate('user-1', 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       tenantId: null,
       organizationId: null,
     })
@@ -281,20 +268,17 @@ describe('SudoChallengeService', () => {
         expectedUserId: 'user-1',
         tenantId: null,
         organizationId: null,
-        targetType: SudoTargetType.FEATURE,
         targetIdentifier: 'security.sudo.manage',
       },
     )
 
     await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       expectedUserId: 'user-1',
       tenantId: null,
       organizationId: null,
     })).resolves.toBe(true)
 
     await expect(service.validateToken(verified.sudoToken, 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       expectedUserId: 'user-1',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
@@ -312,7 +296,6 @@ describe('SudoChallengeService', () => {
     mfaService.getUserMethods.mockResolvedValueOnce([{ id: 'method-1' }])
 
     const result = await service.initiate('user-1', 'security.sudo.manage', {
-      targetType: SudoTargetType.FEATURE,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })

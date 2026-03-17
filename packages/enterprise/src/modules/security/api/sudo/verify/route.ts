@@ -39,7 +39,6 @@ export async function POST(req: Request) {
         expectedUserId: context.auth.sub,
         tenantId: context.auth.tenantId,
         organizationId: context.auth.orgId,
-        targetType: parsed.data.targetType,
         targetIdentifier: parsed.data.targetIdentifier,
       },
       req,

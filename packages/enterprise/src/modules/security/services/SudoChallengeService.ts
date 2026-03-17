@@ -12,7 +12,6 @@ import {
   SudoChallengeConfig,
   SudoChallengeMethodUsed,
   SudoSession,
-  SudoTargetType,
 } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type {
@@ -44,7 +43,6 @@ type SignedSudoTokenPayload = {
   sub: string
   tid: string | null
   oid: string | null
-  typ: SudoTargetType
   tgt: string
   exp: number
 }
@@ -56,8 +54,8 @@ type UserScope = {
 }
 
 type DeveloperDefaultPayload = {
-  targetType: SudoTargetType
   targetIdentifier: string
+  label?: string | null
   ttlSeconds?: number
   challengeMethod?: ChallengeMethod
 }
@@ -88,7 +86,6 @@ export class SudoChallengeService {
       { deletedAt: null },
       {
         orderBy: {
-          targetType: 'asc',
           targetIdentifier: 'asc',
           tenantId: 'asc',
           organizationId: 'asc',
@@ -104,7 +101,6 @@ export class SudoChallengeService {
   }
 
   async isProtected(
-    targetType: SudoTargetType,
     targetIdentifier: string,
     tenantId?: string | null,
     organizationId?: string | null,
@@ -112,7 +108,6 @@ export class SudoChallengeService {
     await this.ensureDeveloperDefaultsRegistered()
 
     const candidates = await this.em.find(SudoChallengeConfig, {
-      targetType,
       targetIdentifier,
       deletedAt: null,
     })
@@ -131,7 +126,7 @@ export class SudoChallengeService {
   async initiate(
     userId: string,
     targetIdentifier: string,
-    options?: { targetType?: SudoTargetType; tenantId?: string | null; organizationId?: string | null },
+    options?: { tenantId?: string | null; organizationId?: string | null },
   ): Promise<{
     required: boolean
     sessionId?: string
@@ -139,9 +134,7 @@ export class SudoChallengeService {
     availableMfaMethods?: SudoAvailableMethod[]
     expiresAt?: Date
   }> {
-    const targetType = options?.targetType ?? SudoTargetType.FEATURE
     const protection = await this.isProtected(
-      targetType,
       targetIdentifier,
       options?.tenantId ?? null,
       options?.organizationId ?? null,
@@ -184,7 +177,6 @@ export class SudoChallengeService {
       tenantId: user.tenantId,
       organizationId: user.organizationId,
       targetIdentifier,
-      targetType,
       method,
     })
 
@@ -217,7 +209,6 @@ export class SudoChallengeService {
       expectedUserId?: string
       tenantId?: string | null
       organizationId?: string | null
-      targetType?: SudoTargetType
       targetIdentifier: string
     },
     request?: Request,
@@ -231,11 +222,9 @@ export class SudoChallengeService {
       throw new SudoChallengeServiceError('User not found', 404)
     }
 
-    const targetType = options.targetType ?? SudoTargetType.FEATURE
     const scopeTenantId = options.tenantId !== undefined ? options.tenantId : user.tenantId
     const scopeOrganizationId = options.organizationId !== undefined ? options.organizationId : user.organizationId
     const protection = await this.isProtected(
-      targetType,
       options.targetIdentifier,
       scopeTenantId,
       scopeOrganizationId,
@@ -260,7 +249,6 @@ export class SudoChallengeService {
         tenantId: user.tenantId,
         organizationId: user.organizationId,
         targetIdentifier: options.targetIdentifier,
-        targetType,
         method: methodUsed,
       })
       throw new SudoChallengeServiceError('Unable to verify sudo challenge', 401)
@@ -273,7 +261,6 @@ export class SudoChallengeService {
       sub: session.userId,
       tid: scopeTenantId,
       oid: scopeOrganizationId,
-      typ: targetType,
       tgt: options.targetIdentifier,
       exp: expiresAt.getTime(),
     })
@@ -288,7 +275,6 @@ export class SudoChallengeService {
       tenantId: scopeTenantId,
       organizationId: scopeOrganizationId,
       targetIdentifier: options.targetIdentifier,
-      targetType,
       method: methodUsed,
       expiresAt: expiresAt.toISOString(),
     })
@@ -300,7 +286,6 @@ export class SudoChallengeService {
     token: string,
     targetIdentifier: string,
     options?: {
-      targetType?: SudoTargetType
       expectedUserId?: string
       tenantId?: string | null
       organizationId?: string | null
@@ -311,7 +296,6 @@ export class SudoChallengeService {
     if (!payload) return false
     if (payload.exp <= Date.now()) return false
     if (payload.tgt !== targetIdentifier) return false
-    if ((options?.targetType ?? SudoTargetType.FEATURE) !== payload.typ) return false
     if (options?.expectedUserId && payload.sub !== options.expectedUserId) return false
     if (options?.tenantId !== undefined && payload.tid !== (options.tenantId ?? null)) return false
     if (options?.organizationId !== undefined && payload.oid !== (options.organizationId ?? null)) return false
@@ -328,12 +312,12 @@ export class SudoChallengeService {
   async createConfig(input: SudoConfigInput, configuredBy: string): Promise<SudoChallengeConfig> {
     await this.ensureDeveloperDefaultsRegistered()
     this.validateScope(input.tenantId ?? null, input.organizationId ?? null)
-    await this.ensureUniqueConfig(input.targetType, input.targetIdentifier, input.tenantId ?? null, input.organizationId ?? null)
+    await this.ensureUniqueConfig(input.targetIdentifier, input.tenantId ?? null, input.organizationId ?? null)
 
     const config = this.em.create(SudoChallengeConfig, {
       tenantId: input.tenantId ?? null,
       organizationId: input.organizationId ?? null,
-      targetType: input.targetType,
+      label: input.label ?? null,
       targetIdentifier: input.targetIdentifier,
       isEnabled: input.isEnabled,
       ttlSeconds: this.normalizeTtl(input.ttlSeconds),
@@ -349,7 +333,6 @@ export class SudoChallengeService {
     await emitSecurityEvent('security.sudo.config.created', {
       id: config.id,
       targetIdentifier: config.targetIdentifier,
-      targetType: config.targetType,
       configuredBy,
     })
 
@@ -365,14 +348,13 @@ export class SudoChallengeService {
 
     const nextTenantId = input.tenantId !== undefined ? input.tenantId ?? null : config.tenantId ?? null
     const nextOrganizationId = input.organizationId !== undefined ? input.organizationId ?? null : config.organizationId ?? null
-    const nextTargetType = input.targetType ?? config.targetType
     const nextTargetIdentifier = input.targetIdentifier ?? config.targetIdentifier
     this.validateScope(nextTenantId, nextOrganizationId)
-    await this.ensureUniqueConfig(nextTargetType, nextTargetIdentifier, nextTenantId, nextOrganizationId, config.id)
+    await this.ensureUniqueConfig(nextTargetIdentifier, nextTenantId, nextOrganizationId, config.id)
 
     if (input.tenantId !== undefined) config.tenantId = input.tenantId ?? null
     if (input.organizationId !== undefined) config.organizationId = input.organizationId ?? null
-    if (input.targetType !== undefined) config.targetType = input.targetType
+    if (input.label !== undefined) config.label = input.label ?? null
     if (input.targetIdentifier !== undefined) config.targetIdentifier = input.targetIdentifier
     if (input.isEnabled !== undefined) config.isEnabled = input.isEnabled
     if (input.ttlSeconds !== undefined) config.ttlSeconds = this.normalizeTtl(input.ttlSeconds)
@@ -384,7 +366,6 @@ export class SudoChallengeService {
     await emitSecurityEvent('security.sudo.config.updated', {
       id: config.id,
       targetIdentifier: config.targetIdentifier,
-      targetType: config.targetType,
       configuredBy,
     })
 
@@ -403,7 +384,6 @@ export class SudoChallengeService {
     await emitSecurityEvent('security.sudo.config.deleted', {
       id: config.id,
       targetIdentifier: config.targetIdentifier,
-      targetType: config.targetType,
     })
   }
 
@@ -411,7 +391,6 @@ export class SudoChallengeService {
     input: DeveloperDefaultPayload,
   ): Promise<void> {
     const existing = await this.em.findOne(SudoChallengeConfig, {
-      targetType: input.targetType,
       targetIdentifier: input.targetIdentifier,
       tenantId: null,
       organizationId: null,
@@ -431,7 +410,7 @@ export class SudoChallengeService {
     const config = this.em.create(SudoChallengeConfig, {
       tenantId: null,
       organizationId: null,
-      targetType: input.targetType,
+      label: input.label ?? null,
       targetIdentifier: input.targetIdentifier,
       isEnabled: true,
       isDeveloperDefault: true,
@@ -466,22 +445,20 @@ export class SudoChallengeService {
 
   private readDeveloperDefault(target: SecuritySudoTarget): DeveloperDefaultPayload {
     return {
-      targetType: this.toTargetType(target.type),
       targetIdentifier: target.identifier,
+      label: target.label ?? null,
       ttlSeconds: target.ttlSeconds,
       challengeMethod: this.toChallengeMethod(target.challengeMethod),
     }
   }
 
   private async ensureUniqueConfig(
-    targetType: SudoTargetType,
     targetIdentifier: string,
     tenantId: string | null,
     organizationId: string | null,
     ignoreId?: string,
   ): Promise<void> {
     const existing = await this.em.findOne(SudoChallengeConfig, {
-      targetType,
       targetIdentifier,
       tenantId,
       organizationId,
@@ -625,24 +602,10 @@ export class SudoChallengeService {
   }
 
   private getSudoSecret(): string {
-    return process.env.SECURITY_SUDO_SECRET
+    return process.env.OM_SECURITY_SUDO_SECRET
       ?? process.env.AUTH_JWT_SECRET
       ?? process.env.JWT_SECRET
       ?? 'open-mercato-sudo-secret'
-  }
-
-  private toTargetType(type: SecuritySudoTarget['type']): SudoTargetType {
-    switch (type) {
-      case 'package':
-        return SudoTargetType.PACKAGE
-      case 'module':
-        return SudoTargetType.MODULE
-      case 'route':
-        return SudoTargetType.ROUTE
-      case 'feature':
-      default:
-        return SudoTargetType.FEATURE
-    }
   }
 
   private toChallengeMethod(

@@ -23,7 +23,6 @@ export type SudoChallengeMethod = {
 export type PendingSudoChallenge = {
   sessionId: string
   targetIdentifier: string
-  targetType: string
   method: 'password' | 'mfa'
   availableMfaMethods: SudoChallengeMethod[]
 }
@@ -128,7 +127,6 @@ export default function SudoChallengeModal({
       body: JSON.stringify({
         sessionId: challenge.sessionId,
         targetIdentifier: challenge.targetIdentifier,
-        targetType: challenge.targetType,
         methodType,
         payload,
       }),

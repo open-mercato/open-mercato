@@ -138,6 +138,7 @@ function createServiceContext(
         if (query.deletedAt !== undefined && item.deletedAt !== query.deletedAt) return false
         if (query.type !== undefined && item.type !== query.type) return false
         if (query.secret !== undefined && item.secret !== query.secret) return false
+        if (query.label !== undefined && item.label !== query.label) return false
         return true
       }) ?? null
     }),
@@ -273,6 +274,27 @@ describe('MfaService', () => {
       name: 'MfaServiceError',
       statusCode: 409,
       message: "MFA provider 'otp_email' is already configured",
+    })
+  })
+
+  test('confirmMethod rejects duplicate label for allowMultiple provider', async () => {
+    const { service } = createServiceContext()
+
+    mockedFindOneWithDecryption.mockResolvedValue({
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      email: 'user@example.com',
+    } as never)
+
+    await service.setupMethod('user-1', 'totp', {})
+    await service.confirmMethod('user-1', 'setup-1', { code: '123456' })
+
+    await service.setupMethod('user-1', 'totp', {})
+    await expect(service.confirmMethod('user-1', 'setup-1', { code: '654321' })).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 409,
+      message: 'An MFA method with this name already exists',
     })
   })
 

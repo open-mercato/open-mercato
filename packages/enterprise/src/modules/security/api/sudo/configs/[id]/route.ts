@@ -19,7 +19,7 @@ const sudoConfigItemSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid().nullable(),
   organizationId: z.string().uuid().nullable(),
-  targetType: z.string(),
+  label: z.string().nullable(),
   targetIdentifier: z.string(),
   isEnabled: z.boolean(),
   isDeveloperDefault: z.boolean(),

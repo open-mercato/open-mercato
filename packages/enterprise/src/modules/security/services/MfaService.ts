@@ -121,9 +121,24 @@ export class MfaService {
     await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple)
 
     const confirmation = await provider.confirmSetup(userId, setupId, payload, context)
+    const resolvedLabel = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
+
+    if (resolvedLabel && provider.allowMultiple) {
+      const duplicate = await this.em.findOne(UserMfaMethod, {
+        userId,
+        type: method.type,
+        label: resolvedLabel,
+        isActive: true,
+        deletedAt: null,
+      })
+      if (duplicate) {
+        throw new MfaServiceError(`An MFA method with this name already exists`, 409)
+      }
+    }
+
     method.providerMetadata = confirmation.metadata
     method.secret = confirmation.secret ?? null
-    method.label = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
+    method.label = resolvedLabel
     method.isActive = true
     method.updatedAt = new Date()
     await this.em.flush()

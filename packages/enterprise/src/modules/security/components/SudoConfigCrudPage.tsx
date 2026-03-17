@@ -3,12 +3,11 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { SudoTargetType } from '../data/constants'
 import { SudoProvider } from './SudoProvider'
 import { useSudoChallenge } from './hooks/useSudoChallenge'
 import {
@@ -23,7 +22,7 @@ type SudoConfigRecord = {
   id: string
   tenantId: string | null
   organizationId: string | null
-  targetType: SudoTargetType
+  label: string | null
   targetIdentifier: string
   isEnabled: boolean
   ttlSeconds: number
@@ -57,6 +56,20 @@ function SudoConfigCrudPageInner({
     [maxTtlSeconds, t],
   )
   const fields = React.useMemo(() => createSudoConfigFormFields(t, { disabled: submitting }), [submitting, t])
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    {
+      id: 'target',
+      title: t('security.admin.sudo.form.group.target', 'Sudo target'),
+      column: 1,
+      fields: ['targetIdentifier', 'label'],
+    },
+    {
+      id: 'details',
+      title: t('security.admin.sudo.form.group.details', 'Configuration'),
+      column: 1,
+      fields: ['tenantId', 'organizationId', 'ttlSeconds', 'challengeMethod', 'isEnabled'],
+    },
+  ], [t])
   const redirectWithFlash = React.useCallback((message: string, type: 'success' | 'error' = 'success') => {
     router.push(`/backend/security/sudo?flash=${encodeURIComponent(message)}&type=${type}`)
   }, [router])
@@ -76,7 +89,7 @@ function SudoConfigCrudPageInner({
             id: response.result.id,
             tenantId: response.result.tenantId ?? '',
             organizationId: response.result.organizationId ?? '',
-            targetType: response.result.targetType,
+            label: response.result.label ?? '',
             targetIdentifier: response.result.targetIdentifier,
             isEnabled: response.result.isEnabled,
             ttlSeconds: response.result.ttlSeconds,
@@ -97,7 +110,7 @@ function SudoConfigCrudPageInner({
   }, [defaultTtlSeconds, id, mode, redirectWithFlash, t])
 
   const requestToken = React.useCallback(async () => {
-    const sudoToken = await requireSudo('security.sudo.manage', { targetType: SudoTargetType.FEATURE })
+    const sudoToken = await requireSudo('security.sudo.manage')
     if (!sudoToken) {
       flash(t('security.admin.sudo.flash.cancelled', 'Sudo challenge cancelled.'), 'error')
       return null
@@ -159,6 +172,7 @@ function SudoConfigCrudPageInner({
             : t('security.admin.sudo.form.title.create', 'Create sudo rule')}
           backHref="/backend/security/sudo"
           fields={fields}
+          groups={groups}
           initialValues={initialValues}
           isLoading={loading}
           loadingMessage={t('security.admin.sudo.loading', 'Loading sudo configuration...')}

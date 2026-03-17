@@ -50,7 +50,6 @@ export async function POST(req: Request) {
 
   try {
     const result = await context.sudoChallengeService.initiate(context.auth.sub, parsed.data.targetIdentifier, {
-      targetType: parsed.data.targetType,
       tenantId: context.auth.tenantId,
       organizationId: context.auth.orgId,
     })

@@ -86,7 +86,7 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
           organizationId,
           isEnforced: true,
           allowedMethods: ['otp_email'],
-          enforcementDeadline: new Date(Date.now() + 86_400_000).toISOString(),
+          enforcementDeadline: new Date(Date.now() - 60_000).toISOString(),
         },
       },
     )

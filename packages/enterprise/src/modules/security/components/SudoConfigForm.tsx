@@ -6,8 +6,7 @@ import type { CrudCustomFieldRenderProps, CrudField } from '@open-mercato/ui/bac
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { OrganizationSelect } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { ChallengeMethod, SudoTargetType } from '../data/constants'
+import { ChallengeMethod } from '../data/constants'
 import { defaultSecurityModuleConfig } from '../lib/security-config'
 
 type TranslateFn = ReturnType<typeof useT>
@@ -21,7 +20,7 @@ export type SudoConfigFormValues = {
   id?: string
   tenantId: string
   organizationId: string
-  targetType: SudoTargetType
+  label: string
   targetIdentifier: string
   isEnabled: boolean
   ttlSeconds: number
@@ -36,7 +35,7 @@ export function buildSudoConfigInitialValues(
     id: value?.id,
     tenantId: value?.tenantId ?? '',
     organizationId: value?.organizationId ?? '',
-    targetType: value?.targetType ?? SudoTargetType.FEATURE,
+    label: value?.label ?? '',
     targetIdentifier: value?.targetIdentifier ?? '',
     isEnabled: value?.isEnabled ?? true,
     ttlSeconds: value?.ttlSeconds ?? config?.defaultTtlSeconds ?? defaultSecurityModuleConfig.sudo.defaultTtlSeconds,
@@ -48,7 +47,7 @@ export function createSudoConfigFormSchema(t: TranslateFn, config?: SudoFormConf
   return z.object({
     tenantId: z.string().default(''),
     organizationId: z.string().default(''),
-    targetType: z.nativeEnum(SudoTargetType),
+    label: z.string().max(200).default(''),
     targetIdentifier: z.string().trim().min(1),
     isEnabled: z.boolean().default(true),
     ttlSeconds: z.coerce.number()
@@ -66,8 +65,6 @@ export function createSudoConfigFormSchema(t: TranslateFn, config?: SudoFormConf
     }
   })
 }
-
-type FeatureItem = { id: string; title: string; module: string }
 
 function SudoTenantField({ value, setValue, disabled }: CrudCustomFieldRenderProps) {
   const t = useT()
@@ -119,67 +116,6 @@ function SudoOrganizationField({ value, setValue, values, disabled }: CrudCustom
   )
 }
 
-function SudoTargetIdentifierField({ value, setValue, values, disabled, autoFocus }: CrudCustomFieldRenderProps) {
-  const t = useT()
-  const targetType = values?.targetType
-  const stringValue = typeof value === 'string' ? value : ''
-  const [features, setFeatures] = React.useState<FeatureItem[]>([])
-
-  React.useEffect(() => {
-    if (targetType !== SudoTargetType.FEATURE) return
-    let cancelled = false
-    void apiCall<{ items: FeatureItem[] }>('/api/auth/features').then((res) => {
-      if (!cancelled && res.ok && Array.isArray(res.result?.items)) {
-        setFeatures(res.result.items)
-      }
-    })
-    return () => { cancelled = true }
-  }, [targetType])
-
-  if (targetType === SudoTargetType.FEATURE) {
-    const grouped = features.reduce<Record<string, FeatureItem[]>>((acc, f) => {
-      ;(acc[f.module] ??= []).push(f)
-      return acc
-    }, {})
-    const knownIds = new Set(features.map((f) => f.id))
-    return (
-      <select
-        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-        value={stringValue}
-        onChange={(e) => setValue(e.target.value)}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        data-crud-focus-target=""
-      >
-        <option value="">{t('security.admin.sudo.form.targetIdentifierSelectPlaceholder', '— Select a feature —')}</option>
-        {stringValue && !knownIds.has(stringValue) && (
-          <option value={stringValue}>{stringValue}</option>
-        )}
-        {Object.entries(grouped).map(([module, items]) => (
-          <optgroup key={module} label={module}>
-            {items.map((f) => (
-              <option key={f.id} value={f.id}>{f.title} ({f.id})</option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    )
-  }
-
-  return (
-    <input
-      type="text"
-      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-      value={stringValue}
-      onChange={(e) => setValue(e.target.value)}
-      placeholder={t('security.admin.sudo.form.targetIdentifierPlaceholder', 'security.sudo.manage')}
-      disabled={disabled}
-      autoFocus={autoFocus}
-      data-crud-focus-target=""
-    />
-  )
-}
-
 export function createSudoConfigFormFields(
   t: TranslateFn,
   options?: { disabled?: boolean },
@@ -188,24 +124,17 @@ export function createSudoConfigFormFields(
 
   return [
     {
-      id: 'targetType',
-      label: t('security.admin.sudo.form.targetType', 'Target type'),
-      type: 'select',
-      disabled,
-      options: [
-        { value: SudoTargetType.FEATURE, label: t('security.admin.sudo.targetType.feature', 'Feature') },
-        { value: SudoTargetType.ROUTE, label: t('security.admin.sudo.targetType.route', 'Route') },
-        { value: SudoTargetType.MODULE, label: t('security.admin.sudo.targetType.module', 'Module') },
-        { value: SudoTargetType.PACKAGE, label: t('security.admin.sudo.targetType.package', 'Package') },
-      ],
-    },
-    {
       id: 'targetIdentifier',
       label: t('security.admin.sudo.form.targetIdentifier', 'Target identifier'),
-      type: 'custom',
+      type: 'text',
       required: true,
       disabled,
-      component: SudoTargetIdentifierField,
+    },
+    {
+      id: 'label',
+      label: t('security.admin.sudo.form.label', 'Label (optional)'),
+      type: 'text',
+      disabled,
     },
     {
       id: 'tenantId',
@@ -255,7 +184,7 @@ export function buildSudoConfigPayload(values: SudoConfigFormValues) {
   return {
     tenantId: tenantId || null,
     organizationId: organizationId || null,
-    targetType: values.targetType,
+    label: values.label.trim() || null,
     targetIdentifier: values.targetIdentifier.trim(),
     isEnabled: values.isEnabled,
     ttlSeconds: values.ttlSeconds,

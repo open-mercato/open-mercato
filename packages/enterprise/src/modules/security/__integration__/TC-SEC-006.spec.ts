@@ -87,7 +87,6 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
       {
         token: adminToken,
         data: {
-          targetType: 'feature',
           targetIdentifier: 'security.sudo.manage',
         },
       },
@@ -119,7 +118,6 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
         token: adminToken,
         data: {
           sessionId: manageSudo.body.sessionId,
-          targetType: 'feature',
           targetIdentifier: 'security.sudo.manage',
           methodType: 'passkey',
           payload: {

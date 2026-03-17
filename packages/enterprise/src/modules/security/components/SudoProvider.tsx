@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import type { SudoTargetType } from '../data/constants'
 import SudoChallengeModal, { type PendingSudoChallenge } from './SudoChallengeModal'
 
 type SudoTokenCacheEntry = {
@@ -18,17 +17,14 @@ type InitiateResponse = {
 }
 
 export type SudoContextValue = {
-  requireSudo: (
-    targetIdentifier: string,
-    options?: { targetType?: SudoTargetType },
-  ) => Promise<string | null>
+  requireSudo: (targetIdentifier: string) => Promise<string | null>
   isSudoActive: boolean
 }
 
 export const SudoContext = React.createContext<SudoContextValue | null>(null)
 
-function buildCacheKey(targetIdentifier: string, targetType?: SudoTargetType): string {
-  return `${targetType ?? 'feature'}:${targetIdentifier}`
+function buildCacheKey(targetIdentifier: string): string {
+  return targetIdentifier
 }
 
 type SudoProviderProps = {
@@ -50,9 +46,9 @@ export function SudoProvider({ children }: SudoProviderProps) {
     })
   }, [])
 
-  const requireSudo = React.useCallback<SudoContextValue['requireSudo']>(async (targetIdentifier, options) => {
+  const requireSudo = React.useCallback<SudoContextValue['requireSudo']>(async (targetIdentifier) => {
     pruneExpiredTokens()
-    const cacheKey = buildCacheKey(targetIdentifier, options?.targetType)
+    const cacheKey = buildCacheKey(targetIdentifier)
     const cached = tokenCache[cacheKey]
     if (cached && cached.expiresAt > Date.now()) {
       return cached.token
@@ -61,10 +57,7 @@ export function SudoProvider({ children }: SudoProviderProps) {
     const result = await readApiResultOrThrow<InitiateResponse>('/api/security/sudo', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        targetIdentifier,
-        targetType: options?.targetType,
-      }),
+      body: JSON.stringify({ targetIdentifier }),
     })
 
     if (!result.required || !result.sessionId || !result.method) {
@@ -77,7 +70,6 @@ export function SudoProvider({ children }: SudoProviderProps) {
       setPendingChallenge({
         sessionId: result.sessionId ?? '',
         targetIdentifier,
-        targetType: options?.targetType ?? 'feature',
         method: result.method ?? 'password',
         availableMfaMethods: result.availableMfaMethods ?? [],
       })
@@ -126,7 +118,6 @@ export function withSudoProtection<P extends object>(
   Component: React.ComponentType<P & SudoContextValue>,
   options?: {
     targetIdentifier?: string | ((props: P) => string)
-    targetType?: SudoTargetType
   },
 ) {
   const Wrapped = (props: P) => {
@@ -135,14 +126,13 @@ export function withSudoProtection<P extends object>(
       throw new Error('withSudoProtection must be used within a SudoProvider')
     }
 
-    const requireSudo = async (targetIdentifier: string, override?: { targetType?: SudoTargetType }) =>
+    const requireSudo = async (targetIdentifier: string) =>
       context.requireSudo(
         options?.targetIdentifier
           ? typeof options.targetIdentifier === 'function'
             ? options.targetIdentifier(props)
             : options.targetIdentifier
           : targetIdentifier,
-        { targetType: override?.targetType ?? options?.targetType },
       )
 
     return (

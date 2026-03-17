@@ -4,7 +4,6 @@ import {
   EnforcementScope,
   MfaMethodType,
   SudoChallengeMethodUsed,
-  SudoTargetType,
 } from './constants'
 
 export {
@@ -12,7 +11,6 @@ export {
   EnforcementScope,
   MfaMethodType,
   SudoChallengeMethodUsed,
-  SudoTargetType,
 } from './constants'
 
 @Entity({ tableName: 'user_mfa_methods' })
@@ -122,7 +120,7 @@ export class MfaEnforcementPolicy {
 }
 
 @Entity({ tableName: 'sudo_challenge_configs' })
-@Index({ name: 'idx_sudo_configs_target', properties: ['targetType', 'targetIdentifier'] })
+@Index({ name: 'idx_sudo_configs_target', properties: ['targetIdentifier'] })
 export class SudoChallengeConfig {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -133,8 +131,8 @@ export class SudoChallengeConfig {
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 
-  @Property({ name: 'target_type', type: 'text' })
-  targetType!: SudoTargetType
+  @Property({ name: 'label', type: 'text', nullable: true })
+  label: string | null = null
 
   @Property({ name: 'target_identifier', type: 'text' })
   targetIdentifier!: string

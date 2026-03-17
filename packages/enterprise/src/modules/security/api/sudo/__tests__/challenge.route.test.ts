@@ -79,7 +79,6 @@ describe('security sudo challenge routes', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         sessionId: '11111111-1111-4111-8111-111111111111',
-        targetType: 'feature',
         targetIdentifier: 'security.sudo.manage',
         methodType: 'totp',
         payload: { code: '123456' },
@@ -95,7 +94,6 @@ describe('security sudo challenge routes', () => {
         expectedUserId: 'user-1',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
-        targetType: 'feature',
         targetIdentifier: 'security.sudo.manage',
       }),
       expect.any(Request),
@@ -119,7 +117,6 @@ describe('security sudo challenge routes', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         sessionId: '11111111-1111-4111-8111-111111111111',
-        targetType: 'feature',
         targetIdentifier: 'security.sudo.manage',
         methodType: 'totp',
         payload: { code: '123456' },

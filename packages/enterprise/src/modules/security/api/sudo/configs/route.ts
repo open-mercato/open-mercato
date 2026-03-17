@@ -5,13 +5,15 @@ import { sudoConfigSchema } from '../../../data/validators'
 import { requireSudo } from '../../../lib/sudo-middleware'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
 import { securityApiError } from '../../i18n'
-import { mapSudoError, resolveSudoContext, toSudoConfigResponse } from '../_shared'
+import { attachSudoConfigScopeNames, mapSudoError, resolveSudoContext } from '../_shared'
 
 const sudoConfigItemSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid().nullable(),
+  tenantName: z.string().nullable().optional(),
   organizationId: z.string().uuid().nullable(),
-  targetType: z.string(),
+  organizationName: z.string().nullable().optional(),
+  label: z.string().nullable(),
   targetIdentifier: z.string(),
   isEnabled: z.boolean(),
   isDeveloperDefault: z.boolean(),
@@ -41,7 +43,8 @@ export async function GET(req: Request) {
 
   try {
     const items = await context.sudoChallengeService.listConfigs()
-    return NextResponse.json({ items: items.map(toSudoConfigResponse) })
+    const enriched = await attachSudoConfigScopeNames(context.container, items)
+    return NextResponse.json({ items: enriched })
   } catch (error) {
     return mapSudoError(error)
   }

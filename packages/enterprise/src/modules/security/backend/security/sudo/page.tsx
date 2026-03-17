@@ -13,15 +13,17 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { ChallengeMethod, SudoTargetType } from '../../../data/constants'
+import { ChallengeMethod } from '../../../data/constants'
 import { SudoProvider } from '../../../components/SudoProvider'
 import { useSudoChallenge } from '../../../components/hooks/useSudoChallenge'
 
 type SudoConfigRow = {
   id: string
   tenantId: string | null
+  tenantName: string | null
   organizationId: string | null
-  targetType: SudoTargetType
+  organizationName: string | null
+  label: string | null
   targetIdentifier: string
   isEnabled: boolean
   isDeveloperDefault: boolean
@@ -34,6 +36,23 @@ type SudoConfigRow = {
 
 type SudoConfigListResponse = {
   items: SudoConfigRow[]
+}
+
+function renderScopeLabel(row: SudoConfigRow, platformLabel: string) {
+  if (!row.tenantId && !row.organizationId) {
+    return <span>{platformLabel}</span>
+  }
+  const tenantLabel = row.tenantName ?? row.tenantId ?? '-'
+  if (!row.organizationId) {
+    return <span className="whitespace-normal break-words">{tenantLabel}</span>
+  }
+  const orgLabel = row.organizationName ?? row.organizationId ?? '-'
+  return (
+    <div className="space-y-1 whitespace-normal break-words">
+      <div>{tenantLabel}</div>
+      <div className="text-muted-foreground">{orgLabel}</div>
+    </div>
+  )
 }
 
 function SecuritySudoPageInner() {
@@ -79,7 +98,7 @@ function SecuritySudoPageInner() {
   }, [loadRows])
 
   const requestToken = React.useCallback(async () => {
-    const sudoToken = await requireSudo('security.sudo.manage', { targetType: SudoTargetType.FEATURE })
+    const sudoToken = await requireSudo('security.sudo.manage')
     if (!sudoToken) {
       flash(t('security.admin.sudo.flash.cancelled', 'Sudo challenge cancelled.'), 'error')
       return null
@@ -121,9 +140,9 @@ function SecuritySudoPageInner() {
 
   const columns = React.useMemo<ColumnDef<SudoConfigRow>[]>(() => [
     {
-      accessorKey: 'targetType',
-      header: t('security.admin.sudo.table.targetType', 'Type'),
-      cell: ({ row }) => t(`security.admin.sudo.targetType.${row.original.targetType}`, row.original.targetType),
+      accessorKey: 'label',
+      header: t('security.admin.sudo.table.label', 'Label'),
+      cell: ({ row }) => row.original.label ?? '—',
     },
     {
       accessorKey: 'targetIdentifier',
@@ -132,13 +151,7 @@ function SecuritySudoPageInner() {
     {
       id: 'scope',
       header: t('security.admin.sudo.table.scope', 'Scope'),
-      cell: ({ row }) => {
-        if (row.original.organizationId) {
-          return `${row.original.tenantId ?? '-'} / ${row.original.organizationId}`
-        }
-        if (row.original.tenantId) return row.original.tenantId
-        return t('security.admin.sudo.scope.platform', 'Platform')
-      },
+      cell: ({ row }) => renderScopeLabel(row.original, t('security.admin.sudo.scope.platform', 'Platform')),
     },
     {
       accessorKey: 'challengeMethod',
@@ -167,29 +180,44 @@ function SecuritySudoPageInner() {
     {
       id: 'actions',
       header: t('security.admin.sudo.table.actions', 'Actions'),
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <IconButton
-            asChild
-            variant="ghost"
-            size="sm"
-            aria-label={t('ui.actions.edit', 'Edit')}
-          >
-            <Link href={`/backend/security/sudo/${row.original.id}/edit`}>
-              <Pencil className="size-4" />
-            </Link>
-          </IconButton>
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label={t('ui.actions.delete', 'Delete')}
-            onClick={() => void handleDelete(row.original)}
-          >
-            <Trash2 className="size-4" />
-          </IconButton>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const isDeveloperDefault = row.original.isDeveloperDefault
+        return (
+          <div className="flex items-center gap-2">
+            {isDeveloperDefault ? (
+              <IconButton
+                variant="ghost"
+                size="sm"
+                aria-label={t('ui.actions.edit', 'Edit')}
+                disabled
+              >
+                <Pencil className="size-4" />
+              </IconButton>
+            ) : (
+              <IconButton
+                asChild
+                variant="ghost"
+                size="sm"
+                aria-label={t('ui.actions.edit', 'Edit')}
+              >
+                <Link href={`/backend/security/sudo/${row.original.id}/edit`}>
+                  <Pencil className="size-4" />
+                </Link>
+              </IconButton>
+            )}
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={t('ui.actions.delete', 'Delete')}
+              disabled={isDeveloperDefault}
+              onClick={() => void handleDelete(row.original)}
+            >
+              <Trash2 className="size-4" />
+            </IconButton>
+          </div>
+        )
+      },
     },
   ], [handleDelete, t])
 

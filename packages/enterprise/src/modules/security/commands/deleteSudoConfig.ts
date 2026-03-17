@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { ChallengeMethod, SudoChallengeConfig, SudoTargetType } from '../data/entities'
+import { ChallengeMethod, SudoChallengeConfig } from '../data/entities'
 import type { SudoChallengeService } from '../services/SudoChallengeService'
 import {
   applySudoConfigSnapshot,
@@ -69,7 +69,7 @@ registerCommand({
         id: before.id,
         tenantId: before.tenantId,
         organizationId: before.organizationId,
-        targetType: before.targetType as SudoTargetType,
+        label: before.label,
         targetIdentifier: before.targetIdentifier,
         isEnabled: before.isEnabled,
         isDeveloperDefault: before.isDeveloperDefault,

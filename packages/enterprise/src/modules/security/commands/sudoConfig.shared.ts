@@ -1,11 +1,11 @@
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import type { ChallengeMethod, SudoChallengeConfig, SudoTargetType } from '../data/entities'
+import type { ChallengeMethod, SudoChallengeConfig } from '../data/entities'
 
 export type SudoConfigUndoSnapshot = {
   id: string
   tenantId: string | null
   organizationId: string | null
-  targetType: string
+  label: string | null
   targetIdentifier: string
   isEnabled: boolean
   isDeveloperDefault: boolean
@@ -25,7 +25,7 @@ export function captureSudoConfigSnapshot(config: SudoChallengeConfig): SudoConf
     id: config.id,
     tenantId: config.tenantId ?? null,
     organizationId: config.organizationId ?? null,
-    targetType: config.targetType,
+    label: config.label,
     targetIdentifier: config.targetIdentifier,
     isEnabled: config.isEnabled,
     isDeveloperDefault: config.isDeveloperDefault,
@@ -42,7 +42,7 @@ export function applySudoConfigSnapshot(
 ): void {
   config.tenantId = snapshot.tenantId
   config.organizationId = snapshot.organizationId
-  config.targetType = snapshot.targetType as SudoTargetType
+  config.label = snapshot.label
   config.targetIdentifier = snapshot.targetIdentifier
   config.isEnabled = snapshot.isEnabled
   config.isDeveloperDefault = snapshot.isDeveloperDefault

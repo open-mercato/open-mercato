@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { ChallengeMethod, SudoChallengeConfig, SudoTargetType } from '../../data/entities'
+import { ChallengeMethod, SudoChallengeConfig } from '../../data/entities'
 import '../createSudoConfig'
 import '../updateSudoConfig'
 import '../deleteSudoConfig'
@@ -14,7 +14,7 @@ function buildRecord(overrides?: Partial<ConfigRecord>): ConfigRecord {
     id: 'config-1',
     tenantId: null,
     organizationId: null,
-    targetType: SudoTargetType.FEATURE,
+    label: null,
     targetIdentifier: 'security.sudo.manage',
     isEnabled: true,
     isDeveloperDefault: false,
@@ -96,7 +96,7 @@ describe('sudo config commands undo', () => {
               id: record.id,
               tenantId: null,
               organizationId: null,
-              targetType: SudoTargetType.FEATURE,
+              label: null,
               targetIdentifier: 'security.sudo.manage',
               isEnabled: true,
               isDeveloperDefault: false,
@@ -132,7 +132,7 @@ describe('sudo config commands undo', () => {
               id: record.id,
               tenantId: null,
               organizationId: null,
-              targetType: SudoTargetType.FEATURE,
+              label: null,
               targetIdentifier: 'security.sudo.manage',
               isEnabled: true,
               isDeveloperDefault: false,

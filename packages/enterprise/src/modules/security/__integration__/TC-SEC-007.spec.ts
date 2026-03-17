@@ -124,7 +124,6 @@ test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
       {
         token: adminToken,
         data: {
-          targetType: 'feature',
           targetIdentifier: 'security.admin.mfa.reset',
         },
       },
@@ -154,7 +153,6 @@ test.describe('TC-SEC-007: Admin MFA reset and status reporting', () => {
         token: adminToken,
         data: {
           sessionId: sudoSession.body.sessionId,
-          targetType: 'feature',
           targetIdentifier: 'security.admin.mfa.reset',
           methodType: 'passkey',
           payload: {

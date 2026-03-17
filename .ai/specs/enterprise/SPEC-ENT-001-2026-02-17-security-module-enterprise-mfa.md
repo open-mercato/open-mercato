@@ -353,8 +353,8 @@ CREATE TABLE "sudo_challenge_configs" (
   "id"                   uuid        NOT NULL DEFAULT gen_random_uuid(),
   "tenant_id"            uuid        NULL,       -- NULL for platform-wide defaults
   "organization_id"      uuid        NULL,       -- organisation-specific override
-  "target_type"          text        NOT NULL CHECK ("target_type" IN ('package', 'module', 'route', 'feature')),
-  "target_identifier"    text        NOT NULL,   -- e.g. "@open-mercato/core", "auth.roles", "DELETE /api/auth/roles/:id"
+  "target_type"          text        NULL DEFAULT 'feature',  -- display/category metadata only — not a lookup key
+  "target_identifier"    text        NOT NULL,   -- e.g. "auth.roles.delete", "security.sudo.manage"
   "is_enabled"           boolean     NOT NULL DEFAULT true,
   "is_developer_default" boolean     NOT NULL DEFAULT false,
   "ttl_seconds"          integer     NOT NULL DEFAULT 300,
@@ -366,7 +366,7 @@ CREATE TABLE "sudo_challenge_configs" (
   PRIMARY KEY ("id")
 );
 
-CREATE INDEX "idx_sudo_configs_target" ON "sudo_challenge_configs" ("target_type", "target_identifier");
+CREATE INDEX "idx_sudo_configs_target" ON "sudo_challenge_configs" ("target_identifier");
 ```
 
 ### 4.5 `sudo_sessions`
@@ -577,8 +577,9 @@ export class SudoChallengeConfig {
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 
-  @Enum({ name: 'target_type', items: () => SudoTargetType })
-  targetType!: SudoTargetType
+  /** Display/category metadata only — not used as a lookup key in enforcement. */
+  @Property({ name: 'target_type', type: 'text', nullable: true, default: 'feature' })
+  targetType: SudoTargetType | null = SudoTargetType.FEATURE
 
   @Property({ name: 'target_identifier', type: 'text' })
   targetIdentifier!: string
@@ -751,17 +752,16 @@ export const enforcementPolicyUpdateSchema = enforcementPolicySchema.partial()
 
 // ── Sudo ──
 
+// targetType deliberately omitted — identifier is the sole enforcement key
 export const sudoChallengeInitSchema = z.object({
   targetIdentifier: z.string().min(1).max(500),
 })
 
 export const sudoChallengeVerifySchema = z.object({
   sessionId: z.string().uuid(),
-  method: z.string().min(1),           // 'password' or any registered provider type
-  password: z.string().optional(),
-  code: z.string().optional(),
-  credential: z.any().optional(),
-  providerPayload: z.any().optional(), // for custom providers
+  targetIdentifier: z.string().min(1),
+  methodType: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).default({}),
 })
 
 export const sudoConfigSchema = z.object({
@@ -942,11 +942,11 @@ Manages sudo challenge lifecycle, token issuance, and token validation. Tokens a
 
 Methods:
 
-- `isProtected(targetType: SudoTargetType, targetIdentifier: string, tenantId?: string, orgId?: string): Promise<{ protected: boolean; config?: SudoChallengeConfig }>` — checks if an action requires sudo, resolving organisation → tenant → platform → developer defaults.
-- `initiate(userId: string, targetIdentifier: string): Promise<{ sessionId: string; method: 'password' | 'mfa'; availableMfaMethods?: MfaMethodType[] }>` — determines challenge method (`password` if no MFA, `mfa` if MFA enabled), creates a pending `SudoSession`. Emits `security.sudo.challenged`.
-- `verify(sessionId: string, method: string, payload: unknown): Promise<{ sudoToken: string; expiresAt: Date }>` — validates re-authentication (delegates to `PasswordService.verifyPassword` or `MfaVerificationService`), generates HMAC-SHA256 token, stores in `SudoSession`, returns token + expiry. Emits `security.sudo.verified`.
-- `validateToken(token: string): Promise<{ valid: boolean; userId?: string; expiresAt?: Date }>` — checks HMAC signature, looks up session in database, verifies not expired.
-- `registerDeveloperDefault(targetType: SudoTargetType, identifier: string, ttlSeconds?: number): Promise<void>` — called during module setup to register developer defaults with `is_developer_default: true`.
+- `isProtected(targetIdentifier: string, tenantId?: string | null, organizationId?: string | null): Promise<{ protected: boolean; config?: SudoChallengeConfig }>` — checks if an action requires sudo by identifier alone, resolving organisation → tenant → platform → developer defaults.
+- `initiate(userId: string, targetIdentifier: string, options?: { tenantId?: string | null; organizationId?: string | null }): Promise<{ required: boolean; sessionId?: string; method?: 'password' | 'mfa'; ... }>` — determines challenge method (`password` if no MFA, `mfa` if MFA enabled), creates a pending `SudoSession`. Emits `security.sudo.challenged`.
+- `verify(sessionId: string, methodType: string, payload: unknown, options: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null; targetIdentifier: string }, req?: Request): Promise<{ sudoToken: string; expiresAt: Date }>` — validates re-authentication, generates HMAC-SHA256 token signed with request scope, stores in `SudoSession`, returns token + expiry. Emits `security.sudo.verified`.
+- `validateToken(token: string, targetIdentifier: string, options?: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null }): Promise<boolean>` — checks HMAC signature, looks up session in database, verifies not expired and scope matches.
+- `registerDeveloperDefault(input: { targetIdentifier: string; targetType?: SudoTargetType; ttlSeconds?: number; challengeMethod?: ChallengeMethod }): Promise<void>` — called during module setup to register developer defaults with `is_developer_default: true`. `targetType` is optional display metadata.
 - `cleanupExpired(): Promise<number>` — deletes expired sudo sessions. Called by scheduled cleanup job.
 
 ### 8.6 `MfaAdminService`
@@ -1000,7 +1000,7 @@ export type {
 export type {
   MfaMethodType,
   EnforcementScope,
-  SudoTargetType,
+  SudoTargetType,    // display/category metadata — not an enforcement key
   ChallengeMethod,
 } from './data/entities'
 ```
@@ -1648,16 +1648,16 @@ Add to `.env.example`:
 
 ```env
 # ── Security Module ──
-SECURITY_TOTP_ISSUER=Open Mercato          # TOTP issuer name shown in authenticator apps
-SECURITY_TOTP_WINDOW=1                     # TOTP time-step tolerance (number of windows)
-SECURITY_OTP_EXPIRY_SECONDS=600            # OTP email code validity period
-SECURITY_OTP_MAX_ATTEMPTS=5                # Max OTP verification attempts per challenge
-SECURITY_SUDO_DEFAULT_TTL=300              # Default sudo token TTL in seconds
-SECURITY_SUDO_MAX_TTL=1800                 # Maximum configurable sudo TTL
-SECURITY_WEBAUTHN_RP_NAME=Open Mercato     # WebAuthn relying party name
-SECURITY_WEBAUTHN_RP_ID=                   # WebAuthn RP ID (defaults to hostname)
-SECURITY_RECOVERY_CODE_COUNT=10            # Number of recovery codes generated
-SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster recovery only)
+OM_SECURITY_TOTP_ISSUER=Open Mercato          # TOTP issuer name shown in authenticator apps
+OM_SECURITY_TOTP_WINDOW=1                     # TOTP time-step tolerance (number of windows)
+OM_SECURITY_OTP_EXPIRY_SECONDS=600            # OTP email code validity period
+OM_SECURITY_OTP_MAX_ATTEMPTS=5                # Max OTP verification attempts per challenge
+OM_SECURITY_SUDO_DEFAULT_TTL=300              # Default sudo token TTL in seconds
+OM_SECURITY_SUDO_MAX_TTL=1800                 # Maximum configurable sudo TTL
+OM_SECURITY_WEBAUTHN_RP_NAME=Open Mercato     # WebAuthn relying party name
+OM_SECURITY_WEBAUTHN_RP_ID=                   # WebAuthn RP ID (defaults to hostname)
+OM_SECURITY_RECOVERY_CODE_COUNT=10            # Number of recovery codes generated
+OM_SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster recovery only)
 ```
 
 ---
@@ -2068,3 +2068,20 @@ security/
 - [x] Register developer sudo defaults from module setup declarations
 - [x] Implement `withSudoProtection`
 - [ ] Add end-to-end sudo integration coverage
+
+### 2026-03-17 — Remove `SudoTargetType` from enforcement path
+
+`SudoTargetType` (PACKAGE | MODULE | ROUTE | FEATURE) was removed from all sudo enforcement logic. The enum remains on the entity and admin form as display/category metadata only — it is never used as a DB lookup key or token field.
+
+**Rationale:** Protection only depends on WHERE `requireSudo()` is called in code. The type label adds zero enforcement value — all callers used FEATURE, the token `typ` field added no security, and the composite `(targetType, targetIdentifier)` DB index was misleading.
+
+**Changes:**
+- `target_type` column: made nullable (`DEFAULT 'feature'`), CHECK constraint removed, composite index changed to identifier-only
+- `SignedSudoTokenPayload`: `typ` field removed
+- `isProtected`: signature changed to `(targetIdentifier, tenantId?, organizationId?)` — no targetType param
+- `initiate` / `verify` / `validateToken`: all `targetType` params removed from options
+- `requireSudo(req, identifier)`: no options param
+- `useSudoChallenge().requireSudo(identifier)`: no options param
+- `sudoChallengeInitSchema` / `sudoChallengeVerifySchema`: `targetType` field removed
+- `dedupeSudoTargets`: dedup key changed from `${type}:${identifier}` to `identifier`
+- DB migration: `Migration20260317080124` — drops composite index, makes `target_type` nullable

@@ -25,7 +25,7 @@ function buildArgs(overrides?: Partial<ResolveArgs>): ResolveArgs {
 
 describe('resolveMfaEnrollmentRedirect', () => {
   beforeEach(() => {
-    delete process.env.SECURITY_MFA_EMERGENCY_BYPASS
+    delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
   })
 
   test('returns redirect immediately when deadline is not set', async () => {
@@ -104,7 +104,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
   })
 
   test('returns null when MFA emergency bypass is enabled', async () => {
-    process.env.SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
 
     const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
 

@@ -13,13 +13,13 @@ export const metadata = {
   id: 'security',
   version: '0.1.0',
   enterprise: true,
+  title: 'Security',
 } as const
 
 export { features } from './acl'
 export {
   ChallengeMethod,
   SudoChallengeMethodUsed,
-  SudoTargetType,
 } from './data/constants'
 export type {
   MfaProviderComponents,
