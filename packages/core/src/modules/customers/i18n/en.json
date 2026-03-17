@@ -616,6 +616,8 @@
   "customers.people.detail.deals.loadMore": "Load more deals",
   "customers.people.detail.deals.loading": "Loading deals…",
   "customers.people.detail.deals.openDeal": "Open deal",
+  "customers.people.detail.deals.pipelineIdInvalid": "Select a valid pipeline.",
+  "customers.people.detail.deals.pipelineStageIdInvalid": "Select a valid pipeline stage.",
   "customers.people.detail.deals.pipelineTooLong": "Pipeline stage is too long",
   "customers.people.detail.deals.probabilityInvalid": "Probability must be between 0 and 100",
   "customers.people.detail.deals.save": "Save deal (⌘/Ctrl + Enter)",
