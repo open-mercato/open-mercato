@@ -66,9 +66,20 @@ This is critical for:
 
 ### Module Location
 
-`packages/core/src/modules/simple_checkout/`
+**Separate npm package** — NOT part of `packages/core`.
 
-This is a core module (not an integration provider) because it orchestrates sales, catalog, and payment gateway interactions.
+This module lives in its own dedicated package, either in the [open-mercato/official-modules](https://github.com/open-mercato/official-modules) repository or as a third-party package:
+
+- **Package**: `@open-mercato/simple-checkout` (or `@open-mercato-modules/simple-checkout`)
+- **Repository**: `open-mercato/official-modules` (preferred) or standalone third-party repo
+- **Structure**: `packages/simple-checkout/src/modules/simple_checkout/`
+
+This follows the same pattern as integration providers (`gateway-stripe`, `gateway-wire-transfer`) — a standalone npm workspace package that registers itself via the standard module auto-discovery system. Keeping it outside core ensures:
+
+1. **Independent release cycle** — can ship updates without core releases
+2. **Truly ejectable** — users install or remove it as an npm dependency
+3. **Reference implementation** — serves as a best-practice example for third-party module developers building on the UMES extension system
+4. **Clean dependency graph** — depends on `@open-mercato/core`, `@open-mercato/shared`, `@open-mercato/ui` but core does not depend on it
 
 ### Data Flow
 
@@ -548,11 +559,11 @@ The `appearance.customCss` field allows merchants to inject scoped CSS. CSS is s
 
 ### 9.3 Ejectable Architecture
 
-The entire module is self-contained. To eject:
-1. Copy `packages/core/src/modules/simple_checkout/` to `apps/mercato/src/modules/simple_checkout/`
-2. Disable the core module in `modules.ts`
-3. Enable the app-level copy
-4. Full source control — modify anything
+The module is a standalone npm package, making it inherently ejectable:
+
+1. **Standard usage**: `yarn add @open-mercato/simple-checkout` and enable in `modules.ts`
+2. **Eject to customize**: Copy the package source into `apps/mercato/src/modules/simple_checkout/`, remove the npm dependency, enable the local copy in `modules.ts`
+3. **Fork**: Fork the `official-modules` repo (or just the package) for full source control
 
 ## 10. Security Considerations
 
