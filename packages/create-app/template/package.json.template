@@ -2,6 +2,7 @@
   "name": "{{APP_NAME}}",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "mercato server dev",
     "build": "next build",

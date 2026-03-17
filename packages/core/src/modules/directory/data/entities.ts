@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, ManyToOne, OneToMany, Collection } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, ManyToOne, OneToMany, Collection, Unique } from '@mikro-orm/core'
 
 @Entity({ tableName: 'tenants' })
 export class Tenant {
@@ -25,6 +25,7 @@ export class Tenant {
 }
 
 @Entity({ tableName: 'organizations' })
+@Unique({ name: 'organizations_tenant_slug_uniq', properties: ['tenant', 'slug'] })
 export class Organization {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -34,6 +35,9 @@ export class Organization {
 
   @Property({ type: 'text' })
   name!: string
+
+  @Property({ type: 'text', nullable: true })
+  slug?: string | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true

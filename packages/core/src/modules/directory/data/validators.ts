@@ -11,9 +11,12 @@ export const tenantUpdateSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
+const slugField = z.string().trim().toLowerCase().regex(/^[a-z0-9\-_]+$/).max(150).optional().nullable()
+
 export const organizationCreateSchema = z.object({
   tenantId: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
+  slug: slugField,
   isActive: z.boolean().optional(),
   parentId: z.string().uuid().nullable().optional(),
   childIds: z.array(z.string().uuid()).optional(),
@@ -23,6 +26,7 @@ export const organizationUpdateSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid().optional(),
   name: z.string().min(1).max(200).optional(),
+  slug: slugField,
   isActive: z.boolean().optional(),
   parentId: z.string().uuid().nullable().optional(),
   childIds: z.array(z.string().uuid()).optional(),
