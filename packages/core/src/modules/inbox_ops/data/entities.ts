@@ -42,6 +42,15 @@ export interface ExtractedParticipant {
 
 export type InboxEmailStatus = 'received' | 'processing' | 'processed' | 'needs_review' | 'failed'
 export type InboxProposalStatus = 'pending' | 'partial' | 'accepted' | 'rejected'
+export type InboxProposalCategory =
+  | 'rfq'
+  | 'order'
+  | 'order_update'
+  | 'complaint'
+  | 'shipping_update'
+  | 'inquiry'
+  | 'payment'
+  | 'other'
 export type InboxActionType =
   | 'create_order'
   | 'create_quote'
@@ -206,9 +215,10 @@ export class InboxEmail {
 @Entity({ tableName: 'inbox_proposals' })
 @Index({ properties: ['organizationId', 'tenantId'] })
 @Index({ properties: ['organizationId', 'tenantId', 'status'] })
+@Index({ properties: ['organizationId', 'tenantId', 'category'] })
 @Index({ properties: ['inboxEmailId'] })
 export class InboxProposal {
-  [OptionalProps]?: 'status' | 'possiblyIncomplete' | 'workingLanguage' | 'translations' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'category' | 'possiblyIncomplete' | 'workingLanguage' | 'translations' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -227,6 +237,9 @@ export class InboxProposal {
 
   @Property({ name: 'detected_language', type: 'text', nullable: true })
   detectedLanguage?: string | null
+
+  @Property({ name: 'category', type: 'text', nullable: true })
+  category?: InboxProposalCategory | null
 
   @Property({ name: 'status', type: 'text' })
   status: InboxProposalStatus = 'pending'

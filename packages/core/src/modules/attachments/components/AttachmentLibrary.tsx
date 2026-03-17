@@ -310,7 +310,6 @@ function AttachmentFilesField({
   value,
   setValue,
   disabled,
-  error,
   labels,
   uploading,
 }: AttachmentFilesFieldProps) {
@@ -428,7 +427,6 @@ function AttachmentFilesField({
         />
       </div>
       {renderFileList()}
-      {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
     </div>
   )
 }

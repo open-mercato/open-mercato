@@ -33,6 +33,24 @@ export function asHelperContext(ctx: InboxActionExecutionContext): ExecutionHelp
   return ctx as unknown as ExecutionHelperContext
 }
 
+interface FeatureCheckingRbacService {
+  userHasAllFeatures: (
+    userId: string,
+    features: string[],
+    scope: { tenantId: string; organizationId: string },
+  ) => Promise<boolean>
+}
+
+function hasSuperAdminAccess(auth: ExecutionHelperContext['auth']): boolean {
+  if (!auth || typeof auth !== 'object') return false
+  if ((auth as Record<string, unknown>).isSuperAdmin === true) return true
+  const roles = (auth as Record<string, unknown>).roles
+  if (!Array.isArray(roles)) return false
+  return roles.some(
+    (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin',
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -84,6 +102,28 @@ export async function executeCommand<TInput, TResult>(
   })
 
   return result
+}
+
+export async function userHasFeature(
+  ctx: ExecutionHelperContext,
+  feature: string,
+): Promise<boolean> {
+  if (!feature) return true
+  if (hasSuperAdminAccess(ctx.auth)) return true
+
+  try {
+    const rbacService = ctx.container.resolve('rbacService') as FeatureCheckingRbacService
+    if (!rbacService || typeof rbacService.userHasAllFeatures !== 'function') {
+      return false
+    }
+    return rbacService.userHasAllFeatures(
+      ctx.userId,
+      [feature],
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+  } catch {
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------

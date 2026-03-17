@@ -17,15 +17,44 @@ export function hasContactNameIssue(action: {
   const type = (action.payload.type as string) || 'person'
   if (type !== 'person') return false
   const name = (action.payload.name as string) || ''
-  return name.trim().split(/\s+/).length < 2
+  const { cleanedName } = stripTitleFromName(name)
+  return cleanedName.trim().split(/\s+/).length < 2
+}
+
+/**
+ * Common titles/salutations that should be stripped from names before splitting.
+ * Covers English, Polish, German, Spanish, and French academic/professional titles.
+ */
+const TITLE_TOKENS = new Set([
+  'mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'sir', 'lady', 'lord',
+  'mgr', 'inż', 'lic', 'hab',
+  'herr', 'frau',
+  'sr', 'sra', 'srta',
+  'ing', 'dott', 'arch',
+])
+
+/**
+ * Strip leading title/salutation tokens (e.g. "mgr", "Dr.", "Prof.") from a name.
+ * Returns the cleaned name and any stripped title.
+ */
+export function stripTitleFromName(name: string): { cleanedName: string; title: string | null } {
+  const parts = name.trim().split(/\s+/).filter((p) => p.length > 0)
+  if (parts.length < 2) return { cleanedName: name.trim(), title: null }
+  const firstToken = parts[0].replace(/\.$/, '').toLowerCase()
+  if (TITLE_TOKENS.has(firstToken)) {
+    return { cleanedName: parts.slice(1).join(' '), title: parts[0] }
+  }
+  return { cleanedName: name.trim(), title: null }
 }
 
 /**
  * Split a full name into first and last name parts.
+ * Strips leading titles (mgr, Dr, Prof, etc.) before splitting.
  * Falls back to deriving name parts from email when name is a single word.
  */
 export function splitPersonName(name: string, email?: string): { firstName: string; lastName: string } {
-  const trimmed = name.trim()
+  const { cleanedName } = stripTitleFromName(name)
+  const trimmed = cleanedName.trim()
   const parts = trimmed.split(/\s+/).filter((item) => item.length > 0)
 
   if (parts.length >= 2) {
