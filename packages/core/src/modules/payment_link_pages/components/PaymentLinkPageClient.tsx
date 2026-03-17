@@ -15,6 +15,7 @@ import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownConte
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { LanguageSwitcher } from '@open-mercato/ui/frontend/LanguageSwitcher'
@@ -405,7 +406,7 @@ function DefaultCheckoutSection({
                 <label className="flex items-start gap-3 rounded-2xl border border-slate-700 bg-slate-950/50 p-4 text-sm text-slate-200">
                   <Checkbox
                     checked={customerTermsAccepted}
-                    onCheckedChange={(checked) => onCustomerTermsAcceptedChange(checked === true)}
+                    onCheckedChange={(checked: boolean | 'indeterminate') => onCustomerTermsAcceptedChange(checked === true)}
                   />
                   <span>
                     {t(

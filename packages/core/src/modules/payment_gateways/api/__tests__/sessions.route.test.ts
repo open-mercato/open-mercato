@@ -68,6 +68,8 @@ describe('payment gateway sessions route', () => {
         customerCapture: {
           enabled: true,
           companyRequired: false,
+          termsRequired: true,
+          termsMarkdown: '## Terms\n\nI consent to the processing of my data for payment handling.',
         },
       },
     })
@@ -126,6 +128,8 @@ describe('payment gateway sessions route', () => {
             customerCapture: {
               enabled: true,
               companyRequired: false,
+              termsRequired: true,
+              termsMarkdown: '## Terms\n\nI consent to the processing of my data for payment handling.',
             },
           },
         },
@@ -204,6 +208,8 @@ describe('payment gateway sessions route', () => {
         customerCapture: {
           enabled: true,
           companyRequired: false,
+          termsRequired: true,
+          termsMarkdown: '## Terms\n\nI consent to the processing of my data for payment handling.',
         },
         token: 'invoice-inv-10024',
         customFieldsetCode: 'invoice',
@@ -412,6 +418,58 @@ describe('payment gateway sessions route', () => {
       error: 'Invalid payload',
       fieldErrors: {
         paymentLinkCustomPath: 'This custom link path is already in use.',
+      },
+    })
+  })
+
+  it('rejects terms requirement without markdown content', async () => {
+    mockReadJsonSafe.mockResolvedValue({
+      providerKey: 'stripe',
+      amount: 49.99,
+      currencyCode: 'USD',
+      paymentLink: {
+        enabled: true,
+        title: 'Invoice INV-10024',
+        customerCapture: {
+          enabled: true,
+          termsRequired: true,
+        },
+      },
+    })
+    mockRunApiInterceptorsBefore.mockResolvedValue({
+      ok: true,
+      request: {
+        method: 'POST',
+        url: 'http://localhost/api/payment_gateways/sessions',
+        headers: {},
+        body: {
+          providerKey: 'stripe',
+          amount: 49.99,
+          currencyCode: 'USD',
+          paymentLink: {
+            enabled: true,
+            title: 'Invoice INV-10024',
+            customerCapture: {
+              enabled: true,
+              termsRequired: true,
+            },
+          },
+        },
+      },
+      metadataByInterceptor: {},
+    })
+
+    const response = await POST(new Request('http://localhost/api/payment_gateways/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    }))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid payload',
+      fieldErrors: {
+        paymentLinkTermsMarkdown: 'Enter the markdown content that the customer must accept.',
       },
     })
   })

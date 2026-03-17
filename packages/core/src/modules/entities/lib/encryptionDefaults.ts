@@ -149,6 +149,27 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     fields: [{ field: 'credentials' }],
   },
   {
+    entityId: 'payment_gateways:gateway_transaction',
+    fields: [
+      { field: 'provider_session_id' },
+      { field: 'gateway_payment_id' },
+      { field: 'gateway_refund_id' },
+      { field: 'redirect_url' },
+      { field: 'client_secret' },
+      { field: 'gateway_metadata' },
+      { field: 'webhook_log' },
+    ],
+  },
+  {
+    entityId: 'payment_gateways:gateway_payment_link',
+    fields: [
+      { field: 'title' },
+      { field: 'description' },
+      { field: 'password_hash' },
+      { field: 'metadata' },
+    ],
+  },
+  {
     entityId: 'staff:staff_leave_request',
     fields: [
       { field: 'note' },

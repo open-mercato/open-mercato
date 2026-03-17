@@ -134,6 +134,7 @@ Create-session payload:
 When enabled:
 
 - the hosted page blocks the payment widget until the customer form is submitted
+- if terms/GDPR markdown is configured, the hosted page blocks the customer form until the checkbox is accepted
 - the public API returns the state under `link.customerCapture`
 - the hosted page submits to `POST /api/payment_link_pages/pay/[token]/customer`
 - Open Mercato reuses existing customer records when it can, and creates missing company/person records when it cannot
@@ -147,6 +148,24 @@ The default hosted form collects:
 - phone
 
 After submission, the stored state includes the matched/created entity ids and a small snapshot (`companyEntityId`, `personEntityId`, `companyName`, `personName`, `email`, `collectedAt`), which is returned to the page and available to UMES injections, replacements, and enrichers.
+
+Terms / GDPR example:
+
+```json
+{
+  "paymentLink": {
+    "enabled": true,
+    "title": "Invoice INV-10024",
+    "customerCapture": {
+      "enabled": true,
+      "termsRequired": true,
+      "termsMarkdown": "## GDPR consent\n\nI consent to processing my personal data for payment handling."
+    }
+  }
+}
+```
+
+The markdown content is returned under `link.customerCapture.termsMarkdown`, and the acceptance state is reflected in `link.customerCapture.termsAcceptedAt`.
 
 ## Custom fields and fieldsets
 

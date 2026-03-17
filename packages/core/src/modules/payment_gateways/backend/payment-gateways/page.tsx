@@ -16,6 +16,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { ChevronDown, ChevronRight, Copy, CreditCard, ExternalLink, Plus, RefreshCw, Shield, Webhook } from 'lucide-react'
 import { CreatePaymentTransactionDialog } from '../../components/CreatePaymentTransactionDialog'
 
@@ -187,6 +188,53 @@ function DetailStat({ label, value }: { label: string; value: React.ReactNode })
       <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-1 text-sm font-medium">{value}</div>
     </div>
+  )
+}
+
+function DetailKeyValueTable({
+  rows,
+  compact = false,
+}: {
+  rows: Array<{ label: string; value: React.ReactNode; mono?: boolean }>
+  compact?: boolean
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      <table className="w-full text-sm">
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label} className="border-b last:border-0">
+              <th className="w-44 bg-muted/25 px-4 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {row.label}
+              </th>
+              <td className={`px-4 py-2 ${row.mono ? 'break-all font-mono text-[13px]' : compact ? 'text-sm' : 'break-words text-sm'}`}>
+                {row.value}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function DetailSectionCard({
+  title,
+  icon,
+  children,
+}: {
+  title: string
+  icon?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="space-y-3 rounded-xl border bg-muted/15 p-4">
+      <div className="flex items-center gap-2">
+        {icon}
+        <h3 className="text-sm font-semibold">{title}</h3>
+      </div>
+      {children}
+    </section>
   )
 }
 
@@ -506,37 +554,108 @@ export default function PaymentTransactionsPage() {
                       value={formatTypeLabel(detail.transaction.providerKey)}
                     />
                   </div>
+                  <Tabs defaultValue="overview" className="space-y-4">
+                    <TabsList className="h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0">
+                      <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        {t('payment_gateways.transactions.detail.identifiers', 'Identifiers')}
+                      </TabsTrigger>
+                      <TabsTrigger value="payment-link" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        {t('payment_gateways.transactions.detail.paymentLink', 'Payment link')}
+                      </TabsTrigger>
+                      <TabsTrigger value="webhooks" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        {t('payment_gateways.transactions.detail.webhooks', 'Webhook activity')}
+                      </TabsTrigger>
+                      <TabsTrigger value="logs" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        {t('payment_gateways.transactions.detail.logs', 'Gateway logs')}
+                      </TabsTrigger>
+                      <TabsTrigger value="metadata" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        {t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}
+                      </TabsTrigger>
+                    </TabsList>
 
-                  <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-                    <div className="space-y-6">
-                      <section className="space-y-3">
-                        <h3 className="text-sm font-semibold">{t('payment_gateways.transactions.detail.identifiers', 'Identifiers')}</h3>
-                        <dl className="grid gap-3 md:grid-cols-2">
-                          {[
-                            [t('payment_gateways.transactions.columns.transactionId', 'Transaction ID'), detail.transaction.id],
-                            [t('payment_gateways.transactions.columns.paymentId', 'Payment ID'), detail.transaction.paymentId],
-                            [t('payment_gateways.transactions.columns.session', 'Session ID'), detail.transaction.providerSessionId ?? '—'],
-                            [t('payment_gateways.transactions.columns.gatewayPaymentId', 'Gateway payment ID'), detail.transaction.gatewayPaymentId ?? '—'],
-                            [t('payment_gateways.transactions.columns.gatewayRefundId', 'Gateway refund ID'), detail.transaction.gatewayRefundId ?? '—'],
-                            [t('payment_gateways.transactions.columns.redirectUrl', 'Redirect URL'), detail.transaction.redirectUrl ?? '—'],
-                            [t('payment_gateways.transactions.columns.createdAt', 'Created at'), formatDateTime(detail.transaction.createdAt)],
-                            [t('payment_gateways.transactions.columns.updatedAt', 'Updated at'), formatDateTime(detail.transaction.updatedAt)],
-                            [t('payment_gateways.transactions.columns.lastWebhookAt', 'Last webhook'), formatDateTime(detail.transaction.lastWebhookAt)],
-                            [t('payment_gateways.transactions.columns.lastPolledAt', 'Last poll'), formatDateTime(detail.transaction.lastPolledAt)],
-                          ].map(([label, value]) => (
-                            <div key={label} className="rounded-lg border bg-muted/20 px-4 py-3">
-                              <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
-                              <dd className="mt-1 break-all text-sm">{value}</dd>
+                    <TabsContent value="overview" className="mt-0">
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <DetailSectionCard title={t('payment_gateways.transactions.detail.identifiers', 'Identifiers')} icon={<CreditCard className="h-4 w-4 text-muted-foreground" />}>
+                          <DetailKeyValueTable
+                            rows={[
+                              { label: t('payment_gateways.transactions.columns.transactionId', 'Transaction ID'), value: detail.transaction.id, mono: true },
+                              { label: t('payment_gateways.transactions.columns.paymentId', 'Payment ID'), value: detail.transaction.paymentId, mono: true },
+                              { label: t('payment_gateways.transactions.columns.session', 'Session ID'), value: detail.transaction.providerSessionId ?? '—', mono: true },
+                              { label: t('payment_gateways.transactions.columns.gatewayPaymentId', 'Gateway payment ID'), value: detail.transaction.gatewayPaymentId ?? '—', mono: true },
+                              { label: t('payment_gateways.transactions.columns.gatewayRefundId', 'Gateway refund ID'), value: detail.transaction.gatewayRefundId ?? '—', mono: true },
+                              { label: t('payment_gateways.transactions.columns.redirectUrl', 'Redirect URL'), value: detail.transaction.redirectUrl ?? '—', mono: true },
+                            ]}
+                          />
+                        </DetailSectionCard>
+                        <DetailSectionCard title={t('payment_gateways.transactions.detail.summary.status', 'Status')} icon={<RefreshCw className="h-4 w-4 text-muted-foreground" />}>
+                          <DetailKeyValueTable
+                            rows={[
+                              {
+                                label: t('payment_gateways.transactions.detail.summary.status', 'Status'),
+                                value: <Badge variant="secondary" className={STATUS_STYLES[detail.transaction.unifiedStatus] ?? ''}>{t(`payment_gateways.status.${detail.transaction.unifiedStatus}`, formatTypeLabel(detail.transaction.unifiedStatus))}</Badge>,
+                              },
+                              { label: t('payment_gateways.transactions.detail.summary.gatewayStatus', 'Gateway status'), value: detail.transaction.gatewayStatus ?? noneLabel },
+                              { label: t('payment_gateways.transactions.detail.summary.amount', 'Amount'), value: formatAmount(detail.transaction.amount, detail.transaction.currencyCode) },
+                              { label: t('payment_gateways.transactions.detail.summary.provider', 'Provider'), value: formatTypeLabel(detail.transaction.providerKey) },
+                              { label: t('payment_gateways.transactions.columns.createdAt', 'Created at'), value: formatDateTime(detail.transaction.createdAt) },
+                              { label: t('payment_gateways.transactions.columns.updatedAt', 'Updated at'), value: formatDateTime(detail.transaction.updatedAt) },
+                              { label: t('payment_gateways.transactions.columns.lastWebhookAt', 'Last webhook'), value: formatDateTime(detail.transaction.lastWebhookAt) },
+                              { label: t('payment_gateways.transactions.columns.lastPolledAt', 'Last poll'), value: formatDateTime(detail.transaction.lastPolledAt) },
+                            ]}
+                            compact
+                          />
+                        </DetailSectionCard>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="payment-link" className="mt-0">
+                      {detail.paymentLink ? (
+                        <DetailSectionCard title={t('payment_gateways.transactions.detail.paymentLink', 'Payment link')} icon={<Shield className="h-4 w-4 text-muted-foreground" />}>
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="text-sm font-medium">{detail.paymentLink.title}</div>
+                              {detail.paymentLink.description ? (
+                                <div className="text-sm text-muted-foreground">{detail.paymentLink.description}</div>
+                              ) : null}
                             </div>
-                          ))}
-                        </dl>
-                      </section>
+                            <Badge variant="secondary" className={detail.paymentLink.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : detail.paymentLink.status === 'cancelled' ? 'bg-zinc-200 text-zinc-900' : 'bg-amber-100 text-amber-800'}>
+                              {detail.paymentLink.status === 'completed'
+                                ? t('payment_gateways.paymentLink.status.completed', 'Paid')
+                                : detail.paymentLink.status === 'cancelled'
+                                  ? t('payment_gateways.status.cancelled', 'Cancelled')
+                                  : t('payment_gateways.paymentLink.status.active', 'Active')}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button type="button" size="sm" onClick={() => void handleCopyPaymentLink(detail.paymentLink!.url)}>
+                              <Copy className="mr-2 h-4 w-4" />
+                              {t('payment_gateways.transactions.actions.copyPaymentLink', 'Copy link')}
+                            </Button>
+                            <Button asChild type="button" size="sm" variant="outline">
+                              <a href={detail.paymentLink.url} target="_blank" rel="noreferrer">
+                                <ExternalLink className="mr-2 h-4 w-4" />
+                                {t('payment_gateways.transactions.actions.openPaymentLink', 'Open link')}
+                              </a>
+                            </Button>
+                          </div>
+                          <DetailKeyValueTable
+                            rows={[
+                              { label: t('payment_gateways.transactions.detail.paymentLinkUrl', 'Payment link URL'), value: detail.paymentLink.url, mono: true },
+                              { label: t('payment_gateways.create.paymentLinkPassword', 'Password (optional)'), value: detail.paymentLink.passwordProtected ? t('payment_gateways.transactions.detail.paymentLinkPasswordProtected', 'Required') : t('common.none', 'None') },
+                              { label: t('payment_gateways.transactions.columns.createdAt', 'Created at'), value: formatDateTime(detail.paymentLink.createdAt) },
+                              { label: t('payment_gateways.transactions.columns.updatedAt', 'Updated at'), value: formatDateTime(detail.paymentLink.updatedAt) },
+                            ]}
+                          />
+                        </DetailSectionCard>
+                      ) : (
+                        <DetailSectionCard title={t('payment_gateways.transactions.detail.paymentLink', 'Payment link')} icon={<Shield className="h-4 w-4 text-muted-foreground" />}>
+                          <p className="text-sm text-muted-foreground">{t('common.none', 'None')}</p>
+                        </DetailSectionCard>
+                      )}
+                    </TabsContent>
 
-                      <section className="space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Webhook className="h-4 w-4 text-muted-foreground" />
-                          <h3 className="text-sm font-semibold">{t('payment_gateways.transactions.detail.webhooks', 'Webhook activity')}</h3>
-                        </div>
+                    <TabsContent value="webhooks" className="mt-0">
+                      <DetailSectionCard title={t('payment_gateways.transactions.detail.webhooks', 'Webhook activity')} icon={<Webhook className="h-4 w-4 text-muted-foreground" />}>
                         {detail.transaction.webhookLog && detail.transaction.webhookLog.length > 0 ? (
                           <div className="overflow-hidden rounded-lg border">
                             <table className="w-full text-sm">
@@ -567,10 +686,11 @@ export default function PaymentTransactionsPage() {
                         ) : (
                           <p className="text-sm text-muted-foreground">{t('payment_gateways.transactions.detail.webhooksEmpty', 'No webhook events have been recorded for this transaction yet.')}</p>
                         )}
-                      </section>
+                      </DetailSectionCard>
+                    </TabsContent>
 
-                      <section className="space-y-3">
-                        <h3 className="text-sm font-semibold">{t('payment_gateways.transactions.detail.logs', 'Gateway logs')}</h3>
+                    <TabsContent value="logs" className="mt-0">
+                      <DetailSectionCard title={t('payment_gateways.transactions.detail.logs', 'Gateway logs')}>
                         {detail.logs.length === 0 ? (
                           <p className="text-sm text-muted-foreground">{t('payment_gateways.transactions.detail.logsEmpty', 'No transaction-scoped logs are available yet.')}</p>
                         ) : (
@@ -665,84 +785,23 @@ export default function PaymentTransactionsPage() {
                             </table>
                           </div>
                         )}
-                      </section>
-                    </div>
+                      </DetailSectionCard>
+                    </TabsContent>
 
-                    <div className="space-y-4">
-                      {detail.paymentLink ? (
-                        <section className="rounded-xl border bg-muted/20 p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2 text-sm font-semibold">
-                                <Shield className="h-4 w-4 text-muted-foreground" />
-                                <span>{t('payment_gateways.transactions.detail.paymentLink', 'Payment link')}</span>
-                              </div>
-                              <div className="text-sm text-muted-foreground">{detail.paymentLink.title}</div>
-                            </div>
-                            <Badge variant="secondary" className={detail.paymentLink.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : detail.paymentLink.status === 'cancelled' ? 'bg-zinc-200 text-zinc-900' : 'bg-amber-100 text-amber-800'}>
-                              {detail.paymentLink.status === 'completed'
-                                ? t('payment_gateways.paymentLink.status.completed', 'Paid')
-                                : detail.paymentLink.status === 'cancelled'
-                                  ? t('payment_gateways.status.cancelled', 'Cancelled')
-                                  : t('payment_gateways.paymentLink.status.active', 'Active')}
-                            </Badge>
-                          </div>
-
-                          {detail.paymentLink.description ? (
-                            <p className="mt-3 text-sm text-muted-foreground">{detail.paymentLink.description}</p>
-                          ) : null}
-
-                          <div className="mt-4 rounded-lg border bg-background px-3 py-3">
-                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                              {t('payment_gateways.transactions.detail.paymentLinkUrl', 'Payment link URL')}
-                            </div>
-                            <div className="mt-1 break-all text-sm">{detail.paymentLink.url}</div>
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap items-center gap-2">
-                            <Button type="button" size="sm" onClick={() => void handleCopyPaymentLink(detail.paymentLink!.url)}>
-                              <Copy className="mr-2 h-4 w-4" />
-                              {t('payment_gateways.transactions.actions.copyPaymentLink', 'Copy link')}
-                            </Button>
-                            <Button asChild type="button" size="sm" variant="outline">
-                              <a href={detail.paymentLink.url} target="_blank" rel="noreferrer">
-                                <ExternalLink className="mr-2 h-4 w-4" />
-                                {t('payment_gateways.transactions.actions.openPaymentLink', 'Open link')}
-                              </a>
-                            </Button>
-                          </div>
-
-                          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-lg border bg-background px-3 py-3">
-                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                {t('payment_gateways.create.paymentLinkPassword', 'Password (optional)')}
-                              </div>
-                              <div className="mt-1 text-sm">
-                                {detail.paymentLink.passwordProtected
-                                  ? t('payment_gateways.transactions.detail.paymentLinkPasswordProtected', 'Required')
-                                  : t('common.none', 'None')}
-                              </div>
-                            </div>
-                            <div className="rounded-lg border bg-background px-3 py-3">
-                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                                {t('payment_gateways.transactions.columns.createdAt', 'Created at')}
-                              </div>
-                              <div className="mt-1 text-sm">{formatDateTime(detail.paymentLink.createdAt)}</div>
-                            </div>
-                          </div>
-                        </section>
-                      ) : null}
-                      <JsonDisplay
-                        data={detail.transaction.gatewayMetadata ?? {}}
-                        title={t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}
-                        defaultExpanded
-                        maxInitialDepth={1}
-                        theme="dark"
-                        maxHeight="24rem"
-                        className="p-4"
-                      />
-                    </div>
-                  </div>
+                    <TabsContent value="metadata" className="mt-0">
+                      <DetailSectionCard title={t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}>
+                        <JsonDisplay
+                          data={detail.transaction.gatewayMetadata ?? {}}
+                          title={t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}
+                          defaultExpanded
+                          maxInitialDepth={1}
+                          theme="dark"
+                          maxHeight="24rem"
+                          className="p-4"
+                        />
+                      </DetailSectionCard>
+                    </TabsContent>
+                  </Tabs>
                 </>
               ) : null}
             </CardContent>

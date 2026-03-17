@@ -42,6 +42,7 @@ describe('payment link customer capture route', () => {
       email: 'jane@example.com',
       phone: '+48 555 100 200',
       companyName: 'Acme Commerce',
+      acceptedTerms: true,
     })
     mockLoadPublicPaymentLinkState.mockResolvedValue({
       link: {
@@ -71,7 +72,10 @@ describe('payment link customer capture route', () => {
       customerCapture: {
         enabled: true,
         companyRequired: false,
+        termsRequired: true,
+        termsMarkdown: '## Terms',
         collectedAt: null,
+        termsAcceptedAt: null,
         companyEntityId: null,
         personEntityId: null,
         companyName: null,
@@ -142,5 +146,29 @@ describe('payment link customer capture route', () => {
         email: 'jane@example.com',
       },
     })
+  })
+
+  it('rejects the submission when required terms are not accepted', async () => {
+    mockReadJsonSafe.mockResolvedValue({
+      firstName: 'Jane',
+      lastName: 'Doe',
+      email: 'jane@example.com',
+      acceptedTerms: false,
+    })
+
+    const response = await POST(
+      new Request('http://localhost/api/payment_link_pages/pay/pay_token/customer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+      { params: { token: 'pay_token' } },
+    )
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Terms must be accepted',
+    })
+    expect(mockCommandExecute).not.toHaveBeenCalled()
   })
 })
