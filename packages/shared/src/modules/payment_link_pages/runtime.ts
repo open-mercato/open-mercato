@@ -8,6 +8,8 @@ export type PaymentLinkTemplateData = {
   defaultTitle: string | null | undefined
   defaultDescription: string | null | undefined
   customerCapture: unknown
+  amountType?: string | null
+  amountOptions?: Array<{ amount: number; label: string }> | null
 }
 
 export type PaymentLinkTemplateResolver = (

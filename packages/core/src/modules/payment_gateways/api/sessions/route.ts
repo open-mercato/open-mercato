@@ -194,6 +194,8 @@ export async function POST(req: Request) {
       cancelUrl: parsed.data.cancelUrl,
       metadata: parsed.data.metadata,
       providerInput: parsed.data.providerInput,
+      documentType: parsed.data.documentType,
+      documentId: parsed.data.documentId,
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
     })

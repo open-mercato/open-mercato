@@ -12,16 +12,21 @@ import {
   sharedContentSchema,
   sharedCaptureSchema,
   sharedMetadataSchema,
+  sharedAmountTypeSchema,
   renderSelectField,
+  renderAmountOptionsEditor,
   buildBrandingFields,
   buildContentFields,
   buildCaptureFields,
   buildMetadataFields,
+  buildAmountTypeFields,
   buildBrandingGroup,
   buildContentGroup,
   buildCaptureGroup,
   buildMetadataGroup,
+  buildAmountTypeGroup,
 } from './sharedFormFields'
+import { readPaymentLinkStoredMetadata } from '../lib/payment-link-page-metadata'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,10 +63,13 @@ export const paymentLinkCreateSchema = z
   .object({
     // Payment fields
     providerKey: z.string().min(1),
-    amount: z.union([z.number().positive(), z.literal('')]),
+    amount: z.union([z.number().positive(), z.literal(''), z.number().min(0)]),
     currencyCode: z.string().length(3),
     description: z.string().max(500).optional().default(''),
     captureMethod: z.enum(['automatic', 'manual']).default('automatic'),
+
+    // Amount type
+    ...sharedAmountTypeSchema,
 
     // Template selection
     templateId: z.string().uuid().optional().nullable(),
@@ -85,7 +93,27 @@ export const paymentLinkCreateSchema = z
     saveAsTemplate: z.boolean().optional().default(false),
     templateName: z.string().max(200).optional().nullable(),
   })
+  .passthrough()
   .superRefine((data, ctx) => {
+    const effectiveAmountType = data.amountType ?? 'fixed'
+    if (effectiveAmountType === 'fixed' && (data.amount === '' || data.amount === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Amount is required for fixed amount links',
+        path: ['amount'],
+      })
+    }
+    if (effectiveAmountType === 'predefined') {
+      const options = Array.isArray(data.amountOptions) ? data.amountOptions : []
+      const validOptions = options.filter((opt: { amount: number; label: string }) => opt.amount > 0 && opt.label?.trim())
+      if (validOptions.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'At least one amount option is required',
+          path: ['amountOptions'],
+        })
+      }
+    }
     if (!data.templateId && !data.defaultTitle?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -191,12 +219,37 @@ export function buildPaymentLinkFormFields(
         ),
     },
     {
+      id: 'amountType',
+      label: t('payment_link_pages.amountType', 'Amount type'),
+      type: 'select',
+      options: [
+        { label: t('payment_link_pages.amountType.fixed', 'Fixed amount'), value: 'fixed' },
+        { label: t('payment_link_pages.amountType.customerInput', 'Customer enters amount'), value: 'customer_input' },
+        { label: t('payment_link_pages.amountType.predefined', 'Customer selects from list'), value: 'predefined' },
+      ],
+    },
+    {
       id: 'amount',
       label: t('payment_link_pages.create.amount', 'Amount'),
-      type: 'number',
-      required: true,
+      type: 'custom' as const,
       layout: 'half',
-      placeholder: '0.00',
+      component: (props: CrudCustomFieldRenderProps) => {
+        const amountType = props.values?.amountType ?? 'fixed'
+        const isFixed = amountType === 'fixed'
+        return React.createElement('input', {
+          type: 'number',
+          className: 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50',
+          value: props.value ?? '',
+          placeholder: '0.00',
+          disabled: props.disabled || !isFixed,
+          min: 0,
+          step: 'any',
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const raw = event.target.value
+            props.setValue(raw === '' ? '' : Number(raw))
+          },
+        })
+      },
     },
     {
       id: 'description',
@@ -204,6 +257,13 @@ export function buildPaymentLinkFormFields(
       type: 'text',
       layout: 'half',
       placeholder: t('payment_link_pages.create.description.placeholder', 'Payment description'),
+    },
+    {
+      id: 'amountOptions',
+      label: t('payment_link_pages.amountOptions', 'Amount options'),
+      type: 'custom' as const,
+      description: t('payment_link_pages.amountOptions.description', 'Predefined amounts the customer can choose from'),
+      component: (props: CrudCustomFieldRenderProps) => renderAmountOptionsEditor(props, t),
     },
 
     // Link settings
@@ -292,7 +352,7 @@ export function buildPaymentLinkFormGroups(
       id: 'payment',
       column: 1,
       title: t('payment_link_pages.create.group.payment', 'Payment'),
-      fields: ['providerKey', 'currencyCode', 'amount', 'description'],
+      fields: ['providerKey', 'currencyCode', 'amountType', 'amount', 'description', 'amountOptions'],
     },
     { ...buildContentGroup(t), column: 1 },
     {
@@ -334,14 +394,24 @@ function parseJsonSafe(value: string | null | undefined): Record<string, unknown
 }
 
 export function paymentLinkFormToSessionPayload(values: PaymentLinkCreateFormValues) {
+  const effectiveAmountType = (values as Record<string, unknown>).amountType as string ?? 'fixed'
+  const rawAmount = typeof values.amount === 'number' ? values.amount : Number(values.amount)
+  const amount = effectiveAmountType === 'fixed' ? rawAmount : 0
+  const amountOptions = effectiveAmountType === 'predefined'
+    ? ((values as Record<string, unknown>).amountOptions as Array<{ amount: number; label: string }> | undefined)
+      ?.filter(opt => opt.amount > 0 && opt.label?.trim())
+    : undefined
+
   return {
     providerKey: values.providerKey,
-    amount: typeof values.amount === 'number' ? values.amount : Number(values.amount),
+    amount,
     currencyCode: values.currencyCode.trim().toUpperCase(),
     description: values.description?.trim() || undefined,
     paymentLink: {
       enabled: true,
       linkMode: values.linkMode,
+      amountType: effectiveAmountType !== 'fixed' ? effectiveAmountType : undefined,
+      amountOptions: amountOptions && amountOptions.length > 0 ? amountOptions : undefined,
       maxUses:
         values.linkMode === 'multi' && values.maxUses ? values.maxUses : undefined,
       templateId: values.templateId || undefined,
@@ -350,6 +420,8 @@ export function paymentLinkFormToSessionPayload(values: PaymentLinkCreateFormVal
       password: values.password?.trim() || undefined,
       token: values.customLinkPath?.trim() || undefined,
       metadata: parseJsonSafe(values.metadataJson),
+      customerFieldsetCode: values.customerFieldsetCode?.trim() || undefined,
+      displayCustomFields: values.displayCustomFields ?? false,
       customerCapture: {
         enabled: values.customerCaptureEnabled ?? false,
         companyRequired: values.customerCaptureCompanyRequired ?? false,
@@ -389,9 +461,223 @@ export function paymentLinkFormToSessionPayload(values: PaymentLinkCreateFormVal
 // ---------------------------------------------------------------------------
 
 export function paymentLinkFormToTemplatePayload(values: PaymentLinkCreateFormValues) {
+  const allValues = values as Record<string, unknown>
   return templateFormValuesToPayload({
     ...values,
     name: values.templateName ?? 'Untitled Template',
     isDefault: false,
+    amountType: (allValues.amountType as 'fixed' | 'customer_input' | 'predefined') ?? 'fixed',
+    amountOptions: (allValues.amountOptions as Array<{ amount: number; label: string }>) ?? null,
   })
+}
+
+// ---------------------------------------------------------------------------
+// EDIT MODE
+// ---------------------------------------------------------------------------
+
+export const paymentLinkEditSchema = z
+  .object({
+    status: z.enum(['active', 'completed', 'cancelled']),
+    maxUses: z.coerce.number().int().positive().optional().nullable(),
+    password: z.string().min(4).max(128).optional().nullable().or(z.literal('')),
+    ...sharedAmountTypeSchema,
+    ...sharedBrandingSchema,
+    ...sharedContentSchema,
+    ...sharedCaptureSchema,
+    ...sharedMetadataSchema,
+    customFieldsetCode: z.string().max(100).optional().nullable(),
+    customerFieldsetCode: z.string().max(100).optional().nullable(),
+  })
+  .passthrough()
+
+export type PaymentLinkEditFormValues = z.infer<typeof paymentLinkEditSchema>
+
+export function buildPaymentLinkEditFields(
+  t: (key: string, fallback?: string) => string,
+  options: { onLogoFileSelect: (file: File) => void; passwordProtected?: boolean },
+): CrudField[] {
+  return [
+    {
+      id: 'status',
+      label: t('payment_gateways.links.edit.status', 'Status'),
+      type: 'select' as const,
+      required: true,
+      options: [
+        { value: 'active', label: t('payment_gateways.links.edit.status.active', 'Active') },
+        { value: 'completed', label: t('payment_gateways.links.edit.status.completed', 'Completed') },
+        { value: 'cancelled', label: t('payment_gateways.links.edit.status.cancelled', 'Cancelled') },
+      ],
+    },
+    {
+      id: 'maxUses',
+      label: t('payment_gateways.links.edit.maxUses', 'Maximum uses'),
+      type: 'number' as const,
+      description: t('payment_gateways.links.edit.maxUses.description', 'Leave empty for unlimited (multi-use only)'),
+    },
+    {
+      id: 'password',
+      label: t('payment_gateways.links.edit.password', 'New password'),
+      type: 'password' as const,
+      description: options.passwordProtected
+        ? t('payment_gateways.links.edit.password.descriptionSet', 'Password is currently set. Leave empty to keep it.')
+        : t('payment_gateways.links.edit.password.description', 'Leave empty for no password'),
+    },
+    {
+      id: 'customerFieldsetCode',
+      label: t('payment_link_pages.create.customerFieldsetCode', 'Customer capture fieldset'),
+      type: 'text' as const,
+      placeholder: t('payment_link_pages.create.customerFieldsetCode.placeholder', 'e.g. customer_questions'),
+      description: t('payment_link_pages.create.customerFieldsetCode.description', 'Fieldset code whose fields are shown to customers on the payment page'),
+    },
+    ...buildAmountTypeFields(t),
+    ...buildContentFields(t),
+    ...buildBrandingFields(t, { onLogoFileSelect: options.onLogoFileSelect }),
+    ...buildCaptureFields(t),
+    ...buildMetadataFields(t),
+  ]
+}
+
+export function buildPaymentLinkEditGroups(
+  t: (key: string, fallback?: string) => string,
+): CrudFormGroup[] {
+  return [
+    {
+      id: 'general',
+      column: 1,
+      title: t('payment_gateways.links.edit.group.general', 'Link Settings'),
+      fields: ['status', 'maxUses', 'password'],
+    },
+    { ...buildContentGroup(t), column: 1 },
+    { ...buildAmountTypeGroup(t), column: 1 },
+    { ...buildBrandingGroup(t), column: 1 },
+    { ...buildCaptureGroup(t), column: 1 },
+    { ...buildMetadataGroup(t), column: 1 },
+    {
+      id: 'custom-fields',
+      column: 2,
+      title: t('payment_gateways.links.edit.group.customFields', 'Custom fields'),
+      kind: 'customFields' as const,
+    },
+  ]
+}
+
+export type PaymentLinkApiRecord = {
+  id: string
+  token: string
+  title: string
+  description: string | null
+  providerKey: string
+  status: string
+  transactionId: string | null
+  amount: number | null
+  currencyCode: string | null
+  linkMode: string
+  maxUses: number | null
+  useCount: number
+  passwordProtected: boolean
+  metadata: Record<string, unknown> | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export function recordToPaymentLinkEditFormValues(
+  record: PaymentLinkApiRecord,
+): PaymentLinkEditFormValues & Record<string, unknown> {
+  const rawMeta = (record.metadata ?? {}) as Record<string, unknown>
+  const storedMetadata = readPaymentLinkStoredMetadata(rawMeta)
+  const pageMeta = (storedMetadata.pageMetadata ?? {}) as Record<string, unknown>
+  const brandingRaw = ((pageMeta.branding ?? rawMeta.branding ?? {}) as Record<string, unknown>)
+  const capture = storedMetadata.customerCapture
+  const captureFields = (capture?.fields ?? {}) as Record<string, Record<string, unknown>>
+  const customFields = storedMetadata.customFields
+
+  const cfValues: Record<string, unknown> = {}
+  if (customFields != null && typeof customFields === 'object') {
+    for (const [key, value] of Object.entries(customFields)) {
+      cfValues[`cf_${key}`] = value
+    }
+  }
+
+  return {
+    ...cfValues,
+    status: (record.status as 'active' | 'completed' | 'cancelled') ?? 'active',
+    maxUses: record.maxUses,
+    password: '',
+    amountType: storedMetadata.amountType ?? 'fixed',
+    amountOptions: storedMetadata.amountOptions ?? null,
+    defaultTitle: record.title || (pageMeta.defaultTitle as string) || '',
+    defaultDescription: (pageMeta.defaultDescription as string) ?? record.description ?? '',
+    brandingLogoUrl: brandingRaw.logoUrl != null ? String(brandingRaw.logoUrl) : null,
+    brandingBrandName: brandingRaw.brandName != null ? String(brandingRaw.brandName) : null,
+    brandingSecuritySubtitle: brandingRaw.securitySubtitle != null ? String(brandingRaw.securitySubtitle) : null,
+    brandingAccentColor: brandingRaw.accentColor != null ? String(brandingRaw.accentColor) : null,
+    brandingCustomCss: brandingRaw.customCss != null ? String(brandingRaw.customCss) : null,
+    customerCaptureEnabled: capture?.enabled === true,
+    customerCaptureHandlingMode: capture?.customerHandlingMode === 'create_new' ? 'create_new' : 'no_customer',
+    customerCaptureCompanyRequired: capture?.companyRequired === true,
+    captureFirstNameVisible: captureFields.firstName?.visible !== false,
+    captureFirstNameRequired: captureFields.firstName?.required === true,
+    captureLastNameVisible: captureFields.lastName?.visible !== false,
+    captureLastNameRequired: captureFields.lastName?.required === true,
+    capturePhoneVisible: captureFields.phone?.visible !== false,
+    capturePhoneRequired: captureFields.phone?.required === true,
+    captureCompanyVisible: captureFields.companyName?.visible === true,
+    captureCompanyRequired: captureFields.companyName?.required === true,
+    captureAddressVisible: captureFields.address?.visible === true,
+    captureAddressRequired: captureFields.address?.required === true,
+    captureAddressFormat: captureFields.address?.format === 'street_first' ? 'street_first' as const : 'line_first' as const,
+    customerCaptureTermsRequired: capture?.termsRequired === true,
+    customerCaptureTermsMarkdown: capture?.termsMarkdown ?? null,
+    customFieldsetCode: storedMetadata.customFieldsetCode ?? null,
+    customerFieldsetCode: storedMetadata.customerFieldsetCode ?? null,
+    displayCustomFields: storedMetadata.displayCustomFields === true,
+    metadataJson: null,
+  }
+}
+
+export function paymentLinkEditFormToPayload(
+  values: PaymentLinkEditFormValues,
+  recordId: string,
+): Record<string, unknown> {
+  let userMetadata: Record<string, unknown> | undefined
+  try {
+    if (values.metadataJson?.trim()) userMetadata = JSON.parse(values.metadataJson) as Record<string, unknown>
+  } catch { /* skip invalid JSON */ }
+
+  return {
+    id: recordId,
+    title: values.defaultTitle?.trim() || '',
+    status: values.status,
+    maxUses: values.maxUses || null,
+    password: values.password?.trim() || undefined,
+    branding: {
+      logoUrl: values.brandingLogoUrl || null,
+      brandName: values.brandingBrandName || null,
+      securitySubtitle: values.brandingSecuritySubtitle || null,
+      accentColor: values.brandingAccentColor || null,
+      customCss: values.brandingCustomCss || null,
+    },
+    defaultTitle: values.defaultTitle?.trim() || null,
+    defaultDescription: values.defaultDescription?.trim() || null,
+    customerCapture: {
+      enabled: values.customerCaptureEnabled ?? false,
+      customerHandlingMode: values.customerCaptureHandlingMode ?? 'no_customer',
+      companyRequired: values.customerCaptureCompanyRequired ?? false,
+      termsRequired: values.customerCaptureTermsRequired ?? false,
+      termsMarkdown: values.customerCaptureTermsMarkdown || null,
+      fields: {
+        firstName: { visible: values.captureFirstNameVisible ?? true, required: values.captureFirstNameRequired ?? true },
+        lastName: { visible: values.captureLastNameVisible ?? true, required: values.captureLastNameRequired ?? true },
+        phone: { visible: values.capturePhoneVisible ?? true, required: values.capturePhoneRequired ?? false },
+        companyName: { visible: values.captureCompanyVisible ?? false, required: values.captureCompanyRequired ?? false },
+        address: { visible: values.captureAddressVisible ?? false, required: values.captureAddressRequired ?? false, format: values.captureAddressFormat ?? 'line_first' },
+      },
+    },
+    amountType: values.amountType ?? 'fixed',
+    amountOptions: values.amountType === 'predefined' && Array.isArray(values.amountOptions) && values.amountOptions.length > 0
+      ? values.amountOptions.filter((opt: { amount: number; label: string }) => opt.amount > 0 && opt.label.trim().length > 0)
+      : null,
+    customerFieldsetCode: values.customerFieldsetCode?.trim() || null,
+    ...(userMetadata ? { metadata: userMetadata } : {}),
+  }
 }

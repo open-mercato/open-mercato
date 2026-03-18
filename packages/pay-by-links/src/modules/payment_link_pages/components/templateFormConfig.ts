@@ -5,14 +5,17 @@ import {
   sharedContentSchema,
   sharedCaptureSchema,
   sharedMetadataSchema,
+  sharedAmountTypeSchema,
   buildBrandingFields,
   buildContentFields,
   buildCaptureFields,
   buildMetadataFields,
+  buildAmountTypeFields,
   buildBrandingGroup,
   buildContentGroup,
   buildCaptureGroup,
   buildMetadataGroup,
+  buildAmountTypeGroup,
   type SharedFieldBuilderOptions,
 } from './sharedFormFields'
 
@@ -25,6 +28,9 @@ export const templateFormSchema = z.object({
   description: z.string().max(500).optional().nullable(),
   isDefault: z.boolean().optional().default(false),
 
+  // Amount type
+  ...sharedAmountTypeSchema,
+
   // Shared fields
   ...sharedBrandingSchema,
   ...sharedContentSchema,
@@ -34,7 +40,7 @@ export const templateFormSchema = z.object({
   // Template-only fields
   customFieldsetCode: z.string().max(100).optional().nullable(),
   customFieldsJson: z.string().optional().nullable(),
-})
+}).passthrough()
 
 export type TemplateFormValues = z.infer<typeof templateFormSchema>
 
@@ -51,6 +57,9 @@ export function buildTemplateFormFields(
     { id: 'name', label: t('payment_link_pages.templates.form.name', 'Name'), type: 'text', required: true, placeholder: t('payment_link_pages.templates.form.name.placeholder', 'e.g. Standard Invoice') },
     { id: 'description', label: t('payment_link_pages.templates.form.description', 'Description'), type: 'textarea', placeholder: t('payment_link_pages.templates.form.description.placeholder', 'Template description') },
     { id: 'isDefault', label: t('payment_link_pages.templates.form.isDefault', 'Default template'), type: 'checkbox', description: t('payment_link_pages.templates.form.isDefault.description', 'Use this template by default for new payment links') },
+
+    // Amount type
+    ...buildAmountTypeFields(t),
 
     // Shared fields
     ...buildBrandingFields(t, options),
@@ -70,6 +79,7 @@ export function buildTemplateFormGroups(t: (key: string, fallback?: string) => s
   return [
     // Column 1 (left)
     { id: 'general', column: 1, title: t('payment_link_pages.templates.form.group.general', 'General'), fields: ['name', 'description', 'isDefault'] },
+    { ...buildAmountTypeGroup(t), column: 1 },
     { ...buildBrandingGroup(t), column: 1 },
     { ...buildContentGroup(t), column: 1 },
     { ...buildCaptureGroup(t), column: 1 },
@@ -102,6 +112,10 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
     name: values.name,
     description: values.description || null,
     isDefault: values.isDefault ?? false,
+    amountType: values.amountType ?? 'fixed',
+    amountOptions: values.amountType === 'predefined' && Array.isArray(values.amountOptions) && values.amountOptions.length > 0
+      ? values.amountOptions.filter((opt: { amount: number; label: string }) => opt.amount > 0 && opt.label.trim().length > 0)
+      : null,
     branding: {
       logoUrl: values.brandingLogoUrl || null,
       brandName: values.brandingBrandName || null,
@@ -130,6 +144,8 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
       },
     },
     customFieldsetCode: values.customFieldsetCode || null,
+    customerFieldsetCode: values.customerFieldsetCode || null,
+    displayCustomFields: values.displayCustomFields ?? false,
     customFields,
     metadata,
   }
@@ -139,17 +155,33 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
 // Transform: API record -> form values
 // ---------------------------------------------------------------------------
 
-export function recordToTemplateFormValues(record: Record<string, unknown>): TemplateFormValues {
+export function recordToTemplateFormValues(record: Record<string, unknown>): TemplateFormValues & Record<string, unknown> {
   const branding = (record.branding ?? {}) as Record<string, unknown>
   const capture = (record.customer_capture ?? record.customerCapture ?? {}) as Record<string, unknown>
   const fields = (capture.fields ?? {}) as Record<string, Record<string, unknown>>
   const customFields = record.custom_fields ?? record.customFields
   const metadata = record.metadata
 
+  // Build cf_* prefixed values for CrudForm custom field editor
+  const cfValues: Record<string, unknown> = {}
+  if (customFields != null && typeof customFields === 'object' && !Array.isArray(customFields)) {
+    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
+      cfValues[`cf_${key}`] = value
+    }
+  }
+
+  const rawAmountType = record.amount_type ?? record.amountType
+  const amountType = rawAmountType === 'customer_input' || rawAmountType === 'predefined' ? rawAmountType : 'fixed'
+  const rawAmountOptions = record.amount_options ?? record.amountOptions
+  const amountOptions = Array.isArray(rawAmountOptions) ? rawAmountOptions : null
+
   return {
+    ...cfValues,
     name: String(record.name ?? ''),
     description: record.description != null ? String(record.description) : null,
     isDefault: record.is_default === true || record.isDefault === true,
+    amountType,
+    amountOptions,
     brandingLogoUrl: branding.logoUrl != null ? String(branding.logoUrl) : null,
     brandingBrandName: branding.brandName != null ? String(branding.brandName) : null,
     brandingSecuritySubtitle: branding.securitySubtitle != null ? String(branding.securitySubtitle) : null,
@@ -174,6 +206,8 @@ export function recordToTemplateFormValues(record: Record<string, unknown>): Tem
     customerCaptureTermsRequired: capture.termsRequired === true,
     customerCaptureTermsMarkdown: capture.termsMarkdown != null ? String(capture.termsMarkdown) : null,
     customFieldsetCode: record.custom_fieldset_code != null || record.customFieldsetCode != null ? String(record.custom_fieldset_code ?? record.customFieldsetCode ?? '') : null,
+    customerFieldsetCode: record.customer_fieldset_code != null || record.customerFieldsetCode != null ? String(record.customer_fieldset_code ?? record.customerFieldsetCode ?? '') : null,
+    displayCustomFields: record.display_custom_fields === true || record.displayCustomFields === true,
     customFieldsJson: customFields != null ? JSON.stringify(customFields, null, 2) : null,
     metadataJson: metadata != null ? JSON.stringify(metadata, null, 2) : null,
   }

@@ -5587,6 +5587,7 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
+    bcryptjs: "npm:^3.0.3"
     esbuild: "npm:^0.25.0"
     glob: "npm:^13.0.6"
     jest: "npm:^30.2.0"

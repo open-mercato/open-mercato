@@ -100,7 +100,7 @@ export class GatewayPaymentLinkTransaction {
 @Entity({ tableName: 'payment_link_templates' })
 @Index({ name: 'idx_payment_link_templates_org_tenant', properties: ['organizationId', 'tenantId'] })
 export class PaymentLinkTemplate {
-  [OptionalProps]?: 'isDefault' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isDefault' | 'amountType' | 'amountOptions' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -119,6 +119,12 @@ export class PaymentLinkTemplate {
 
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
+
+  @Property({ name: 'amount_type', type: 'text', default: 'fixed' })
+  amountType: 'fixed' | 'customer_input' | 'predefined' = 'fixed'
+
+  @Property({ name: 'amount_options', type: 'json', nullable: true })
+  amountOptions?: Array<{ amount: number; label: string }> | null
 
   @Property({ type: 'json', nullable: true })
   branding?: Record<string, unknown> | null

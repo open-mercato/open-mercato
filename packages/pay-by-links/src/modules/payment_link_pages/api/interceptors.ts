@@ -1,7 +1,8 @@
 import type { ApiInterceptor, InterceptorAfterResult, InterceptorContext, InterceptorRequest, InterceptorResponse } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolvePaymentLinkTemplate } from '@open-mercato/shared/modules/payment_link_pages/runtime'
-import { GatewayPaymentLink } from '../data/entities'
+import { resolvePaymentLinkTemplate, type PaymentLinkTemplateData } from '@open-mercato/shared/modules/payment_link_pages/runtime'
+import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
+import { GatewayPaymentLink, GatewayPaymentLinkTransaction } from '../data/entities'
 import { paymentLinkInputSchema } from '../data/validators'
 import {
   buildPaymentLinkUrl,
@@ -11,17 +12,7 @@ import {
   normalizeCustomPaymentLinkToken,
 } from '../lib/payment-links'
 import { buildPaymentLinkStoredMetadata } from '../lib/payment-link-page-metadata'
-import type { CustomerHandlingMode } from '../lib/payment-link-page-metadata'
-
-type PaymentLinkTemplateData = {
-  branding: unknown
-  metadata: unknown
-  customFields: unknown
-  customFieldsetCode: string | null | undefined
-  defaultTitle: string | null | undefined
-  defaultDescription: string | null | undefined
-  customerCapture: unknown
-}
+import type { CustomerHandlingMode, AmountType, AmountOption } from '../lib/payment-link-page-metadata'
 
 function shallowMergeObjects(
   base: Record<string, unknown> | null | undefined,
@@ -251,6 +242,10 @@ const sessionsInterceptor: ApiInterceptor = {
     let resolvedPageMetadata = paymentLinkData.metadata as Record<string, unknown> | undefined
     let resolvedCustomFields = paymentLinkData.customFields as Record<string, unknown> | undefined
     let resolvedCustomFieldsetCode: string | null = (paymentLinkData.customFieldsetCode as string) ?? null
+    let resolvedAmountType: AmountType = (paymentLinkData.amountType as AmountType) ?? 'fixed'
+    let resolvedAmountOptions: AmountOption[] | undefined = Array.isArray(paymentLinkData.amountOptions)
+      ? (paymentLinkData.amountOptions as AmountOption[]).filter(opt => opt.amount > 0 && opt.label?.trim())
+      : undefined
     let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null; customerHandlingMode: CustomerHandlingMode | undefined } | undefined
 
     const customerCaptureInput = paymentLinkData.customerCapture as Record<string, unknown> | undefined
@@ -303,6 +298,12 @@ const sessionsInterceptor: ApiInterceptor = {
         resolvedPageMetadata = merged.pageMetadata
         resolvedCustomFields = merged.customFields
         resolvedCustomFieldsetCode = merged.customFieldsetCode ?? null
+        if (resolvedAmountType === 'fixed' && template.amountType && template.amountType !== 'fixed') {
+          resolvedAmountType = template.amountType as AmountType
+        }
+        if (!resolvedAmountOptions?.length && Array.isArray(template.amountOptions) && template.amountOptions.length > 0) {
+          resolvedAmountOptions = template.amountOptions
+        }
         if (merged.customerCapture) {
           resolvedCustomerCapture = {
             enabled: true,
@@ -317,6 +318,8 @@ const sessionsInterceptor: ApiInterceptor = {
 
     const storedMetadata = buildPaymentLinkStoredMetadata({
       amount,
+      amountType: resolvedAmountType,
+      amountOptions: resolvedAmountOptions,
       currencyCode,
       pageMetadata: resolvedPageMetadata,
       customFields: resolvedCustomFields,
@@ -355,6 +358,21 @@ const sessionsInterceptor: ApiInterceptor = {
       tenantId: context.tenantId,
     })
     await em.persistAndFlush(paymentLink)
+
+    if (transactionId) {
+      const transaction = await findOneWithDecryption(
+        em,
+        GatewayTransaction,
+        { id: transactionId, organizationId: context.organizationId, tenantId: context.tenantId, deletedAt: null },
+        undefined,
+        { organizationId: context.organizationId, tenantId: context.tenantId },
+      )
+      if (transaction) {
+        transaction.documentType = 'payment_link_pages:gateway_payment_link'
+        transaction.documentId = paymentLink.id
+        await em.flush()
+      }
+    }
 
     return {
       merge: {
@@ -400,11 +418,66 @@ const transactionDetailInterceptor: ApiInterceptor = {
       { organizationId: context.organizationId, tenantId: context.tenantId },
     )
 
-    if (!paymentLink) return {}
+    if (!paymentLink) {
+      const linkTransaction = await findOneWithDecryption(
+        em,
+        GatewayPaymentLinkTransaction,
+        { transactionId },
+        { orderBy: { createdAt: 'desc' } },
+        { organizationId: context.organizationId, tenantId: context.tenantId },
+      )
+      if (!linkTransaction) return {}
+
+      const parentLink = await findOneWithDecryption(
+        em,
+        GatewayPaymentLink,
+        {
+          id: linkTransaction.paymentLinkId,
+          organizationId: context.organizationId,
+          tenantId: context.tenantId,
+          deletedAt: null,
+        },
+        undefined,
+        { organizationId: context.organizationId, tenantId: context.tenantId },
+      )
+
+      const requestUrl = request.url ?? ''
+      const origin = requestUrl ? new URL(requestUrl).origin : ''
+
+      return {
+        merge: {
+          paymentLink: parentLink ? {
+            id: parentLink.id,
+            token: parentLink.token,
+            url: buildPaymentLinkUrl(origin, parentLink.token),
+            title: parentLink.title,
+            description: parentLink.description ?? null,
+            status: parentLink.status,
+            linkMode: parentLink.linkMode,
+            passwordProtected: Boolean(parentLink.passwordHash),
+            completedAt: toIsoString(parentLink.completedAt),
+            createdAt: toIsoString(parentLink.createdAt),
+            updatedAt: toIsoString(parentLink.updatedAt),
+          } : null,
+          paymentLinkCustomerData: {
+            customerEmail: linkTransaction.customerEmail,
+            ...(linkTransaction.customerData ?? {}),
+          },
+        },
+      }
+    }
 
     const requestUrl = request.url ?? ''
     const origin = requestUrl ? new URL(requestUrl).origin : ''
     const paymentLinkUrl = buildPaymentLinkUrl(origin, paymentLink.token)
+
+    const linkTransaction = await findOneWithDecryption(
+      em,
+      GatewayPaymentLinkTransaction,
+      { transactionId },
+      { orderBy: { createdAt: 'desc' } },
+      { organizationId: context.organizationId, tenantId: context.tenantId },
+    )
 
     return {
       merge: {
@@ -415,11 +488,18 @@ const transactionDetailInterceptor: ApiInterceptor = {
           title: paymentLink.title,
           description: paymentLink.description ?? null,
           status: paymentLink.status,
+          linkMode: paymentLink.linkMode,
           passwordProtected: Boolean(paymentLink.passwordHash),
           completedAt: toIsoString(paymentLink.completedAt),
           createdAt: toIsoString(paymentLink.createdAt),
           updatedAt: toIsoString(paymentLink.updatedAt),
         },
+        ...(linkTransaction ? {
+          paymentLinkCustomerData: {
+            customerEmail: linkTransaction.customerEmail,
+            ...(linkTransaction.customerData ?? {}),
+          },
+        } : {}),
       },
     }
   },

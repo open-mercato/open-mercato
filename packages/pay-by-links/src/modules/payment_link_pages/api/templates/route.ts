@@ -22,6 +22,8 @@ const itemSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional(),
   isDefault: z.boolean(),
+  amountType: z.string().optional(),
+  amountOptions: z.array(z.object({ amount: z.number(), label: z.string() })).nullable().optional(),
   branding: z.record(z.string(), z.unknown()).nullable().optional(),
   defaultTitle: z.string().nullable().optional(),
   defaultDescription: z.string().nullable().optional(),
@@ -49,6 +51,8 @@ const crud = makeCrudRoute({
       'name',
       'description',
       'is_default',
+      'amount_type',
+      'amount_options',
       'branding',
       'default_title',
       'default_description',
@@ -87,6 +91,8 @@ const crud = makeCrudRoute({
       name: input.name,
       description: input.description ?? null,
       isDefault: input.isDefault ?? false,
+      amountType: input.amountType ?? 'fixed',
+      amountOptions: input.amountOptions ?? null,
       branding: input.branding ?? null,
       defaultTitle: input.defaultTitle ?? null,
       defaultDescription: input.defaultDescription ?? null,
@@ -102,6 +108,8 @@ const crud = makeCrudRoute({
       if (input.name !== undefined) entity.name = input.name
       if (input.description !== undefined) entity.description = input.description ?? null
       if (input.isDefault !== undefined) entity.isDefault = input.isDefault
+      if (input.amountType !== undefined) entity.amountType = input.amountType ?? 'fixed'
+      if (input.amountOptions !== undefined) entity.amountOptions = input.amountOptions ?? null
       if (input.branding !== undefined) entity.branding = input.branding ?? null
       if (input.defaultTitle !== undefined) entity.defaultTitle = input.defaultTitle ?? null
       if (input.defaultDescription !== undefined) entity.defaultDescription = input.defaultDescription ?? null

@@ -11,13 +11,20 @@ export type PaymentLinkSessionParams = {
 }
 
 export type CustomerHandlingMode = 'no_customer' | 'create_new' | 'verify_and_merge'
+export type AmountOption = { amount: number; label: string }
+export type AmountType = 'fixed' | 'customer_input' | 'predefined'
 
 export type PaymentLinkPageStoredMetadata = {
   amount?: number
+  amountType?: AmountType
+  amountOptions?: AmountOption[]
   currencyCode?: string
   pageMetadata?: Record<string, unknown>
   customFields?: Record<string, unknown>
   customFieldsetCode?: string | null
+  customerFieldsetCode?: string | null
+  displayCustomFields?: boolean
+  customerFieldValues?: Record<string, unknown>
   sessionParams?: PaymentLinkSessionParams
   customerCapture?: {
     enabled?: boolean
@@ -39,10 +46,15 @@ export type PaymentLinkPageStoredMetadata = {
 
 const RESERVED_KEYS = new Set([
   'amount',
+  'amountType',
+  'amountOptions',
   'currencyCode',
   'pageMetadata',
   'customFields',
   'customFieldsetCode',
+  'customerFieldsetCode',
+  'displayCustomFields',
+  'customerFieldValues',
   'customerCapture',
   'sessionParams',
 ])
@@ -101,6 +113,8 @@ function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['custo
 export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetadata): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
   if (typeof input.amount === 'number' && Number.isFinite(input.amount)) payload.amount = input.amount
+  if (input.amountType && input.amountType !== 'fixed') payload.amountType = input.amountType
+  if (Array.isArray(input.amountOptions) && input.amountOptions.length > 0) payload.amountOptions = input.amountOptions
   if (typeof input.currencyCode === 'string' && input.currencyCode.trim().length > 0) {
     payload.currencyCode = input.currencyCode.trim().toUpperCase()
   }
@@ -112,6 +126,15 @@ export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetad
   }
   if (typeof input.customFieldsetCode === 'string' && input.customFieldsetCode.trim().length > 0) {
     payload.customFieldsetCode = input.customFieldsetCode.trim()
+  }
+  if (typeof input.customerFieldsetCode === 'string' && input.customerFieldsetCode.trim().length > 0) {
+    payload.customerFieldsetCode = input.customerFieldsetCode.trim()
+  }
+  if (input.displayCustomFields === true) {
+    payload.displayCustomFields = true
+  }
+  if (input.customerFieldValues && Object.keys(input.customerFieldValues).length > 0) {
+    payload.customerFieldValues = input.customerFieldValues
   }
   if (input.customerCapture && Object.keys(input.customerCapture).length > 0) {
     payload.customerCapture = input.customerCapture
@@ -154,14 +177,30 @@ export function readPaymentLinkStoredMetadata(input: unknown): PaymentLinkPageSt
         }
       : undefined
 
+  const rawAmountType = toStringOrNull(source.amountType)
+  const amountType: AmountType | undefined =
+    rawAmountType === 'customer_input' || rawAmountType === 'predefined' ? rawAmountType : undefined
+  const rawAmountOptions = Array.isArray(source.amountOptions) ? source.amountOptions : undefined
+  const amountOptions: AmountOption[] | undefined = rawAmountOptions
+    ?.filter((opt): opt is Record<string, unknown> => opt != null && typeof opt === 'object')
+    .map(opt => ({ amount: toNumber(opt.amount) ?? 0, label: toStringOrNull(opt.label) ?? '' }))
+    .filter(opt => opt.amount > 0 && opt.label.length > 0)
+
   return {
     amount: toNumber(source.amount),
+    amountType: amountType ?? 'fixed',
+    amountOptions: amountOptions && amountOptions.length > 0 ? amountOptions : undefined,
     currencyCode: toStringOrNull(source.currencyCode) ?? undefined,
     pageMetadata: Object.keys(pageMetadata).length > 0 ? pageMetadata : undefined,
     customFields: Object.keys(toPlainObject(source.customFields)).length > 0
       ? toPlainObject(source.customFields)
       : undefined,
     customFieldsetCode: toStringOrNull(source.customFieldsetCode),
+    customerFieldsetCode: toStringOrNull(source.customerFieldsetCode),
+    displayCustomFields: source.displayCustomFields === true,
+    customerFieldValues: Object.keys(toPlainObject(source.customerFieldValues)).length > 0
+      ? toPlainObject(source.customerFieldValues)
+      : undefined,
     sessionParams,
     customerCapture: toCustomerCapture(source.customerCapture),
   }

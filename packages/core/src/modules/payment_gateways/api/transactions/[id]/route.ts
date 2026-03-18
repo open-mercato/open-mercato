@@ -122,6 +122,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       amount: transaction.amount,
       currencyCode: transaction.currencyCode,
       gatewayMetadata: transaction.gatewayMetadata ?? null,
+      documentType: transaction.documentType ?? null,
+      documentId: transaction.documentId ?? null,
       webhookLog: Array.isArray(transaction.webhookLog) ? transaction.webhookLog : [],
       lastWebhookAt: toIsoString(transaction.lastWebhookAt),
       lastPolledAt: toIsoString(transaction.lastPolledAt),

@@ -7,7 +7,7 @@ import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { verifyPaymentLinkAccessToken } from './payment-links'
 import { readPaymentLinkStoredMetadata } from './payment-link-page-metadata'
-import type { CustomerHandlingMode } from './payment-link-page-metadata'
+import type { CustomerHandlingMode, AmountType, AmountOption } from './payment-link-page-metadata'
 
 function isGatewayTransactionSettled(transaction: GatewayTransaction): boolean {
   return ['authorized', 'captured', 'partially_captured', 'refunded', 'partially_refunded'].includes(transaction.unifiedStatus)
@@ -26,10 +26,15 @@ export type PublicPaymentLinkState = {
   requiresSessionCreation: boolean
   paymentLinkWidgetSpotId: string | null
   amount: number
+  amountType: AmountType
+  amountOptions: AmountOption[] | null
   currencyCode: string
   pageMetadata: Record<string, unknown> | null
   customFields: Record<string, unknown> | null
   customFieldsetCode: string | null
+  customerFieldsetCode: string | null
+  displayCustomFields: boolean
+  customerFieldValues: Record<string, unknown> | null
   customerCapture: {
     enabled: boolean
     companyRequired: boolean
@@ -91,10 +96,15 @@ export async function loadPublicPaymentLinkState({
       requiresSessionCreation: false,
       paymentLinkWidgetSpotId: null,
       amount: 0,
+      amountType: storedMetadata.amountType ?? 'fixed',
+      amountOptions: storedMetadata.amountOptions ?? null,
       currencyCode: transaction?.currencyCode ?? storedMetadata.currencyCode ?? '',
       pageMetadata: null,
       customFields: null,
       customFieldsetCode: null,
+      customerFieldsetCode: null,
+      displayCustomFields: false,
+      customerFieldValues: null,
       customerCapture: null,
     }
   }
@@ -133,10 +143,15 @@ export async function loadPublicPaymentLinkState({
     requiresSessionCreation,
     paymentLinkWidgetSpotId: integration?.paymentGateway?.paymentLinkWidgetSpotId ?? null,
     amount,
+    amountType: storedMetadata.amountType ?? 'fixed',
+    amountOptions: storedMetadata.amountOptions ?? null,
     currencyCode,
     pageMetadata: storedMetadata.pageMetadata ?? null,
     customFields: storedMetadata.customFields ?? null,
     customFieldsetCode: storedMetadata.customFieldsetCode ?? null,
+    customerFieldsetCode: storedMetadata.customerFieldsetCode ?? null,
+    displayCustomFields: storedMetadata.displayCustomFields === true,
+    customerFieldValues: storedMetadata.customerFieldValues ?? null,
     customerCapture: storedMetadata.customerCapture?.enabled
       ? {
           enabled: true,

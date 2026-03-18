@@ -34,6 +34,7 @@ function ProviderInjectedFields({
   onFieldsResolved,
   errors,
   onFieldChange,
+  onValueCapture,
 }: {
   provider: ProviderItem | null
   values: Record<string, unknown>
@@ -41,6 +42,7 @@ function ProviderInjectedFields({
   onFieldsResolved: (providerKey: string, fields: InjectionFieldDefinition[]) => void
   errors?: Record<string, string>
   onFieldChange?: (fieldId: string) => void
+  onValueCapture?: (fieldId: string, value: unknown) => void
 }) {
   const t = useT()
   const spotId = provider?.transactionCreateFieldSpotId?.trim()
@@ -58,7 +60,8 @@ function ProviderInjectedFields({
   const handleChange = React.useCallback((fieldId: string, value: unknown) => {
     setValue(fieldId, value)
     onFieldChange?.(fieldId)
-  }, [setValue, onFieldChange])
+    onValueCapture?.(fieldId, value)
+  }, [setValue, onFieldChange, onValueCapture])
 
   if (!provider?.description && providerFields.length === 0) return null
 
@@ -103,6 +106,7 @@ export default function CreatePaymentLinkPage() {
   const [loadingTemplates, setLoadingTemplates] = React.useState(true)
   const [currentProviderKey, setCurrentProviderKey] = React.useState('')
   const providerFieldsRef = React.useRef<InjectionFieldDefinition[]>([])
+  const providerValuesRef = React.useRef<Record<string, unknown>>({})
   const [providerErrors, setProviderErrors] = React.useState<Record<string, string>>({})
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<Partial<PaymentLinkCreateFormValues>>({})
@@ -192,6 +196,8 @@ export default function CreatePaymentLinkPage() {
         captureCompanyRequired: templateValues.captureCompanyRequired,
         customerCaptureTermsRequired: templateValues.customerCaptureTermsRequired,
         customerCaptureTermsMarkdown: templateValues.customerCaptureTermsMarkdown,
+        amountType: templateValues.amountType,
+        amountOptions: templateValues.amountOptions,
         customFieldsetCode: templateValues.customFieldsetCode,
         customFieldsJson: templateValues.customFieldsJson,
         metadataJson: templateValues.metadataJson,
@@ -242,6 +248,7 @@ export default function CreatePaymentLinkPage() {
           setValue={setValue}
           errors={providerErrors}
           onFieldChange={handleProviderFieldChange}
+          onValueCapture={(fieldId, value) => { providerValuesRef.current[fieldId] = value }}
           onFieldsResolved={(providerKey, resolvedFields) => {
             if (providerKey !== currentProviderKey) return
             providerFieldsRef.current = resolvedFields
@@ -280,12 +287,12 @@ export default function CreatePaymentLinkPage() {
   }, [t, selectedProvider, currentProviderKey, providerErrors, handleProviderFieldChange])
 
   const handleSubmit = React.useCallback(async (values: PaymentLinkCreateFormValues) => {
-    const formValues = values as Record<string, unknown>
+    const pValues = providerValuesRef.current
 
     const fieldErrors: Record<string, string> = {}
     for (const field of providerFieldsRef.current) {
       if (field.required) {
-        const fieldValue = formValues[field.id]
+        const fieldValue = pValues[field.id]
         if (fieldValue == null || fieldValue === '' || fieldValue === undefined) {
           fieldErrors[field.id] = t('ui.forms.fieldRequired', 'This field is required')
         }
@@ -297,7 +304,7 @@ export default function CreatePaymentLinkPage() {
     }
 
     const providerInput = providerFieldsRef.current.reduce<Record<string, unknown>>((acc, field) => {
-      if (field.id in formValues) acc[field.id] = formValues[field.id]
+      if (field.id in pValues) acc[field.id] = pValues[field.id]
       return acc
     }, {})
 

@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Invalid query', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { page, pageSize, search, providerKey, status } = parsed.data
+  const { page, pageSize, search, providerKey, status, documentType, documentId } = parsed.data
   const offset = (page - 1) * pageSize
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
@@ -56,6 +56,12 @@ export async function GET(req: Request) {
   }
   if (status) {
     qb.andWhere({ unifiedStatus: status })
+  }
+  if (documentType) {
+    qb.andWhere({ documentType })
+  }
+  if (documentId) {
+    qb.andWhere({ documentId })
   }
   if (search) {
     const pattern = `%${escapeLikePattern(search)}%`
@@ -90,6 +96,8 @@ export async function GET(req: Request) {
       gatewayStatus: item.gatewayStatus ?? null,
       amount: item.amount,
       currencyCode: item.currencyCode,
+      documentType: item.documentType ?? null,
+      documentId: item.documentId ?? null,
       redirectUrl: item.redirectUrl ?? null,
       lastWebhookAt: formatDateValue(item.lastWebhookAt),
       lastPolledAt: formatDateValue(item.lastPolledAt),

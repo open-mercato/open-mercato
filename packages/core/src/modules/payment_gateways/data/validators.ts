@@ -25,6 +25,8 @@ export const createSessionSchema = z.object({
   cancelUrl: z.string().url().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   providerInput: z.record(z.string(), z.unknown()).optional(),
+  documentType: z.string().trim().min(1).max(200).optional(),
+  documentId: z.string().trim().min(1).max(200).optional(),
 }).passthrough()
 
 export type CreateSessionPayload = z.infer<typeof createSessionSchema>
@@ -63,6 +65,8 @@ export const listTransactionsQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
   providerKey: z.string().trim().min(1).max(100).optional(),
   status: unifiedPaymentStatusSchema.optional(),
+  documentType: z.string().trim().min(1).max(200).optional(),
+  documentId: z.string().trim().min(1).max(200).optional(),
 })
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>

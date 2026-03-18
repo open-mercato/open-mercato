@@ -17,6 +17,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { ChevronDown, ChevronRight, CreditCard, RefreshCw, Webhook } from 'lucide-react'
 
 type TransactionRow = {
@@ -30,6 +31,8 @@ type TransactionRow = {
   gatewayStatus?: string | null
   amount: string
   currencyCode: string
+  documentType?: string | null
+  documentId?: string | null
   redirectUrl?: string | null
   lastWebhookAt?: string | null
   lastPolledAt?: string | null
@@ -64,6 +67,8 @@ type TransactionDetail = {
     amount: string
     currencyCode: string
     gatewayMetadata?: Record<string, unknown> | null
+    documentType?: string | null
+    documentId?: string | null
     webhookLog?: Array<{
       eventType: string
       receivedAt: string
@@ -241,6 +246,7 @@ export default function PaymentTransactionsPage() {
   const [detailError, setDetailError] = React.useState<string | null>(null)
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
+  const [documentTypes, setDocumentTypes] = React.useState<string[]>([])
   const noneLabel = t('common.none', 'None')
   const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
     if (value === null) return noneLabel
@@ -261,6 +267,12 @@ export default function PaymentTransactionsPage() {
     if (typeof filterValues.status === 'string' && filterValues.status) {
       params.set('status', filterValues.status)
     }
+    if (typeof filterValues.documentType === 'string' && filterValues.documentType) {
+      params.set('documentType', filterValues.documentType)
+    }
+    if (typeof filterValues.documentId === 'string' && filterValues.documentId) {
+      params.set('documentId', filterValues.documentId)
+    }
     const fallback: TransactionsResponse = { items: [], total: 0, page, pageSize: 20, totalPages: 1 }
     const call = await apiCall<TransactionsResponse>(`/api/payment_gateways/transactions?${params.toString()}`, undefined, { fallback })
     if (call.ok && call.result) {
@@ -274,7 +286,7 @@ export default function PaymentTransactionsPage() {
       setTotalPages(1)
     }
     setIsLoading(false)
-  }, [filterValues.providerKey, filterValues.status, page, search, t])
+  }, [filterValues.providerKey, filterValues.status, filterValues.documentType, filterValues.documentId, page, search, t])
 
   const loadDetail = React.useCallback(async (transactionId: string) => {
     setIsLoadingDetail(true)
@@ -293,6 +305,16 @@ export default function PaymentTransactionsPage() {
   React.useEffect(() => {
     void loadRows()
   }, [loadRows, scopeVersion])
+
+  React.useEffect(() => {
+    async function loadDocumentTypes() {
+      const call = await apiCall<{ items: string[] }>('/api/payment_gateways/transactions/document-types', undefined, { fallback: { items: [] } })
+      if (call.ok && call.result) {
+        setDocumentTypes(Array.isArray(call.result.items) ? call.result.items : [])
+      }
+    }
+    void loadDocumentTypes()
+  }, [scopeVersion])
 
   React.useEffect(() => {
     if (!selectedId) {
@@ -374,7 +396,16 @@ export default function PaymentTransactionsPage() {
         { label: t('payment_gateways.status.unknown', 'Unknown'), value: 'unknown' },
       ],
     },
-  ], [providerOptions, t])
+    ...(documentTypes.length > 0 ? [{
+      id: 'documentType',
+      type: 'select' as const,
+      label: t('payment_gateways.transactions.filters.documentType', 'Document Type'),
+      options: [
+        { label: t('payment_gateways.transactions.filters.allDocumentTypes', 'All document types'), value: '' },
+        ...documentTypes.map((dt) => ({ label: formatTypeLabel(dt.replace(/:/g, ' ')), value: dt })),
+      ],
+    }] : []),
+  ], [providerOptions, documentTypes, t])
 
   const columns = React.useMemo<ColumnDef<TransactionRow>[]>(() => [
     {
@@ -413,6 +444,21 @@ export default function PaymentTransactionsPage() {
       cell: ({ row }) => formatAmount(row.original.amount, row.original.currencyCode),
     },
     {
+      accessorKey: 'documentType',
+      header: t('payment_gateways.transactions.columns.document', 'Document'),
+      cell: ({ row }) => {
+        if (!row.original.documentType) return <span className="text-muted-foreground">—</span>
+        return (
+          <div className="space-y-0.5">
+            <div className="text-xs">{formatTypeLabel(row.original.documentType.replace(/:/g, ' '))}</div>
+            {row.original.documentId ? (
+              <div className="font-mono text-[11px] text-muted-foreground">{row.original.documentId.slice(0, 8)}…</div>
+            ) : null}
+          </div>
+        )
+      },
+    },
+    {
       accessorKey: 'providerSessionId',
       header: t('payment_gateways.transactions.columns.session', 'Session'),
       cell: ({ row }) => (
@@ -433,6 +479,35 @@ export default function PaymentTransactionsPage() {
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   )
+
+  const injectionContext = React.useMemo(
+    () => ({ transactionId: selectedId, detail }),
+    [selectedId, detail],
+  )
+  const { widgets: injectedTabWidgets } = useInjectionWidgets('payment_gateways.transaction.detail:tabs', {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+  const injectedTabs = React.useMemo(
+    () =>
+      (injectedTabWidgets ?? [])
+        .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
+        .map((widget) => {
+          const id = widget.placement?.groupId ?? widget.widgetId
+          const label = widget.placement?.groupLabel ?? widget.module.metadata.title
+          const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
+          const render = () => (
+            <widget.module.Widget
+              context={injectionContext}
+              data={detail}
+            />
+          )
+          return { id, label, priority, render }
+        })
+        .sort((a, b) => b.priority - a.priority),
+    [detail, injectedTabWidgets, injectionContext],
+  )
+  const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
   return (
     <Page>
@@ -533,6 +608,11 @@ export default function PaymentTransactionsPage() {
                       <TabsTrigger value="metadata" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         {t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}
                       </TabsTrigger>
+                      {injectedTabs.map((tab) => (
+                        <TabsTrigger key={tab.id} value={tab.id} className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                          {tab.label}
+                        </TabsTrigger>
+                      ))}
                     </TabsList>
 
                     <TabsContent value="overview" className="mt-0">
@@ -546,6 +626,8 @@ export default function PaymentTransactionsPage() {
                               { label: t('payment_gateways.transactions.columns.gatewayPaymentId', 'Gateway payment ID'), value: detail.transaction.gatewayPaymentId ?? '—', mono: true },
                               { label: t('payment_gateways.transactions.columns.gatewayRefundId', 'Gateway refund ID'), value: detail.transaction.gatewayRefundId ?? '—', mono: true },
                               { label: t('payment_gateways.transactions.columns.redirectUrl', 'Redirect URL'), value: detail.transaction.redirectUrl ?? '—', mono: true },
+                              { label: t('payment_gateways.transactions.columns.documentType', 'Document type'), value: detail.transaction.documentType ? formatTypeLabel(detail.transaction.documentType.replace(/:/g, ' ')) : '—' },
+                              { label: t('payment_gateways.transactions.columns.documentId', 'Document ID'), value: detail.transaction.documentId ?? '—', mono: true },
                             ]}
                           />
                         </DetailSectionCard>
@@ -708,7 +790,6 @@ export default function PaymentTransactionsPage() {
                       <DetailSectionCard title={t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}>
                         <JsonDisplay
                           data={detail.transaction.gatewayMetadata ?? {}}
-                          title={t('payment_gateways.transactions.detail.gatewayMetadata', 'Gateway metadata')}
                           defaultExpanded
                           maxInitialDepth={1}
                           theme="dark"
@@ -717,6 +798,11 @@ export default function PaymentTransactionsPage() {
                         />
                       </DetailSectionCard>
                     </TabsContent>
+                    {injectedTabs.map((tab) => (
+                      <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                        {tab.render()}
+                      </TabsContent>
+                    ))}
                   </Tabs>
                 </>
               ) : null}

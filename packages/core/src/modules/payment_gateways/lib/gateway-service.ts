@@ -36,6 +36,8 @@ export interface CreatePaymentSessionInput {
   cancelUrl?: string
   metadata?: Record<string, unknown>
   providerInput?: Record<string, unknown>
+  documentType?: string
+  documentId?: string
   organizationId: string
   tenantId: string
 }
@@ -210,6 +212,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         amount: String(input.amount),
         currencyCode: input.currencyCode,
         gatewayMetadata: session.providerData ?? null,
+        documentType: input.documentType ?? null,
+        documentId: input.documentId ?? null,
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -68,6 +69,8 @@ export default function CreateTemplatePage() {
           submitLabel={t('payment_link_pages.templates.form.submit', 'Save Template')}
           onSubmit={async (values) => {
             const payload = templateFormValuesToPayload(values)
+            const customFields = collectCustomFieldValues(values as Record<string, unknown>)
+            if (Object.keys(customFields).length > 0) payload.customFields = customFields
             const { result } = await createCrud<{ id?: string }>(
               'payment_link_pages/templates',
               payload,

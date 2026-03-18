@@ -34,10 +34,21 @@ const customerCaptureSchema = z.object({
   }).optional(),
 }).optional().nullable()
 
+export const amountTypeSchema = z.enum(['fixed', 'customer_input', 'predefined']).default('fixed')
+
+export const amountOptionSchema = z.object({
+  amount: z.number().positive(),
+  label: z.string().min(1).max(200),
+})
+
+export const amountOptionsSchema = z.array(amountOptionSchema).max(50).optional().nullable()
+
 export const templateCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(500).optional().nullable(),
   isDefault: z.boolean().optional().default(false),
+  amountType: amountTypeSchema.optional(),
+  amountOptions: amountOptionsSchema,
   branding: brandingSchema,
   defaultTitle: z.string().trim().max(160).optional().nullable(),
   defaultDescription: z.string().trim().max(500).optional().nullable(),
@@ -114,6 +125,8 @@ export const paymentLinkInputSchema = z.object({
   templateId: z.string().uuid().optional(),
   title: z.string().trim().max(160).optional(),
   description: z.string().trim().max(500).optional(),
+  amountType: amountTypeSchema.optional(),
+  amountOptions: amountOptionsSchema,
   password: z.string().min(4).max(128).optional(),
   token: z.string().trim().min(3).max(80).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),

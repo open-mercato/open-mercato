@@ -48,6 +48,17 @@ export const sharedCaptureSchema = {
   captureAddressFormat: z.enum(['line_first', 'street_first']).optional().default('line_first'),
   customerCaptureTermsRequired: z.boolean().optional().default(false),
   customerCaptureTermsMarkdown: z.string().max(20000).optional().nullable(),
+  customerFieldsetCode: z.string().max(100).optional().nullable(),
+  displayCustomFields: z.boolean().optional().default(false),
+}
+
+export const sharedAmountTypeSchema = {
+  amountType: z.enum(['fixed', 'customer_input', 'predefined']).optional().default('fixed'),
+  amountOptions: z
+    .array(z.object({ amount: z.number().positive(), label: z.string().min(1).max(200) }))
+    .max(50)
+    .optional()
+    .nullable(),
 }
 
 export const sharedMetadataSchema = {
@@ -205,6 +216,194 @@ export function renderMetadataField(props: CrudCustomFieldRenderProps): React.Re
       },
       disabled: props.disabled,
     }),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Amount options editor (variants table)
+// ---------------------------------------------------------------------------
+
+type AmountOptionItem = { amount: number; label: string }
+
+function parseAmountOptions(value: unknown): AmountOptionItem[] {
+  if (Array.isArray(value)) return value.filter((v): v is AmountOptionItem => v != null && typeof v === 'object' && typeof v.amount === 'number' && typeof v.label === 'string')
+  return []
+}
+
+export function renderAmountOptionsEditor(props: CrudCustomFieldRenderProps, t: (key: string, fallback?: string) => string): React.ReactNode {
+  const items = parseAmountOptions(props.value)
+  const isDisabled = props.disabled || props.values?.amountType !== 'predefined'
+
+  const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50'
+  const buttonClass = 'inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50'
+
+  const handleAdd = () => {
+    props.setValue([...items, { amount: 0, label: '' }])
+  }
+
+  const handleRemove = (index: number) => {
+    props.setValue(items.filter((_, i) => i !== index))
+  }
+
+  const handleChange = (index: number, field: 'amount' | 'label', rawValue: string) => {
+    const updated = items.map((item, i) => {
+      if (i !== index) return item
+      if (field === 'amount') return { ...item, amount: rawValue === '' ? 0 : Number(rawValue) }
+      return { ...item, label: rawValue }
+    })
+    props.setValue(updated)
+  }
+
+  const headerRow = React.createElement(
+    'div',
+    { className: 'grid grid-cols-[1fr_2fr_auto] gap-2 text-xs font-medium text-muted-foreground mb-1' },
+    React.createElement('span', null, t('payment_link_pages.amountOptions.amount', 'Amount')),
+    React.createElement('span', null, t('payment_link_pages.amountOptions.label', 'Description')),
+    React.createElement('span', { className: 'w-9' }),
+  )
+
+  const rows = items.map((item, index) =>
+    React.createElement(
+      'div',
+      { key: index, className: 'grid grid-cols-[1fr_2fr_auto] gap-2 items-center' },
+      React.createElement('input', {
+        type: 'number',
+        className: inputClass,
+        value: item.amount || '',
+        placeholder: '0.00',
+        disabled: isDisabled,
+        min: 0,
+        step: 'any',
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) => handleChange(index, 'amount', event.target.value),
+      }),
+      React.createElement('input', {
+        type: 'text',
+        className: inputClass,
+        value: item.label,
+        placeholder: t('payment_link_pages.amountOptions.label.placeholder', 'e.g. Basic Plan'),
+        disabled: isDisabled,
+        maxLength: 200,
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) => handleChange(index, 'label', event.target.value),
+      }),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          className: buttonClass,
+          disabled: isDisabled,
+          onClick: () => handleRemove(index),
+          title: t('payment_link_pages.amountOptions.remove', 'Remove'),
+        },
+        '\u00D7',
+      ),
+    ),
+  )
+
+  const addButton = React.createElement(
+    'button',
+    {
+      type: 'button',
+      className: buttonClass + ' mt-2',
+      disabled: isDisabled,
+      onClick: handleAdd,
+    },
+    '+ ' + t('payment_link_pages.amountOptions.add', 'Add option'),
+  )
+
+  return React.createElement(
+    'div',
+    { className: 'space-y-1' },
+    items.length > 0 ? headerRow : null,
+    ...rows,
+    addButton,
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Amount type field builders
+// ---------------------------------------------------------------------------
+
+export function buildAmountTypeFields(
+  t: (key: string, fallback?: string) => string,
+): CrudField[] {
+  return [
+    {
+      id: 'amountType',
+      label: t('payment_link_pages.amountType', 'Amount type'),
+      type: 'select',
+      options: [
+        { label: t('payment_link_pages.amountType.fixed', 'Fixed amount'), value: 'fixed' },
+        { label: t('payment_link_pages.amountType.customerInput', 'Customer enters amount'), value: 'customer_input' },
+        { label: t('payment_link_pages.amountType.predefined', 'Customer selects from list'), value: 'predefined' },
+      ],
+      description: t('payment_link_pages.amountType.description', 'How the payment amount is determined'),
+    },
+    {
+      id: 'amountOptions',
+      label: t('payment_link_pages.amountOptions', 'Amount options'),
+      type: 'custom' as const,
+      description: t('payment_link_pages.amountOptions.description', 'Predefined amounts the customer can choose from'),
+      component: (props: CrudCustomFieldRenderProps) => renderAmountOptionsEditor(props, t),
+    },
+  ]
+}
+
+export function buildAmountTypeGroup(
+  t: (key: string, fallback?: string) => string,
+): CrudFormGroup {
+  return {
+    id: 'amountType',
+    title: t('payment_link_pages.group.amountType', 'Amount Configuration'),
+    fields: ['amountType', 'amountOptions'],
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Customer fieldset select renderer
+// ---------------------------------------------------------------------------
+
+type FieldsetOption = { code: string; label: string }
+
+function CustomerFieldsetSelect(props: CrudCustomFieldRenderProps & { entityId: string; t: (key: string, fallback?: string) => string }) {
+  const [fieldsets, setFieldsets] = React.useState<FieldsetOption[]>([])
+  const [loading, setLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch(`/api/entities/definitions?entityId=${encodeURIComponent(props.entityId)}`)
+        if (cancelled || !res.ok) { setLoading(false); return }
+        const json = await res.json() as { fieldsetsByEntity?: Record<string, FieldsetOption[]> }
+        const list = json.fieldsetsByEntity?.[props.entityId] ?? []
+        if (!cancelled) setFieldsets(list)
+      } catch { /* skip */ }
+      if (!cancelled) setLoading(false)
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [props.entityId])
+
+  const options: FieldsetOption[] = [
+    { code: '', label: props.t('payment_link_pages.customerFieldset.none', 'None') },
+    ...(fieldsets.length === 0 && !loading
+      ? [{ code: 'default', label: props.t('payment_link_pages.customerFieldset.default', 'Default') }]
+      : fieldsets),
+  ]
+
+  return React.createElement(
+    'select',
+    {
+      className: 'flex h-9 w-full rounded-md border border-input bg-background pl-3 pr-8 py-2 text-sm',
+      value: typeof props.value === 'string' ? props.value : '',
+      disabled: props.disabled || loading,
+      onChange: (event: React.ChangeEvent<HTMLSelectElement>) => {
+        props.setValue(event.target.value || null)
+      },
+    },
+    ...options.map((opt) =>
+      React.createElement('option', { key: opt.code, value: opt.code }, opt.label),
+    ),
   )
 }
 
@@ -402,6 +601,24 @@ export function buildCaptureFields(
       editor: 'uiw',
       placeholder: t('payment_link_pages.create.customerCapture.termsMarkdown.placeholder', 'Enter terms and conditions content...'),
     },
+    {
+      id: 'customerFieldsetCode',
+      label: t('payment_link_pages.create.customerFieldset', 'Customer capture fieldset'),
+      type: 'custom' as const,
+      description: t('payment_link_pages.create.customerFieldset.description', 'Select a custom fieldset whose fields will be shown to customers on the payment page for data capture'),
+      component: (fieldProps: CrudCustomFieldRenderProps) =>
+        React.createElement(CustomerFieldsetSelect, {
+          ...fieldProps,
+          entityId: 'payment_link_pages:payment_link_page',
+          t,
+        }),
+    },
+    {
+      id: 'displayCustomFields',
+      label: t('payment_link_pages.create.displayCustomFields', 'Display custom fields to customer'),
+      type: 'checkbox',
+      description: t('payment_link_pages.create.displayCustomFields.description', 'Show read-only custom field values from other fieldsets to the customer on the payment page'),
+    },
   ]
 }
 
@@ -472,6 +689,8 @@ export function buildCaptureGroup(
       'captureAddressFormat',
       'customerCaptureTermsRequired',
       'customerCaptureTermsMarkdown',
+      'customerFieldsetCode',
+      'displayCustomFields',
     ],
   }
 }

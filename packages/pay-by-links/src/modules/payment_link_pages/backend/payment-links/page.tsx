@@ -183,8 +183,8 @@ export default function PaymentLinksListPage() {
             <RowActions
               items={[
                 {
-                  id: 'details',
-                  label: t('payment_gateways.links.actions.viewDetails', 'View details'),
+                  id: 'edit',
+                  label: t('payment_gateways.links.actions.edit', 'Edit'),
                   href: `/backend/payment-links/${row.id}`,
                 },
                 {

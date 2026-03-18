@@ -4,8 +4,9 @@ import { Entity, Index, OptionalProps, PrimaryKey, Property } from '@mikro-orm/c
 @Index({ properties: ['paymentId', 'organizationId', 'tenantId'] })
 @Index({ properties: ['providerKey', 'providerSessionId', 'organizationId'] })
 @Index({ properties: ['organizationId', 'tenantId', 'unifiedStatus'] })
+@Index({ properties: ['documentType', 'documentId', 'organizationId', 'tenantId'] })
 export class GatewayTransaction {
-  [OptionalProps]?: 'unifiedStatus' | 'gatewayStatus' | 'providerSessionId' | 'gatewayPaymentId' | 'gatewayRefundId' | 'redirectUrl' | 'clientSecret' | 'gatewayMetadata' | 'webhookLog' | 'lastWebhookAt' | 'lastPolledAt' | 'expiresAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'unifiedStatus' | 'gatewayStatus' | 'providerSessionId' | 'gatewayPaymentId' | 'gatewayRefundId' | 'redirectUrl' | 'clientSecret' | 'gatewayMetadata' | 'webhookLog' | 'lastWebhookAt' | 'lastPolledAt' | 'expiresAt' | 'documentType' | 'documentId' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -57,6 +58,12 @@ export class GatewayTransaction {
 
   @Property({ name: 'expires_at', type: Date, nullable: true })
   expiresAt?: Date | null
+
+  @Property({ name: 'document_type', type: 'text', nullable: true })
+  documentType?: string | null
+
+  @Property({ name: 'document_id', type: 'text', nullable: true })
+  documentId?: string | null
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string

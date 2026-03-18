@@ -63,7 +63,7 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "bcryptjs": "^3.0.2"
+    "bcryptjs": "^3.0.3"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^6.6.2",

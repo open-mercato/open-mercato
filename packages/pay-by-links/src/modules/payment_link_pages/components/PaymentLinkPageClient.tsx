@@ -42,6 +42,18 @@ export type PaymentLinkPageResponse = {
     metadata?: Record<string, unknown> | null
     customFields?: Record<string, unknown> | null
     customFieldsetCode?: string | null
+    customerFieldsetCode?: string | null
+    displayCustomFields?: boolean
+    customerFieldValues?: Record<string, unknown> | null
+    customerFieldDefs?: Array<{
+      key: string
+      kind: string
+      label: string
+      description?: string | null
+      options?: Array<{ value: string; label: string }>
+      required?: boolean
+      group?: { code?: string; title?: string }
+    }> | null
     customerCapture?: {
       enabled: boolean
       companyRequired: boolean
@@ -96,6 +108,7 @@ type CheckoutSectionProps = SharedSectionProps & {
     email: string
     phone: string
   }
+  customerCustomValues: Record<string, unknown>
   customerSubmitting: boolean
   customerError: string | null
   customerFieldErrors: Record<string, string>
@@ -103,6 +116,7 @@ type CheckoutSectionProps = SharedSectionProps & {
   onPasswordChange: (value: string) => void
   onUnlock: () => void
   onCustomerFieldChange: (field: 'companyName' | 'firstName' | 'lastName' | 'email' | 'phone', value: string) => void
+  onCustomerCustomFieldChange: (key: string, value: unknown) => void
   onCustomerTermsAcceptedChange: (accepted: boolean) => void
   onSubmitCustomer: () => void
   onSubmitSession: () => void
@@ -216,6 +230,7 @@ function DefaultBrandSection({ data }: BrandSectionProps) {
 
 function DefaultSummarySection({ data, locale }: SummarySectionProps) {
   const t = useT()
+  const shouldDisplayCustomFields = data?.link?.displayCustomFields === true
   const summaryAmount = formatAmount(
     data?.link?.amount ?? data?.transaction?.amount,
     data?.link?.currencyCode ?? data?.transaction?.currencyCode,
@@ -271,7 +286,7 @@ function DefaultSummarySection({ data, locale }: SummarySectionProps) {
             {t('payment_gateways.paymentLink.securityBody', 'Payment details stay inside the gateway checkout flow. This page only loads the provider UI that belongs to the selected gateway.')}
           </p>
         </div>
-        {Object.keys(customFields).length > 0 ? (
+        {shouldDisplayCustomFields && Object.keys(customFields).length > 0 ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-6">
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
               {t('payment_gateways.paymentLink.metadata.title', 'Additional information')}
@@ -298,6 +313,7 @@ function DefaultCheckoutSection({
   password,
   unlocking,
   customerForm,
+  customerCustomValues,
   customerSubmitting,
   customerError,
   customerFieldErrors,
@@ -305,6 +321,7 @@ function DefaultCheckoutSection({
   onPasswordChange,
   onUnlock,
   onCustomerFieldChange,
+  onCustomerCustomFieldChange,
   onCustomerTermsAcceptedChange,
   onSubmitCustomer,
   onSubmitSession,
@@ -512,6 +529,52 @@ function DefaultCheckoutSection({
                 {customerFieldErrors.phone ? <p className="text-xs text-rose-400">{customerFieldErrors.phone}</p> : null}
               </div>
             ) : null}
+            {data?.link?.customerFieldDefs && data.link.customerFieldDefs.length > 0 ? (
+              <>
+                {data.link.customerFieldDefs.map((fieldDef) => (
+                  <div key={fieldDef.key} className={`space-y-2 ${fieldDef.kind === 'multiline' ? 'sm:col-span-2' : ''}`}>
+                    <div className="text-sm font-medium text-slate-200">
+                      {fieldDef.label}{fieldDef.required ? <span className="text-rose-400"> *</span> : ''}
+                    </div>
+                    {fieldDef.kind === 'select' && fieldDef.options ? (
+                      <select
+                        className={`flex h-9 w-full rounded-md !border-slate-700 !bg-slate-950 pl-3 pr-8 py-2 text-sm !text-white ${customerFieldErrors[`cf_${fieldDef.key}`] ? '!border-rose-500' : ''}`}
+                        value={typeof customerCustomValues[fieldDef.key] === 'string' ? customerCustomValues[fieldDef.key] as string : ''}
+                        onChange={(event) => onCustomerCustomFieldChange(fieldDef.key, event.target.value || null)}
+                      >
+                        <option value="">—</option>
+                        {fieldDef.options.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    ) : fieldDef.kind === 'multiline' ? (
+                      <textarea
+                        className={`flex min-h-[80px] w-full rounded-md border !border-slate-700 !bg-slate-950 px-3 py-2 text-sm !text-white placeholder:!text-slate-400 ${customerFieldErrors[`cf_${fieldDef.key}`] ? '!border-rose-500' : ''}`}
+                        value={typeof customerCustomValues[fieldDef.key] === 'string' ? customerCustomValues[fieldDef.key] as string : ''}
+                        onChange={(event) => onCustomerCustomFieldChange(fieldDef.key, event.target.value)}
+                      />
+                    ) : fieldDef.kind === 'boolean' ? (
+                      <label className="flex items-center gap-2">
+                        <Checkbox
+                          checked={customerCustomValues[fieldDef.key] === true}
+                          onCheckedChange={(checked: boolean | 'indeterminate') => onCustomerCustomFieldChange(fieldDef.key, checked === true)}
+                        />
+                        <span className="text-sm text-slate-300">{fieldDef.description ?? ''}</span>
+                      </label>
+                    ) : (
+                      <Input
+                        type={fieldDef.kind === 'integer' || fieldDef.kind === 'float' ? 'number' : 'text'}
+                        className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors[`cf_${fieldDef.key}`] ? '!border-rose-500' : ''}`}
+                        value={typeof customerCustomValues[fieldDef.key] === 'string' || typeof customerCustomValues[fieldDef.key] === 'number' ? String(customerCustomValues[fieldDef.key]) : ''}
+                        onChange={(event) => onCustomerCustomFieldChange(fieldDef.key, fieldDef.kind === 'integer' || fieldDef.kind === 'float' ? (event.target.value === '' ? null : Number(event.target.value)) : event.target.value)}
+                      />
+                    )}
+                    {fieldDef.description && fieldDef.kind !== 'boolean' ? <p className="text-xs text-slate-400">{fieldDef.description}</p> : null}
+                    {customerFieldErrors[`cf_${fieldDef.key}`] ? <p className="text-xs text-rose-400">{customerFieldErrors[`cf_${fieldDef.key}`]}</p> : null}
+                  </div>
+                ))}
+              </>
+            ) : null}
           </div>
 
           {customerError ? (
@@ -609,6 +672,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
   const [customerError, setCustomerError] = React.useState<string | null>(null)
   const [customerTermsAccepted, setCustomerTermsAccepted] = React.useState(false)
   const [customerFieldErrors, setCustomerFieldErrors] = React.useState<Record<string, string>>({})
+  const [customerCustomValues, setCustomerCustomValues] = React.useState<Record<string, unknown>>({})
   const [customerForm, setCustomerForm] = React.useState({
     companyName: '',
     firstName: '',
@@ -704,6 +768,20 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     [],
   )
 
+  const handleCustomerCustomFieldChange = React.useCallback(
+    (key: string, value: unknown) => {
+      setCustomerCustomValues((prev) => ({ ...prev, [key]: value }))
+      setCustomerFieldErrors((prev) => {
+        const errorKey = `cf_${key}`
+        if (!(errorKey in prev)) return prev
+        const next = { ...prev }
+        delete next[errorKey]
+        return next
+      })
+    },
+    [],
+  )
+
   const validateCustomerForm = React.useCallback((): boolean => {
     const capture = data?.link?.customerCapture
     const fieldConfig = capture?.fields
@@ -730,9 +808,20 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     checkField('companyName', customerForm.companyName)
     checkField('phone', customerForm.phone)
 
+    // Validate required customer custom fields
+    const customerFieldDefs = data?.link?.customerFieldDefs ?? []
+    for (const fieldDef of customerFieldDefs) {
+      if (fieldDef.required) {
+        const value = customerCustomValues[fieldDef.key]
+        if (value == null || value === '' || value === undefined) {
+          errors[`cf_${fieldDef.key}`] = required
+        }
+      }
+    }
+
     setCustomerFieldErrors(errors)
     return Object.keys(errors).length === 0
-  }, [customerForm, data?.link?.customerCapture, t])
+  }, [customerForm, customerCustomValues, data?.link?.customerCapture, data?.link?.customerFieldDefs, t])
 
   const handleCustomerSubmit = React.useCallback(async () => {
     if (!token) return
@@ -751,6 +840,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
         body: JSON.stringify({
           ...customerForm,
           acceptedTerms: customerTermsAccepted,
+          ...(Object.keys(customerCustomValues).length > 0 ? { customerFieldValues: customerCustomValues } : {}),
         }),
       },
       { fallback: null },
@@ -787,6 +877,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
           phone: customerForm.phone || undefined,
           companyName: customerForm.companyName || undefined,
           acceptedTerms: customerTermsAccepted,
+          ...(Object.keys(customerCustomValues).length > 0 ? { customerFieldValues: customerCustomValues } : {}),
         }),
       },
       { fallback: null },
@@ -923,6 +1014,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
             password={password}
             unlocking={unlocking}
             customerForm={customerForm}
+            customerCustomValues={customerCustomValues}
             customerSubmitting={customerSubmitting}
             customerError={customerError}
             customerFieldErrors={customerFieldErrors}
@@ -932,6 +1024,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
               void handleUnlock()
             }}
             onCustomerFieldChange={handleCustomerFieldChange}
+            onCustomerCustomFieldChange={handleCustomerCustomFieldChange}
             onCustomerTermsAcceptedChange={setCustomerTermsAccepted}
             onSubmitCustomer={() => {
               void handleCustomerSubmit()

@@ -22,6 +22,8 @@ registerPayByLinksTemplateResolver(async (em, templateId, organizationId, tenant
     defaultTitle: template.defaultTitle,
     defaultDescription: template.defaultDescription,
     customerCapture: template.customerCapture,
+    amountType: template.amountType,
+    amountOptions: template.amountOptions,
   }
 })
 

@@ -408,6 +408,25 @@
           "default": "false",
           "mappedType": "boolean"
         },
+        "amount_type": {
+          "name": "amount_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'fixed'",
+          "mappedType": "text"
+        },
+        "amount_options": {
+          "name": "amount_options",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "branding": {
           "name": "branding",
           "type": "jsonb",

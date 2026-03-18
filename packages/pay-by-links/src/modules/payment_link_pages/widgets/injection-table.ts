@@ -16,6 +16,14 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'payment_gateways.transaction.detail:tabs': [
+    {
+      widgetId: 'payment_link_pages.injection.transaction-detail-customer-data',
+      kind: 'tab',
+      groupLabel: 'Payment Link',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable
