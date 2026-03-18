@@ -65,9 +65,10 @@ function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): st
   )
 }
 
-function parseModuleInstallArgs(args: string[]): { packageSpec: string | null; mode: 'package' | 'source' } {
+function parseModuleInstallArgs(args: string[]): { packageSpec: string | null; mode: 'package' | 'source'; moduleId: string | null } {
   let packageSpec: string | null = null
   let mode: 'package' | 'source' = 'package'
+  let moduleId: string | null = null
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
@@ -92,12 +93,27 @@ function parseModuleInstallArgs(args: string[]): { packageSpec: string | null; m
       throw new Error(`Unsupported module install mode: ${rawMode}`)
     }
 
+    if (arg === '--module') {
+      const next = args[index + 1]
+      if (next && !next.startsWith('-')) {
+        moduleId = next
+        index += 1
+        continue
+      }
+      throw new Error(`--module requires a moduleId value`)
+    }
+
+    if (arg.startsWith('--module=')) {
+      moduleId = arg.slice('--module='.length) || null
+      continue
+    }
+
     if (!arg.startsWith('-') && !packageSpec) {
       packageSpec = arg
     }
   }
 
-  return { packageSpec, mode }
+  return { packageSpec, mode, moduleId }
 }
 
 async function handleDirectEjectCommand(args: string[]): Promise<number> {
@@ -612,8 +628,8 @@ export async function run(argv = process.argv) {
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
         console.log('Usage: yarn mercato module <add|enable|eject> ...')
-        console.log('  yarn mercato module add <packageSpec> [--mode package|source]')
-        console.log('  yarn mercato module enable <packageName>')
+        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--mode package|source]')
+        console.log('  yarn mercato module enable <packageName> [--module <moduleId>]')
         console.log('  yarn mercato module eject <moduleId>')
         return 0
       }
@@ -621,14 +637,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'add') {
         const { createResolver } = await import('./lib/resolver')
         const { addOfficialModule } = await import('./lib/module-install')
-        const { packageSpec, mode } = parseModuleInstallArgs(commandArgs)
+        const { packageSpec, mode, moduleId } = parseModuleInstallArgs(commandArgs)
 
         if (!packageSpec) {
-          console.error('Usage: yarn mercato module add <packageSpec> [--mode package|source]')
+          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--mode package|source]')
           return 1
         }
 
-        const result = await addOfficialModule(createResolver(), packageSpec, mode)
+        const result = await addOfficialModule(createResolver(), packageSpec, mode, moduleId ?? undefined)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${mode === 'source' ? '@app' : result.packageName}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -639,13 +655,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'enable') {
         const packageName = commandArgs.find((arg) => !arg.startsWith('-'))
         if (!packageName) {
-          console.error('Usage: yarn mercato module enable <packageName>')
+          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>]')
           return 1
         }
 
         const { createResolver } = await import('./lib/resolver')
         const { enableOfficialModule } = await import('./lib/module-install')
-        const result = await enableOfficialModule(createResolver(), packageName)
+        const { moduleId } = parseModuleInstallArgs(commandArgs)
+        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.packageName}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1114,6 +1131,11 @@ export async function run(argv = process.argv) {
           process.on('SIGINT', cleanup)
 
           console.log('[server] Starting Open Mercato in dev mode...')
+
+          // Ensure module-package-sources.css exists before Next.js starts
+          const { createResolver: createResolverForSources } = await import('./lib/resolver')
+          const { generateModulePackageSources } = await import('./lib/generators')
+          await generateModulePackageSources({ resolver: createResolverForSources(), quiet: true })
 
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')

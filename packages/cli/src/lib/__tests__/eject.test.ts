@@ -302,11 +302,6 @@ describe('eject', () => {
           {
             name: '@open-mercato/test-package',
             version: '0.1.0',
-            'open-mercato': {
-              kind: 'module-package',
-              moduleId: 'test_package',
-              ejectable: true,
-            },
             peerDependencies: {
               '@open-mercato/core': '>=0.4.7 <0.5.0',
             },
@@ -317,7 +312,7 @@ describe('eject', () => {
       )
       fs.writeFileSync(
         path.join(installedPackageRoot, 'src', 'modules', 'test_package', 'index.ts'),
-        "export const metadata = { title: 'Test Package', description: 'Fixture package' }\n",
+        "export const metadata = { title: 'Test Package', description: 'Fixture package', ejectable: true }\n",
       )
       fs.writeFileSync(
         path.join(installedPackageRoot, 'src', 'modules', 'test_package', 'widget.ts'),
@@ -340,7 +335,7 @@ describe('eject', () => {
       } as unknown as PackageResolver
     }
 
-    it('lists module packages as ejectable from package manifest metadata', () => {
+    it('lists module packages as ejectable from module index.ts metadata', () => {
       const resolver = createOfficialModuleResolver(tmpDir)
 
       expect(listEjectableModules(resolver)).toEqual([
@@ -353,7 +348,7 @@ describe('eject', () => {
       ])
     })
 
-    it('ejects module packages using package manifest ejectable flag', () => {
+    it('ejects module packages using module index.ts ejectable flag', () => {
       const resolver = createOfficialModuleResolver(tmpDir)
       const appModuleDir = path.join(tmpDir, 'apps', 'mercato', 'src', 'modules', 'test_package')
       const modulesTsPath = path.join(tmpDir, 'apps', 'mercato', 'src', 'modules.ts')

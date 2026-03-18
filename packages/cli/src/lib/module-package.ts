@@ -8,34 +8,36 @@ type PackageJsonRecord = {
   version?: string
   dependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
-  'open-mercato'?: unknown
 }
 
-export type OpenMercatoModulePackageMetadata = {
-  kind: 'module-package'
+export type ModulePackageMetadata = {
   moduleId: string
   ejectable: boolean
 }
 
 export type ModuleInfoSnapshot = {
-  name?: string
   title?: string
   description?: string
-  ejectable?: boolean
 }
 
 export type ValidatedOfficialModulePackage = {
   packageName: string
   packageRoot: string
   packageJson: PackageJsonRecord
-  metadata: OpenMercatoModulePackageMetadata
+  metadata: ModulePackageMetadata
   moduleInfo: ModuleInfoSnapshot
   sourceModuleDir: string
   distModuleDir: string
 }
 
+type DiscoveredModule = {
+  moduleId: string
+  ejectable: boolean
+}
+
 const SOURCE_FILE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
 const SKIP_DIRS = new Set(['__tests__', '__mocks__', 'node_modules'])
+const MODULE_ID_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/
 const requireFromCli = createRequire(path.join(process.cwd(), 'package.json'))
 
 function shouldSkipEntryName(name: string): boolean {
@@ -52,61 +54,51 @@ function readPackageJson(packageJsonPath: string): PackageJsonRecord {
   }
 }
 
-function parseOpenMercatoMetadata(
-  packageJson: PackageJsonRecord,
-  packageName: string,
-): OpenMercatoModulePackageMetadata {
-  const rawMetadata = packageJson['open-mercato']
-  if (!rawMetadata || typeof rawMetadata !== 'object') {
-    throw new Error(`Package "${packageName}" is missing the "open-mercato" manifest block.`)
-  }
-
-  const metadata = rawMetadata as Partial<OpenMercatoModulePackageMetadata>
-
-  if (metadata.kind !== 'module-package') {
-    throw new Error(`Package "${packageName}" is not an official module package (missing open-mercato.kind === "module-package").`)
-  }
-
-  if (typeof metadata.moduleId !== 'string' || !/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(metadata.moduleId)) {
-    throw new Error(`Package "${packageName}" has an invalid open-mercato.moduleId.`)
-  }
-
-  if (typeof metadata.ejectable !== 'boolean') {
-    throw new Error(`Package "${packageName}" is missing open-mercato.ejectable.`)
-  }
-
-  return metadata as OpenMercatoModulePackageMetadata
-}
-
-function parseModuleInfo(indexPath: string): ModuleInfoSnapshot {
-  if (!fs.existsSync(indexPath)) {
-    return {}
-  }
+function parseModuleInfo(indexPath: string): { title?: string; description?: string; ejectable?: boolean } {
+  if (!fs.existsSync(indexPath)) return {}
 
   const source = fs.readFileSync(indexPath, 'utf8')
-  const result: ModuleInfoSnapshot = {}
-
-  const nameMatch = source.match(/\bname\s*:\s*['"]([^'"]+)['"]/)
-  if (nameMatch) {
-    result.name = nameMatch[1]
-  }
+  const result: { title?: string; description?: string; ejectable?: boolean } = {}
 
   const titleMatch = source.match(/\btitle\s*:\s*['"]([^'"]+)['"]/)
-  if (titleMatch) {
-    result.title = titleMatch[1]
-  }
+  if (titleMatch) result.title = titleMatch[1]
 
   const descriptionMatch = source.match(/\bdescription\s*:\s*['"]([^'"]+)['"]/)
-  if (descriptionMatch) {
-    result.description = descriptionMatch[1]
-  }
+  if (descriptionMatch) result.description = descriptionMatch[1]
 
   const ejectableMatch = source.match(/\bejectable\s*:\s*(true|false)/)
-  if (ejectableMatch) {
-    result.ejectable = ejectableMatch[1] === 'true'
-  }
+  if (ejectableMatch) result.ejectable = ejectableMatch[1] === 'true'
 
   return result
+}
+
+export function discoverModulesInPackage(packageRoot: string): DiscoveredModule[] {
+  const srcModulesDir = path.join(packageRoot, 'src', 'modules')
+  const distModulesDir = path.join(packageRoot, 'dist', 'modules')
+
+  const enumerationDir = fs.existsSync(srcModulesDir)
+    ? srcModulesDir
+    : fs.existsSync(distModulesDir)
+      ? distModulesDir
+      : null
+
+  if (!enumerationDir) return []
+
+  const modules: DiscoveredModule[] = []
+
+  for (const entry of fs.readdirSync(enumerationDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || shouldSkipEntryName(entry.name) || !MODULE_ID_PATTERN.test(entry.name)) continue
+
+    const moduleId = entry.name
+    const srcIndexPath = path.join(packageRoot, 'src', 'modules', moduleId, 'index.ts')
+    const distIndexPath = path.join(packageRoot, 'dist', 'modules', moduleId, 'index.js')
+    const indexPath = fs.existsSync(srcIndexPath) ? srcIndexPath : distIndexPath
+
+    const info = parseModuleInfo(indexPath)
+    modules.push({ moduleId, ejectable: info.ejectable ?? false })
+  }
+
+  return modules
 }
 
 function resolveRelativeImportTarget(sourceFile: string, importPath: string): string | null {
@@ -256,12 +248,20 @@ export function resolveInstalledPackageRoot(
     return fallback
   }
 
+  // In monorepo mode, getPackageRoot resolves to packages/<name> (workspace convention),
+  // but externally installed packages land in root node_modules — check there too.
+  const nodeModulesFallback = path.join(resolver.getRootDir(), 'node_modules', packageName)
+  if (fs.existsSync(path.join(nodeModulesFallback, 'package.json'))) {
+    return nodeModulesFallback
+  }
+
   throw new Error(`Package "${packageName}" is not installed in ${resolver.getAppDir()}.`)
 }
 
 export function readOfficialModulePackageFromRoot(
   packageRoot: string,
   expectedPackageName?: string,
+  targetModuleId?: string,
 ): ValidatedOfficialModulePackage {
   const packageJsonPath = path.join(packageRoot, 'package.json')
   if (!fs.existsSync(packageJsonPath)) {
@@ -278,31 +278,53 @@ export function readOfficialModulePackageFromRoot(
     throw new Error(`Resolved package "${packageName}" does not match requested package "${expectedPackageName}".`)
   }
 
-  const metadata = parseOpenMercatoMetadata(packageJson, packageName)
-  const sourceModuleDir = path.join(packageRoot, 'src', 'modules', metadata.moduleId)
-  const distModuleDir = path.join(packageRoot, 'dist', 'modules', metadata.moduleId)
+  const discoveredModules = discoverModulesInPackage(packageRoot)
+
+  if (discoveredModules.length === 0) {
+    throw new Error(`Package "${packageName}" has no modules in src/modules/ or dist/modules/.`)
+  }
+
+  let selected: DiscoveredModule
+
+  if (targetModuleId) {
+    const found = discoveredModules.find((m) => m.moduleId === targetModuleId)
+    if (!found) {
+      const available = discoveredModules.map((m) => m.moduleId).join(', ')
+      throw new Error(
+        `Package "${packageName}" does not contain module "${targetModuleId}". Available: ${available}`,
+      )
+    }
+    selected = found
+  } else {
+    if (discoveredModules.length > 1) {
+      const available = discoveredModules.map((m) => m.moduleId).join(', ')
+      throw new Error(
+        `Package "${packageName}" contains multiple modules (${available}). Specify one with --module <moduleId>.`,
+      )
+    }
+    selected = discoveredModules[0]
+  }
+
+  const { moduleId } = selected
+  const sourceModuleDir = path.join(packageRoot, 'src', 'modules', moduleId)
+  const distModuleDir = path.join(packageRoot, 'dist', 'modules', moduleId)
 
   if (!fs.existsSync(sourceModuleDir)) {
-    throw new Error(`Package "${packageName}" is missing src/modules/${metadata.moduleId}.`)
+    throw new Error(`Package "${packageName}" is missing src/modules/${moduleId}.`)
   }
 
   if (!fs.existsSync(distModuleDir)) {
-    throw new Error(`Package "${packageName}" is missing dist/modules/${metadata.moduleId}.`)
+    throw new Error(`Package "${packageName}" is missing dist/modules/${moduleId}.`)
   }
 
-  const moduleInfo = parseModuleInfo(path.join(sourceModuleDir, 'index.ts'))
-  if (moduleInfo.name && moduleInfo.name !== metadata.moduleId) {
-    throw new Error(
-      `Package "${packageName}" declares open-mercato.moduleId "${metadata.moduleId}", but module metadata.name is "${moduleInfo.name}".`,
-    )
-  }
+  const info = parseModuleInfo(path.join(sourceModuleDir, 'index.ts'))
 
   return {
     packageName,
     packageRoot,
     packageJson,
-    metadata,
-    moduleInfo,
+    metadata: { moduleId, ejectable: selected.ejectable },
+    moduleInfo: { title: info.title, description: info.description },
     sourceModuleDir,
     distModuleDir,
   }
@@ -311,9 +333,10 @@ export function readOfficialModulePackageFromRoot(
 export function resolveInstalledOfficialModulePackage(
   resolver: PackageResolver,
   packageName: string,
+  moduleId?: string,
 ): ValidatedOfficialModulePackage {
   const packageRoot = resolveInstalledPackageRoot(resolver, packageName)
-  return readOfficialModulePackageFromRoot(packageRoot, packageName)
+  return readOfficialModulePackageFromRoot(packageRoot, packageName, moduleId)
 }
 
 export function validateSourceModeBoundaries(modulePackage: ValidatedOfficialModulePackage): void {

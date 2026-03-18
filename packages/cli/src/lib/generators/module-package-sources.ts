@@ -9,30 +9,9 @@ export interface ModulePackageSourcesOptions {
   quiet?: boolean
 }
 
-type PackageJsonWithOpenMercato = {
-  name?: string
-  'open-mercato'?: {
-    kind?: string
-    moduleId?: string
-  }
-}
-
 function normalizeCssSourcePath(value: string): string {
   const normalized = value.split(path.sep).join('/')
   return normalized.startsWith('.') ? normalized : `./${normalized}`
-}
-
-function readPackageJson(packageRoot: string): PackageJsonWithOpenMercato | null {
-  const packageJsonPath = path.join(packageRoot, 'package.json')
-  if (!fs.existsSync(packageJsonPath)) {
-    return null
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as PackageJsonWithOpenMercato
-  } catch {
-    return null
-  }
 }
 
 export async function generateModulePackageSources(
@@ -52,16 +31,10 @@ export async function generateModulePackageSources(
     const packageRoot = resolveInstalledPackageRoot(resolver, entry.from)
     checksumTargets.push(packageRoot)
 
-    const rawPackageJson = readPackageJson(packageRoot)
-    if (!rawPackageJson || rawPackageJson['open-mercato']?.kind !== 'module-package') {
-      continue
-    }
-
-    const modulePackage = readOfficialModulePackageFromRoot(packageRoot, entry.from)
-    if (modulePackage.metadata.moduleId !== entry.id) {
-      result.errors.push(
-        `Official module package "${entry.from}" declares moduleId "${modulePackage.metadata.moduleId}", but src/modules.ts enables "${entry.id}".`,
-      )
+    let modulePackage
+    try {
+      modulePackage = readOfficialModulePackageFromRoot(packageRoot, entry.from, entry.id)
+    } catch {
       continue
     }
 

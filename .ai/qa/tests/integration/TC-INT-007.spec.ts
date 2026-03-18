@@ -22,24 +22,13 @@ function yarnBinary(): string {
 
 function runCommand(command: string, args: string[], cwd: string): string {
   const yarnCacheFolder = path.join(cwd, '.yarn', 'cache')
-  const homeDir = path.join(cwd, '.home')
-  const xdgCacheHome = path.join(cwd, '.cache')
-  const systemHomeDir = process.env.HOME ?? process.env.USERPROFILE ?? cwd
-  const corepackHome =
-    process.env.COREPACK_HOME ?? path.join(systemHomeDir, '.cache', 'node', 'corepack')
-  fs.mkdirSync(homeDir, { recursive: true })
-  fs.mkdirSync(xdgCacheHome, { recursive: true })
   return execFileSync(command, args, {
     cwd,
     encoding: 'utf8',
     env: {
       ...process.env,
-      COREPACK_HOME: corepackHome,
       FORCE_COLOR: '0',
-      HOME: homeDir,
       NODE_NO_WARNINGS: '1',
-      USERPROFILE: homeDir,
-      XDG_CACHE_HOME: xdgCacheHome,
       YARN_CACHE_FOLDER: yarnCacheFolder,
       YARN_ENABLE_GLOBAL_CACHE: '0',
       YARN_NODE_LINKER: 'node-modules',
@@ -80,7 +69,6 @@ function createMonorepoFixture(rootDir: string): string {
       {
         name: 'cli-module-monorepo-fixture',
         private: true,
-        packageManager: 'yarn@4.12.0',
         workspaces: ['apps/*', 'packages/*'],
       },
       null,
@@ -99,11 +87,8 @@ function createMonorepoFixture(rootDir: string): string {
     JSON.stringify(
       {
         name: '@open-mercato/app',
+        version: '0.0.0',
         private: true,
-        packageManager: 'yarn@4.12.0',
-        dependencies: {
-          '@open-mercato/core': 'workspace:*',
-        },
       },
       null,
       2,
@@ -125,7 +110,6 @@ function createStandaloneFixture(rootDir: string): string {
       {
         name: 'cli-module-standalone-fixture',
         private: true,
-        packageManager: 'yarn@4.12.0',
         dependencies: {
           '@open-mercato/core': 'file:./vendor/core',
         },

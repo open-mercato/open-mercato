@@ -256,7 +256,11 @@ const sidebars: SidebarsConfig = {
           items: ["cli/test-integration", "cli/test-ephemeral"],
         },
         "cli/scheduler",
-        "cli/eject",
+        {
+          type: "category",
+          label: "Official Modules",
+          items: ["cli/module-add", "cli/module-enable", "cli/eject"],
+        },
       ],
     },
     {

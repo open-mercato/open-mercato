@@ -150,13 +150,14 @@ export async function addOfficialModule(
   resolver: PackageResolver,
   packageSpec: string,
   mode: ModuleInstallMode,
+  moduleId?: string,
 ): Promise<ModuleCommandResult> {
   const packageName = parsePackageNameFromSpec(packageSpec)
   assertPackageName(packageName)
 
   await installPackageSpec(resolver, packageSpec)
 
-  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName)
+  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
   const appModuleDir = validateBeforeRegistration(modulePackage, resolver, mode)
 
   if (mode === 'source') {
@@ -174,13 +175,20 @@ export async function addOfficialModule(
     )
   }
 
+  const from = mode === 'source' ? '@app' : packageName
   const registration = ensureModuleRegistration(
     resolver.getModulesConfigPath(),
     {
       id: modulePackage.metadata.moduleId,
-      from: mode === 'source' ? '@app' : packageName,
+      from,
     },
   )
+
+  if (!registration.changed) {
+    throw new Error(
+      `Module "${modulePackage.metadata.moduleId}" from "${from}" is already enabled in modules.ts.`,
+    )
+  }
 
   await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
 
@@ -195,12 +203,13 @@ export async function addOfficialModule(
 export async function enableOfficialModule(
   resolver: PackageResolver,
   packageName: string,
+  moduleId?: string,
 ): Promise<ModuleCommandResult> {
   if (!packageName.startsWith('@open-mercato/')) {
     throw new Error('Only @open-mercato/* packages can be enabled with "mercato module enable".')
   }
 
-  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName)
+  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
 
   const registration = ensureModuleRegistration(
     resolver.getModulesConfigPath(),
@@ -209,6 +218,12 @@ export async function enableOfficialModule(
       from: packageName,
     },
   )
+
+  if (!registration.changed) {
+    throw new Error(
+      `Module "${modulePackage.metadata.moduleId}" from "${packageName}" is already enabled in modules.ts.`,
+    )
+  }
 
   await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
 

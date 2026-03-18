@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
 import {
+  discoverModulesInPackage,
   parsePackageNameFromSpec,
   readOfficialModulePackageFromRoot,
   resolveInstalledOfficialModulePackage,
@@ -74,6 +75,95 @@ describe('module-package', () => {
 
     expect(fs.realpathSync(modulePackage.packageRoot)).toBe(fs.realpathSync(installedPackageRoot))
     expect(modulePackage.metadata.moduleId).toBe('test_package')
+  })
+
+  it('discovers all modules in a multi-module package', () => {
+    const packageRoot = path.join(tmpDir, 'multi-module-package')
+    fs.mkdirSync(path.join(packageRoot, 'src', 'modules', 'alpha'), { recursive: true })
+    fs.mkdirSync(path.join(packageRoot, 'src', 'modules', 'beta'), { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'src', 'modules', 'alpha', 'index.ts'),
+      "export const metadata = { ejectable: true }\n",
+    )
+    fs.writeFileSync(
+      path.join(packageRoot, 'src', 'modules', 'beta', 'index.ts'),
+      "export const metadata = { ejectable: false }\n",
+    )
+
+    const modules = discoverModulesInPackage(packageRoot)
+    expect(modules).toHaveLength(2)
+    expect(modules.find((m) => m.moduleId === 'alpha')?.ejectable).toBe(true)
+    expect(modules.find((m) => m.moduleId === 'beta')?.ejectable).toBe(false)
+  })
+
+  it('selects a specific module from a multi-module package via targetModuleId', () => {
+    const packageRoot = path.join(tmpDir, 'multi-module-pkg')
+    for (const moduleId of ['customers', 'sales']) {
+      fs.mkdirSync(path.join(packageRoot, 'src', 'modules', moduleId), { recursive: true })
+      fs.mkdirSync(path.join(packageRoot, 'dist', 'modules', moduleId), { recursive: true })
+      fs.writeFileSync(
+        path.join(packageRoot, 'src', 'modules', moduleId, 'index.ts'),
+        `export const metadata = { ejectable: false }\n`,
+      )
+      fs.writeFileSync(
+        path.join(packageRoot, 'dist', 'modules', moduleId, 'index.js'),
+        `exports.metadata = {};\n`,
+      )
+    }
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/core' }),
+    )
+
+    const result = readOfficialModulePackageFromRoot(packageRoot, undefined, 'sales')
+    expect(result.metadata.moduleId).toBe('sales')
+    expect(result.sourceModuleDir).toContain(path.join('modules', 'sales'))
+  })
+
+  it('throws when targetModuleId is not found in package', () => {
+    const packageRoot = path.join(tmpDir, 'single-module-pkg')
+    fs.mkdirSync(path.join(packageRoot, 'src', 'modules', 'customers'), { recursive: true })
+    fs.mkdirSync(path.join(packageRoot, 'dist', 'modules', 'customers'), { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'src', 'modules', 'customers', 'index.ts'),
+      `export const metadata = { ejectable: false }\n`,
+    )
+    fs.writeFileSync(
+      path.join(packageRoot, 'dist', 'modules', 'customers', 'index.js'),
+      `exports.metadata = {};\n`,
+    )
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/core' }),
+    )
+
+    expect(() =>
+      readOfficialModulePackageFromRoot(packageRoot, undefined, 'nonexistent'),
+    ).toThrow('does not contain module "nonexistent"')
+  })
+
+  it('throws when a multi-module package is used without specifying a module', () => {
+    const packageRoot = path.join(tmpDir, 'ambiguous-pkg')
+    for (const moduleId of ['alpha', 'beta']) {
+      fs.mkdirSync(path.join(packageRoot, 'src', 'modules', moduleId), { recursive: true })
+      fs.mkdirSync(path.join(packageRoot, 'dist', 'modules', moduleId), { recursive: true })
+      fs.writeFileSync(
+        path.join(packageRoot, 'src', 'modules', moduleId, 'index.ts'),
+        `export const metadata = {}\n`,
+      )
+      fs.writeFileSync(
+        path.join(packageRoot, 'dist', 'modules', moduleId, 'index.js'),
+        `exports.metadata = {};\n`,
+      )
+    }
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/multi' }),
+    )
+
+    expect(() =>
+      readOfficialModulePackageFromRoot(packageRoot),
+    ).toThrow('contains multiple modules')
   })
 
   it('rejects source mode when a module imports files outside its module directory', () => {

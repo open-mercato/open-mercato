@@ -192,7 +192,6 @@ export type EjectableModule = {
 type ResolvedModuleSource = {
   pkgBase: string
   metadata: ModuleMetadata
-  usesOfficialManifest: boolean
 }
 
 function resolveModuleSource(
@@ -204,37 +203,22 @@ function resolveModuleSource(
   const from = entry.from || '@open-mercato/core'
 
   if (from === '@app' || from === '@open-mercato/core') {
-    return {
-      pkgBase,
-      metadata: fallbackMetadata,
-      usesOfficialManifest: false,
-    }
+    return { pkgBase, metadata: fallbackMetadata }
   }
 
   try {
-    const modulePackage = resolveInstalledOfficialModulePackage(resolver, from)
-    if (modulePackage.metadata.moduleId !== entry.id) {
-      throw new Error(
-        `Official module package "${from}" declares moduleId "${modulePackage.metadata.moduleId}", but src/modules.ts enables "${entry.id}".`,
-      )
-    }
-    const resolvedMetadata = parseModuleMetadata(path.join(modulePackage.sourceModuleDir, 'index.ts'))
+    const modulePackage = resolveInstalledOfficialModulePackage(resolver, from, entry.id)
 
     return {
       pkgBase: modulePackage.sourceModuleDir,
       metadata: {
         ejectable: modulePackage.metadata.ejectable,
-        title: resolvedMetadata.title ?? modulePackage.moduleInfo.title ?? modulePackage.metadata.moduleId,
-        description: resolvedMetadata.description,
+        title: modulePackage.moduleInfo.title ?? modulePackage.metadata.moduleId,
+        description: modulePackage.moduleInfo.description,
       },
-      usesOfficialManifest: true,
     }
   } catch {
-    return {
-      pkgBase,
-      metadata: fallbackMetadata,
-      usesOfficialManifest: false,
-    }
+    return { pkgBase, metadata: fallbackMetadata }
   }
 }
 
@@ -278,7 +262,7 @@ export function ejectModule(resolver: PackageResolver, moduleId: string): void {
   }
 
   const { appBase } = resolver.getModulePaths(entry)
-  const { pkgBase, metadata, usesOfficialManifest } = resolveModuleSource(resolver, entry)
+  const { pkgBase, metadata } = resolveModuleSource(resolver, entry)
 
   if (!fs.existsSync(pkgBase)) {
     throw new Error(
@@ -289,12 +273,7 @@ export function ejectModule(resolver: PackageResolver, moduleId: string): void {
 
   if (!metadata.ejectable) {
     throw new Error(
-      `Module "${moduleId}" is not marked as ejectable. ` +
-      (
-        usesOfficialManifest
-          ? 'Only packages with `open-mercato.ejectable === true` can be ejected.'
-          : 'Only modules with `ejectable: true` in their metadata can be ejected.'
-      ),
+      `Module "${moduleId}" is not marked as ejectable. Only modules with \`ejectable: true\` in their metadata can be ejected.`,
     )
   }
 
