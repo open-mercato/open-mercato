@@ -94,6 +94,28 @@ export default function CreatePaymentLinkPage() {
   const providerFieldsRef = React.useRef<InjectionFieldDefinition[]>([])
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<Partial<PaymentLinkCreateFormValues>>({})
+  const logoSetValueRef = React.useRef<((url: string) => void) | null>(null)
+
+  const handleLogoFileSelect = React.useCallback(async (file: File) => {
+    const fd = new FormData()
+    fd.set('file', file)
+    fd.set('entityId', 'payment_link_pages:branding')
+    fd.set('recordId', 'logo-upload')
+    try {
+      const call = await apiCallOrThrow<{ item?: { url?: string } }>('/api/attachments', {
+        method: 'POST',
+        body: fd,
+      })
+      const url = call.result?.item?.url
+      if (url) {
+        setInitialValues(prev => ({ ...prev, brandingLogoUrl: url }))
+        setFormResetKey(k => k + 1)
+        flash(t('payment_link_pages.create.branding.logoUploaded', 'Logo uploaded'), 'success')
+      }
+    } catch {
+      flash(t('payment_link_pages.create.branding.logoUploadError', 'Failed to upload logo'), 'error')
+    }
+  }, [t])
 
   React.useEffect(() => {
     let mounted = true
@@ -180,7 +202,8 @@ export default function CreatePaymentLinkPage() {
     loadingTemplates,
     onProviderChange: (key) => setCurrentProviderKey(key),
     onTemplateSelect: handleTemplateSelect,
-  }), [t, providers, currencies, templates, loadingProviders, loadingCurrencies, loadingTemplates, handleTemplateSelect])
+    onLogoFileSelect: handleLogoFileSelect,
+  }), [t, providers, currencies, templates, loadingProviders, loadingCurrencies, loadingTemplates, handleTemplateSelect, handleLogoFileSelect])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const baseGroups = buildPaymentLinkFormGroups(t)

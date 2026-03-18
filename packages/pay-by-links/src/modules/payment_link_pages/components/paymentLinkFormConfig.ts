@@ -32,6 +32,7 @@ export type BuildPaymentLinkFormFieldsOptions = {
   loadingTemplates: boolean
   onProviderChange: (key: string) => void
   onTemplateSelect: (templateId: string | null) => void
+  onLogoFileSelect: (file: File) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +57,7 @@ export const paymentLinkCreateSchema = z
     password: z.string().min(4).max(128).optional().nullable().or(z.literal('')),
     customLinkPath: z.string().min(3).max(80).optional().nullable().or(z.literal('')),
 
-    // Branding fields (from template)
+    // Branding fields
     brandingLogoUrl: z.string().url().max(2000).optional().nullable().or(z.literal('')),
     brandingBrandName: z.string().max(200).optional().nullable(),
     brandingSecuritySubtitle: z.string().max(200).optional().nullable(),
@@ -72,7 +73,7 @@ export const paymentLinkCreateSchema = z
     defaultTitle: z.string().max(160).optional().nullable(),
     defaultDescription: z.string().max(500).optional().nullable(),
 
-    // Customer capture fields (from template)
+    // Customer capture fields
     customerCaptureEnabled: z.boolean().optional().default(false),
     customerCaptureHandlingMode: z
       .enum(['no_customer', 'create_new', 'verify_and_merge'])
@@ -87,6 +88,9 @@ export const paymentLinkCreateSchema = z
     capturePhoneRequired: z.boolean().optional().default(false),
     captureCompanyVisible: z.boolean().optional().default(false),
     captureCompanyRequired: z.boolean().optional().default(false),
+    captureAddressVisible: z.boolean().optional().default(false),
+    captureAddressRequired: z.boolean().optional().default(false),
+    captureAddressFormat: z.enum(['line_first', 'street_first']).optional().default('line_first'),
     customerCaptureTermsRequired: z.boolean().optional().default(false),
     customerCaptureTermsMarkdown: z.string().max(20000).optional().nullable(),
 
@@ -190,6 +194,90 @@ function renderAccentColorField(props: CrudCustomFieldRenderProps): React.ReactN
   )
 }
 
+function renderLogoField(
+  props: CrudCustomFieldRenderProps,
+  extra: { onFileSelect: (file: File) => void; uploadLabel: string },
+): React.ReactNode {
+  const urlValue = typeof props.value === 'string' ? props.value : ''
+  const fileInputRef = { current: null as HTMLInputElement | null }
+
+  const urlInput = React.createElement('input', {
+    type: 'text',
+    value: urlValue,
+    placeholder: 'https://example.com/logo.png',
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+      props.setValue(event.target.value)
+    },
+    autoFocus: props.autoFocus,
+    disabled: props.disabled,
+    className: 'flex h-9 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm',
+  })
+
+  const hiddenInput = React.createElement('input', {
+    type: 'file',
+    accept: 'image/*',
+    className: 'hidden',
+    ref: (el: HTMLInputElement | null) => { fileInputRef.current = el },
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (file) extra.onFileSelect(file)
+    },
+  })
+
+  const uploadButton = React.createElement(
+    'button',
+    {
+      type: 'button',
+      disabled: props.disabled,
+      className: 'inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground',
+      onClick: () => fileInputRef.current?.click(),
+    },
+    extra.uploadLabel,
+  )
+
+  const preview = urlValue
+    ? React.createElement('img', {
+        src: urlValue,
+        alt: 'Logo preview',
+        className: 'mt-2 h-10 max-w-[160px] rounded border object-contain',
+        onError: (event: React.SyntheticEvent<HTMLImageElement>) => {
+          (event.target as HTMLImageElement).style.display = 'none'
+        },
+      })
+    : null
+
+  return React.createElement(
+    'div',
+    null,
+    React.createElement('div', { className: 'flex items-center gap-2' }, urlInput, uploadButton, hiddenInput),
+    preview,
+  )
+}
+
+function renderMetadataField(props: CrudCustomFieldRenderProps): React.ReactNode {
+  const JsonBuilder = React.lazy(() =>
+    import('@open-mercato/ui/backend/JsonBuilder').then((mod) => ({ default: mod.JsonBuilder })),
+  )
+
+  const rawValue = typeof props.value === 'string' ? props.value : ''
+  let parsed: Record<string, unknown> = {}
+  try {
+    if (rawValue.trim()) parsed = JSON.parse(rawValue)
+  } catch { /* keep empty */ }
+
+  return React.createElement(
+    React.Suspense,
+    { fallback: React.createElement('div', { className: 'text-sm text-muted-foreground' }, 'Loading...') },
+    React.createElement(JsonBuilder, {
+      value: parsed,
+      onChange: (next: Record<string, unknown>) => {
+        props.setValue(JSON.stringify(next, null, 2))
+      },
+      disabled: props.disabled,
+    }),
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Field builder
 // ---------------------------------------------------------------------------
@@ -273,6 +361,7 @@ export function buildPaymentLinkFormFields(
       layout: 'half',
       placeholder: t('payment_link_pages.create.description.placeholder', 'Payment description'),
     },
+
     // Link settings
     {
       id: 'linkMode',
@@ -294,38 +383,47 @@ export function buildPaymentLinkFormFields(
       id: 'password',
       label: t('payment_link_pages.create.password', 'Password (optional)'),
       type: 'text',
+      layout: 'half',
       placeholder: t('payment_link_pages.create.password.placeholder', 'Leave empty for no password'),
     },
     {
       id: 'customLinkPath',
       label: t('payment_link_pages.create.customLinkPath', 'Custom link path'),
       type: 'text',
+      layout: 'half',
       placeholder: 'invoice-inv-10024',
     },
 
     // Branding
     {
       id: 'brandingLogoUrl',
-      label: t('payment_link_pages.create.branding.logoUrl', 'Logo URL'),
-      type: 'text',
-      placeholder: t('payment_link_pages.create.branding.logoUrl.placeholder', 'https://example.com/logo.png'),
+      label: t('payment_link_pages.create.branding.logoUrl', 'Logo'),
+      type: 'custom' as const,
+      component: (props: CrudCustomFieldRenderProps) =>
+        renderLogoField(props, {
+          onFileSelect: options.onLogoFileSelect,
+          uploadLabel: t('payment_link_pages.create.branding.logoUpload', 'Upload'),
+        }),
     },
     {
       id: 'brandingBrandName',
       label: t('payment_link_pages.create.branding.brandName', 'Brand name'),
       type: 'text',
+      layout: 'half',
       placeholder: t('payment_link_pages.create.branding.brandName.placeholder', 'Your Company'),
     },
     {
       id: 'brandingSecuritySubtitle',
       label: t('payment_link_pages.create.branding.securitySubtitle', 'Security subtitle'),
       type: 'text',
+      layout: 'half',
       placeholder: t('payment_link_pages.create.branding.securitySubtitle.placeholder', 'Secured by ...'),
     },
     {
       id: 'brandingAccentColor',
       label: t('payment_link_pages.create.branding.accentColor', 'Accent color'),
       type: 'custom' as const,
+      layout: 'half',
       component: renderAccentColorField,
     },
     {
@@ -340,12 +438,14 @@ export function buildPaymentLinkFormFields(
       id: 'defaultTitle',
       label: t('payment_link_pages.create.defaultTitle', 'Page title'),
       type: 'text',
+      layout: 'half',
       placeholder: t('payment_link_pages.create.defaultTitle.placeholder', 'Payment for ...'),
     },
     {
       id: 'defaultDescription',
       label: t('payment_link_pages.create.defaultDescription', 'Page description'),
       type: 'textarea',
+      layout: 'half',
       placeholder: t('payment_link_pages.create.defaultDescription.placeholder', 'Description shown on the payment page'),
     },
 
@@ -371,50 +471,79 @@ export function buildPaymentLinkFormFields(
       label: t('payment_link_pages.create.customerCapture.companyRequired', 'Company required'),
       type: 'checkbox',
     },
+    // Field visibility/required pairs — use layout: 'half' for 2-column
     {
       id: 'captureFirstNameVisible',
       label: t('payment_link_pages.create.capture.firstName.visible', 'First name visible'),
       type: 'checkbox',
-      description: t('payment_link_pages.create.capture.firstName.hint', 'Show first name field'),
+      layout: 'half',
     },
     {
       id: 'captureFirstNameRequired',
       label: t('payment_link_pages.create.capture.firstName.required', 'First name required'),
       type: 'checkbox',
+      layout: 'half',
     },
     {
       id: 'captureLastNameVisible',
       label: t('payment_link_pages.create.capture.lastName.visible', 'Last name visible'),
       type: 'checkbox',
-      description: t('payment_link_pages.create.capture.lastName.hint', 'Show last name field'),
+      layout: 'half',
     },
     {
       id: 'captureLastNameRequired',
       label: t('payment_link_pages.create.capture.lastName.required', 'Last name required'),
       type: 'checkbox',
+      layout: 'half',
     },
     {
       id: 'capturePhoneVisible',
       label: t('payment_link_pages.create.capture.phone.visible', 'Phone visible'),
       type: 'checkbox',
-      description: t('payment_link_pages.create.capture.phone.hint', 'Show phone field'),
+      layout: 'half',
     },
     {
       id: 'capturePhoneRequired',
       label: t('payment_link_pages.create.capture.phone.required', 'Phone required'),
       type: 'checkbox',
+      layout: 'half',
     },
     {
       id: 'captureCompanyVisible',
       label: t('payment_link_pages.create.capture.company.visible', 'Company visible'),
       type: 'checkbox',
-      description: t('payment_link_pages.create.capture.company.hint', 'Show company field'),
+      layout: 'half',
     },
     {
       id: 'captureCompanyRequired',
       label: t('payment_link_pages.create.capture.company.required', 'Company required'),
       type: 'checkbox',
+      layout: 'half',
     },
+    // Address capture
+    {
+      id: 'captureAddressVisible',
+      label: t('payment_link_pages.create.capture.address.visible', 'Address visible'),
+      type: 'checkbox',
+      layout: 'half',
+    },
+    {
+      id: 'captureAddressRequired',
+      label: t('payment_link_pages.create.capture.address.required', 'Address required'),
+      type: 'checkbox',
+      layout: 'half',
+    },
+    {
+      id: 'captureAddressFormat',
+      label: t('payment_link_pages.create.capture.address.format', 'Address format'),
+      type: 'select',
+      options: [
+        { label: t('payment_link_pages.create.capture.address.format.lineFirst', 'Line first (US/UK)'), value: 'line_first' },
+        { label: t('payment_link_pages.create.capture.address.format.streetFirst', 'Street first (EU)'), value: 'street_first' },
+      ],
+      description: t('payment_link_pages.create.capture.address.format.description', 'Controls the address field layout on the payment page'),
+    },
+    // Terms
     {
       id: 'customerCaptureTermsRequired',
       label: t('payment_link_pages.create.customerCapture.termsRequired', 'Require terms acceptance'),
@@ -428,13 +557,13 @@ export function buildPaymentLinkFormFields(
       placeholder: t('payment_link_pages.create.customerCapture.termsMarkdown.placeholder', 'Enter terms and conditions content...'),
     },
 
-    // Metadata
+    // Metadata — uses JsonBuilder
     {
       id: 'metadataJson',
       label: t('payment_link_pages.create.metadata', 'Metadata'),
-      type: 'textarea',
+      type: 'custom' as const,
       description: t('payment_link_pages.create.metadata.description', 'Arbitrary key-value data attached to the payment link'),
-      placeholder: '{ "key": "value" }',
+      component: renderMetadataField,
     },
 
     // Save as template
@@ -506,6 +635,9 @@ export function buildPaymentLinkFormGroups(
         'capturePhoneRequired',
         'captureCompanyVisible',
         'captureCompanyRequired',
+        'captureAddressVisible',
+        'captureAddressRequired',
+        'captureAddressFormat',
         'customerCaptureTermsRequired',
         'customerCaptureTermsMarkdown',
       ],
@@ -575,6 +707,11 @@ export function paymentLinkFormToSessionPayload(values: PaymentLinkCreateFormVal
           companyName: {
             visible: values.captureCompanyVisible ?? false,
             required: values.captureCompanyRequired ?? false,
+          },
+          address: {
+            visible: values.captureAddressVisible ?? false,
+            required: values.captureAddressRequired ?? false,
+            format: values.captureAddressFormat ?? 'line_first',
           },
         },
       },
