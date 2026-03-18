@@ -4,6 +4,7 @@ import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core
 import crypto from 'node:crypto'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isAuthContextValid } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
@@ -88,6 +89,13 @@ export class AuthService {
     if (!sess || sess.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: sess.user.id })
     if (!user) return null
+
+    const contextValid = await isAuthContextValid(this.em, {
+      sub: String(user.id),
+      tenantId: user.tenantId ?? null,
+    })
+    if (!contextValid) return null
+
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
     return { user, roles }
   }

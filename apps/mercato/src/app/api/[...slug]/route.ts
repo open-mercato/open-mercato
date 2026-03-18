@@ -14,6 +14,7 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isAuthContextValid } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
@@ -104,6 +105,20 @@ async function checkAuthorization(
   const { t } = await resolveTranslations()
   if (methodMetadata?.requireAuth && !auth) {
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+  }
+
+  if (auth && methodMetadata?.requireAuth) {
+    try {
+      const integrityContainer = await createRequestContainer()
+      const em = integrityContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+      const valid = await isAuthContextValid(em, { sub: auth.sub, tenantId: auth.tenantId })
+      if (!valid) {
+        return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+      }
+    } catch {
+      // If integrity check fails due to DB issues, allow the request through
+      // to avoid blocking all requests during transient errors
+    }
   }
 
   const requiredRoles = methodMetadata?.requireRoles ?? []

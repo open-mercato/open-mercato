@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { InjectedField } from '@open-mercato/ui/backend/injection/InjectedField'
 import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -95,6 +96,8 @@ export default function CreatePaymentLinkPage() {
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<Partial<PaymentLinkCreateFormValues>>({})
   const logoSetValueRef = React.useRef<((url: string) => void) | null>(null)
+  const openPreviewAfterCreateRef = React.useRef(false)
+  const paymentLinkFormId = 'create-payment-link-form'
 
   const handleLogoFileSelect = React.useCallback(async (file: File) => {
     const fd = new FormData()
@@ -230,12 +233,29 @@ export default function CreatePaymentLinkPage() {
       column: 2,
       bare: true,
       component: ({ values }) => (
-        <BrandingPreview
-          logoUrl={typeof values.brandingLogoUrl === 'string' ? values.brandingLogoUrl : null}
-          brandName={typeof values.brandingBrandName === 'string' ? values.brandingBrandName : null}
-          securitySubtitle={typeof values.brandingSecuritySubtitle === 'string' ? values.brandingSecuritySubtitle : null}
-          accentColor={typeof values.brandingAccentColor === 'string' ? values.brandingAccentColor : null}
-        />
+        <div className="space-y-4">
+          <BrandingPreview
+            logoUrl={typeof values.brandingLogoUrl === 'string' ? values.brandingLogoUrl : null}
+            brandName={typeof values.brandingBrandName === 'string' ? values.brandingBrandName : null}
+            securitySubtitle={typeof values.brandingSecuritySubtitle === 'string' ? values.brandingSecuritySubtitle : null}
+            accentColor={typeof values.brandingAccentColor === 'string' ? values.brandingAccentColor : null}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              openPreviewAfterCreateRef.current = true
+              const form = document.getElementById(paymentLinkFormId) as HTMLFormElement | null
+              form?.requestSubmit()
+            }}
+          >
+            {t('payment_link_pages.create.createAndPreview', 'Create & Open Preview')}
+          </Button>
+          <p className="text-xs text-muted-foreground text-center">
+            {t('payment_link_pages.create.previewNote', 'Creates the payment link and opens it in a new tab.')}
+          </p>
+        </div>
       ),
     }
 
@@ -252,6 +272,16 @@ export default function CreatePaymentLinkPage() {
       if (field.id in formValues) acc[field.id] = formValues[field.id]
       return acc
     }, {})
+
+    const missingRequired = providerFieldsRef.current
+      .filter((field) => field.required && !formValues[field.id])
+      .map((field) => field.label)
+    if (missingRequired.length > 0) {
+      throw createCrudFormError(
+        t('payment_link_pages.create.providerFieldsRequired', 'Please fill in required provider fields: {{fields}}')
+          .replace('{{fields}}', missingRequired.join(', ')),
+      )
+    }
 
     const sessionPayload = {
       ...paymentLinkFormToSessionPayload(values),
@@ -286,6 +316,11 @@ export default function CreatePaymentLinkPage() {
       }
     }
 
+    if (openPreviewAfterCreateRef.current && call.result.paymentLinkUrl) {
+      window.open(call.result.paymentLinkUrl, '_blank')
+      openPreviewAfterCreateRef.current = false
+    }
+
     flash(t('payment_link_pages.create.success', 'Payment link created successfully'), 'success')
     router.push('/backend/payment-links')
   }, [router, t])
@@ -295,6 +330,7 @@ export default function CreatePaymentLinkPage() {
       <PageBody>
         <CrudForm<PaymentLinkCreateFormValues>
           key={formResetKey}
+          formId={paymentLinkFormId}
           title={t('payment_link_pages.create.title', 'Create Payment Link')}
           backHref="/backend/payment-links"
           cancelHref="/backend/payment-links"

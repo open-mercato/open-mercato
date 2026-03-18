@@ -162,9 +162,9 @@ export default function PaymentLinksListPage() {
           data={data}
           isLoading={loading}
           title={
-            <div>
-              <h1 className="text-2xl font-semibold">{t('payment_gateways.links.title', 'Payment Links')}</h1>
-              <p className="text-sm text-muted-foreground">{t('payment_gateways.links.description', 'All payment links across providers')}</p>
+            <div className="flex flex-col">
+              <span>{t('payment_gateways.links.title', 'Payment Links')}</span>
+              <span className="text-sm font-normal text-muted-foreground">{t('payment_gateways.links.description', 'All payment links across providers')}</span>
             </div>
           }
           actions={

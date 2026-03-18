@@ -11,6 +11,7 @@ const widget: InjectionFieldWidget = {
       label: 'Capture method',
       type: 'select',
       group: 'provider',
+      required: true,
       options: [
         { value: 'automatic', label: 'Automatic - charge immediately' },
         { value: 'manual', label: 'Manual - authorize first, capture later' },
@@ -21,6 +22,7 @@ const widget: InjectionFieldWidget = {
       label: 'Pay Link Checkout Profile',
       type: 'select',
       group: 'provider',
+      required: true,
       options: [
         { value: 'card', label: 'Card only' },
         { value: 'card_customer', label: 'Card with email and billing details' },

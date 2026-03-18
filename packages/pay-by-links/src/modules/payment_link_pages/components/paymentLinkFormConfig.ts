@@ -58,7 +58,7 @@ export const paymentLinkCreateSchema = z
     customLinkPath: z.string().min(3).max(80).optional().nullable().or(z.literal('')),
 
     // Branding fields
-    brandingLogoUrl: z.string().url().max(2000).optional().nullable().or(z.literal('')),
+    brandingLogoUrl: z.string().max(2000).optional().nullable().or(z.literal('')),
     brandingBrandName: z.string().max(200).optional().nullable(),
     brandingSecuritySubtitle: z.string().max(200).optional().nullable(),
     brandingAccentColor: z
@@ -102,6 +102,20 @@ export const paymentLinkCreateSchema = z
     templateName: z.string().max(200).optional().nullable(),
   })
   .superRefine((data, ctx) => {
+    if (!data.templateId && !data.defaultTitle?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Enter a title for the payment link',
+        path: ['defaultTitle'],
+      })
+    }
+    if (data.linkMode === 'single' && data.maxUses != null && data.maxUses > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Single-use links cannot have more than 1 use',
+        path: ['maxUses'],
+      })
+    }
     if (data.saveAsTemplate && !data.templateName?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -375,9 +389,24 @@ export function buildPaymentLinkFormFields(
     {
       id: 'maxUses',
       label: t('payment_link_pages.create.maxUses', 'Maximum uses'),
-      type: 'number',
-      placeholder: t('payment_link_pages.create.maxUses.placeholder', 'Unlimited'),
+      type: 'custom' as const,
       description: t('payment_link_pages.create.maxUses.description', 'Only applies to multi-use links. Leave empty for unlimited.'),
+      component: (props: CrudCustomFieldRenderProps) => {
+        const isSingle = props.values?.linkMode === 'single'
+        if (isSingle && props.value !== 1) props.setValue(1)
+        return React.createElement('input', {
+          type: 'number',
+          className: 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50',
+          value: isSingle ? 1 : (props.value ?? ''),
+          placeholder: t('payment_link_pages.create.maxUses.placeholder', 'Unlimited'),
+          disabled: props.disabled || isSingle,
+          min: 1,
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const raw = event.target.value
+            props.setValue(raw === '' ? null : Number(raw))
+          },
+        })
+      },
     },
     {
       id: 'password',
@@ -459,12 +488,22 @@ export function buildPaymentLinkFormFields(
     {
       id: 'customerCaptureHandlingMode',
       label: t('payment_link_pages.create.customerCapture.handlingMode', 'Customer handling mode'),
-      type: 'select',
-      options: [
-        { label: t('payment_link_pages.create.customerCapture.handlingMode.noCustomer', 'Do not create customer (data only)'), value: 'no_customer' },
-        { label: t('payment_link_pages.create.customerCapture.handlingMode.createNew', 'Always create new customer'), value: 'create_new' },
-        { label: t('payment_link_pages.create.customerCapture.handlingMode.verifyAndMerge', 'Merge with existing (email verification)'), value: 'verify_and_merge' },
-      ],
+      type: 'custom' as const,
+      component: (props: CrudCustomFieldRenderProps) => {
+        const captureEnabled = props.values?.customerCaptureEnabled === true
+        return renderSelectField(
+          props,
+          [
+            { value: 'no_customer', label: t('payment_link_pages.create.customerCapture.handlingMode.noCustomer', 'Do not create customer (data only)') },
+            { value: 'create_new', label: t('payment_link_pages.create.customerCapture.handlingMode.createNew', 'Always create new customer') },
+            { value: 'verify_and_merge', label: t('payment_link_pages.create.customerCapture.handlingMode.verifyAndMerge', 'Merge with existing (email verification)') },
+          ],
+          {
+            placeholder: '\u2014',
+            disabled: !captureEnabled,
+          },
+        )
+      },
     },
     {
       id: 'customerCaptureCompanyRequired',

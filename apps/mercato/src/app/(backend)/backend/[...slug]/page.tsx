@@ -10,6 +10,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { isAuthContextValid } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
@@ -55,6 +56,16 @@ export default async function BackendCatchAll(props: BackendParams) {
   if (match.route.requireAuth) {
     const auth = await getAuthFromCookies()
     if (!auth) redirect('/api/auth/session/refresh?redirect=' + encodeURIComponent(pathname))
+
+    try {
+      const integrityContainer = await createRequestContainer()
+      const em = integrityContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+      const valid = await isAuthContextValid(em, { sub: auth.sub, tenantId: auth.tenantId })
+      if (!valid) redirect('/login?redirect=' + encodeURIComponent(pathname))
+    } catch {
+      // Allow through on transient DB errors to avoid blocking all page loads
+    }
+
     const required = match.route.requireRoles || []
     if (required.length) {
       const roles = auth.roles || []

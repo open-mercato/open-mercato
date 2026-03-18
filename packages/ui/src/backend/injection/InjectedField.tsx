@@ -111,7 +111,8 @@ export function InjectedField({ field, value, onChange, context, formData, readO
 
   if (!evaluateInjectedVisibility(field.visibleWhen, formData, context)) return null
 
-  const label = t(field.label, field.label)
+  const rawLabel = t(field.label, field.label)
+  const label = field.required ? `${rawLabel} *` : rawLabel
   const disabled = readOnly || field.readOnly
   const options = dynamicOptions ?? field.options ?? []
 

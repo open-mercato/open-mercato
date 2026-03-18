@@ -310,6 +310,7 @@ export type InjectionFieldDefinition = {
   customComponent?: LazyExoticComponent<ComponentType<CustomFieldProps>>
   group: string
   placement?: InjectionPlacement
+  required?: boolean
   readOnly?: boolean
   visibleWhen?: FieldVisibilityCondition
 }
