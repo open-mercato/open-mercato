@@ -20,7 +20,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
 }))
 
-jest.mock('../../lib/public-payment-links', () => ({
+jest.mock('@open-mercato/pay-by-links/modules/payment_link_pages/lib/public-payment-links', () => ({
   loadPublicPaymentLinkState: jest.fn((...args: unknown[]) => mockLoadPublicPaymentLinkState(...args)),
 }))
 

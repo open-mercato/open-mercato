@@ -31,7 +31,9 @@ export async function GET(req: Request) {
   if (!locale || !supportedLocales.has(locale as Locale)) {
     return NextResponse.json({ error: t('api.errors.invalidLocale', 'Invalid locale') }, { status: 400 })
   }
-  const res = NextResponse.redirect(url.searchParams.get('redirect') || '/')
+  const redirectPath = url.searchParams.get('redirect') || '/'
+  const redirectUrl = new URL(redirectPath, url.origin)
+  const res = NextResponse.redirect(redirectUrl)
   res.cookies.set('locale', locale as Locale, { path: '/', maxAge: 60 * 60 * 24 * 365 })
   return res
 }
