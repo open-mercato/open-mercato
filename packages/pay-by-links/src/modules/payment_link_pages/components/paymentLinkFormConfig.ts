@@ -146,6 +146,17 @@ export const paymentLinkCreateSchema = z
         path: ['customerCaptureTermsMarkdown'],
       })
     }
+    if (effectiveAmountType === 'customer_input') {
+      const min = typeof data.minAmount === 'number' ? data.minAmount : null
+      const max = typeof data.maxAmount === 'number' ? data.maxAmount : null
+      if (min != null && max != null && min > max) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Minimum amount cannot be greater than maximum amount',
+          path: ['minAmount'],
+        })
+      }
+    }
   })
 
 export type PaymentLinkCreateFormValues = z.infer<typeof paymentLinkCreateSchema>
@@ -257,6 +268,52 @@ export function buildPaymentLinkFormFields(
       type: 'text',
       layout: 'half',
       placeholder: t('payment_link_pages.create.description.placeholder', 'Payment description'),
+    },
+    {
+      id: 'minAmount',
+      label: t('payment_link_pages.minAmount', 'Minimum amount'),
+      type: 'custom' as const,
+      layout: 'half',
+      description: t('payment_link_pages.minAmount.description', 'Minimum amount the customer can enter (leave empty for no minimum)'),
+      component: (props: CrudCustomFieldRenderProps) => {
+        const isCustomerInput = props.values?.amountType === 'customer_input'
+        return React.createElement('input', {
+          type: 'number',
+          className: 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50',
+          value: typeof props.value === 'number' ? props.value : '',
+          placeholder: '0.00',
+          disabled: props.disabled || !isCustomerInput,
+          min: 0,
+          step: 'any',
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const raw = event.target.value
+            props.setValue(raw === '' ? null : Number(raw))
+          },
+        })
+      },
+    },
+    {
+      id: 'maxAmount',
+      label: t('payment_link_pages.maxAmount', 'Maximum amount'),
+      type: 'custom' as const,
+      layout: 'half',
+      description: t('payment_link_pages.maxAmount.description', 'Maximum amount the customer can enter (leave empty for no maximum)'),
+      component: (props: CrudCustomFieldRenderProps) => {
+        const isCustomerInput = props.values?.amountType === 'customer_input'
+        return React.createElement('input', {
+          type: 'number',
+          className: 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50',
+          value: typeof props.value === 'number' ? props.value : '',
+          placeholder: '0.00',
+          disabled: props.disabled || !isCustomerInput,
+          min: 0,
+          step: 'any',
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const raw = event.target.value
+            props.setValue(raw === '' ? null : Number(raw))
+          },
+        })
+      },
     },
     {
       id: 'amountOptions',
