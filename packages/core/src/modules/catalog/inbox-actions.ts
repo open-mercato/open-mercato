@@ -1,4 +1,5 @@
 import type { InboxActionDefinition, InboxActionExecutionContext } from '@open-mercato/shared/modules/inbox-actions'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createProductPayloadSchema } from '../inbox_ops/data/validators'
 import type { CreateProductPayload } from '../inbox_ops/data/validators'
 import {
@@ -7,6 +8,7 @@ import {
   executeCommand,
   resolveProductDiscrepanciesInProposal,
 } from '../inbox_ops/lib/executionHelpers'
+import { CatalogPriceKind } from './data/entities'
 
 async function executeCreateProductAction(
   action: { id: string; proposalId: string; payload: unknown },
@@ -35,6 +37,59 @@ async function executeCreateProductAction(
 
   if (!result.productId) {
     throw new ExecutionError('Product creation did not return a product ID', 500)
+  }
+
+  // Create default variant so the product works with quotes/orders (issue #891)
+  // No separate permission check — the user already passed catalog.products.manage
+  // in the execution engine, and variant/price creation is an integral part of
+  // product setup, not a separate user action.
+  let variantId: string | null = null
+  try {
+    const variantResult = await executeCommand<Record<string, unknown>, { variantId?: string }>(
+      hCtx,
+      'catalog.variants.create',
+      {
+        productId: result.productId,
+        organizationId: hCtx.organizationId,
+        tenantId: hCtx.tenantId,
+        name: 'Default',
+        isDefault: true,
+        isActive: true,
+        sku: payload.sku || undefined,
+      },
+    )
+    variantId = variantResult.variantId ?? null
+  } catch (variantErr) {
+    console.warn('[catalog:inbox-action] Failed to create default variant (non-fatal):', variantErr instanceof Error ? variantErr.message : variantErr)
+  }
+
+  if (variantId && payload.unitPrice && payload.currencyCode) {
+    try {
+      const priceKind = await findOneWithDecryption(
+        hCtx.em,
+        CatalogPriceKind,
+        {
+          code: 'regular',
+          tenantId: hCtx.tenantId,
+          deletedAt: null,
+        },
+        undefined,
+        { tenantId: hCtx.tenantId, organizationId: hCtx.organizationId },
+      )
+      if (priceKind) {
+        await executeCommand(hCtx, 'catalog.prices.create', {
+          variantId,
+          productId: result.productId,
+          organizationId: hCtx.organizationId,
+          tenantId: hCtx.tenantId,
+          priceKindId: priceKind.id,
+          currencyCode: payload.currencyCode,
+          unitPriceNet: Number(payload.unitPrice),
+        })
+      }
+    } catch (priceErr) {
+      console.warn('[catalog:inbox-action] Failed to set price on default variant (non-fatal):', priceErr)
+    }
   }
 
   await resolveProductDiscrepanciesInProposal(hCtx.em, action.proposalId, payload.title, result.productId, {

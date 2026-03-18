@@ -83,7 +83,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   const response = {
-    id: log.id,
+    id: String(log.id),
     rule: {
       id: log.rule.id,
       ruleId: log.rule.ruleId,

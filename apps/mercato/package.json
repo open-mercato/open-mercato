@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -59,7 +59,7 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
-    "newrelic": "^13.7.0",
+    "newrelic": "^13.16.0",
     "next": "16.1.5",
     "pdf2pic": "^3.2.0",
     "pg": "8.20.0",

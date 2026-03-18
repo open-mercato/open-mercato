@@ -11,16 +11,22 @@ export default function ResetPage() {
   const [sent, setSent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState<string | null>(null)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
+    setFieldError(null)
     setSubmitting(true)
     try {
       const form = new FormData(e.currentTarget)
       const res = await fetch('/api/auth/reset', { method: 'POST', body: form })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
+        if (data?.fieldErrors?.email?.length) {
+          setFieldError(t('auth.reset.errors.emailInvalid', 'Please enter a valid email address.'))
+          return
+        }
         setError(data?.error || t('auth.reset.error', 'Something went wrong'))
         return
       }
@@ -47,7 +53,8 @@ export default function ResetPage() {
               {error && <div className="text-sm text-red-600">{error}</div>}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input id="email" name="email" type="email" required />
+                <Input id="email" name="email" type="email" required aria-invalid={!!fieldError} aria-describedby={fieldError ? 'email-error' : undefined} />
+                {fieldError && <p id="email-error" className="text-sm text-red-600">{fieldError}</p>}
               </div>
               <Button type="submit" className="mt-2 w-full" disabled={submitting}>
                 {submitting ? '...' : t('auth.sendResetLink')}

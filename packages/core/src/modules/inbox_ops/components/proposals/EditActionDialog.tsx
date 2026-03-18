@@ -19,6 +19,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import type { ActionDetail } from './types'
+import { useActionDescriptionResolver } from './ActionCard'
 
 function ShipmentPayloadEditor({
   payload,
@@ -468,6 +469,7 @@ export function EditActionDialog({
     setPayload((prev) => ({ ...prev, [key]: value }))
   }
 
+  const resolveActionDescription = useActionDescriptionResolver()
   const label = actionTypeLabels[action.actionType] || action.actionType
   const hasTypedEditor = [
     'create_order', 'create_quote', 'update_order', 'update_shipment', 'create_contact', 'link_contact', 'log_activity', 'draft_reply',
@@ -478,7 +480,7 @@ export function EditActionDialog({
       <DialogContent className="sm:max-w-2xl sm:max-h-[85vh]">
         <DialogHeader>
           <DialogTitle>{t('inbox_ops.edit_dialog.title', 'Edit Action')}: {label}</DialogTitle>
-          <DialogDescription>{action.description}</DialogDescription>
+          <DialogDescription>{resolveActionDescription(action.description, action.payload)}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 overflow-y-auto max-h-[60vh] py-2">

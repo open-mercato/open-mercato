@@ -2,7 +2,11 @@
 
 Enterprise-only package for commercial Open Mercato modules and overlays.
 
-This package is where Enterprise Edition implementations such as advanced MFA/2FA security features are delivered.
+This package is where Enterprise Edition implementations are delivered, currently including:
+
+- **MFA / 2FA** — multi-factor authentication with TOTP and backup codes
+- **SSO & Directory Sync** — SAML/OIDC single sign-on with SCIM directory provisioning
+- **Record Locking** — pessimistic locking to prevent concurrent editing conflicts
 
 ## Open Mercato Partnership Program
 

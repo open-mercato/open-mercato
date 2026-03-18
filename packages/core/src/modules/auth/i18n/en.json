@@ -87,6 +87,7 @@
   "auth.profile.title": "Profile",
   "auth.reset.description": "Enter your email to receive reset link",
   "auth.reset.error": "Something went wrong",
+  "auth.reset.errors.emailInvalid": "Please enter a valid email address.",
   "auth.reset.errors.failed": "Unable to reset password",
   "auth.reset.form.loading": "...",
   "auth.reset.form.password": "New password",

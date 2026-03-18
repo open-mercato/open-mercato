@@ -345,21 +345,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@apm-js-collab/code-transformer@npm:^0.8.0":
-  version: 0.8.2
-  resolution: "@apm-js-collab/code-transformer@npm:0.8.2"
-  checksum: 10/ff4b8fea9a27ef4e82a0a022bececfa9966e5e2a4ae1e6ca0b31f4a2bbc6d79f5bd1257f281ed8a90900d693e1a88a79c42982eabe7ca999b267d5d69c57393f
+"@apm-js-collab/code-transformer@npm:^0.10.0":
+  version: 0.10.0
+  resolution: "@apm-js-collab/code-transformer@npm:0.10.0"
+  checksum: 10/c66713e95fef8fccb0e1026392913151edafa05487d757329cdea22107fb8f403c6e4f60f5978e3661926cd0626919de23753ec966a6dff4b0bfe070638c0280
   languageName: node
   linkType: hard
 
-"@apm-js-collab/tracing-hooks@npm:^0.3.1":
-  version: 0.3.1
-  resolution: "@apm-js-collab/tracing-hooks@npm:0.3.1"
+"@apm-js-collab/tracing-hooks@npm:^0.5.0":
+  version: 0.5.0
+  resolution: "@apm-js-collab/tracing-hooks@npm:0.5.0"
   dependencies:
-    "@apm-js-collab/code-transformer": "npm:^0.8.0"
+    "@apm-js-collab/code-transformer": "npm:^0.10.0"
     debug: "npm:^4.4.1"
     module-details-from-path: "npm:^1.0.4"
-  checksum: 10/0af2220168d4fc2700ec577632eac066f756c3aaa34ef2e833ea4725abb80f7486c1a585a93e8f0d8304c51192f63c53e7ddd70290abac489a734f9693359f7f
+  checksum: 10/f3c9aeefe44900fd2b64febc164c750ae39ad73c77a28bd54375f0cd16115f80be62df5bc7f0e6245af45326d206b067c3fb1442680fa15626b3480125d40014
   languageName: node
   linkType: hard
 
@@ -5408,7 +5408,7 @@ __metadata:
     ioredis: "npm:^5.8.2"
     jest: "npm:^30.2.0"
     lucide-react: "npm:^0.556.0"
-    newrelic: "npm:^13.7.0"
+    newrelic: "npm:^13.16.0"
     next: "npm:16.1.5"
     pdf2pic: "npm:^3.2.0"
     pg: "npm:8.20.0"
@@ -7056,7 +7056,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@restart/hooks@npm:^0.4.7":
+"@restart/hooks@npm:^0.4.8":
   version: 0.4.16
   resolution: "@restart/hooks@npm:0.4.16"
   dependencies:
@@ -14437,10 +14437,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"flatted@npm:^3.2.7, flatted@npm:^3.2.9":
-  version: 3.3.3
-  resolution: "flatted@npm:3.3.3"
-  checksum: 10/8c96c02fbeadcf4e8ffd0fa24983241e27698b0781295622591fc13585e2f226609d95e422bcf2ef044146ffacb6b68b1f20871454eddf75ab3caa6ee5f4a1fe
+"flatted@npm:3.4.0":
+  version: 3.4.0
+  resolution: "flatted@npm:3.4.0"
+  checksum: 10/6007896f62acb93c811aef52d962c5cd2fa3c703eacfc4146865c3fc8964d3e466c66e10b1c175a84ce0a207fdc761e2e70d7ca982c82604257d45866169af6a
   languageName: node
   linkType: hard
 
@@ -19446,11 +19446,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"newrelic@npm:^13.7.0":
-  version: 13.10.0
-  resolution: "newrelic@npm:13.10.0"
+"newrelic@npm:^13.16.0":
+  version: 13.16.0
+  resolution: "newrelic@npm:13.16.0"
   dependencies:
-    "@apm-js-collab/tracing-hooks": "npm:^0.3.1"
+    "@apm-js-collab/tracing-hooks": "npm:^0.5.0"
     "@grpc/grpc-js": "npm:^1.13.2"
     "@grpc/proto-loader": "npm:^0.7.5"
     "@newrelic/fn-inspect": "npm:^4.4.0"
@@ -19485,7 +19485,7 @@ __metadata:
       optional: true
   bin:
     newrelic-naming-rules: bin/test-naming-rules.js
-  checksum: 10/f4f084fd5474c35d77f6b7a9a6a8d06219bd4be1e6975dd941486954308c6bb5d132a0761b11831cd1f895996219f96ee4f9434f1aa47744c5347355e1090544
+  checksum: 10/df64edd7d6602d601ce6b59f573d19432a311d4d067877cbca476d77747bd00c6e6f9bac1da88bd25eaea152c06616d5a1527bdab671f0487dd119bf1f26c1cc
   languageName: node
   linkType: hard
 
@@ -19971,7 +19971,7 @@ __metadata:
     jest: "npm:^30.2.0"
     jest-environment-jsdom: "npm:^30.2.0"
     lucide-react: "npm:^0.556.0"
-    newrelic: "npm:^13.7.0"
+    newrelic: "npm:^13.16.0"
     next: "npm:16.1.5"
     openapi-typescript: "npm:^7.10.1"
     pdf2pic: "npm:^3.2.0"
@@ -22230,7 +22230,7 @@ __metadata:
   dependencies:
     "@babel/runtime": "npm:^7.13.8"
     "@popperjs/core": "npm:^2.11.6"
-    "@restart/hooks": "npm:^0.4.7"
+    "@restart/hooks": "npm:^0.4.8"
     "@types/warning": "npm:^3.0.0"
     dom-helpers: "npm:^5.2.0"
     prop-types: "npm:^15.7.2"
@@ -24684,16 +24684,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tar@npm:7.5.10":
-  version: 7.5.10
-  resolution: "tar@npm:7.5.10"
+"tar@npm:7.5.11":
+  version: 7.5.11
+  resolution: "tar@npm:7.5.11"
   dependencies:
     "@isaacs/fs-minipass": "npm:^4.0.0"
     chownr: "npm:^3.0.0"
     minipass: "npm:^7.1.2"
     minizlib: "npm:^3.1.0"
     yallist: "npm:^5.0.0"
-  checksum: 10/98ba6421a250b233c36a54f7441647bdfee1ed0b916cd57850259a3602154d996f5b8422f67ef5c8ce77f582ed938054775c2873fc7c901e0c7530ed50febc40
+  checksum: 10/fb2e77ee858a73936c68e066f4a602d428d6f812e6da0cc1e14a41f99498e4f7fd3535e355fa15157240a5538aa416026cfa6306bb0d1d1c1abf314b1f878e9a
   languageName: node
   linkType: hard
 
@@ -25472,10 +25472,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"undici@npm:^7.12.0, undici@npm:^7.16.0, undici@npm:^7.22.0":
-  version: 7.22.0
-  resolution: "undici@npm:7.22.0"
-  checksum: 10/a7a1813ba4b74c0d46cc8dd160386202c05699ffc487c5d882cf40e6d2435c8d6faff3b8f8675d09bd1ef0386e370675c26b59b9a8c8b3f17b9f82a42236a927
+"undici@npm:7.24.0":
+  version: 7.24.0
+  resolution: "undici@npm:7.24.0"
+  checksum: 10/663f08fe940e6cea3633748c82a77e975ab61d7e1d3fd9951a13213c4ddbc5c8196f741b57b52d0df9d08a34092b6aa31eeaff8cd545a0a23cacd0523c21a398
   languageName: node
   linkType: hard
 

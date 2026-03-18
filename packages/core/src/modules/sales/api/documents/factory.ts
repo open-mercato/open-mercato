@@ -20,6 +20,7 @@ import { documentUpdateSchema } from '../../commands/documents'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -467,6 +468,40 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     hooks: {
       afterList: async (payload: any, ctx: CrudCtx) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
+        if (binding.kind === 'order' && Array.isArray(payload?.items) && payload.items.length === 1) {
+          const item = payload.items[0] as Record<string, unknown>
+          const orderId = typeof item?.id === 'string' ? item.id : null
+          const tenantId = typeof item?.tenantId === 'string' ? item.tenantId : ctx?.auth?.tenantId ?? null
+          const organizationId =
+            typeof item?.organizationId === 'string' ? item.organizationId : ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null
+          if (orderId && tenantId && organizationId) {
+            const em = ctx?.container?.resolve?.('em') as import('@mikro-orm/postgresql').EntityManager | undefined
+            if (em) {
+              const totals = await recalculateOrderTotalsForDisplay(
+                em,
+                ctx.container,
+                orderId,
+                { tenantId, organizationId },
+              )
+              if (totals) {
+                Object.assign(item, {
+                  subtotalNetAmount: totals.subtotalNetAmount,
+                  subtotalGrossAmount: totals.subtotalGrossAmount,
+                  discountTotalAmount: totals.discountTotalAmount,
+                  taxTotalAmount: totals.taxTotalAmount,
+                  shippingNetAmount: totals.shippingNetAmount,
+                  shippingGrossAmount: totals.shippingGrossAmount,
+                  surchargeTotalAmount: totals.surchargeTotalAmount,
+                  grandTotalNetAmount: totals.grandTotalNetAmount,
+                  grandTotalGrossAmount: totals.grandTotalGrossAmount,
+                  paidTotalAmount: totals.paidTotalAmount,
+                  refundedTotalAmount: totals.refundedTotalAmount,
+                  outstandingAmount: totals.outstandingAmount,
+                })
+              }
+            }
+          }
+        }
       },
     },
   }

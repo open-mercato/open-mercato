@@ -99,6 +99,7 @@ ${actionRulesSection}
 - Maximum order value: 1000000.
 - Flag discrepancies for price mismatch, unknown contact, product not found, date conflict, and currency mismatch.
 - Set possiblyIncomplete=true when the thread appears partially forwarded (<2 messages with RE/FW subject).
+- Classify the email into exactly one category: rfq (request for quotation), order (new purchase order), order_update (change to existing order), complaint (customer complaint or dispute), shipping_update (shipment/delivery status), inquiry (general question or information request), payment (payment-related), other (does not fit any category).
 </rules>
 ${contactsSection}
 ${productsSection}
@@ -115,7 +116,7 @@ ${cleanedText}
 </email_content>
 
 <output_requirements>
-- Include summary, participants, proposedActions, discrepancies, draftReplies, confidence, and detectedLanguage.
+- Include summary, category, participants, proposedActions, discrepancies, draftReplies, confidence, and detectedLanguage.
 - Keep payloads concise and schema-valid.
 </output_requirements>`
 }
