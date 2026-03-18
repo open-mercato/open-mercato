@@ -7,6 +7,7 @@ import { IconButton } from '../../primitives/icon-button'
 import type { SectionNavGroup, SectionNavItem } from './types'
 import { mergeMenuItems } from '../injection/mergeMenuItems'
 import { useInjectedMenuItems, type MenuSurfaceId } from '../injection/useInjectedMenuItems'
+import { renderBackendIcon } from '../iconValue'
 
 const DefaultIcon = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -66,7 +67,7 @@ export function SectionNav({
           <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
         )}
         <span className="flex items-center justify-center shrink-0 text-muted-foreground">
-          {item.icon ?? DefaultIcon}
+          {renderBackendIcon(item.icon) ?? DefaultIcon}
         </span>
         {!collapsed && <span className="truncate">{label}</span>}
       </Link>

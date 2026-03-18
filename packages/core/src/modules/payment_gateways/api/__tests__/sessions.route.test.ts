@@ -62,16 +62,6 @@ describe('payment gateway sessions route', () => {
       providerKey: 'stripe',
       amount: 49.99,
       currencyCode: 'USD',
-      paymentLink: {
-        enabled: true,
-        title: 'Invoice INV-10024',
-        customerCapture: {
-          enabled: true,
-          companyRequired: false,
-          termsRequired: true,
-          termsMarkdown: '## Terms\n\nI consent to the processing of my data for payment handling.',
-        },
-      },
     })
     mockCreateRequestContainer.mockResolvedValue({
       resolve: jest.fn((token: string) => {
@@ -122,16 +112,6 @@ describe('payment gateway sessions route', () => {
           providerKey: 'stripe',
           amount: 49.99,
           currencyCode: 'USD',
-          paymentLink: {
-            enabled: true,
-            title: 'Invoice INV-10024',
-            customerCapture: {
-              enabled: true,
-              companyRequired: false,
-              termsRequired: true,
-              termsMarkdown: '## Terms\n\nI consent to the processing of my data for payment handling.',
-            },
-          },
         },
       },
       metadataByInterceptor: {},
@@ -153,31 +133,16 @@ describe('payment gateway sessions route', () => {
     })
   })
 
-  it('rejects pay-by-link creation without a title', async () => {
-    mockReadJsonSafe.mockResolvedValue({
-      providerKey: 'stripe',
-      amount: 49.99,
-      currencyCode: 'USD',
-      paymentLink: {
-        enabled: true,
-      },
-    })
+  it('rejects pay-by-link creation without a title via interceptor', async () => {
     mockRunApiInterceptorsBefore.mockResolvedValue({
-      ok: true,
-      request: {
-        method: 'POST',
-        url: 'http://localhost/api/payment_gateways/sessions',
-        headers: {},
-        body: {
-          providerKey: 'stripe',
-          amount: 49.99,
-          currencyCode: 'USD',
-          paymentLink: {
-            enabled: true,
-          },
+      ok: false,
+      statusCode: 422,
+      body: {
+        error: 'Invalid payload',
+        fieldErrors: {
+          paymentLinkTitle: 'Enter a title for the payment link.',
         },
       },
-      metadataByInterceptor: {},
     })
 
     const response = await POST(new Request('http://localhost/api/payment_gateways/sessions', {
@@ -195,70 +160,34 @@ describe('payment gateway sessions route', () => {
     })
   })
 
-  it('documents pay-by-link request and response examples in OpenAPI', () => {
+  it('documents payment session request and response examples in OpenAPI', () => {
     const postDoc = openApi.methods.POST
     expect(postDoc?.requestBody?.example).toMatchObject({
       providerKey: 'stripe',
-      paymentLink: {
-        enabled: true,
-        title: 'Invoice INV-10024',
-        metadata: {
-          logoUrl: 'https://merchant.example.com/logo.svg',
-        },
-        customerCapture: {
-          enabled: true,
-          companyRequired: false,
-          termsRequired: true,
-          termsMarkdown: '## Terms\n\nI consent to the processing of my data for payment handling.',
-        },
-        token: 'invoice-inv-10024',
-        customFieldsetCode: 'invoice',
-        customFields: {
-          supportEmail: 'billing@example.com',
-        },
-      },
+      amount: 49.99,
+      currencyCode: 'USD',
     })
     expect(postDoc?.responses?.find((response) => response.status === 201)?.example).toMatchObject({
-      paymentLinkId: '123e4567-e89b-12d3-a456-426614174002',
-      paymentLinkToken: 'pay_6NQ2gZf1wH7kPx',
-      paymentLinkUrl: 'https://merchant.example.com/pay/pay_6NQ2gZf1wH7kPx',
+      transactionId: expect.any(String),
+      sessionId: expect.any(String),
+      providerKey: 'stripe',
     })
   })
 
-  it('uses the generated payment link URL for hosted redirect return paths', async () => {
-    mockReadJsonSafe.mockResolvedValue({
-      providerKey: 'stripe',
-      amount: 49.99,
-      currencyCode: 'USD',
-      providerInput: {
-        checkoutProfile: 'payment_element_redirect',
-      },
-      paymentLink: {
-        enabled: true,
-        title: 'Invoice INV-10024',
-      },
-    })
-    mockRunApiInterceptorsBefore.mockResolvedValue({
+  it('enriches response with payment link data via after-interceptor', async () => {
+    mockRunApiInterceptorsAfter.mockImplementation(async (args: {
+      response: { statusCode: number; body: unknown; headers: Record<string, string> }
+    }) => ({
       ok: true,
-      request: {
-        method: 'POST',
-        url: 'http://localhost/api/payment_gateways/sessions',
-        headers: {},
-        body: {
-          providerKey: 'stripe',
-          amount: 49.99,
-          currencyCode: 'USD',
-          providerInput: {
-            checkoutProfile: 'payment_element_redirect',
-          },
-          paymentLink: {
-            enabled: true,
-            title: 'Invoice INV-10024',
-          },
-        },
+      statusCode: args.response.statusCode,
+      body: {
+        ...(args.response.body as Record<string, unknown>),
+        paymentLinkId: '123e4567-e89b-12d3-a456-426614174002',
+        paymentLinkToken: 'pay_test_token',
+        paymentLinkUrl: 'http://localhost/pay/pay_test_token',
       },
-      metadataByInterceptor: {},
-    })
+      headers: args.response.headers,
+    }))
 
     const response = await POST(new Request('http://localhost/api/payment_gateways/sessions', {
       method: 'POST',
@@ -266,50 +195,27 @@ describe('payment gateway sessions route', () => {
       body: JSON.stringify({}),
     }))
     const body = await response.json()
-    const createSessionInput = mockCreatePaymentSession.mock.calls[0]?.[0] as Record<string, unknown>
 
     expect(response.status).toBe(201)
-    expect(body.paymentLinkUrl).toMatch(/^http:\/\/localhost\/pay\/[^/?#]+$/)
-    expect(createSessionInput.successUrl).toBe(`${body.paymentLinkUrl}?checkout=success`)
-    expect(createSessionInput.cancelUrl).toBe(`${body.paymentLinkUrl}?checkout=cancelled`)
+    expect(body.paymentLinkUrl).toBe('http://localhost/pay/pay_test_token')
+    expect(body.paymentLinkId).toBe('123e4567-e89b-12d3-a456-426614174002')
+    expect(body.paymentLinkToken).toBe('pay_test_token')
   })
 
-  it('persists customer capture configuration inside payment link metadata', async () => {
-    mockReadJsonSafe.mockResolvedValue({
-      providerKey: 'stripe',
-      amount: 49.99,
-      currencyCode: 'USD',
-      paymentLink: {
-        enabled: true,
-        title: 'Invoice INV-10024',
-        customerCapture: {
-          enabled: true,
-          companyRequired: true,
-        },
-      },
-    })
-    mockRunApiInterceptorsBefore.mockResolvedValue({
+  it('passes customer capture configuration through interceptor metadata', async () => {
+    mockRunApiInterceptorsAfter.mockImplementation(async (args: {
+      response: { statusCode: number; body: unknown; headers: Record<string, string> }
+    }) => ({
       ok: true,
-      request: {
-        method: 'POST',
-        url: 'http://localhost/api/payment_gateways/sessions',
-        headers: {},
-        body: {
-          providerKey: 'stripe',
-          amount: 49.99,
-          currencyCode: 'USD',
-          paymentLink: {
-            enabled: true,
-            title: 'Invoice INV-10024',
-            customerCapture: {
-              enabled: true,
-              companyRequired: true,
-            },
-          },
-        },
+      statusCode: args.response.statusCode,
+      body: {
+        ...(args.response.body as Record<string, unknown>),
+        paymentLinkId: '123e4567-e89b-12d3-a456-426614174002',
+        paymentLinkToken: 'pay_test_token',
+        paymentLinkUrl: 'http://localhost/pay/pay_test_token',
       },
-      metadataByInterceptor: {},
-    })
+      headers: args.response.headers,
+    }))
 
     const response = await POST(new Request('http://localhost/api/payment_gateways/sessions', {
       method: 'POST',
@@ -318,49 +224,27 @@ describe('payment gateway sessions route', () => {
     }))
 
     expect(response.status).toBe(201)
-    expect(mockCreateEntity).toHaveBeenCalledWith(
-      expect.anything(),
+    expect(mockRunApiInterceptorsAfter).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({
-          customerCapture: expect.objectContaining({
-            enabled: true,
-            companyRequired: true,
-          }),
-        }),
+        routePath: 'payment_gateways/sessions',
+        method: 'POST',
       }),
     )
   })
 
-  it('uses the provided custom link path when present', async () => {
-    mockReadJsonSafe.mockResolvedValue({
-      providerKey: 'stripe',
-      amount: 49.99,
-      currencyCode: 'USD',
-      paymentLink: {
-        enabled: true,
-        title: 'Invoice INV-10024',
-        token: 'invoice-inv-10024',
-      },
-    })
-    mockRunApiInterceptorsBefore.mockResolvedValue({
+  it('uses the provided custom link path via interceptor', async () => {
+    mockRunApiInterceptorsAfter.mockImplementation(async (args: {
+      response: { statusCode: number; body: unknown; headers: Record<string, string> }
+    }) => ({
       ok: true,
-      request: {
-        method: 'POST',
-        url: 'http://localhost/api/payment_gateways/sessions',
-        headers: {},
-        body: {
-          providerKey: 'stripe',
-          amount: 49.99,
-          currencyCode: 'USD',
-          paymentLink: {
-            enabled: true,
-            title: 'Invoice INV-10024',
-            token: 'invoice-inv-10024',
-          },
-        },
+      statusCode: args.response.statusCode,
+      body: {
+        ...(args.response.body as Record<string, unknown>),
+        paymentLinkToken: 'invoice-inv-10024',
+        paymentLinkUrl: 'http://localhost/pay/invoice-inv-10024',
       },
-      metadataByInterceptor: {},
-    })
+      headers: args.response.headers,
+    }))
 
     const response = await POST(new Request('http://localhost/api/payment_gateways/sessions', {
       method: 'POST',
@@ -375,37 +259,17 @@ describe('payment gateway sessions route', () => {
     })
   })
 
-  it('rejects duplicated custom link paths', async () => {
-    mockReadJsonSafe.mockResolvedValue({
-      providerKey: 'stripe',
-      amount: 49.99,
-      currencyCode: 'USD',
-      paymentLink: {
-        enabled: true,
-        title: 'Invoice INV-10024',
-        token: 'invoice-inv-10024',
-      },
-    })
+  it('rejects duplicated custom link paths via interceptor', async () => {
     mockRunApiInterceptorsBefore.mockResolvedValue({
-      ok: true,
-      request: {
-        method: 'POST',
-        url: 'http://localhost/api/payment_gateways/sessions',
-        headers: {},
-        body: {
-          providerKey: 'stripe',
-          amount: 49.99,
-          currencyCode: 'USD',
-          paymentLink: {
-            enabled: true,
-            title: 'Invoice INV-10024',
-            token: 'invoice-inv-10024',
-          },
+      ok: false,
+      statusCode: 422,
+      body: {
+        error: 'Invalid payload',
+        fieldErrors: {
+          paymentLinkCustomPath: 'This custom link path is already in use.',
         },
       },
-      metadataByInterceptor: {},
     })
-    mockFindOneWithDecryption.mockResolvedValueOnce({ id: 'link-1' })
 
     const response = await POST(new Request('http://localhost/api/payment_gateways/sessions', {
       method: 'POST',
@@ -422,41 +286,16 @@ describe('payment gateway sessions route', () => {
     })
   })
 
-  it('rejects terms requirement without markdown content', async () => {
-    mockReadJsonSafe.mockResolvedValue({
-      providerKey: 'stripe',
-      amount: 49.99,
-      currencyCode: 'USD',
-      paymentLink: {
-        enabled: true,
-        title: 'Invoice INV-10024',
-        customerCapture: {
-          enabled: true,
-          termsRequired: true,
-        },
-      },
-    })
+  it('rejects terms requirement without markdown content via interceptor', async () => {
     mockRunApiInterceptorsBefore.mockResolvedValue({
-      ok: true,
-      request: {
-        method: 'POST',
-        url: 'http://localhost/api/payment_gateways/sessions',
-        headers: {},
-        body: {
-          providerKey: 'stripe',
-          amount: 49.99,
-          currencyCode: 'USD',
-          paymentLink: {
-            enabled: true,
-            title: 'Invoice INV-10024',
-            customerCapture: {
-              enabled: true,
-              termsRequired: true,
-            },
-          },
+      ok: false,
+      statusCode: 422,
+      body: {
+        error: 'Invalid payload',
+        fieldErrors: {
+          paymentLinkTermsMarkdown: 'Enter the markdown content that the customer must accept.',
         },
       },
-      metadataByInterceptor: {},
     })
 
     const response = await POST(new Request('http://localhost/api/payment_gateways/sessions', {

@@ -1,4 +1,4 @@
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import type { ApiInterceptor, InterceptorAfterResult, InterceptorContext, InterceptorRequest, InterceptorResponse } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolvePaymentLinkTemplate } from '@open-mercato/shared/modules/payment_link_pages/runtime'
 import { GatewayPaymentLink } from '../data/entities'
@@ -108,20 +108,31 @@ function mergePaymentLinkWithTemplate(
   }
 }
 
+function toIsoString(value: unknown): string | null {
+  if (!value) return null
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+    return value
+  }
+  return null
+}
+
 const sessionsInterceptor: ApiInterceptor = {
   id: 'payment_link_pages.sessions-interceptor',
   targetRoute: 'payment_gateways/sessions',
   methods: ['POST'],
 
-  async before({ request, context }) {
+  async before(request: InterceptorRequest, context: InterceptorContext) {
     const body = request.body as Record<string, unknown> | undefined
-    if (!body?.paymentLink) return { ok: true, request }
+    if (!body?.paymentLink) return { ok: true }
 
     const parsed = paymentLinkInputSchema.safeParse(body.paymentLink)
     if (!parsed.success || !parsed.data.enabled) {
       const strippedBody = { ...body }
       delete strippedBody.paymentLink
-      return { ok: true, request: { ...request, body: strippedBody } }
+      return { ok: true, body: strippedBody }
     }
 
     const paymentLinkData = parsed.data
@@ -202,24 +213,25 @@ const sessionsInterceptor: ApiInterceptor = {
     delete strippedBody.paymentLink
     return {
       ok: true,
-      request: { ...request, body: strippedBody },
+      body: strippedBody,
       metadata: { paymentLink: paymentLinkData, paymentLinkTokenOverride },
     }
   },
 
-  async after({ request, response, context, metadata: interceptorMetadata }) {
-    if (!interceptorMetadata?.paymentLink) return { ok: true, ...response }
+  async after(request: InterceptorRequest, response: InterceptorResponse, context: InterceptorContext): Promise<InterceptorAfterResult> {
+    const interceptorMetadata = context.metadata
+    if (!interceptorMetadata?.paymentLink) return {}
 
     const paymentLinkData = interceptorMetadata.paymentLink as Record<string, unknown>
-    if (!paymentLinkData.enabled) return { ok: true, ...response }
+    if (!paymentLinkData.enabled) return {}
 
-    if (response.statusCode < 200 || response.statusCode >= 300) return { ok: true, ...response }
+    if (response.statusCode < 200 || response.statusCode >= 300) return {}
 
     const responseBody = response.body as Record<string, unknown> | undefined
-    if (!responseBody) return { ok: true, ...response }
+    if (!responseBody) return {}
 
     const em = context.em
-    if (!em) return { ok: true, ...response }
+    if (!em) return {}
 
     const paymentLinkTokenOverride = interceptorMetadata.paymentLinkTokenOverride as string | null
     const paymentLinkToken = paymentLinkTokenOverride ?? createPaymentLinkToken()
@@ -344,19 +356,13 @@ const sessionsInterceptor: ApiInterceptor = {
     })
     await em.persistAndFlush(paymentLink)
 
-    const enrichedBody = {
-      ...responseBody,
-      paymentLinkId: paymentLink.id,
-      paymentLinkToken,
-      paymentLinkUrl,
-      ...(isMultiUseLink ? { linkMode: 'multi' } : {}),
-    }
-
     return {
-      ok: true,
-      statusCode: response.statusCode,
-      body: enrichedBody,
-      headers: response.headers,
+      merge: {
+        paymentLinkId: paymentLink.id,
+        paymentLinkToken,
+        paymentLinkUrl,
+        ...(isMultiUseLink ? { linkMode: 'multi' } : {}),
+      },
     }
   },
 }
@@ -366,18 +372,18 @@ const transactionDetailInterceptor: ApiInterceptor = {
   targetRoute: 'payment_gateways/transactions/*',
   methods: ['GET'],
 
-  async after({ request, response, context }) {
-    if (response.statusCode !== 200) return { ok: true, ...response }
+  async after(request: InterceptorRequest, response: InterceptorResponse, context: InterceptorContext): Promise<InterceptorAfterResult> {
+    if (response.statusCode !== 200) return {}
 
     const responseBody = response.body as Record<string, unknown> | undefined
-    if (!responseBody?.transaction) return { ok: true, ...response }
+    if (!responseBody?.transaction) return {}
 
     const transaction = responseBody.transaction as Record<string, unknown>
     const transactionId = transaction.id as string | undefined
-    if (!transactionId) return { ok: true, ...response }
+    if (!transactionId) return {}
 
     const em = context.em
-    if (!em) return { ok: true, ...response }
+    if (!em) return {}
 
     const paymentLink = await findOneWithDecryption(
       em,
@@ -394,44 +400,27 @@ const transactionDetailInterceptor: ApiInterceptor = {
       { organizationId: context.organizationId, tenantId: context.tenantId },
     )
 
-    if (!paymentLink) return { ok: true, ...response }
+    if (!paymentLink) return {}
 
     const requestUrl = request.url ?? ''
     const origin = requestUrl ? new URL(requestUrl).origin : ''
     const paymentLinkUrl = buildPaymentLinkUrl(origin, paymentLink.token)
 
-    function toIsoString(value: unknown): string | null {
-      if (!value) return null
-      if (value instanceof Date) return value.toISOString()
-      if (typeof value === 'string') {
-        const parsed = new Date(value)
-        if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
-        return value
-      }
-      return null
-    }
-
-    const enrichedBody = {
-      ...responseBody,
-      paymentLink: {
-        id: paymentLink.id,
-        token: paymentLink.token,
-        url: paymentLinkUrl,
-        title: paymentLink.title,
-        description: paymentLink.description ?? null,
-        status: paymentLink.status,
-        passwordProtected: Boolean(paymentLink.passwordHash),
-        completedAt: toIsoString(paymentLink.completedAt),
-        createdAt: toIsoString(paymentLink.createdAt),
-        updatedAt: toIsoString(paymentLink.updatedAt),
-      },
-    }
-
     return {
-      ok: true,
-      statusCode: response.statusCode,
-      body: enrichedBody,
-      headers: response.headers,
+      merge: {
+        paymentLink: {
+          id: paymentLink.id,
+          token: paymentLink.token,
+          url: paymentLinkUrl,
+          title: paymentLink.title,
+          description: paymentLink.description ?? null,
+          status: paymentLink.status,
+          passwordProtected: Boolean(paymentLink.passwordHash),
+          completedAt: toIsoString(paymentLink.completedAt),
+          createdAt: toIsoString(paymentLink.createdAt),
+          updatedAt: toIsoString(paymentLink.updatedAt),
+        },
+      },
     }
   },
 }

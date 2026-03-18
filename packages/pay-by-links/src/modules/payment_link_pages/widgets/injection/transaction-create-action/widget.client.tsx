@@ -12,12 +12,13 @@ export default function TransactionCreateActionWidget({
 }: InjectionWidgetComponentProps) {
   const t = useT()
   const [dialogOpen, setDialogOpen] = React.useState(false)
+  const typedContext = context as { refresh?: () => Promise<void> | void } | undefined
 
   const handleCreated = React.useCallback(async () => {
-    if (typeof context?.refresh === 'function') {
-      await context.refresh()
+    if (typeof typedContext?.refresh === 'function') {
+      await typedContext.refresh()
     }
-  }, [context])
+  }, [typedContext])
 
   return (
     <>

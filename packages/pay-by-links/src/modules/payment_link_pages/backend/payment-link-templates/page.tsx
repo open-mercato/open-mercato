@@ -86,7 +86,7 @@ export default function PaymentLinkTemplatesListPage() {
       flash(t('payment_link_pages.templates.deleted'), 'success')
       fetchData(page)
     } catch {
-      flash(t('payment_link_pages.templates.deleted'), 'error')
+      flash(t('payment_link_pages.templates.deleteError', 'Failed to delete template'), 'error')
     }
   }, [confirm, t, fetchData, page])
 
@@ -98,7 +98,7 @@ export default function PaymentLinkTemplatesListPage() {
       flash(t('payment_link_pages.templates.setDefault.success'), 'success')
       fetchData(page)
     } catch {
-      flash(t('payment_link_pages.templates.setDefault.success'), 'error')
+      flash(t('payment_link_pages.templates.setDefault.error', 'Failed to set default template'), 'error')
     }
   }, [t, fetchData, page])
 
@@ -128,7 +128,7 @@ export default function PaymentLinkTemplatesListPage() {
       flash(t('payment_link_pages.templates.duplicate.success'), 'success')
       fetchData(page)
     } catch {
-      flash(t('payment_link_pages.templates.duplicate.success'), 'error')
+      flash(t('payment_link_pages.templates.duplicate.error', 'Failed to duplicate template'), 'error')
     }
   }, [t, fetchData, page])
 
@@ -145,7 +145,7 @@ export default function PaymentLinkTemplatesListPage() {
     {
       accessorKey: 'isDefault',
       header: t('payment_link_pages.templates.columns.isDefault'),
-      cell: ({ row }) => row.original.isDefault ? <Badge variant="default">Default</Badge> : null,
+      cell: ({ row }) => row.original.isDefault ? <Badge variant="default">{t('payment_link_pages.templates.badge.default', 'Default')}</Badge> : null,
     },
     {
       accessorKey: 'description',

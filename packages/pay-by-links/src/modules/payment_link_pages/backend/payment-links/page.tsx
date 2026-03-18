@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -11,7 +10,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Copy, ExternalLink, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
+import { useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { CreatePaymentTransactionDialog } from '../../components/CreatePaymentTransactionDialog'
 
 type PaymentLinkRow = {
@@ -55,6 +55,7 @@ function formatAmount(amount: number | null, currency: string | null, locale: st
 
 export default function PaymentLinksListPage() {
   const t = useT()
+  const locale = useLocale()
   const [data, setData] = React.useState<PaymentLinkRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -135,7 +136,7 @@ export default function PaymentLinksListPage() {
     {
       accessorKey: 'amount',
       header: t('payment_gateways.links.columns.amount', 'Amount'),
-      cell: ({ row }) => formatAmount(row.original.amount, row.original.currencyCode, 'en'),
+      cell: ({ row }) => formatAmount(row.original.amount, row.original.currencyCode, locale),
     },
     {
       accessorKey: 'providerKey',

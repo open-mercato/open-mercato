@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { GatewayPaymentLink } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
 import { listPaymentLinksQuerySchema } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/validators'
 import { paymentGatewaysTag } from '@open-mercato/core/modules/payment_gateways/api/openapi'
@@ -9,10 +10,6 @@ import { paymentGatewaysTag } from '@open-mercato/core/modules/payment_gateways/
 export const metadata = {
   path: '/payment_gateways/payment-links',
   GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },
-}
-
-function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&')
 }
 
 function formatDateValue(value: unknown): string | null {

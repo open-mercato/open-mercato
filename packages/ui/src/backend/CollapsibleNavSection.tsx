@@ -4,11 +4,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
 import { Button } from '../primitives/button'
+import type { BackendIconValue } from './iconValue'
+import { renderBackendIcon } from './iconValue'
 
 export type CollapsibleNavItem = {
   href: string
   title: string
-  icon?: React.ReactNode
+  icon?: BackendIconValue
   enabled?: boolean
   hidden?: boolean
   children?: CollapsibleNavItem[]
@@ -22,7 +24,7 @@ export type CollapsibleNavGroup = {
 
 export type CollapsibleNavSectionProps = {
   title: string
-  icon?: React.ReactNode
+  icon?: BackendIconValue
   groups: CollapsibleNavGroup[]
   defaultExpanded?: boolean
   compact?: boolean
@@ -127,7 +129,7 @@ export function CollapsibleNavSection({
             <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
           )}
           <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-            {item.icon ?? DefaultIcon}
+            {renderBackendIcon(item.icon) ?? DefaultIcon}
           </span>
           {!compact && <span className="truncate">{item.title}</span>}
         </Link>
@@ -154,7 +156,7 @@ export function CollapsibleNavSection({
     )
   }
 
-  const settingsIcon = icon || (
+  const settingsIcon = renderBackendIcon(icon) || (
     <svg
       width="16"
       height="16"

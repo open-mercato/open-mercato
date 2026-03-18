@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
+import type { BackendIconValue } from '../iconValue'
 
 export type SectionNavItem = {
   id: string
   label: string
   labelKey?: string
   href: string
-  icon?: ReactNode
+  icon?: BackendIconValue
   requireFeatures?: string[]
   order?: number
   children?: SectionNavItem[]

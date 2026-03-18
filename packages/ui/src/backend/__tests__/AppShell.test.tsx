@@ -289,4 +289,32 @@ describe('AppShell', () => {
       expect(screen.getByRole('link', { name: 'Calendar Entity' })).toBeInTheDocument()
     })
   })
+
+  it('renders serialized server icons in navigation items', () => {
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={[
+          {
+            id: 'core',
+            name: 'Core',
+            items: [
+              {
+                href: '/backend/users',
+                title: 'Users List',
+                icon: {
+                  html: '<svg data-testid="serialized-nav-icon" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"></circle></svg>',
+                },
+              },
+            ],
+          },
+        ]}
+      >
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    expect(screen.getByTestId('serialized-nav-icon')).toBeInTheDocument()
+  })
 })

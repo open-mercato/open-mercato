@@ -106,9 +106,9 @@ export async function runApiInterceptorsBefore(args: {
 
       const normalized: InterceptorBeforeResult = result ?? { ok: true }
       if (!normalized.ok) {
-        const rejectBody: Record<string, unknown> = {
-          error: normalized.message ?? 'Request blocked by API interceptor',
-        }
+        const rejectBody: Record<string, unknown> = normalized.body
+          ? { ...normalized.body }
+          : { error: normalized.message ?? 'Request blocked by API interceptor' }
         if (process.env.NODE_ENV !== 'production') {
           rejectBody.interceptorId = interceptor.id
         }

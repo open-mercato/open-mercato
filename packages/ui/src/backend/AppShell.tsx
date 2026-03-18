@@ -25,6 +25,8 @@ import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
+import type { BackendIconValue } from './iconValue'
+import { renderBackendIcon } from './iconValue'
 import { UmesDevToolsPanel } from './devtools'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
@@ -51,7 +53,7 @@ export type AppShellProps = {
       href: string
       title: string
       defaultTitle?: string
-      icon?: React.ReactNode
+      icon?: BackendIconValue
       enabled?: boolean
       hidden?: boolean
       pageContext?: 'main' | 'admin' | 'settings' | 'profile'
@@ -60,7 +62,7 @@ export type AppShellProps = {
         href: string
         title: string
         defaultTitle?: string
-        icon?: React.ReactNode
+        icon?: BackendIconValue
         enabled?: boolean
         hidden?: boolean
         pageContext?: 'main' | 'admin' | 'settings' | 'profile'
@@ -746,8 +748,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   // Optional: full refresh from adminNavApi, used to reflect RBAC/org/entity changes without page reload
   React.useEffect(() => {
     let cancelled = false
-    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
-      const map = new Map<string, React.ReactNode | undefined>()
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, BackendIconValue | undefined> {
+      const map = new Map<string, BackendIconValue | undefined>()
       for (const g of groupsToIndex) {
         for (const i of g.items) {
           map.set(i.href, i.icon)
@@ -805,8 +807,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     if (!adminNavApi) return
     const api = adminNavApi as string
     let cancelled = false
-    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, React.ReactNode | undefined> {
-      const map = new Map<string, React.ReactNode | undefined>()
+    function indexIcons(groupsToIndex: AppShellProps['groups']): Map<string, BackendIconValue | undefined> {
+      const map = new Map<string, BackendIconValue | undefined>()
       for (const g of groupsToIndex) {
         for (const i of g.items) {
           map.set(i.href, i.icon)
@@ -937,7 +939,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                     )}
                     <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                      {item.icon ?? (item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
+                      {renderBackendIcon(item.icon) ?? (item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                     </span>
                     {!compact && <span className="truncate">{label}</span>}
                   </Link>
@@ -1284,7 +1286,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                         <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                                       ) : null}
                                       <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                        {i.icon ?? DefaultIcon}
+                                        {renderBackendIcon(i.icon) ?? DefaultIcon}
                                       </span>
                                       {!compact && <span>{i.title}</span>}
                                     </Link>
@@ -1309,7 +1311,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                                                 <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
                                               ) : null}
                                               <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                                                {c.icon ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
+                                                {renderBackendIcon(c.icon) ?? (c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon)}
                                               </span>
                                               {!compact && <span>{c.title}</span>}
                                             </Link>

@@ -1,6 +1,8 @@
 import { cookies, headers } from 'next/headers'
 import Script from 'next/script'
+import React from 'react'
 import type { ReactNode } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -12,6 +14,7 @@ import {
   convertToSectionNavGroups,
 } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
+import type { SectionNavGroup, SectionNavItem } from '@open-mercato/ui/backend/section-page'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
 import { IntegrationsButton } from '@open-mercato/ui/backend/IntegrationsButton'
 import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
@@ -37,6 +40,7 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import { profileSections, profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
+import type { BackendIconValue } from '@open-mercato/ui/backend/iconValue'
 import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBootstrap'
@@ -47,7 +51,7 @@ type NavItem = {
   defaultTitle: string
   enabled: boolean
   hidden?: boolean
-  icon?: ReactNode
+  icon?: BackendIconValue
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
   children?: NavItem[]
 }
@@ -323,6 +327,10 @@ export default async function BackendLayout({ children, params }: { children: Re
     items: group.items.map(materializeItem),
     weight: group.weight,
   }))
+  const clientGroups: NavGroup[] = groups.map((group) => ({
+    ...group,
+    items: group.items.map(serializeNavItem),
+  }))
 
   type NavEntry = NavItem & { group: string }
   const allEntries: NavEntry[] = groups.flatMap((group) =>
@@ -352,6 +360,8 @@ export default async function BackendLayout({ children, params }: { children: Re
     generatedSettingsSections,
     (key, fallback) => (key ? translate(key, fallback) : fallback)
   )
+  const clientSettingsSections = serializeSectionGroups(filteredSettingsSections)
+  const clientProfileSections = serializeSectionGroups(profileSections)
 
   const collapsedCookie = cookieStore.get('om_sidebar_collapsed')?.value
   const initialCollapsed = collapsedCookie === '1'
@@ -398,7 +408,7 @@ export default async function BackendLayout({ children, params }: { children: Re
               key={path}
               productName={productName}
               email={auth?.email}
-              groups={groups}
+              groups={clientGroups}
               currentTitle={currentTitle}
               breadcrumb={breadcrumb}
               sidebarCollapsedDefault={initialCollapsed}
@@ -407,9 +417,9 @@ export default async function BackendLayout({ children, params }: { children: Re
               adminNavApi="/api/auth/admin/nav"
               version={APP_VERSION}
               settingsPathPrefixes={settingsPathPrefixes}
-              settingsSections={filteredSettingsSections}
+              settingsSections={clientSettingsSections}
               settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
-              profileSections={profileSections}
+              profileSections={clientProfileSections}
               profileSectionTitle={translate('profile.page.title', 'Profile')}
               profilePathPrefixes={profilePathPrefixes}
             >
@@ -425,6 +435,15 @@ export default async function BackendLayout({ children, params }: { children: Re
 }
 export const dynamic = 'force-dynamic'
 
+function serializeBackendIcon(icon: BackendIconValue | undefined): BackendIconValue | undefined {
+  if (icon == null || icon === false) return undefined
+  if (typeof icon === 'object' && icon !== null && 'html' in icon && typeof icon.html === 'string') {
+    return icon
+  }
+  const reactIcon = icon as ReactNode
+  return { html: renderToStaticMarkup(React.createElement(React.Fragment, null, reactIcon)) }
+}
+
 function adoptSidebarDefaults(groups: NavGroup[]): NavGroup[] {
   const adoptItems = (items: NavItem[]): NavItem[] =>
     items.map((item) => ({
@@ -437,5 +456,28 @@ function adoptSidebarDefaults(groups: NavGroup[]): NavGroup[] {
     ...group,
     defaultName: group.name,
     items: adoptItems(group.items),
+  }))
+}
+
+function serializeNavItem(item: NavItem): NavItem {
+  return {
+    ...item,
+    icon: serializeBackendIcon(item.icon),
+    children: item.children?.map(serializeNavItem),
+  }
+}
+
+function serializeSectionItem(item: SectionNavItem): SectionNavItem {
+  return {
+    ...item,
+    icon: serializeBackendIcon(item.icon),
+    children: item.children?.map(serializeSectionItem),
+  }
+}
+
+function serializeSectionGroups(sections: SectionNavGroup[]): SectionNavGroup[] {
+  return sections.map((section) => ({
+    ...section,
+    items: section.items.map(serializeSectionItem),
   }))
 }
