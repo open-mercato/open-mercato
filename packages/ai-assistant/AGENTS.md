@@ -8,15 +8,13 @@
 - Expose module tools to an AI agent via MCP (Model Context Protocol)
 - Enable dynamic API discovery so the agent can call any endpoint without hardcoded tools
 - Build the Raycast-style Command Palette UI (Cmd+K) for user interaction
-- Combine search-based and OpenAPI-based tool discovery
 
-Five core components to understand:
+Four core components to understand:
 
 1. **OpenCode Agent** — AI backend that processes natural language and executes tools
 2. **MCP HTTP Server** — Exposes tools to OpenCode via HTTP on port 3001
-3. **API Discovery Tools** — 3 meta-tools that replace 600+ individual endpoint tools
+3. **Code Mode Tools** — 2 meta-tools (`search` + `execute`) where the AI writes JavaScript that runs in a `node:vm` sandbox
 4. **Command Palette UI** — Raycast-style frontend interface
-5. **Hybrid Tool Discovery** — Merges search-based and OpenAPI introspection results
 
 ## Common Tasks
 
@@ -57,11 +55,11 @@ registerMcpTool({
 
 ### Add New API Endpoints to Discovery
 
-APIs are automatically discovered from the OpenAPI spec (`openapi.yaml`). Follow these steps:
+APIs are automatically available via the Code Mode `search` tool (reads the OpenAPI spec at runtime). To add new endpoints:
 
 1. Define the endpoint in your module's route file with an `openApi` export
-2. Regenerate the OpenAPI spec
-3. Restart the MCP server
+2. Regenerate the OpenAPI spec (`yarn modules:prepare`)
+3. Restart the MCP server — the `search` tool's `spec.paths` will include the new endpoint
 
 ### Debug Tool Calls
 
@@ -125,9 +123,9 @@ When modifying this stack, follow these constraints:
 │                                    ▼                                         │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                    MCP HTTP Server (:3001)                           │    │
-│  │  • Exposes 10 tools to OpenCode                                      │    │
-│  │  • API discovery tools (api_discover, api_execute, api_schema)       │    │
-│  │  • Search tools (search, search_status, etc.)                        │    │
+│  │  • Exposes 3 tools: context_whoami + Code Mode (search, execute)    │    │
+│  │  • search: AI writes JS to query OpenAPI spec + entity schemas      │    │
+│  │  • execute: AI writes JS to make API calls via api.request()        │    │
 │  │  • Authentication via x-api-key header                               │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
@@ -159,8 +157,12 @@ packages/ai-assistant/
 │   │   ├── lib/
 │   │   │   ├── opencode-client.ts      # OpenCode server client
 │   │   │   ├── opencode-handlers.ts    # Request handlers for OpenCode
-│   │   │   ├── api-discovery-tools.ts  # api_discover, api_execute, api_schema
-│   │   │   ├── api-endpoint-index.ts   # OpenAPI endpoint indexing
+│   │   │   ├── codemode-tools.ts       # Code Mode search + execute tools
+│   │   │   ├── sandbox.ts             # node:vm sandbox executor
+│   │   │   ├── truncate.ts            # Response size limiter
+│   │   │   ├── api-endpoint-index.ts   # OpenAPI endpoint indexing + raw spec cache
+│   │   │   ├── api-discovery-tools.ts  # (legacy, unused) old find_api/call_api
+│   │   │   ├── entity-graph-tools.ts   # (legacy, unused) old discover_schema
 │   │   │   ├── http-server.ts          # MCP HTTP server implementation
 │   │   │   ├── mcp-server.ts           # MCP stdio server implementation
 │   │   │   ├── tool-registry.ts        # Global tool registration
@@ -225,30 +227,40 @@ When you need to interact with OpenCode, follow these rules:
 }
 ```
 
-## Rules for Working with API Discovery Tools
+## Rules for Code Mode Tools
 
-Use 3 meta-tools instead of 600+ individual tools:
+Use 2 meta-tools instead of individual endpoint/schema tools. The AI writes JavaScript that runs in a `node:vm` sandbox:
 
-| Tool | When to use |
-|------|-------------|
-| `api_discover` | When you need to find APIs by keyword, module, or HTTP method |
-| `api_schema` | When you need detailed schema for a specific endpoint before calling it |
-| `api_execute` | When you need to execute an API call with parameters |
+| Tool | Sandbox globals | When to use |
+|------|----------------|-------------|
+| `search` | `spec` (OpenAPI paths + entity schemas) | When discovering endpoints, understanding schemas, or exploring the API surface |
+| `execute` | `api.request()`, `context` | When making API calls to read or write data |
 
 **Example workflow the agent follows**:
 1. Agent receives: "Find all customers in New York"
-2. Agent calls `api_discover("customers search")`
-3. Agent calls `api_schema("/api/v1/customers")` to see parameters
-4. Agent calls `api_execute({ method: "GET", path: "/api/v1/customers", query: { city: "New York" } })`
+2. Agent calls `search({ code: 'async () => Object.keys(spec.paths).filter(p => p.includes("customer"))' })`
+3. Agent calls `search({ code: 'async () => spec.paths["/api/customers/companies"]?.get' })` to see endpoint details
+4. Agent calls `execute({ code: 'async () => api.request({ method: "GET", path: "/api/customers/companies", query: { city: "New York" } })' })`
 
-## Rules for Hybrid Tool Discovery
+**Sandbox safety**: Code runs in `node:vm` with only whitelisted globals. `fetch`, `require`, `process`, `fs`, `Buffer`, and network APIs are blocked. Execution times out after 30 seconds. API calls are capped at 50 per execution.
 
-Tools are discovered through two combined sources:
+**When modifying Code Mode tools**: Edit `lib/codemode-tools.ts` for tool definitions, `lib/sandbox.ts` for the sandbox engine, `lib/truncate.ts` for response size limiting.
 
-1. **Search-based**: Semantic search over tool descriptions
-2. **OpenAPI-based**: Direct introspection of API endpoints
+## MANDATORY: Use AskUserQuestion for Confirmations
 
-When you need to modify discovery behavior, edit `api_discover` in `lib/api-discovery-tools.ts` — it merges both sources.
+> **This is the MOST IMPORTANT rule. NEVER skip this.**
+
+Before ANY operation that modifies data (CREATE, UPDATE, DELETE):
+
+1. **YOU MUST USE** the `AskUserQuestion` tool
+2. Do NOT just write "Proceed?" in text
+3. The `AskUserQuestion` tool will show buttons and WAIT for user response
+4. Only proceed after user selects confirmation option
+
+**Why This Matters:**
+- Text like "Shall I proceed?" does NOT pause execution
+- Only the `AskUserQuestion` tool actually waits for user input
+- Without it, the AI may proceed without real confirmation
 
 ## Rules for the Chat Flow
 
@@ -503,20 +515,23 @@ async function handleOpenCodeMessage(options: {
 function extractTextFromResponse(result: OpenCodeMessage): string
 ```
 
-## Rules for API Discovery Internals
+## Rules for Code Mode Internals
 
-Located in `lib/api-discovery-tools.ts`. When modifying discovery logic:
+Located in `lib/codemode-tools.ts`, `lib/sandbox.ts`, `lib/truncate.ts`.
 
 ```typescript
-// Registered tools:
-// - api_discover: Search endpoints by keyword
-// - api_schema: Get endpoint details
-// - api_execute: Execute API call
+// lib/codemode-tools.ts — Tool definitions
+loadCodeModeTools(): Promise<number>  // Registers search + execute, returns 2
 
-// Use these internal functions when extending discovery:
-function searchEndpoints(query: string, options?: SearchOptions): EndpointMatch[]
-function executeApiCall(params: ExecuteParams, ctx: McpToolContext): Promise<unknown>
+// lib/sandbox.ts — Sandbox engine
+createSandbox(globals, options?): { execute: (code: string) => Promise<SandboxResult> }
+normalizeCode(code: string): string   // Strip markdown fences, validate shape
+
+// lib/truncate.ts — Response limiting
+truncateResult(value, maxChars?): string  // Default 40K chars (~10K tokens)
 ```
+
+**Legacy files kept but unused**: `lib/api-discovery-tools.ts` (old find_api/call_api) and `lib/entity-graph-tools.ts` (old discover_schema) remain in the tree but are no longer imported.
 
 ## Rules for the API Endpoint Index
 
@@ -1033,6 +1048,32 @@ if (tool.requiredFeatures?.length) {
 ---
 
 ## Changelog
+
+### 2026-02-22 - Code Mode Tools (search + execute)
+
+**Major change**: Replaced all individual API/schema/module tools with 2 Code Mode meta-tools following Cloudflare's Code Mode pattern.
+
+**What changed**:
+- Added `search` tool: AI writes JavaScript to query the OpenAPI spec + entity schemas via a `spec` global
+- Added `execute` tool: AI writes JavaScript to make API calls via `api.request()` in a `node:vm` sandbox
+- Removed `find_api`, `call_api`, `discover_schema` tools (files kept but no longer imported)
+- Removed auto-discovered module AI tools from `ai-tools.generated.ts`
+- Token savings: from ~10+ tool schemas to exactly 2, with fixed footprint regardless of API surface growth
+
+**Files created**:
+- `lib/codemode-tools.ts` — `search` and `execute` tool definitions
+- `lib/sandbox.ts` — `node:vm` sandbox executor with security restrictions
+- `lib/truncate.ts` — Response size limiter (40K chars / ~10K tokens)
+
+**Files modified**:
+- `lib/api-endpoint-index.ts` — Added `getRawOpenApiSpec()` for raw spec caching
+- `lib/tool-loader.ts` — Loads Code Mode tools instead of legacy tools + module tools
+- `lib/http-server.ts` — Pre-caches raw OpenAPI spec at startup
+- `lib/mcp-server.ts` — Generates entity graph and caches spec for stdio mode
+
+**Files kept but unused**:
+- `lib/api-discovery-tools.ts` — Old find_api/call_api (no longer imported)
+- `lib/entity-graph-tools.ts` — Old discover_schema (no longer imported)
 
 ### 2026-01-17 - Session Persistence Fix
 
