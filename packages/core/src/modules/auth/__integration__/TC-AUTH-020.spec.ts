@@ -31,7 +31,7 @@ test.describe('TC-AUTH-020: Filter Users by Role', () => {
       await login(page, 'admin');
       await page.goto('/backend/users');
       await page.waitForLoadState('domcontentloaded');
-      await expect(page.getByText('Users')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
 
       // Open filter overlay
       await page.getByRole('button', { name: /Filters/i }).click();
