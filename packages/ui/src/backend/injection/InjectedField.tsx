@@ -17,6 +17,7 @@ type InjectedFieldProps = {
   context: FieldContext
   formData: Record<string, unknown>
   readOnly?: boolean
+  error?: string
 }
 
 type Option = { value: string; label: string }
@@ -40,6 +41,7 @@ function SelectField({
   options,
   optionsError,
   label,
+  error,
 }: {
   field: InjectionFieldDefinition
   value: unknown
@@ -48,14 +50,15 @@ function SelectField({
   options: Option[]
   optionsError: boolean
   label: string
+  error?: string
 }) {
   const t = useT()
   return (
     <div className="space-y-2" data-crud-field-id={field.id}>
-      <Label htmlFor={field.id}>{label}</Label>
+      <Label htmlFor={field.id} className={error ? 'text-destructive' : undefined}>{label}</Label>
       <select
         id={field.id}
-        className="flex h-9 w-full rounded-md border border-input bg-background pl-3 pr-8 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        className={`flex h-9 w-full rounded-md border bg-background pl-3 pr-8 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${error ? 'border-destructive' : 'border-input'}`}
         value={typeof value === 'string' ? value : ''}
         disabled={disabled || (options.length === 0 && !field.options?.length)}
         onChange={(event) => onChange(field.id, event.target.value || undefined)}
@@ -65,6 +68,9 @@ function SelectField({
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}
       </select>
+      {error ? (
+        <p className="text-xs text-destructive">{error}</p>
+      ) : null}
       {optionsError ? (
         <div className="text-xs text-muted-foreground">{t('ui.forms.optionsUnavailable', 'Options unavailable')}</div>
       ) : null}
@@ -73,7 +79,7 @@ function SelectField({
 }
 
 
-export function InjectedField({ field, value, onChange, context, formData, readOnly = false }: InjectedFieldProps) {
+export function InjectedField({ field, value, onChange, context, formData, readOnly = false, error }: InjectedFieldProps) {
   const t = useT()
   const [dynamicOptions, setDynamicOptions] = React.useState<Option[] | null>(null)
   const [optionsError, setOptionsError] = React.useState(false)
@@ -133,14 +139,15 @@ export function InjectedField({ field, value, onChange, context, formData, readO
   if (field.type === 'textarea') {
     return (
       <div className="space-y-2" data-crud-field-id={field.id}>
-        <Label htmlFor={field.id}>{label}</Label>
+        <Label htmlFor={field.id} className={error ? 'text-destructive' : undefined}>{label}</Label>
         <Textarea
           id={field.id}
-          className="min-h-[96px]"
+          className={`min-h-[96px] ${error ? 'border-destructive' : ''}`}
           value={typeof value === 'string' ? value : ''}
           disabled={disabled}
           onChange={(event) => onChange(field.id, event.target.value)}
         />
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </div>
     )
   }
@@ -155,6 +162,7 @@ export function InjectedField({ field, value, onChange, context, formData, readO
         options={options}
         optionsError={optionsError}
         label={label}
+        error={error}
       />
     )
   }
@@ -174,10 +182,11 @@ export function InjectedField({ field, value, onChange, context, formData, readO
 
   return (
     <div className="space-y-2" data-crud-field-id={field.id}>
-      <Label htmlFor={field.id}>{label}</Label>
+      <Label htmlFor={field.id} className={error ? 'text-destructive' : undefined}>{label}</Label>
       <Input
         id={field.id}
         type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+        className={error ? 'border-destructive' : undefined}
         value={typeof value === 'string' || typeof value === 'number' ? String(value) : ''}
         disabled={disabled}
         onChange={(event) => {
@@ -188,6 +197,7 @@ export function InjectedField({ field, value, onChange, context, formData, readO
           onChange(field.id, event.target.value)
         }}
       />
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   )
 }

@@ -32,11 +32,15 @@ function ProviderInjectedFields({
   values,
   setValue,
   onFieldsResolved,
+  errors,
+  onFieldChange,
 }: {
   provider: ProviderItem | null
   values: Record<string, unknown>
   setValue: (id: string, value: unknown) => void
   onFieldsResolved: (providerKey: string, fields: InjectionFieldDefinition[]) => void
+  errors?: Record<string, string>
+  onFieldChange?: (fieldId: string) => void
 }) {
   const t = useT()
   const spotId = provider?.transactionCreateFieldSpotId?.trim()
@@ -50,6 +54,11 @@ function ProviderInjectedFields({
   React.useEffect(() => {
     onFieldsResolved(provider?.providerKey ?? '', providerFields)
   }, [onFieldsResolved, provider?.providerKey, providerFields])
+
+  const handleChange = React.useCallback((fieldId: string, value: unknown) => {
+    setValue(fieldId, value)
+    onFieldChange?.(fieldId)
+  }, [setValue, onFieldChange])
 
   if (!provider?.description && providerFields.length === 0) return null
 
@@ -68,10 +77,11 @@ function ProviderInjectedFields({
                 key={field.id}
                 field={field}
                 value={values[field.id]}
-                onChange={setValue}
+                onChange={handleChange}
                 context={{ record: { providerKey: provider?.providerKey ?? null } }}
                 formData={values}
                 readOnly={false}
+                error={errors?.[field.id]}
               />
             ))}
           </div>
@@ -93,6 +103,7 @@ export default function CreatePaymentLinkPage() {
   const [loadingTemplates, setLoadingTemplates] = React.useState(true)
   const [currentProviderKey, setCurrentProviderKey] = React.useState('')
   const providerFieldsRef = React.useRef<InjectionFieldDefinition[]>([])
+  const [providerErrors, setProviderErrors] = React.useState<Record<string, string>>({})
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<Partial<PaymentLinkCreateFormValues>>({})
   const logoSetValueRef = React.useRef<((url: string) => void) | null>(null)
@@ -208,17 +219,29 @@ export default function CreatePaymentLinkPage() {
     onLogoFileSelect: handleLogoFileSelect,
   }), [t, providers, currencies, templates, loadingProviders, loadingCurrencies, loadingTemplates, handleTemplateSelect, handleLogoFileSelect])
 
+  const handleProviderFieldChange = React.useCallback((fieldId: string) => {
+    setProviderErrors(prev => {
+      if (!(fieldId in prev)) return prev
+      const next = { ...prev }
+      delete next[fieldId]
+      return next
+    })
+  }, [])
+
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const baseGroups = buildPaymentLinkFormGroups(t)
 
     const providerFieldsGroup: CrudFormGroup = {
       id: 'providerFields',
+      column: 2,
       bare: true,
       component: ({ values, setValue }) => (
         <ProviderInjectedFields
           provider={selectedProvider}
           values={values}
           setValue={setValue}
+          errors={providerErrors}
+          onFieldChange={handleProviderFieldChange}
           onFieldsResolved={(providerKey, resolvedFields) => {
             if (providerKey !== currentProviderKey) return
             providerFieldsRef.current = resolvedFields
@@ -248,15 +271,31 @@ export default function CreatePaymentLinkPage() {
       ),
     }
 
-    const paymentIdx = baseGroups.findIndex(g => g.id === 'payment')
+    // Insert provider fields at the beginning of column 2 groups (before custom-fields)
+    const customFieldsIdx = baseGroups.findIndex(g => g.id === 'custom-fields')
     const withProvider = [...baseGroups]
-    withProvider.splice(paymentIdx + 1, 0, providerFieldsGroup)
+    withProvider.splice(customFieldsIdx >= 0 ? customFieldsIdx : baseGroups.length, 0, providerFieldsGroup)
 
     return [...withProvider, previewGroup]
-  }, [t, selectedProvider, currentProviderKey])
+  }, [t, selectedProvider, currentProviderKey, providerErrors, handleProviderFieldChange])
 
   const handleSubmit = React.useCallback(async (values: PaymentLinkCreateFormValues) => {
     const formValues = values as Record<string, unknown>
+
+    const fieldErrors: Record<string, string> = {}
+    for (const field of providerFieldsRef.current) {
+      if (field.required) {
+        const fieldValue = formValues[field.id]
+        if (fieldValue == null || fieldValue === '' || fieldValue === undefined) {
+          fieldErrors[field.id] = t('ui.forms.fieldRequired', 'This field is required')
+        }
+      }
+    }
+    if (Object.keys(fieldErrors).length > 0) {
+      setProviderErrors(fieldErrors)
+      throw createCrudFormError(t('payment_link_pages.create.providerFieldsRequired', 'Please fill in all required provider settings'))
+    }
+
     const providerInput = providerFieldsRef.current.reduce<Record<string, unknown>>((acc, field) => {
       if (field.id in formValues) acc[field.id] = formValues[field.id]
       return acc
@@ -321,6 +360,7 @@ export default function CreatePaymentLinkPage() {
           isLoading={loadingProviders || loadingCurrencies}
           loadingMessage={t('ui.forms.loading', 'Loading data...')}
           entityIds={[PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]}
+          customFieldsetBindings={{ [PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]: { valueKey: 'customFieldsetCode' } }}
           submitLabel={t('payment_link_pages.create.submit', 'Create Payment Link')}
           onSubmit={handleSubmit}
         />

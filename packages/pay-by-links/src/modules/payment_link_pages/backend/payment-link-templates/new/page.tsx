@@ -60,9 +60,11 @@ export default function CreateTemplatePage() {
           cancelHref="/backend/payment-link-templates"
           fields={fields}
           groups={groups}
+          twoColumn
           schema={templateFormSchema}
           initialValues={initialValues}
           entityIds={[PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]}
+          customFieldsetBindings={{ [PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]: { valueKey: 'customFieldsetCode' } }}
           submitLabel={t('payment_link_pages.templates.form.submit', 'Save Template')}
           onSubmit={async (values) => {
             const payload = templateFormValuesToPayload(values)

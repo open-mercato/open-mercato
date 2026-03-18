@@ -47,7 +47,7 @@ export type PaymentLinkPageResponse = {
       companyRequired: boolean
       termsRequired?: boolean
       termsMarkdown?: string | null
-      customerHandlingMode?: 'no_customer' | 'create_new' | 'verify_and_merge'
+      customerHandlingMode?: 'no_customer' | 'create_new'
       collected?: boolean
       customerCreated?: boolean
       fields?: {
@@ -98,6 +98,7 @@ type CheckoutSectionProps = SharedSectionProps & {
   }
   customerSubmitting: boolean
   customerError: string | null
+  customerFieldErrors: Record<string, string>
   customerTermsAccepted: boolean
   onPasswordChange: (value: string) => void
   onUnlock: () => void
@@ -299,6 +300,7 @@ function DefaultCheckoutSection({
   customerForm,
   customerSubmitting,
   customerError,
+  customerFieldErrors,
   customerTermsAccepted,
   onPasswordChange,
   onUnlock,
@@ -372,7 +374,7 @@ function DefaultCheckoutSection({
               value={password}
               onChange={(event) => onPasswordChange(event.target.value)}
               placeholder={t('payment_gateways.paymentLink.passwordPlaceholder', 'Password')}
-              className="border-slate-700 bg-slate-950 text-white"
+              className="!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400"
             />
             <Button type="button" disabled={unlocking || password.trim().length === 0} onClick={onUnlock}>
               {unlocking ? t('payment_gateways.paymentLink.unlocking', 'Unlocking...') : t('payment_gateways.paymentLink.unlock', 'Unlock')}
@@ -381,7 +383,7 @@ function DefaultCheckoutSection({
         </div>
       ) : error ? (
         <div className="flex min-h-[420px] items-center justify-center">
-          <div className="max-w-lg rounded-3xl border border-rose-500/30 bg-rose-500/10 p-6 text-center">
+          <div className="max-w-lg rounded-3xl border !border-rose-500/30 bg-rose-500/10 p-6 text-center">
             <div className="text-lg font-semibold text-white">
               {error ?? t('payment_gateways.paymentLink.unavailable', 'This payment link is unavailable.')}
             </div>
@@ -415,7 +417,7 @@ function DefaultCheckoutSection({
           <div className="grid gap-4 sm:grid-cols-2">
             {termsRequired ? (
               <div className="space-y-3 sm:col-span-2">
-                <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+                <div className="rounded-2xl border !border-slate-700 !bg-slate-950/70 p-4">
                   <div className="mb-3 text-sm font-medium text-slate-200">
                     {t('payment_gateways.paymentLink.customerCapture.termsTitle', 'Terms / GDPR consent')}
                   </div>
@@ -425,7 +427,7 @@ function DefaultCheckoutSection({
                     className="prose prose-invert max-w-none text-sm"
                   />
                 </div>
-                <label className="flex items-start gap-3 rounded-2xl border border-slate-700 bg-slate-950/50 p-4 text-sm text-slate-200">
+                <label className="flex items-start gap-3 rounded-2xl border !border-slate-700 !bg-slate-950/50 p-4 text-sm !text-slate-200">
                   <Checkbox
                     checked={customerTermsAccepted}
                     onCheckedChange={(checked: boolean | 'indeterminate') => onCustomerTermsAcceptedChange(checked === true)}
@@ -443,72 +445,77 @@ function DefaultCheckoutSection({
               <div className="space-y-2 sm:col-span-2">
                 <div className="text-sm font-medium text-slate-200">
                   {isFieldRequired('companyName')
-                    ? t('payment_gateways.paymentLink.customerCapture.companyName', 'Company name')
+                    ? <>{t('payment_gateways.paymentLink.customerCapture.companyName', 'Company name')} <span className="text-rose-400">*</span></>
                     : t('payment_gateways.paymentLink.customerCapture.companyOptional', 'Company name (optional)')}
                 </div>
                 <Input
                   value={customerForm.companyName}
                   onChange={(event) => onCustomerFieldChange('companyName', event.target.value)}
-                  className="border-slate-700 bg-slate-950 text-white"
+                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.companyName ? '!border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
+                {customerFieldErrors.companyName ? <p className="text-xs text-rose-400">{customerFieldErrors.companyName}</p> : null}
               </div>
             ) : null}
             {isFieldVisible('firstName') ? (
               <div className="space-y-2">
                 <div className="text-sm font-medium text-slate-200">
-                  {t('payment_gateways.paymentLink.customerCapture.firstName', 'First name')}{!isFieldRequired('firstName') ? ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})` : ''}
+                  {t('payment_gateways.paymentLink.customerCapture.firstName', 'First name')}{isFieldRequired('firstName') ? <span className="text-rose-400"> *</span> : ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})`}
                 </div>
                 <Input
                   value={customerForm.firstName}
                   onChange={(event) => onCustomerFieldChange('firstName', event.target.value)}
-                  className="border-slate-700 bg-slate-950 text-white"
+                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.firstName ? '!border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
+                {customerFieldErrors.firstName ? <p className="text-xs text-rose-400">{customerFieldErrors.firstName}</p> : null}
               </div>
             ) : null}
             {isFieldVisible('lastName') ? (
               <div className="space-y-2">
                 <div className="text-sm font-medium text-slate-200">
-                  {t('payment_gateways.paymentLink.customerCapture.lastName', 'Last name')}{!isFieldRequired('lastName') ? ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})` : ''}
+                  {t('payment_gateways.paymentLink.customerCapture.lastName', 'Last name')}{isFieldRequired('lastName') ? <span className="text-rose-400"> *</span> : ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})`}
                 </div>
                 <Input
                   value={customerForm.lastName}
                   onChange={(event) => onCustomerFieldChange('lastName', event.target.value)}
-                  className="border-slate-700 bg-slate-950 text-white"
+                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.lastName ? '!border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
+                {customerFieldErrors.lastName ? <p className="text-xs text-rose-400">{customerFieldErrors.lastName}</p> : null}
               </div>
             ) : null}
             <div className="space-y-2">
               <div className="text-sm font-medium text-slate-200">
-                {t('payment_gateways.paymentLink.customerCapture.email', 'Email')}
+                {t('payment_gateways.paymentLink.customerCapture.email', 'Email')} <span className="text-rose-400">*</span>
               </div>
               <Input
                 type="email"
                 value={customerForm.email}
                 onChange={(event) => onCustomerFieldChange('email', event.target.value)}
-                className="border-slate-700 bg-slate-950 text-white"
+                className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.email ? '!border-rose-500' : ''}`}
                 disabled={!canFillCustomerForm}
               />
+              {customerFieldErrors.email ? <p className="text-xs text-rose-400">{customerFieldErrors.email}</p> : null}
             </div>
             {isFieldVisible('phone') ? (
               <div className="space-y-2">
                 <div className="text-sm font-medium text-slate-200">
-                  {t('payment_gateways.paymentLink.customerCapture.phone', 'Phone')}{!isFieldRequired('phone') ? ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})` : ''}
+                  {t('payment_gateways.paymentLink.customerCapture.phone', 'Phone')}{isFieldRequired('phone') ? <span className="text-rose-400"> *</span> : ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})`}
                 </div>
                 <Input
                   value={customerForm.phone}
                   onChange={(event) => onCustomerFieldChange('phone', event.target.value)}
-                  className="border-slate-700 bg-slate-950 text-white"
+                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.phone ? '!border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
+                {customerFieldErrors.phone ? <p className="text-xs text-rose-400">{customerFieldErrors.phone}</p> : null}
               </div>
             ) : null}
           </div>
 
           {customerError ? (
-            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
+            <div className="rounded-2xl border !border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
               {customerError}
             </div>
           ) : null}
@@ -601,6 +608,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
   const [customerSubmitting, setCustomerSubmitting] = React.useState(false)
   const [customerError, setCustomerError] = React.useState<string | null>(null)
   const [customerTermsAccepted, setCustomerTermsAccepted] = React.useState(false)
+  const [customerFieldErrors, setCustomerFieldErrors] = React.useState<Record<string, string>>({})
   const [customerForm, setCustomerForm] = React.useState({
     companyName: '',
     firstName: '',
@@ -686,12 +694,49 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
   const handleCustomerFieldChange = React.useCallback(
     (field: 'companyName' | 'firstName' | 'lastName' | 'email' | 'phone', value: string) => {
       setCustomerForm((current) => ({ ...current, [field]: value }))
+      setCustomerFieldErrors((prev) => {
+        if (!(field in prev)) return prev
+        const next = { ...prev }
+        delete next[field]
+        return next
+      })
     },
     [],
   )
 
+  const validateCustomerForm = React.useCallback((): boolean => {
+    const capture = data?.link?.customerCapture
+    const fieldConfig = capture?.fields
+    const errors: Record<string, string> = {}
+    const required = t('ui.forms.fieldRequired', 'This field is required')
+
+    if (!customerForm.email.trim()) errors.email = required
+
+    const checkField = (name: string, value: string) => {
+      const visible = fieldConfig ? fieldConfig[name as keyof typeof fieldConfig]?.visible !== false : true
+      let fieldRequired = false
+      if (!fieldConfig) {
+        if (name === 'companyName') fieldRequired = capture?.companyRequired === true
+        else if (name === 'phone') fieldRequired = false
+        else fieldRequired = name === 'firstName' || name === 'lastName'
+      } else {
+        fieldRequired = fieldConfig[name as keyof typeof fieldConfig]?.required === true
+      }
+      if (visible && fieldRequired && !value.trim()) errors[name] = required
+    }
+
+    checkField('firstName', customerForm.firstName)
+    checkField('lastName', customerForm.lastName)
+    checkField('companyName', customerForm.companyName)
+    checkField('phone', customerForm.phone)
+
+    setCustomerFieldErrors(errors)
+    return Object.keys(errors).length === 0
+  }, [customerForm, data?.link?.customerCapture, t])
+
   const handleCustomerSubmit = React.useCallback(async () => {
     if (!token) return
+    if (!validateCustomerForm()) return
     setCustomerSubmitting(true)
     setCustomerError(null)
     const call = await apiCall<{ error?: string }>(
@@ -719,10 +764,11 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
 
     setCustomerSubmitting(false)
     setCustomerError(call.result?.error ?? t('payment_gateways.paymentLink.customerCapture.error', 'Unable to save your details.'))
-  }, [accessToken, customerForm, customerTermsAccepted, loadLink, t, token])
+  }, [accessToken, customerForm, customerTermsAccepted, loadLink, t, token, validateCustomerForm])
 
   const handleSessionSubmit = React.useCallback(async () => {
     if (!token) return
+    if (!validateCustomerForm()) return
     setCustomerSubmitting(true)
     setCustomerError(null)
     const call = await apiCall<{ transactionId?: string; redirectUrl?: string | null; clientSecret?: string | null; error?: string }>(
@@ -775,7 +821,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
 
     setCustomerSubmitting(false)
     setCustomerError(call.result?.error ?? t('payment_gateways.paymentLink.customerCapture.error', 'Unable to save your details.'))
-  }, [accessToken, customerForm, customerTermsAccepted, t, token])
+  }, [accessToken, customerForm, customerTermsAccepted, t, token, validateCustomerForm])
 
   const redirectUrl = typeof data?.transaction?.redirectUrl === 'string' && data.transaction.redirectUrl.trim().length > 0
     ? data.transaction.redirectUrl
@@ -879,6 +925,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
             customerForm={customerForm}
             customerSubmitting={customerSubmitting}
             customerError={customerError}
+            customerFieldErrors={customerFieldErrors}
             customerTermsAccepted={customerTermsAccepted}
             onPasswordChange={setPassword}
             onUnlock={() => {

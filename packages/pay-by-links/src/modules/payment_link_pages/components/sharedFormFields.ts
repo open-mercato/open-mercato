@@ -31,7 +31,7 @@ export const sharedContentSchema = {
 export const sharedCaptureSchema = {
   customerCaptureEnabled: z.boolean().optional().default(false),
   customerCaptureHandlingMode: z
-    .enum(['no_customer', 'create_new', 'verify_and_merge'])
+    .enum(['no_customer', 'create_new'])
     .optional()
     .default('no_customer'),
   customerCaptureCompanyRequired: z.boolean().optional().default(false),
@@ -184,11 +184,11 @@ export function renderLogoField(
   )
 }
 
-export function renderMetadataField(props: CrudCustomFieldRenderProps): React.ReactNode {
-  const JsonBuilder = React.lazy(() =>
-    import('@open-mercato/ui/backend/JsonBuilder').then((mod) => ({ default: mod.JsonBuilder })),
-  )
+const LazyJsonBuilder = React.lazy(() =>
+  import('@open-mercato/ui/backend/JsonBuilder').then((mod) => ({ default: mod.JsonBuilder })),
+)
 
+export function renderMetadataField(props: CrudCustomFieldRenderProps): React.ReactNode {
   const rawValue = typeof props.value === 'string' ? props.value : ''
   let parsed: Record<string, unknown> = {}
   try {
@@ -198,7 +198,7 @@ export function renderMetadataField(props: CrudCustomFieldRenderProps): React.Re
   return React.createElement(
     React.Suspense,
     { fallback: React.createElement('div', { className: 'text-sm text-muted-foreground' }, 'Loading...') },
-    React.createElement(JsonBuilder, {
+    React.createElement(LazyJsonBuilder, {
       value: parsed,
       onChange: (next: Record<string, unknown>) => {
         props.setValue(JSON.stringify(next, null, 2))
@@ -307,7 +307,6 @@ export function buildCaptureFields(
           [
             { value: 'no_customer', label: t('payment_link_pages.create.customerCapture.handlingMode.noCustomer', 'Do not create customer (data only)') },
             { value: 'create_new', label: t('payment_link_pages.create.customerCapture.handlingMode.createNew', 'Always create new customer') },
-            { value: 'verify_and_merge', label: t('payment_link_pages.create.customerCapture.handlingMode.verifyAndMerge', 'Merge with existing (email verification)') },
           ],
           {
             placeholder: '\u2014',

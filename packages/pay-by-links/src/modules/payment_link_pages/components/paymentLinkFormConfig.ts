@@ -78,6 +78,9 @@ export const paymentLinkCreateSchema = z
     ...sharedCaptureSchema,
     ...sharedMetadataSchema,
 
+    // Custom fields
+    customFieldsetCode: z.string().max(100).optional().nullable(),
+
     // Save as template
     saveAsTemplate: z.boolean().optional().default(false),
     templateName: z.string().max(200).optional().nullable(),
@@ -279,28 +282,40 @@ export function buildPaymentLinkFormGroups(
   t: (key: string, fallback?: string) => string,
 ): CrudFormGroup[] {
   return [
+    // Column 1 (left)
     {
       id: 'template',
+      column: 1,
       fields: ['templateId'],
     },
     {
       id: 'payment',
+      column: 1,
       title: t('payment_link_pages.create.group.payment', 'Payment'),
       fields: ['providerKey', 'currencyCode', 'amount', 'description'],
     },
-    buildContentGroup(t),
+    { ...buildContentGroup(t), column: 1 },
     {
       id: 'linkSettings',
+      column: 1,
       title: t('payment_link_pages.create.group.linkSettings', 'Link Settings'),
       fields: ['linkMode', 'maxUses', 'password', 'customLinkPath'],
     },
-    buildBrandingGroup(t),
-    buildCaptureGroup(t),
-    buildMetadataGroup(t),
+    { ...buildBrandingGroup(t), column: 1 },
+    { ...buildCaptureGroup(t), column: 1 },
+    { ...buildMetadataGroup(t), column: 1 },
     {
       id: 'saveTemplate',
+      column: 1,
       title: t('payment_link_pages.create.group.saveTemplate', 'Save as Template'),
       fields: ['saveAsTemplate', 'templateName'],
+    },
+    // Column 2 (right) — custom fields (provider fields group is injected in the page)
+    {
+      id: 'custom-fields',
+      column: 2,
+      title: t('payment_link_pages.create.group.customFields', 'Custom fields'),
+      kind: 'customFields' as const,
     },
   ]
 }

@@ -68,11 +68,19 @@ export function buildTemplateFormFields(
 
 export function buildTemplateFormGroups(t: (key: string, fallback?: string) => string): CrudFormGroup[] {
   return [
-    { id: 'general', title: t('payment_link_pages.templates.form.group.general', 'General'), fields: ['name', 'description', 'isDefault'] },
-    buildBrandingGroup(t),
-    buildContentGroup(t),
-    buildCaptureGroup(t),
-    buildMetadataGroup(t),
+    // Column 1 (left)
+    { id: 'general', column: 1, title: t('payment_link_pages.templates.form.group.general', 'General'), fields: ['name', 'description', 'isDefault'] },
+    { ...buildBrandingGroup(t), column: 1 },
+    { ...buildContentGroup(t), column: 1 },
+    { ...buildCaptureGroup(t), column: 1 },
+    { ...buildMetadataGroup(t), column: 1 },
+    // Column 2 (right) — custom fields
+    {
+      id: 'custom-fields',
+      column: 2,
+      title: t('payment_link_pages.templates.form.group.customFields', 'Custom fields'),
+      kind: 'customFields' as const,
+    },
   ]
 }
 
@@ -150,7 +158,7 @@ export function recordToTemplateFormValues(record: Record<string, unknown>): Tem
     defaultTitle: record.default_title != null || record.defaultTitle != null ? String(record.default_title ?? record.defaultTitle ?? '') : null,
     defaultDescription: record.default_description != null || record.defaultDescription != null ? String(record.default_description ?? record.defaultDescription ?? '') : null,
     customerCaptureEnabled: capture.enabled === true,
-    customerCaptureHandlingMode: typeof capture.customerHandlingMode === 'string' ? capture.customerHandlingMode as 'no_customer' | 'create_new' | 'verify_and_merge' : 'no_customer',
+    customerCaptureHandlingMode: typeof capture.customerHandlingMode === 'string' && (capture.customerHandlingMode === 'no_customer' || capture.customerHandlingMode === 'create_new') ? capture.customerHandlingMode : 'no_customer',
     customerCaptureCompanyRequired: capture.companyRequired === true,
     captureFirstNameVisible: fields.firstName?.visible !== false,
     captureFirstNameRequired: fields.firstName?.required === true,
