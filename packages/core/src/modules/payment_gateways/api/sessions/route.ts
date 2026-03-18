@@ -12,8 +12,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSessionSchema } from '../../data/validators'
 import { GatewayPaymentLink } from '../../data/entities'
-import { PaymentLinkTemplate } from '../../../payment_link_pages/data/entities'
 import { emitPaymentGatewayEvent } from '../../events'
+import { resolvePaymentLinkTemplate } from '@open-mercato/shared/modules/payment_link_pages/runtime'
+import type { PaymentLinkTemplateData } from '@open-mercato/shared/modules/payment_link_pages/runtime'
 import { buildPaymentLinkStoredMetadata } from '../../lib/payment-link-page-metadata'
 import {
   buildPaymentLinkUrl,
@@ -213,7 +214,7 @@ function mergePaymentLinkWithTemplate(
       termsMarkdown?: string
     }
   },
-  template: PaymentLinkTemplate,
+  template: PaymentLinkTemplateData,
 ): ResolvedPaymentLinkValues {
   const templateBranding = template.branding && typeof template.branding === 'object' && !Array.isArray(template.branding)
     ? template.branding as Record<string, unknown>
@@ -412,17 +413,11 @@ export async function POST(req: Request) {
       }
 
       if (paymentLinkData.templateId) {
-        const template = await findOneWithDecryption(
+        const template = await resolvePaymentLinkTemplate(
           em,
-          PaymentLinkTemplate,
-          {
-            id: paymentLinkData.templateId,
-            organizationId: auth.orgId as string,
-            tenantId: auth.tenantId,
-            deletedAt: null,
-          },
-          undefined,
-          { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+          paymentLinkData.templateId,
+          auth.orgId as string,
+          auth.tenantId,
         )
 
         if (template) {
@@ -595,17 +590,11 @@ export async function POST(req: Request) {
           : undefined
 
       if (parsed.data.paymentLink.templateId) {
-        const template = await findOneWithDecryption(
+        const template = await resolvePaymentLinkTemplate(
           em,
-          PaymentLinkTemplate,
-          {
-            id: parsed.data.paymentLink.templateId,
-            organizationId: auth.orgId as string,
-            tenantId: auth.tenantId,
-            deletedAt: null,
-          },
-          undefined,
-          { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+          parsed.data.paymentLink.templateId,
+          auth.orgId as string,
+          auth.tenantId,
         )
 
         if (template) {

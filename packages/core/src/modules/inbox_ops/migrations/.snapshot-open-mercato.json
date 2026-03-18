@@ -572,6 +572,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -724,6 +733,18 @@
             "inbox_email_id"
           ],
           "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "inbox_proposals_organization_id_tenant_id_category_index",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "category"
+          ],
+          "composite": true,
           "constraint": false,
           "primary": false,
           "unique": false

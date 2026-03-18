@@ -183,6 +183,7 @@ jobs:
             "@open-mercato/enterprise"
             "@open-mercato/events"
             "@open-mercato/onboarding"
+            "@open-mercato/pay-by-links"
             "@open-mercato/queue"
             "@open-mercato/scheduler"
             "@open-mercato/search"

@@ -8,29 +8,21 @@ import {
   type CrudField,
   type CrudFieldOption,
   type CrudFormGroup,
-  type CrudFormGroupComponentProps,
 } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { InjectedField } from '@open-mercato/ui/backend/injection/InjectedField'
 import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs/SwitchableMarkdownInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   buildPaymentGatewayTransactionCreateFieldSpotId,
   PAYMENT_GATEWAY_TRANSACTION_CREATE_FORM_SPOT_ID,
 } from '@open-mercato/shared/modules/payment_gateways/types'
-import { PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID } from '@open-mercato/shared/modules/payment_link_pages/types'
 import type { InjectionFieldDefinition } from '@open-mercato/shared/modules/widgets/injection'
 import { CheckCircle2, Copy, ExternalLink, Share2 } from 'lucide-react'
 
@@ -64,17 +56,6 @@ type CreatePaymentTransactionFormValues = {
   amount: number | ''
   currencyCode: string
   description: string
-  createPaymentLink: boolean
-  paymentLinkTitle: string
-  paymentLinkDescription: string
-  paymentLinkPassword: string
-  paymentLinkCustomPath: string
-  paymentLinkMetadata: Record<string, unknown>
-  paymentLinkCustomFieldsetCode?: string
-  paymentLinkCollectCustomer: boolean
-  paymentLinkRequireCompany: boolean
-  paymentLinkRequireTerms: boolean
-  paymentLinkTermsMarkdown: string
 } & Record<string, unknown>
 
 const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
@@ -82,33 +63,6 @@ const DEFAULT_FORM_VALUES: CreatePaymentTransactionFormValues = {
   amount: '',
   currencyCode: '',
   description: '',
-  createPaymentLink: true,
-  paymentLinkTitle: '',
-  paymentLinkDescription: '',
-  paymentLinkPassword: '',
-  paymentLinkCustomPath: '',
-  paymentLinkMetadata: {},
-  paymentLinkCustomFieldsetCode: '',
-  paymentLinkCollectCustomer: false,
-  paymentLinkRequireCompany: false,
-  paymentLinkRequireTerms: false,
-  paymentLinkTermsMarkdown: '',
-}
-
-const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.filter((entry) => entry !== undefined)
-  if (value === undefined) return null
-  return value
-}
-
-function PaymentLinkMetadataField({ value, setValue, disabled }: CrudCustomFieldRenderProps) {
-  return (
-    <JsonBuilder
-      value={value && typeof value === 'object' && !Array.isArray(value) ? value : {}}
-      onChange={setValue}
-      disabled={disabled}
-    />
-  )
 }
 
 function formatProviderLabel(provider: ProviderItem): string {
@@ -247,182 +201,6 @@ function ProviderInjectedFieldsSection({
   )
 }
 
-function PaymentLinkSection({
-  provider,
-  values,
-  errors,
-  setValue,
-}: CrudFormGroupComponentProps & {
-  provider: ProviderItem | null
-}) {
-  const t = useT()
-
-  if (!provider?.supportsPaymentLinks) return null
-
-  const paymentLinkEnabled = values.createPaymentLink === true
-
-  return (
-    <div className="rounded-xl border bg-muted/20 p-4">
-      <label className="flex items-center gap-3 text-sm font-medium">
-        <Checkbox
-          checked={paymentLinkEnabled}
-          onCheckedChange={(checked) => setValue('createPaymentLink', checked === true)}
-        />
-        <span>{t('payment_gateways.create.paymentLinkToggle', 'Create payment link')}</span>
-      </label>
-
-      {paymentLinkEnabled ? (
-        <div className="mt-4 grid gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="paymentLinkTitle">
-              {t('payment_gateways.create.paymentLinkTitle', 'Link title')}
-              <span className="text-red-600"> *</span>
-            </Label>
-            <Input
-              id="paymentLinkTitle"
-              value={typeof values.paymentLinkTitle === 'string' ? values.paymentLinkTitle : ''}
-              onChange={(event) => setValue('paymentLinkTitle', event.target.value)}
-              aria-invalid={errors.paymentLinkTitle ? 'true' : 'false'}
-            />
-            {errors.paymentLinkTitle ? <p className="text-xs text-destructive">{errors.paymentLinkTitle}</p> : null}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="paymentLinkDescription">{t('payment_gateways.create.paymentLinkDescription', 'Link description')}</Label>
-            <Textarea
-              id="paymentLinkDescription"
-              value={typeof values.paymentLinkDescription === 'string' ? values.paymentLinkDescription : ''}
-              onChange={(event) => setValue('paymentLinkDescription', event.target.value)}
-              aria-invalid={errors.paymentLinkDescription ? 'true' : 'false'}
-            />
-            {errors.paymentLinkDescription ? <p className="text-xs text-destructive">{errors.paymentLinkDescription}</p> : null}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="paymentLinkPassword">{t('payment_gateways.create.paymentLinkPassword', 'Password (optional)')}</Label>
-            <Input
-              id="paymentLinkPassword"
-              type="password"
-              value={typeof values.paymentLinkPassword === 'string' ? values.paymentLinkPassword : ''}
-              onChange={(event) => setValue('paymentLinkPassword', event.target.value)}
-              aria-invalid={errors.paymentLinkPassword ? 'true' : 'false'}
-            />
-            {errors.paymentLinkPassword ? <p className="text-xs text-destructive">{errors.paymentLinkPassword}</p> : null}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="paymentLinkCustomPath">
-              {t('payment_gateways.create.paymentLinkCustomPath', 'Custom link path (optional)')}
-            </Label>
-            <Input
-              id="paymentLinkCustomPath"
-              value={typeof values.paymentLinkCustomPath === 'string' ? values.paymentLinkCustomPath : ''}
-              onChange={(event) => setValue('paymentLinkCustomPath', event.target.value)}
-              aria-invalid={errors.paymentLinkCustomPath ? 'true' : 'false'}
-              placeholder={t('payment_gateways.create.paymentLinkCustomPathPlaceholder', 'invoice-inv-10024')}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t('payment_gateways.create.paymentLinkCustomPathHelp', 'Use lowercase letters, numbers, and dashes. This becomes the last part of the /pay/... URL.')}
-            </p>
-            {errors.paymentLinkCustomPath ? <p className="text-xs text-destructive">{errors.paymentLinkCustomPath}</p> : null}
-          </div>
-
-          <div className="rounded-lg border border-border/60 bg-background/80 p-4">
-            <label className="flex items-start gap-3 text-sm font-medium">
-              <Checkbox
-                checked={values.paymentLinkCollectCustomer === true}
-                onCheckedChange={(checked) => {
-                  const enabled = checked === true
-                  setValue('paymentLinkCollectCustomer', enabled)
-                  if (!enabled) {
-                    setValue('paymentLinkRequireCompany', false)
-                    setValue('paymentLinkRequireTerms', false)
-                    setValue('paymentLinkTermsMarkdown', '')
-                  }
-                }}
-              />
-              <span className="space-y-1">
-                <span className="block">
-                  {t('payment_gateways.create.paymentLinkCollectCustomer', 'Collect customer details before checkout')}
-                </span>
-                <span className="block text-xs font-normal text-muted-foreground">
-                  {t(
-                    'payment_gateways.create.paymentLinkCollectCustomerHelp',
-                    'Show a checkout-style customer form on the pay link and create or reuse the matching customer records before payment starts.',
-                  )}
-                </span>
-              </span>
-            </label>
-
-            {values.paymentLinkCollectCustomer === true ? (
-              <div className="mt-4 space-y-4">
-                <label className="flex items-start gap-3 text-sm">
-                  <Checkbox
-                    checked={values.paymentLinkRequireCompany === true}
-                    onCheckedChange={(checked) => setValue('paymentLinkRequireCompany', checked === true)}
-                  />
-                  <span className="space-y-1">
-                    <span className="block font-medium">
-                      {t('payment_gateways.create.paymentLinkRequireCompany', 'Require company name')}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {t(
-                        'payment_gateways.create.paymentLinkRequireCompanyHelp',
-                        'Require a company and link the created person to that company.',
-                      )}
-                    </span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 text-sm">
-                  <Checkbox
-                    checked={values.paymentLinkRequireTerms === true}
-                    onCheckedChange={(checked) => {
-                      const enabled = checked === true
-                      setValue('paymentLinkRequireTerms', enabled)
-                      if (!enabled) setValue('paymentLinkTermsMarkdown', '')
-                    }}
-                  />
-                  <span className="space-y-1">
-                    <span className="block font-medium">
-                      {t('payment_gateways.create.paymentLinkRequireTerms', 'Require terms / GDPR acceptance')}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {t(
-                        'payment_gateways.create.paymentLinkRequireTermsHelp',
-                        'Render markdown terms content and require the customer to accept it before filling customer details.',
-                      )}
-                    </span>
-                  </span>
-                </label>
-                {values.paymentLinkRequireTerms === true ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentLinkTermsMarkdown">
-                      {t('payment_gateways.create.paymentLinkTermsMarkdown', 'Terms content (Markdown)')}
-                    </Label>
-                    <SwitchableMarkdownInput
-                      value={typeof values.paymentLinkTermsMarkdown === 'string' ? values.paymentLinkTermsMarkdown : ''}
-                      onChange={(nextValue) => setValue('paymentLinkTermsMarkdown', nextValue)}
-                      isMarkdownEnabled
-                      height={220}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t(
-                        'payment_gateways.create.paymentLinkTermsMarkdownHelp',
-                        'Paste the markdown terms, GDPR notice, or consent copy shown before the customer form.',
-                      )}
-                    </p>
-                    {errors.paymentLinkTermsMarkdown ? <p className="text-xs text-destructive">{errors.paymentLinkTermsMarkdown}</p> : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 export function CreatePaymentTransactionDialog({
   open,
   onOpenChange,
@@ -511,20 +289,7 @@ export function CreatePaymentTransactionDialog({
     amount: z.union([z.number(), z.literal('')]),
     currencyCode: z.string(),
     description: z.string(),
-    createPaymentLink: z.boolean(),
-    paymentLinkTitle: z.string(),
-    paymentLinkDescription: z.string(),
-    paymentLinkPassword: z.string(),
-    paymentLinkCustomPath: z.string(),
-    paymentLinkMetadata: z.record(z.string(), z.unknown()),
-    paymentLinkCustomFieldsetCode: z.string().optional(),
-    paymentLinkCollectCustomer: z.boolean(),
-    paymentLinkRequireCompany: z.boolean(),
-    paymentLinkRequireTerms: z.boolean(),
-    paymentLinkTermsMarkdown: z.string(),
   }).catchall(z.unknown()).superRefine((value, ctx) => {
-    const provider = providers.find((item) => item.providerKey === value.providerKey) ?? null
-    const paymentLinkEnabled = provider?.supportsPaymentLinks === true && value.createPaymentLink === true
     const validationMessage = t('payment_gateways.create.validation', 'Provider, amount, and currency are required.')
 
     if (!value.providerKey.trim()) {
@@ -550,49 +315,7 @@ export function CreatePaymentTransactionDialog({
         message: validationMessage,
       })
     }
-
-    if (paymentLinkEnabled && (!value.paymentLinkTitle || value.paymentLinkTitle.trim().length === 0)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['paymentLinkTitle'],
-        message: t('payment_gateways.create.paymentLinkTitleRequired', 'Enter a title for the payment link.'),
-      })
-    }
-
-    if (value.paymentLinkDescription && value.paymentLinkDescription.trim().length > 500) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['paymentLinkDescription'],
-        message: t('payment_gateways.create.paymentLinkDescriptionTooLong', 'Link description must be 500 characters or fewer.'),
-      })
-    }
-
-    if (
-      paymentLinkEnabled &&
-      value.paymentLinkPassword &&
-      value.paymentLinkPassword.trim().length > 0 &&
-      value.paymentLinkPassword.trim().length < 4
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['paymentLinkPassword'],
-        message: t('payment_gateways.create.paymentLinkPasswordInvalid', 'Password must be at least 4 characters.'),
-      })
-    }
-
-    if (
-      paymentLinkEnabled &&
-      value.paymentLinkCollectCustomer === true &&
-      value.paymentLinkRequireTerms === true &&
-      value.paymentLinkTermsMarkdown.trim().length === 0
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['paymentLinkTermsMarkdown'],
-        message: t('payment_gateways.create.paymentLinkTermsMarkdownRequired', 'Enter the markdown content that the customer must accept.'),
-      })
-    }
-  }), [providers, t])
+  }), [t])
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -639,13 +362,6 @@ export function CreatePaymentTransactionDialog({
       type: 'text',
       layout: 'half',
     },
-    {
-      id: 'paymentLinkMetadata',
-      label: t('payment_gateways.create.paymentLinkMetadata', 'Page metadata (JSON)'),
-      type: 'custom',
-      layout: 'full',
-      component: (props) => <PaymentLinkMetadataField {...props} />,
-    },
   ], [currencies, loadingCurrencies, loadingProviders, providers, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
@@ -668,22 +384,6 @@ export function CreatePaymentTransactionDialog({
         />
       ),
     },
-    {
-      id: 'paymentLink',
-      bare: true,
-      component: (ctx) => <PaymentLinkSection {...ctx} provider={selectedProvider} />,
-    },
-    {
-      id: 'paymentLinkMetadata',
-      column: 2,
-      fields: ['paymentLinkMetadata'],
-    },
-    {
-      id: 'paymentLinkCustomFields',
-      title: t('payment_gateways.create.paymentLinkCustomFieldsGroup', 'Page metadata custom fields'),
-      column: 2,
-      kind: 'customFields',
-    },
   ], [currentProviderKey, selectedProvider])
 
   const handleSubmit = React.useCallback(async (values: CreatePaymentTransactionFormValues) => {
@@ -705,53 +405,6 @@ export function CreatePaymentTransactionDialog({
     const provider = providers.find((item) => item.providerKey === providerKey) ?? null
     if (!provider) {
       fieldErrors.providerKey = t('payment_gateways.create.providerPlaceholder', 'Select provider')
-    }
-
-    const paymentLinkEnabled = provider?.supportsPaymentLinks === true && values.createPaymentLink === true
-    const paymentLinkTitle =
-      typeof values.paymentLinkTitle === 'string' ? values.paymentLinkTitle.trim() : ''
-    const paymentLinkDescription =
-      typeof values.paymentLinkDescription === 'string' ? values.paymentLinkDescription.trim() : ''
-    const paymentLinkPassword =
-      typeof values.paymentLinkPassword === 'string' ? values.paymentLinkPassword.trim() : ''
-    const paymentLinkCustomPath =
-      typeof values.paymentLinkCustomPath === 'string' ? values.paymentLinkCustomPath.trim() : ''
-    const paymentLinkMetadata =
-      values.paymentLinkMetadata && typeof values.paymentLinkMetadata === 'object' && !Array.isArray(values.paymentLinkMetadata)
-        ? values.paymentLinkMetadata as Record<string, unknown>
-        : {}
-    const paymentLinkCustomFields = collectCustomFieldValues(values, {
-      transform: normalizeCustomFieldSubmitValue,
-    })
-    const paymentLinkCustomFieldsetCode =
-      typeof values.paymentLinkCustomFieldsetCode === 'string' && values.paymentLinkCustomFieldsetCode.trim().length > 0
-        ? values.paymentLinkCustomFieldsetCode.trim()
-        : undefined
-    const paymentLinkCollectCustomer = paymentLinkEnabled && values.paymentLinkCollectCustomer === true
-    const paymentLinkRequireCompany = paymentLinkCollectCustomer && values.paymentLinkRequireCompany === true
-    const paymentLinkRequireTerms = paymentLinkCollectCustomer && values.paymentLinkRequireTerms === true
-    const paymentLinkTermsMarkdown =
-      typeof values.paymentLinkTermsMarkdown === 'string' ? values.paymentLinkTermsMarkdown.trim() : ''
-    if (paymentLinkEnabled && !paymentLinkTitle) {
-      fieldErrors.paymentLinkTitle = t('payment_gateways.create.paymentLinkTitleRequired', 'Enter a title for the payment link.')
-    }
-    if (paymentLinkDescription.length > 500) {
-      fieldErrors.paymentLinkDescription = t('payment_gateways.create.paymentLinkDescriptionTooLong', 'Link description must be 500 characters or fewer.')
-    }
-    if (paymentLinkEnabled && paymentLinkPassword.length > 0 && paymentLinkPassword.length < 4) {
-      fieldErrors.paymentLinkPassword = t('payment_gateways.create.paymentLinkPasswordInvalid', 'Password must be at least 4 characters.')
-    }
-    if (paymentLinkEnabled && paymentLinkCustomPath.length > 0 && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{1,78}[A-Za-z0-9])?$/.test(paymentLinkCustomPath)) {
-      fieldErrors.paymentLinkCustomPath = t(
-        'payment_gateways.create.paymentLinkCustomPathInvalid',
-        'Custom link path must use only letters, numbers, and dashes, and be 3 to 80 characters long.',
-      )
-    }
-    if (paymentLinkCollectCustomer && paymentLinkRequireTerms && paymentLinkTermsMarkdown.length === 0) {
-      fieldErrors.paymentLinkTermsMarkdown = t(
-        'payment_gateways.create.paymentLinkTermsMarkdownRequired',
-        'Enter the markdown content that the customer must accept.',
-      )
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -781,24 +434,6 @@ export function CreatePaymentTransactionDialog({
         description: typeof values.description === 'string' ? values.description.trim() || undefined : undefined,
         captureMethod,
         providerInput,
-        paymentLink: paymentLinkEnabled ? {
-          enabled: true,
-          title: paymentLinkTitle || undefined,
-          description: paymentLinkDescription || undefined,
-          password: paymentLinkPassword || undefined,
-          token: paymentLinkCustomPath || undefined,
-          metadata: Object.keys(paymentLinkMetadata).length > 0 ? paymentLinkMetadata : undefined,
-          customFields: Object.keys(paymentLinkCustomFields).length > 0 ? paymentLinkCustomFields : undefined,
-          customFieldsetCode: paymentLinkCustomFieldsetCode,
-          customerCapture: paymentLinkCollectCustomer
-            ? {
-                enabled: true,
-                companyRequired: paymentLinkRequireCompany,
-                termsRequired: paymentLinkRequireTerms,
-                termsMarkdown: paymentLinkRequireTerms ? paymentLinkTermsMarkdown : undefined,
-              }
-            : undefined,
-        } : undefined,
       }),
     }, {
       errorMessage: t('payment_gateways.create.error', 'Failed to create the payment transaction.'),
@@ -959,7 +594,6 @@ export function CreatePaymentTransactionDialog({
             key={formResetKey}
             embedded
             schema={schema}
-            entityId={PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID}
             fields={fields}
             groups={groups}
             twoColumn
@@ -968,9 +602,6 @@ export function CreatePaymentTransactionDialog({
             loadingMessage={t('ui.forms.loading', 'Loading data...')}
             submitLabel={t('payment_gateways.create.submit', 'Create transaction')}
             injectionSpotId={PAYMENT_GATEWAY_TRANSACTION_CREATE_FORM_SPOT_ID}
-            customFieldsetBindings={{
-              [PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]: { valueKey: 'paymentLinkCustomFieldsetCode' },
-            }}
             onSubmit={handleSubmit}
           />
         )}

@@ -22,7 +22,7 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
         "token": {
@@ -90,6 +90,44 @@
           "length": 6,
           "mappedType": "datetime"
         },
+        "link_mode": {
+          "name": "link_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'single'",
+          "mappedType": "text"
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "use_count": {
+          "name": "use_count",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "max_uses": {
+          "name": "max_uses",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
         "metadata": {
           "name": "metadata",
           "type": "jsonb",
@@ -152,6 +190,18 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "gateway_payment_links_organization_id_tenant_id_link_mode_index",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "link_mode"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "gateway_payment_links_organization_id_tenant_id_status_index",
           "columnNames": [
             "organization_id",
@@ -190,6 +240,103 @@
         },
         {
           "keyName": "gateway_payment_links_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "payment_link_id": {
+          "name": "payment_link_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "customer_email": {
+          "name": "customer_email",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "customer_data": {
+          "name": "customer_data",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "gateway_payment_link_transactions",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "gateway_payment_link_transactions_transaction_id_index",
+          "columnNames": [
+            "transaction_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gateway_payment_link_transactions_payment_link_id_index",
+          "columnNames": [
+            "payment_link_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "gateway_payment_link_transactions_pkey",
           "columnNames": [
             "id"
           ],
