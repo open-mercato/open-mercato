@@ -53,6 +53,7 @@ const userListItemSchema = z.object({
   tenantId: z.string().uuid().nullable(),
   tenantName: z.string().nullable(),
   roles: z.array(z.string()),
+  roleIds: z.array(z.string().uuid()).optional(),
 })
 
 const userListResponseSchema = z.object({
@@ -191,11 +192,15 @@ export async function GET(req: Request) {
       )
     : []
   const roleMap: Record<string, string[]> = {}
+  const roleIdMap: Record<string, string[]> = {}
   for (const l of links) {
     const uid = String((l as any).user?.id || (l as any).user)
     const rname = String((l as any).role?.name || '')
+    const rid = String((l as any).role?.id ?? '')
     if (!roleMap[uid]) roleMap[uid] = []
+    if (!roleIdMap[uid]) roleIdMap[uid] = []
     if (rname) roleMap[uid].push(rname)
+    if (rid) roleIdMap[uid].push(rid)
   }
   const orgIds = rows
     .map((u: any) => (u.organizationId ? String(u.organizationId) : null))
@@ -264,6 +269,7 @@ export async function GET(req: Request) {
       tenantId: u.tenantId ? String(u.tenantId) : null,
       tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
+      roleIds: roleIdMap[uid] || [],
       ...(cfByUser[uid] || {}),
     }
   })
@@ -297,12 +303,27 @@ export const PUT = async (req: Request) => {
 
 export const DELETE = crud.DELETE
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 async function assertCanAssignRoles(req: Request, roles: unknown) {
   if (!Array.isArray(roles)) return
-  const normalized = roles
-    .map((role) => (typeof role === 'string' ? role.trim().toLowerCase() : null))
+  const values = roles
+    .map((role) => (typeof role === 'string' ? role.trim() : null))
     .filter((role): role is string => !!role)
-  if (!normalized.includes('superadmin')) return
+  if (!values.length) return
+
+  let hasSuperAdmin = values.some((v) => v.toLowerCase() === 'superadmin')
+  if (!hasSuperAdmin) {
+    const uuids = values.filter((v) => UUID_RE.test(v))
+    if (uuids.length) {
+      const container = await createRequestContainer()
+      const em = container.resolve('em') as EntityManager
+      const matched = await em.find(Role, { id: { $in: uuids as any } })
+      hasSuperAdmin = matched.some((r) => String(r.name).toLowerCase() === 'superadmin')
+    }
+  }
+  if (!hasSuperAdmin) return
+
   const auth = await getAuthFromRequest(req)
   if (!auth) throw new Error('Unauthorized')
   const container = await createRequestContainer()
