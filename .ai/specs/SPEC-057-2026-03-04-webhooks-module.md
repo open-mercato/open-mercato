@@ -1440,5 +1440,35 @@ No existing spec contracts are broken. The updates are additive cross-references
 | Date | Change |
 |------|--------|
 | 2026-03-04 | Initial draft |
+| 2026-03-18 | Phase 1 implemented: core outbound webhooks |
 
 ---
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Core Outbound | Done | 2026-03-18 | All steps implemented, tests passing |
+| Phase 2 — Advanced Delivery | Not Started | — | Key rotation, test delivery, SQS/SNS |
+| Phase 3 — Inbound Webhooks | Not Started | — | Adapter registry, generic receiver |
+| Phase 4 — Integration Marketplace | Not Started | — | SPEC-045 alignment |
+| Phase 5 — Advanced UI & Analytics | Not Started | — | Analytics, MCP tools, notifications |
+
+### Phase 1 — Detailed Progress
+- [x] Step 1: Shared webhook primitives (`packages/shared/src/lib/webhooks/`) — sign, verify, secrets + 18 unit tests
+- [x] Step 2: Package scaffold (`packages/webhooks/`) — npm workspace package with build config
+- [x] Step 3: Module foundation — index.ts, acl.ts, setup.ts, events.ts
+- [x] Step 4: MikroORM entities — `WebhookEntity`, `WebhookDeliveryEntity` with indexes
+- [x] Step 5: Zod validators — create, update, list query, delivery query schemas
+- [x] Step 6: CRUD API routes — webhooks (GET/POST/PUT/DELETE) + deliveries (GET) with OpenAPI
+- [x] Step 7: Wildcard event subscriber — persistent `*` subscriber with event pattern matching
+- [x] Step 8: Delivery queue worker — HTTP delivery with Standard Webhooks headers, exponential backoff, auto-disable
+- [x] Step 9: i18n locale files — English translations (56 keys)
+- [x] Step 10: Backend UI — list page, create form (CrudForm), detail page with delivery log DataTable
+- [ ] Step 11: Available events API (`GET /api/webhooks/events`) — deferred to Phase 2
+- [ ] Step 12: Database migration — requires `yarn db:generate` after entities are registered
+
+### Implementation Notes
+- Module lives in `packages/webhooks/` (dedicated npm workspace package) rather than `packages/core/src/modules/webhooks/` per the integration package convention
+- Enabled in `apps/mercato/src/modules.ts` as `{ id: 'webhooks', from: '@open-mercato/webhooks' }`
+- Delivery strategy limited to `http` in Phase 1; `sqs`/`sns` deferred to Phase 2

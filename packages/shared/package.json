@@ -39,6 +39,10 @@
       "types": "./src/lib/bootstrap/dynamicLoader.ts",
       "default": "./dist/lib/bootstrap/dynamicLoader.js"
     },
+    "./lib/webhooks": {
+      "types": "./src/lib/webhooks/index.ts",
+      "default": "./dist/lib/webhooks/index.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"
