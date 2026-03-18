@@ -10,6 +10,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 
 type Webhook = {
   id: string
@@ -26,6 +27,7 @@ type Webhook = {
   lastFailureAt: string | null
   createdAt: string
   updatedAt: string
+  maskedSecret: string
 }
 
 type DeliveryRow = {
@@ -76,37 +78,40 @@ export default function WebhookDetailPage() {
   const [deliveryTotal, setDeliveryTotal] = React.useState(0)
   const [deliveryTotalPages, setDeliveryTotalPages] = React.useState(1)
   const [deliveriesLoading, setDeliveriesLoading] = React.useState(false)
+  const [refreshToken, setRefreshToken] = React.useState(0)
+
+  const reload = React.useCallback(() => {
+    setRefreshToken((current) => current + 1)
+  }, [])
 
   React.useEffect(() => {
     if (!webhookId) return
     let cancelled = false
-    // Simple approach: fetch list and find by ID
     async function loadDetail() {
       setIsLoading(true)
       setError(null)
       try {
-        const call = await apiCall<{ items: Webhook[] }>(
-          `/api/webhooks/webhooks?pageSize=100`,
+        const call = await apiCall<Webhook>(
+          `/api/webhooks/webhooks/${encodeURIComponent(webhookId)}`,
           undefined,
-          { fallback: { items: [] } },
+          { fallback: null },
         )
         if (!cancelled && call.ok && call.result) {
-          const found = call.result.items.find((w) => w.id === webhookId)
-          if (found) {
-            setWebhook(found)
-          } else {
-            setError('Webhook not found')
-          }
+          setWebhook(call.result)
+          return
         }
-      } catch {
-        if (!cancelled) setError('Failed to load webhook')
+        if (!cancelled) setError(t('webhooks.errors.notFound'))
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : t('webhooks.detail.loadError'))
+        }
       } finally {
         if (!cancelled) setIsLoading(false)
       }
     }
     loadDetail()
     return () => { cancelled = true }
-  }, [webhookId])
+  }, [refreshToken, t, webhookId])
 
   React.useEffect(() => {
     if (!webhookId) return
@@ -135,7 +140,7 @@ export default function WebhookDetailPage() {
     }
     loadDeliveries()
     return () => { cancelled = true }
-  }, [webhookId, deliveryPage])
+  }, [deliveryPage, refreshToken, webhookId])
 
   const handleToggleActive = React.useCallback(async () => {
     if (!webhook) return
@@ -152,11 +157,72 @@ export default function WebhookDetailPage() {
       if (call.ok) {
         setWebhook((prev) => prev ? { ...prev, isActive: !prev.isActive } : prev)
         flash(t('webhooks.form.updateSuccess'), 'success')
+        reload()
       }
     } catch {
-      flash('Update failed', 'error')
+      flash(t('webhooks.form.updateError'), 'error')
     }
-  }, [webhook, t])
+  }, [reload, webhook, t])
+
+  const handleRotateSecret = React.useCallback(async () => {
+    if (!webhook) return
+    try {
+      const call = await apiCall<{ secret: string }>(
+        `/api/webhooks/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`,
+        { method: 'POST' },
+        { fallback: null },
+      )
+      if (!call.ok || !call.result) {
+        flash(t('webhooks.detail.rotateError'), 'error')
+        return
+      }
+      flash(`${t('webhooks.detail.rotateSuccess')}: ${call.result.secret}`, 'success')
+      reload()
+    } catch {
+      flash(t('webhooks.detail.rotateError'), 'error')
+    }
+  }, [reload, t, webhook])
+
+  const handleTest = React.useCallback(async () => {
+    if (!webhook) return
+    try {
+      const call = await apiCall<{ delivery: { status: string } }>(
+        `/api/webhooks/webhooks/${encodeURIComponent(webhook.id)}/test`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) },
+        { fallback: null },
+      )
+      if (!call.ok || !call.result) {
+        flash(t('webhooks.detail.testError'), 'error')
+        return
+      }
+      const deliveryStatus = call.result.delivery.status
+      flash(
+        deliveryStatus === 'delivered' ? t('webhooks.detail.testSuccess') : t('webhooks.detail.testQueued'),
+        deliveryStatus === 'delivered' ? 'success' : 'error',
+      )
+      reload()
+    } catch {
+      flash(t('webhooks.detail.testError'), 'error')
+    }
+  }, [reload, t, webhook])
+
+  const handleRetryDelivery = React.useCallback(async (deliveryId: string) => {
+    try {
+      const call = await apiCall(
+        `/api/webhooks/webhook-deliveries/${encodeURIComponent(deliveryId)}/retry`,
+        { method: 'POST' },
+        { fallback: null },
+      )
+      if (!call.ok) {
+        flash(t('webhooks.deliveries.retryError'), 'error')
+        return
+      }
+      flash(t('webhooks.deliveries.retrySuccess'), 'success')
+      reload()
+    } catch {
+      flash(t('webhooks.deliveries.retryError'), 'error')
+    }
+  }, [reload, t])
 
   const deliveryColumns = React.useMemo<ColumnDef<DeliveryRow>[]>(() => [
     { accessorKey: 'eventType', header: t('webhooks.deliveries.columns.event') },
@@ -195,7 +261,7 @@ export default function WebhookDetailPage() {
   ], [t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('webhooks.detail.loading')} /></PageBody></Page>
-  if (error || !webhook) return <Page><PageBody><ErrorMessage label={error ?? 'Not found'} /></PageBody></Page>
+  if (error || !webhook) return <Page><PageBody><ErrorMessage label={error ?? t('webhooks.errors.notFound')} /></PageBody></Page>
 
   return (
     <Page>
@@ -213,8 +279,18 @@ export default function WebhookDetailPage() {
           menuActions={[
             {
               id: 'toggle-active',
-              label: webhook.isActive ? 'Deactivate' : 'Activate',
+              label: webhook.isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
               onSelect: handleToggleActive,
+            },
+            {
+              id: 'rotate-secret',
+              label: t('webhooks.detail.actions.rotateSecret'),
+              onSelect: handleRotateSecret,
+            },
+            {
+              id: 'test',
+              label: t('webhooks.detail.actions.test'),
+              onSelect: handleTest,
             },
           ]}
         />
@@ -237,6 +313,10 @@ export default function WebhookDetailPage() {
               <span className="text-muted-foreground">{t('webhooks.form.maxRetries')}:</span>
               <span className="ml-2">{webhook.maxRetries}</span>
             </div>
+            <div>
+              <span className="text-muted-foreground">{t('webhooks.form.secret')}:</span>
+              <span className="ml-2 font-mono text-xs">{webhook.maskedSecret}</span>
+            </div>
           </div>
         </div>
 
@@ -245,6 +325,21 @@ export default function WebhookDetailPage() {
             title={t('webhooks.deliveries.title')}
             columns={deliveryColumns}
             data={deliveries}
+            rowActions={(row) => (
+              row.status === 'failed' || row.status === 'expired'
+                ? (
+                  <RowActions
+                    items={[
+                      {
+                        id: 'retry',
+                        label: t('webhooks.deliveries.actions.retry'),
+                        onSelect: () => { void handleRetryDelivery(row.id) },
+                      },
+                    ]}
+                  />
+                )
+                : null
+            )}
             perspective={{ tableId: 'webhooks.deliveries' }}
             pagination={{
               page: deliveryPage,

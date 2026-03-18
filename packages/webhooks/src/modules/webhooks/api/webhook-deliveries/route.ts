@@ -6,6 +6,7 @@ import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { WebhookDeliveryEntity } from '../../data/entities'
 import { webhookDeliveryQuerySchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { serializeDeliveryListItem } from '../helpers'
 
 function json(payload: unknown, init: ResponseInit = { status: 200 }) {
   return new Response(JSON.stringify(payload), {
@@ -61,7 +62,10 @@ const crud = makeCrudRoute<never, never, z.infer<typeof webhookDeliveryQuerySche
       const qb = em.createQueryBuilder(WebhookDeliveryEntity, 'd')
       qb.where({ tenantId: auth.tenantId })
 
-      if (auth.orgId) {
+      const allowedIds = ctx.organizationScope?.allowedIds ?? null
+      if (allowedIds && allowedIds.length > 0) {
+        qb.andWhere({ organizationId: { $in: allowedIds } })
+      } else if (auth.orgId) {
         qb.andWhere({ organizationId: auth.orgId })
       }
 
@@ -82,23 +86,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof webhookDeliveryQuerySche
       const [items, total] = await qb.getResultAndCount()
 
       const payload = {
-        items: items.map((item) => ({
-          id: item.id,
-          webhookId: item.webhookId,
-          eventType: item.eventType,
-          messageId: item.messageId,
-          status: item.status,
-          responseStatus: item.responseStatus ?? null,
-          errorMessage: item.errorMessage ?? null,
-          attemptNumber: item.attemptNumber,
-          maxAttempts: item.maxAttempts,
-          targetUrl: item.targetUrl,
-          durationMs: item.durationMs ?? null,
-          enqueuedAt: item.enqueuedAt.toISOString(),
-          lastAttemptAt: item.lastAttemptAt?.toISOString() ?? null,
-          deliveredAt: item.deliveredAt?.toISOString() ?? null,
-          createdAt: item.createdAt.toISOString(),
-        })),
+        items: items.map((item) => serializeDeliveryListItem(item)),
         total,
         page,
         pageSize,

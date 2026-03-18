@@ -1441,6 +1441,7 @@ No existing spec contracts are broken. The updates are additive cross-references
 |------|--------|
 | 2026-03-04 | Initial draft |
 | 2026-03-18 | Phase 1 implemented: core outbound webhooks |
+| 2026-03-18 | Packaging, queue dispatch, retries, migration, inbound/events/test/retry APIs, and locale coverage completed for shippable rollout |
 
 ---
 
@@ -1448,10 +1449,10 @@ No existing spec contracts are broken. The updates are additive cross-references
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase 1 — Core Outbound | Done | 2026-03-18 | All steps implemented, tests passing |
-| Phase 2 — Advanced Delivery | Not Started | — | Key rotation, test delivery, SQS/SNS |
-| Phase 3 — Inbound Webhooks | Not Started | — | Adapter registry, generic receiver |
-| Phase 4 — Integration Marketplace | Not Started | — | SPEC-045 alignment |
+| Phase 1 — Core Outbound | Done | 2026-03-18 | Export/build packaging, queue-backed retries, migration, i18n, and detail API/UI are now shippable |
+| Phase 2 — Advanced Delivery | Partial | 2026-03-18 | Secret rotation, test delivery, and manual retry implemented; non-HTTP strategies remain deferred |
+| Phase 3 — Inbound Webhooks | Partial | 2026-03-18 | Adapter registry and generic inbound receiver implemented; provider-specific adapters remain pending |
+| Phase 4 — Integration Marketplace | Partial | 2026-03-18 | `webhook_endpoints` hub registration added; deeper marketplace credential flows remain pending |
 | Phase 5 — Advanced UI & Analytics | Not Started | — | Analytics, MCP tools, notifications |
 
 ### Phase 1 — Detailed Progress
@@ -1463,10 +1464,10 @@ No existing spec contracts are broken. The updates are additive cross-references
 - [x] Step 6: CRUD API routes — webhooks (GET/POST/PUT/DELETE) + deliveries (GET) with OpenAPI
 - [x] Step 7: Wildcard event subscriber — persistent `*` subscriber with event pattern matching
 - [x] Step 8: Delivery queue worker — HTTP delivery with Standard Webhooks headers, exponential backoff, auto-disable
-- [x] Step 9: i18n locale files — English translations (56 keys)
+- [x] Step 9: i18n locale files — English translations with baseline `pl`/`es`/`de` coverage
 - [x] Step 10: Backend UI — list page, create form (CrudForm), detail page with delivery log DataTable
-- [ ] Step 11: Available events API (`GET /api/webhooks/events`) — deferred to Phase 2
-- [ ] Step 12: Database migration — requires `yarn db:generate` after entities are registered
+- [x] Step 11: Available events API (`GET /api/webhooks/events`)
+- [x] Step 12: Database migration — scoped migration committed for `webhooks` and `webhook_deliveries`
 
 ### Implementation Notes
 - Module lives in `packages/webhooks/` (dedicated npm workspace package) rather than `packages/core/src/modules/webhooks/` per the integration package convention

@@ -309,3 +309,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When changing module conventions that affect standalone app developers — entity/migration workflow, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+
+## Workspace packages with backend pages must build and export deep TSX entrypoints
+
+**Context**: The new `@open-mercato/webhooks` workspace package exposed backend pages through generated imports like `@open-mercato/webhooks/modules/webhooks/backend/webhooks/page`, but the package build only compiled `src/**/*.ts` and the export map stopped before the deepest generated paths.
+
+**Problem**: `yarn build:app` failed even though generation succeeded, because the generated app imported real package entrypoints that were neither emitted to `dist/` nor resolvable through `package.json` exports.
+
+**Rule**: Any workspace package that contributes auto-discovered backend/frontend pages must compile both `.ts` and `.tsx` sources into `dist/`, and its export map must cover the deepest generated import paths used by `modules.generated.ts`.
+
+**Applies to**: `packages/webhooks/build.mjs`, `packages/webhooks/package.json`, and future feature packages that expose generated page modules.

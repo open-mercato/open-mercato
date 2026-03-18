@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult } from '../types'
+import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions } from '../types'
 
 type LocalState = {
   lastProcessedId?: string
@@ -9,7 +9,9 @@ type LocalState = {
   failedCount?: number
 }
 
-type StoredJob<T> = QueuedJob<T>
+type StoredJob<T> = QueuedJob<T> & {
+  availableAt?: string
+}
 
 /** Default polling interval in milliseconds */
 const DEFAULT_POLL_INTERVAL = 1000
@@ -124,12 +126,16 @@ export function createLocalQueue<T = unknown>(
   // Queue Implementation
   // -------------------------------------------------------------------------
 
-  async function enqueue(data: T): Promise<string> {
+  async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
     const jobs = readQueue()
+    const availableAt = options?.delayMs && options.delayMs > 0
+      ? new Date(Date.now() + options.delayMs).toISOString()
+      : undefined
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
       createdAt: new Date().toISOString(),
+      ...(availableAt ? { availableAt } : {}),
     }
     jobs.push(job)
     writeQueue(jobs)
@@ -151,7 +157,12 @@ export function createLocalQueue<T = unknown>(
       ? jobs.findIndex((j) => j.id === state.lastProcessedId)
       : -1
 
-    const pendingJobs = jobs.slice(lastProcessedIndex + 1)
+    const pendingJobs = jobs
+      .slice(lastProcessedIndex + 1)
+      .filter((job) => {
+        if (!job.availableAt) return true
+        return new Date(job.availableAt).getTime() <= Date.now()
+      })
     const jobsToProcess = options?.limit
       ? pendingJobs.slice(0, options.limit)
       : pendingJobs

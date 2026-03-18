@@ -1,13 +1,13 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['webhooks.edit'],
-  pageTitle: 'Edit Webhook',
-  pageTitleKey: 'webhooks.form.title.edit',
+  requireFeatures: ['webhooks.view'],
+  pageTitle: 'Webhook Detail',
+  pageTitleKey: 'webhooks.detail.title',
   pageGroup: 'Integrations',
   pageGroupKey: 'webhooks.nav.group',
-  navHidden: true,
+  navHidden: false,
   breadcrumb: [
     { label: 'Webhooks', labelKey: 'webhooks.nav.title', href: '/backend/webhooks' },
-    { label: 'Edit', labelKey: 'common.edit' },
+    { label: 'Detail', labelKey: 'webhooks.detail.title' },
   ],
 }

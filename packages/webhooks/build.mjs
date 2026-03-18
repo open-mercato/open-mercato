@@ -6,9 +6,9 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-const entryPoints = await glob('src/**/*.ts', {
+const entryPoints = await glob('src/**/*.{ts,tsx}', {
   cwd: __dirname,
-  ignore: ['**/__tests__/**', '**/*.test.ts'],
+  ignore: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx'],
   absolute: true,
 })
 
@@ -63,6 +63,7 @@ await esbuild.build({
   platform: 'node',
   target: 'node18',
   sourcemap: true,
+  jsx: 'automatic',
   plugins: [addJsExtension],
 })
 

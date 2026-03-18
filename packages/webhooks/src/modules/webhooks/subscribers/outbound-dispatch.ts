@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { WebhookEntity } from '../data/entities'
+import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createWebhookDelivery, enqueueWebhookDelivery } from '../lib/delivery'
 
 export const metadata = {
   event: '*',
@@ -44,22 +45,39 @@ export default async function handler(
 
   if (!matchingWebhooks.length) return
 
-  const queue = ctx.container.resolve<{ enqueueJob: (data: unknown) => Promise<unknown> }>('queueService')
-
   for (const webhook of matchingWebhooks) {
+    let createdDeliveryId: string | null = null
     try {
-      await queue.enqueueJob({
-        queue: 'webhook-deliveries',
-        data: {
-          webhookId: webhook.id,
-          eventId,
-          payload,
-          tenantId,
-          organizationId: organizationId ?? webhook.organizationId,
-        },
+      const delivery = await createWebhookDelivery({
+        em,
+        webhook,
+        eventId,
+        payload,
       })
-    } catch {
-      // Don't fail the event pipeline if queue is unavailable
+      createdDeliveryId = delivery.id
+
+      await enqueueWebhookDelivery({
+        deliveryId: delivery.id,
+        tenantId: delivery.tenantId,
+        organizationId: delivery.organizationId,
+      })
+    } catch (error) {
+      if (createdDeliveryId) {
+        const failedDelivery = await em.findOne(WebhookDeliveryEntity, { id: createdDeliveryId })
+        if (failedDelivery) {
+          failedDelivery.status = 'failed'
+          failedDelivery.errorMessage = error instanceof Error ? `Queue enqueue failed: ${error.message}` : 'Queue enqueue failed'
+          failedDelivery.nextRetryAt = null
+          await em.flush()
+        }
+      }
+      console.error('[webhooks] Failed to enqueue outbound delivery', {
+        webhookId: webhook.id,
+        eventId,
+        tenantId,
+        organizationId: organizationId ?? webhook.organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 }
