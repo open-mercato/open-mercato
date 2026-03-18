@@ -616,6 +616,8 @@
   "customers.people.detail.deals.loadMore": "Cargar más oportunidades",
   "customers.people.detail.deals.loading": "Cargando oportunidades…",
   "customers.people.detail.deals.openDeal": "Abrir oportunidad",
+  "customers.people.detail.deals.pipelineIdInvalid": "Seleccione un pipeline válido.",
+  "customers.people.detail.deals.pipelineStageIdInvalid": "Seleccione una etapa de pipeline válida.",
   "customers.people.detail.deals.pipelineTooLong": "La etapa del pipeline es demasiado larga",
   "customers.people.detail.deals.probabilityInvalid": "La probabilidad debe estar entre 0 y 100",
   "customers.people.detail.deals.save": "Guardar oportunidad (⌘/Ctrl + Enter)",
