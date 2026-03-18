@@ -103,5 +103,31 @@
   "payment_link_pages.templates.nav.title": "Szablony linków",
   "payment_link_pages.templates.setDefault.success": "Ustawiono jako domyślny",
   "payment_link_pages.templates.title": "Szablony linków",
-  "payment_link_pages.templates.updated": "Szablon zaktualizowany"
+  "payment_link_pages.templates.updated": "Szablon zaktualizowany",
+
+  "payment_link_pages.amountType": "Typ kwoty",
+  "payment_link_pages.amountType.fixed": "Stała kwota",
+  "payment_link_pages.amountType.customerInput": "Klient wpisuje kwotę",
+  "payment_link_pages.amountType.predefined": "Klient wybiera z listy",
+  "payment_link_pages.amountType.description": "Sposób określania kwoty płatności",
+  "payment_link_pages.group.amountType": "Konfiguracja kwoty",
+  "payment_link_pages.minAmount": "Kwota minimalna",
+  "payment_link_pages.minAmount.description": "Minimalna kwota, którą klient może wpisać (puste = brak minimum)",
+  "payment_link_pages.maxAmount": "Kwota maksymalna",
+  "payment_link_pages.maxAmount.description": "Maksymalna kwota, którą klient może wpisać (puste = brak maksimum)",
+  "payment_link_pages.amountOptions": "Opcje kwot",
+  "payment_link_pages.amountOptions.description": "Predefiniowane kwoty do wyboru przez klienta",
+  "payment_link_pages.amountOptions.amount": "Kwota",
+  "payment_link_pages.amountOptions.label": "Opis",
+  "payment_link_pages.amountOptions.label.placeholder": "np. Plan podstawowy",
+  "payment_link_pages.amountOptions.remove": "Usuń",
+  "payment_link_pages.amountOptions.add": "Dodaj opcję",
+
+  "payment_link_pages.paymentPage.enterAmount": "Wpisz kwotę płatności",
+  "payment_link_pages.paymentPage.selectAmount": "Wybierz kwotę płatności",
+  "payment_link_pages.paymentPage.amountRange": "Kwota musi być pomiędzy",
+  "payment_link_pages.paymentPage.amountMin": "Kwota minimalna",
+  "payment_link_pages.paymentPage.amountMax": "Kwota maksymalna",
+  "payment_link_pages.validation.minAmount": "Kwota minimalna to",
+  "payment_link_pages.validation.maxAmount": "Kwota maksymalna to"
 }

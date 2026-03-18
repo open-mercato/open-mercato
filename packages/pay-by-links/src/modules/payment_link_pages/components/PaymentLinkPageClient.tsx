@@ -469,10 +469,10 @@ function DefaultCheckoutSection({
               {data.link.minAmount != null || data.link.maxAmount != null ? (
                 <p className="text-xs text-slate-400">
                   {data.link.minAmount != null && data.link.maxAmount != null
-                    ? t('payment_link_pages.paymentPage.amountRange', `Amount must be between ${data.link.minAmount} and ${data.link.maxAmount}`)
+                    ? `${t('payment_link_pages.paymentPage.amountRange', 'Amount must be between')} ${data.link.minAmount} – ${data.link.maxAmount}`
                     : data.link.minAmount != null
-                      ? t('payment_link_pages.paymentPage.amountMin', `Minimum amount: ${data.link.minAmount}`)
-                      : t('payment_link_pages.paymentPage.amountMax', `Maximum amount: ${data.link.maxAmount}`)}
+                      ? `${t('payment_link_pages.paymentPage.amountMin', 'Minimum amount')}: ${data.link.minAmount}`
+                      : `${t('payment_link_pages.paymentPage.amountMax', 'Maximum amount')}: ${data.link.maxAmount}`}
                 </p>
               ) : null}
               {customerFieldErrors.selectedAmount ? <p className="text-xs text-rose-400">{customerFieldErrors.selectedAmount}</p> : null}
@@ -892,10 +892,10 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
         const minAmount = data?.link?.minAmount
         const maxAmount = data?.link?.maxAmount
         if (typeof minAmount === 'number' && selectedAmount < minAmount) {
-          errors.selectedAmount = t('payment_link_pages.validation.minAmount', `Minimum amount is ${minAmount}`)
+          errors.selectedAmount = `${t('payment_link_pages.validation.minAmount', 'Minimum amount is')} ${minAmount}`
         }
         if (typeof maxAmount === 'number' && selectedAmount > maxAmount) {
-          errors.selectedAmount = t('payment_link_pages.validation.maxAmount', `Maximum amount is ${maxAmount}`)
+          errors.selectedAmount = `${t('payment_link_pages.validation.maxAmount', 'Maximum amount is')} ${maxAmount}`
         }
       }
     }

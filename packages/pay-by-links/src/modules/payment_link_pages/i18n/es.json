@@ -103,5 +103,31 @@
   "payment_link_pages.templates.nav.title": "Plantillas de enlaces",
   "payment_link_pages.templates.setDefault.success": "Template set as default",
   "payment_link_pages.templates.title": "Plantillas de enlaces",
-  "payment_link_pages.templates.updated": "Plantilla actualizada"
+  "payment_link_pages.templates.updated": "Plantilla actualizada",
+
+  "payment_link_pages.amountType": "Tipo de importe",
+  "payment_link_pages.amountType.fixed": "Importe fijo",
+  "payment_link_pages.amountType.customerInput": "El cliente introduce el importe",
+  "payment_link_pages.amountType.predefined": "El cliente selecciona de una lista",
+  "payment_link_pages.amountType.description": "Cómo se determina el importe del pago",
+  "payment_link_pages.group.amountType": "Configuración del importe",
+  "payment_link_pages.minAmount": "Importe mínimo",
+  "payment_link_pages.minAmount.description": "Importe mínimo que el cliente puede introducir (vacío = sin mínimo)",
+  "payment_link_pages.maxAmount": "Importe máximo",
+  "payment_link_pages.maxAmount.description": "Importe máximo que el cliente puede introducir (vacío = sin máximo)",
+  "payment_link_pages.amountOptions": "Opciones de importe",
+  "payment_link_pages.amountOptions.description": "Importes predefinidos para que el cliente elija",
+  "payment_link_pages.amountOptions.amount": "Importe",
+  "payment_link_pages.amountOptions.label": "Descripción",
+  "payment_link_pages.amountOptions.label.placeholder": "ej. Plan básico",
+  "payment_link_pages.amountOptions.remove": "Eliminar",
+  "payment_link_pages.amountOptions.add": "Añadir opción",
+
+  "payment_link_pages.paymentPage.enterAmount": "Introduzca el importe del pago",
+  "payment_link_pages.paymentPage.selectAmount": "Seleccione el importe del pago",
+  "payment_link_pages.paymentPage.amountRange": "El importe debe estar entre",
+  "payment_link_pages.paymentPage.amountMin": "Importe mínimo",
+  "payment_link_pages.paymentPage.amountMax": "Importe máximo",
+  "payment_link_pages.validation.minAmount": "El importe mínimo es",
+  "payment_link_pages.validation.maxAmount": "El importe máximo es"
 }

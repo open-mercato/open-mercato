@@ -103,5 +103,31 @@
   "payment_link_pages.templates.nav.title": "Link-Vorlagen",
   "payment_link_pages.templates.setDefault.success": "Template set as default",
   "payment_link_pages.templates.title": "Link-Vorlagen",
-  "payment_link_pages.templates.updated": "Vorlage aktualisiert"
+  "payment_link_pages.templates.updated": "Vorlage aktualisiert",
+
+  "payment_link_pages.amountType": "Betragstyp",
+  "payment_link_pages.amountType.fixed": "Fester Betrag",
+  "payment_link_pages.amountType.customerInput": "Kunde gibt Betrag ein",
+  "payment_link_pages.amountType.predefined": "Kunde wählt aus Liste",
+  "payment_link_pages.amountType.description": "Wie der Zahlungsbetrag bestimmt wird",
+  "payment_link_pages.group.amountType": "Betragskonfiguration",
+  "payment_link_pages.minAmount": "Mindestbetrag",
+  "payment_link_pages.minAmount.description": "Mindestbetrag, den der Kunde eingeben kann (leer = kein Minimum)",
+  "payment_link_pages.maxAmount": "Höchstbetrag",
+  "payment_link_pages.maxAmount.description": "Höchstbetrag, den der Kunde eingeben kann (leer = kein Maximum)",
+  "payment_link_pages.amountOptions": "Betragsoptionen",
+  "payment_link_pages.amountOptions.description": "Vordefinierte Beträge zur Auswahl durch den Kunden",
+  "payment_link_pages.amountOptions.amount": "Betrag",
+  "payment_link_pages.amountOptions.label": "Beschreibung",
+  "payment_link_pages.amountOptions.label.placeholder": "z.B. Basisplan",
+  "payment_link_pages.amountOptions.remove": "Entfernen",
+  "payment_link_pages.amountOptions.add": "Option hinzufügen",
+
+  "payment_link_pages.paymentPage.enterAmount": "Zahlungsbetrag eingeben",
+  "payment_link_pages.paymentPage.selectAmount": "Zahlungsbetrag auswählen",
+  "payment_link_pages.paymentPage.amountRange": "Betrag muss zwischen liegen",
+  "payment_link_pages.paymentPage.amountMin": "Mindestbetrag",
+  "payment_link_pages.paymentPage.amountMax": "Höchstbetrag",
+  "payment_link_pages.validation.minAmount": "Mindestbetrag ist",
+  "payment_link_pages.validation.maxAmount": "Höchstbetrag ist"
 }

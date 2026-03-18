@@ -103,5 +103,31 @@
   "payment_link_pages.templates.nav.title": "Link Templates",
   "payment_link_pages.templates.setDefault.success": "Template set as default",
   "payment_link_pages.templates.title": "Link Templates",
-  "payment_link_pages.templates.updated": "Template updated"
+  "payment_link_pages.templates.updated": "Template updated",
+
+  "payment_link_pages.amountType": "Amount type",
+  "payment_link_pages.amountType.fixed": "Fixed amount",
+  "payment_link_pages.amountType.customerInput": "Customer enters amount",
+  "payment_link_pages.amountType.predefined": "Customer selects from list",
+  "payment_link_pages.amountType.description": "How the payment amount is determined",
+  "payment_link_pages.group.amountType": "Amount Configuration",
+  "payment_link_pages.minAmount": "Minimum amount",
+  "payment_link_pages.minAmount.description": "Minimum amount the customer can enter (leave empty for no minimum)",
+  "payment_link_pages.maxAmount": "Maximum amount",
+  "payment_link_pages.maxAmount.description": "Maximum amount the customer can enter (leave empty for no maximum)",
+  "payment_link_pages.amountOptions": "Amount options",
+  "payment_link_pages.amountOptions.description": "Predefined amounts the customer can choose from",
+  "payment_link_pages.amountOptions.amount": "Amount",
+  "payment_link_pages.amountOptions.label": "Description",
+  "payment_link_pages.amountOptions.label.placeholder": "e.g. Basic Plan",
+  "payment_link_pages.amountOptions.remove": "Remove",
+  "payment_link_pages.amountOptions.add": "Add option",
+
+  "payment_link_pages.paymentPage.enterAmount": "Enter payment amount",
+  "payment_link_pages.paymentPage.selectAmount": "Select payment amount",
+  "payment_link_pages.paymentPage.amountRange": "Amount must be between",
+  "payment_link_pages.paymentPage.amountMin": "Minimum amount",
+  "payment_link_pages.paymentPage.amountMax": "Maximum amount",
+  "payment_link_pages.validation.minAmount": "Minimum amount is",
+  "payment_link_pages.validation.maxAmount": "Maximum amount is"
 }
