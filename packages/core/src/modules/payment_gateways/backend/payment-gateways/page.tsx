@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primi
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { ChevronDown, ChevronRight, Copy, CreditCard, ExternalLink, RefreshCw, Shield, Webhook } from 'lucide-react'
+import { ChevronDown, ChevronRight, CreditCard, RefreshCw, Webhook } from 'lucide-react'
 
 type TransactionRow = {
   id: string
@@ -78,18 +78,6 @@ type TransactionDetail = {
     createdAt: string | null
     updatedAt: string | null
   }
-  paymentLink: {
-    id: string
-    token: string
-    url: string
-    title: string
-    description?: string | null
-    status: 'active' | 'completed' | 'cancelled'
-    passwordProtected: boolean
-    completedAt?: string | null
-    createdAt: string | null
-    updatedAt: string | null
-  } | null
   logs: TransactionLogEntry[]
 }
 
@@ -353,20 +341,6 @@ export default function PaymentTransactionsPage() {
     setIsRefreshingStatus(false)
   }, [loadDetail, loadRows, selectedId, t])
 
-  const handleCopyPaymentLink = React.useCallback(async (url: string) => {
-    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
-      flash(t('payment_gateways.create.copyUnavailable', 'Copy is not available in this browser.'), 'error')
-      return
-    }
-
-    try {
-      await navigator.clipboard.writeText(url)
-      flash(t('payment_gateways.transactions.success.paymentLinkCopied', 'Payment link copied.'), 'success')
-    } catch {
-      flash(t('payment_gateways.transactions.error.copyPaymentLink', 'Unable to copy the payment link.'), 'error')
-    }
-  }, [t])
-
   const providerOptions = React.useMemo(() => {
     const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort()
     return values.map((value) => ({
@@ -559,9 +533,6 @@ export default function PaymentTransactionsPage() {
                       <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         {t('payment_gateways.transactions.detail.identifiers', 'Identifiers')}
                       </TabsTrigger>
-                      <TabsTrigger value="payment-link" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
-                        {t('payment_gateways.transactions.detail.paymentLink', 'Payment link')}
-                      </TabsTrigger>
                       <TabsTrigger value="webhooks" className="rounded-none border-b-2 border-transparent px-4 py-2 data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         {t('payment_gateways.transactions.detail.webhooks', 'Webhook activity')}
                       </TabsTrigger>
@@ -606,52 +577,6 @@ export default function PaymentTransactionsPage() {
                           />
                         </DetailSectionCard>
                       </div>
-                    </TabsContent>
-
-                    <TabsContent value="payment-link" className="mt-0">
-                      {detail.paymentLink ? (
-                        <DetailSectionCard title={t('payment_gateways.transactions.detail.paymentLink', 'Payment link')} icon={<Shield className="h-4 w-4 text-muted-foreground" />}>
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <div className="text-sm font-medium">{detail.paymentLink.title}</div>
-                              {detail.paymentLink.description ? (
-                                <div className="text-sm text-muted-foreground">{detail.paymentLink.description}</div>
-                              ) : null}
-                            </div>
-                            <Badge variant="secondary" className={detail.paymentLink.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : detail.paymentLink.status === 'cancelled' ? 'bg-zinc-200 text-zinc-900' : 'bg-amber-100 text-amber-800'}>
-                              {detail.paymentLink.status === 'completed'
-                                ? t('payment_gateways.paymentLink.status.completed', 'Paid')
-                                : detail.paymentLink.status === 'cancelled'
-                                  ? t('payment_gateways.status.cancelled', 'Cancelled')
-                                  : t('payment_gateways.paymentLink.status.active', 'Active')}
-                            </Badge>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button type="button" size="sm" onClick={() => void handleCopyPaymentLink(detail.paymentLink!.url)}>
-                              <Copy className="mr-2 h-4 w-4" />
-                              {t('payment_gateways.transactions.actions.copyPaymentLink', 'Copy link')}
-                            </Button>
-                            <Button asChild type="button" size="sm" variant="outline">
-                              <a href={detail.paymentLink.url} target="_blank" rel="noreferrer">
-                                <ExternalLink className="mr-2 h-4 w-4" />
-                                {t('payment_gateways.transactions.actions.openPaymentLink', 'Open link')}
-                              </a>
-                            </Button>
-                          </div>
-                          <DetailKeyValueTable
-                            rows={[
-                              { label: t('payment_gateways.transactions.detail.paymentLinkUrl', 'Payment link URL'), value: detail.paymentLink.url, mono: true },
-                              { label: t('payment_gateways.create.paymentLinkPassword', 'Password (optional)'), value: detail.paymentLink.passwordProtected ? t('payment_gateways.transactions.detail.paymentLinkPasswordProtected', 'Required') : t('common.none', 'None') },
-                              { label: t('payment_gateways.transactions.columns.createdAt', 'Created at'), value: formatDateTime(detail.paymentLink.createdAt) },
-                              { label: t('payment_gateways.transactions.columns.updatedAt', 'Updated at'), value: formatDateTime(detail.paymentLink.updatedAt) },
-                            ]}
-                          />
-                        </DetailSectionCard>
-                      ) : (
-                        <DetailSectionCard title={t('payment_gateways.transactions.detail.paymentLink', 'Payment link')} icon={<Shield className="h-4 w-4 text-muted-foreground" />}>
-                          <p className="text-sm text-muted-foreground">{t('common.none', 'None')}</p>
-                        </DetailSectionCard>
-                      )}
                     </TabsContent>
 
                     <TabsContent value="webhooks" className="mt-0">

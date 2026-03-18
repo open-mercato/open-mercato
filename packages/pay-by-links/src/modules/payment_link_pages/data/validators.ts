@@ -8,11 +8,14 @@ const brandingSchema = z.object({
   customCss: z.string().trim().max(10000).optional().nullable(),
 }).strict().optional().nullable()
 
+export const customerHandlingModeSchema = z.enum(['no_customer', 'create_new', 'verify_and_merge']).default('no_customer')
+
 const customerCaptureSchema = z.object({
   enabled: z.boolean().default(false),
   companyRequired: z.boolean().optional().default(false),
   termsRequired: z.boolean().optional().default(false),
   termsMarkdown: z.string().trim().max(20000).optional().nullable(),
+  customerHandlingMode: customerHandlingModeSchema.optional(),
 }).strict().optional().nullable()
 
 export const templateCreateSchema = z.object({
@@ -105,6 +108,7 @@ export const paymentLinkInputSchema = z.object({
     companyRequired: z.boolean().default(false).optional(),
     termsRequired: z.boolean().default(false).optional(),
     termsMarkdown: z.string().trim().max(20000).optional(),
+    customerHandlingMode: customerHandlingModeSchema.optional(),
     fields: customerCaptureFieldsSchema,
     customFormFields: customFormFieldsSchema,
   }).optional(),

@@ -102,6 +102,7 @@ Table: `gateway_payment_links`
     companyRequired: boolean
     termsRequired: boolean
     termsMarkdown: string | null
+    customerHandlingMode: 'no_customer' | 'create_new' | 'verify_and_merge'
     collectedAt?: string | null
     termsAcceptedAt?: string | null
     companyEntityId?: string | null
@@ -109,9 +110,22 @@ Table: `gateway_payment_links`
     companyName?: string | null
     personName?: string | null
     email?: string | null
+    customerCreated?: boolean
   }
 }
 ```
+
+### Customer Handling Modes
+
+When customer capture is enabled, the `customerHandlingMode` controls how captured data interacts with the CRM:
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `no_customer` (default) | Customer data stored only in payment link metadata/transaction record. No CRM records created. | Safest option. Data stays local to the payment flow. |
+| `create_new` | Always creates a new person (and company if provided) in the CRM. Never matches existing records. May create duplicates if the same email pays multiple times. | When every payment should produce a unique CRM record. |
+| `verify_and_merge` | Checks if email matches an existing CRM person. If match found, requires email verification (OTP) before linking. If no match, creates a new person. | When merging is desired but the payer must prove email ownership first. |
+
+**Security rationale**: The previous implementation always looked up and linked existing customers by email without verification. This allowed anyone with a payment link to associate their payment with an arbitrary existing customer's email, potentially polluting CRM data. The mode system defaults to `no_customer` to prevent this.
 
 ## API
 
@@ -145,6 +159,7 @@ Creates a payment session. Include the `paymentLink` object to generate a sharea
       companyRequired?: boolean
       termsRequired?: boolean
       termsMarkdown?: string     // max 20,000 chars, required if termsRequired
+      customerHandlingMode?: 'no_customer' | 'create_new' | 'verify_and_merge'  // default: 'no_customer'
     }
   }
 }
@@ -203,7 +218,9 @@ Returns the payment link page payload for rendering.
       companyRequired: boolean
       termsRequired: boolean
       termsMarkdown: string | null
+      customerHandlingMode: 'no_customer' | 'create_new' | 'verify_and_merge'
       collected: boolean
+      customerCreated: boolean
     } | null
   }
   transaction: {
@@ -259,14 +276,19 @@ Captures customer details before payment. Creates or links CRM records.
 }
 
 // Response (200)
-{ ok: true, customerCapture: { collected: true } }
+{ ok: true, customerCapture: { collected: true, customerCreated: boolean, customerHandlingMode: string } }
+
+// Response (428) — verify_and_merge mode, email matches existing customer
+{ error: string, requiresVerification: true, verificationTarget: string }
 ```
 
-**Behavior**:
-- Searches for existing person by email — reuses if found, creates if not
-- Searches for existing company by name — reuses if found, creates if not
-- Links person to company
-- Stores all captured data in payment link metadata (`collectedAt`, entity IDs, etc.)
+**Behavior** (depends on `customerHandlingMode`):
+
+- `no_customer` (default): Stores data in metadata only. No CRM records created.
+- `create_new`: Always creates a new person/company in the CRM. Never matches existing.
+- `verify_and_merge`: If email matches existing person, returns 428 requiring email verification. If no match, creates new.
+
+For all modes, captured data is stored in payment link metadata (`collectedAt`, email, names, etc.).
 
 ## Page Layout
 
@@ -389,3 +411,4 @@ The following are described in SPEC-058 but not yet built:
 | Date | Change |
 |------|--------|
 | 2026-03-17 | Initial spec — documented actual implementation state |
+| 2026-03-18 | Added `customerHandlingMode` with 3 modes (`no_customer`, `create_new`, `verify_and_merge`). Default changed from implicit create-or-match to `no_customer` for security. Removed payment_gateways coupling (payment-links.ts, paymentLink tab, paymentLink:null in API). Payment link enrichment now fully via interceptor. Added `customerCreated` to response. |

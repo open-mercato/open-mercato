@@ -10,6 +10,8 @@ export type PaymentLinkSessionParams = {
   providerInput?: Record<string, unknown>
 }
 
+export type CustomerHandlingMode = 'no_customer' | 'create_new' | 'verify_and_merge'
+
 export type PaymentLinkPageStoredMetadata = {
   amount?: number
   currencyCode?: string
@@ -22,6 +24,7 @@ export type PaymentLinkPageStoredMetadata = {
     companyRequired?: boolean
     termsRequired?: boolean
     termsMarkdown?: string | null
+    customerHandlingMode?: CustomerHandlingMode
     collectedAt?: string | null
     termsAcceptedAt?: string | null
     companyEntityId?: string | null
@@ -29,6 +32,7 @@ export type PaymentLinkPageStoredMetadata = {
     companyName?: string | null
     personName?: string | null
     email?: string | null
+    customerCreated?: boolean
     fields?: Record<string, { visible?: boolean; required?: boolean }> | null
   }
 }
@@ -59,6 +63,15 @@ function toStringOrNull(input: unknown): string | null {
   return trimmed.length ? trimmed : null
 }
 
+const VALID_CUSTOMER_HANDLING_MODES = new Set<CustomerHandlingMode>(['no_customer', 'create_new', 'verify_and_merge'])
+
+function toCustomerHandlingMode(input: unknown): CustomerHandlingMode {
+  if (typeof input === 'string' && VALID_CUSTOMER_HANDLING_MODES.has(input as CustomerHandlingMode)) {
+    return input as CustomerHandlingMode
+  }
+  return 'no_customer'
+}
+
 function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['customerCapture'] | undefined {
   const source = toPlainObject(input)
   if (!Object.keys(source).length) return undefined
@@ -72,6 +85,7 @@ function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['custo
     companyRequired: source.companyRequired === true,
     termsRequired: source.termsRequired === true,
     termsMarkdown: toStringOrNull(source.termsMarkdown),
+    customerHandlingMode: toCustomerHandlingMode(source.customerHandlingMode),
     collectedAt: toStringOrNull(source.collectedAt),
     termsAcceptedAt: toStringOrNull(source.termsAcceptedAt),
     companyEntityId: toStringOrNull(source.companyEntityId),
@@ -79,6 +93,7 @@ function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['custo
     companyName: toStringOrNull(source.companyName),
     personName: toStringOrNull(source.personName),
     email: toStringOrNull(source.email),
+    customerCreated: source.customerCreated === true,
     fields,
   }
 }

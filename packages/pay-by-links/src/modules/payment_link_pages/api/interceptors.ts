@@ -43,6 +43,7 @@ type ResolvedPaymentLinkValues = {
     companyRequired: boolean
     termsRequired: boolean
     termsMarkdown: string | undefined
+    customerHandlingMode: string | undefined
   } | undefined
 }
 
@@ -58,6 +59,7 @@ function mergePaymentLinkWithTemplate(
       companyRequired?: boolean
       termsRequired?: boolean
       termsMarkdown?: string
+      customerHandlingMode?: string
     }
   },
   template: PaymentLinkTemplateData,
@@ -90,6 +92,8 @@ function mergePaymentLinkWithTemplate(
         ?? (templateCapture?.termsRequired === true),
       termsMarkdown: request.customerCapture?.termsMarkdown
         ?? (typeof templateCapture?.termsMarkdown === 'string' ? templateCapture.termsMarkdown : undefined),
+      customerHandlingMode: request.customerCapture?.customerHandlingMode
+        ?? (typeof templateCapture?.customerHandlingMode === 'string' ? templateCapture.customerHandlingMode : undefined),
     }
   }
 
@@ -234,9 +238,10 @@ const sessionsInterceptor: ApiInterceptor = {
     let resolvedPageMetadata = paymentLinkData.metadata as Record<string, unknown> | undefined
     let resolvedCustomFields = paymentLinkData.customFields as Record<string, unknown> | undefined
     let resolvedCustomFieldsetCode: string | null = (paymentLinkData.customFieldsetCode as string) ?? null
-    let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null } | undefined
+    let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null; customerHandlingMode: string | undefined } | undefined
 
     const customerCaptureInput = paymentLinkData.customerCapture as Record<string, unknown> | undefined
+    const rawHandlingMode = (customerCaptureInput?.customerHandlingMode as string) || undefined
     if (isMultiUseLink) {
       resolvedCustomerCapture = {
         enabled: true,
@@ -245,6 +250,7 @@ const sessionsInterceptor: ApiInterceptor = {
         termsMarkdown: customerCaptureInput?.termsRequired
           ? (customerCaptureInput?.termsMarkdown as string)?.trim() || null
           : null,
+        customerHandlingMode: rawHandlingMode,
       }
     } else if (customerCaptureInput?.enabled) {
       resolvedCustomerCapture = {
@@ -254,6 +260,7 @@ const sessionsInterceptor: ApiInterceptor = {
         termsMarkdown: customerCaptureInput.termsRequired
           ? (customerCaptureInput.termsMarkdown as string)?.trim() || null
           : null,
+        customerHandlingMode: rawHandlingMode,
       }
     }
 
@@ -289,6 +296,7 @@ const sessionsInterceptor: ApiInterceptor = {
             companyRequired: merged.customerCapture.companyRequired,
             termsRequired: merged.customerCapture.termsRequired,
             termsMarkdown: merged.customerCapture.termsMarkdown?.trim() || null,
+            customerHandlingMode: merged.customerCapture.customerHandlingMode,
           }
         }
       }

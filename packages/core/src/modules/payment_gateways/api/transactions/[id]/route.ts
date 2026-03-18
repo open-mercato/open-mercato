@@ -129,7 +129,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       createdAt: toIsoString(transaction.createdAt),
       updatedAt: toIsoString(transaction.updatedAt),
     },
-    paymentLink: null,
     logs: logRows.map((row) => ({
       id: row.id,
       integrationId: row.integrationId,

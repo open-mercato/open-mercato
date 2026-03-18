@@ -79,7 +79,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
               companyRequired: state.customerCapture.companyRequired,
               termsRequired: state.customerCapture.termsRequired,
               termsMarkdown: state.customerCapture.termsMarkdown,
+              customerHandlingMode: state.customerCapture.customerHandlingMode,
               collected: !!state.customerCapture.collectedAt,
+              customerCreated: state.customerCapture.customerCreated,
             }
           : null,
       },

@@ -7,6 +7,7 @@ import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { verifyPaymentLinkAccessToken } from './payment-links'
 import { readPaymentLinkStoredMetadata } from './payment-link-page-metadata'
+import type { CustomerHandlingMode } from './payment-link-page-metadata'
 
 function isGatewayTransactionSettled(transaction: GatewayTransaction): boolean {
   return ['authorized', 'captured', 'partially_captured', 'refunded', 'partially_refunded'].includes(transaction.unifiedStatus)
@@ -34,6 +35,7 @@ export type PublicPaymentLinkState = {
     companyRequired: boolean
     termsRequired: boolean
     termsMarkdown: string | null
+    customerHandlingMode: CustomerHandlingMode
     collectedAt: string | null
     termsAcceptedAt: string | null
     companyEntityId: string | null
@@ -41,6 +43,7 @@ export type PublicPaymentLinkState = {
     companyName: string | null
     personName: string | null
     email: string | null
+    customerCreated: boolean
     fields: Record<string, { visible?: boolean; required?: boolean }> | null
   } | null
 }
@@ -140,6 +143,7 @@ export async function loadPublicPaymentLinkState({
           companyRequired: storedMetadata.customerCapture.companyRequired === true,
           termsRequired: storedMetadata.customerCapture.termsRequired === true,
           termsMarkdown: storedMetadata.customerCapture.termsMarkdown ?? null,
+          customerHandlingMode: storedMetadata.customerCapture.customerHandlingMode ?? 'no_customer',
           collectedAt: storedMetadata.customerCapture.collectedAt ?? null,
           termsAcceptedAt: storedMetadata.customerCapture.termsAcceptedAt ?? null,
           companyEntityId: storedMetadata.customerCapture.companyEntityId ?? null,
@@ -147,6 +151,7 @@ export async function loadPublicPaymentLinkState({
           companyName: storedMetadata.customerCapture.companyName ?? null,
           personName: storedMetadata.customerCapture.personName ?? null,
           email: storedMetadata.customerCapture.email ?? null,
+          customerCreated: storedMetadata.customerCapture.customerCreated === true,
           fields: storedMetadata.customerCapture.fields ?? null,
         }
       : null,

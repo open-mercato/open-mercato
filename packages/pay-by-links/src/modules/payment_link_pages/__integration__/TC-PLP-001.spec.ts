@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { createPaymentSession } from '@open-mercato/core/modules/payment_gateways/__integration__/helpers/fixtures'
+import { createPaymentSession, getTransactionDetails } from '@open-mercato/core/modules/payment_gateways/__integration__/helpers/fixtures'
 
 test.describe('TC-PLP-001: pay-link page payload', () => {
   test('should expose JSON metadata and custom-field metadata through the page API', async ({ request }) => {
@@ -43,5 +43,24 @@ test.describe('TC-PLP-001: pay-link page payload', () => {
       companyName: 'Acme Commerce Ltd',
     })
     expect(Array.isArray(payload._meta?.enrichedBy)).toBe(true)
+  })
+
+  test('should expose created payment-link details on the transaction detail API via interceptor', async ({ request }) => {
+    const token = await getAuthToken(request)
+    const session = await createPaymentSession(request, token, {
+      providerKey: 'mock',
+      amount: 32.1,
+      currencyCode: 'USD',
+      paymentLink: {
+        enabled: true,
+        title: 'QA payment link',
+        password: '2486',
+      },
+    })
+
+    const detail = await getTransactionDetails(request, token, session.transactionId)
+    expect(detail.paymentLink?.id).toBeTruthy()
+    expect(detail.paymentLink?.url).toContain('/pay/')
+    expect(detail.paymentLink?.passwordProtected).toBe(true)
   })
 })

@@ -9,6 +9,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CustomerEntity as CustomerEntityType } from '@open-mercato/core/modules/customers/data/entities'
 import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
 import { buildPaymentLinkStoredMetadata } from '../../../../lib/payment-link-page-metadata'
+import type { CustomerHandlingMode } from '../../../../lib/payment-link-page-metadata'
 import { loadPublicPaymentLinkState } from '../../../../lib/public-payment-links'
 import { emitPaymentLinkPageEvent } from '../../../../events'
 
@@ -39,6 +40,81 @@ function buildDisplayName(firstName: string, lastName: string): string {
 export const metadata = {
   path: '/payment_link_pages/pay/[token]/customer',
   POST: { requireAuth: false },
+}
+
+async function createNewCustomer(params: {
+  commandBus: CommandBus
+  em: EntityManager
+  container: AwilixContainer
+  link: { organizationId: string; tenantId: string }
+  firstName: string
+  lastName: string
+  email: string
+  phone: string | null
+  companyName: string | null
+  req: Request
+}): Promise<{ personEntityId: string; companyEntityId: string | null; customerCreated: boolean }> {
+  const { commandBus, container, link, firstName, lastName, email, phone, companyName, req } = params
+  let companyEntityId: string | null = null
+  let customerCreated = false
+
+  if (companyName) {
+    const createdCompany = await commandBus.execute<
+      { organizationId: string; tenantId: string; displayName: string },
+      { entityId: string; companyId: string }
+    >('customers.companies.create', {
+      input: {
+        organizationId: link.organizationId,
+        tenantId: link.tenantId,
+        displayName: companyName,
+      },
+      ctx: {
+        container,
+        auth: null,
+        organizationScope: null,
+        selectedOrganizationId: link.organizationId,
+        organizationIds: [link.organizationId],
+        request: req,
+      },
+    })
+    companyEntityId = createdCompany.result.entityId
+    customerCreated = true
+  }
+
+  const createdPerson = await commandBus.execute<
+    {
+      organizationId: string
+      tenantId: string
+      firstName: string
+      lastName: string
+      displayName: string
+      primaryEmail: string
+      primaryPhone?: string
+      companyEntityId?: string
+    },
+    { entityId: string; personId: string }
+  >('customers.people.create', {
+    input: {
+      organizationId: link.organizationId,
+      tenantId: link.tenantId,
+      firstName,
+      lastName,
+      displayName: buildDisplayName(firstName, lastName),
+      primaryEmail: email,
+      primaryPhone: phone ?? undefined,
+      companyEntityId: companyEntityId ?? undefined,
+    },
+    ctx: {
+      container,
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: link.organizationId,
+      organizationIds: [link.organizationId],
+      request: req,
+    },
+  })
+
+  return { personEntityId: createdPerson.result.entityId, companyEntityId, customerCreated: true }
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> | { token: string } }) {
@@ -117,50 +193,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return NextResponse.json({ error: 'Terms must be accepted' }, { status: 422 })
   }
 
-  let companyEntityId = state.customerCapture.companyEntityId ?? null
-  let personEntityId = state.customerCapture.personEntityId ?? null
+  const customerHandlingMode: CustomerHandlingMode = state.customerCapture.customerHandlingMode ?? 'no_customer'
 
-  if (!companyEntityId && companyName) {
-    const existingCompany = await findOneWithDecryption<CustomerEntityType>(
-      em,
-      CustomerEntity,
-      {
-        kind: 'company',
-        displayName: companyName,
-        organizationId: state.link.organizationId,
-        tenantId: state.link.tenantId,
-        deletedAt: null,
-      } as any,
-      undefined,
-      scope,
-    )
+  let companyEntityId: string | null = state.customerCapture.companyEntityId ?? null
+  let personEntityId: string | null = state.customerCapture.personEntityId ?? null
+  let customerCreated = false
 
-    if (existingCompany) {
-      companyEntityId = existingCompany.id
-    } else {
-      const createdCompany = await commandBus.execute<
-        { organizationId: string; tenantId: string; displayName: string },
-        { entityId: string; companyId: string }
-      >('customers.companies.create', {
-        input: {
-          organizationId: state.link.organizationId,
-          tenantId: state.link.tenantId,
-          displayName: companyName,
-        },
-        ctx: {
-          container,
-          auth: null,
-          organizationScope: null,
-          selectedOrganizationId: state.link.organizationId,
-          organizationIds: [state.link.organizationId],
-          request: req,
-        },
-      })
-      companyEntityId = createdCompany.result.entityId
-    }
-  }
-
-  if (!personEntityId) {
+  if (customerHandlingMode === 'create_new') {
+    const result = await createNewCustomer({
+      commandBus, em, container, link: state.link,
+      firstName, lastName, email, phone, companyName, req,
+    })
+    personEntityId = result.personEntityId
+    companyEntityId = result.companyEntityId
+    customerCreated = true
+  } else if (customerHandlingMode === 'verify_and_merge') {
     const existingPerson = await findOneWithDecryption<CustomerEntityType>(
       em,
       CustomerEntity,
@@ -176,43 +223,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     )
 
     if (existingPerson) {
-      personEntityId = existingPerson.id
-    } else {
-      const createdPerson = await commandBus.execute<
-        {
-          organizationId: string
-          tenantId: string
-          firstName: string
-          lastName: string
-          displayName: string
-          primaryEmail: string
-          primaryPhone?: string
-          companyEntityId?: string
-        },
-        { entityId: string; personId: string }
-      >('customers.people.create', {
-        input: {
-          organizationId: state.link.organizationId,
-          tenantId: state.link.tenantId,
-          firstName,
-          lastName,
-          displayName: buildDisplayName(firstName, lastName),
-          primaryEmail: email,
-          primaryPhone: phone ?? undefined,
-          companyEntityId: companyEntityId ?? undefined,
-        },
-        ctx: {
-          container,
-          auth: null,
-          organizationScope: null,
-          selectedOrganizationId: state.link.organizationId,
-          organizationIds: [state.link.organizationId],
-          request: req,
-        },
-      })
-      personEntityId = createdPerson.result.entityId
+      // Email matches an existing customer — require email verification before merging.
+      // For now, reject and inform the caller that verification is needed.
+      // A full email-OTP flow will be added in a future iteration.
+      return NextResponse.json({
+        error: 'Email verification required to link to an existing customer',
+        requiresVerification: true,
+        verificationTarget: email,
+      }, { status: 428 })
     }
+
+    // No existing customer — safe to create new
+    const result = await createNewCustomer({
+      commandBus, em, container, link: state.link,
+      firstName, lastName, email, phone, companyName, req,
+    })
+    personEntityId = result.personEntityId
+    companyEntityId = result.companyEntityId
+    customerCreated = true
   }
+  // customerHandlingMode === 'no_customer': skip all CRM creation, data only in metadata
 
   if (personEntityId && !companyEntityId && companyName) {
     const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: personEntityId } as any, undefined, scope) as any
@@ -236,6 +266,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       companyRequired: state.customerCapture.companyRequired,
       termsRequired: state.customerCapture.termsRequired,
       termsMarkdown: state.customerCapture.termsMarkdown ?? null,
+      customerHandlingMode,
       fields: captureFields ?? undefined,
       collectedAt,
       termsAcceptedAt,
@@ -244,6 +275,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       companyName,
       personName,
       email,
+      customerCreated,
     },
   })
   await em.flush()
@@ -262,6 +294,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       companyName,
       personName,
       email,
+      customerCreated,
+      customerHandlingMode,
     },
   })
 
@@ -269,6 +303,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     ok: true,
     customerCapture: {
       collected: true,
+      customerCreated,
+      customerHandlingMode,
     },
   })
 }
@@ -286,6 +322,7 @@ export const openApi = {
         { status: 404, description: 'Payment link not found' },
         { status: 409, description: 'Customer capture disabled' },
         { status: 422, description: 'Invalid payload' },
+        { status: 428, description: 'Email verification required (verify_and_merge mode)' },
       ],
     },
   },
