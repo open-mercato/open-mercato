@@ -69,12 +69,18 @@ describe('payment link pages pay route', () => {
       customerCapture: {
         enabled: true,
         companyRequired: false,
+        termsRequired: false,
+        termsMarkdown: null,
+        customerHandlingMode: 'create_new',
         collectedAt: '2026-03-17T10:10:00.000Z',
+        termsAcceptedAt: null,
         companyEntityId: 'company-1',
         personEntityId: 'person-1',
         companyName: 'Acme Commerce',
         personName: 'Jane Doe',
         email: 'jane@example.com',
+        customerCreated: true,
+        fields: null,
       },
     })
     mockApplyResponseEnricherToRecord.mockImplementation(async (record: Record<string, unknown>) => ({
@@ -104,7 +110,9 @@ describe('payment link pages pay route', () => {
         customerCapture: {
           enabled: true,
           companyRequired: false,
+          customerHandlingMode: 'create_new',
           collected: true,
+          customerCreated: true,
         },
       },
       transaction: {

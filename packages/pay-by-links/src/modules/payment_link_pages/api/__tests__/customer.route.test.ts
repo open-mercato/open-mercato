@@ -74,6 +74,7 @@ describe('payment link customer capture route', () => {
         companyRequired: false,
         termsRequired: true,
         termsMarkdown: '## Terms',
+        customerHandlingMode: 'create_new',
         collectedAt: null,
         termsAcceptedAt: null,
         companyEntityId: null,
@@ -81,6 +82,8 @@ describe('payment link customer capture route', () => {
         companyName: null,
         personName: null,
         email: null,
+        customerCreated: false,
+        fields: null,
       },
     })
     mockCreateRequestContainer.mockResolvedValue({
@@ -140,6 +143,8 @@ describe('payment link customer capture route', () => {
       ok: true,
       customerCapture: {
         collected: true,
+        customerCreated: true,
+        customerHandlingMode: 'create_new',
       },
     })
   })

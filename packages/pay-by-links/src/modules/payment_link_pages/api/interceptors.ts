@@ -11,6 +11,7 @@ import {
   normalizeCustomPaymentLinkToken,
 } from '../lib/payment-links'
 import { buildPaymentLinkStoredMetadata } from '../lib/payment-link-page-metadata'
+import type { CustomerHandlingMode } from '../lib/payment-link-page-metadata'
 
 type PaymentLinkTemplateData = {
   branding: unknown
@@ -43,7 +44,7 @@ type ResolvedPaymentLinkValues = {
     companyRequired: boolean
     termsRequired: boolean
     termsMarkdown: string | undefined
-    customerHandlingMode: string | undefined
+    customerHandlingMode: CustomerHandlingMode | undefined
   } | undefined
 }
 
@@ -59,7 +60,7 @@ function mergePaymentLinkWithTemplate(
       companyRequired?: boolean
       termsRequired?: boolean
       termsMarkdown?: string
-      customerHandlingMode?: string
+      customerHandlingMode?: CustomerHandlingMode
     }
   },
   template: PaymentLinkTemplateData,
@@ -93,7 +94,7 @@ function mergePaymentLinkWithTemplate(
       termsMarkdown: request.customerCapture?.termsMarkdown
         ?? (typeof templateCapture?.termsMarkdown === 'string' ? templateCapture.termsMarkdown : undefined),
       customerHandlingMode: request.customerCapture?.customerHandlingMode
-        ?? (typeof templateCapture?.customerHandlingMode === 'string' ? templateCapture.customerHandlingMode : undefined),
+        ?? (typeof templateCapture?.customerHandlingMode === 'string' ? templateCapture.customerHandlingMode as CustomerHandlingMode : undefined),
     }
   }
 
@@ -238,10 +239,10 @@ const sessionsInterceptor: ApiInterceptor = {
     let resolvedPageMetadata = paymentLinkData.metadata as Record<string, unknown> | undefined
     let resolvedCustomFields = paymentLinkData.customFields as Record<string, unknown> | undefined
     let resolvedCustomFieldsetCode: string | null = (paymentLinkData.customFieldsetCode as string) ?? null
-    let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null; customerHandlingMode: string | undefined } | undefined
+    let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null; customerHandlingMode: CustomerHandlingMode | undefined } | undefined
 
     const customerCaptureInput = paymentLinkData.customerCapture as Record<string, unknown> | undefined
-    const rawHandlingMode = (customerCaptureInput?.customerHandlingMode as string) || undefined
+    const rawHandlingMode = (customerCaptureInput?.customerHandlingMode as CustomerHandlingMode) || undefined
     if (isMultiUseLink) {
       resolvedCustomerCapture = {
         enabled: true,

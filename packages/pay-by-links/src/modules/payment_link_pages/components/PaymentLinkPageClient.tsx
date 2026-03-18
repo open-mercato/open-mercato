@@ -47,7 +47,9 @@ export type PaymentLinkPageResponse = {
       companyRequired: boolean
       termsRequired?: boolean
       termsMarkdown?: string | null
+      customerHandlingMode?: 'no_customer' | 'create_new' | 'verify_and_merge'
       collected?: boolean
+      customerCreated?: boolean
       fields?: {
         firstName?: { visible?: boolean; required?: boolean }
         lastName?: { visible?: boolean; required?: boolean }

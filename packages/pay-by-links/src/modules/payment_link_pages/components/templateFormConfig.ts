@@ -13,6 +13,7 @@ export const templateFormSchema = z.object({
   defaultTitle: z.string().max(160).optional().nullable(),
   defaultDescription: z.string().max(500).optional().nullable(),
   customerCaptureEnabled: z.boolean().optional().default(false),
+  customerCaptureHandlingMode: z.enum(['no_customer', 'create_new', 'verify_and_merge']).optional().default('no_customer'),
   customerCaptureCompanyRequired: z.boolean().optional().default(false),
   captureFirstNameVisible: z.boolean().optional().default(true),
   captureFirstNameRequired: z.boolean().optional().default(true),
@@ -47,6 +48,7 @@ export function buildTemplateFormFields(t: (key: string, fallback?: string) => s
     { id: 'defaultDescription', label: t('payment_link_pages.templates.form.defaultDescription'), type: 'textarea', placeholder: t('payment_link_pages.templates.form.defaultDescription.placeholder') },
 
     { id: 'customerCaptureEnabled', label: t('payment_link_pages.templates.form.customerCapture.enabled'), type: 'checkbox', description: t('payment_link_pages.templates.form.customerCapture.enabled.description') },
+    { id: 'customerCaptureHandlingMode', label: t('payment_link_pages.templates.form.customerCapture.handlingMode', 'Customer handling mode'), type: 'select', options: [{ label: t('payment_link_pages.templates.form.customerCapture.handlingMode.noCustomer', 'Do not create customer (data only)'), value: 'no_customer' }, { label: t('payment_link_pages.templates.form.customerCapture.handlingMode.createNew', 'Always create new customer'), value: 'create_new' }, { label: t('payment_link_pages.templates.form.customerCapture.handlingMode.verifyAndMerge', 'Merge with existing (email verification)'), value: 'verify_and_merge' }] },
     { id: 'customerCaptureCompanyRequired', label: t('payment_link_pages.templates.form.customerCapture.companyRequired'), type: 'checkbox' },
 
     { id: 'captureFirstNameVisible', label: t('payment_link_pages.templates.form.capture.firstName.visible'), type: 'checkbox', description: t('payment_link_pages.templates.form.capture.firstName.hint') },
@@ -73,7 +75,7 @@ export function buildTemplateFormGroups(t: (key: string, fallback?: string) => s
     { id: 'general', title: t('payment_link_pages.templates.form.name', 'General'), fields: ['name', 'description', 'isDefault'] },
     { id: 'branding', title: t('payment_link_pages.templates.form.branding'), fields: ['brandingLogoUrl', 'brandingBrandName', 'brandingSecuritySubtitle', 'brandingAccentColor', 'brandingCustomCss'] },
     { id: 'content', title: t('payment_link_pages.templates.form.defaultContent'), fields: ['defaultTitle', 'defaultDescription'] },
-    { id: 'capture', title: t('payment_link_pages.templates.form.customerCapture'), fields: ['customerCaptureEnabled', 'customerCaptureCompanyRequired', 'captureFirstNameVisible', 'captureFirstNameRequired', 'captureLastNameVisible', 'captureLastNameRequired', 'capturePhoneVisible', 'capturePhoneRequired', 'captureCompanyVisible', 'captureCompanyRequired', 'customerCaptureTermsRequired', 'customerCaptureTermsMarkdown'] },
+    { id: 'capture', title: t('payment_link_pages.templates.form.customerCapture'), fields: ['customerCaptureEnabled', 'customerCaptureHandlingMode', 'customerCaptureCompanyRequired', 'captureFirstNameVisible', 'captureFirstNameRequired', 'captureLastNameVisible', 'captureLastNameRequired', 'capturePhoneVisible', 'capturePhoneRequired', 'captureCompanyVisible', 'captureCompanyRequired', 'customerCaptureTermsRequired', 'customerCaptureTermsMarkdown'] },
     { id: 'fields', title: t('payment_link_pages.templates.form.customFields'), fields: ['customFieldsetCode', 'customFieldsJson'] },
     { id: 'metadata', title: t('payment_link_pages.templates.form.metadata'), fields: ['metadataJson'] },
   ]
@@ -104,6 +106,7 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
     defaultDescription: values.defaultDescription || null,
     customerCapture: {
       enabled: values.customerCaptureEnabled ?? false,
+      customerHandlingMode: values.customerCaptureHandlingMode ?? 'no_customer',
       companyRequired: values.customerCaptureCompanyRequired ?? false,
       termsRequired: values.customerCaptureTermsRequired ?? false,
       termsMarkdown: values.customerCaptureTermsMarkdown || null,
@@ -139,6 +142,7 @@ export function recordToTemplateFormValues(record: Record<string, unknown>): Tem
     defaultTitle: record.default_title != null || record.defaultTitle != null ? String(record.default_title ?? record.defaultTitle ?? '') : null,
     defaultDescription: record.default_description != null || record.defaultDescription != null ? String(record.default_description ?? record.defaultDescription ?? '') : null,
     customerCaptureEnabled: capture.enabled === true,
+    customerCaptureHandlingMode: typeof capture.customerHandlingMode === 'string' ? capture.customerHandlingMode as 'no_customer' | 'create_new' | 'verify_and_merge' : 'no_customer',
     customerCaptureCompanyRequired: capture.companyRequired === true,
     captureFirstNameVisible: (fields as Record<string, unknown>)?.firstName != null ? ((fields as Record<string, unknown>).firstName as Record<string, unknown>)?.visible !== false : true,
     captureFirstNameRequired: (fields as Record<string, unknown>)?.firstName != null ? ((fields as Record<string, unknown>).firstName as Record<string, unknown>)?.required === true : true,
