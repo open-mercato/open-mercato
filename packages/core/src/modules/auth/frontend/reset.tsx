@@ -1,5 +1,6 @@
 "use client"
 import { useState } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -45,8 +46,13 @@ export default function ResetPage() {
         </CardHeader>
         <CardContent>
           {sent ? (
-            <div className="text-sm text-muted-foreground">
-              {t('auth.reset.sent', 'If an account with that email exists, we sent a reset link. Please check your inbox.')}
+            <div className="grid gap-3">
+              <p className="text-sm text-muted-foreground">
+                {t('auth.reset.sent', 'If an account with that email exists, we sent a reset link. Please check your inbox.')}
+              </p>
+              <Link href="/login" className="text-sm underline">
+                {t('auth.reset.backToLogin', 'Back to login')}
+              </Link>
             </div>
           ) : (
             <form className="grid gap-3" onSubmit={onSubmit} noValidate>
@@ -59,6 +65,11 @@ export default function ResetPage() {
               <Button type="submit" className="mt-2 w-full" disabled={submitting}>
                 {submitting ? '...' : t('auth.sendResetLink')}
               </Button>
+              <div className="text-center">
+                <Link href="/login" className="text-xs text-muted-foreground underline">
+                  {t('auth.reset.backToLogin', 'Back to login')}
+                </Link>
+              </div>
             </form>
           )}
         </CardContent>
