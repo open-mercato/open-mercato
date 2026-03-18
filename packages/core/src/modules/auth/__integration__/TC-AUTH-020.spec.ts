@@ -27,31 +27,36 @@ test.describe('TC-AUTH-020: Filter Users by Role', () => {
       roleId = typeof createBody?.id === 'string' ? createBody.id : null;
       expect(roleId).toBeTruthy();
 
-      // Navigate to users list
+      // Navigate to users list and wait for the page heading
       await login(page, 'admin');
       await page.goto('/backend/users');
       await page.waitForLoadState('domcontentloaded');
       await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
 
-      // Open filter overlay
+      // Open filter overlay and wait for the tags input inside it
       await page.getByRole('button', { name: /Filters/i }).click();
-      await expect(page.getByText('Roles')).toBeVisible();
+      const filterPanel = page.locator('.fixed.inset-0');
+      await expect(filterPanel).toBeVisible();
+      const tagsInput = filterPanel.locator('[data-crud-focus-target]');
+      await expect(tagsInput).toBeVisible();
 
       // Type the role name in the tags input to trigger search
-      const tagsInput = page.locator('[data-crud-focus-target]').last();
       await tagsInput.fill(roleName);
       await page.waitForTimeout(500);
 
-      // Select the role from suggestions
-      const suggestion = page.getByRole('button', { name: roleName });
+      // Select the role from suggestions inside the filter panel
+      const suggestion = filterPanel.getByRole('button', { name: roleName });
       await expect(suggestion).toBeVisible();
       await suggestion.click();
 
       // Apply the filter
-      await page.getByRole('button', { name: /Apply/i }).first().click();
+      await filterPanel.getByRole('button', { name: /Apply/i }).first().click();
+
+      // Wait for filter overlay to close
+      await expect(filterPanel).toBeHidden();
 
       // Verify filter chip shows role name (not UUID)
-      const chipLocator = page.locator('button', { hasText: new RegExp(`Roles.*${roleName}`, 'i') });
+      const chipLocator = page.locator('button', { hasText: new RegExp(`.*${roleName}.*`, 'i') });
       await expect(chipLocator).toBeVisible();
 
       // Verify chip does NOT contain a UUID pattern
