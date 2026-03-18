@@ -132,7 +132,6 @@ export default function UsersListPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [organizationOptions, setOrganizationOptions] = React.useState<FilterOption[]>([])
   const [roleOptions, setRoleOptions] = React.useState<FilterOption[]>([])
-  const [roleLabelToId, setRoleLabelToId] = React.useState<Record<string, string>>({})
   const [roleIdToLabel, setRoleIdToLabel] = React.useState<Record<string, string>>({})
   const [roleFilterDirty, setRoleFilterDirty] = React.useState(false)
 
@@ -148,12 +147,6 @@ export default function UsersListPage() {
   const applyRoleOptions = React.useCallback((opts: FilterOption[]) => {
     if (!opts.length) return
     setRoleOptions((prev) => mergeOptions(prev, opts))
-    setRoleLabelToId((prev) => {
-      if (!opts.length) return prev
-      const next = { ...prev }
-      for (const opt of opts) next[opt.label] = opt.value
-      return next
-    })
     setRoleIdToLabel((prev) => {
       if (!opts.length) return prev
       const next = { ...prev }
@@ -191,13 +184,10 @@ export default function UsersListPage() {
     }
     const missing = roleIdsFromUrl.filter((id) => !roleIdToLabel[id])
     if (missing.length === 0) {
-      const labels = roleIdsFromUrl
-        .map((id) => roleIdToLabel[id])
-        .filter((label): label is string => typeof label === 'string' && label.length > 0)
       setFilterValues((prev) => {
         const current = Array.isArray(prev.roles) ? prev.roles as string[] : []
-        if (arraysEqual(current, labels)) return prev
-        return { ...prev, roles: labels }
+        if (arraysEqual(current, roleIdsFromUrl)) return prev
+        return { ...prev, roles: roleIdsFromUrl }
       })
       return
     }
@@ -206,21 +196,11 @@ export default function UsersListPage() {
       const fetched = await fetchRoleOptionsByIds(missing)
       if (cancelled) return
       if (fetched.length) applyRoleOptions(fetched)
-      const labelMap = new Map<string, string>()
-      for (const opt of fetched) labelMap.set(opt.value, opt.label)
-      for (const id of roleIdsFromUrl) {
-        if (roleIdToLabel[id]) labelMap.set(id, roleIdToLabel[id])
-      }
-      const labels = roleIdsFromUrl
-        .map((id) => labelMap.get(id))
-        .filter((label): label is string => typeof label === 'string' && label.length > 0)
-      if (labels.length) {
-        setFilterValues((prev) => {
-          const current = Array.isArray(prev.roles) ? prev.roles as string[] : []
-          if (arraysEqual(current, labels)) return prev
-          return { ...prev, roles: labels }
-        })
-      }
+      setFilterValues((prev) => {
+        const current = Array.isArray(prev.roles) ? prev.roles as string[] : []
+        if (arraysEqual(current, roleIdsFromUrl)) return prev
+        return { ...prev, roles: roleIdsFromUrl }
+      })
     })()
     return () => { cancelled = true }
   }, [roleFilterDirty, roleIdsFromUrlKey, roleIdsFromUrl, roleIdToLabel, applyRoleOptions])
@@ -238,26 +218,25 @@ export default function UsersListPage() {
   const filters = React.useMemo<FilterDef[]>(() => [
     {
       id: 'organizationId',
-      label: 'Organization',
+      label: t('auth.users.list.filters.organization', 'Organization'),
       type: 'select',
       options: organizationOptions,
     },
     {
       id: 'roles',
-      label: 'Roles',
+      label: t('auth.users.list.filters.roles', 'Roles'),
       type: 'tags',
-      placeholder: 'Filter by roles',
+      placeholder: t('auth.users.list.filters.rolesPlaceholder', 'Filter by roles'),
       options: roleOptions,
       loadOptions: loadRoleOptions,
+      formatValue: (val: string) => roleIdToLabel[val] ?? val,
     },
-  ], [organizationOptions, roleOptions, loadRoleOptions])
+  ], [organizationOptions, roleOptions, loadRoleOptions, roleIdToLabel, t])
 
   const roleIdsFromFilter = React.useMemo(() => {
     const raw = Array.isArray(filterValues.roles) ? filterValues.roles as string[] : []
-    return raw
-      .map((label) => roleLabelToId[label])
-      .filter((id): id is string => typeof id === 'string' && id.length > 0)
-  }, [filterValues.roles, roleLabelToId])
+    return raw.filter((id) => typeof id === 'string' && id.length > 0)
+  }, [filterValues.roles])
 
   const effectiveRoleIds = React.useMemo(() => {
     if (roleFilterDirty) return roleIdsFromFilter
