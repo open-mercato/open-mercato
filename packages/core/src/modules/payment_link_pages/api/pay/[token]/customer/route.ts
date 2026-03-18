@@ -12,8 +12,8 @@ import { loadPublicPaymentLinkState } from '../../../../../payment_gateways/lib/
 import { emitPaymentLinkPageEvent } from '../../../../events'
 
 const customerCapturePayloadSchema = z.object({
-  firstName: z.string().trim().min(1).max(120),
-  lastName: z.string().trim().min(1).max(120),
+  firstName: z.string().trim().max(120).optional().default(''),
+  lastName: z.string().trim().max(120).optional().default(''),
   email: z.string().trim().email().max(320),
   phone: z.string().trim().max(50).optional(),
   companyName: z.string().trim().max(200).optional(),
@@ -85,8 +85,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   const phone = normalizeOptionalString(parsed.data.phone)
   const companyName = normalizeOptionalString(parsed.data.companyName)
 
-  if (state.customerCapture.companyRequired && !companyName) {
+  const captureObj = state.customerCapture as Record<string, unknown> | null
+  const captureFields = captureObj?.fields as Record<string, { visible?: boolean; required?: boolean }> | undefined
+
+  const isFieldRequired = (name: string): boolean => {
+    if (!captureFields) {
+      if (name === 'companyName') return captureObj?.companyRequired === true
+      if (name === 'phone') return false
+      return name === 'firstName' || name === 'lastName'
+    }
+    return captureFields[name]?.required === true
+  }
+
+  if (isFieldRequired('firstName') && !firstName) {
+    return NextResponse.json({ error: 'First name is required' }, { status: 422 })
+  }
+  if (isFieldRequired('lastName') && !lastName) {
+    return NextResponse.json({ error: 'Last name is required' }, { status: 422 })
+  }
+  if (isFieldRequired('companyName') && !companyName) {
     return NextResponse.json({ error: 'Company name is required' }, { status: 422 })
+  }
+  if (isFieldRequired('phone') && !phone) {
+    return NextResponse.json({ error: 'Phone is required' }, { status: 422 })
   }
   if (state.customerCapture.termsRequired && parsed.data.acceptedTerms !== true) {
     return NextResponse.json({ error: 'Terms must be accepted' }, { status: 422 })
@@ -211,6 +232,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       companyRequired: state.customerCapture.companyRequired,
       termsRequired: state.customerCapture.termsRequired,
       termsMarkdown: state.customerCapture.termsMarkdown ?? null,
+      fields: captureFields ?? undefined,
       collectedAt,
       termsAcceptedAt,
       companyEntityId,

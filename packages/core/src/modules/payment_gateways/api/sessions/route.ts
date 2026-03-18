@@ -363,6 +363,7 @@ export async function POST(req: Request) {
     let paymentLinkUrl: string | null = null
     let paymentLinkToken: string | null = null
     let paymentLinkId: string | null = null
+    const isMultiUseLink = parsed.data.paymentLink?.enabled && parsed.data.paymentLink.linkMode === 'multi'
 
     if (parsed.data.paymentLink?.enabled) {
       if (paymentLinkTokenOverride) {
@@ -391,6 +392,172 @@ export async function POST(req: Request) {
       paymentLinkUrl = buildPaymentLinkUrl(new URL(req.url).origin, paymentLinkToken)
     }
 
+    if (isMultiUseLink) {
+      // Multi-use link: skip transaction creation, store session params for later replay
+      const paymentLinkData = parsed.data.paymentLink!
+
+      let resolvedTitle = paymentLinkData.title?.trim() || parsed.data.description?.trim() || `${parsed.data.providerKey} payment`
+      let resolvedDescription: string | null = paymentLinkData.description?.trim() || null
+      let resolvedPageMetadata = paymentLinkData.metadata
+      let resolvedCustomFields = paymentLinkData.customFields
+      let resolvedCustomFieldsetCode: string | null = paymentLinkData.customFieldsetCode ?? null
+      // Force customerCapture.enabled for multi-use links (email is always required)
+      let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null } = {
+        enabled: true,
+        companyRequired: paymentLinkData.customerCapture?.companyRequired === true,
+        termsRequired: paymentLinkData.customerCapture?.termsRequired === true,
+        termsMarkdown: paymentLinkData.customerCapture?.termsRequired
+          ? paymentLinkData.customerCapture.termsMarkdown?.trim() || null
+          : null,
+      }
+
+      if (paymentLinkData.templateId) {
+        const template = await findOneWithDecryption(
+          em,
+          PaymentLinkTemplate,
+          {
+            id: paymentLinkData.templateId,
+            organizationId: auth.orgId as string,
+            tenantId: auth.tenantId,
+            deletedAt: null,
+          },
+          undefined,
+          { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+        )
+
+        if (template) {
+          const merged = mergePaymentLinkWithTemplate(
+            {
+              title: paymentLinkData.title,
+              description: paymentLinkData.description,
+              metadata: paymentLinkData.metadata,
+              customFields: paymentLinkData.customFields,
+              customFieldsetCode: paymentLinkData.customFieldsetCode,
+              customerCapture: paymentLinkData.customerCapture,
+            },
+            template,
+          )
+
+          resolvedTitle = merged.title || parsed.data.description?.trim() || `${parsed.data.providerKey} payment`
+          resolvedDescription = merged.description || null
+          resolvedPageMetadata = merged.pageMetadata
+          resolvedCustomFields = merged.customFields
+          resolvedCustomFieldsetCode = merged.customFieldsetCode ?? null
+          if (merged.customerCapture) {
+            resolvedCustomerCapture = {
+              enabled: true,
+              companyRequired: merged.customerCapture.companyRequired,
+              termsRequired: merged.customerCapture.termsRequired,
+              termsMarkdown: merged.customerCapture.termsMarkdown?.trim() || null,
+            }
+          }
+        }
+      }
+
+      const paymentLink = em.create(GatewayPaymentLink, {
+        transactionId: null,
+        token: paymentLinkToken as string,
+        providerKey: parsed.data.providerKey,
+        title: resolvedTitle,
+        description: resolvedDescription,
+        linkMode: 'multi',
+        maxUses: paymentLinkData.maxUses ?? null,
+        useCount: 0,
+        passwordHash: paymentLinkData.password?.trim()
+          ? await hashPaymentLinkPassword(paymentLinkData.password.trim())
+          : null,
+        status: 'active',
+        metadata: buildPaymentLinkStoredMetadata({
+          amount: parsed.data.amount,
+          currencyCode: parsed.data.currencyCode,
+          pageMetadata: resolvedPageMetadata,
+          customFields: resolvedCustomFields,
+          customFieldsetCode: resolvedCustomFieldsetCode,
+          customerCapture: resolvedCustomerCapture,
+          sessionParams: {
+            providerKey: parsed.data.providerKey,
+            amount: parsed.data.amount,
+            currencyCode: parsed.data.currencyCode,
+            captureMethod: parsed.data.captureMethod,
+            description: parsed.data.description,
+            successUrl: parsed.data.successUrl,
+            cancelUrl: parsed.data.cancelUrl,
+            metadata: parsed.data.metadata,
+            providerInput: parsed.data.providerInput,
+          },
+        }),
+        organizationId: auth.orgId as string,
+        tenantId: auth.tenantId,
+      })
+      await em.persistAndFlush(paymentLink)
+      paymentLinkId = paymentLink.id
+
+      const responseBody = {
+        transactionId: null,
+        sessionId: null,
+        providerKey: parsed.data.providerKey,
+        clientSecret: null,
+        redirectUrl: null,
+        providerData: null,
+        status: 'active',
+        paymentId: null,
+        paymentLinkId,
+        paymentLinkToken,
+        paymentLinkUrl,
+        linkMode: 'multi' as const,
+      }
+
+      await emitPaymentGatewayEvent('payment_gateways.payment_link.created', {
+        paymentLinkId,
+        paymentLinkToken,
+        paymentLinkUrl,
+        transactionId: null,
+        paymentId: null,
+        providerKey: parsed.data.providerKey,
+        organizationId: auth.orgId as string,
+        tenantId: auth.tenantId,
+      })
+
+      if (guardValidation?.ok && guardValidation.shouldRunAfterSuccess) {
+        await runCrudMutationGuardAfterSuccess(container, {
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId as string,
+          userId: auth.sub ?? '',
+          resourceKind: 'payment_gateways.transaction',
+          resourceId: paymentLinkId,
+          operation: 'custom',
+          requestMethod: req.method,
+          requestHeaders: req.headers,
+          metadata: guardValidation.metadata ?? null,
+        })
+      }
+
+      const interceptedResponse = await runApiInterceptorsAfter({
+        routePath: 'payment_gateways/sessions',
+        method: 'POST',
+        request: interceptedRequest.request,
+        response: {
+          statusCode: 201,
+          body: responseBody,
+          headers: {},
+        },
+        context: interceptorContext,
+        metadataByInterceptor: interceptedRequest.metadataByInterceptor,
+      })
+      if (!interceptedResponse.ok) {
+        return NextResponse.json(interceptedResponse.body, {
+          status: interceptedResponse.statusCode,
+          headers: interceptedResponse.headers,
+        })
+      }
+
+      return NextResponse.json(interceptedResponse.body, {
+        status: interceptedResponse.statusCode,
+        headers: interceptedResponse.headers,
+      })
+    }
+
+    // Single-use link (default) or no payment link: create transaction immediately
     const { transaction, session } = await service.createPaymentSession({
       providerKey: parsed.data.providerKey,
       paymentId: crypto.randomUUID(),

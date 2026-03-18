@@ -225,6 +225,26 @@ defaultRoleFeatures: {
 - Template loading and deep-merge logic
 - Template selector dropdown in the payment transaction create dialog (UMES)
 
+### Phase 4 — Navigation Restructure
+
+Move Payments from settings sidebar to main sidebar. Create a "Payments" group containing: Transactions, Links, Link Templates, Payment Providers.
+
+### Phase 5 — Links Listing Page
+
+New DataTable page at `/backend/payment-links` listing all GatewayPaymentLink records with status, token, title, amount, mode, provider, uses, created date. Row actions: copy URL, open link, view transaction.
+
+### Phase 6 — Customer Capture Form Customization
+
+Per-field visible/required config for customer capture form (email always required). Support for custom form fields with type, label, placeholder, hint, options. Terms field uses markdown editor.
+
+### Phase 7 — Multi-Use Payment Links
+
+Add `linkMode` column (single/multi) to GatewayPaymentLink. Multi-use links create transactions on-demand when customers visit. New junction table `gateway_payment_link_transactions` for 1:many tracking. New public API `POST /api/payment_link_pages/pay/[token]/session`. useCount/maxUses tracking.
+
+### Phase 8 — Browser Testing
+
+E2E verification of all features.
+
 ## Navigation
 
 Add to sidebar under Payment Gateways group:
@@ -249,3 +269,4 @@ Payment Gateways
 |------|--------|
 | 2026-03-17 | Initial draft |
 | 2026-03-17 | All phases implemented — entity, API, admin pages, branding preview, session integration with template deep-merge |
+| 2026-03-17 | Added Phases 4-8: navigation restructure, links listing page, customer capture form customization, multi-use payment links, browser testing |

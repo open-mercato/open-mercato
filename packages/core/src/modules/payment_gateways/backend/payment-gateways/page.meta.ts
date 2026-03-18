@@ -10,10 +10,9 @@ export const metadata = {
   requireFeatures: ['payment_gateways.view'],
   pageTitle: 'Payment Transactions',
   pageTitleKey: 'payment_gateways.nav.transactions',
-  pageGroup: 'External systems',
-  pageGroupKey: 'backend.nav.externalSystems',
-  pageOrder: 52,
+  pageGroup: 'Payments',
+  pageGroupKey: 'payment_gateways.nav.paymentsGroup',
+  pageOrder: 10,
   icon: cardIcon,
-  pageContext: 'settings' as const,
   breadcrumb: [{ label: 'Payment Transactions', labelKey: 'payment_gateways.nav.transactions' }],
 }

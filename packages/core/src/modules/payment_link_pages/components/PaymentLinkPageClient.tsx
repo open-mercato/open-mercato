@@ -47,6 +47,12 @@ export type PaymentLinkPageResponse = {
       termsRequired?: boolean
       termsMarkdown?: string | null
       collected?: boolean
+      fields?: {
+        firstName?: { visible?: boolean; required?: boolean }
+        lastName?: { visible?: boolean; required?: boolean }
+        phone?: { visible?: boolean; required?: boolean }
+        companyName?: { visible?: boolean; required?: boolean }
+      } | null
     } | null
   }
   transaction?: {
@@ -310,10 +316,27 @@ function DefaultCheckoutSection({
   const customerCaptureRequired = customerCapture?.enabled === true && !customerCapture.collected
   const termsRequired = customerCapture?.termsRequired === true && !!customerCapture?.termsMarkdown
   const canFillCustomerForm = !termsRequired || customerTermsAccepted
-  const customerFormReady = customerForm.firstName.trim().length > 0
-    && customerForm.lastName.trim().length > 0
-    && customerForm.email.trim().length > 0
-    && (!customerCapture?.companyRequired || customerForm.companyName.trim().length > 0)
+
+  const fieldConfig = customerCapture?.fields
+  const isFieldVisible = (name: string) => {
+    if (!fieldConfig) return true
+    const config = fieldConfig[name as keyof typeof fieldConfig]
+    return config?.visible !== false
+  }
+  const isFieldRequired = (name: string) => {
+    if (!fieldConfig) {
+      if (name === 'companyName') return customerCapture?.companyRequired === true
+      if (name === 'phone') return false
+      return name === 'firstName' || name === 'lastName'
+    }
+    return fieldConfig[name as keyof typeof fieldConfig]?.required === true
+  }
+
+  const customerFormReady = customerForm.email.trim().length > 0
+    && (!isFieldVisible('firstName') || !isFieldRequired('firstName') || customerForm.firstName.trim().length > 0)
+    && (!isFieldVisible('lastName') || !isFieldRequired('lastName') || customerForm.lastName.trim().length > 0)
+    && (!isFieldVisible('companyName') || !isFieldRequired('companyName') || customerForm.companyName.trim().length > 0)
+    && (!isFieldVisible('phone') || !isFieldRequired('phone') || customerForm.phone.trim().length > 0)
     && (!termsRequired || customerTermsAccepted)
 
   return (
@@ -411,10 +434,12 @@ function DefaultCheckoutSection({
                 </label>
               </div>
             ) : null}
-            {customerCapture?.companyRequired ? (
+            {isFieldVisible('companyName') ? (
               <div className="space-y-2 sm:col-span-2">
                 <div className="text-sm font-medium text-slate-200">
-                  {t('payment_gateways.paymentLink.customerCapture.companyName', 'Company name')}
+                  {isFieldRequired('companyName')
+                    ? t('payment_gateways.paymentLink.customerCapture.companyName', 'Company name')
+                    : t('payment_gateways.paymentLink.customerCapture.companyOptional', 'Company name (optional)')}
                 </div>
                 <Input
                   value={customerForm.companyName}
@@ -424,41 +449,32 @@ function DefaultCheckoutSection({
                 />
               </div>
             ) : null}
-            {!customerCapture?.companyRequired ? (
-              <div className="space-y-2 sm:col-span-2">
+            {isFieldVisible('firstName') ? (
+              <div className="space-y-2">
                 <div className="text-sm font-medium text-slate-200">
-                  {t('payment_gateways.paymentLink.customerCapture.companyOptional', 'Company name (optional)')}
+                  {t('payment_gateways.paymentLink.customerCapture.firstName', 'First name')}{!isFieldRequired('firstName') ? ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})` : ''}
                 </div>
                 <Input
-                  value={customerForm.companyName}
-                  onChange={(event) => onCustomerFieldChange('companyName', event.target.value)}
+                  value={customerForm.firstName}
+                  onChange={(event) => onCustomerFieldChange('firstName', event.target.value)}
                   className="border-slate-700 bg-slate-950 text-white"
                   disabled={!canFillCustomerForm}
                 />
               </div>
             ) : null}
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-200">
-                {t('payment_gateways.paymentLink.customerCapture.firstName', 'First name')}
+            {isFieldVisible('lastName') ? (
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-200">
+                  {t('payment_gateways.paymentLink.customerCapture.lastName', 'Last name')}{!isFieldRequired('lastName') ? ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})` : ''}
+                </div>
+                <Input
+                  value={customerForm.lastName}
+                  onChange={(event) => onCustomerFieldChange('lastName', event.target.value)}
+                  className="border-slate-700 bg-slate-950 text-white"
+                  disabled={!canFillCustomerForm}
+                />
               </div>
-              <Input
-                value={customerForm.firstName}
-                onChange={(event) => onCustomerFieldChange('firstName', event.target.value)}
-                className="border-slate-700 bg-slate-950 text-white"
-                disabled={!canFillCustomerForm}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-200">
-                {t('payment_gateways.paymentLink.customerCapture.lastName', 'Last name')}
-              </div>
-              <Input
-                value={customerForm.lastName}
-                onChange={(event) => onCustomerFieldChange('lastName', event.target.value)}
-                className="border-slate-700 bg-slate-950 text-white"
-                disabled={!canFillCustomerForm}
-              />
-            </div>
+            ) : null}
             <div className="space-y-2">
               <div className="text-sm font-medium text-slate-200">
                 {t('payment_gateways.paymentLink.customerCapture.email', 'Email')}
@@ -471,17 +487,19 @@ function DefaultCheckoutSection({
                 disabled={!canFillCustomerForm}
               />
             </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-200">
-                {t('payment_gateways.paymentLink.customerCapture.phone', 'Phone (optional)')}
+            {isFieldVisible('phone') ? (
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-200">
+                  {t('payment_gateways.paymentLink.customerCapture.phone', 'Phone')}{!isFieldRequired('phone') ? ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})` : ''}
+                </div>
+                <Input
+                  value={customerForm.phone}
+                  onChange={(event) => onCustomerFieldChange('phone', event.target.value)}
+                  className="border-slate-700 bg-slate-950 text-white"
+                  disabled={!canFillCustomerForm}
+                />
               </div>
-              <Input
-                value={customerForm.phone}
-                onChange={(event) => onCustomerFieldChange('phone', event.target.value)}
-                className="border-slate-700 bg-slate-950 text-white"
-                disabled={!canFillCustomerForm}
-              />
-            </div>
+            ) : null}
           </div>
 
           {customerError ? (

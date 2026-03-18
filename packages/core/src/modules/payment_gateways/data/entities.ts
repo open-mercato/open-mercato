@@ -78,14 +78,15 @@ export class GatewayTransaction {
 @Index({ properties: ['token'], options: { unique: true } })
 @Index({ properties: ['transactionId', 'organizationId', 'tenantId'] })
 @Index({ properties: ['organizationId', 'tenantId', 'status'] })
+@Index({ properties: ['organizationId', 'tenantId', 'linkMode'] })
 export class GatewayPaymentLink {
-  [OptionalProps]?: 'description' | 'passwordHash' | 'status' | 'completedAt' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'metadata'
+  [OptionalProps]?: 'description' | 'passwordHash' | 'status' | 'completedAt' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'metadata' | 'linkMode' | 'transactionId' | 'templateId' | 'useCount' | 'maxUses'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @Property({ name: 'transaction_id', type: 'uuid' })
-  transactionId!: string
+  @Property({ name: 'transaction_id', type: 'uuid', nullable: true })
+  transactionId?: string | null
 
   @Property({ type: 'text' })
   token!: string
@@ -108,6 +109,18 @@ export class GatewayPaymentLink {
   @Property({ name: 'completed_at', type: Date, nullable: true })
   completedAt?: Date | null
 
+  @Property({ name: 'link_mode', type: 'text', default: 'single' })
+  linkMode: 'single' | 'multi' = 'single'
+
+  @Property({ name: 'template_id', type: 'uuid', nullable: true })
+  templateId?: string | null
+
+  @Property({ name: 'use_count', type: 'integer', default: 0 })
+  useCount: number = 0
+
+  @Property({ name: 'max_uses', type: 'integer', nullable: true })
+  maxUses?: number | null
+
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
@@ -125,6 +138,31 @@ export class GatewayPaymentLink {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'gateway_payment_link_transactions' })
+@Index({ properties: ['paymentLinkId'] })
+@Index({ properties: ['transactionId'] })
+export class GatewayPaymentLinkTransaction {
+  [OptionalProps]?: 'customerData' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'payment_link_id', type: 'uuid' })
+  paymentLinkId!: string
+
+  @Property({ name: 'transaction_id', type: 'uuid' })
+  transactionId!: string
+
+  @Property({ name: 'customer_email', type: 'text' })
+  customerEmail!: string
+
+  @Property({ name: 'customer_data', type: 'jsonb', nullable: true })
+  customerData?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }
 
 @Entity({ tableName: 'gateway_webhook_events' })

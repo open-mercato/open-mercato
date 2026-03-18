@@ -58,6 +58,8 @@
   "payment_gateways.feature.view": "Podgląd transakcji bramek płatności",
   "payment_gateways.field.captureMethod": "Tryb przechwycenia bramki",
   "payment_gateways.field.paymentTypes": "Typy płatności bramki",
+  "payment_gateways.nav.paymentsGroup": "Płatności",
+  "payment_gateways.nav.providers": "Dostawcy płatności",
   "payment_gateways.nav.transactions": "Transakcje płatności",
   "payment_gateways.paymentLink.customerCapture.acceptTerms": "Przeczytalem i akceptuje powyzszy regulamin / informacje RODO.",
   "payment_gateways.paymentLink.customerCapture.body": "Najpierw podaj dane klienta. Sprzedawca wykorzysta je do dopasowania lub utworzenia rekordu klienta przed rozpoczeciem platnosci.",

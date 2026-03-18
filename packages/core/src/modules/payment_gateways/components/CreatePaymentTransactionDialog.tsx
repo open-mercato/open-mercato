@@ -24,6 +24,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs/SwitchableMarkdownInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   buildPaymentGatewayTransactionCreateFieldSpotId,
@@ -398,12 +399,11 @@ function PaymentLinkSection({
                     <Label htmlFor="paymentLinkTermsMarkdown">
                       {t('payment_gateways.create.paymentLinkTermsMarkdown', 'Terms content (Markdown)')}
                     </Label>
-                    <Textarea
-                      id="paymentLinkTermsMarkdown"
+                    <SwitchableMarkdownInput
                       value={typeof values.paymentLinkTermsMarkdown === 'string' ? values.paymentLinkTermsMarkdown : ''}
-                      onChange={(event) => setValue('paymentLinkTermsMarkdown', event.target.value)}
-                      aria-invalid={errors.paymentLinkTermsMarkdown ? 'true' : 'false'}
-                      className="min-h-40"
+                      onChange={(nextValue) => setValue('paymentLinkTermsMarkdown', nextValue)}
+                      isMarkdownEnabled
+                      height={220}
                     />
                     <p className="text-xs text-muted-foreground">
                       {t(

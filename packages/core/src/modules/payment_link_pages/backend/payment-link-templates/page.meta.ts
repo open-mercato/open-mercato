@@ -3,8 +3,8 @@ export const metadata = {
   requireFeatures: ['payment_link_pages.templates.view'],
   pageTitle: 'Link Templates',
   pageTitleKey: 'payment_link_pages.templates.title',
-  pageGroup: 'Payment Gateways',
-  pageGroupKey: 'payment_gateways.nav.group',
+  pageGroup: 'Payments',
+  pageGroupKey: 'payment_gateways.nav.paymentsGroup',
   navHidden: false,
-  order: 20,
+  pageOrder: 30,
 }

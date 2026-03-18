@@ -58,6 +58,8 @@
   "payment_gateways.feature.view": "Ver transacciones de la pasarela de pago",
   "payment_gateways.field.captureMethod": "Metodo de captura de la pasarela",
   "payment_gateways.field.paymentTypes": "Tipos de pago de la pasarela",
+  "payment_gateways.nav.paymentsGroup": "Pagos",
+  "payment_gateways.nav.providers": "Proveedores de pago",
   "payment_gateways.nav.transactions": "Transacciones de pago",
   "payment_gateways.paymentLink.customerCapture.acceptTerms": "He leido y acepto los terminos / aviso RGPD anteriores.",
   "payment_gateways.paymentLink.customerCapture.body": "Introduce primero tus datos de cliente. El comercio los usara para asociar o crear tu ficha de cliente antes del pago.",

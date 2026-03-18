@@ -58,6 +58,8 @@
   "payment_gateways.feature.view": "Zahlungsgateway-Transaktionen anzeigen",
   "payment_gateways.field.captureMethod": "Erfassungsmethode des Gateways",
   "payment_gateways.field.paymentTypes": "Gateway-Zahlungsarten",
+  "payment_gateways.nav.paymentsGroup": "Zahlungen",
+  "payment_gateways.nav.providers": "Zahlungsanbieter",
   "payment_gateways.nav.transactions": "Zahlungstransaktionen",
   "payment_gateways.paymentLink.customerCapture.acceptTerms": "Ich habe die obigen Bedingungen / den DSGVO-Hinweis gelesen und akzeptiere sie.",
   "payment_gateways.paymentLink.customerCapture.body": "Geben Sie zuerst Ihre Kundendaten ein. Der Haendler verwendet sie, um Ihren Kundendatensatz vor der Zahlung zuzuordnen oder anzulegen.",

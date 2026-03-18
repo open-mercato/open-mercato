@@ -1435,7 +1435,20 @@ No existing spec contracts are broken. The updates are additive cross-references
 
 ---
 
-## 15. Changelog
+## 15. Future: Payment Link Webhook Integration
+
+After the webhooks module is implemented, payment link events should be available as webhook triggers:
+
+- `payment_gateways.payment_link.created` — fired when a new payment link is generated
+- `payment_gateways.payment_link.session_created` — fired when a multi-use link creates a new transaction session
+- `payment_gateways.transaction.status_changed` — fired when a transaction changes status (e.g., completed, failed, refunded)
+- `payment_link_pages.customer.captured` — fired when customer details are submitted on a payment link page
+
+This enables merchants to build automations around payment link lifecycle events — for example, sending confirmation emails when a transaction completes, or notifying a CRM when customer data is captured.
+
+---
+
+## 16. Changelog
 
 | Date | Change |
 |------|--------|

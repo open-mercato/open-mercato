@@ -1,9 +1,22 @@
+export type PaymentLinkSessionParams = {
+  providerKey: string
+  amount: number
+  currencyCode: string
+  captureMethod?: string
+  description?: string
+  successUrl?: string
+  cancelUrl?: string
+  metadata?: Record<string, unknown>
+  providerInput?: Record<string, unknown>
+}
+
 export type PaymentLinkPageStoredMetadata = {
   amount?: number
   currencyCode?: string
   pageMetadata?: Record<string, unknown>
   customFields?: Record<string, unknown>
   customFieldsetCode?: string | null
+  sessionParams?: PaymentLinkSessionParams
   customerCapture?: {
     enabled?: boolean
     companyRequired?: boolean
@@ -16,6 +29,7 @@ export type PaymentLinkPageStoredMetadata = {
     companyName?: string | null
     personName?: string | null
     email?: string | null
+    fields?: Record<string, { visible?: boolean; required?: boolean }> | null
   }
 }
 
@@ -26,6 +40,7 @@ const RESERVED_KEYS = new Set([
   'customFields',
   'customFieldsetCode',
   'customerCapture',
+  'sessionParams',
 ])
 
 function toPlainObject(input: unknown): Record<string, unknown> {
@@ -47,6 +62,11 @@ function toStringOrNull(input: unknown): string | null {
 function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['customerCapture'] | undefined {
   const source = toPlainObject(input)
   if (!Object.keys(source).length) return undefined
+  const rawFields = toPlainObject(source.fields)
+  const fields = Object.keys(rawFields).length > 0
+    ? rawFields as Record<string, { visible?: boolean; required?: boolean }>
+    : null
+
   return {
     enabled: source.enabled === true,
     companyRequired: source.companyRequired === true,
@@ -59,6 +79,7 @@ function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['custo
     companyName: toStringOrNull(source.companyName),
     personName: toStringOrNull(source.personName),
     email: toStringOrNull(source.email),
+    fields,
   }
 }
 
@@ -80,6 +101,9 @@ export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetad
   if (input.customerCapture && Object.keys(input.customerCapture).length > 0) {
     payload.customerCapture = input.customerCapture
   }
+  if (input.sessionParams && typeof input.sessionParams.providerKey === 'string') {
+    payload.sessionParams = input.sessionParams
+  }
   return payload
 }
 
@@ -95,6 +119,26 @@ export function readPaymentLinkStoredMetadata(input: unknown): PaymentLinkPageSt
     ? explicitPageMetadata
     : fallbackPageMetadata
 
+  const rawSessionParams = toPlainObject(source.sessionParams)
+  const sessionParams: PaymentLinkSessionParams | undefined =
+    typeof rawSessionParams.providerKey === 'string' && rawSessionParams.providerKey.length > 0
+      ? {
+          providerKey: rawSessionParams.providerKey as string,
+          amount: toNumber(rawSessionParams.amount) ?? 0,
+          currencyCode: (toStringOrNull(rawSessionParams.currencyCode) ?? '') as string,
+          captureMethod: toStringOrNull(rawSessionParams.captureMethod) ?? undefined,
+          description: toStringOrNull(rawSessionParams.description) ?? undefined,
+          successUrl: toStringOrNull(rawSessionParams.successUrl) ?? undefined,
+          cancelUrl: toStringOrNull(rawSessionParams.cancelUrl) ?? undefined,
+          metadata: Object.keys(toPlainObject(rawSessionParams.metadata)).length > 0
+            ? toPlainObject(rawSessionParams.metadata)
+            : undefined,
+          providerInput: Object.keys(toPlainObject(rawSessionParams.providerInput)).length > 0
+            ? toPlainObject(rawSessionParams.providerInput)
+            : undefined,
+        }
+      : undefined
+
   return {
     amount: toNumber(source.amount),
     currencyCode: toStringOrNull(source.currencyCode) ?? undefined,
@@ -103,6 +147,7 @@ export function readPaymentLinkStoredMetadata(input: unknown): PaymentLinkPageSt
       ? toPlainObject(source.customFields)
       : undefined,
     customFieldsetCode: toStringOrNull(source.customFieldsetCode),
+    sessionParams,
     customerCapture: toCustomerCapture(source.customerCapture),
   }
 }

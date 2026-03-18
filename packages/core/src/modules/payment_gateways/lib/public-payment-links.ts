@@ -35,6 +35,7 @@ export type PublicPaymentLinkState = {
     companyName: string | null
     personName: string | null
     email: string | null
+    fields: Record<string, { visible?: boolean; required?: boolean }> | null
   } | null
 }
 
@@ -122,6 +123,7 @@ export async function loadPublicPaymentLinkState({
           companyName: storedMetadata.customerCapture.companyName ?? null,
           personName: storedMetadata.customerCapture.personName ?? null,
           email: storedMetadata.customerCapture.email ?? null,
+          fields: storedMetadata.customerCapture.fields ?? null,
         }
       : null,
   }
