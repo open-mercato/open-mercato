@@ -556,6 +556,7 @@
   "catalog.variants.form.errors.notFound": "Nie znaleziono wariantu.",
   "catalog.variants.form.errors.productMissing": "Brak identyfikatora produktu.",
   "catalog.variants.form.errors.variantMissing": "Brak identyfikatora wariantu.",
+  "catalog.variants.form.general": "Ogólne",
   "catalog.variants.form.height": "Wysokość",
   "catalog.variants.form.isActiveHint": "Nieaktywne warianty pozostają ukryte",
   "catalog.variants.form.isActiveLabel": "Aktywny",
