@@ -3,12 +3,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { GatewayPaymentLink } from '@open-mercato/core/modules/payment_gateways/data/entities'
-import { paymentLinkUnlockSchema } from '@open-mercato/core/modules/payment_gateways/data/validators'
+import { GatewayPaymentLink } from '../../../../data/entities'
+import { paymentLinkUnlockSchema } from '../../../../data/validators'
 import {
   createPaymentLinkAccessToken,
   verifyPaymentLinkPassword,
-} from '@open-mercato/core/modules/payment_gateways/lib/payment-links'
+} from '../../../../lib/payment-links'
 import { emitPaymentLinkPageEvent } from '../../../../events'
 
 export const metadata = {

@@ -3,9 +3,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { runApiInterceptorsAfter, runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
-import { GatewayPaymentLink, GatewayTransaction } from '../../../data/entities'
-import { buildPaymentLinkUrl } from '../../../lib/payment-links'
+import { GatewayTransaction } from '../../../data/entities'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
@@ -25,6 +25,20 @@ function toIsoString(value: unknown): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }
 
+function resolveUserFeatures(auth: unknown): string[] {
+  const features = (auth as { features?: unknown })?.features
+  if (!Array.isArray(features)) return []
+  return features.filter((value): value is string => typeof value === 'string')
+}
+
+function readRequestHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {}
+  req.headers.forEach((value, key) => {
+    headers[key] = value
+  })
+  return headers
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> | { id: string } }) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -37,10 +51,34 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'Transaction id is required' }, { status: 400 })
   }
 
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
-  const em = resolve('em') as EntityManager
-  const integrationLogService = resolve('integrationLogService') as IntegrationLogService
+  const em = container.resolve('em') as EntityManager
+  const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
+
+  const interceptorContext = {
+    userId: auth.sub ?? '',
+    organizationId: auth.orgId as string,
+    tenantId: auth.tenantId,
+    em,
+    container,
+    userFeatures: resolveUserFeatures(auth),
+  }
+  const interceptedRequest = await runApiInterceptorsBefore({
+    routePath: 'payment_gateways/transactions/[id]',
+    method: 'GET',
+    request: {
+      method: 'GET',
+      url: req.url,
+      body: undefined,
+      headers: readRequestHeaders(req),
+    },
+    context: interceptorContext,
+  })
+  if (!interceptedRequest.ok) {
+    return NextResponse.json(interceptedRequest.body, { status: interceptedRequest.statusCode })
+  }
+
   const transaction = await findOneWithDecryption(
     em,
     GatewayTransaction,
@@ -59,22 +97,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const integrationId = `gateway_${transaction.providerKey}`
-  const paymentLink = await findOneWithDecryption(
-    em,
-    GatewayPaymentLink,
-    {
-      transactionId,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    },
-    {
-      orderBy: {
-        createdAt: 'desc',
-      },
-    },
-    scope,
-  )
   const { items: logRows } = await integrationLogService.query(
     {
       integrationId,
@@ -86,7 +108,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     scope,
   )
 
-  return NextResponse.json({
+  const responseBody = {
     transaction: {
       id: transaction.id,
       paymentId: transaction.paymentId,
@@ -107,20 +129,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       createdAt: toIsoString(transaction.createdAt),
       updatedAt: toIsoString(transaction.updatedAt),
     },
-    paymentLink: paymentLink
-      ? {
-          id: paymentLink.id,
-          token: paymentLink.token,
-          url: buildPaymentLinkUrl(new URL(req.url).origin, paymentLink.token),
-          title: paymentLink.title,
-          description: paymentLink.description ?? null,
-          status: paymentLink.status,
-          passwordProtected: Boolean(paymentLink.passwordHash),
-          completedAt: toIsoString(paymentLink.completedAt),
-          createdAt: toIsoString(paymentLink.createdAt),
-          updatedAt: toIsoString(paymentLink.updatedAt),
-        }
-      : null,
+    paymentLink: null,
     logs: logRows.map((row) => ({
       id: row.id,
       integrationId: row.integrationId,
@@ -133,6 +142,30 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       payload: row.payload ?? null,
       createdAt: toIsoString(row.createdAt),
     })),
+  }
+
+  const interceptedResponse = await runApiInterceptorsAfter({
+    routePath: 'payment_gateways/transactions/[id]',
+    method: 'GET',
+    request: interceptedRequest.request,
+    response: {
+      statusCode: 200,
+      body: responseBody,
+      headers: {},
+    },
+    context: interceptorContext,
+    metadataByInterceptor: interceptedRequest.metadataByInterceptor,
+  })
+  if (!interceptedResponse.ok) {
+    return NextResponse.json(interceptedResponse.body, {
+      status: interceptedResponse.statusCode,
+      headers: interceptedResponse.headers,
+    })
+  }
+
+  return NextResponse.json(interceptedResponse.body, {
+    status: interceptedResponse.statusCode,
+    headers: interceptedResponse.headers,
   })
 }
 

@@ -12,7 +12,7 @@ jest.mock('@open-mercato/shared/lib/crud/enricher-runner', () => ({
   applyResponseEnricherToRecord: jest.fn((...args: unknown[]) => mockApplyResponseEnricherToRecord(...args)),
 }))
 
-jest.mock('@open-mercato/core/modules/payment_gateways/lib/public-payment-links', () => ({
+jest.mock('../../lib/public-payment-links', () => ({
   loadPublicPaymentLinkState: jest.fn((...args: unknown[]) => mockLoadPublicPaymentLinkState(...args)),
 }))
 

@@ -12,7 +12,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Copy, ExternalLink, Plus } from 'lucide-react'
-import { CreatePaymentTransactionDialog } from '@open-mercato/core/modules/payment_gateways/components/CreatePaymentTransactionDialog'
+import { CreatePaymentTransactionDialog } from '../../components/CreatePaymentTransactionDialog'
 
 type PaymentLinkRow = {
   id: string

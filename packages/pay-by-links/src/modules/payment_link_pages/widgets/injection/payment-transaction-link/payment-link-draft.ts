@@ -1,4 +1,4 @@
-import { isValidCustomPaymentLinkToken } from '@open-mercato/core/modules/payment_gateways/lib/payment-links'
+import { isValidCustomPaymentLinkToken } from '../../../lib/payment-links'
 
 export type PaymentLinkDraft = {
   enabled?: boolean

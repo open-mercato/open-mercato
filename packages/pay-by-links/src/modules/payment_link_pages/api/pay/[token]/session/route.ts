@@ -6,11 +6,11 @@ import { z } from 'zod'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { GatewayPaymentLink, GatewayPaymentLinkTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
-import { readPaymentLinkStoredMetadata } from '@open-mercato/core/modules/payment_gateways/lib/payment-link-page-metadata'
-import { buildPaymentLinkUrl } from '@open-mercato/core/modules/payment_gateways/lib/payment-links'
+import { GatewayPaymentLink, GatewayPaymentLinkTransaction } from '../../../../data/entities'
+import { readPaymentLinkStoredMetadata } from '../../../../lib/payment-link-page-metadata'
+import { buildPaymentLinkUrl } from '../../../../lib/payment-links'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
-import { emitPaymentGatewayEvent } from '@open-mercato/core/modules/payment_gateways/events'
+import { emitPaymentLinkPageEvent } from '../../../../events'
 
 const sessionPayloadSchema = z.object({
   email: z.string().email(),
@@ -119,7 +119,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     link.useCount = (link.useCount ?? 0) + 1
     await em.flush()
 
-    await emitPaymentGatewayEvent('payment_gateways.payment_link.session_created', {
+    await emitPaymentLinkPageEvent('payment_link_pages.link.session_created', {
       paymentLinkId: link.id,
       paymentLinkToken: link.token,
       paymentLinkUrl,

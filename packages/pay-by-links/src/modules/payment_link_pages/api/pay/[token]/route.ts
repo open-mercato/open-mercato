@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { PAYMENT_LINK_PAGE_ENRICHER_ENTITY } from '@open-mercato/shared/modules/payment_link_pages/types'
-import { loadPublicPaymentLinkState } from '@open-mercato/core/modules/payment_gateways/lib/public-payment-links'
+import { loadPublicPaymentLinkState } from '../../../lib/public-payment-links'
 import { emitPaymentLinkPageEvent } from '../../../events'
 
 function toIso(value: Date | null | undefined): string | null {

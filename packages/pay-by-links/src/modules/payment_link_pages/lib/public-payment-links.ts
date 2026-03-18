@@ -2,10 +2,15 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getAllIntegrations } from '@open-mercato/shared/modules/integrations/types'
-import { GatewayPaymentLink, GatewayTransaction } from '../data/entities'
-import type { PaymentGatewayService } from './gateway-service'
-import { isGatewayTransactionSettled, verifyPaymentLinkAccessToken } from './payment-links'
+import { GatewayPaymentLink } from '../data/entities'
+import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
+import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
+import { verifyPaymentLinkAccessToken } from './payment-links'
 import { readPaymentLinkStoredMetadata } from './payment-link-page-metadata'
+
+function isGatewayTransactionSettled(transaction: GatewayTransaction): boolean {
+  return ['authorized', 'captured', 'partially_captured', 'refunded', 'partially_refunded'].includes(transaction.unifiedStatus)
+}
 
 type RequestContainer = AwilixContainer & {
   resolve(name: 'em'): EntityManager

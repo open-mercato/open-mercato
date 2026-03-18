@@ -17,8 +17,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { ChevronDown, ChevronRight, Copy, CreditCard, ExternalLink, Plus, RefreshCw, Shield, Webhook } from 'lucide-react'
-import { CreatePaymentTransactionDialog } from '../../components/CreatePaymentTransactionDialog'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { ChevronDown, ChevronRight, Copy, CreditCard, ExternalLink, RefreshCw, Shield, Webhook } from 'lucide-react'
 
 type TransactionRow = {
   id: string
@@ -254,8 +254,8 @@ export default function PaymentTransactionsPage() {
   const [detailError, setDetailError] = React.useState<string | null>(null)
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
-  const [dialogOpen, setDialogOpen] = React.useState(false)
   const noneLabel = t('common.none', 'None')
+  const headerSpotId = `data-table:${PAYMENT_GATEWAY_TRANSACTIONS_TABLE_ID}:header`
 
   const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
     if (value === null) return noneLabel
@@ -469,10 +469,10 @@ export default function PaymentTransactionsPage() {
         <DataTable
           title={t('payment_gateways.transactions.title', 'Payment Transactions')}
           actions={(
-            <Button type="button" onClick={() => setDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t('payment_gateways.create.title', 'Create new transaction')}
-            </Button>
+            <InjectionSpot
+              spotId={headerSpotId}
+              context={{ refresh: () => loadRows() }}
+            />
           )}
           columns={columns}
           data={rows}
@@ -808,14 +808,6 @@ export default function PaymentTransactionsPage() {
           </Card>
         ) : null}
       </PageBody>
-      <CreatePaymentTransactionDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onCreated={async (transactionId) => {
-          setSelectedId(transactionId)
-          await Promise.all([loadRows(), loadDetail(transactionId)])
-        }}
-      />
     </Page>
   )
 }

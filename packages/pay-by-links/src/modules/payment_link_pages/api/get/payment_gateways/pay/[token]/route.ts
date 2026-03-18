@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { loadPublicPaymentLinkState } from '@open-mercato/core/modules/payment_gateways/lib/public-payment-links'
+import { loadPublicPaymentLinkState } from '../../../../../lib/public-payment-links'
 import { paymentGatewaysTag } from '@open-mercato/core/modules/payment_gateways/api/openapi'
 
 function toIso(value: Date | null | undefined): string | null {
