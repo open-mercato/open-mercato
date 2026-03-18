@@ -10,7 +10,7 @@
 ## TLDR
 **Key Points:**
 - Introduce a first-class "example" layer so engineers can bootstrap a polished use-case solution (like a B2B PRM or B2B Quotes system) with a single command instead of a blank tenant.
-- Examples are **not** part of the Open Mercato core repository. Official examples live in `open-mercato/examples`; community examples live in their own repos.
+- Examples are **not** part of the Open Mercato core repository. Official examples live in a **separate GitHub repository** `open-mercato/examples` (alongside `open-mercato/open-mercato`); community examples live in their own repos.
 - Bootstrap via `create-mercato-app --example <name|url>`, adopting the same pattern as `create-next-app --example`.
 - Preserve UMES and module boundaries: all vertical behavior is delivered via app modules, setup hooks, widgets, enrichers, and events, built within the example's own `src/modules` structure.
 
@@ -48,7 +48,7 @@ The business goal is to turn repeated delivery patterns into reusable assets own
 Implement a Use-Case Examples framework with two tiers:
 
 1. **The Core Engine**: `open-mercato/core` and `create-mercato-app` remain agnostic and clean.
-2. **Official Examples**: Maintained by the Open Mercato team in a centralized `open-mercato/examples` repository, each example as a subdirectory.
+2. **Official Examples**: Maintained by the Open Mercato team in a **separate GitHub repository** `open-mercato/examples` (sibling to `open-mercato/open-mercato`), each example as a subdirectory.
 3. **Community Examples**: Maintained by partners/agencies in their own GitHub repositories.
 4. **The Bootstrap Flow**: `create-mercato-app --example <name|url>` fetches the example via GitHub API tarball and scaffolds a ready-to-run app.
 
