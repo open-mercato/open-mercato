@@ -107,6 +107,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const mergedInit = Object.keys(scoped).length
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
     : init
+  const disableForbiddenRedirect = new Headers(mergedInit?.headers).get('x-om-forbidden-redirect') === '0'
   const res = await baseFetch(input, mergedInit)
   const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
   const onLoginPage = pathname.startsWith('/login')
@@ -134,7 +135,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       if (data && typeof data === 'object') payload = data
     } catch {}
     // Only redirect if not already on login page or a portal route
-    if (!onLoginPage && !onPortalRoute) {
+    if (!onLoginPage && !onPortalRoute && !disableForbiddenRedirect) {
       const target =
         typeof input === 'string'
           ? input
@@ -157,7 +158,18 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       if (hasAclHints) {
         redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
       }
-      const msg = await res.clone().text().catch(() => 'Forbidden')
+      const raw = await res.clone().text().catch(() => 'Forbidden')
+      let msg = raw
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object') {
+          if (typeof (parsed as { error?: unknown }).error === 'string') {
+            msg = (parsed as { error: string }).error
+          } else if (typeof (parsed as { message?: unknown }).message === 'string') {
+            msg = (parsed as { message: string }).message
+          }
+        }
+      } catch {}
       throw new ForbiddenError(msg)
     }
     // If already on login, just return the response for the caller to handle
