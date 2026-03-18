@@ -6,7 +6,7 @@
 | **Author** | Open Mercato Team |
 | **Created** | 2026-03-02 |
 | **Parent** | [SPEC-053](./SPEC-053-2026-03-02-b2b-prm-starter.md) |
-| **Related** | SPEC-053b (Operations), SPEC-062 (Use-Case Starters Framework), entities module, dictionaries module |
+| **Related** | SPEC-053b (Operations), SPEC-068 (Use-Case Examples Framework), entities module, dictionaries module |
 
 ## TLDR
 **Key Points:**
@@ -360,7 +360,7 @@ Versioned source of truth:
 
 ## Changelog
 ### 2026-03-17
-- Added SPEC-062 to Related field for starter framework traceability.
+- Added SPEC-068 (was SPEC-062) to Related field for examples framework traceability.
 
 ### 2026-03-02
 - Initial detailed API-only matching data foundation contract extracted for `b2b_prm`.

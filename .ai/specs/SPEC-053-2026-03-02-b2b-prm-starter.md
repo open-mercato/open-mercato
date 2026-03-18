@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Open Mercato Team |
 | **Created** | 2026-03-02 |
-| **Related** | SPEC-062 (Use-Case Starters Framework), SPEC-053a (Matching Data Foundation), SPEC-053b (B2B PRM Operations), SPEC-041 (UMES), SPEC-013 (setup.ts), SPEC-065 (Official Modules CLI Install and Eject) |
+| **Related** | SPEC-068 (Use-Case Examples Framework), SPEC-053a (Matching Data Foundation), SPEC-053b (B2B PRM Operations), SPEC-041 (UMES), SPEC-013 (setup.ts), SPEC-065 (Official Modules CLI Install and Eject) |
 
 ## TLDR
 **Key Points:**
@@ -86,7 +86,7 @@ Out of scope in first release:
 | Extend customers/sales via UMES slots and enrichers | Preserves host-module ownership |
 | Manual tier assignment in MVP | Business control and lower automation risk |
 | Starter seeds for defaults and examples | Reliable "day-0" usability |
-| Starter is a standalone template repo (per SPEC-062) | Keeps core clean; starter modules live in app `src/modules/`; bootstrap via `create-mercato-app` + `yarn initialize` |
+| Example is a complete app in `open-mercato/examples` (per SPEC-068) | Keeps core clean; example modules live in app `src/modules/`; bootstrap via `create-mercato-app --example b2b-prm` + `yarn initialize` |
 
 ## User Stories / Use Cases
 ### 1. Program Governance & KPI
@@ -101,7 +101,7 @@ Out of scope in first release:
 - An onboarded Agency Business Developer wants to answer RFPs in one place so delivery capabilities can be compared consistently.
 
 ### 4. Rollout
-- An Engineer wants to scaffold a PRM app from a template repo and run `yarn initialize` to get a demo-ready system in minutes.
+- An Engineer wants to scaffold a PRM app with `create-mercato-app --example b2b-prm` and run `yarn initialize` to get a demo-ready system in minutes.
 - A Maintainer wants to re-apply or upgrade starter baseline safely across tenants.
 
 ## Architecture
@@ -334,12 +334,11 @@ Representative response listing result:
 }
 ```
 
-### Starter Bootstrap (per SPEC-062)
-The PRM starter is distributed as a standalone template repository, not as a `mercato init` flag. Bootstrap flow:
+### Example Bootstrap (per SPEC-068)
+The PRM example is distributed as a complete app in the `open-mercato/examples` repository. Bootstrap flow:
 
-1. `npx create-mercato-app my-prm` — scaffold a blank OM app
-2. Clone/copy the PRM starter template into `src/modules/`
-3. `yarn initialize` — setup.ts hooks auto-discover PRM modules and run `seedDefaults` / `seedExamples`
+1. `npx create-mercato-app my-prm --example b2b-prm` — fetches the B2B PRM example from `open-mercato/examples` via GitHub API tarball
+2. `yarn install` → `yarn initialize` — setup.ts hooks auto-discover PRM modules and run `seedDefaults` / `seedExamples`
 
 Seed profiles (e.g., `demo_agency`) are controlled via env vars or starter config file, not CLI flags.
 To skip demo data: set `OM_SEED_EXAMPLES=false` or equivalent starter config before running `yarn initialize`.
@@ -418,7 +417,7 @@ Compatibility commitments:
 - Unit: KPI computation contracts and tier lifecycle rules.
 - API integration: onboarding, tiers, metrics, RFP endpoints.
 - UI integration: dashboard flows and UMES extension rendering.
-- Starter E2E: `create-mercato-app` -> copy PRM template -> `yarn initialize` -> verify demo-ready state.
+- Example E2E: `create-mercato-app --example b2b-prm` -> `yarn initialize` -> verify demo-ready state.
 
 ## Performance, Cache & Scale
 ### Query and Index Strategy
@@ -520,8 +519,13 @@ Compatibility commitments:
 - **Fully compliant**: Approved for implementation as first starter profile.
 
 ## Changelog
+### 2026-03-18
+- Adopted `--example` pattern from `create-next-app`: bootstrap via `create-mercato-app --example b2b-prm` (per SPEC-068).
+- Renumbered framework reference: SPEC-062 → SPEC-068 (Use-Case Examples Framework) to resolve numbering conflict.
+- Renamed "starter" to "example" in bootstrap and distribution context.
+
 ### 2026-03-17
-- Aligned bootstrap flow with SPEC-062 (Use-Case Starters Framework): replaced `mercato init --starter` with `create-mercato-app` + template repo + `yarn initialize` flow.
+- Aligned bootstrap flow with Use-Case Starters Framework: replaced `mercato init --starter` with `create-mercato-app` + template repo + `yarn initialize` flow.
 - Updated Related field: SPEC-052 → SPEC-062, added SPEC-065.
 - Replaced CLI starter flags with env-var-based seed profile configuration.
 - Updated user stories, implementation plan, and testing strategy to match new bootstrap model.
