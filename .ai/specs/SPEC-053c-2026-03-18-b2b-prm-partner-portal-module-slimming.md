@@ -42,6 +42,23 @@ This spec closes that gap. It defines:
 3. **Missing dependency declaration**: `starter-b2b-prm` does not register `customer_accounts` or `portal` in its `modules.ts`, despite SPEC-053b user stories requiring partner-facing features.
 4. **No partner RBAC**: No roles or features exist for controlling what agency users can do in the portal.
 
+## User Stories / Use Cases
+
+### Partner Self-Service
+- **As a Partner Member**, I want to see my agency's tier status and KPI scores (WIC/MIN/WIP) on a dashboard so that I understand our standing in the program.
+- **As a Partner Member**, I want to view RFP campaigns and submit responses so that my agency can bid on new opportunities.
+- **As a Partner Member**, I want to view our agency's case studies so that I can see what evidence we've submitted.
+- **As a Partner Viewer**, I want read-only access to KPIs and case studies so that I can stay informed without editing capabilities.
+
+### Partner Admin
+- **As a Partner Admin**, I want to invite colleagues to the portal and assign them roles so that my team can collaborate on RFPs and track KPIs.
+- **As a Partner Admin**, I want to manage case studies so that our agency profile stays current.
+
+### Staff / Partnership Manager
+- **As a Partnership Manager**, I want to invite agency contacts directly so that key partners get portal access during onboarding.
+- **As a Partnership Manager**, I want to send RFP campaigns to all or selected agencies so that qualified partners see opportunities.
+- **As a Staff Admin**, I want to manually link a self-signup user to their CRM company and assign partner roles when auto-linking fails.
+
 ## Proposed Solution
 
 ### 1. Module Composition (13 core modules)
@@ -136,10 +153,12 @@ Note: `defaultCustomerRoleFeatures` cannot create new roles — it only merges f
 
 #### Agency Onboarding Flow
 
-1. **Staff-initiated**: Partnership Manager invites agency contact via staff admin (existing `customer_accounts` admin invite API with `customer_entity_id` set to the agency's CRM company).
-2. **Self-signup**: Agency contact signs up via portal. `autoLinkCrm` subscriber (SPEC-060) links them to CRM person/company by email match.
-3. **Auto-role assignment**: Partnerships module subscribes to `customer_accounts.user.updated` (not `user.created`). The `autoLinkCrm` subscriber (SPEC-060) fires on `user.created` and sets `customerEntityId`, then emits `user.updated`. The partnerships subscriber picks up the update, checks if the user now has a `customerEntityId` matching a `PartnerAgency.agencyOrganizationId`, and auto-assigns `Partner Member` role if so. This avoids a race condition where the user has no company link yet at creation time.
+1. **Staff-initiated (primary path)**: Partnership Manager invites agency contact via staff admin (existing `customer_accounts` admin invite API with `customer_entity_id` set to the agency's CRM company). At invitation acceptance, the user is created with `customerEntityId` already set. The `autoAssignPartnerRole` subscriber fires on `customer_accounts.user.created`, finds the matching `PartnerAgency`, and assigns `Partner Member` role.
+2. **Self-signup (secondary path)**: Agency contact signs up via portal. `autoLinkCrm` subscriber (SPEC-060) links them to CRM person/company by email match using `em.nativeUpdate` (no event emitted). Since `autoLinkCrm` does not emit `user.updated` or `user.crm_linked`, the `autoAssignPartnerRole` subscriber also fires on `user.created` but may find no company link yet. If no `customerEntityId` is set at that point, the subscriber exits silently. Staff must then manually link the user via admin UI and trigger role assignment.
+3. **Manual link + role assignment**: When staff links a self-signup user to their CRM company via the admin UI, a separate staff action assigns the partner role. This is acceptable for the self-signup edge case where email auto-linking fails or is delayed.
 4. **Upgrade path**: Partnership Manager can upgrade user to `Partner Admin` via staff backend.
+
+**Note on event sequencing**: The `autoLinkCrm` subscriber uses `em.nativeUpdate` (raw SQL) which does not trigger ORM lifecycle events. A future improvement could add explicit event emission after CRM linking (e.g., `customer_accounts.user.crm_linked`), which would enable fully automatic role assignment for self-signup users. For MVP, the staff-initiated invitation flow handles the common case, and manual linking handles the edge case.
 
 #### Data Link (no direct ORM relationship)
 
@@ -151,7 +170,7 @@ CustomerUser                          │
   customerEntityId ───────────────────┘
 ```
 
-Note: `PartnerAgency.agencyOrganizationId` is the tenant org scoping field (standard OM convention). `PartnerAgency.agencyOrganizationId` is the FK to the agency's CRM company entity — this is the join point with `CustomerUser.customerEntityId`.
+Note: `PartnerAgency.organizationId` is the tenant org scoping field (standard OM convention). `PartnerAgency.agencyOrganizationId` is the FK to the agency's CRM company entity — this is the join point with `CustomerUser.customerEntityId`.
 
 The join is through the shared CRM company entity. Partnerships module queries `CustomerUser` records by `customerEntityId` matching `PartnerAgency.agencyOrganizationId` when resolving portal users for an agency. Uses separate fetches, not ORM relations.
 
@@ -227,6 +246,49 @@ Team management uses existing `customer_accounts` portal APIs (`/api/customer-ac
 
 Portal API routes use `requireCustomerAuth` and `requireCustomerFeature` from `customer_accounts/lib/customerAuth`. The route resolves the user's `customerEntityId` to find the matching `PartnerAgency` and scopes all data queries to that agency.
 
+All portal API routes MUST:
+- Export `openApi` for documentation generation (per root AGENTS.md convention).
+- Validate inputs with Zod schemas from `partnerships/data/validators.ts`.
+- Follow the `route.ts` convention with named `GET`/`POST`/`PUT`/`DELETE` exports (matching existing `api/tiers/route.ts` pattern).
+
+### Commands for Portal Write Operations
+
+| Command | Trigger | Undo |
+|---------|---------|------|
+| `partnerships.partner_rfp.respond` | Partner submits RFP response | Status transition to `withdrawn` (per SPEC-053b) |
+| `partnerships.partner_case_study.create` | Partner creates case study | Soft delete (`deletedAt`) |
+| `partnerships.partner_case_study.update` | Partner updates case study | Undo via command history (standard OM pattern) |
+| `partnerships.partner_case_study.delete` | Partner deletes case study | Soft delete — recoverable by staff |
+
+RFP response submission emits `partnerships.partner_rfp.responded` event. Notifications sent on RFP response are not reversible (acceptable — notification indicates action taken, not action undone).
+
+### Internationalization (i18n)
+
+Portal pages use `partnerships.portal.*` i18n key namespace. Keys added to `i18n/en.json` and `i18n/pl.json`:
+- `partnerships.portal.dashboard`, `partnerships.portal.tier`, `partnerships.portal.noTier`
+- `partnerships.portal.kpiDetail`, `partnerships.portal.activeRfps`
+- `partnerships.portal.rfpInbox`, `partnerships.portal.rfpResponse`, `partnerships.portal.rfpResponsePlaceholder`
+- `partnerships.portal.caseStudies`, `partnerships.portal.teamManagement`
+
+### Performance, Cache & Scale
+
+- **Portal dashboard query**: 3 queries (tier assignment, metric snapshots, RFP count) — all scoped by `tenantId + organizationId + partnerAgencyId`. Existing indexes on `partner_tier_assignments`, `partner_metric_snapshots`, `partner_rfp_campaigns` cover these patterns.
+- **KPI detail query**: 3 queries (metrics, WIC contributions, license deals) with pagination (`pageSize <= 100`). Existing indexes sufficient.
+- **RFP list**: Filtered by `status IN ('published', 'closed')` then client-side filtered by `audience='all' OR agency in invitedAgencyIds`. For large agency pools, the `invitedAgencyIds` JSONB check is O(n) per campaign — acceptable for MVP volumes.
+- **RFP notification fan-out**: `notifyAgenciesOnRfp` subscriber is persistent and processes all agencies in a single batch query. For >1000 agencies, notifications are emitted in a loop — async, no blocking. Acceptable for MVP.
+- **`customerEntityId` → `PartnerAgency` join**: Point lookup on `(tenantId, organizationId, agencyOrganizationId)` — covered by existing unique index `uq_partner_agencies_agency_org`.
+- **No portal-specific caching for MVP**: Dashboard data changes infrequently but staleness risk is low. Cache can be added later with tag-based invalidation.
+
+### Migration & Backward Compatibility
+
+All changes are **additive-only** — no breaking changes:
+- New portal API routes: no conflict with existing staff routes (different path prefix).
+- New subscriber registrations: additive, no effect on existing subscribers.
+- New customer roles: seeded idempotently in `seedDefaults` (skipped if slug already exists).
+- Entity schema additions (Task 0): new nullable columns on existing tables — no migration risk.
+- No changes to core modules (`customer_accounts`, `portal`, etc.).
+- No renamed/removed contract surfaces.
+
 ## Implementation Plan
 
 ### Phase 1: Module Slimming & Dependency Wiring
@@ -241,7 +303,7 @@ Portal API routes use `requireCustomerAuth` and `requireCustomerFeature` from `c
 **Effort**: 2-3 days
 
 1. Add partner role creation to `partnerships/setup.ts` `seedDefaults`: create `CustomerRole` + `CustomerRoleAcl` rows for Partner Admin, Partner Member, Partner Viewer (following `customer_accounts/setup.ts` `seedDefaultRoles` pattern). Must be idempotent — skip if roles already exist.
-2. Implement `partnerships/subscribers/autoAssignPartnerRole.ts`: subscribes to `customer_accounts.user.updated` (not `user.created` — must wait for `autoLinkCrm` to set `customerEntityId` first). Checks if user's `customerEntityId` matches a `PartnerAgency.agencyOrganizationId`, assigns `Partner Member` role if so.
+2. Implement `partnerships/subscribers/autoAssignPartnerRole.ts`: subscribes to `customer_accounts.user.created`. For staff-invited users, `customerEntityId` is set at creation time and the subscriber assigns `Partner Member` immediately. For self-signup users, `customerEntityId` may be null (CRM linking is async via `nativeUpdate` with no event), so the subscriber exits silently — staff handles linking manually.
 3. Run `yarn initialize` and verify 3 partner roles are seeded alongside the 3 default `customer_accounts` roles.
 4. Test: create a customer user linked to an agency company, confirm Partner Member role auto-assigned after CRM linking.
 
@@ -276,7 +338,7 @@ Portal API routes use `requireCustomerAuth` and `requireCustomerFeature` from `c
 | `starter-b2b-prm/modules.ts.snippet` | Modify | 13 core modules + partnerships app module |
 | `starter-b2b-prm/README.md` | Modify | Full PRM module documentation |
 | `partnerships/setup.ts` | Modify | Add partner role creation in `seedDefaults` (CustomerRole + CustomerRoleAcl rows) |
-| `partnerships/subscribers/autoAssignPartnerRole.ts` | Create | Auto-assign Partner Member on `customer_accounts.user.updated` (after CRM linking) |
+| `partnerships/subscribers/autoAssignPartnerRole.ts` | Create | Auto-assign Partner Member on `customer_accounts.user.created` (works for staff-invited users with pre-set company link) |
 | `partnerships/subscribers/notifyAgenciesOnRfp.ts` | Create | Notify agencies on `partnerships.partner_rfp.issued` |
 | `partnerships/api/portal/dashboard.ts` | Create | Portal dashboard API |
 | `partnerships/api/portal/kpi.ts` | Create | Portal KPI detail API |
@@ -334,25 +396,52 @@ Portal API routes use `requireCustomerAuth` and `requireCustomerFeature` from `c
 
 ## Final Compliance Report
 
+### AGENTS.md Files Reviewed
+- Root `AGENTS.md` (module conventions, DI, RBAC, API routes)
+- `packages/core/AGENTS.md` (auto-discovery, events, subscribers, setup.ts, widgets)
+- `packages/core/src/modules/customer_accounts/AGENTS.md` (customer auth, RBAC, portal patterns)
+
+### Compliance Checklist
+
 | Rule Source | Rule | Status | Notes |
 |-------------|------|--------|-------|
-| root AGENTS.md | No direct ORM relationships between modules | Compliant | Join through shared CRM company entity |
-| root AGENTS.md | Tenant/org scoping | Compliant | All portal routes scope by customerEntityId → PartnerAgency |
-| root AGENTS.md | Command pattern for writes | Compliant | RFP response submission via command |
-| root AGENTS.md | i18n for user-facing strings | Compliant | Portal pages use `partnerships.*` i18n keys |
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | Join through shared CRM company entity via FK IDs |
+| root AGENTS.md | Tenant/org scoping on all entities and APIs | Compliant | All portal routes scope by customerEntityId → PartnerAgency |
+| root AGENTS.md | Command pattern for write operations | Compliant | Portal writes defined: rfp.respond, case_study CRUD |
+| root AGENTS.md | Validate all inputs with Zod | Compliant | Portal schemas in `data/validators.ts` |
+| root AGENTS.md | API routes MUST export `openApi` | Compliant | Required for all portal routes |
+| root AGENTS.md | Use DI (Awilix) to inject services | Compliant | Services resolved via `createRequestContainer()` |
+| root AGENTS.md | i18n for user-facing strings | Compliant | `partnerships.portal.*` key namespace |
+| root AGENTS.md | Use `apiCall` not raw `fetch` | Compliant | Portal frontend pages use `apiCall()` |
+| packages/core | Events declared with `as const` | Compliant | Uses existing `partnerships/events.ts` declarations |
+| packages/core | Subscribers export `metadata` + default handler | Compliant | Both new subscribers follow pattern |
 | SPEC-060 | Portal access as RBAC feature | Compliant | `portal.partner.access` gates partner portal |
-| SPEC-060 | customer_assignable flag | Compliant | partner_admin role not customer-assignable |
+| SPEC-060 | customer_assignable flag | Compliant | `partner_admin` not customer-assignable |
 | SPEC-053 | Additive app modules only | Compliant | No core module changes |
 | SPEC-053b | RFP distribution: all/selected | Compliant | Both modes supported via subscriber |
+| Backward Compatibility | All changes additive-only | Compliant | New routes, subscribers, roles — no removals or renames |
+
+### Non-Compliant Items
+None.
 
 ## Changelog
+
+### 2026-03-18 (v3 — OM Spec Review Fixes)
+- Fixed critical event issue: `autoAssignPartnerRole` now subscribes to `customer_accounts.user.created` (not `user.updated`). The `autoLinkCrm` subscriber uses `em.nativeUpdate` which does not emit events, so `user.updated` would not fire after CRM linking. Staff-initiated invitations (primary path) set `customerEntityId` at creation time, making `user.created` sufficient. Self-signup edge case requires manual staff linking.
+- Added User Stories section with stories for all 3 partner roles + staff.
+- Added Commands section defining undo contracts for portal write operations (H1 fix).
+- Added `openApi` + Zod validation requirement for all portal API routes (H3 fix).
+- Added Internationalization section with `partnerships.portal.*` key namespace (M3 fix).
+- Added Performance, Cache & Scale section covering query patterns and indexes (M2 fix).
+- Added Migration & Backward Compatibility section confirming additive-only changes (M5 fix).
+- Expanded Final Compliance Report with full checklist, AGENTS.md files reviewed, and non-compliant items (M6 fix).
+- Fixed `organizationId` vs `agencyOrganizationId` note (M1 fix).
 
 ### 2026-03-18 (v2 — Post-Review Fixes)
 - Fixed critical issue: partner roles must be created via direct `em.create(CustomerRole, ...)` in `seedDefaults`, not via `defaultCustomerRoleFeatures` (which can only merge features into existing roles).
 - Fixed module count: 13 core modules, not 14.
 - Added `portal.partner.profile.view` feature for read-only case study/profile access.
 - Fixed data link: join uses `PartnerAgency.agencyOrganizationId` (not `organizationId` which is tenant scoping).
-- Fixed subscriber race condition: `autoAssignPartnerRole` subscribes to `customer_accounts.user.updated` (after CRM linking), not `user.created`.
 - Fixed RFP event name: `partnerships.partner_rfp.issued` (matching existing events.ts declaration).
 - Fixed team management auth: Partner Admin gets `portal.users.manage` + `portal.users.view` from `customer_accounts` namespace.
 - Added pagination spec and standard error responses to portal API contracts.
