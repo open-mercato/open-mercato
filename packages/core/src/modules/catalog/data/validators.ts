@@ -180,7 +180,7 @@ const productBaseSchema = scoped.extend({
   title: z.string().trim().min(1).max(255),
   subtitle: z.string().trim().max(255).optional(),
   description: z.string().trim().max(4000).optional(),
-  sku: skuSchema.optional(),
+  sku: skuSchema.nullable().optional(),
   handle: handleSchema.optional(),
   taxRateId: uuid().nullable().optional(),
   taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
