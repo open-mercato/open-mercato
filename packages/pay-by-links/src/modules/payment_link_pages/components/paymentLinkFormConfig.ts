@@ -238,7 +238,7 @@ export function buildPaymentLinkFormFields(
     {
       id: 'password',
       label: t('payment_link_pages.create.password', 'Password (optional)'),
-      type: 'text',
+      type: 'password',
       layout: 'half',
       placeholder: t('payment_link_pages.create.password.placeholder', 'Leave empty for no password'),
     },

@@ -3,12 +3,13 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { readApiResultOrThrow, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID } from '@open-mercato/shared/modules/payment_link_pages/types'
 import {
   templateFormSchema,
   type TemplateFormValues,
@@ -17,8 +18,6 @@ import {
   templateFormValuesToPayload,
   recordToTemplateFormValues,
 } from '../../../components/templateFormConfig'
-import { BrandingPreview } from '../../../components/BrandingPreview'
-
 export default function EditTemplatePage({ params }: { params: { id: string } }) {
   const t = useT()
   const router = useRouter()
@@ -75,24 +74,7 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
     [t, handleLogoFileSelect],
   )
 
-  const groups = React.useMemo<CrudFormGroup[]>(() => {
-    const baseGroups = buildTemplateFormGroups(t)
-    const previewGroup: CrudFormGroup = {
-      id: 'preview',
-      title: t('payment_link_pages.templates.branding.preview', 'Preview'),
-      column: 2,
-      bare: true,
-      component: ({ values }) => (
-        <BrandingPreview
-          logoUrl={typeof values.brandingLogoUrl === 'string' ? values.brandingLogoUrl : null}
-          brandName={typeof values.brandingBrandName === 'string' ? values.brandingBrandName : null}
-          securitySubtitle={typeof values.brandingSecuritySubtitle === 'string' ? values.brandingSecuritySubtitle : null}
-          accentColor={typeof values.brandingAccentColor === 'string' ? values.brandingAccentColor : null}
-        />
-      ),
-    }
-    return [...baseGroups, previewGroup]
-  }, [t])
+  const groups = React.useMemo(() => buildTemplateFormGroups(t), [t])
 
   if (loading) return <LoadingMessage label={t('payment_link_pages.templates.edit.title', 'Edit Template')} />
   if (error || !record) return <ErrorMessage label={error ?? 'Template not found'} />
@@ -113,8 +95,8 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
           fields={fields}
           groups={groups}
           schema={templateFormSchema}
-          twoColumn
           initialValues={initialValues}
+          entityIds={[PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]}
           submitLabel={t('payment_link_pages.templates.form.submit', 'Save Template')}
           onSubmit={async (values) => {
             const payload = templateFormValuesToPayload(values)

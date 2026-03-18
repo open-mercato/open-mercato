@@ -6,8 +6,11 @@ const ACCESS_TOKEN_VERSION = 'v1'
 const ACCESS_TOKEN_TTL_MS = 1000 * 60 * 60 * 8
 
 function resolveSecret(): string {
-  const secret = process.env.APP_SECRET || process.env.NEXTAUTH_SECRET
-  if (!secret) throw new Error('APP_SECRET or NEXTAUTH_SECRET must be configured for payment link signing')
+  const secret = process.env.APP_SECRET
+    || process.env.NEXTAUTH_SECRET
+    || process.env.JWT_SECRET
+    || process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+  if (!secret) throw new Error('APP_SECRET, NEXTAUTH_SECRET, JWT_SECRET, or TENANT_DATA_ENCRYPTION_FALLBACK_KEY must be configured for payment link signing')
   return secret
 }
 

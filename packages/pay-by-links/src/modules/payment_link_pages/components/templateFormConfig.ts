@@ -57,10 +57,6 @@ export function buildTemplateFormFields(
     ...buildContentFields(t),
     ...buildCaptureFields(t),
 
-    // Template-only custom fields
-    { id: 'customFieldsetCode', label: t('payment_link_pages.templates.form.customFieldsetCode', 'Fieldset Code'), type: 'text', placeholder: t('payment_link_pages.templates.form.customFieldsetCode.placeholder', 'e.g. invoice') },
-    { id: 'customFieldsJson', label: t('payment_link_pages.templates.form.customFields', 'Custom Fields'), type: 'textarea', placeholder: '{ "key": "value" }' },
-
     // Shared metadata
     ...buildMetadataFields(t),
   ]
@@ -76,7 +72,6 @@ export function buildTemplateFormGroups(t: (key: string, fallback?: string) => s
     buildBrandingGroup(t),
     buildContentGroup(t),
     buildCaptureGroup(t),
-    { id: 'fields', title: t('payment_link_pages.templates.form.customFields', 'Custom Fields'), fields: ['customFieldsetCode', 'customFieldsJson'] },
     buildMetadataGroup(t),
   ]
 }

@@ -48,6 +48,7 @@ export async function GET(req: Request) {
   }
 
   const { page, pageSize, search, providerKey, status } = parsed.data
+  const idParam = url.searchParams.get('id')
   const offset = (page - 1) * pageSize
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
@@ -59,6 +60,9 @@ export async function GET(req: Request) {
     deletedAt: null,
   })
 
+  if (idParam) {
+    qb.andWhere({ id: idParam })
+  }
   if (providerKey) {
     qb.andWhere({ providerKey })
   }
@@ -92,8 +96,13 @@ export async function GET(req: Request) {
       providerKey: item.providerKey,
       status: item.status,
       transactionId: item.transactionId ?? null,
+      linkMode: item.linkMode,
+      maxUses: item.maxUses ?? null,
+      useCount: item.useCount ?? 0,
+      passwordProtected: !!item.passwordHash,
       amount: extractAmountFromMetadata(item.metadata),
       currencyCode: extractCurrencyFromMetadata(item.metadata),
+      metadata: item.metadata ?? null,
       createdAt: formatDateValue(item.createdAt),
       updatedAt: formatDateValue(item.updatedAt),
     })),

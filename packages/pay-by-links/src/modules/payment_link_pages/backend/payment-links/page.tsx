@@ -178,9 +178,15 @@ export default function PaymentLinksListPage() {
           searchValue={search}
           onSearchChange={setSearch}
           searchPlaceholder={t('payment_gateways.links.searchPlaceholder', 'Search by token or title...')}
+          onRowClick={(row) => `/backend/payment-links/${row.id}`}
           rowActions={(row) => (
             <RowActions
               items={[
+                {
+                  id: 'details',
+                  label: t('payment_gateways.links.actions.viewDetails', 'View details'),
+                  href: `/backend/payment-links/${row.id}`,
+                },
                 {
                   id: 'copy',
                   label: t('payment_gateways.create.copy', 'Copy link'),
