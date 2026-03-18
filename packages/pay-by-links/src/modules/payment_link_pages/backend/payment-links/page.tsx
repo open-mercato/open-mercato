@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
+import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -12,7 +13,6 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Plus } from 'lucide-react'
 import { useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { CreatePaymentTransactionDialog } from '../../components/CreatePaymentTransactionDialog'
 
 type PaymentLinkRow = {
   id: string
@@ -62,7 +62,6 @@ export default function PaymentLinksListPage() {
   const [loading, setLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
-  const [showCreate, setShowCreate] = React.useState(false)
   const pageSize = 20
 
   const fetchData = React.useCallback(async (currentPage: number, currentSearch: string) => {
@@ -169,9 +168,11 @@ export default function PaymentLinksListPage() {
             </div>
           }
           actions={
-            <Button type="button" onClick={() => setShowCreate(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t('payment_gateways.links.create', 'Create Link')}
+            <Button asChild>
+              <Link href="/backend/payment-links/new">
+                <Plus className="mr-2 h-4 w-4" />
+                {t('payment_gateways.links.create', 'Create Link')}
+              </Link>
             </Button>
           }
           searchValue={search}
@@ -211,13 +212,6 @@ export default function PaymentLinksListPage() {
               <p className="text-sm text-muted-foreground mt-1">{t('payment_gateways.links.emptyHint', 'Create a payment transaction with a link enabled to see it here')}</p>
             </div>
           }
-        />
-        <CreatePaymentTransactionDialog
-          open={showCreate}
-          onOpenChange={(isOpen) => {
-            setShowCreate(isOpen)
-            if (!isOpen) fetchData(page, search)
-          }}
         />
       </PageBody>
     </Page>

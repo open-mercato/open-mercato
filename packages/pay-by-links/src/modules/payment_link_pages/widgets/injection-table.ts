@@ -10,7 +10,7 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 90,
     },
   ],
-  'data-table:payment_gateways.transactions.list:header': [
+  'data-table:payment_gateways.transactions.list:actions': [
     {
       widgetId: 'payment_link_pages.injection.transaction-create-action',
       priority: 100,

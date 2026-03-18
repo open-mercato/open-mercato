@@ -17,7 +17,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { ChevronDown, ChevronRight, CreditCard, RefreshCw, Webhook } from 'lucide-react'
 
 type TransactionRow = {
@@ -243,8 +242,6 @@ export default function PaymentTransactionsPage() {
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
   const noneLabel = t('common.none', 'None')
-  const headerSpotId = `data-table:${PAYMENT_GATEWAY_TRANSACTIONS_TABLE_ID}:header`
-
   const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
     if (value === null) return noneLabel
     if (typeof value === 'boolean') return value ? t('common.yes', 'Yes') : t('common.no', 'No')
@@ -442,12 +439,6 @@ export default function PaymentTransactionsPage() {
       <PageBody className="space-y-6">
         <DataTable
           title={t('payment_gateways.transactions.title', 'Payment Transactions')}
-          actions={(
-            <InjectionSpot
-              spotId={headerSpotId}
-              context={{ refresh: () => loadRows() }}
-            />
-          )}
           columns={columns}
           data={rows}
           filters={filters}

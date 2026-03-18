@@ -2,7 +2,6 @@ import { cookies, headers } from 'next/headers'
 import Script from 'next/script'
 import React from 'react'
 import type { ReactNode } from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
@@ -327,6 +326,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     items: group.items.map(materializeItem),
     weight: group.weight,
   }))
+  await ensureRenderToStaticMarkup()
   const clientGroups: NavGroup[] = groups.map((group) => ({
     ...group,
     items: group.items.map(serializeNavItem),
@@ -435,13 +435,30 @@ export default async function BackendLayout({ children, params }: { children: Re
 }
 export const dynamic = 'force-dynamic'
 
+let _renderToStaticMarkup: typeof import('react-dom/server').renderToStaticMarkup | null = null
+
+async function ensureRenderToStaticMarkup() {
+  if (!_renderToStaticMarkup) {
+    const mod = await import('react-dom/server')
+    _renderToStaticMarkup = mod.renderToStaticMarkup
+  }
+  return _renderToStaticMarkup
+}
+
 function serializeBackendIcon(icon: BackendIconValue | undefined): BackendIconValue | undefined {
   if (icon == null || icon === false) return undefined
   if (typeof icon === 'object' && icon !== null && 'html' in icon && typeof icon.html === 'string') {
     return icon
   }
-  const reactIcon = icon as ReactNode
-  return { html: renderToStaticMarkup(React.createElement(React.Fragment, null, reactIcon)) }
+  if (!_renderToStaticMarkup) return undefined
+  const element = typeof icon === 'function' || (typeof icon === 'object' && icon !== null && '$$typeof' in icon && !React.isValidElement(icon))
+    ? React.createElement(icon as React.ComponentType<{ className?: string }>, { className: 'size-4' })
+    : React.createElement(React.Fragment, null, icon as ReactNode)
+  try {
+    return { html: _renderToStaticMarkup(element) }
+  } catch {
+    return undefined
+  }
 }
 
 function adoptSidebarDefaults(groups: NavGroup[]): NavGroup[] {
