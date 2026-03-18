@@ -3,13 +3,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { GatewayPaymentLink } from '../../../../data/entities'
-import { paymentLinkUnlockSchema } from '../../../../data/validators'
+import { GatewayPaymentLink } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
+import { paymentLinkUnlockSchema } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/validators'
 import {
   createPaymentLinkAccessToken,
   verifyPaymentLinkPassword,
-} from '../../../../lib/payment-links'
-import { emitPaymentLinkPageEvent } from '../../../../events'
+} from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-links'
+import { emitPaymentLinkPageEvent } from '@open-mercato/pay-by-links/modules/payment_link_pages/events'
 
 export const metadata = {
   path: '/payment_link_pages/pay/[token]/unlock',

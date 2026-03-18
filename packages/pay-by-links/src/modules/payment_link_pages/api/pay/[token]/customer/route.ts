@@ -8,10 +8,10 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CustomerEntity as CustomerEntityType } from '@open-mercato/core/modules/customers/data/entities'
 import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
-import { buildPaymentLinkStoredMetadata } from '../../../../lib/payment-link-page-metadata'
-import type { CustomerHandlingMode } from '../../../../lib/payment-link-page-metadata'
-import { loadPublicPaymentLinkState } from '../../../../lib/public-payment-links'
-import { emitPaymentLinkPageEvent } from '../../../../events'
+import { buildPaymentLinkStoredMetadata } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-link-page-metadata'
+import type { CustomerHandlingMode } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-link-page-metadata'
+import { loadPublicPaymentLinkState } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/public-payment-links'
+import { emitPaymentLinkPageEvent } from '@open-mercato/pay-by-links/modules/payment_link_pages/events'
 
 const customerCapturePayloadSchema = z.object({
   firstName: z.string().trim().max(120).optional().default(''),

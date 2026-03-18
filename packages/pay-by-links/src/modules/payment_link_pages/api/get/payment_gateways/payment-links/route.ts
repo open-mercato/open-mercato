@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { GatewayPaymentLink } from '../../../../data/entities'
-import { listPaymentLinksQuerySchema } from '../../../../data/validators'
+import { GatewayPaymentLink } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
+import { listPaymentLinksQuerySchema } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/validators'
 import { paymentGatewaysTag } from '@open-mercato/core/modules/payment_gateways/api/openapi'
 
 export const metadata = {

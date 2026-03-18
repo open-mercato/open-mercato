@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { PaymentLinkTemplate } from '../../../../data/entities'
-import { emitPaymentLinkPageEvent } from '../../../../events'
+import { PaymentLinkTemplate } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
+import { emitPaymentLinkPageEvent } from '@open-mercato/pay-by-links/modules/payment_link_pages/events'
 
 export const metadata = {
   path: '/payment_link_pages/templates/[id]/set-default',

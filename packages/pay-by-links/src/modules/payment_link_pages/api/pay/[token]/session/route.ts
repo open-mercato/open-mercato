@@ -9,12 +9,12 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CustomerEntity as CustomerEntityType } from '@open-mercato/core/modules/customers/data/entities'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
-import { GatewayPaymentLink, GatewayPaymentLinkTransaction } from '../../../../data/entities'
-import { readPaymentLinkStoredMetadata } from '../../../../lib/payment-link-page-metadata'
-import type { CustomerHandlingMode } from '../../../../lib/payment-link-page-metadata'
-import { buildPaymentLinkUrl } from '../../../../lib/payment-links'
+import { GatewayPaymentLink, GatewayPaymentLinkTransaction } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
+import { readPaymentLinkStoredMetadata } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-link-page-metadata'
+import type { CustomerHandlingMode } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-link-page-metadata'
+import { buildPaymentLinkUrl } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-links'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
-import { emitPaymentLinkPageEvent } from '../../../../events'
+import { emitPaymentLinkPageEvent } from '@open-mercato/pay-by-links/modules/payment_link_pages/events'
 
 const sessionPayloadSchema = z.object({
   email: z.string().email(),
