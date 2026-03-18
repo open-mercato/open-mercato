@@ -38,6 +38,10 @@ export type PaymentLinkPageResponse = {
     completedAt?: string | null
     amount?: number
     currencyCode?: string
+    amountType?: 'fixed' | 'customer_input' | 'predefined'
+    amountOptions?: Array<{ amount: number; label: string }> | null
+    minAmount?: number | null
+    maxAmount?: number | null
     paymentLinkWidgetSpotId?: string | null
     metadata?: Record<string, unknown> | null
     customFields?: Record<string, unknown> | null
@@ -118,6 +122,8 @@ type CheckoutSectionProps = SharedSectionProps & {
   onCustomerFieldChange: (field: 'companyName' | 'firstName' | 'lastName' | 'email' | 'phone', value: string) => void
   onCustomerCustomFieldChange: (key: string, value: unknown) => void
   onCustomerTermsAcceptedChange: (accepted: boolean) => void
+  selectedAmount: number | ''
+  onSelectedAmountChange: (value: number | '') => void
   onSubmitCustomer: () => void
   onSubmitSession: () => void
   onRefreshLink: () => Promise<void>
@@ -310,6 +316,7 @@ function DefaultCheckoutSection({
   data,
   loading,
   error,
+  locale,
   password,
   unlocking,
   customerForm,
@@ -318,6 +325,8 @@ function DefaultCheckoutSection({
   customerError,
   customerFieldErrors,
   customerTermsAccepted,
+  selectedAmount,
+  onSelectedAmountChange,
   onPasswordChange,
   onUnlock,
   onCustomerFieldChange,
@@ -356,12 +365,16 @@ function DefaultCheckoutSection({
     return fieldConfig[name as keyof typeof fieldConfig]?.required === true
   }
 
+  const amountType = data?.link?.amountType ?? 'fixed'
+  const amountReady = amountType === 'fixed' || (typeof selectedAmount === 'number' && selectedAmount > 0)
+
   const customerFormReady = customerForm.email.trim().length > 0
     && (!isFieldVisible('firstName') || !isFieldRequired('firstName') || customerForm.firstName.trim().length > 0)
     && (!isFieldVisible('lastName') || !isFieldRequired('lastName') || customerForm.lastName.trim().length > 0)
     && (!isFieldVisible('companyName') || !isFieldRequired('companyName') || customerForm.companyName.trim().length > 0)
     && (!isFieldVisible('phone') || !isFieldRequired('phone') || customerForm.phone.trim().length > 0)
     && (!termsRequired || customerTermsAccepted)
+    && amountReady
 
   return (
     <section
@@ -430,6 +443,67 @@ function DefaultCheckoutSection({
               )}
             </p>
           </div>
+
+          {data?.link?.amountType === 'customer_input' ? (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-200">
+                {t('payment_link_pages.paymentPage.enterAmount', 'Enter payment amount')} <span className="text-rose-400">*</span>
+              </div>
+              <Input
+                type="number"
+                value={selectedAmount}
+                placeholder={
+                  data.link.minAmount != null && data.link.maxAmount != null
+                    ? `${data.link.minAmount} – ${data.link.maxAmount}`
+                    : '0.00'
+                }
+                min={data.link.minAmount ?? 0}
+                max={data.link.maxAmount ?? undefined}
+                step="any"
+                onChange={(event) => {
+                  const raw = event.target.value
+                  onSelectedAmountChange(raw === '' ? '' : Number(raw))
+                }}
+                className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.selectedAmount ? '!border-rose-500' : ''}`}
+              />
+              {data.link.minAmount != null || data.link.maxAmount != null ? (
+                <p className="text-xs text-slate-400">
+                  {data.link.minAmount != null && data.link.maxAmount != null
+                    ? t('payment_link_pages.paymentPage.amountRange', `Amount must be between ${data.link.minAmount} and ${data.link.maxAmount}`)
+                    : data.link.minAmount != null
+                      ? t('payment_link_pages.paymentPage.amountMin', `Minimum amount: ${data.link.minAmount}`)
+                      : t('payment_link_pages.paymentPage.amountMax', `Maximum amount: ${data.link.maxAmount}`)}
+                </p>
+              ) : null}
+              {customerFieldErrors.selectedAmount ? <p className="text-xs text-rose-400">{customerFieldErrors.selectedAmount}</p> : null}
+            </div>
+          ) : data?.link?.amountType === 'predefined' && data.link.amountOptions?.length ? (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-200">
+                {t('payment_link_pages.paymentPage.selectAmount', 'Select payment amount')} <span className="text-rose-400">*</span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {data.link.amountOptions.map((opt, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className={`rounded-2xl border p-4 text-left transition-colors ${
+                      selectedAmount === opt.amount
+                        ? '!border-white !bg-white/10 text-white'
+                        : '!border-slate-700 !bg-slate-950/50 text-slate-300 hover:!border-slate-500'
+                    }`}
+                    onClick={() => onSelectedAmountChange(opt.amount)}
+                  >
+                    <div className="text-lg font-semibold">
+                      {formatAmount(opt.amount, data.link?.currencyCode, locale)}
+                    </div>
+                    <div className="text-sm text-slate-400">{opt.label}</div>
+                  </button>
+                ))}
+              </div>
+              {customerFieldErrors.selectedAmount ? <p className="text-xs text-rose-400">{customerFieldErrors.selectedAmount}</p> : null}
+            </div>
+          ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">
             {termsRequired ? (
@@ -680,6 +754,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     email: '',
     phone: '',
   })
+  const [selectedAmount, setSelectedAmount] = React.useState<number | ''>('')
 
   const loadLink = React.useCallback(async () => {
     if (!token) return
@@ -808,6 +883,28 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     checkField('companyName', customerForm.companyName)
     checkField('phone', customerForm.phone)
 
+    // Validate amount for customer_input mode
+    const amountType = data?.link?.amountType ?? 'fixed'
+    if (amountType === 'customer_input') {
+      if (selectedAmount === '' || selectedAmount <= 0) {
+        errors.selectedAmount = required
+      } else {
+        const minAmount = data?.link?.minAmount
+        const maxAmount = data?.link?.maxAmount
+        if (typeof minAmount === 'number' && selectedAmount < minAmount) {
+          errors.selectedAmount = t('payment_link_pages.validation.minAmount', `Minimum amount is ${minAmount}`)
+        }
+        if (typeof maxAmount === 'number' && selectedAmount > maxAmount) {
+          errors.selectedAmount = t('payment_link_pages.validation.maxAmount', `Maximum amount is ${maxAmount}`)
+        }
+      }
+    }
+    if (amountType === 'predefined') {
+      if (selectedAmount === '' || selectedAmount <= 0) {
+        errors.selectedAmount = required
+      }
+    }
+
     // Validate required customer custom fields
     const customerFieldDefs = data?.link?.customerFieldDefs ?? []
     for (const fieldDef of customerFieldDefs) {
@@ -821,7 +918,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
 
     setCustomerFieldErrors(errors)
     return Object.keys(errors).length === 0
-  }, [customerForm, customerCustomValues, data?.link?.customerCapture, data?.link?.customerFieldDefs, t])
+  }, [customerForm, customerCustomValues, data?.link?.customerCapture, data?.link?.customerFieldDefs, data?.link?.amountType, data?.link?.minAmount, data?.link?.maxAmount, selectedAmount, t])
 
   const handleCustomerSubmit = React.useCallback(async () => {
     if (!token) return
@@ -878,6 +975,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
           companyName: customerForm.companyName || undefined,
           acceptedTerms: customerTermsAccepted,
           ...(Object.keys(customerCustomValues).length > 0 ? { customerFieldValues: customerCustomValues } : {}),
+          ...(typeof selectedAmount === 'number' && selectedAmount > 0 ? { amount: selectedAmount } : {}),
         }),
       },
       { fallback: null },
@@ -912,7 +1010,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
 
     setCustomerSubmitting(false)
     setCustomerError(call.result?.error ?? t('payment_gateways.paymentLink.customerCapture.error', 'Unable to save your details.'))
-  }, [accessToken, customerForm, customerTermsAccepted, t, token, validateCustomerForm])
+  }, [accessToken, customerForm, customerCustomValues, customerTermsAccepted, selectedAmount, t, token, validateCustomerForm])
 
   const redirectUrl = typeof data?.transaction?.redirectUrl === 'string' && data.transaction.redirectUrl.trim().length > 0
     ? data.transaction.redirectUrl
@@ -1019,6 +1117,8 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
             customerError={customerError}
             customerFieldErrors={customerFieldErrors}
             customerTermsAccepted={customerTermsAccepted}
+            selectedAmount={selectedAmount}
+            onSelectedAmountChange={setSelectedAmount}
             onPasswordChange={setPassword}
             onUnlock={() => {
               void handleUnlock()

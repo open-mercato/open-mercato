@@ -28,6 +28,8 @@ export type PublicPaymentLinkState = {
   amount: number
   amountType: AmountType
   amountOptions: AmountOption[] | null
+  minAmount: number | null
+  maxAmount: number | null
   currencyCode: string
   pageMetadata: Record<string, unknown> | null
   customFields: Record<string, unknown> | null
@@ -98,6 +100,8 @@ export async function loadPublicPaymentLinkState({
       amount: 0,
       amountType: storedMetadata.amountType ?? 'fixed',
       amountOptions: storedMetadata.amountOptions ?? null,
+      minAmount: storedMetadata.minAmount ?? null,
+      maxAmount: storedMetadata.maxAmount ?? null,
       currencyCode: transaction?.currencyCode ?? storedMetadata.currencyCode ?? '',
       pageMetadata: null,
       customFields: null,
@@ -145,6 +149,8 @@ export async function loadPublicPaymentLinkState({
     amount,
     amountType: storedMetadata.amountType ?? 'fixed',
     amountOptions: storedMetadata.amountOptions ?? null,
+    minAmount: storedMetadata.minAmount ?? null,
+    maxAmount: storedMetadata.maxAmount ?? null,
     currencyCode,
     pageMetadata: storedMetadata.pageMetadata ?? null,
     customFields: storedMetadata.customFields ?? null,

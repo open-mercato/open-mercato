@@ -10,6 +10,8 @@ export type PaymentLinkTemplateData = {
   customerCapture: unknown
   amountType?: string | null
   amountOptions?: Array<{ amount: number; label: string }> | null
+  minAmount?: number | null
+  maxAmount?: number | null
 }
 
 export type PaymentLinkTemplateResolver = (

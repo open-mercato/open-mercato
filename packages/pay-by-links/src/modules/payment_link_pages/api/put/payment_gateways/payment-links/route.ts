@@ -49,6 +49,8 @@ const updatePaymentLinkSchema = z.object({
     amount: z.number().positive(),
     label: z.string().min(1).max(200),
   })).max(50).nullable().optional(),
+  minAmount: z.number().min(0).nullable().optional(),
+  maxAmount: z.number().min(0).nullable().optional(),
   customerFieldsetCode: z.string().max(100).nullable().optional(),
   customFields: z.record(z.string(), z.unknown()).optional().nullable(),
   metadata: z.record(z.string(), z.unknown()).optional().nullable(),
@@ -75,7 +77,7 @@ export async function PUT(req: Request) {
   const {
     id, title, description, status, maxUses, password,
     branding, defaultTitle, defaultDescription,
-    customerCapture, amountType, amountOptions,
+    customerCapture, amountType, amountOptions, minAmount, maxAmount,
     customerFieldsetCode, customFields, metadata: userMetadata,
   } = parsed.data
 
@@ -132,6 +134,12 @@ export async function PUT(req: Request) {
   }
   if (amountOptions !== undefined) {
     existingMeta.amountOptions = amountOptions
+  }
+  if (minAmount !== undefined) {
+    existingMeta.minAmount = minAmount
+  }
+  if (maxAmount !== undefined) {
+    existingMeta.maxAmount = maxAmount
   }
   if (customerFieldsetCode !== undefined) {
     existingMeta.customerFieldsetCode = customerFieldsetCode

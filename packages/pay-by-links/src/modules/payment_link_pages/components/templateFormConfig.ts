@@ -116,6 +116,8 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
     amountOptions: values.amountType === 'predefined' && Array.isArray(values.amountOptions) && values.amountOptions.length > 0
       ? values.amountOptions.filter((opt: { amount: number; label: string }) => opt.amount > 0 && opt.label.trim().length > 0)
       : null,
+    minAmount: values.amountType === 'customer_input' && typeof values.minAmount === 'number' ? values.minAmount : null,
+    maxAmount: values.amountType === 'customer_input' && typeof values.maxAmount === 'number' ? values.maxAmount : null,
     branding: {
       logoUrl: values.brandingLogoUrl || null,
       brandName: values.brandingBrandName || null,
@@ -175,6 +177,11 @@ export function recordToTemplateFormValues(record: Record<string, unknown>): Tem
   const rawAmountOptions = record.amount_options ?? record.amountOptions
   const amountOptions = Array.isArray(rawAmountOptions) ? rawAmountOptions : null
 
+  const rawMinAmount = record.min_amount ?? record.minAmount
+  const minAmount = typeof rawMinAmount === 'number' ? rawMinAmount : null
+  const rawMaxAmount = record.max_amount ?? record.maxAmount
+  const maxAmount = typeof rawMaxAmount === 'number' ? rawMaxAmount : null
+
   return {
     ...cfValues,
     name: String(record.name ?? ''),
@@ -182,6 +189,8 @@ export function recordToTemplateFormValues(record: Record<string, unknown>): Tem
     isDefault: record.is_default === true || record.isDefault === true,
     amountType,
     amountOptions,
+    minAmount,
+    maxAmount,
     brandingLogoUrl: branding.logoUrl != null ? String(branding.logoUrl) : null,
     brandingBrandName: branding.brandName != null ? String(branding.brandName) : null,
     brandingSecuritySubtitle: branding.securitySubtitle != null ? String(branding.securitySubtitle) : null,

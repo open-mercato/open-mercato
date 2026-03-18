@@ -59,6 +59,8 @@ export const sharedAmountTypeSchema = {
     .max(50)
     .optional()
     .nullable(),
+  minAmount: z.union([z.number().min(0), z.literal(''), z.null()]).optional().nullable(),
+  maxAmount: z.union([z.number().min(0), z.literal(''), z.null()]).optional().nullable(),
 }
 
 export const sharedMetadataSchema = {
@@ -339,6 +341,52 @@ export function buildAmountTypeFields(
       description: t('payment_link_pages.amountType.description', 'How the payment amount is determined'),
     },
     {
+      id: 'minAmount',
+      label: t('payment_link_pages.minAmount', 'Minimum amount'),
+      type: 'custom' as const,
+      layout: 'half',
+      description: t('payment_link_pages.minAmount.description', 'Minimum amount the customer can enter (leave empty for no minimum)'),
+      component: (props: CrudCustomFieldRenderProps) => {
+        const isCustomerInput = props.values?.amountType === 'customer_input'
+        return React.createElement('input', {
+          type: 'number',
+          className: 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50',
+          value: typeof props.value === 'number' ? props.value : '',
+          placeholder: '0.00',
+          disabled: props.disabled || !isCustomerInput,
+          min: 0,
+          step: 'any',
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const raw = event.target.value
+            props.setValue(raw === '' ? null : Number(raw))
+          },
+        })
+      },
+    },
+    {
+      id: 'maxAmount',
+      label: t('payment_link_pages.maxAmount', 'Maximum amount'),
+      type: 'custom' as const,
+      layout: 'half',
+      description: t('payment_link_pages.maxAmount.description', 'Maximum amount the customer can enter (leave empty for no maximum)'),
+      component: (props: CrudCustomFieldRenderProps) => {
+        const isCustomerInput = props.values?.amountType === 'customer_input'
+        return React.createElement('input', {
+          type: 'number',
+          className: 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50',
+          value: typeof props.value === 'number' ? props.value : '',
+          placeholder: '0.00',
+          disabled: props.disabled || !isCustomerInput,
+          min: 0,
+          step: 'any',
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            const raw = event.target.value
+            props.setValue(raw === '' ? null : Number(raw))
+          },
+        })
+      },
+    },
+    {
       id: 'amountOptions',
       label: t('payment_link_pages.amountOptions', 'Amount options'),
       type: 'custom' as const,
@@ -354,7 +402,7 @@ export function buildAmountTypeGroup(
   return {
     id: 'amountType',
     title: t('payment_link_pages.group.amountType', 'Amount Configuration'),
-    fields: ['amountType', 'amountOptions'],
+    fields: ['amountType', 'minAmount', 'maxAmount', 'amountOptions'],
   }
 }
 

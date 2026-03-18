@@ -18,6 +18,8 @@ export type PaymentLinkPageStoredMetadata = {
   amount?: number
   amountType?: AmountType
   amountOptions?: AmountOption[]
+  minAmount?: number
+  maxAmount?: number
   currencyCode?: string
   pageMetadata?: Record<string, unknown>
   customFields?: Record<string, unknown>
@@ -48,6 +50,8 @@ const RESERVED_KEYS = new Set([
   'amount',
   'amountType',
   'amountOptions',
+  'minAmount',
+  'maxAmount',
   'currencyCode',
   'pageMetadata',
   'customFields',
@@ -115,6 +119,8 @@ export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetad
   if (typeof input.amount === 'number' && Number.isFinite(input.amount)) payload.amount = input.amount
   if (input.amountType && input.amountType !== 'fixed') payload.amountType = input.amountType
   if (Array.isArray(input.amountOptions) && input.amountOptions.length > 0) payload.amountOptions = input.amountOptions
+  if (typeof input.minAmount === 'number' && Number.isFinite(input.minAmount)) payload.minAmount = input.minAmount
+  if (typeof input.maxAmount === 'number' && Number.isFinite(input.maxAmount)) payload.maxAmount = input.maxAmount
   if (typeof input.currencyCode === 'string' && input.currencyCode.trim().length > 0) {
     payload.currencyCode = input.currencyCode.trim().toUpperCase()
   }
@@ -190,6 +196,8 @@ export function readPaymentLinkStoredMetadata(input: unknown): PaymentLinkPageSt
     amount: toNumber(source.amount),
     amountType: amountType ?? 'fixed',
     amountOptions: amountOptions && amountOptions.length > 0 ? amountOptions : undefined,
+    minAmount: toNumber(source.minAmount),
+    maxAmount: toNumber(source.maxAmount),
     currencyCode: toStringOrNull(source.currencyCode) ?? undefined,
     pageMetadata: Object.keys(pageMetadata).length > 0 ? pageMetadata : undefined,
     customFields: Object.keys(toPlainObject(source.customFields)).length > 0

@@ -24,6 +24,7 @@ const sessionPayloadSchema = z.object({
   companyName: z.string().max(200).optional(),
   acceptedTerms: z.boolean().optional(),
   customFormFields: z.record(z.string(), z.unknown()).optional(),
+  amount: z.number().positive().optional(),
 })
 
 type RequestContainer = AwilixContainer & {
@@ -90,6 +91,32 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       return NextResponse.json({ error: 'Payment link session configuration is missing' }, { status: 500 })
     }
 
+    // Resolve amount based on amountType
+    const amountType = storedMetadata.amountType ?? 'fixed'
+    let resolvedAmount = sessionParams.amount
+    if (amountType === 'customer_input' || amountType === 'predefined') {
+      if (!parsed.data.amount || parsed.data.amount <= 0) {
+        return NextResponse.json({ error: 'Amount is required' }, { status: 422 })
+      }
+      resolvedAmount = parsed.data.amount
+      if (amountType === 'customer_input') {
+        const minAmount = storedMetadata.minAmount
+        const maxAmount = storedMetadata.maxAmount
+        if (typeof minAmount === 'number' && resolvedAmount < minAmount) {
+          return NextResponse.json({ error: `Amount must be at least ${minAmount}` }, { status: 422 })
+        }
+        if (typeof maxAmount === 'number' && resolvedAmount > maxAmount) {
+          return NextResponse.json({ error: `Amount must not exceed ${maxAmount}` }, { status: 422 })
+        }
+      }
+      if (amountType === 'predefined') {
+        const validOptions = storedMetadata.amountOptions ?? []
+        if (!validOptions.some(opt => opt.amount === resolvedAmount)) {
+          return NextResponse.json({ error: 'Selected amount is not a valid option' }, { status: 422 })
+        }
+      }
+    }
+
     const scope = { organizationId: link.organizationId, tenantId: link.tenantId }
     const service = (container as RequestContainer).resolve('paymentGatewayService')
 
@@ -98,7 +125,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const { transaction, session } = await service.createPaymentSession({
       providerKey: sessionParams.providerKey,
       paymentId: crypto.randomUUID(),
-      amount: sessionParams.amount,
+      amount: resolvedAmount,
       currencyCode: sessionParams.currencyCode,
       captureMethod: sessionParams.captureMethod as 'automatic' | 'manual' | undefined,
       description: sessionParams.description,

@@ -9,42 +9,42 @@ const PAYMENT_LINK_PAGE_FIELD_SETS = [
   {
     entity: PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID,
     fields: [
+      // Default "details" fieldset — visible to the end user on the payment page
       cf.text('support_email', {
         label: 'Support email',
         description: 'Contact email displayed on the payment page for customer inquiries.',
+        fieldset: 'details',
       }),
       cf.text('company_name', {
         label: 'Company name',
         description: 'Legal company name shown on the payment page and receipts.',
+        fieldset: 'details',
       }),
       cf.text('invoice_number', {
         label: 'Invoice number',
         description: 'Reference invoice or document number linked to this payment.',
         filterable: true,
+        fieldset: 'details',
       }),
       cf.text('order_reference', {
         label: 'Order reference',
         description: 'External order or PO number for the customer to verify.',
         filterable: true,
+        fieldset: 'details',
       }),
       cf.multiline('payment_instructions', {
         label: 'Payment instructions',
         description: 'Additional instructions or notes displayed to the customer before payment.',
         listVisible: false,
+        fieldset: 'details',
       }),
       cf.select('payment_purpose', ['invoice', 'deposit', 'subscription', 'donation', 'service_fee', 'other'], {
         label: 'Payment purpose',
         description: 'Category of the payment for reporting and display.',
         filterable: true,
+        fieldset: 'details',
       }),
-    ],
-  },
-]
 
-const CUSTOMER_QUESTION_FIELDS = [
-  {
-    entity: PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID,
-    fields: [
       // B2B questionnaire fields
       cf.text('buyer_company', {
         label: 'Company name',
@@ -109,6 +109,7 @@ async function ensureFieldsetConfig(em: EntityManager, tenantId: string) {
   })
 
   const fieldsets = [
+    { code: 'details', label: 'Details', icon: 'file-text', description: 'Default payment link details displayed to the customer.' },
     { code: 'b2b_questions', label: 'B2B Buyer Questions', icon: 'building', description: 'Capture company details and billing preferences from business customers.' },
     { code: 'tshirt_config', label: 'T-Shirt Configurator', icon: 'shirt', description: 'Collect size, color, and caption for custom t-shirt orders.' },
   ]
@@ -140,6 +141,7 @@ export const setup: ModuleSetupConfig = {
   },
 
   seedDefaults: async (ctx) => {
+    await ensureFieldsetConfig(ctx.em, ctx.tenantId)
     await ensureCustomFieldDefinitions(
       ctx.em,
       PAYMENT_LINK_PAGE_FIELD_SETS,
@@ -148,14 +150,6 @@ export const setup: ModuleSetupConfig = {
   },
 
   seedExamples: async (ctx) => {
-    // Seed customer-facing fieldsets and their field definitions
-    await ensureFieldsetConfig(ctx.em, ctx.tenantId)
-    await ensureCustomFieldDefinitions(
-      ctx.em,
-      CUSTOMER_QUESTION_FIELDS,
-      { organizationId: null, tenantId: ctx.tenantId },
-    )
-
     // Seed example templates
     const { createCrud } = await import('@open-mercato/ui/backend/utils/crud')
 

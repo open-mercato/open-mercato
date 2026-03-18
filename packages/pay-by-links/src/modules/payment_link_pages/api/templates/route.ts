@@ -29,6 +29,8 @@ const itemSchema = z.object({
   defaultDescription: z.string().nullable().optional(),
   customFields: z.record(z.string(), z.unknown()).nullable().optional(),
   customFieldsetCode: z.string().nullable().optional(),
+  customerFieldsetCode: z.string().nullable().optional(),
+  displayCustomFields: z.boolean().optional(),
   customerCapture: z.record(z.string(), z.unknown()).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   createdAt: z.string(),
@@ -58,6 +60,8 @@ const crud = makeCrudRoute({
       'default_description',
       'custom_fields',
       'custom_fieldset_code',
+      'customer_fieldset_code',
+      'display_custom_fields',
       'customer_capture',
       'metadata',
       'created_at',
@@ -93,11 +97,15 @@ const crud = makeCrudRoute({
       isDefault: input.isDefault ?? false,
       amountType: input.amountType ?? 'fixed',
       amountOptions: input.amountOptions ?? null,
+      minAmount: input.minAmount ?? null,
+      maxAmount: input.maxAmount ?? null,
       branding: input.branding ?? null,
       defaultTitle: input.defaultTitle ?? null,
       defaultDescription: input.defaultDescription ?? null,
       customFields: input.customFields ?? null,
       customFieldsetCode: input.customFieldsetCode ?? null,
+      customerFieldsetCode: input.customerFieldsetCode ?? null,
+      displayCustomFields: input.displayCustomFields ?? false,
       customerCapture: input.customerCapture ?? null,
       metadata: input.metadata ?? null,
     }),
@@ -110,11 +118,15 @@ const crud = makeCrudRoute({
       if (input.isDefault !== undefined) entity.isDefault = input.isDefault
       if (input.amountType !== undefined) entity.amountType = input.amountType ?? 'fixed'
       if (input.amountOptions !== undefined) entity.amountOptions = input.amountOptions ?? null
+      if (input.minAmount !== undefined) entity.minAmount = input.minAmount ?? null
+      if (input.maxAmount !== undefined) entity.maxAmount = input.maxAmount ?? null
       if (input.branding !== undefined) entity.branding = input.branding ?? null
       if (input.defaultTitle !== undefined) entity.defaultTitle = input.defaultTitle ?? null
       if (input.defaultDescription !== undefined) entity.defaultDescription = input.defaultDescription ?? null
       if (input.customFields !== undefined) entity.customFields = input.customFields ?? null
       if (input.customFieldsetCode !== undefined) entity.customFieldsetCode = input.customFieldsetCode ?? null
+      if (input.customerFieldsetCode !== undefined) entity.customerFieldsetCode = input.customerFieldsetCode ?? null
+      if (input.displayCustomFields !== undefined) entity.displayCustomFields = input.displayCustomFields ?? false
       if (input.customerCapture !== undefined) entity.customerCapture = input.customerCapture ?? null
       if (input.metadata !== undefined) entity.metadata = input.metadata ?? null
     },

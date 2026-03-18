@@ -100,7 +100,7 @@ export class GatewayPaymentLinkTransaction {
 @Entity({ tableName: 'payment_link_templates' })
 @Index({ name: 'idx_payment_link_templates_org_tenant', properties: ['organizationId', 'tenantId'] })
 export class PaymentLinkTemplate {
-  [OptionalProps]?: 'isDefault' | 'amountType' | 'amountOptions' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isDefault' | 'amountType' | 'amountOptions' | 'minAmount' | 'maxAmount' | 'customerFieldsetCode' | 'displayCustomFields' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -126,6 +126,12 @@ export class PaymentLinkTemplate {
   @Property({ name: 'amount_options', type: 'json', nullable: true })
   amountOptions?: Array<{ amount: number; label: string }> | null
 
+  @Property({ name: 'min_amount', type: 'numeric', nullable: true })
+  minAmount?: number | null
+
+  @Property({ name: 'max_amount', type: 'numeric', nullable: true })
+  maxAmount?: number | null
+
   @Property({ type: 'json', nullable: true })
   branding?: Record<string, unknown> | null
 
@@ -140,6 +146,12 @@ export class PaymentLinkTemplate {
 
   @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
   customFieldsetCode?: string | null
+
+  @Property({ name: 'customer_fieldset_code', type: 'text', nullable: true })
+  customerFieldsetCode?: string | null
+
+  @Property({ name: 'display_custom_fields', type: 'boolean', default: false })
+  displayCustomFields: boolean = false
 
   @Property({ name: 'customer_capture', type: 'json', nullable: true })
   customerCapture?: Record<string, unknown> | null

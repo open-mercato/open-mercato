@@ -352,7 +352,7 @@ export function buildPaymentLinkFormGroups(
       id: 'payment',
       column: 1,
       title: t('payment_link_pages.create.group.payment', 'Payment'),
-      fields: ['providerKey', 'currencyCode', 'amountType', 'amount', 'description', 'amountOptions'],
+      fields: ['providerKey', 'currencyCode', 'amountType', 'amount', 'description', 'minAmount', 'maxAmount', 'amountOptions'],
     },
     { ...buildContentGroup(t), column: 1 },
     {
@@ -412,6 +412,8 @@ export function paymentLinkFormToSessionPayload(values: PaymentLinkCreateFormVal
       linkMode: values.linkMode,
       amountType: effectiveAmountType !== 'fixed' ? effectiveAmountType : undefined,
       amountOptions: amountOptions && amountOptions.length > 0 ? amountOptions : undefined,
+      minAmount: effectiveAmountType === 'customer_input' && typeof (values as Record<string, unknown>).minAmount === 'number' ? (values as Record<string, unknown>).minAmount as number : undefined,
+      maxAmount: effectiveAmountType === 'customer_input' && typeof (values as Record<string, unknown>).maxAmount === 'number' ? (values as Record<string, unknown>).maxAmount as number : undefined,
       maxUses:
         values.linkMode === 'multi' && values.maxUses ? values.maxUses : undefined,
       templateId: values.templateId || undefined,
@@ -468,6 +470,8 @@ export function paymentLinkFormToTemplatePayload(values: PaymentLinkCreateFormVa
     isDefault: false,
     amountType: (allValues.amountType as 'fixed' | 'customer_input' | 'predefined') ?? 'fixed',
     amountOptions: (allValues.amountOptions as Array<{ amount: number; label: string }>) ?? null,
+    minAmount: typeof allValues.minAmount === 'number' ? allValues.minAmount : null,
+    maxAmount: typeof allValues.maxAmount === 'number' ? allValues.maxAmount : null,
   })
 }
 
@@ -605,6 +609,8 @@ export function recordToPaymentLinkEditFormValues(
     password: '',
     amountType: storedMetadata.amountType ?? 'fixed',
     amountOptions: storedMetadata.amountOptions ?? null,
+    minAmount: storedMetadata.minAmount ?? null,
+    maxAmount: storedMetadata.maxAmount ?? null,
     defaultTitle: record.title || (pageMeta.defaultTitle as string) || '',
     defaultDescription: (pageMeta.defaultDescription as string) ?? record.description ?? '',
     brandingLogoUrl: brandingRaw.logoUrl != null ? String(brandingRaw.logoUrl) : null,
@@ -677,6 +683,8 @@ export function paymentLinkEditFormToPayload(
     amountOptions: values.amountType === 'predefined' && Array.isArray(values.amountOptions) && values.amountOptions.length > 0
       ? values.amountOptions.filter((opt: { amount: number; label: string }) => opt.amount > 0 && opt.label.trim().length > 0)
       : null,
+    minAmount: values.amountType === 'customer_input' && typeof values.minAmount === 'number' ? values.minAmount : null,
+    maxAmount: values.amountType === 'customer_input' && typeof values.maxAmount === 'number' ? values.maxAmount : null,
     customerFieldsetCode: values.customerFieldsetCode?.trim() || null,
     ...(userMetadata ? { metadata: userMetadata } : {}),
   }

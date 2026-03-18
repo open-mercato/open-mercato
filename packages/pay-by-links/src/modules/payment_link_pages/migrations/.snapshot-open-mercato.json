@@ -427,6 +427,28 @@
           "nullable": true,
           "mappedType": "json"
         },
+        "min_amount": {
+          "name": "min_amount",
+          "type": "numeric(10,0)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 10,
+          "scale": 0,
+          "mappedType": "decimal"
+        },
+        "max_amount": {
+          "name": "max_amount",
+          "type": "numeric(10,0)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 10,
+          "scale": 0,
+          "mappedType": "decimal"
+        },
         "branding": {
           "name": "branding",
           "type": "jsonb",
@@ -471,6 +493,25 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
+        },
+        "customer_fieldset_code": {
+          "name": "customer_fieldset_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "display_custom_fields": {
+          "name": "display_custom_fields",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
         },
         "customer_capture": {
           "name": "customer_capture",

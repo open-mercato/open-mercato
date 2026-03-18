@@ -246,6 +246,8 @@ const sessionsInterceptor: ApiInterceptor = {
     let resolvedAmountOptions: AmountOption[] | undefined = Array.isArray(paymentLinkData.amountOptions)
       ? (paymentLinkData.amountOptions as AmountOption[]).filter(opt => opt.amount > 0 && opt.label?.trim())
       : undefined
+    let resolvedMinAmount: number | undefined = typeof paymentLinkData.minAmount === 'number' ? paymentLinkData.minAmount : undefined
+    let resolvedMaxAmount: number | undefined = typeof paymentLinkData.maxAmount === 'number' ? paymentLinkData.maxAmount : undefined
     let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null; customerHandlingMode: CustomerHandlingMode | undefined } | undefined
 
     const customerCaptureInput = paymentLinkData.customerCapture as Record<string, unknown> | undefined
@@ -304,6 +306,12 @@ const sessionsInterceptor: ApiInterceptor = {
         if (!resolvedAmountOptions?.length && Array.isArray(template.amountOptions) && template.amountOptions.length > 0) {
           resolvedAmountOptions = template.amountOptions
         }
+        if (resolvedMinAmount === undefined && typeof template.minAmount === 'number') {
+          resolvedMinAmount = template.minAmount
+        }
+        if (resolvedMaxAmount === undefined && typeof template.maxAmount === 'number') {
+          resolvedMaxAmount = template.maxAmount
+        }
         if (merged.customerCapture) {
           resolvedCustomerCapture = {
             enabled: true,
@@ -320,6 +328,8 @@ const sessionsInterceptor: ApiInterceptor = {
       amount,
       amountType: resolvedAmountType,
       amountOptions: resolvedAmountOptions,
+      minAmount: resolvedMinAmount,
+      maxAmount: resolvedMaxAmount,
       currencyCode,
       pageMetadata: resolvedPageMetadata,
       customFields: resolvedCustomFields,
