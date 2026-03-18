@@ -556,6 +556,7 @@
   "catalog.variants.form.errors.notFound": "Variante nicht gefunden.",
   "catalog.variants.form.errors.productMissing": "Produktkennung fehlt.",
   "catalog.variants.form.errors.variantMissing": "Variantenkennung fehlt.",
+  "catalog.variants.form.general": "Allgemein",
   "catalog.variants.form.height": "Höhe",
   "catalog.variants.form.isActiveHint": "Inaktive Varianten bleiben verborgen",
   "catalog.variants.form.isActiveLabel": "Aktiv",
