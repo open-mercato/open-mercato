@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 const brandingSchema = z.object({
-  logoUrl: z.string().trim().url().max(2000).optional().nullable(),
+  logoUrl: z.string().trim().max(2000).optional().nullable(),
   brandName: z.string().trim().max(200).optional().nullable(),
   securitySubtitle: z.string().trim().max(200).optional().nullable(),
   accentColor: z.string().trim().regex(/^#([0-9a-fA-F]{3,8})$/).optional().nullable(),
@@ -10,13 +10,29 @@ const brandingSchema = z.object({
 
 export const customerHandlingModeSchema = z.enum(['no_customer', 'create_new', 'verify_and_merge']).default('no_customer')
 
+export const customerCaptureFieldConfigSchema = z.object({
+  visible: z.boolean().default(true),
+  required: z.boolean().default(false),
+})
+
 const customerCaptureSchema = z.object({
   enabled: z.boolean().default(false),
   companyRequired: z.boolean().optional().default(false),
   termsRequired: z.boolean().optional().default(false),
   termsMarkdown: z.string().trim().max(20000).optional().nullable(),
   customerHandlingMode: customerHandlingModeSchema.optional(),
-}).strict().optional().nullable()
+  fields: z.object({
+    firstName: customerCaptureFieldConfigSchema.optional(),
+    lastName: customerCaptureFieldConfigSchema.optional(),
+    phone: customerCaptureFieldConfigSchema.optional(),
+    companyName: customerCaptureFieldConfigSchema.optional(),
+    address: z.object({
+      visible: z.boolean().default(false),
+      required: z.boolean().default(false),
+      format: z.enum(['line_first', 'street_first']).default('line_first'),
+    }).optional(),
+  }).optional(),
+}).optional().nullable()
 
 export const templateCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -48,16 +64,16 @@ export type TemplateUpdateInput = z.infer<typeof templateUpdateSchema>
 
 // ── Payment Link Validators (moved from payment_gateways) ─────────────────
 
-export const customerCaptureFieldConfigSchema = z.object({
-  visible: z.boolean().default(true),
-  required: z.boolean().default(false),
-})
-
 export const customerCaptureFieldsSchema = z.object({
   firstName: customerCaptureFieldConfigSchema.optional(),
   lastName: customerCaptureFieldConfigSchema.optional(),
   phone: customerCaptureFieldConfigSchema.optional(),
   companyName: customerCaptureFieldConfigSchema.optional(),
+  address: z.object({
+    visible: z.boolean().default(false),
+    required: z.boolean().default(false),
+    format: z.enum(['line_first', 'street_first']).default('line_first'),
+  }).optional(),
 }).optional()
 
 export const customFormFieldSchema = z.object({

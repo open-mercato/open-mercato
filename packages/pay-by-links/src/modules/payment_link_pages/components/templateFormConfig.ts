@@ -1,85 +1,89 @@
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import {
+  sharedBrandingSchema,
+  sharedContentSchema,
+  sharedCaptureSchema,
+  sharedMetadataSchema,
+  buildBrandingFields,
+  buildContentFields,
+  buildCaptureFields,
+  buildMetadataFields,
+  buildBrandingGroup,
+  buildContentGroup,
+  buildCaptureGroup,
+  buildMetadataGroup,
+  type SharedFieldBuilderOptions,
+} from './sharedFormFields'
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
 
 export const templateFormSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(500).optional().nullable(),
   isDefault: z.boolean().optional().default(false),
-  brandingLogoUrl: z.string().url().max(2000).optional().nullable().or(z.literal('')),
-  brandingBrandName: z.string().max(200).optional().nullable(),
-  brandingSecuritySubtitle: z.string().max(200).optional().nullable(),
-  brandingAccentColor: z.string().regex(/^#([0-9a-fA-F]{3,8})$/).optional().nullable().or(z.literal('')),
-  brandingCustomCss: z.string().max(10000).optional().nullable(),
-  defaultTitle: z.string().max(160).optional().nullable(),
-  defaultDescription: z.string().max(500).optional().nullable(),
-  customerCaptureEnabled: z.boolean().optional().default(false),
-  customerCaptureHandlingMode: z.enum(['no_customer', 'create_new', 'verify_and_merge']).optional().default('no_customer'),
-  customerCaptureCompanyRequired: z.boolean().optional().default(false),
-  captureFirstNameVisible: z.boolean().optional().default(true),
-  captureFirstNameRequired: z.boolean().optional().default(true),
-  captureLastNameVisible: z.boolean().optional().default(true),
-  captureLastNameRequired: z.boolean().optional().default(true),
-  capturePhoneVisible: z.boolean().optional().default(true),
-  capturePhoneRequired: z.boolean().optional().default(false),
-  captureCompanyVisible: z.boolean().optional().default(false),
-  captureCompanyRequired: z.boolean().optional().default(false),
-  customerCaptureTermsRequired: z.boolean().optional().default(false),
-  customerCaptureTermsMarkdown: z.string().max(20000).optional().nullable(),
+
+  // Shared fields
+  ...sharedBrandingSchema,
+  ...sharedContentSchema,
+  ...sharedCaptureSchema,
+  ...sharedMetadataSchema,
+
+  // Template-only fields
   customFieldsetCode: z.string().max(100).optional().nullable(),
   customFieldsJson: z.string().optional().nullable(),
-  metadataJson: z.string().optional().nullable(),
 })
 
 export type TemplateFormValues = z.infer<typeof templateFormSchema>
 
-export function buildTemplateFormFields(t: (key: string, fallback?: string) => string): CrudField[] {
+// ---------------------------------------------------------------------------
+// Field builder
+// ---------------------------------------------------------------------------
+
+export function buildTemplateFormFields(
+  t: (key: string, fallback?: string) => string,
+  options: SharedFieldBuilderOptions,
+): CrudField[] {
   return [
-    { id: 'name', label: t('payment_link_pages.templates.form.name'), type: 'text', required: true, placeholder: t('payment_link_pages.templates.form.name.placeholder') },
-    { id: 'description', label: t('payment_link_pages.templates.form.description'), type: 'textarea', placeholder: t('payment_link_pages.templates.form.description.placeholder') },
-    { id: 'isDefault', label: t('payment_link_pages.templates.form.isDefault'), type: 'checkbox', description: t('payment_link_pages.templates.form.isDefault.description') },
+    // Template-only fields
+    { id: 'name', label: t('payment_link_pages.templates.form.name', 'Name'), type: 'text', required: true, placeholder: t('payment_link_pages.templates.form.name.placeholder', 'e.g. Standard Invoice') },
+    { id: 'description', label: t('payment_link_pages.templates.form.description', 'Description'), type: 'textarea', placeholder: t('payment_link_pages.templates.form.description.placeholder', 'Template description') },
+    { id: 'isDefault', label: t('payment_link_pages.templates.form.isDefault', 'Default template'), type: 'checkbox', description: t('payment_link_pages.templates.form.isDefault.description', 'Use this template by default for new payment links') },
 
-    { id: 'brandingLogoUrl', label: t('payment_link_pages.templates.form.branding.logoUrl'), type: 'text', placeholder: t('payment_link_pages.templates.form.branding.logoUrl.placeholder') },
-    { id: 'brandingBrandName', label: t('payment_link_pages.templates.form.branding.brandName'), type: 'text', placeholder: t('payment_link_pages.templates.form.branding.brandName.placeholder') },
-    { id: 'brandingSecuritySubtitle', label: t('payment_link_pages.templates.form.branding.securitySubtitle'), type: 'text', placeholder: t('payment_link_pages.templates.form.branding.securitySubtitle.placeholder') },
-    { id: 'brandingAccentColor', label: t('payment_link_pages.templates.form.branding.accentColor'), type: 'text', placeholder: '#1a73e8' },
-    { id: 'brandingCustomCss', label: t('payment_link_pages.templates.form.branding.customCss'), type: 'textarea', placeholder: t('payment_link_pages.templates.form.branding.customCss.placeholder') },
+    // Shared fields
+    ...buildBrandingFields(t, options),
+    ...buildContentFields(t),
+    ...buildCaptureFields(t),
 
-    { id: 'defaultTitle', label: t('payment_link_pages.templates.form.defaultTitle'), type: 'text', placeholder: t('payment_link_pages.templates.form.defaultTitle.placeholder') },
-    { id: 'defaultDescription', label: t('payment_link_pages.templates.form.defaultDescription'), type: 'textarea', placeholder: t('payment_link_pages.templates.form.defaultDescription.placeholder') },
+    // Template-only custom fields
+    { id: 'customFieldsetCode', label: t('payment_link_pages.templates.form.customFieldsetCode', 'Fieldset Code'), type: 'text', placeholder: t('payment_link_pages.templates.form.customFieldsetCode.placeholder', 'e.g. invoice') },
+    { id: 'customFieldsJson', label: t('payment_link_pages.templates.form.customFields', 'Custom Fields'), type: 'textarea', placeholder: '{ "key": "value" }' },
 
-    { id: 'customerCaptureEnabled', label: t('payment_link_pages.templates.form.customerCapture.enabled'), type: 'checkbox', description: t('payment_link_pages.templates.form.customerCapture.enabled.description') },
-    { id: 'customerCaptureHandlingMode', label: t('payment_link_pages.templates.form.customerCapture.handlingMode', 'Customer handling mode'), type: 'select', options: [{ label: t('payment_link_pages.templates.form.customerCapture.handlingMode.noCustomer', 'Do not create customer (data only)'), value: 'no_customer' }, { label: t('payment_link_pages.templates.form.customerCapture.handlingMode.createNew', 'Always create new customer'), value: 'create_new' }, { label: t('payment_link_pages.templates.form.customerCapture.handlingMode.verifyAndMerge', 'Merge with existing (email verification)'), value: 'verify_and_merge' }] },
-    { id: 'customerCaptureCompanyRequired', label: t('payment_link_pages.templates.form.customerCapture.companyRequired'), type: 'checkbox' },
-
-    { id: 'captureFirstNameVisible', label: t('payment_link_pages.templates.form.capture.firstName.visible'), type: 'checkbox', description: t('payment_link_pages.templates.form.capture.firstName.hint') },
-    { id: 'captureFirstNameRequired', label: t('payment_link_pages.templates.form.capture.firstName.required'), type: 'checkbox' },
-    { id: 'captureLastNameVisible', label: t('payment_link_pages.templates.form.capture.lastName.visible'), type: 'checkbox', description: t('payment_link_pages.templates.form.capture.lastName.hint') },
-    { id: 'captureLastNameRequired', label: t('payment_link_pages.templates.form.capture.lastName.required'), type: 'checkbox' },
-    { id: 'capturePhoneVisible', label: t('payment_link_pages.templates.form.capture.phone.visible'), type: 'checkbox', description: t('payment_link_pages.templates.form.capture.phone.hint') },
-    { id: 'capturePhoneRequired', label: t('payment_link_pages.templates.form.capture.phone.required'), type: 'checkbox' },
-    { id: 'captureCompanyVisible', label: t('payment_link_pages.templates.form.capture.company.visible'), type: 'checkbox', description: t('payment_link_pages.templates.form.capture.company.hint') },
-    { id: 'captureCompanyRequired', label: t('payment_link_pages.templates.form.capture.company.required'), type: 'checkbox' },
-
-    { id: 'customerCaptureTermsRequired', label: t('payment_link_pages.templates.form.customerCapture.termsRequired'), type: 'checkbox' },
-    { id: 'customerCaptureTermsMarkdown', label: t('payment_link_pages.templates.form.customerCapture.termsMarkdown'), type: 'richtext', editor: 'uiw', placeholder: t('payment_link_pages.templates.form.customerCapture.termsMarkdown.placeholder') },
-
-    { id: 'customFieldsetCode', label: t('payment_link_pages.templates.form.customFieldsetCode'), type: 'text', placeholder: t('payment_link_pages.templates.form.customFieldsetCode.placeholder') },
-    { id: 'customFieldsJson', label: t('payment_link_pages.templates.form.customFields'), type: 'textarea', placeholder: '{ "key": "value" }' },
-
-    { id: 'metadataJson', label: t('payment_link_pages.templates.form.metadata'), type: 'textarea', description: t('payment_link_pages.templates.form.metadata.description'), placeholder: '{ "key": "value" }' },
+    // Shared metadata
+    ...buildMetadataFields(t),
   ]
 }
+
+// ---------------------------------------------------------------------------
+// Group builder
+// ---------------------------------------------------------------------------
 
 export function buildTemplateFormGroups(t: (key: string, fallback?: string) => string): CrudFormGroup[] {
   return [
-    { id: 'general', title: t('payment_link_pages.templates.form.name', 'General'), fields: ['name', 'description', 'isDefault'] },
-    { id: 'branding', title: t('payment_link_pages.templates.form.branding'), fields: ['brandingLogoUrl', 'brandingBrandName', 'brandingSecuritySubtitle', 'brandingAccentColor', 'brandingCustomCss'] },
-    { id: 'content', title: t('payment_link_pages.templates.form.defaultContent'), fields: ['defaultTitle', 'defaultDescription'] },
-    { id: 'capture', title: t('payment_link_pages.templates.form.customerCapture'), fields: ['customerCaptureEnabled', 'customerCaptureHandlingMode', 'customerCaptureCompanyRequired', 'captureFirstNameVisible', 'captureFirstNameRequired', 'captureLastNameVisible', 'captureLastNameRequired', 'capturePhoneVisible', 'capturePhoneRequired', 'captureCompanyVisible', 'captureCompanyRequired', 'customerCaptureTermsRequired', 'customerCaptureTermsMarkdown'] },
-    { id: 'fields', title: t('payment_link_pages.templates.form.customFields'), fields: ['customFieldsetCode', 'customFieldsJson'] },
-    { id: 'metadata', title: t('payment_link_pages.templates.form.metadata'), fields: ['metadataJson'] },
+    { id: 'general', title: t('payment_link_pages.templates.form.group.general', 'General'), fields: ['name', 'description', 'isDefault'] },
+    buildBrandingGroup(t),
+    buildContentGroup(t),
+    buildCaptureGroup(t),
+    { id: 'fields', title: t('payment_link_pages.templates.form.customFields', 'Custom Fields'), fields: ['customFieldsetCode', 'customFieldsJson'] },
+    buildMetadataGroup(t),
   ]
 }
+
+// ---------------------------------------------------------------------------
+// Transform: form values -> template API payload
+// ---------------------------------------------------------------------------
 
 export function templateFormValuesToPayload(values: TemplateFormValues) {
   let customFields: Record<string, unknown> | null = null
@@ -115,6 +119,11 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
         lastName: { visible: values.captureLastNameVisible ?? true, required: values.captureLastNameRequired ?? true },
         phone: { visible: values.capturePhoneVisible ?? true, required: values.capturePhoneRequired ?? false },
         companyName: { visible: values.captureCompanyVisible ?? false, required: values.captureCompanyRequired ?? false },
+        address: {
+          visible: values.captureAddressVisible ?? false,
+          required: values.captureAddressRequired ?? false,
+          format: values.captureAddressFormat ?? 'line_first',
+        },
       },
     },
     customFieldsetCode: values.customFieldsetCode || null,
@@ -123,10 +132,14 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Transform: API record -> form values
+// ---------------------------------------------------------------------------
+
 export function recordToTemplateFormValues(record: Record<string, unknown>): TemplateFormValues {
   const branding = (record.branding ?? {}) as Record<string, unknown>
   const capture = (record.customer_capture ?? record.customerCapture ?? {}) as Record<string, unknown>
-  const fields = capture.fields ?? {}
+  const fields = (capture.fields ?? {}) as Record<string, Record<string, unknown>>
   const customFields = record.custom_fields ?? record.customFields
   const metadata = record.metadata
 
@@ -144,14 +157,17 @@ export function recordToTemplateFormValues(record: Record<string, unknown>): Tem
     customerCaptureEnabled: capture.enabled === true,
     customerCaptureHandlingMode: typeof capture.customerHandlingMode === 'string' ? capture.customerHandlingMode as 'no_customer' | 'create_new' | 'verify_and_merge' : 'no_customer',
     customerCaptureCompanyRequired: capture.companyRequired === true,
-    captureFirstNameVisible: (fields as Record<string, unknown>)?.firstName != null ? ((fields as Record<string, unknown>).firstName as Record<string, unknown>)?.visible !== false : true,
-    captureFirstNameRequired: (fields as Record<string, unknown>)?.firstName != null ? ((fields as Record<string, unknown>).firstName as Record<string, unknown>)?.required === true : true,
-    captureLastNameVisible: (fields as Record<string, unknown>)?.lastName != null ? ((fields as Record<string, unknown>).lastName as Record<string, unknown>)?.visible !== false : true,
-    captureLastNameRequired: (fields as Record<string, unknown>)?.lastName != null ? ((fields as Record<string, unknown>).lastName as Record<string, unknown>)?.required === true : true,
-    capturePhoneVisible: (fields as Record<string, unknown>)?.phone != null ? ((fields as Record<string, unknown>).phone as Record<string, unknown>)?.visible !== false : true,
-    capturePhoneRequired: (fields as Record<string, unknown>)?.phone != null ? ((fields as Record<string, unknown>).phone as Record<string, unknown>)?.required === true : false,
-    captureCompanyVisible: (fields as Record<string, unknown>)?.companyName != null ? ((fields as Record<string, unknown>).companyName as Record<string, unknown>)?.visible !== false : false,
-    captureCompanyRequired: (fields as Record<string, unknown>)?.companyName != null ? ((fields as Record<string, unknown>).companyName as Record<string, unknown>)?.required === true : false,
+    captureFirstNameVisible: fields.firstName?.visible !== false,
+    captureFirstNameRequired: fields.firstName?.required === true,
+    captureLastNameVisible: fields.lastName?.visible !== false,
+    captureLastNameRequired: fields.lastName?.required === true,
+    capturePhoneVisible: fields.phone?.visible !== false,
+    capturePhoneRequired: fields.phone?.required === true,
+    captureCompanyVisible: fields.companyName?.visible === true,
+    captureCompanyRequired: fields.companyName?.required === true,
+    captureAddressVisible: fields.address?.visible === true,
+    captureAddressRequired: fields.address?.required === true,
+    captureAddressFormat: typeof fields.address?.format === 'string' ? fields.address.format as 'line_first' | 'street_first' : 'line_first',
     customerCaptureTermsRequired: capture.termsRequired === true,
     customerCaptureTermsMarkdown: capture.termsMarkdown != null ? String(capture.termsMarkdown) : null,
     customFieldsetCode: record.custom_fieldset_code != null || record.customFieldsetCode != null ? String(record.custom_fieldset_code ?? record.customFieldsetCode ?? '') : null,

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ExternalLink } from 'lucide-react'
 import { InjectedField } from '@open-mercato/ui/backend/injection/InjectedField'
 import { useInjectionDataWidgets } from '@open-mercato/ui/backend/injection/useInjectionDataWidgets'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -24,7 +25,6 @@ import {
   type ProviderItem,
   type TemplateOption,
 } from '../../../components/paymentLinkFormConfig'
-import { BrandingPreview } from '../../../components/BrandingPreview'
 import { recordToTemplateFormValues } from '../../../components/templateFormConfig'
 
 function ProviderInjectedFields({
@@ -229,33 +229,22 @@ export default function CreatePaymentLinkPage() {
 
     const previewGroup: CrudFormGroup = {
       id: 'preview',
-      title: t('payment_link_pages.create.preview', 'Preview'),
       column: 2,
       bare: true,
-      component: ({ values }) => (
-        <div className="space-y-4">
-          <BrandingPreview
-            logoUrl={typeof values.brandingLogoUrl === 'string' ? values.brandingLogoUrl : null}
-            brandName={typeof values.brandingBrandName === 'string' ? values.brandingBrandName : null}
-            securitySubtitle={typeof values.brandingSecuritySubtitle === 'string' ? values.brandingSecuritySubtitle : null}
-            accentColor={typeof values.brandingAccentColor === 'string' ? values.brandingAccentColor : null}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              openPreviewAfterCreateRef.current = true
-              const form = document.getElementById(paymentLinkFormId) as HTMLFormElement | null
-              form?.requestSubmit()
-            }}
-          >
-            {t('payment_link_pages.create.createAndPreview', 'Create & Open Preview')}
-          </Button>
-          <p className="text-xs text-muted-foreground text-center">
-            {t('payment_link_pages.create.previewNote', 'Creates the payment link and opens it in a new tab.')}
-          </p>
-        </div>
+      component: () => (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            openPreviewAfterCreateRef.current = true
+            const form = document.getElementById(paymentLinkFormId) as HTMLFormElement | null
+            form?.requestSubmit()
+          }}
+        >
+          <ExternalLink className="mr-2 h-4 w-4" />
+          {t('payment_link_pages.create.createAndPreview', 'Create & Open Preview')}
+        </Button>
       ),
     }
 
@@ -272,16 +261,6 @@ export default function CreatePaymentLinkPage() {
       if (field.id in formValues) acc[field.id] = formValues[field.id]
       return acc
     }, {})
-
-    const missingRequired = providerFieldsRef.current
-      .filter((field) => field.required && !formValues[field.id])
-      .map((field) => field.label)
-    if (missingRequired.length > 0) {
-      throw createCrudFormError(
-        t('payment_link_pages.create.providerFieldsRequired', 'Please fill in required provider fields: {{fields}}')
-          .replace('{{fields}}', missingRequired.join(', ')),
-      )
-    }
 
     const sessionPayload = {
       ...paymentLinkFormToSessionPayload(values),

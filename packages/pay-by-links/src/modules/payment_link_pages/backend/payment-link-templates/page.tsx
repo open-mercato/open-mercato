@@ -174,22 +174,24 @@ export default function PaymentLinkTemplatesListPage() {
   return (
     <Page>
       <PageBody>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-semibold">{t('payment_link_pages.templates.title')}</h1>
-            <p className="text-sm text-muted-foreground">{t('payment_link_pages.templates.description')}</p>
-          </div>
-          <Button asChild>
-            <Link href="/backend/payment-link-templates/new">
-              <Plus className="mr-2 h-4 w-4" />
-              {t('payment_link_pages.templates.create.title')}
-            </Link>
-          </Button>
-        </div>
         <DataTable
           columns={columns}
           data={data}
           isLoading={loading}
+          title={
+            <div className="flex flex-col">
+              <span>{t('payment_link_pages.templates.title')}</span>
+              <span className="text-sm font-normal text-muted-foreground">{t('payment_link_pages.templates.description')}</span>
+            </div>
+          }
+          actions={
+            <Button asChild>
+              <Link href="/backend/payment-link-templates/new">
+                <Plus className="mr-2 h-4 w-4" />
+                {t('payment_link_pages.templates.create.title')}
+              </Link>
+            </Button>
+          }
           rowActions={(row) => (
             <RowActions
               items={[

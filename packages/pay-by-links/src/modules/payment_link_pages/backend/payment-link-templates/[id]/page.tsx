@@ -3,12 +3,11 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   templateFormSchema,
@@ -26,6 +25,8 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
   const [record, setRecord] = React.useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [formResetKey, setFormResetKey] = React.useState(0)
+  const [extraValues, setExtraValues] = React.useState<Partial<TemplateFormValues>>({})
 
   React.useEffect(() => {
     async function load() {
@@ -48,37 +49,77 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
     load()
   }, [params.id])
 
-  const fields = React.useMemo(() => buildTemplateFormFields(t), [t])
-  const groups = React.useMemo(() => buildTemplateFormGroups(t), [t])
+  const handleLogoFileSelect = React.useCallback(async (file: File) => {
+    const fd = new FormData()
+    fd.set('file', file)
+    fd.set('entityId', 'payment_link_pages:branding')
+    fd.set('recordId', 'logo-upload')
+    try {
+      const call = await apiCallOrThrow<{ item?: { url?: string } }>('/api/attachments', {
+        method: 'POST',
+        body: fd,
+      })
+      const url = call.result?.item?.url
+      if (url) {
+        setExtraValues(prev => ({ ...prev, brandingLogoUrl: url }))
+        setFormResetKey(k => k + 1)
+        flash(t('payment_link_pages.create.branding.logoUploaded', 'Logo uploaded'), 'success')
+      }
+    } catch {
+      flash(t('payment_link_pages.create.branding.logoUploadError', 'Failed to upload logo'), 'error')
+    }
+  }, [t])
 
-  if (loading) return <LoadingMessage label={t('payment_link_pages.templates.edit.title')} />
+  const fields = React.useMemo(
+    () => buildTemplateFormFields(t, { onLogoFileSelect: handleLogoFileSelect }),
+    [t, handleLogoFileSelect],
+  )
+
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    const baseGroups = buildTemplateFormGroups(t)
+    const previewGroup: CrudFormGroup = {
+      id: 'preview',
+      title: t('payment_link_pages.templates.branding.preview', 'Preview'),
+      column: 2,
+      bare: true,
+      component: ({ values }) => (
+        <BrandingPreview
+          logoUrl={typeof values.brandingLogoUrl === 'string' ? values.brandingLogoUrl : null}
+          brandName={typeof values.brandingBrandName === 'string' ? values.brandingBrandName : null}
+          securitySubtitle={typeof values.brandingSecuritySubtitle === 'string' ? values.brandingSecuritySubtitle : null}
+          accentColor={typeof values.brandingAccentColor === 'string' ? values.brandingAccentColor : null}
+        />
+      ),
+    }
+    return [...baseGroups, previewGroup]
+  }, [t])
+
+  if (loading) return <LoadingMessage label={t('payment_link_pages.templates.edit.title', 'Edit Template')} />
   if (error || !record) return <ErrorMessage label={error ?? 'Template not found'} />
 
-  const initialValues = recordToTemplateFormValues(record)
-  const branding = (record.branding ?? {}) as Record<string, unknown>
+  const initialValues: TemplateFormValues = {
+    ...recordToTemplateFormValues(record),
+    ...extraValues,
+  }
 
   return (
     <Page>
       <PageBody>
-        <BrandingPreview
-          logoUrl={typeof branding.logoUrl === 'string' ? branding.logoUrl : null}
-          brandName={typeof branding.brandName === 'string' ? branding.brandName : null}
-          securitySubtitle={typeof branding.securitySubtitle === 'string' ? branding.securitySubtitle : null}
-          accentColor={typeof branding.accentColor === 'string' ? branding.accentColor : null}
-        />
         <CrudForm<TemplateFormValues>
-          title={t('payment_link_pages.templates.edit.title')}
+          key={formResetKey}
+          title={t('payment_link_pages.templates.edit.title', 'Edit Template')}
           backHref="/backend/payment-link-templates"
+          cancelHref="/backend/payment-link-templates"
           fields={fields}
           groups={groups}
           schema={templateFormSchema}
+          twoColumn
           initialValues={initialValues}
-          submitLabel={t('payment_link_pages.templates.form.submit')}
-          cancelHref="/backend/payment-link-templates"
+          submitLabel={t('payment_link_pages.templates.form.submit', 'Save Template')}
           onSubmit={async (values) => {
             const payload = templateFormValuesToPayload(values)
             await updateCrud('payment_link_pages/templates', { ...payload, id: params.id })
-            flash(t('payment_link_pages.templates.updated'), 'success')
+            flash(t('payment_link_pages.templates.updated', 'Template updated'), 'success')
             router.push('/backend/payment-link-templates')
           }}
         />
