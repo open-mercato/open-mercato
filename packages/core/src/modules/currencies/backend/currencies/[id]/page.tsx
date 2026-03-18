@@ -9,7 +9,9 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type CurrencyData = {
   id: string
@@ -28,6 +30,7 @@ type CurrencyData = {
 export default function EditCurrencyPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
 
   const [currency, setCurrency] = React.useState<CurrencyData | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -126,10 +129,12 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
 
   const handleDelete = React.useCallback(async () => {
     if (!currency) return
-    
-    if (!confirm(t('currencies.list.confirmDelete', { code: currency.code }))) {
-      return
-    }
+
+    const confirmed = await confirmDialog({
+      title: t('currencies.list.confirmDelete', { code: currency.code }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
 
     try {
       await apiCall('/api/currencies/currencies', {
@@ -143,7 +148,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     } catch (error) {
       flash(t('currencies.flash.deleteError'), 'error')
     }
-  }, [currency, t, router])
+  }, [currency, t, router, confirmDialog])
 
   if (loading) {
     return (
@@ -153,6 +158,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             <div className="text-muted-foreground">{t('currencies.form.loading')}</div>
           </div>
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -163,6 +169,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         <PageBody>
           <div className="text-destructive">{error || t('currencies.form.errors.notFound')}</div>
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -173,6 +180,26 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         <CrudForm
           title={t('currencies.edit.title')}
           backHref="/backend/currencies"
+          versionHistory={{ resourceKind: 'currencies.currency', resourceId: currency.id }}
+          extraActions={(
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'currencies',
+                entityType: 'currency',
+                entityId: currency.id,
+                previewData: {
+                  title: currency.name,
+                  subtitle: currency.code,
+                  metadata: {
+                    [t('currencies.form.field.code')]: currency.code,
+                    [t('currencies.form.field.name')]: currency.name,
+                    [t('currencies.form.field.symbol')]: currency.symbol || '-',
+                  },
+                },
+              }}
+              viewHref={`/backend/currencies/${currency.id}`}
+            />
+          )}
           fields={[]}
           groups={groups}
           initialValues={{
@@ -215,6 +242,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
           }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

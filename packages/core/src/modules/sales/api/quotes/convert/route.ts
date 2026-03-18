@@ -8,6 +8,12 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  bridgeLegacyGuard,
+  runMutationGuards,
+  type MutationGuard,
+  type MutationGuardInput,
+} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { withScopedPayload } from '../../utils'
 
 const convertSchema = z.object({
@@ -22,6 +28,53 @@ export const metadata = {
 
 type RequestContext = {
   ctx: CommandRuntimeContext
+}
+
+function resolveUserFeatures(auth: unknown): string[] {
+  const features = (auth as { features?: unknown })?.features
+  if (!Array.isArray(features)) return []
+  return features.filter((value): value is string => typeof value === 'string')
+}
+
+async function runGuards(
+  ctx: CommandRuntimeContext,
+  input: MutationGuardInput,
+): Promise<{
+  ok: boolean
+  errorBody?: Record<string, unknown>
+  errorStatus?: number
+  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
+}> {
+  const legacyGuard = bridgeLegacyGuard(ctx.container)
+  if (!legacyGuard) {
+    return { ok: true, afterSuccessCallbacks: [] }
+  }
+
+  return runMutationGuards([legacyGuard], input, {
+    userFeatures: resolveUserFeatures(ctx.auth),
+  })
+}
+
+async function runGuardAfterSuccessCallbacks(
+  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
+  input: {
+    tenantId: string
+    organizationId: string | null
+    userId: string
+    resourceKind: string
+    resourceId: string
+    operation: 'create' | 'update' | 'delete'
+    requestMethod: string
+    requestHeaders: Headers
+  },
+): Promise<void> {
+  for (const callback of callbacks) {
+    if (!callback.guard.afterSuccess) continue
+    await callback.guard.afterSuccess({
+      ...input,
+      metadata: callback.metadata ?? null,
+    })
+  }
 }
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -60,6 +113,19 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     const input = convertSchema.parse(scoped)
+    const guardResult = await runGuards(ctx, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      userId: ctx.auth?.sub ?? '',
+      resourceKind: 'sales.quote',
+      resourceId: input.quoteId,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+    if (!guardResult.ok) {
+      return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+    }
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result, logEntry } = await commandBus.execute<
       { quoteId: string; orderId?: string; orderNumber?: string },
@@ -86,6 +152,19 @@ export async function POST(req: Request) {
               : new Date().toISOString(),
         })
       )
+    }
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
     }
 
     return jsonResponse
@@ -122,6 +201,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'Conflict detected', schema: z.object({ error: z.string(), code: z.string().optional() }) },
+        { status: 423, description: 'Record locked', schema: z.object({ error: z.string(), code: z.string().optional() }) },
       ],
     },
   },

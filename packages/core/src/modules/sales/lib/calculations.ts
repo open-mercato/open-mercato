@@ -190,6 +190,15 @@ function buildBaseDocumentResult(params: {
     }
   }
 
+  // Line-scoped and any other return (credit) adjustments reduce grand total
+  for (const adj of resolvedAdjustments) {
+    if (adj.kind !== 'return') continue
+    const net = toNumber(adj.amountNet, toNumber(adj.amountGross))
+    const gross = toNumber(adj.amountGross, net)
+    subtotalNet = Math.max(subtotalNet + net, 0)
+    subtotalGross = Math.max(subtotalGross + gross, 0)
+  }
+
   const grandTotalNet = round(subtotalNet)
   const grandTotalGross = round(subtotalGross)
   const paidTotalAmount = Math.max(toNumber(params.existingTotals?.paidTotalAmount, 0), 0)

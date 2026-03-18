@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -9,6 +10,12 @@ import { readAttachmentMetadata } from '../../lib/metadata'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import {
+  attachmentsTag,
+  attachmentListQuerySchema as openApiListQuerySchema,
+  attachmentListResponseSchema,
+  attachmentErrorSchema,
+} from '../openapi'
 
 const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -48,7 +55,7 @@ function formatDateValue(value: unknown): string {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const url = new URL(req.url)
@@ -69,10 +76,11 @@ export async function GET(req: Request) {
     queryEngine = null
   }
   const qb = em.createQueryBuilder(Attachment, 'a')
-  qb.where({
-    organizationId: auth.orgId,
-    tenantId: auth.tenantId,
-  })
+  const baseFilter: Record<string, unknown> = { tenantId: auth.tenantId }
+  if (auth.orgId) {
+    baseFilter.organizationId = auth.orgId
+  }
+  qb.where(baseFilter)
   if (search && search.trim().length > 0) {
     qb.andWhere({ fileName: { $ilike: `%${escapeLikePattern(search.trim())}%` } })
   }
@@ -144,14 +152,17 @@ export async function GET(req: Request) {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const knex = (em as any).getConnection().getKnex()
-  const tagRows: Array<{ tag?: string | null }> = await knex
+  const tagQuery = knex
     .select(
       knex.raw(`distinct jsonb_array_elements_text(coalesce(storage_metadata->'tags', '[]'::jsonb)) as tag`),
     )
     .from('attachments')
-    .where('organization_id', auth.orgId)
-    .andWhere('tenant_id', auth.tenantId)
-    .orderBy('tag', 'asc')
+    .where('tenant_id', auth.tenantId)
+  if (auth.orgId) {
+    tagQuery.andWhere('organization_id', auth.orgId)
+  }
+  tagQuery.orderBy('tag', 'asc')
+  const tagRows: Array<{ tag?: string | null }> = await tagQuery
   const availableTags = tagRows
     .map((row) => (typeof row.tag === 'string' ? row.tag.trim() : ''))
     .filter((tag) => tag.length > 0)
@@ -170,4 +181,23 @@ export async function GET(req: Request) {
       isPublic: entry.isPublic ?? false,
     })),
   })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: attachmentsTag,
+  summary: 'Attachment library management',
+  methods: {
+    GET: {
+      summary: 'List attachments',
+      description: 'Returns paginated list of attachments with optional filtering by search term, partition, and tags. Includes available tags and partitions.',
+      query: openApiListQuerySchema,
+      responses: [
+        { status: 200, description: 'Attachments list with pagination and metadata', schema: attachmentListResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid query parameters', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+      ],
+    },
+  },
 }

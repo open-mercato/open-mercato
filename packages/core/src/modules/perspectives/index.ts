@@ -7,6 +7,7 @@ export const metadata: ModuleInfo = {
   description: 'Shared persistence for DataTable perspectives (columns, filters, saved views).',
   author: 'Open Mercato Team',
   license: 'Proprietary',
+  ejectable: true,
 }
 
 export { features } from './acl'

@@ -1,0 +1,1021 @@
+---
+title: Scheduler Module
+sidebar_position: 1
+---
+
+# Scheduler Module
+
+The Scheduler module (`@open-mercato/scheduler`) provides a production-ready, database-managed scheduled job system with support for both development (local polling) and production (BullMQ) execution strategies.
+
+## Package Location
+
+```
+packages/scheduler/
+├── src/
+│   ├── modules/
+│   │   └── scheduler/
+│   │       ├── api/              # REST API routes
+│   │       ├── backend/          # Admin UI pages
+│   │       ├── commands/         # Undoable commands
+│   │       ├── data/             # Entities and validators
+│   │       ├── i18n/             # Translations (en, de, es, pl)
+│   │       ├── lib/              # Core utilities
+│   │       ├── migrations/       # Database migrations
+│   │       ├── services/         # Business logic services
+│   │       ├── workers/          # Queue workers
+│   │       ├── acl.ts            # Access control features
+│   │       ├── cli.ts            # CLI commands
+│   │       └── di.ts             # DI registration
+│   └── index.ts                  # Package exports
+```
+
+## Import Path
+
+```typescript
+import { 
+  ScheduledJob,
+  SchedulerService,
+  type ScheduleRegistration,
+  parseCronExpression,
+  parseInterval,
+  calculateNextRun
+} from '@open-mercato/scheduler'
+```
+
+## Key Features
+
+- **Database-managed schedules** - All configuration stored in PostgreSQL
+- **Dual execution strategies** - Local polling (dev) and BullMQ (prod)
+- **Cron and interval scheduling** - Flexible timing options
+- **Multi-tenant isolation** - System, organization, and tenant scopes
+- **Command-based mutations** - Full undo/redo support
+- **Event-driven architecture** - Consistent event API across strategies
+- **Feature flag support** - RBAC-based access control
+- **Auto-sync** - MikroORM subscriber keeps BullMQ in sync
+- **Timezone awareness** - Execute jobs in any timezone
+- **Execution history** - Track runs and troubleshoot (async mode)
+
+## Architecture
+
+### Execution Strategies
+
+#### Local Strategy (`QUEUE_STRATEGY=local`)
+
+```typescript
+class LocalSchedulerService {
+  // Polls database every 30s (configurable via SCHEDULER_POLL_INTERVAL_MS)
+  // Uses PostgreSQL advisory locks for single-instance safety
+  // Enqueues to target queues or executes commands directly
+  async start(): Promise<void>
+  async stop(): Promise<void>
+}
+```
+
+**Best for:**
+- Local development
+- Single-instance deployments
+- Environments without Redis
+
+**Limitations:**
+- ~30 second timing accuracy
+- Single instance only
+- No execution history UI
+
+#### Async Strategy (`QUEUE_STRATEGY=async`)
+
+```typescript
+class BullMQSchedulerService {
+  // Uses BullMQ repeatable jobs for cron-precision timing
+  // Distributed locking across multiple instances
+  // Full execution history and job details
+  async register(schedule: ScheduledJob): Promise<void>
+  async unregister(scheduleId: string): Promise<void>
+  async syncAll(): Promise<void>
+}
+```
+
+**Best for:**
+- Production deployments
+- Multi-instance scaling
+- When execution history is needed
+
+**Requires:**
+- Redis
+- Separate worker processes
+
+### Core Services
+
+#### SchedulerService (Public API)
+
+The main service for modules to interact with the scheduler:
+
+```typescript
+import { inject } from 'awilix'
+import type { SchedulerService } from '@open-mercato/scheduler'
+
+class MyCurrencyService {
+  constructor(@inject('schedulerService') private schedulerService: SchedulerService) {}
+
+  async enableAutoFetch(config: CurrencyFetchConfig) {
+    await this.schedulerService.register({
+      id: `currencies:fetch-rates:${config.organizationId}`,
+      name: 'Fetch Currency Rates',
+      scopeType: 'organization',
+      organizationId: config.organizationId,
+      tenantId: config.tenantId,
+      scheduleType: 'cron',
+      scheduleValue: '0 */6 * * *', // Every 6 hours
+      targetType: 'queue',
+      targetQueue: 'currency-rates',
+      targetPayload: { providers: config.providers },
+      sourceModule: 'currencies',
+    })
+  }
+
+  async disableAutoFetch(organizationId: string) {
+    await this.schedulerService.unregister(
+      `currencies:fetch-rates:${organizationId}`
+    )
+  }
+}
+```
+
+**Methods:**
+
+```typescript
+interface SchedulerService {
+  // Register or update a schedule (upsert)
+  register(registration: ScheduleRegistration): Promise<void>
+  
+  // Remove a schedule
+  unregister(scheduleId: string): Promise<void>
+  
+  // Check if schedule exists
+  exists(scheduleId: string): Promise<boolean>
+  
+  // Update schedule fields
+  update(scheduleId: string, changes: Partial<ScheduleRegistration>): Promise<void>
+  
+  // Find schedules by module
+  findByModule(moduleId: string): Promise<ScheduledJob[]>
+  
+  // Enable/disable schedule
+  enable(scheduleId: string): Promise<void>
+  disable(scheduleId: string): Promise<void>
+}
+```
+
+**ScheduleRegistration Type:**
+
+```typescript
+interface ScheduleRegistration {
+  id: string                      // Unique schedule ID (use module:purpose:scope pattern)
+  name: string                     // Human-readable name
+  description?: string             // Optional description
+  scopeType: 'system' | 'organization' | 'tenant'
+  tenantId?: string               // Required for tenant scope
+  organizationId?: string         // Required for organization scope
+  scheduleType: 'cron' | 'interval'
+  scheduleValue: string           // Cron expression or interval (e.g., "15m")
+  timezone?: string               // Default: UTC
+  targetType: 'queue' | 'command'
+  targetQueue?: string            // Required if targetType = 'queue'
+  targetCommand?: string          // Required if targetType = 'command'
+  targetPayload?: Record<string, any>  // Optional JSON arguments
+  requireFeature?: string         // Optional feature flag
+  sourceModule: string            // Your module ID
+}
+```
+
+## Database Schema
+
+### ScheduledJob Entity
+
+```typescript
+@Entity({ tableName: 'scheduled_jobs' })
+export class ScheduledJob {
+  @PrimaryKey({ type: 'uuid' })
+  id!: string
+
+  @Property({ nullable: true })
+  organizationId?: string
+
+  @Property({ nullable: true })
+  tenantId?: string
+
+  @Enum(() => ScopeType)
+  scopeType!: 'system' | 'organization' | 'tenant'
+
+  @Property()
+  name!: string
+
+  @Property({ nullable: true })
+  description?: string
+
+  @Enum(() => ScheduleType)
+  scheduleType!: 'cron' | 'interval'
+
+  @Property()
+  scheduleValue!: string  // Cron expression or interval
+
+  @Property({ default: 'UTC' })
+  timezone!: string
+
+  @Enum(() => TargetType)
+  targetType!: 'queue' | 'command'
+
+  @Property({ nullable: true })
+  targetQueue?: string
+
+  @Property({ nullable: true })
+  targetCommand?: string
+
+  @Property({ type: 'jsonb', nullable: true })
+  targetPayload?: Record<string, any>
+
+  @Property({ nullable: true })
+  requireFeature?: string
+
+  @Property({ default: true })
+  isEnabled!: boolean
+
+  @Property({ nullable: true })
+  lastRunAt?: Date
+
+  @Property({ nullable: true })
+  nextRunAt?: Date
+
+  @Enum(() => SourceType)
+  sourceType!: 'user' | 'module'
+
+  @Property({ nullable: true })
+  sourceModule?: string
+
+  @Property()
+  createdAt: Date = new Date()
+
+  @Property({ onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ nullable: true })
+  deletedAt?: Date
+
+  @Property({ nullable: true })
+  createdByUserId?: string
+
+  @Property({ nullable: true })
+  updatedByUserId?: string
+}
+```
+
+**Indexes:**
+- `(organization_id, tenant_id)` - Tenant/org filtering
+- `(next_run_at)` - Efficient polling for due schedules
+- `(scope_type, is_enabled)` - Active schedule queries
+
+## Schedule Types
+
+### Cron Expressions
+
+Standard 5-field cron format:
+
+```
+┌───────────── minute (0 - 59)
+│ ┌───────────── hour (0 - 23)
+│ │ ┌───────────── day of month (1 - 31)
+│ │ │ ┌───────────── month (1 - 12)
+│ │ │ │ ┌───────────── day of week (0 - 6) (Sunday to Saturday)
+│ │ │ │ │
+* * * * *
+```
+
+**Examples:**
+
+```typescript
+'0 0 * * *'      // Daily at midnight
+'0 */6 * * *'    // Every 6 hours
+'*/15 * * * *'   // Every 15 minutes
+'0 9 * * 1-5'    // Weekdays at 9 AM
+'0 0 1 * *'      // First day of month at midnight
+'0 0 * * 0'      // Every Sunday at midnight
+```
+
+**Validation:**
+
+```typescript
+import { validateCron, parseCronExpression } from '@open-mercato/scheduler'
+
+const isValid = validateCron('0 0 * * *')  // true
+
+const iterator = parseCronExpression('0 0 * * *', 'America/New_York')
+const next = iterator.next()  // Next occurrence
+```
+
+### Interval Format
+
+Simple interval format: `<number><unit>`
+
+**Units:**
+- `s` - seconds
+- `m` - minutes
+- `h` - hours
+- `d` - days
+
+**Examples:**
+
+```typescript
+'30s'  // 30 seconds
+'15m'  // 15 minutes
+'2h'   // 2 hours
+'1d'   // 1 day
+```
+
+**Validation:**
+
+```typescript
+import { validateInterval, parseInterval, intervalToHuman } from '@open-mercato/scheduler'
+
+const isValid = validateInterval('15m')  // true
+const milliseconds = parseInterval('15m')  // 900000
+const human = intervalToHuman('15m', 'en')  // "15 minutes"
+```
+
+## Next Run Calculation
+
+The scheduler automatically calculates the next execution time:
+
+```typescript
+import { calculateNextRun } from '@open-mercato/scheduler'
+
+// Cron
+const nextRun = calculateNextRun(
+  'cron',
+  '0 6 * * *',
+  'America/New_York',
+  new Date()
+)
+
+// Interval
+const nextRun = calculateNextRun(
+  'interval',
+  '15m',
+  'UTC',
+  new Date()
+)
+```
+
+**How it works:**
+- **Cron:** Uses `cron-parser` to find the next occurrence after the current time
+- **Interval:** Adds the interval duration to the current time (or last run time)
+- **Timezone:** All calculations respect the schedule's timezone
+
+## Target Types
+
+### Queue Target
+
+Enqueues a job to a worker queue:
+
+```typescript
+await schedulerService.register({
+  id: 'my-module:my-task',
+  name: 'My Periodic Task',
+  scopeType: 'tenant',
+  tenantId: 'tenant-123',
+  scheduleType: 'interval',
+  scheduleValue: '15m',
+  targetType: 'queue',
+  targetQueue: 'my-task-queue',
+  targetPayload: { key: 'value' },
+  sourceModule: 'my-module',
+})
+```
+
+The worker receives:
+
+```typescript
+// workers/my-task.worker.ts
+export const metadata = {
+  queue: 'my-task-queue',
+  id: 'my-task',
+  concurrency: 5,
+}
+
+export default async function handler(job: Job) {
+  const { key } = job.data  // Access targetPayload
+  // Process job
+}
+```
+
+### Command Target
+
+Executes a registered command:
+
+```typescript
+await schedulerService.register({
+  id: 'my-module:cleanup',
+  name: 'Daily Cleanup',
+  scopeType: 'system',
+  scheduleType: 'cron',
+  scheduleValue: '0 2 * * *',
+  targetType: 'command',
+  targetCommand: 'my-module.cleanup',
+  targetPayload: { days: 30 },
+  sourceModule: 'my-module',
+})
+```
+
+The command receives:
+
+```typescript
+// commands/cleanup.ts
+registerCommand(
+  'my-module.cleanup',
+  async (ctx, payload: { days: number }) => {
+    // Execute cleanup
+  }
+)
+```
+
+## Events
+
+The scheduler emits events for monitoring:
+
+```typescript
+// subscribers/scheduler-monitor.ts
+export const metadata = {
+  event: 'scheduler.job.started',
+  persistent: true,
+}
+
+export default async function handler(payload: {
+  scheduleId: string
+  scheduleName: string
+  targetType: 'queue' | 'command'
+  targetQueue?: string
+  targetCommand?: string
+  tenantId?: string
+  organizationId?: string
+}) {
+  // Log start
+  console.log(`Schedule ${payload.scheduleName} started`)
+}
+```
+
+**Available events:**
+
+- `scheduler.job.started` - Job execution started
+- `scheduler.job.completed` - Job completed successfully
+- `scheduler.job.failed` - Job execution failed
+- `scheduler.job.skipped` - Job was skipped (disabled or missing feature)
+
+## Security & Multi-tenancy
+
+### Scope Validation
+
+The scheduler enforces scope integrity:
+
+```typescript
+// Tenant scope requires tenantId
+await schedulerService.register({
+  scopeType: 'tenant',
+  tenantId: 'tenant-123',  // Required
+  // ...
+})
+
+// Organization scope requires both
+await schedulerService.register({
+  scopeType: 'organization',
+  tenantId: 'tenant-123',      // Required
+  organizationId: 'org-456',   // Required
+  // ...
+})
+
+// System scope requires neither
+await schedulerService.register({
+  scopeType: 'system',
+  // tenantId and organizationId must be null
+  // ...
+})
+```
+
+### Execution Worker Security
+
+The execute-schedule worker validates scope integrity:
+
+```typescript
+// workers/execute-schedule.worker.ts
+const schedule = await em.findOne(ScheduledJob, { id: scheduleId })
+
+// Validate scope matches payload
+if (schedule.tenantId !== payload.tenantId) {
+  throw new Error('Scope mismatch: tenant tampering detected')
+}
+
+if (schedule.organizationId !== payload.organizationId) {
+  throw new Error('Scope mismatch: organization tampering detected')
+}
+```
+
+This prevents:
+- Cross-tenant data access
+- Privilege escalation
+- Scope tampering
+
+### Feature Flag Enforcement
+
+Schedules can require a feature flag:
+
+```typescript
+await schedulerService.register({
+  id: 'premium:advanced-reports',
+  requireFeature: 'reports.advanced',  // Optional enforcement
+  // ...
+})
+```
+
+The worker checks:
+
+```typescript
+if (schedule.requireFeature) {
+  const hasFeature = await rbacService.userHasAllFeatures(
+    userId,
+    [schedule.requireFeature],
+    { tenantId, organizationId }
+  )
+  
+  if (!hasFeature) {
+    // Skip execution, emit scheduler.job.skipped
+    return
+  }
+}
+```
+
+## CLI Commands
+
+### List Schedules
+
+```bash
+yarn mercato scheduler list
+
+# Filter by tenant
+yarn mercato scheduler list --tenant tenant-123
+
+# Filter by scope
+yarn mercato scheduler list --scope system
+
+# Filter by enabled status
+yarn mercato scheduler list --enabled true
+```
+
+### Show Status
+
+```bash
+yarn mercato scheduler status
+```
+
+Shows:
+- Execution strategy (local/async)
+- Redis connection status (async mode)
+- Active schedule count
+- Next upcoming runs
+
+### Run Schedule Manually
+
+```bash
+yarn mercato scheduler run <schedule-id>
+```
+
+Executes a schedule immediately (ignores next_run_at).
+
+### Start Scheduler Engine
+
+```bash
+yarn mercato scheduler start
+```
+
+**Local strategy:**
+- Starts polling engine (keeps running)
+- Polls every 30s (configurable)
+- Use Ctrl+C to stop gracefully
+
+**Async strategy:**
+- One-time sync with BullMQ
+- Exits after sync
+- Workers must be started separately
+
+## API Routes
+
+All routes require authentication and appropriate features.
+
+### List Schedules
+
+```http
+GET /api/scheduler/jobs?page=1&pageSize=20&search=report
+
+Response: {
+  data: ScheduledJob[],
+  meta: { total, pageSize, page }
+}
+```
+
+**Features:** `scheduler.jobs.view`
+
+### Create Schedule
+
+```http
+POST /api/scheduler/jobs
+Content-Type: application/json
+
+{
+  "name": "Daily Report",
+  "description": "Generate daily sales report",
+  "scopeType": "tenant",
+  "scheduleType": "cron",
+  "scheduleValue": "0 6 * * *",
+  "timezone": "America/New_York",
+  "targetType": "command",
+  "targetCommand": "reports.generate-daily",
+  "targetPayload": { "format": "pdf" },
+  "isEnabled": true
+}
+
+Response: { id: "...", ... }
+```
+
+**Features:** `scheduler.jobs.manage`
+
+### Update Schedule
+
+```http
+PUT /api/scheduler/jobs
+Content-Type: application/json
+
+{
+  "id": "schedule-id",
+  "scheduleValue": "0 12 * * *"  // Change to noon
+}
+
+Response: { id: "...", ... }
+```
+
+**Features:** `scheduler.jobs.manage`
+
+### Delete Schedule
+
+```http
+DELETE /api/scheduler/jobs
+Content-Type: application/json
+
+{ "id": "schedule-id" }
+
+Response: { ok: true }
+```
+
+**Features:** `scheduler.jobs.manage`
+
+### Trigger Schedule
+
+```http
+POST /api/scheduler/trigger
+Content-Type: application/json
+
+{ "id": "schedule-id" }
+
+Response: { ok: true, jobId: "..." }
+```
+
+**Features:** `scheduler.jobs.trigger`  
+**Requires:** `QUEUE_STRATEGY=async`
+
+### Get Execution History
+
+```http
+GET /api/scheduler/jobs/{id}/executions?page=1&pageSize=20
+
+Response: {
+  data: [{
+    id: "...",
+    state: "completed",
+    startedAt: "2024-01-27T10:00:00Z",
+    completedAt: "2024-01-27T10:00:05Z",
+    result: { ... },
+    error: null
+  }],
+  meta: { total, pageSize, page }
+}
+```
+
+**Features:** `scheduler.jobs.view`  
+**Requires:** `QUEUE_STRATEGY=async`
+
+## Commands (Undoable)
+
+All scheduler mutations use undoable commands:
+
+```typescript
+// commands/jobs.ts
+
+registerCommand('scheduler.jobs.create', async (ctx, payload) => {
+  // Create schedule
+  // Returns after snapshot for undo
+})
+
+registerCommand('scheduler.jobs.update', async (ctx, payload) => {
+  // Update schedule
+  // Captures before/after snapshots
+})
+
+registerCommand('scheduler.jobs.delete', async (ctx, payload) => {
+  // Soft delete
+  // Undo: clear deletedAt
+})
+```
+
+**Undo/Redo:**
+
+```typescript
+import { commandBus } from '@open-mercato/shared/lib/commands'
+
+// Create
+const result = await commandBus.execute('scheduler.jobs.create', payload)
+
+// Undo (soft deletes the schedule)
+await commandBus.undo(result.commandId)
+
+// Redo (restores the schedule)
+await commandBus.redo(result.commandId)
+```
+
+## Testing
+
+### Unit Testing
+
+```typescript
+import { parseInterval, validateCron, calculateNextRun } from '@open-mercato/scheduler'
+
+describe('Interval Parser', () => {
+  it('parses valid intervals', () => {
+    expect(parseInterval('15m')).toBe(900000)
+    expect(parseInterval('2h')).toBe(7200000)
+  })
+
+  it('rejects invalid intervals', () => {
+    expect(validateInterval('invalid')).toBe(false)
+  })
+})
+```
+
+### Integration Testing
+
+```typescript
+import { bootstrapTest } from '@open-mercato/shared/lib/testing/bootstrap'
+import type { SchedulerService } from '@open-mercato/scheduler'
+
+describe('SchedulerService', () => {
+  let container: any
+  let schedulerService: SchedulerService
+
+  beforeAll(async () => {
+    container = await bootstrapTest({ includeDb: true })
+    schedulerService = container.resolve('schedulerService')
+  })
+
+  it('registers a schedule', async () => {
+    await schedulerService.register({
+      id: 'test:my-schedule',
+      name: 'Test Schedule',
+      scopeType: 'system',
+      scheduleType: 'interval',
+      scheduleValue: '15m',
+      targetType: 'command',
+      targetCommand: 'test.noop',
+      sourceModule: 'test',
+    })
+
+    const exists = await schedulerService.exists('test:my-schedule')
+    expect(exists).toBe(true)
+  })
+})
+```
+
+## Best Practices
+
+### 1. Use Module-Scoped IDs
+
+```typescript
+// Good
+id: `${moduleId}:${purpose}:${scope}`
+id: 'currencies:fetch-rates:org-123'
+
+// Bad
+id: '1'
+id: 'my-job'
+```
+
+### 2. Set Appropriate Scopes
+
+```typescript
+// System scope - global functionality
+scopeType: 'system'
+// Example: system health checks, global cleanup
+
+// Organization scope - per-organization logic
+scopeType: 'organization'
+// Example: organization reports, billing
+
+// Tenant scope - per-tenant isolation
+scopeType: 'tenant'
+// Example: user notifications, tenant-specific tasks
+```
+
+### 3. Validate Payloads
+
+```typescript
+import { z } from 'zod'
+
+const payloadSchema = z.object({
+  format: z.enum(['pdf', 'csv']),
+  emails: z.array(z.string().email()),
+})
+
+await schedulerService.register({
+  targetPayload: payloadSchema.parse(userInput),
+  // ...
+})
+```
+
+### 4. Handle Failures Gracefully
+
+```typescript
+// subscribers/scheduler-failure.ts
+export const metadata = {
+  event: 'scheduler.job.failed',
+  persistent: true,
+}
+
+export default async function handler(payload: {
+  scheduleId: string
+  scheduleName: string
+  error: string
+}) {
+  // Log to monitoring
+  await logger.error('Schedule failed', payload)
+  
+  // Alert administrators
+  await alertService.notify({
+    level: 'error',
+    message: `Schedule ${payload.scheduleName} failed: ${payload.error}`,
+  })
+}
+```
+
+### 5. Use Feature Flags for Beta Features
+
+```typescript
+await schedulerService.register({
+  id: 'beta:ai-reports',
+  requireFeature: 'reports.ai',  // Only runs for users with this feature
+  // ...
+})
+```
+
+### 6. Clean Up on Module Uninstall
+
+```typescript
+// When deactivating module
+export async function deactivate(container: any) {
+  const schedulerService = container.resolve('schedulerService')
+  
+  // Find all schedules created by this module
+  const schedules = await schedulerService.findByModule('my-module')
+  
+  // Unregister them
+  for (const schedule of schedules) {
+    await schedulerService.unregister(schedule.id)
+  }
+}
+```
+
+## Deployment Checklist
+
+### Development Setup
+
+1. ✅ Set `QUEUE_STRATEGY=local` (or omit, it's default)
+2. ✅ Run `yarn mercato scheduler start` in a terminal
+3. ✅ Keep the process running during development
+
+### Production Setup
+
+1. ✅ Set `QUEUE_STRATEGY=async`
+2. ✅ Set `REDIS_URL=redis://localhost:6379`
+3. ✅ Run `yarn mercato scheduler start` once to sync
+4. ✅ Start workers: `yarn mercato worker:start`
+5. ✅ Monitor workers and Redis health
+6. ✅ Set up alerts for `scheduler.job.failed` events
+
+## Migration Guide
+
+### From Legacy Cron Jobs
+
+If migrating from system cron jobs:
+
+```bash
+# Old cron entry
+0 6 * * * cd /app && yarn mercato reports generate-daily
+
+# New scheduler registration
+await schedulerService.register({
+  id: 'reports:generate-daily:system',
+  name: 'Daily Reports',
+  scopeType: 'system',
+  scheduleType: 'cron',
+  scheduleValue: '0 6 * * *',
+  targetType: 'command',
+  targetCommand: 'reports.generate-daily',
+  sourceModule: 'reports',
+})
+```
+
+**Benefits:**
+- Database-managed (no SSH access needed)
+- Multi-tenant support
+- Undo/redo capability
+- Execution history
+- Feature flag enforcement
+- Admin UI for non-technical users
+
+## Troubleshooting
+
+### Schedules Not Running
+
+**Check scheduler process:**
+```bash
+# Local mode
+yarn mercato scheduler status
+
+# Async mode
+yarn mercato worker:list
+```
+
+**Check schedule state:**
+```bash
+yarn mercato scheduler list --enabled true
+```
+
+**Check logs:**
+```bash
+# Local mode
+tail -f scheduler.log
+
+# Async mode
+tail -f worker.log
+```
+
+### High Database Load
+
+**Symptom:** Polling causes DB load spikes
+
+**Solution:** Switch to async strategy or increase poll interval:
+
+```bash
+# .env
+QUEUE_STRATEGY=async
+# or
+SCHEDULER_POLL_INTERVAL_MS=60000  # 1 minute
+```
+
+### Missing Executions
+
+**Symptom:** Jobs don't run at expected times
+
+**Causes:**
+1. Scheduler process not running
+2. Schedule is disabled
+3. Feature flag missing
+4. Cron expression error
+5. Timezone mismatch
+
+**Debug:**
+```bash
+yarn mercato scheduler run <schedule-id>  # Test manually
+```
+
+### Redis Connection Issues
+
+**Symptom:** Async mode fails to sync
+
+**Check:**
+```bash
+redis-cli ping  # Should return PONG
+```
+
+**Solution:**
+- Verify `REDIS_URL` is correct
+- Check Redis is running
+- Check network/firewall rules
+
+## Further Reading
+
+- [User Guide: Scheduled Jobs](../../user-guide/scheduler.mdx) - End-user documentation
+- [CLI Reference](../../cli/scheduler) - CLI command details
+- [API Reference](../../api/scheduler) - REST API documentation

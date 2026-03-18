@@ -182,19 +182,19 @@ export function AppearanceSelector({
                       {filteredIcons.map((option) => {
                         const isSelected = normalizedIcon === option.value
                         return (
-                          <button
+                          <Button
                             key={option.value}
                             type="button"
-                            className={`flex h-9 w-9 items-center justify-center rounded text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                              isSelected ? 'bg-primary/10 text-primary ring-1 ring-primary/60' : 'hover:bg-muted'
-                            }`}
+                            variant="ghost"
+                            size="icon"
+                            className={isSelected ? 'bg-primary/10 text-primary ring-1 ring-primary/60' : undefined}
                             onClick={() => handleIconSelection(option.value)}
                             title={option.label}
                             aria-label={option.label}
                             aria-pressed={isSelected}
                           >
                             {renderDictionaryIcon(option.value, 'h-4 w-4')}
-                          </button>
+                          </Button>
                         )
                       })}
                     </div>
@@ -211,17 +211,17 @@ export function AppearanceSelector({
                       {iconSuggestions.map((suggestion) => {
                         const isSelected = normalizedIcon === suggestion.value
                         return (
-                          <button
+                          <Button
                             key={suggestion.value}
                             type="button"
-                            className={`inline-flex items-center gap-2 rounded border px-3 py-1 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                              isSelected ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'
-                            }`}
+                            variant="outline"
+                            size="sm"
+                            className={`text-xs ${isSelected ? 'border-primary bg-primary/10 text-primary' : ''}`}
                             onClick={() => handleIconSelection(suggestion.value)}
                           >
                             {renderDictionaryIcon(suggestion.value, 'h-3 w-3')}
                             {suggestion.label}
-                          </button>
+                          </Button>
                         )
                       })}
                     </div>

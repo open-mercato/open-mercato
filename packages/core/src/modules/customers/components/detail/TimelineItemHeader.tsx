@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { formatDateTime, formatRelativeTime } from './utils'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 
 type TimelineItemHeaderProps = {
   title: React.ReactNode

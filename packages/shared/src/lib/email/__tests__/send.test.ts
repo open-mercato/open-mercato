@@ -61,6 +61,33 @@ describe('sendEmail', () => {
     expect(payload.reply_to).toBeUndefined()
   })
 
+  it('passes attachments to Resend payload when provided', async () => {
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+      attachments: [
+        {
+          filename: 'invoice.pdf',
+          content: 'dGVzdA==',
+          contentType: 'application/pdf',
+        },
+      ],
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          {
+            filename: 'invoice.pdf',
+            content: 'dGVzdA==',
+            contentType: 'application/pdf',
+          },
+        ],
+      })
+    )
+  })
+
   it('throws when Resend returns an error', async () => {
     sendMock.mockResolvedValueOnce({ error: { message: 'invalid domain' } })
 
@@ -69,5 +96,19 @@ describe('sendEmail', () => {
       subject: 'Hello',
       react: React.createElement('div', null, 'Hi'),
     })).rejects.toThrow('RESEND_SEND_FAILED: invalid domain')
+  })
+
+  it('skips external delivery in test mode when email delivery is disabled', async () => {
+    process.env.OM_DISABLE_EMAIL_DELIVERY = '1'
+    delete process.env.RESEND_API_KEY
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(ResendMock).not.toHaveBeenCalled()
+    expect(sendMock).not.toHaveBeenCalled()
   })
 })

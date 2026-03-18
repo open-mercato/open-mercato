@@ -18,6 +18,16 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
+// Mock HTMLDialogElement methods for jsdom compatibility
+HTMLDialogElement.prototype.showModal = jest.fn(function(this: HTMLDialogElement) {
+  this.open = true
+  this.setAttribute('open', '')
+})
+HTMLDialogElement.prototype.close = jest.fn(function(this: HTMLDialogElement) {
+  this.open = false
+  this.removeAttribute('open')
+})
+
 const dict = {
   'configs.cache.title': 'Cache overview',
   'configs.cache.description': 'Inspect cache',
@@ -43,6 +53,9 @@ const dict = {
   'configs.cache.purgeSegmentConfirm': 'Confirm segment purge?',
   'configs.cache.purgeAllConfirm': 'Confirm all purge?',
   'configs.cache.inactive': 'Inactive',
+  'ui.dialogs.confirm.confirmText': 'Confirm',
+  'ui.dialogs.confirm.cancelText': 'Cancel',
+  'ui.dialog.close.ariaLabel': 'Close',
 }
 
 const statsPayload = {
@@ -78,7 +91,6 @@ describe('CachePanel', () => {
   })
 
   it('purges a segment when user confirms', async () => {
-    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
     ;(readApiResultOrThrow as jest.Mock)
       .mockResolvedValueOnce(statsPayload)
       .mockResolvedValueOnce({ ok: true, granted: ['configs.cache.manage'] })
@@ -93,12 +105,21 @@ describe('CachePanel', () => {
       expect(screen.getByText('users.list')).toBeInTheDocument()
     })
 
+    // Click purge segment button
     fireEvent.click(screen.getByRole('button', { name: 'Purge segment' }))
+
+    // Wait for confirm dialog to appear (dialog title)
+    await waitFor(() => {
+      expect(screen.getByText('Confirm segment purge?')).toBeInTheDocument()
+    })
+
+    // Click confirm button by text (inside dialog)
+    const confirmButtons = screen.getAllByText('Confirm')
+    fireEvent.click(confirmButtons[confirmButtons.length - 1])
 
     await waitFor(() => {
       expect(flash).toHaveBeenCalledWith('Purged users.list (1)', 'success')
     })
-    confirmSpy.mockRestore()
   })
 
   it('shows an error notice when stats cannot be loaded', async () => {

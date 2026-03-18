@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { X, Bell, CheckCheck, Loader2, RotateCcw } from 'lucide-react'
 import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
 import { NotificationItem } from './NotificationItem'
 import type { NotificationDto, NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
@@ -148,9 +149,9 @@ export function NotificationPanel({
                   {t('notifications.markAllRead', 'Mark all read')}
                 </Button>
               )}
-              <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
+              <IconButton variant="ghost" size="lg" onClick={() => onOpenChange(false)}>
                 <X className="h-5 w-5" />
-              </Button>
+              </IconButton>
             </div>
           </div>
 

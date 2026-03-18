@@ -32,7 +32,19 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+const shipmentCrudEvents: CrudEventsConfig = {
+  module: 'sales',
+  entity: 'shipment',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 
@@ -236,6 +248,7 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
   entity.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   entity.updatedAt = new Date()
   em.persist(entity)
+  await em.flush()
 
   const existingItems = await em.find(SalesShipmentItem, { shipment: entity })
   existingItems.forEach((item) => em.remove(item))
@@ -500,10 +513,25 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: shipment,
+      identifiers: {
+        id: shipment.id,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
+    })
+
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShipmentSnapshot(em, result.shipmentId)
   },
   buildLog: async ({ result, snapshots }) => {
@@ -514,6 +542,8 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       actionLabel: translate('sales.audit.shipments.create', 'Create shipment'),
       resourceKind: 'sales.shipment',
       resourceId: result.shipmentId,
+      parentResourceKind: 'sales.order',
+      parentResourceId: after.orderId ?? null,
       tenantId: after.tenantId,
       organizationId: after.organizationId,
       snapshotAfter: after,
@@ -700,10 +730,25 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: shipment,
+      identifiers: {
+        id: shipment.id,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
+    })
+
     return { shipmentId: shipment.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadShipmentSnapshot(em, result.shipmentId)
   },
   buildLog: async ({ snapshots, result }) => {
@@ -714,6 +759,8 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       actionLabel: translate('sales.audit.shipments.update', 'Update shipment'),
       resourceKind: 'sales.shipment',
       resourceId: result.shipmentId,
+      parentResourceKind: 'sales.order',
+      parentResourceId: after?.orderId ?? before?.orderId ?? null,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
       organizationId: after?.organizationId ?? before?.organizationId ?? null,
       snapshotBefore: before ?? null,
@@ -831,6 +878,18 @@ const deleteShipmentCommand: CommandHandler<
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: shipment,
+      identifiers: {
+        id: shipment.id,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
+    })
     if (shipmentItems.length) {
       await Promise.all(
         shipmentItems.map((item) =>
@@ -871,6 +930,8 @@ const deleteShipmentCommand: CommandHandler<
       actionLabel: translate('sales.audit.shipments.delete', 'Delete shipment'),
       resourceKind: 'sales.shipment',
       resourceId: before.id ?? null,
+      parentResourceKind: 'sales.order',
+      parentResourceId: before.orderId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,

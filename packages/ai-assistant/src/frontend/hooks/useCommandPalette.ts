@@ -267,7 +267,7 @@ export function useCommandPalette(options: UseCommandPaletteOptions) {
       // Open/close with Cmd+K or Ctrl+K
       if (
         (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === COMMAND_PALETTE_SHORTCUT.key
+        event.key.toLowerCase() === AI_CHAT_SHORTCUT.key
       ) {
         event.preventDefault()
         setState((prev) => {

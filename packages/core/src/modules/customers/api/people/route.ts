@@ -60,6 +60,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  enrichers: { entityId: 'customers.person' },
   list: {
     schema: listSchema,
     entityId: E.customers.customer_entity,

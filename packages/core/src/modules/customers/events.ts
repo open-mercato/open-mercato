@@ -7,46 +7,46 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  */
 const events = [
   // People
-  { id: 'customers.people.created', label: 'Customer (Person) Created', entity: 'people', category: 'crud' },
-  { id: 'customers.people.updated', label: 'Customer (Person) Updated', entity: 'people', category: 'crud' },
-  { id: 'customers.people.deleted', label: 'Customer (Person) Deleted', entity: 'people', category: 'crud' },
+  { id: 'customers.person.created', label: 'Customer (Person) Created', entity: 'person', category: 'crud' },
+  { id: 'customers.person.updated', label: 'Customer (Person) Updated', entity: 'person', category: 'crud' },
+  { id: 'customers.person.deleted', label: 'Customer (Person) Deleted', entity: 'person', category: 'crud' },
 
   // Companies
-  { id: 'customers.companies.created', label: 'Customer (Company) Created', entity: 'companies', category: 'crud' },
-  { id: 'customers.companies.updated', label: 'Customer (Company) Updated', entity: 'companies', category: 'crud' },
-  { id: 'customers.companies.deleted', label: 'Customer (Company) Deleted', entity: 'companies', category: 'crud' },
+  { id: 'customers.company.created', label: 'Customer (Company) Created', entity: 'company', category: 'crud' },
+  { id: 'customers.company.updated', label: 'Customer (Company) Updated', entity: 'company', category: 'crud' },
+  { id: 'customers.company.deleted', label: 'Customer (Company) Deleted', entity: 'company', category: 'crud' },
 
   // Deals
-  { id: 'customers.deals.created', label: 'Deal Created', entity: 'deals', category: 'crud' },
-  { id: 'customers.deals.updated', label: 'Deal Updated', entity: 'deals', category: 'crud' },
-  { id: 'customers.deals.deleted', label: 'Deal Deleted', entity: 'deals', category: 'crud' },
+  { id: 'customers.deal.created', label: 'Deal Created', entity: 'deal', category: 'crud' },
+  { id: 'customers.deal.updated', label: 'Deal Updated', entity: 'deal', category: 'crud' },
+  { id: 'customers.deal.deleted', label: 'Deal Deleted', entity: 'deal', category: 'crud' },
 
   // Comments
-  { id: 'customers.comments.created', label: 'Comment Created', entity: 'comments', category: 'crud' },
-  { id: 'customers.comments.updated', label: 'Comment Updated', entity: 'comments', category: 'crud' },
-  { id: 'customers.comments.deleted', label: 'Comment Deleted', entity: 'comments', category: 'crud' },
+  { id: 'customers.comment.created', label: 'Comment Created', entity: 'comment', category: 'crud' },
+  { id: 'customers.comment.updated', label: 'Comment Updated', entity: 'comment', category: 'crud' },
+  { id: 'customers.comment.deleted', label: 'Comment Deleted', entity: 'comment', category: 'crud' },
 
   // Addresses
-  { id: 'customers.addresses.created', label: 'Address Created', entity: 'addresses', category: 'crud' },
-  { id: 'customers.addresses.updated', label: 'Address Updated', entity: 'addresses', category: 'crud' },
-  { id: 'customers.addresses.deleted', label: 'Address Deleted', entity: 'addresses', category: 'crud' },
+  { id: 'customers.address.created', label: 'Address Created', entity: 'address', category: 'crud' },
+  { id: 'customers.address.updated', label: 'Address Updated', entity: 'address', category: 'crud' },
+  { id: 'customers.address.deleted', label: 'Address Deleted', entity: 'address', category: 'crud' },
 
   // Activities
-  { id: 'customers.activities.created', label: 'Activity Created', entity: 'activities', category: 'crud' },
-  { id: 'customers.activities.updated', label: 'Activity Updated', entity: 'activities', category: 'crud' },
-  { id: 'customers.activities.deleted', label: 'Activity Deleted', entity: 'activities', category: 'crud' },
+  { id: 'customers.activity.created', label: 'Activity Created', entity: 'activity', category: 'crud' },
+  { id: 'customers.activity.updated', label: 'Activity Updated', entity: 'activity', category: 'crud' },
+  { id: 'customers.activity.deleted', label: 'Activity Deleted', entity: 'activity', category: 'crud' },
 
   // Tags
-  { id: 'customers.tags.created', label: 'Tag Created', entity: 'tags', category: 'crud' },
-  { id: 'customers.tags.updated', label: 'Tag Updated', entity: 'tags', category: 'crud' },
-  { id: 'customers.tags.deleted', label: 'Tag Deleted', entity: 'tags', category: 'crud' },
-  { id: 'customers.tags.assigned', label: 'Tag Assigned', entity: 'tags', category: 'crud' },
-  { id: 'customers.tags.removed', label: 'Tag Removed', entity: 'tags', category: 'crud' },
+  { id: 'customers.tag.created', label: 'Tag Created', entity: 'tag', category: 'crud' },
+  { id: 'customers.tag.updated', label: 'Tag Updated', entity: 'tag', category: 'crud' },
+  { id: 'customers.tag.deleted', label: 'Tag Deleted', entity: 'tag', category: 'crud' },
+  { id: 'customers.tag.assigned', label: 'Tag Assigned', entity: 'tag', category: 'crud' },
+  { id: 'customers.tag.removed', label: 'Tag Removed', entity: 'tag', category: 'crud' },
 
   // Todos
-  { id: 'customers.todos.created', label: 'Todo Created', entity: 'todos', category: 'crud' },
-  { id: 'customers.todos.updated', label: 'Todo Updated', entity: 'todos', category: 'crud' },
-  { id: 'customers.todos.deleted', label: 'Todo Deleted', entity: 'todos', category: 'crud' },
+  { id: 'customers.todo.created', label: 'Todo Created', entity: 'todo', category: 'crud' },
+  { id: 'customers.todo.updated', label: 'Todo Updated', entity: 'todo', category: 'crud' },
+  { id: 'customers.todo.deleted', label: 'Todo Deleted', entity: 'todo', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

@@ -1,5 +1,5 @@
 import { createNotificationService } from '../lib/notificationService'
-import { NOTIFICATION_EVENTS } from '../lib/events'
+import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
 
@@ -23,15 +23,18 @@ const baseCtx = {
 const buildEm = () => {
   const em = {
     fork: jest.fn(),
+    transactional: jest.fn(),
     create: jest.fn(),
     persistAndFlush: jest.fn(),
     flush: jest.fn(),
+    findOne: jest.fn(),
     findOneOrFail: jest.fn(),
     count: jest.fn(),
     find: jest.fn(),
     getConnection: jest.fn(),
   }
   em.fork.mockReturnValue(em)
+  em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
   em.getConnection.mockReturnValue({
     getKnex: () => ({}),
   })
@@ -57,7 +60,7 @@ describe('notification service', () => {
     const notification = await service.create(baseNotificationInput, baseCtx)
 
     expect(notification.id).toBe('note-1')
-    expect(em.persistAndFlush).toHaveBeenCalledWith(notification)
+    expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       NOTIFICATION_EVENTS.CREATED,
       expect.objectContaining({
@@ -65,6 +68,43 @@ describe('notification service', () => {
         recipientUserId: baseNotificationInput.recipientUserId,
         tenantId: baseCtx.tenantId,
       })
+    )
+  })
+
+  it('reuses grouped notification instead of creating duplicates', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const existing = {
+      id: 'note-existing',
+      recipientUserId: baseNotificationInput.recipientUserId,
+      tenantId: baseCtx.tenantId,
+      organizationId: null,
+      type: 'system',
+      groupKey: 'system:record:1',
+      status: 'read',
+      createdAt: new Date('2026-02-21T09:00:00.000Z'),
+    } as Notification
+
+    em.findOne.mockResolvedValue(existing)
+
+    const service = createNotificationService({ em, eventBus })
+
+    const notification = await service.create({
+      ...baseNotificationInput,
+      body: 'Updated body',
+      groupKey: 'system:record:1',
+    }, baseCtx)
+
+    expect(notification.id).toBe('note-existing')
+    expect(em.create).not.toHaveBeenCalled()
+    expect(notification.status).toBe('unread')
+    expect(notification.body).toBe('Updated body')
+    expect(em.flush).toHaveBeenCalled()
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      NOTIFICATION_EVENTS.CREATED,
+      expect.objectContaining({
+        notificationId: 'note-existing',
+      }),
     )
   })
 
@@ -89,8 +129,17 @@ describe('notification service', () => {
     )
 
     expect(notifications).toHaveLength(2)
-    expect(em.persistAndFlush).toHaveBeenCalledWith(notifications)
-    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(em.flush).toHaveBeenCalled()
+    expect(eventBus.emit).toHaveBeenCalledTimes(5)
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      NOTIFICATION_SSE_EVENTS.BATCH_CREATED,
+      expect.objectContaining({
+        tenantId: baseCtx.tenantId,
+        organizationId: baseCtx.organizationId,
+        recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
+        count: 2,
+      }),
+    )
   })
 
   it('returns empty list when no recipients match feature', async () => {
@@ -110,7 +159,7 @@ describe('notification service', () => {
     )
 
     expect(result).toEqual([])
-    expect(em.persistAndFlush).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
     expect(eventBus.emit).not.toHaveBeenCalled()
   })
 

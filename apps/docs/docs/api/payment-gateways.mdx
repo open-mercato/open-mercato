@@ -1,0 +1,379 @@
+---
+title: Payment Gateways
+description: REST endpoints for payment sessions, captures, refunds, cancellations, status checks, and webhooks.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+All examples assume:
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+```
+
+## Shared conventions
+
+- Send `X-Api-Key: $API_KEY` on every request.
+- Access is feature-gated via module ACL (`payment_gateways.*`).
+- Requests are tenant/organization scoped from authenticated context.
+
+## Stripe programmatic flow
+
+For Stripe, the payment hub creates a Payment Intent and returns the identifiers your app needs to complete the payment. The full lifecycle is:
+
+1. Create a session with `providerKey: "stripe"`.
+2. If `redirectUrl` is returned, redirect the customer there.
+3. If `clientSecret` is returned, confirm the payment with Stripe.js.
+4. Refresh `GET /payment_gateways/status` or rely on webhooks to synchronize the transaction.
+5. Capture, refund, or cancel with the transaction ID.
+6. Inspect the result in **External systems -> Payment Transactions**.
+
+### End-to-end Stripe example
+
+```ts
+type PaymentSession = {
+  transactionId: string
+  sessionId: string
+  providerKey: string
+  clientSecret?: string
+  redirectUrl?: string
+  providerData?: {
+    paymentIntentId?: string
+    publishableKey?: string
+  } | null
+  status: string
+  paymentId: string
+}
+
+async function createStripeSession(): Promise<PaymentSession> {
+  const response = await fetch('/api/payment_gateways/sessions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Api-Key': process.env.OPEN_MERCATO_API_KEY!,
+    },
+    body: JSON.stringify({
+      providerKey: 'stripe',
+      amount: 49.99,
+      currencyCode: 'USD',
+      captureMethod: 'manual',
+      description: 'Order #100024',
+      metadata: {
+        source: 'docs-example',
+      },
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Create session failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+async function refreshTransactionStatus(transactionId: string) {
+  const response = await fetch(
+    `/api/payment_gateways/status?transactionId=${transactionId}`,
+    {
+      headers: { 'X-Api-Key': process.env.OPEN_MERCATO_API_KEY! },
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(`Status refresh failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+```
+
+If Stripe returns a hosted `redirectUrl`, redirect the browser:
+
+```ts
+const session = await createStripeSession()
+
+if (session.redirectUrl) {
+  window.location.assign(session.redirectUrl)
+}
+```
+
+If Stripe returns a `clientSecret`, confirm the payment with Stripe.js:
+
+```tsx
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js'
+import { loadStripe } from '@stripe/stripe-js'
+
+const session = await createStripeSession()
+const stripePromise = loadStripe(session.providerData?.publishableKey ?? '')
+
+function StripeCheckoutForm() {
+  const stripe = useStripe()
+  const elements = useElements()
+
+  async function confirm() {
+    if (!stripe || !elements || !session.clientSecret) return
+    const card = elements.getElement(CardElement)
+    if (!card) return
+
+    const result = await stripe.confirmCardPayment(session.clientSecret, {
+      payment_method: { card },
+    })
+
+    if (result.error) {
+      throw new Error(result.error.message ?? 'Stripe confirmation failed')
+    }
+  }
+
+  return (
+    <>
+      <CardElement />
+      <button onClick={() => void confirm()}>Confirm payment</button>
+    </>
+  )
+}
+
+export function StripeCheckout() {
+  return (
+    <Elements stripe={stripePromise}>
+      <StripeCheckoutForm />
+    </Elements>
+  )
+}
+```
+
+When confirmation succeeds:
+
+- Stripe `requires_capture` usually maps to Open Mercato `authorized`
+- Stripe `succeeded` maps to Open Mercato `captured`
+
+Use `transactionId`, not the Stripe Payment Intent ID, for all later hub operations.
+
+## Create payment session — `POST /payment_gateways/sessions`
+
+**Feature:** `payment_gateways.manage`
+
+Creates a new payment session through the specified gateway provider.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/sessions" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "providerKey": "stripe",
+    "amount": 49.99,
+    "currencyCode": "USD",
+    "captureMethod": "manual",
+    "description": "Order #1234"
+  }'
+```
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `providerKey` | string | yes | Provider identifier (e.g., `stripe`, `mock`) |
+| `amount` | number | yes | Payment amount |
+| `currencyCode` | string | yes | ISO 4217 currency code |
+| `captureMethod` | string | no | `automatic` (default) or `manual` |
+| `description` | string | no | Human-readable description |
+
+**Response (201):**
+
+```json
+{
+  "transactionId": "uuid",
+  "sessionId": "pi_xxx",
+  "clientSecret": "pi_xxx_secret_xxx",
+  "redirectUrl": "https://checkout.stripe.com/...",
+  "status": "pending",
+  "paymentId": "uuid"
+}
+```
+
+**Errors:** `422` invalid payload or unknown provider, `403` insufficient permissions.
+
+### Stripe-specific notes
+
+- `providerData.publishableKey` is safe to expose to the browser and can be passed into `loadStripe(...)`.
+- `clientSecret` is used by Stripe.js to confirm the Payment Intent.
+- `transactionId` is the Open Mercato payment-hub transaction identifier you should persist in your app.
+- `paymentId` is the internal payment reference generated by the hub.
+
+## Capture payment — `POST /payment_gateways/capture`
+
+**Feature:** `payment_gateways.capture`
+
+Captures an authorized payment. Omit `amount` for full capture.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/capture" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "transactionId": "uuid" }'
+```
+
+**Response (200):**
+
+```json
+{
+  "status": "captured",
+  "capturedAmount": 49.99
+}
+```
+
+For Stripe manual capture flows, call this when the transaction status becomes `authorized`.
+
+## Refund payment — `POST /payment_gateways/refund`
+
+**Feature:** `payment_gateways.refund`
+
+Refunds a captured payment. Omit `amount` for full refund, or specify a partial amount.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/refund" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "transactionId": "uuid",
+    "amount": 10.00,
+    "reason": "Customer request"
+  }'
+```
+
+**Response (200):**
+
+```json
+{
+  "refundId": "re_xxx",
+  "status": "refunded",
+  "refundedAmount": 10.00
+}
+```
+
+## Cancel payment — `POST /payment_gateways/cancel`
+
+**Feature:** `payment_gateways.manage`
+
+Voids an authorized or pending payment before capture.
+
+```bash
+curl -X POST "$BASE_URL/payment_gateways/cancel" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "transactionId": "uuid" }'
+```
+
+**Response (200):**
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
+## Get transaction status — `GET /payment_gateways/status`
+
+**Feature:** `payment_gateways.view`
+
+```bash
+curl -X GET "$BASE_URL/payment_gateways/status?transactionId=uuid" \
+  -H "X-Api-Key: $API_KEY"
+```
+
+**Response (200):**
+
+```json
+{
+  "transactionId": "uuid",
+  "paymentId": "uuid",
+  "providerKey": "stripe",
+  "sessionId": "pi_xxx",
+  "status": "captured",
+  "gatewayStatus": "succeeded",
+  "amount": 49.99,
+  "amountReceived": 49.99,
+  "currencyCode": "USD",
+  "createdAt": "2026-03-10T12:00:00.000Z",
+  "updatedAt": "2026-03-10T12:01:00.000Z"
+}
+```
+
+**Errors:** `404` transaction not found, `403` cross-tenant access denied.
+
+Status refresh is safe to call after frontend confirmation, but webhook delivery is the preferred synchronization mechanism for production Stripe integrations.
+
+## Receive webhook — `POST /payment_gateways/webhook/{provider}`
+
+**Auth:** None (signature verified by provider handler)
+
+Receives inbound webhook events from payment providers. The provider key in the URL determines which registered handler verifies the signature.
+
+```bash
+# Example: Stripe sends to
+POST /api/payment_gateways/webhook/stripe
+```
+
+**Response:** `202` accepted for async processing, `401` signature verification failed, `404` unknown provider.
+
+Webhook events are processed asynchronously by dedicated workers. Each event includes an `idempotencyKey` to prevent duplicate processing.
+
+## Stripe webhook setup
+
+Stripe should send webhook events into Open Mercato so the hub can update transaction status, append webhook history, and keep refunds and disputes synchronized. Session creation can work without it, but a production Stripe integration should not stop there.
+
+### Endpoint URL
+
+Configure Stripe to send webhooks to:
+
+```text
+https://YOUR_APP_URL/api/payment_gateways/webhook/stripe
+```
+
+For local development with ngrok:
+
+```bash
+ngrok http 3000
+```
+
+Then use:
+
+```text
+https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/stripe
+```
+
+### Recommended Stripe events
+
+Subscribe at minimum to:
+
+```text
+payment_intent.succeeded
+payment_intent.payment_failed
+payment_intent.canceled
+payment_intent.requires_action
+charge.refunded
+charge.refund.updated
+charge.dispute.created
+charge.dispute.closed
+```
+
+After creating the endpoint in **Stripe Dashboard -> Workbench -> Webhooks**, reveal the endpoint signing secret and paste the `whsec_...` value into the Stripe integration's **Webhook Signing Secret** field in Open Mercato.
+
+For local development, Stripe cannot reach `localhost` directly. Start a tunnel first:
+
+```bash
+ngrok http 3000
+```
+
+Then configure Stripe to send webhooks to:
+
+```text
+https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/stripe
+```
+
+## Related admin screens
+
+- Stripe credentials and health: `/backend/integrations/gateway_stripe`
+- Transaction browser and logs: `/backend/payment-gateways`

@@ -271,7 +271,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
   buildLog: async ({ input, snapshots, ctx }) => {
     const parsed = plannerAvailabilityDateSpecificReplaceSchema.parse(input)
     const dates = resolveDateSet(parsed)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadDateSpecificSnapshots(em, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,

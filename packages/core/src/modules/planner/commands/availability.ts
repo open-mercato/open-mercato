@@ -123,12 +123,11 @@ const createAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleCreat
     return { ruleId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadAvailabilityRuleSnapshot(em, result.ruleId)
   },
-  buildLog: async ({ input, result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAvailabilityRuleSnapshot(em, result?.ruleId ?? '')
+  buildLog: async ({ input, result, ctx, snapshots }) => {
+    const snapshot = snapshots.after as AvailabilityRuleSnapshot | undefined
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('planner.audit.availability.create', 'Create availability rule'),
@@ -197,7 +196,7 @@ const updateAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleUpdat
   },
   buildLog: async ({ snapshots, input, result, ctx }) => {
     const before = snapshots.before as AvailabilityRuleSnapshot | undefined
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterSnapshot = before ? await loadAvailabilityRuleSnapshot(em, before.id) : null
     const { translate } = await resolveTranslations()
     return {

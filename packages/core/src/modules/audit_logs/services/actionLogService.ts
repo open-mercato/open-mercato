@@ -9,6 +9,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -99,6 +100,8 @@ export class ActionLogService {
       actionLabel: data.actionLabel ?? null,
       resourceKind: data.resourceKind ?? null,
       resourceId: data.resourceId ?? null,
+      parentResourceKind: data.parentResourceKind ?? null,
+      parentResourceId: data.parentResourceId ?? null,
       executionState: data.executionState ?? 'done',
       undoToken: data.undoToken ?? null,
       commandPayload: data.commandPayload ?? null,
@@ -141,8 +144,6 @@ export class ActionLogService {
       }
       return value
     }
-    const toOptionalString = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : undefined)
-
     const normalizeRecordLike = (value: unknown): ActionLogCreateInput['changes'] => {
       if (value === null) return null
       if (Array.isArray(value)) return value
@@ -158,11 +159,13 @@ export class ActionLogService {
       organizationId: toNullableUuid(input.organizationId),
       actorUserId: toNullableUuid(input.actorUserId),
       commandId: typeof input.commandId === 'string' && input.commandId.length > 0 ? input.commandId : 'unknown',
-      actionLabel: toOptionalString(input.actionLabel),
-      resourceKind: toOptionalString(input.resourceKind),
-      resourceId: toOptionalString(input.resourceId),
+      actionLabel: toOptionalString(input.actionLabel) ?? undefined,
+      resourceKind: toOptionalString(input.resourceKind) ?? undefined,
+      resourceId: toOptionalString(input.resourceId) ?? undefined,
+      parentResourceKind: toOptionalString(input.parentResourceKind) ?? null,
+      parentResourceId: toOptionalString(input.parentResourceId) ?? null,
       executionState: input.executionState === 'undone' || input.executionState === 'failed' ? input.executionState : 'done',
-      undoToken: toOptionalString(input.undoToken),
+      undoToken: toOptionalString(input.undoToken) ?? undefined,
       commandPayload: input.commandPayload,
       snapshotBefore: input.snapshotBefore,
       snapshotAfter: input.snapshotAfter,
@@ -181,6 +184,15 @@ export class ActionLogService {
     if (parsed.tenantId) where.tenantId = parsed.tenantId
     if (parsed.organizationId) where.organizationId = parsed.organizationId
     if (parsed.actorUserId) where.actorUserId = parsed.actorUserId
+    if (parsed.includeRelated && parsed.resourceKind && parsed.resourceId) {
+      where.$or = [
+        { resourceKind: parsed.resourceKind, resourceId: parsed.resourceId },
+        { parentResourceKind: parsed.resourceKind, parentResourceId: parsed.resourceId },
+      ] as any
+    } else {
+      if (parsed.resourceKind) where.resourceKind = parsed.resourceKind
+      if (parsed.resourceId) where.resourceId = parsed.resourceId
+    }
     if (parsed.undoableOnly) where.undoToken = { $ne: null } as any
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any

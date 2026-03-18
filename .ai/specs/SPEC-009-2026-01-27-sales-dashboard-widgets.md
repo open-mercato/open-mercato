@@ -1264,7 +1264,7 @@ Using Playwright or similar:
   - [ ] OpenAPI documentation
 - [ ] Add access control features
   - [ ] Update `packages/core/src/modules/sales/acl.ts`
-  - [ ] Update role seeding in `packages/core/src/modules/auth/cli.ts`
+  - [ ] Update default role features in `packages/core/src/modules/sales/setup.ts`
 - [ ] Add translations
   - [ ] `packages/core/src/modules/sales/i18n/en.json`
   - [ ] Additional locale files
@@ -1365,3 +1365,5 @@ Using Playwright or similar:
 - Defined widget structure, API contracts, and UI components
 - Established date period selection patterns
 - Documented access control and internationalization requirements
+### 2026-02-11
+- Create  New Orders and New Quotes dashboard widgets with date pickers, internationalization, api

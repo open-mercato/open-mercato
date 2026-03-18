@@ -160,6 +160,27 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
  * 2. Manual context: Provide `context` with tenant/org/user
  */
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
+  // Generate entity graph for Code Mode search tool
+  try {
+    const { extractEntityGraph, cacheEntityGraph } = await import('./entity-graph')
+    const { getOrm } = await import('@open-mercato/shared/lib/db/mikro')
+    const orm = await getOrm()
+    const graph = await extractEntityGraph(orm)
+    cacheEntityGraph(graph)
+    console.error(`[MCP Server] Entity graph: ${graph.nodes.length} entities`)
+  } catch (error) {
+    console.error('[MCP Server] Entity graph skipped:', error instanceof Error ? error.message : error)
+  }
+
+  // Pre-cache raw OpenAPI spec for Code Mode search tool
+  try {
+    const { getRawOpenApiSpec } = await import('./api-endpoint-index')
+    await getRawOpenApiSpec()
+    console.error('[MCP Server] Raw OpenAPI spec cached for Code Mode')
+  } catch (error) {
+    console.error('[MCP Server] Raw OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
+  }
+
   // Load tools from all modules before starting
   await loadAllModuleTools()
 

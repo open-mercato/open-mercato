@@ -14,6 +14,36 @@ export interface InjectionTableEntry {
   table: ModuleInjectionTable
 }
 
+export interface EnricherBootstrapEntry {
+  moduleId: string
+  enrichers: import('../../lib/crud/response-enricher').ResponseEnricher[]
+}
+
+export interface InterceptorBootstrapEntry {
+  moduleId: string
+  interceptors: import('../../lib/crud/api-interceptor').ApiInterceptor[]
+}
+
+export interface ComponentOverrideBootstrapEntry {
+  moduleId: string
+  componentOverrides: import('../../modules/widgets/component-registry').ComponentOverride[]
+}
+
+export interface GuardBootstrapEntry {
+  moduleId: string
+  guards: import('../../lib/crud/mutation-guard-registry').MutationGuard[]
+}
+
+export interface CommandInterceptorBootstrapEntry {
+  moduleId: string
+  interceptors: import('../../lib/commands/command-interceptor').CommandInterceptor[]
+}
+
+export interface NotificationHandlerBootstrapEntry {
+  moduleId: string
+  handlers: import('../../modules/notifications/handler').NotificationHandler[]
+}
+
 export interface BootstrapData {
   modules: Module[]
   entities: OrmEntity[]
@@ -25,6 +55,12 @@ export interface BootstrapData {
   injectionTables: InjectionTableEntry[]
   searchModuleConfigs: SearchModuleConfig[]
   analyticsModuleConfigs?: AnalyticsModuleConfig[]
+  enricherEntries?: EnricherBootstrapEntry[]
+  interceptorEntries?: InterceptorBootstrapEntry[]
+  componentOverrideEntries?: ComponentOverrideBootstrapEntry[]
+  guardEntries?: GuardBootstrapEntry[]
+  commandInterceptorEntries?: CommandInterceptorBootstrapEntry[]
+  notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
 }
 
 export interface BootstrapOptions {

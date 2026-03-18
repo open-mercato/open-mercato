@@ -23,11 +23,7 @@ describe('sales channels route helpers', () => {
     } as any)
 
     expect(filters.id).toEqual({ $in: ['11111111-1111-4111-8111-111111111111', '00000000-0000-4000-8000-000000000000'] })
-    expect(filters.$or).toEqual([
-      { name: { $ilike: '%Flash \\%%' } },
-      { code: { $ilike: '%Flash \\%%' } },
-      { description: { $ilike: '%Flash \\%%' } },
-    ])
+    expect(filters.search_text).toEqual({ $ilike: '%Flash \\%%' })
     expect(filters.is_active).toBe(false)
   })
 

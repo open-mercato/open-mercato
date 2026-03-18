@@ -10,6 +10,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type JobHistoryRecord = {
   id: string
@@ -34,6 +35,7 @@ type JobHistoryFormValues = {
 
 export function JobHistorySection({ memberId }: { memberId: string | null }) {
   const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [items, setItems] = React.useState<JobHistoryRecord[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -146,11 +148,15 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
   }, [activeRecord, closeDialog, dialogMode, labels.errorSave, labels.saved, labels.updated, memberId])
 
   const handleDelete = React.useCallback(async (record: JobHistoryRecord) => {
-    if (!confirm(labels.deleteConfirm)) return
+    const confirmed = await confirmDialog({
+      title: labels.deleteConfirm,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     await deleteCrud('staff/job-histories', { id: record.id, errorMessage: labels.errorDelete })
     flash(labels.deleted, 'success')
     setReloadToken((prev) => prev + 1)
-  }, [labels.deleteConfirm, labels.deleted, labels.errorDelete])
+  }, [labels.deleteConfirm, labels.deleted, labels.errorDelete, confirmDialog])
 
   const dialogTitle = dialogMode === 'edit' ? labels.edit : labels.add
 
@@ -245,6 +251,7 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
           />
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -60,13 +60,7 @@ const createCommentCommand: CommandHandler<
     const parsed = staffTeamMemberCommentCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
-    const normalizedAuthor = (() => {
-      if (parsed.authorUserId) return parsed.authorUserId
-      if (!authSub) return null
-      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
-      return uuidRegex.test(authSub) ? authSub : null
-    })()
+    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
@@ -103,17 +97,18 @@ const createCommentCommand: CommandHandler<
     return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadCommentSnapshot(em, result.commentId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCommentSnapshot(em, result.commentId)
+    const snapshot = snapshots.after as CommentSnapshot | undefined
     return {
       actionLabel: translate('staff.audit.teamMemberComments.create', 'Create note'),
       resourceKind: 'staff.team_member_comment',
       resourceId: result.commentId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: snapshot?.memberId ?? null,
       tenantId: snapshot?.tenantId ?? null,
       organizationId: snapshot?.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -180,12 +175,15 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
 
     return { commentId: comment.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadCommentSnapshot(em, result.commentId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as CommentSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadCommentSnapshot(em, before.id)
+    const afterSnapshot = snapshots.after as CommentSnapshot | undefined
     const changes =
       afterSnapshot && before
         ? buildChanges(
@@ -198,6 +196,8 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
       actionLabel: translate('staff.audit.teamMemberComments.update', 'Update note'),
       resourceKind: 'staff.team_member_comment',
       resourceId: before.id,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: before.memberId ?? null,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
@@ -298,6 +298,8 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         actionLabel: translate('staff.audit.teamMemberComments.delete', 'Delete note'),
         resourceKind: 'staff.team_member_comment',
         resourceId: before.id,
+        parentResourceKind: 'staff.teamMember',
+        parentResourceId: before.memberId ?? null,
         tenantId: before.tenantId,
         organizationId: before.organizationId,
         snapshotBefore: before,

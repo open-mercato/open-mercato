@@ -26,7 +26,7 @@ type OptionsItem = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
     return NextResponse.json({ items: [] }, { status: 401 })
   }
 
@@ -48,9 +48,11 @@ export async function GET(req: Request) {
   const { q, query, search, includeInactive, limit } = parsed.data
   const searchTerm = (q ?? query ?? search ?? '').trim()
   const filter: any = {
-    organizationId: auth.orgId,
     tenantId: auth.tenantId,
     deletedAt: null,
+  }
+  if (auth.orgId) {
+    filter.organizationId = auth.orgId
   }
 
   if (includeInactive !== 'true') {

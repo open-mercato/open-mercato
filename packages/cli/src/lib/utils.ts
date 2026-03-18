@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 
 export type ChecksumRecord = {
   content: string
@@ -66,7 +67,7 @@ function collectStructureEntries(target: string, base: string, acc: string[]): v
 }
 
 export function calculateStructureChecksum(paths: string[]): string {
-  const normalized = Array.from(new Set(paths.map((p) => path.resolve(p)))).sort()
+  const normalized = Array.from(new Set(paths.map((p) => path.resolve(p)))).sort((a, b) => a.localeCompare(b))
   const entries: string[] = []
   for (const target of normalized) {
     if (!fs.existsSync(target)) {
@@ -172,13 +173,17 @@ export function toSnake(s: string): string {
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
     .replace(/\W+/g, '_')
     .replace(/_{2,}/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/(?:^_+|_+$)/g, '')
     .toLowerCase()
 }
 
 export async function moduleHasExport(filePath: string, exportName: string): Promise<boolean> {
   try {
-    const mod = await import(filePath)
+    // On Windows, absolute paths must be file:// URLs for ESM imports
+    // But package imports (starting with @ or not starting with . or /) should be used as-is
+    const isAbsolutePath = path.isAbsolute(filePath)
+    const importUrl = isAbsolutePath ? pathToFileURL(filePath).href : filePath
+    const mod = await import(importUrl)
     return mod != null && Object.prototype.hasOwnProperty.call(mod, exportName)
   } catch {
     return false
@@ -197,4 +202,30 @@ export function createGeneratorResult(): GeneratorResult {
     filesUnchanged: [],
     errors: [],
   }
+}
+
+export function writeGeneratedFile(options: {
+  outFile: string
+  checksumFile: string
+  content: string
+  structureChecksum: string
+  result: GeneratorResult
+  quiet?: boolean
+}): void {
+  const { outFile, checksumFile, content, structureChecksum, result, quiet } = options
+  const checksum = { content: calculateChecksum(content), structure: structureChecksum }
+  const existing = readChecksumRecord(checksumFile)
+  const shouldWrite =
+    !existing ||
+    existing.content !== checksum.content ||
+    existing.structure !== checksum.structure
+  if (shouldWrite) {
+    fs.mkdirSync(path.dirname(outFile), { recursive: true })
+    fs.writeFileSync(outFile, content)
+    writeChecksumRecord(checksumFile, checksum)
+    result.filesWritten.push(outFile)
+  } else {
+    result.filesUnchanged.push(outFile)
+  }
+  if (!quiet) logGenerationResult(path.relative(process.cwd(), outFile), shouldWrite)
 }

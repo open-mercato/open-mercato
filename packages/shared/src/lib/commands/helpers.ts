@@ -93,7 +93,9 @@ export function buildChanges(
 ): Record<string, { from: unknown; to: unknown }> {
   if (!before) return {}
   const diff: Record<string, { from: unknown; to: unknown }> = {}
+  const skipped = new Set(['updatedAt', 'updated_at'])
   for (const key of keys) {
+    if (skipped.has(key)) continue
     const prev = before[key]
     const next = after[key]
     if (prev !== next) diff[key] = { from: prev, to: next }
@@ -141,3 +143,15 @@ export type LogBuilderArgs<TInput, TResult> = {
 }
 
 export type LogBuilder<TInput, TResult> = (args: LogBuilderArgs<TInput, TResult>) => CommandLogMetadata | null | Promise<CommandLogMetadata | null>
+
+const AUTHOR_UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+
+export function normalizeAuthorUserId(
+  explicitAuthorUserId: string | undefined | null,
+  auth: { isApiKey?: boolean; sub?: string | null } | undefined | null
+): string | null {
+  if (explicitAuthorUserId) return explicitAuthorUserId
+  const authSub = auth?.isApiKey ? null : auth?.sub ?? null
+  if (!authSub) return null
+  return AUTHOR_UUID_REGEX.test(authSub) ? authSub : null
+}

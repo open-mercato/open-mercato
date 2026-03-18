@@ -20,6 +20,10 @@ export const confirmPasswordResetSchema = z.object({
   password: passwordSchema,
 })
 
+export const refreshSessionRequestSchema = z.object({
+  refreshToken: z.string().min(1),
+})
+
 export const sidebarPreferencesInputSchema = z.object({
   version: z.number().int().positive().optional(),
   groupOrder: z.array(z.string().min(1)).max(200).optional(),
@@ -42,5 +46,6 @@ export const userCreateSchema = z.object({
 export type UserLoginInput = z.infer<typeof userLoginSchema>
 export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>
+export type RefreshSessionRequestInput = z.infer<typeof refreshSessionRequestSchema>
 export type SidebarPreferencesInput = z.infer<typeof sidebarPreferencesInputSchema>
 export type UserCreateInput = z.infer<typeof userCreateSchema>

@@ -45,6 +45,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Agentic tool secrets
+.mcp.json
+.codex/mcp.json
+.cursor/mcp.json
+.claude/settings.local.json
+
 # Misc
 *.tgz
 .cache/

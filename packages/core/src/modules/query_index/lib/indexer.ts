@@ -4,6 +4,7 @@ import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encrypt
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import type { Knex } from 'knex'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
+import { attachAggregateSearchField } from './document'
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -69,7 +70,29 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     doc[key] = arr.length <= 1 ? arr[0] : arr
   }
 
+  // Attach translations under flat keys 'l10n:{locale}:{field}'
   try {
+    const translationRow = await knex('entity_translations')
+      .where({ entity_type: params.entityType, entity_id: String(params.recordId) })
+      .andWhereRaw('tenant_id is not distinct from ?', [params.tenantId ?? null])
+      .andWhereRaw('organization_id is not distinct from ?', [params.organizationId ?? null])
+      .select(['translations'])
+      .first()
+
+    if (translationRow?.translations && typeof translationRow.translations === 'object') {
+      for (const [locale, fields] of Object.entries(translationRow.translations)) {
+        if (!fields || typeof fields !== 'object') continue
+        for (const [field, value] of Object.entries(fields as Record<string, unknown>)) {
+          if (typeof value === 'string' && value.length > 0) {
+            doc[`l10n:${locale}:${field}`] = value
+          }
+        }
+      }
+    }
+  } catch {}
+
+  try {
+    doc = attachAggregateSearchField(doc)
     const encryption = resolveTenantEncryptionService(em as any)
     doc = await encryptIndexDocForStorage(
       params.entityType,

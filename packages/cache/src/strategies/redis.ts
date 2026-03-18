@@ -1,5 +1,6 @@
 import type { CacheStrategy, CacheEntry, CacheGetOptions, CacheSetOptions, CacheValue } from '../types'
 import { CacheDependencyUnavailableError } from '../errors'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 
 type RedisPipeline = {
   set(key: string, value: string): RedisPipeline
@@ -154,8 +155,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   const defaultTtl = options?.defaultTtl
   const keyPrefix = 'cache:'
   const tagPrefix = 'tag:'
-  const connectionUrl =
-    redisUrl || process.env.REDIS_URL || process.env.CACHE_REDIS_URL || 'redis://localhost:6379'
+  const connectionUrl = redisUrl || getRedisUrl('CACHE')
   const registryEntry = retainRedisEntry(connectionUrl)
   let redis: RedisClient | null = registryEntry.client ?? null
 

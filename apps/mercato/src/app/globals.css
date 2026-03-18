@@ -58,6 +58,7 @@ TODO: Fix that latter to have reference by the package names
 }
 
 :root {
+  color-scheme: light;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -104,6 +105,7 @@ TODO: Fix that latter to have reference by the package names
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -154,6 +156,22 @@ TODO: Fix that latter to have reference by the package names
   }
   body {
     @apply bg-background text-foreground;
+  }
+  select,
+  select option {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+  select:not([multiple]):not([size]):not(.appearance-none) {
+    appearance: none;
+    padding-inline-end: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%239ca3af' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1rem 1rem;
+  }
+  select:not([multiple]):not([size]):not(.appearance-none)::-ms-expand {
+    display: none;
   }
 }
 

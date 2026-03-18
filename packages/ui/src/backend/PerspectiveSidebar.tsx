@@ -125,11 +125,11 @@ export function PerspectiveSidebar({
 
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} />
+      <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} role="presentation" />
       <div className="absolute left-0 top-0 h-full w-full sm:w-[420px] bg-background shadow-xl border-r flex flex-col">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-base font-semibold">{t('ui.perspectives.title', 'Perspectives')}</h2>
-          <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>{t('ui.perspectives.close', 'Close')}</button>
+          <Button variant="muted" size="sm" onClick={() => onOpenChange(false)}>{t('ui.perspectives.close', 'Close')}</Button>
         </div>
         <div className="flex-1 overflow-auto divide-y">
           <section className="p-4 space-y-3">
@@ -153,7 +153,7 @@ export function PerspectiveSidebar({
                           <span>{t('ui.perspectives.updated', 'Updated {date}', { date: new Date(p.updatedAt ?? p.createdAt).toLocaleString() })}</span>
                         </div>
                       </div>
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-2">
                         <Button
                           size="sm"
                           variant={isActive ? 'secondary' : 'outline'}
@@ -248,7 +248,7 @@ export function PerspectiveSidebar({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('ui.perspectives.form.namePlaceholder', 'e.g. My condensed view')}
-                className="w-full h-9 rounded border px-2 text-sm"
+                className="w-full h-11 rounded border px-2 text-sm"
               />
             </div>
             <div className="space-y-2">

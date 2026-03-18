@@ -1,5 +1,7 @@
 "use client"
 import * as React from 'react'
+import { X } from 'lucide-react'
+import { IconButton } from '../primitives/icon-button'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
 
@@ -18,14 +20,38 @@ function useLocationKey() {
     if (typeof window === 'undefined') return ''
     return window.location.href
   })
+  const locationKeyRef = React.useRef(locationKey)
+
+  React.useEffect(() => {
+    locationKeyRef.current = locationKey
+  }, [locationKey])
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return
 
     let active = true
+    const scheduleUpdate = (href: string) => {
+      const run = () => {
+        if (!active) return
+        if (locationKeyRef.current === href) return
+        locationKeyRef.current = href
+        setLocationKey(href)
+      }
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(run)
+      } else {
+        setTimeout(run, 0)
+      }
+    }
     const updateLocation = () => {
       if (!active) return
-      setLocationKey(window.location.href)
+      const href = window.location.href
+      if (href === locationKeyRef.current) return
+      scheduleUpdate(href)
+    }
+
+    const deferredUpdateLocation = () => {
+      setTimeout(updateLocation, 0)
     }
 
     const originalPush: HistoryMethod = window.history.pushState.bind(window.history)
@@ -33,12 +59,12 @@ function useLocationKey() {
 
     const pushState: HistoryMethod = (...args) => {
       originalPush(...args)
-      updateLocation()
+      deferredUpdateLocation()
     }
 
     const replaceState: HistoryMethod = (...args) => {
       originalReplace(...args)
-      updateLocation()
+      deferredUpdateLocation()
     }
 
     window.history.pushState = pushState
@@ -106,13 +132,16 @@ function FlashMessagesInner() {
       <div className={`pointer-events-auto rounded px-3 py-2 text-white shadow-md ${color}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="text-sm">{msg}</div>
-          <button
+          <IconButton
             type="button"
-            className="text-sm text-white/90 transition hover:text-white"
+            variant="ghost"
+            size="sm"
+            className="text-white/90 hover:text-white hover:bg-white/10"
             onClick={() => setMsg(null)}
+            aria-label="Dismiss"
           >
-            ×
-          </button>
+            <X size={16} />
+          </IconButton>
         </div>
       </div>
     </div>

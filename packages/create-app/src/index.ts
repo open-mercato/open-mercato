@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import { join, dirname, basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createInterface } from 'node:readline'
 import pc from 'picocolors'
+import { runAgenticSetup } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -94,6 +96,8 @@ const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
 }
 
+const SKIP_DIRS = new Set(['__tests__', '__integration__'])
+
 function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
   if (!existsSync(dest)) {
     mkdirSync(dest, { recursive: true })
@@ -108,6 +112,7 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
     const stat = statSync(srcPath)
 
     if (stat.isDirectory()) {
+      if (SKIP_DIRS.has(entry)) continue
       copyDirRecursive(srcPath, destPath, placeholders)
     } else if (entry.endsWith('.template')) {
       // Process template files
@@ -196,6 +201,13 @@ async function main(): Promise<void> {
 
     console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
     console.log('')
+
+    // Agentic tool setup wizard
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    const ask = (q: string) => new Promise<string>((res) => rl.question(q, (a) => res(a.trim())))
+    await runAgenticSetup(targetDir, ask)
+    rl.close()
+
     console.log('Next steps:')
     console.log('')
     console.log(pc.cyan(`  cd ${appName}`))
@@ -206,6 +218,10 @@ async function main(): Promise<void> {
     console.log(pc.cyan('  yarn db:migrate'))
     console.log(pc.cyan('  yarn initialize'))
     console.log(pc.cyan('  yarn dev'))
+    console.log('')
+    console.log('Docker alternatives:')
+    console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
+    console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
     console.log('')
     console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
     console.log('')

@@ -9,4 +9,5 @@ export const metadata: ModuleInfo = {
   description: 'Currencies and Exchange rate management',
   author: 'Open Mercato Team',
   license: 'Proprietary',
+  ejectable: true,
 }

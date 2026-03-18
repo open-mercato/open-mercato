@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
 import { createEventBus } from '@open-mercato/events/index'
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -12,7 +13,41 @@ import {
   createSearchDeleteSubscriber,
   searchDeleteMetadata,
 } from '@open-mercato/search'
+import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
+
+// Use globalThis to survive tsx/webpack module duplication (same pattern as container.ts DI registrars)
+const RL_GLOBAL_KEY = '__openMercatoRateLimiterService__'
+const RL_SHUTDOWN_KEY = '__openMercatoRateLimiterShutdown__'
+
+export function getCachedRateLimiterService(): RateLimiterService | null {
+  let service = (globalThis as any)[RL_GLOBAL_KEY] as RateLimiterService | null ?? null
+  if (!service) {
+    try {
+      const rateLimitConfig = readRateLimitConfig()
+      service = new RateLimiterService(rateLimitConfig)
+      // Fire-and-forget async init (only needed for Redis strategy;
+      // memory strategy works synchronously, and Redis has an in-memory
+      // insurance limiter so the first few requests are still protected)
+      service.initialize().catch((err) => {
+        console.warn('[ratelimit] Async initialization failed:', (err as Error)?.message || err)
+      })
+      ;(globalThis as any)[RL_GLOBAL_KEY] = service
+
+      // Register shutdown hook once to disconnect Redis on process exit
+      if (!(globalThis as any)[RL_SHUTDOWN_KEY]) {
+        const shutdown = () => { service?.destroy().catch(() => {}) }
+        process.once('SIGTERM', shutdown)
+        process.once('SIGINT', shutdown)
+        ;(globalThis as any)[RL_SHUTDOWN_KEY] = true
+      }
+    } catch (err) {
+      console.warn('[ratelimit] Failed to create rate limiter service:', (err as Error)?.message || err)
+    }
+  }
+  return service
+}
 
 export async function bootstrap(container: AwilixContainer) {
   // Create and register the cache service
@@ -48,6 +83,8 @@ export async function bootstrap(container: AwilixContainer) {
     }
   }
   container.register({ eventBus: asValue(eventBus) })
+  // Wire the global event bus so createModuleEvents().emit works outside DI context
+  setGlobalEventBus(eventBus)
   // Auto-register discovered module subscribers
   try {
     let loadedModules: any[] = []
@@ -57,6 +94,22 @@ export async function bootstrap(container: AwilixContainer) {
     } catch {}
     const subs = loadedModules.flatMap((m) => m.subscribers || [])
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
+
+    // Extract sync subscribers and register in the sync-subscriber-store
+    const syncSubs = subs.filter((s: any) => s.sync === true)
+    if (syncSubs.length) {
+      try {
+        const { registerSyncSubscribers } = await import('@open-mercato/shared/lib/crud/sync-subscriber-store')
+        registerSyncSubscribers(
+          syncSubs.map((s: any) => ({
+            metadata: { event: s.event, sync: true as const, priority: s.priority, id: s.id },
+            handler: s.handler,
+          })),
+        )
+      } catch {
+        // sync-subscriber-store may not be available
+      }
+    }
   } catch (err) {
     console.error("Failed to register module subscribers:", err);
   }
@@ -82,6 +135,13 @@ export async function bootstrap(container: AwilixContainer) {
     }
   } catch (err) {
     console.warn('[encryption] Failed to initialize tenant encryption service:', (err as Error)?.message || err)
+  }
+
+  // Register rate limiter service (singleton via globalThis — reused across request containers)
+  // getCachedRateLimiterService() never throws; returns null on failure
+  const rateLimiterService = getCachedRateLimiterService()
+  if (rateLimiterService) {
+    container.register({ rateLimiterService: asValue(rateLimiterService) })
   }
 
   // Register search module

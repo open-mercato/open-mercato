@@ -7,14 +7,14 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  */
 const events = [
   // Workflow Definitions
-  { id: 'workflows.definitions.created', label: 'Workflow Definition Created', entity: 'definitions', category: 'crud' },
-  { id: 'workflows.definitions.updated', label: 'Workflow Definition Updated', entity: 'definitions', category: 'crud' },
-  { id: 'workflows.definitions.deleted', label: 'Workflow Definition Deleted', entity: 'definitions', category: 'crud' },
+  { id: 'workflows.definition.created', label: 'Workflow Definition Created', entity: 'definition', category: 'crud' },
+  { id: 'workflows.definition.updated', label: 'Workflow Definition Updated', entity: 'definition', category: 'crud' },
+  { id: 'workflows.definition.deleted', label: 'Workflow Definition Deleted', entity: 'definition', category: 'crud' },
 
   // Workflow Instances
-  { id: 'workflows.instances.created', label: 'Workflow Instance Created', entity: 'instances', category: 'crud' },
-  { id: 'workflows.instances.updated', label: 'Workflow Instance Updated', entity: 'instances', category: 'crud' },
-  { id: 'workflows.instances.deleted', label: 'Workflow Instance Deleted', entity: 'instances', category: 'crud' },
+  { id: 'workflows.instance.created', label: 'Workflow Instance Created', entity: 'instance', category: 'crud' },
+  { id: 'workflows.instance.updated', label: 'Workflow Instance Updated', entity: 'instance', category: 'crud' },
+  { id: 'workflows.instance.deleted', label: 'Workflow Instance Deleted', entity: 'instance', category: 'crud' },
 
   // Workflow Lifecycle Events
   { id: 'workflows.instance.started', label: 'Workflow Started', category: 'lifecycle' },
@@ -30,9 +30,9 @@ const events = [
   { id: 'workflows.activity.failed', label: 'Activity Failed', category: 'lifecycle' },
 
   // Event Triggers
-  { id: 'workflows.triggers.created', label: 'Trigger Created', entity: 'triggers', category: 'crud' },
-  { id: 'workflows.triggers.updated', label: 'Trigger Updated', entity: 'triggers', category: 'crud' },
-  { id: 'workflows.triggers.deleted', label: 'Trigger Deleted', entity: 'triggers', category: 'crud' },
+  { id: 'workflows.trigger.created', label: 'Trigger Created', entity: 'trigger', category: 'crud' },
+  { id: 'workflows.trigger.updated', label: 'Trigger Updated', entity: 'trigger', category: 'crud' },
+  { id: 'workflows.trigger.deleted', label: 'Trigger Deleted', entity: 'trigger', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

@@ -7,6 +7,7 @@ import {
   requireId,
   parseWithCustomFields,
   setCustomFieldsIfAny,
+  normalizeAuthorUserId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -115,13 +116,7 @@ const createActivityCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(staffTeamMemberActivityCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
-    const normalizedAuthor = (() => {
-      if (parsed.authorUserId) return parsed.authorUserId
-      if (!authSub) return null
-      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
-      return uuidRegex.test(authSub) ? authSub : null
-    })()
+    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
@@ -163,17 +158,18 @@ const createActivityCommand: CommandHandler<
     return { activityId: activity.id, authorUserId: activity.authorUserId ?? null }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadActivitySnapshot(em, result.activityId)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadActivitySnapshot(em, result.activityId)
+    const snapshot = snapshots.after as ActivitySnapshot | undefined
     return {
       actionLabel: translate('staff.audit.teamMemberActivities.create', 'Create activity'),
       resourceKind: 'staff.team_member_activity',
       resourceId: result.activityId,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: snapshot?.activity?.memberId ?? null,
       tenantId: snapshot?.activity.tenantId ?? null,
       organizationId: snapshot?.activity.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
@@ -245,12 +241,15 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
 
     return { activityId: activity.id }
   },
-  buildLog: async ({ snapshots, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return await loadActivitySnapshot(em, result.activityId)
+  },
+  buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as ActivitySnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const afterSnapshot = await loadActivitySnapshot(em, before.activity.id)
+    const afterSnapshot = snapshots.after as ActivitySnapshot | undefined
     const changeKeys: readonly string[] = [
       'memberId',
       'activityType',
@@ -275,6 +274,8 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
       actionLabel: translate('staff.audit.teamMemberActivities.update', 'Update activity'),
       resourceKind: 'staff.team_member_activity',
       resourceId: before.activity.id,
+      parentResourceKind: 'staff.teamMember',
+      parentResourceId: before.activity.memberId ?? null,
       tenantId: before.activity.tenantId,
       organizationId: before.activity.organizationId,
       snapshotBefore: before,
@@ -394,6 +395,8 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         actionLabel: translate('staff.audit.teamMemberActivities.delete', 'Delete activity'),
         resourceKind: 'staff.team_member_activity',
         resourceId: before.activity.id,
+        parentResourceKind: 'staff.teamMember',
+        parentResourceId: before.activity.memberId ?? null,
         tenantId: before.activity.tenantId,
         organizationId: before.activity.organizationId,
         snapshotBefore: before,

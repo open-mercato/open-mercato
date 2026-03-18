@@ -6,6 +6,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
 export type TagOption = {
   id: string
@@ -44,7 +46,7 @@ export type TagsSectionProps = {
   labels: TagsSectionLabels
 }
 
-export function TagsSection({
+function TagsSectionImpl({
   title,
   tags,
   onChange,
@@ -222,7 +224,7 @@ export function TagsSection({
           className={
             editing
               ? 'opacity-100 transition-opacity duration-150'
-              : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100'
+              : 'opacity-100 md:opacity-0 transition-opacity duration-150 md:group-hover:opacity-100 focus-visible:opacity-100'
           }
         >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
@@ -307,6 +309,20 @@ export function TagsSection({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+export function TagsSection(props: TagsSectionProps) {
+  const handle = ComponentReplacementHandles.section('ui.detail', 'TagsSection')
+  const Resolved = useRegisteredComponent<TagsSectionProps>(
+    handle,
+    TagsSectionImpl as React.ComponentType<TagsSectionProps>,
+  )
+
+  return (
+    <div data-component-handle={handle}>
+      <Resolved {...props} />
     </div>
   )
 }

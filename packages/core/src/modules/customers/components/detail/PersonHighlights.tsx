@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Building2, Loader2, Pencil, Trash2, X } from 'lucide-react'
+import { Building2, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -28,9 +29,11 @@ type PersonHighlightsPerson = {
   nextInteractionRefId?: string | null
   nextInteractionIcon?: string | null
   nextInteractionColor?: string | null
+  organizationId?: string | null
 }
 
 type PersonHighlightsProfile = {
+  id?: string
   companyEntityId?: string | null
 } | null
 
@@ -52,6 +55,7 @@ export type PersonHighlightsProps = {
   onDelete: () => void
   isDeleting: boolean
   onCompanySave: (companyId: string | null) => Promise<void>
+  utilityActions?: React.ReactNode
 }
 
 type CompanyInfo = { id: string; name: string }
@@ -68,9 +72,11 @@ export function PersonHighlights({
   onDelete,
   isDeleting,
   onCompanySave,
+  utilityActions,
 }: PersonHighlightsProps) {
-  const t = useT()
   const router = useRouter()
+  const t = useT()
+  const runMutation = React.useCallback(async (operation: () => Promise<void>) => operation(), [])
   const [editingCompany, setEditingCompany] = React.useState(false)
   const [companyDraftId, setCompanyDraftId] = React.useState<string>('')
   const [company, setCompany] = React.useState<CompanyInfo | null>(null)
@@ -86,7 +92,7 @@ export function PersonHighlights({
   const navigateToCompany = React.useCallback(() => {
     if (!companyHref) return
     router.push(companyHref)
-  }, [companyHref, router])
+  }, [companyHref])
 
   const handleCompanyClick = React.useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -118,6 +124,8 @@ export function PersonHighlights({
   )
 
   const activeCompanyId = profile?.companyEntityId ?? null
+  const historyFallbackId =
+    profile?.id && profile.id !== person.id ? profile.id : undefined
 
   const loadCompany = React.useCallback(async (companyId: string | null) => {
     if (!companyId) {
@@ -167,7 +175,9 @@ export function PersonHighlights({
     setCompanyError(null)
     const nextId = companyDraftId.trim()
     try {
-      await onCompanySave(nextId.length ? nextId : null)
+      await runMutation(async () => {
+        await onCompanySave(nextId.length ? nextId : null)
+      })
       await loadCompany(nextId.length ? nextId : null)
       setEditingCompany(false)
     } catch (err) {
@@ -179,14 +189,16 @@ export function PersonHighlights({
     } finally {
       setCompanySaving(false)
     }
-  }, [companyDraftId, companySaving, loadCompany, onCompanySave, t])
+  }, [companyDraftId, companySaving, loadCompany, onCompanySave, runMutation, t])
 
   const handleCompanyClear = React.useCallback(async () => {
     if (companySaving) return
     setCompanySaving(true)
     setCompanyError(null)
     try {
-      await onCompanySave(null)
+      await runMutation(async () => {
+        await onCompanySave(null)
+      })
       await loadCompany(null)
       setCompanyDraftId('')
       setEditingCompany(false)
@@ -199,7 +211,7 @@ export function PersonHighlights({
     } finally {
       setCompanySaving(false)
     }
-  }, [companySaving, loadCompany, onCompanySave, t])
+  }, [companySaving, loadCompany, onCompanySave, runMutation, t])
 
   const companyPanel = (
     <div
@@ -324,15 +336,25 @@ export function PersonHighlights({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/backend/customers/people"
-            className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-          >
-            <span aria-hidden className="mr-1 text-base">←</span>
-            <span className="sr-only">{t('customers.people.detail.actions.backToList')}</span>
-          </Link>
+      <FormHeader
+        mode="detail"
+        backHref="/backend/customers/people"
+        backLabel={t('customers.people.detail.actions.backToList')}
+        utilityActions={(
+          <>
+            {utilityActions}
+            <VersionHistoryAction
+              config={{
+                resourceKind: 'customers.person',
+                resourceId: person.id,
+                resourceIdFallback: historyFallbackId,
+                organizationId: person.organizationId ?? undefined,
+              }}
+              t={t}
+            />
+          </>
+        )}
+        title={
           <InlineTextEditor
             label={t('customers.people.form.displayName.label')}
             value={person.displayName}
@@ -346,21 +368,13 @@ export function PersonHighlights({
             triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
             containerClassName="max-w-full"
           />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onDelete}
-            disabled={isDeleting}
-            className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-          >
-            {isDeleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            {t('customers.people.list.actions.delete')}
-          </Button>
-        </div>
-      </div>
+        }
+        onDelete={() => {
+          onDelete()
+        }}
+        isDeleting={isDeleting}
+        deleteLabel={t('customers.people.list.actions.delete')}
+      />
 
       {companyPanel}
 

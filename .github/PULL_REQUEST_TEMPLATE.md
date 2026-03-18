@@ -34,6 +34,7 @@ List the tests or commands you ran to validate the change.
 - [ ] I have read and accept the Open Mercato Contributor License Agreement (see `docs/cla.md`).
 - [ ] I updated documentation, locales, or generators if the change requires it.
 - [ ] I added or adjusted tests that cover the change.
+- [ ] I added or updated integration tests in `.ai/qa/tests/` (or documented why integration coverage is not required).
 - [ ] I created or updated the spec in `.ai/specs/` with a changelog entry (if applicable).
 
 ## Linked issues

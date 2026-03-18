@@ -1,6 +1,8 @@
 // Central place to enable modules and their source.
 // - id: module id (plural snake_case; special cases: 'auth')
 // - from: '@open-mercato/core' | '@app' | custom alias/path in future
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+
 export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | string }
 
 export const enabledModules: ModuleEntry[] = [
@@ -26,11 +28,39 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
-  { id: 'planner', from: '@open-mercato/core'},
-  { id: 'resources', from: '@open-mercato/core'},
-  { id: 'staff', from: '@open-mercato/core'},  
+  { id: 'planner', from: '@open-mercato/core' },
+  { id: 'resources', from: '@open-mercato/core' },
+  { id: 'staff', from: '@open-mercato/core' },
   { id: 'events', from: '@open-mercato/events' },
   { id: 'notifications', from: '@open-mercato/core' },
+  { id: 'progress', from: '@open-mercato/core' },
+  { id: 'integrations', from: '@open-mercato/core' },
+  { id: 'data_sync', from: '@open-mercato/core' },
+  { id: 'messages', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
-  { id: 'example', from: '@app' }
+  { id: 'translations', from: '@open-mercato/core' },
+  { id: 'scheduler', from: '@open-mercato/scheduler' },
+  { id: 'inbox_ops', from: '@open-mercato/core' },
+  { id: 'payment_gateways', from: '@open-mercato/core' },
+  { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
+  { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'customer_accounts', from: '@open-mercato/core' },
+  { id: 'portal', from: '@open-mercato/core' },
+  { id: 'example', from: '@app' },
+
 ]
+
+const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
+const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
+
+if (enterpriseModulesEnabled) {
+  enabledModules.push(
+    { id: 'record_locks', from: '@open-mercato/enterprise' },
+    { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
+  )
+}
+
+if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
+  enabledModules.push({ id: 'sso', from: '@open-mercato/enterprise' })
+}

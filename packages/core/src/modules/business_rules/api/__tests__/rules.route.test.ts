@@ -15,6 +15,27 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))
 
+const enStrings: Record<string, string> = require('../../i18n/en.json')
+const mockTranslator = (key: string, fallbackOrParams?: string | Record<string, any>, params?: Record<string, any>) => {
+  const resolvedParams = typeof fallbackOrParams === 'object' ? fallbackOrParams : params
+  let text = enStrings[key] || (typeof fallbackOrParams === 'string' ? fallbackOrParams : key)
+  if (resolvedParams) {
+    for (const [k, v] of Object.entries(resolvedParams)) {
+      text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v))
+    }
+  }
+  return text
+}
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    locale: 'en',
+    dict: enStrings,
+    t: mockTranslator,
+    translate: mockTranslator,
+  })),
+}))
+
 type RouteModule = typeof import('../rules/route')
 let GET: RouteModule['GET']
 let POST: RouteModule['POST']

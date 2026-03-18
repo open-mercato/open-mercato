@@ -10,6 +10,15 @@ describe('command helpers', () => {
     it('handles missing before snapshot', () => {
       expect(buildChanges(null, { a: 1 }, ['a'])).toEqual({})
     })
+
+    it('skips updatedAt keys', () => {
+      const diff = buildChanges(
+        { updatedAt: 'old', name: 'Old' },
+        { updatedAt: 'new', name: 'New' },
+        ['updatedAt', 'name']
+      )
+      expect(diff).toEqual({ name: { from: 'Old', to: 'New' } })
+    })
   })
 
   describe('requireTenantScope', () => {

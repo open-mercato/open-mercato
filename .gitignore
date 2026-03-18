@@ -14,6 +14,8 @@
 
 # testing
 /coverage
+/test-results
+/playwright-report
 published-app/
 
 # next.js
@@ -43,6 +45,7 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.preview
 !.env.example
 
 # vercel
@@ -89,6 +92,7 @@ package-lock.json
 # IDE related
 .idea
 .claude
+.codex
 
 # Claude Code MCP config (may contain API keys)
 .mcp.json
@@ -98,6 +102,9 @@ newrelic_agent.log
 /generated/
 .queue
 
+# Dev Container auto-generated compose volumes
+.devcontainer/docker-compose.volumes.yml
+
 # OpenCode local config (generated at runtime, may contain secrets)
 docker/opencode/opencode.jsonc
 .vscode/launch.json
@@ -105,3 +112,11 @@ docker/opencode/opencode.jsonc
 # Local npm registry (Verdaccio)
 .npmrc
 !.npmrc.local
+
+# MCPs
+.playwright-mcp
+.ai/qa/ephemeral-env.lock/owner.json
+.ai/qa/ephemeral-env.lock/*
+.ai/qa/ephemeral*
+.ai/dev-ephemeral-envs.json
+.agents/

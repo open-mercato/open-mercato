@@ -537,9 +537,9 @@ curl -H "Authorization: Bearer <token>" \
 
 ## Related Specs
 
-- [SPEC-001: UI Reusable Components](.ai/specs/SPEC-001-2026-01-21-ui-reusable-components.md) - Dashboard widget patterns
-- [SPEC-008: Product Quality Widget](.ai/specs/SPEC-008-2026-01-27-product-quality-widget.md) - Example widget implementation
-- [SPEC-009: Sales Dashboard Widgets](.ai/specs/SPEC-009-2026-01-27-sales-dashboard-widgets.md) - More widget examples
+- [SPEC-001: UI Reusable Components](SPEC-001-2026-01-21-ui-reusable-components.md) - Dashboard widget patterns
+- [SPEC-008: Product Quality Widget](SPEC-008-2026-01-27-product-quality-widget.md) - Example widget implementation
+- [SPEC-009: Sales Dashboard Widgets](SPEC-009-2026-01-27-sales-dashboard-widgets.md) - More widget examples
 
 ---
 

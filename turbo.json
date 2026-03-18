@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": ["*"],
   "tasks": {
     "build": {
       "cache": false,
@@ -35,6 +36,18 @@
     "generate": {
       "cache": false,
       "outputs": [".mercato/**"]
+    },
+    "db:generate": {
+      "cache": false,
+      "outputs": []
+    },
+    "db:migrate": {
+      "cache": false,
+      "outputs": []
+    },
+    "db:greenfield": {
+      "cache": false,
+      "outputs": []
     },
     "reinstall": {
       "cache": false,

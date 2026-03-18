@@ -32,6 +32,7 @@ export type TeamRoleFormProps = {
   onDelete?: () => Promise<void>
   isLoading?: boolean
   loadingMessage?: string
+  extraActions?: React.ReactNode
 }
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -75,6 +76,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
     onDelete,
     isLoading,
     loadingMessage,
+    extraActions,
   } = props
   const t = useT()
 
@@ -142,6 +144,9 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
       title={title}
       backHref={backHref}
       cancelHref={cancelHref}
+      versionHistory={initialValues.id
+        ? { resourceKind: 'staff.teamRole', resourceId: String(initialValues.id) }
+        : undefined}
       submitLabel={submitLabel}
       fields={fields}
       groups={groups}
@@ -151,6 +156,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
       onDelete={onDelete}
       isLoading={isLoading}
       loadingMessage={loadingMessage}
+      extraActions={extraActions}
     />
   )
 }

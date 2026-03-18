@@ -1,5 +1,7 @@
 import type { ComparisonOperator, LogicalOperator } from '../../data/validators'
 
+export type TranslatorFn = (key: string, params?: Record<string, any>) => string
+
 export type ValidationResult = {
   valid: boolean
   errors: string[]
@@ -63,58 +65,59 @@ export function isSimpleCondition(expr: any): expr is SimpleCondition {
 /**
  * Validate condition expression recursively
  */
-export function validateConditionExpression(expr: any, depth = 0, maxDepth = 5): ValidationResult {
+export function validateConditionExpression(expr: any, depth = 0, maxDepth = 5, t?: TranslatorFn): ValidationResult {
   const errors: string[] = []
+  const translate = t || ((key: string) => key)
 
   if (!expr) {
     return { valid: true, errors: [] } // Null/undefined is valid (optional)
   }
 
   if (depth > maxDepth) {
-    errors.push(`Maximum nesting depth (${maxDepth}) exceeded`)
+    errors.push(translate('business_rules.validation.condition.maxDepthExceeded', { maxDepth }))
     return { valid: false, errors }
   }
 
   if (isGroupCondition(expr)) {
     // Validate group condition
     if (!VALID_LOGICAL_OPERATORS.includes(expr.operator)) {
-      errors.push(`Invalid logical operator: "${expr.operator}". Valid operators are: ${VALID_LOGICAL_OPERATORS.join(', ')}`)
+      errors.push(translate('business_rules.validation.condition.invalidLogicalOperator', { operator: expr.operator, validOperators: VALID_LOGICAL_OPERATORS.join(', ') }))
     }
 
     if (!Array.isArray(expr.rules) || expr.rules.length === 0) {
-      errors.push('Group must have at least one rule')
+      errors.push(translate('business_rules.validation.condition.groupMustHaveRules'))
     } else {
       // Recursively validate nested rules
       expr.rules.forEach((rule, index) => {
-        const result = validateConditionExpression(rule, depth + 1, maxDepth)
+        const result = validateConditionExpression(rule, depth + 1, maxDepth, t)
         if (!result.valid) {
-          errors.push(`Rule ${index + 1}: ${result.errors.join(', ')}`)
+          errors.push(translate('business_rules.validation.condition.ruleError', { index: index + 1, errors: result.errors.join(', ') }))
         }
       })
     }
   } else if (isSimpleCondition(expr)) {
     // Validate simple condition
     if (!expr.field || typeof expr.field !== 'string') {
-      errors.push('Field path is required for simple conditions')
+      errors.push(translate('business_rules.validation.condition.fieldRequired'))
     } else if (!isValidFieldPath(expr.field)) {
-      errors.push(`Invalid field path format: "${expr.field}". Field paths must start with a letter or underscore, and contain only letters, numbers, underscores, dots, and brackets`)
+      errors.push(translate('business_rules.validation.condition.invalidFieldPath', { field: expr.field }))
     }
 
     if (!expr.operator) {
-      errors.push('Operator is required')
+      errors.push(translate('business_rules.validation.condition.operatorRequired'))
     } else if (!VALID_COMPARISON_OPERATORS.includes(expr.operator)) {
-      errors.push(`Invalid comparison operator: "${expr.operator}". Valid operators are: ${VALID_COMPARISON_OPERATORS.join(', ')}`)
+      errors.push(translate('business_rules.validation.condition.invalidComparisonOperator', { operator: expr.operator, validOperators: VALID_COMPARISON_OPERATORS.join(', ') }))
     }
 
     if (expr.value === undefined && !expr.valueField) {
-      errors.push('Value or valueField is required')
+      errors.push(translate('business_rules.validation.condition.valueRequired'))
     }
 
     if (expr.valueField && typeof expr.valueField !== 'string') {
-      errors.push('valueField must be a string')
+      errors.push(translate('business_rules.validation.condition.valueFieldMustBeString'))
     }
   } else {
-    errors.push('Invalid condition expression structure')
+    errors.push(translate('business_rules.validation.condition.invalidStructure'))
   }
 
   return {
@@ -135,34 +138,34 @@ export function isValidFieldPath(path: string): boolean {
 /**
  * Get available comparison operators
  */
-export function getComparisonOperators(): { value: ComparisonOperator; label: string }[] {
+export function getComparisonOperators(t: TranslatorFn): { value: ComparisonOperator; label: string }[] {
   return [
-    { value: '=', label: 'Equals' },
-    { value: '==', label: 'Equals (strict)' },
-    { value: '!=', label: 'Not equals' },
-    { value: '>', label: 'Greater than' },
-    { value: '>=', label: 'Greater than or equal' },
-    { value: '<', label: 'Less than' },
-    { value: '<=', label: 'Less than or equal' },
-    { value: 'IN', label: 'In list' },
-    { value: 'NOT_IN', label: 'Not in list' },
-    { value: 'CONTAINS', label: 'Contains' },
-    { value: 'NOT_CONTAINS', label: 'Does not contain' },
-    { value: 'STARTS_WITH', label: 'Starts with' },
-    { value: 'ENDS_WITH', label: 'Ends with' },
-    { value: 'MATCHES', label: 'Matches regex' },
-    { value: 'IS_EMPTY', label: 'Is empty' },
-    { value: 'IS_NOT_EMPTY', label: 'Is not empty' },
+    { value: '=', label: t('business_rules.validation.operators.equals') },
+    { value: '==', label: t('business_rules.validation.operators.equalsStrict') },
+    { value: '!=', label: t('business_rules.validation.operators.notEquals') },
+    { value: '>', label: t('business_rules.validation.operators.greaterThan') },
+    { value: '>=', label: t('business_rules.validation.operators.greaterThanOrEqual') },
+    { value: '<', label: t('business_rules.validation.operators.lessThan') },
+    { value: '<=', label: t('business_rules.validation.operators.lessThanOrEqual') },
+    { value: 'IN', label: t('business_rules.validation.operators.in') },
+    { value: 'NOT_IN', label: t('business_rules.validation.operators.notIn') },
+    { value: 'CONTAINS', label: t('business_rules.validation.operators.contains') },
+    { value: 'NOT_CONTAINS', label: t('business_rules.validation.operators.notContains') },
+    { value: 'STARTS_WITH', label: t('business_rules.validation.operators.startsWith') },
+    { value: 'ENDS_WITH', label: t('business_rules.validation.operators.endsWith') },
+    { value: 'MATCHES', label: t('business_rules.validation.operators.matches') },
+    { value: 'IS_EMPTY', label: t('business_rules.validation.operators.isEmpty') },
+    { value: 'IS_NOT_EMPTY', label: t('business_rules.validation.operators.isNotEmpty') },
   ]
 }
 
 /**
  * Get logical operators
  */
-export function getLogicalOperators(): { value: LogicalOperator; label: string }[] {
+export function getLogicalOperators(t: TranslatorFn): { value: LogicalOperator; label: string }[] {
   return [
-    { value: 'AND', label: 'AND' },
-    { value: 'OR', label: 'OR' },
-    { value: 'NOT', label: 'NOT' },
+    { value: 'AND', label: t('business_rules.validation.logical.and') },
+    { value: 'OR', label: t('business_rules.validation.logical.or') },
+    { value: 'NOT', label: t('business_rules.validation.logical.not') },
   ]
 }

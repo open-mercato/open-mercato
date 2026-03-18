@@ -1,0 +1,221 @@
+---
+title: Integrations & Data Sync
+description: Build and register integration manifests, credentials, adapters, and sync run workers.
+---
+
+# Integrations & Data Sync
+
+Open Mercato now includes a shared foundation for integration metadata (`integrations`) and a run orchestration hub (`data_sync`). Use this when you want to register provider bundles, store credentials per tenant, and execute import/export runs through workers.
+
+## What each module does
+
+- `integrations` stores integration definitions, state, credentials, and logs.
+- `data_sync` manages run lifecycle (start, list, detail, cancel, retry, validate) and delegates actual IO work to provider adapters.
+- Provider modules declare integration manifests and register adapters.
+
+## Register an integration manifest
+
+Provider modules declare their integration metadata in `integration.ts`:
+
+```ts
+import {
+  buildIntegrationDetailWidgetSpotId,
+  type IntegrationBundle,
+  type IntegrationDefinition,
+} from '@open-mercato/shared/modules/integrations/types'
+
+export const bundle: IntegrationBundle = {
+  id: 'my_provider',
+  title: 'My Provider',
+  description: 'Bidirectional sync with My Provider.',
+  credentials: {
+    fields: [
+      { key: 'apiUrl', label: 'API URL', type: 'url', required: true },
+      { key: 'apiKey', label: 'API Key', type: 'secret', required: true },
+    ],
+  },
+}
+
+export const integrations: IntegrationDefinition[] = [
+  {
+    id: 'my_provider_products',
+    title: 'My Provider Products',
+    category: 'data_sync',
+    hub: 'data_sync',
+    providerKey: 'my_provider_products',
+    bundleId: 'my_provider',
+    detailPage: {
+      widgetSpotId: buildIntegrationDetailWidgetSpotId('my_provider_products'),
+    },
+    credentials: { fields: [] },
+  },
+]
+
+// Compatibility aliases for generator/discovery
+export const integration = integrations[0]
+export const bundles: IntegrationBundle[] = [bundle]
+```
+
+## Integration detail page extensions
+
+Provider modules can add custom tools to their own integration detail pages.
+
+- Declare `detailPage.widgetSpotId` in `integration.ts`
+- Register widgets for that spot in `widgets/injection-table.ts`
+- The integrations detail page renders those widgets according to `placement.kind`
+
+```ts
+import { buildIntegrationDetailWidgetSpotId } from '@open-mercato/shared/modules/integrations/types'
+
+export const injectionTable = {
+  [buildIntegrationDetailWidgetSpotId('my_provider_products')]: [
+    {
+      widgetId: 'my_provider_products.injection.tools',
+      kind: 'tab',
+      groupLabel: 'my_provider_products.tabs.tools',
+      priority: 100,
+    },
+    {
+      widgetId: 'my_provider_products.injection.summary',
+      kind: 'group',
+      groupLabel: 'my_provider_products.groups.summary',
+      priority: 80,
+    },
+  ],
+}
+```
+
+Rendering semantics:
+
+- `kind: 'tab'` adds an extra tab next to Credentials, Version, Health, and Logs
+- `kind: 'group'` renders a card section above the tabs
+- `kind: 'stack'` renders an inline section above the grouped cards/tabs
+
+Compatibility note:
+- Existing providers that still use the legacy `integrations.detail:tabs` spot continue to work
+- New providers should prefer `detailPage.widgetSpotId` so their widgets are isolated to their own integration page
+
+## Register data sync adapters
+
+Adapters are registered from provider `setup.ts`:
+
+```ts
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { registerDataSyncAdapter } from '../data_sync/lib/adapter-registry'
+import { productsAdapter, ordersAdapter } from './lib/adapters'
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated() {
+    registerDataSyncAdapter(productsAdapter)
+    registerDataSyncAdapter(ordersAdapter)
+  },
+}
+
+export default setup
+```
+
+Adapter contract (`data_sync/lib/adapter.ts`) requires:
+
+- `providerKey`
+- `direction` (`import`, `export`, or `bidirectional`)
+- `supportedEntities`
+- `getMapping(...)`
+- `streamImport(...)` and/or `streamExport(...)`
+- optional `validateConnection(...)`
+
+## Provider-owned environment preconfiguration
+
+New integration providers should not require manual admin setup after every fresh install when deployment already knows the credentials and defaults. The provider package should own that bootstrap path itself.
+
+Recommended pattern:
+
+1. Read provider env vars in a provider-local helper such as `lib/preset.ts`.
+2. Apply them from the provider module's `setup.ts` so tenant bootstrap can save credentials and default mappings automatically.
+3. Expose a provider-local CLI command such as `configure-from-env` so operators can rerun the same logic later.
+4. Persist through the normal integration services and data-sync mapping APIs instead of adding provider-specific branches to `integrations` or `data_sync`.
+
+```ts
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { applyMyProviderEnvPreset } from './lib/preset'
+
+export const setup: ModuleSetupConfig = {
+  async onTenantCreated({ em, tenantId, organizationId, container }) {
+    await applyMyProviderEnvPreset({
+      em,
+      tenantId,
+      organizationId,
+      credentialsService: container.resolve('integrationCredentialsService'),
+      stateService: container.resolve('integrationStateService'),
+    })
+  },
+}
+
+export default setup
+```
+
+Use stable provider-prefixed env names. Prefer the `OM_INTEGRATION_<PROVIDER>_*` shape for primary names.
+
+### Akeneo example envs
+
+The Akeneo sync provider supports this pattern today. Primary envs:
+
+```env
+OM_INTEGRATION_AKENEO_API_URL=
+OM_INTEGRATION_AKENEO_CLIENT_ID=
+OM_INTEGRATION_AKENEO_CLIENT_SECRET=
+OM_INTEGRATION_AKENEO_USERNAME=
+OM_INTEGRATION_AKENEO_PASSWORD=
+OM_INTEGRATION_AKENEO_FORCE_PRECONFIGURE=false
+OM_INTEGRATION_AKENEO_PRODUCT_LOCALE=
+OM_INTEGRATION_AKENEO_CATEGORY_LOCALE=
+OM_INTEGRATION_AKENEO_PRODUCT_CHANNEL=
+OM_INTEGRATION_AKENEO_IMPORT_CHANNELS=
+OM_INTEGRATION_AKENEO_IMPORT_ALL_CHANNELS=true
+OM_INTEGRATION_AKENEO_CREATE_MISSING_CHANNELS=true
+OM_INTEGRATION_AKENEO_SYNC_ASSOCIATIONS=true
+OM_INTEGRATION_AKENEO_ATTRIBUTE_FAMILY_FILTER=
+OM_INTEGRATION_AKENEO_PRODUCTS_SETTINGS_JSON=
+OM_INTEGRATION_AKENEO_CATEGORIES_SETTINGS_JSON=
+OM_INTEGRATION_AKENEO_ATTRIBUTES_SETTINGS_JSON=
+```
+
+Operational notes:
+
+- only one product locale is imported into base Open Mercato fields at a time
+- `OM_INTEGRATION_AKENEO_IMPORT_CHANNELS` is a comma-separated list
+- if you do not set locale envs, the Akeneo preset defaults product and category locale to `en_US`
+- the provider can auto-apply these during tenant setup and can be rerun with `yarn mercato sync_akeneo configure-from-env --tenant <tenantId> --org <organizationId>`
+- legacy aliases `OPENMERCATO_AKENEO_*` and `AKENEO_*` are still accepted for backward compatibility
+
+## Run lifecycle
+
+`data_sync` run flow:
+
+1. `POST /api/data_sync/run` creates a `SyncRun` row and a `progress` job.
+2. Run is queued (`data-sync-import` or `data-sync-export`).
+3. Worker resolves integration credentials + adapter mapping.
+4. Worker streams batches, updates counters/cursor, writes integration logs.
+5. Run completes, fails, or is cancelled; progress job is finalized.
+
+Each run stores tenant and organization scope and must stay scoped in every read/write.
+
+## Credentials resolution
+
+Credentials are stored by integration id. If the integration belongs to a bundle and per-integration credentials are empty, the system resolves bundle credentials as fallback. This allows one credential form to drive multiple bundle integrations.
+
+## Progress behavior (current state)
+
+- Sync runs are linked to progress jobs and visible in the progress top bar.
+- Current UI refreshes progress via polling (`GET /api/progress/active`, 5-second interval).
+- SSE bridge exists, but it only forwards events with `clientBroadcast: true`.
+- `progress.job.*` and `data_sync.run.*` events are not currently marked `clientBroadcast: true`, so sync progress is not SSE-live yet.
+
+Use polling semantics as the supported behavior until event definitions and client listeners are updated.
+
+## Tests to keep
+
+For phase A/B coverage, keep:
+
+- Integration tests for `integrations` APIs (list/detail/state/version/credentials/logs).
+- Integration tests for `data_sync` APIs (validate/run/detail/list/cancel/retry).
+- Unit tests for state/credentials services and adapter-driven run lifecycle helpers.

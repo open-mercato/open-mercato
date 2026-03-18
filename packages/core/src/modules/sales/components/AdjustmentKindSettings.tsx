@@ -18,6 +18,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -76,6 +77,7 @@ const normalizeEntry = (raw: any): AdjustmentKind | null => {
 export function AdjustmentKindSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [items, setItems] = React.useState<AdjustmentKind[]>([])
   const [search, setSearch] = React.useState('')
   const [loading, setLoading] = React.useState(false)
@@ -240,7 +242,11 @@ export function AdjustmentKindSettings() {
   const handleDelete = React.useCallback(
     async (entry: AdjustmentKind) => {
       const message = labels.deleteConfirm.replace('{{code}}', entry.label || entry.value)
-      if (!window.confirm(message)) return
+      const confirmed = await confirm({
+        title: message,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       try {
         const call = await apiCall('/api/sales/adjustment-kinds', {
           method: 'DELETE',
@@ -258,7 +264,7 @@ export function AdjustmentKindSettings() {
         flash(message, 'error')
       }
     },
-    [labels, loadItems]
+    [confirm, labels, loadItems]
   )
 
   const formKeyHandler = React.useCallback(
@@ -401,6 +407,7 @@ export function AdjustmentKindSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </section>
   )
 }

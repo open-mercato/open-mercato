@@ -1,5 +1,5 @@
 "use client"
-import React, { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import type { Locale } from './config'
 
 export type Dict = Record<string, string>
@@ -17,7 +17,21 @@ export type I18nContextValue = {
   t: TranslateFn
 }
 
-const I18nContext = createContext<I18nContextValue | null>(null)
+const I18N_CONTEXT_KEY = '__openMercatoI18nContext'
+
+type GlobalI18nContextStore = typeof globalThis & {
+  [I18N_CONTEXT_KEY]?: ReturnType<typeof createContext<I18nContextValue | null>>
+}
+
+function getI18nContext() {
+  const store = globalThis as GlobalI18nContextStore
+  if (!store[I18N_CONTEXT_KEY]) {
+    store[I18N_CONTEXT_KEY] = createContext<I18nContextValue | null>(null)
+  }
+  return store[I18N_CONTEXT_KEY]
+}
+
+const I18nContext = getI18nContext()
 
 function format(template: string, params?: TranslateParams) {
   if (!params) return template
@@ -32,7 +46,7 @@ function format(template: string, params?: TranslateParams) {
   })
 }
 
-export function I18nProvider({ children, locale, dict }: { children: React.ReactNode; locale: Locale; dict: Dict }) {
+export function I18nProvider({ children, locale, dict }: { children: ReactNode; locale: Locale; dict: Dict }) {
   const value = useMemo<I18nContextValue>(() => ({
     locale,
     t: (key, fallbackOrParams, params) => {

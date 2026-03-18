@@ -1,7 +1,8 @@
 "use client"
 
 import type { ProductMediaItem } from './ProductMediaManager'
-import { createLocalId } from './productForm'
+import { createLocalId, type PriceKindSummary } from './productForm'
+import { isCatalogPriceAmountInputValid } from '../../lib/priceValidation'
 
 export type OptionDefinition = {
   id: string
@@ -95,4 +96,56 @@ function extractString(value: unknown): string {
 export function buildVariantMetadata(values: VariantFormValues): Record<string, unknown> {
   const metadata = typeof values.metadata === 'object' && values.metadata ? { ...values.metadata } : {}
   return metadata
+}
+
+export function findInvalidVariantPriceKinds(
+  priceKinds: PriceKindSummary[],
+  priceDrafts: Record<string, VariantPriceDraft> | undefined,
+): string[] {
+  const invalid: string[] = []
+  for (const kind of priceKinds) {
+    const draft = priceDrafts?.[kind.id]
+    const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
+    if (!amount) continue
+    if (!isCatalogPriceAmountInputValid(amount)) invalid.push(kind.id)
+  }
+  return invalid
+}
+
+export function mapPriceItemToDraft(
+  item: Record<string, unknown>,
+  kindDisplayModes: Map<string, 'including-tax' | 'excluding-tax'>,
+): VariantPriceDraft | null {
+  const kindId =
+    typeof item.price_kind_id === 'string'
+      ? item.price_kind_id
+      : typeof item.priceKindId === 'string'
+        ? item.priceKindId
+        : null
+  if (!kindId) return null
+  const unitNet =
+    typeof item.unit_price_net === 'string'
+      ? item.unit_price_net
+      : typeof item.unitPriceNet === 'string'
+        ? item.unitPriceNet
+        : null
+  const unitGross =
+    typeof item.unit_price_gross === 'string'
+      ? item.unit_price_gross
+      : typeof item.unitPriceGross === 'string'
+        ? item.unitPriceGross
+        : null
+  const kindMode = kindDisplayModes.get(kindId) ?? (unitGross ? 'including-tax' : 'excluding-tax')
+  return {
+    priceKindId: kindId,
+    priceId: typeof item.id === 'string' ? item.id : undefined,
+    amount: kindMode === 'including-tax' ? (unitGross ?? unitNet ?? '') : (unitNet ?? unitGross ?? ''),
+    currencyCode:
+      typeof item.currency_code === 'string'
+        ? item.currency_code
+        : typeof item.currencyCode === 'string'
+          ? item.currencyCode
+          : null,
+    displayMode: kindMode,
+  }
 }

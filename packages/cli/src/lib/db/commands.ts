@@ -1,14 +1,16 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import { MikroORM, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 
 const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
 const PROGRESS_EMOJI = ''
 
-function formatResult(modId: string, message: string, emoji = '•') {
+function formatResult(modId: string, message: string, emoji = '\u2022') {
   return `${emoji} ${modId}: ${message}`
 }
 
@@ -48,6 +50,21 @@ function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
 }
 
 /**
+ * Custom dynamic import provider for MikroORM that properly handles Windows paths.
+ * MikroORM's built-in handling has a bug where it converts file:// URLs back to
+ * Windows paths when the extension isn't in require.extensions (which is always
+ * true for .ts files in ESM mode).
+ */
+async function dynamicImportProvider(id: string): Promise<any> {
+  // On Windows, convert absolute paths to file:// URLs
+  // Check if it's a Windows absolute path (e.g., C:\... or D:\...)
+  if (process.platform === 'win32' && /^[a-zA-Z]:[\\/]/.test(id)) {
+    id = pathToFileURL(id).href
+  }
+  return import(id)
+}
+
+/**
  * Sanitizes a module ID for use in SQL identifiers (table names).
  * Replaces non-alphanumeric characters with underscores to prevent SQL injection.
  * @public Exported for testing
@@ -65,6 +82,33 @@ export function validateTableName(tableName: string): void {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
     throw new Error(`Invalid table name: ${tableName}. Table names must start with a letter or underscore and contain only alphanumeric characters and underscores.`)
   }
+}
+
+export function makeConstraintDropsIdempotent(sql: string): string {
+  return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
+}
+
+let tsxLoaderRegistered = false
+
+async function importWithTypeScriptFile(filePath: string): Promise<any> {
+  const fileUrl = pathToFileURL(filePath).href
+  let tsImportFn: ((fileUrl: string, cwd: string) => Promise<any>) | undefined
+  try {
+    const { register, tsImport } = await import('tsx/esm/api')
+    if (!tsxLoaderRegistered) {
+      register()
+      tsxLoaderRegistered = true
+    }
+    tsImportFn = tsImport
+  } catch {
+    // Fallback to default import, in case tsx is unavailable in this environment.
+  }
+
+  if (tsImportFn) {
+    return await tsImportFn(fileUrl, pathToFileURL(process.cwd() + '/').href)
+  }
+
+  return import(fileUrl)
 }
 
 async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver): Promise<any[]> {
@@ -85,18 +129,21 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
         const fromApp = base.startsWith(roots.appBase)
-        // For @app modules, use file:// URL since @/ alias doesn't work in Node.js runtime
-        const importPath = (isAppModule && fromApp)
-          ? `file://${p.replace(/\.ts$/, '.js')}`
-          : `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+        const importPath = fromApp ? pathToFileURL(p).href : `${imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
         try {
-          const mod = await import(importPath)
+          const mod = isAppModule && fromApp
+            ? await importWithTypeScriptFile(p)
+            : await import(importPath)
           const entities = Object.values(mod).filter((v) => typeof v === 'function')
           if (entities.length) return entities as any[]
         } catch (err) {
-          // For @app modules with TypeScript files, they can't be directly imported
-          // Skip and let MikroORM handle entities through discovery
-          if (isAppModule) continue
+          // For @app modules we try a TS loader fallback; otherwise propagate errors
+          if (isAppModule) {
+            if (process.env.MERCATO_CLI_DEBUG_IMPORTS === '1') {
+              console.warn(`[db] failed to load app module entities from ${p}: ${(err as Error)?.message || String(err)}`)
+            }
+            continue
+          }
           throw err
         }
       }
@@ -110,18 +157,21 @@ function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): strin
 
   if (entry.from === '@app') {
     // @app modules: use src/ (user's TypeScript source)
-    return path.join(roots.appBase, 'migrations')
+    // Normalize to forward slashes for ESM compatibility on Windows
+    return path.join(roots.appBase, 'migrations').replace(/\\/g, '/')
   }
 
   // Package modules: in standalone mode, use dist/ (compiled JS) since Node.js
   // can't run TypeScript from node_modules. In monorepo, use src/ (TypeScript).
   if (!resolver.isMonorepo()) {
     // Replace src/modules with dist/modules for standalone apps
-    const distPath = roots.pkgBase.replace('/src/modules/', '/dist/modules/')
-    return path.join(distPath, 'migrations')
+    // Use regex to handle both forward and backslashes
+    const distPath = roots.pkgBase.replace(/[/\\]src[/\\]modules[/\\]/, '/dist/modules/')
+    return path.join(distPath, 'migrations').replace(/\\/g, '/')
   }
 
-  return path.join(roots.pkgBase, 'migrations')
+  // Normalize to forward slashes for ESM compatibility on Windows
+  return path.join(roots.pkgBase, 'migrations').replace(/\\/g, '/')
 }
 
 export interface DbOptions {
@@ -141,7 +191,12 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const modId = entry.id
     const sanitizedModId = sanitizeModuleId(modId)
     const entities = await loadModuleEntities(entry, resolver)
-    if (!entities.length) continue
+    if (!entities.length) {
+      if (entry.from === '@app') {
+        results.push(formatResult(modId, 'no entities discovered', ''))
+      }
+      continue
+    }
 
     const migrationsPath = getMigrationsPath(entry, resolver)
     fs.mkdirSync(migrationsPath, { recursive: true })
@@ -149,10 +204,12 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
 
+    const sslConfig = getSslConfig()
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
       loggerFactory: () => createMinimalLogger(),
+      dynamicImportProvider,
       entities,
       migrations: {
         path: migrationsPath,
@@ -170,6 +227,11 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         acquireTimeoutMillis: 60000,
         destroyTimeoutMillis: 30000,
       },
+      driverOptions: sslConfig ? {
+        connection: {
+          ssl: sslConfig,
+        },
+      } : undefined,
     })
 
     const migrator = orm.getMigrator() as Migrator
@@ -185,6 +247,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         const newBase = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
         const newPath = path.join(dir, newBase)
         let content = fs.readFileSync(orig, 'utf8')
+        content = makeConstraintDropsIdempotent(content)
         // Rename class to ensure uniqueness as well
         content = content.replace(
           /export class (Migration\d+)/,
@@ -226,13 +289,17 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
 
-    // For @app modules, entities may be empty since TypeScript files can't be imported at runtime
-    // Use discovery.warnWhenNoEntities: false to allow running migrations without entities
+    // dbMigrate only runs existing migration files — entities are intentionally
+    // omitted so MikroORM does not compare them against the snapshot and
+    // auto-generate a phantom diff migration (that would duplicate tables
+    // already created by committed migrations).
+    const sslConfig = getSslConfig()
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
       loggerFactory: () => createMinimalLogger(),
-      entities: entities.length ? entities : [],
+      dynamicImportProvider,
+      entities: [],
       discovery: { warnWhenNoEntities: false },
       migrations: {
         path: migrationsPath,
@@ -250,6 +317,11 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         acquireTimeoutMillis: 60000,
         destroyTimeoutMillis: 30000,
       },
+      driverOptions: sslConfig ? {
+        connection: {
+          ssl: sslConfig,
+        },
+      } : undefined,
     })
 
     const migrator = orm.getMigrator() as Migrator
@@ -353,7 +425,7 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Dropping per-module migration tables...')
   try {
     const { Client } = await import('pg')
-    const client = new Client({ connectionString: getClientUrl() })
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
     await client.connect()
     try {
       await client.query('BEGIN')
@@ -383,10 +455,10 @@ export async function dbGreenfield(resolver: PackageResolver, options: Greenfiel
   console.log('Dropping ALL public tables for true greenfield...')
   try {
     const { Client } = await import('pg')
-    const client = new Client({ connectionString: getClientUrl() })
+    const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig() })
     await client.connect()
     try {
-      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`)
+      const res = await client.query(`SELECT tablename FROM pg_tables WHERE schemaname = current_schema()`)
       const tables: string[] = (res.rows || []).map((r: any) => String(r.tablename))
       if (tables.length) {
         await client.query('BEGIN')

@@ -9,6 +9,7 @@ import {
   DEFAULT_GLOBAL_SEARCH_STRATEGIES,
 } from '../../../lib/global-search-config'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
+import { globalSearchSettingsOpenApi } from '../../openapi'
 
 const updateSchema = z.object({
   enabledStrategies: z.array(z.enum(['fulltext', 'vector', 'tokens'])).min(1),
@@ -89,3 +90,5 @@ export async function POST(req: Request) {
     }
   }
 }
+
+export const openApi = globalSearchSettingsOpenApi

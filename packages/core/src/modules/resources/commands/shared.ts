@@ -1,7 +1,7 @@
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ResourcesResource } from '../data/entities'
 
@@ -12,7 +12,7 @@ export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string):
   }
 }
 
-export { ensureOrganizationScope }
+export { ensureOrganizationScope, extractUndoPayload }
 
 export async function requireResource(
   em: EntityManager,
@@ -22,26 +22,4 @@ export async function requireResource(
   const resource = await em.findOne(ResourcesResource, { id: resourceId })
   if (!resource) throw new CrudHttpError(404, { error: message })
   return resource
-}
-
-type UndoEnvelope<T> = {
-  undo?: T
-  value?: { undo?: T }
-  __redoInput?: unknown
-  [key: string]: unknown
-}
-
-export function extractUndoPayload<T>(logEntry: ActionLog | null | undefined): T | null {
-  if (!logEntry) return null
-  const payload = logEntry.commandPayload as UndoEnvelope<T> | undefined
-  if (!payload || typeof payload !== 'object') return null
-  if (payload.undo) return payload.undo
-  if (payload.value && typeof payload.value === 'object' && payload.value.undo) {
-    return payload.value.undo as T
-  }
-  const entries = Object.entries(payload).find(([key]) => key !== '__redoInput')
-  if (entries && entries[1] && typeof entries[1] === 'object' && 'undo' in (entries[1] as Record<string, unknown>)) {
-    return (entries[1] as { undo?: T }).undo ?? null
-  }
-  return null
 }

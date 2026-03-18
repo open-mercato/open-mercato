@@ -9,12 +9,13 @@ import {
   Property,
   Unique,
 } from '@mikro-orm/core'
-import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib/documentNumberTokens'
+import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT, type SalesDocumentNumberKind } from '../lib/documentNumberTokens'
 import type { ShipmentItemSnapshot } from '../lib/shipments/types'
+import type { SalesLineUomSnapshot } from '../lib/types'
 
 export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
-export const DEFAULT_SALES_ADJUSTMENT_KINDS = ['discount', 'tax', 'shipping', 'surcharge', 'custom'] as const
+export const DEFAULT_SALES_ADJUSTMENT_KINDS = ['discount', 'tax', 'shipping', 'surcharge', 'return', 'custom'] as const
 export type SalesAdjustmentKind = (typeof DEFAULT_SALES_ADJUSTMENT_KINDS)[number] | string
 
 @Entity({ tableName: 'sales_channels' })
@@ -556,6 +557,10 @@ export class SalesOrder {
 @Entity({ tableName: 'sales_order_lines' })
 @Index({ name: 'sales_order_lines_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
 @Index({ name: 'sales_order_lines_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Index({
+  name: 'sales_order_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesOrderLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -604,6 +609,15 @@ export class SalesOrderLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'reserved_quantity', type: 'numeric', precision: 18, scale: 4, default: '0' })
   reservedQuantity: string = '0'
@@ -799,7 +813,7 @@ export class SalesDocumentSequence {
   tenantId!: string
 
   @Property({ name: 'document_kind', type: 'text' })
-  documentKind!: SalesDocumentKind
+  documentKind!: SalesDocumentNumberKind
 
   @Property({ name: 'current_value', type: 'integer', default: 0 })
   currentValue: number = 0
@@ -992,6 +1006,10 @@ export class SalesQuote {
 @Entity({ tableName: 'sales_quote_lines' })
 @Index({ name: 'sales_quote_lines_scope_idx', properties: ['quote', 'organizationId', 'tenantId'] })
 @Index({ name: 'sales_quote_lines_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Index({
+  name: 'sales_quote_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesQuoteLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1040,6 +1058,15 @@ export class SalesQuoteLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -1262,6 +1289,102 @@ export class SalesShipmentItem {
   metadata?: Record<string, unknown> | null
 }
 
+@Entity({ tableName: 'sales_returns' })
+@Index({ name: 'sales_returns_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_returns_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Unique({ name: 'sales_returns_number_unique', properties: ['organizationId', 'tenantId', 'returnNumber'] })
+export class SalesReturn {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => SalesOrder, { fieldName: 'order_id' })
+  order!: SalesOrder
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'return_number', type: 'text' })
+  returnNumber!: string
+
+  @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
+  statusEntryId?: string | null
+
+  @Property({ name: 'status', type: 'text', nullable: true })
+  status?: string | null
+
+  @Property({ name: 'reason', type: 'text', nullable: true })
+  reason?: string | null
+
+  @Property({ name: 'notes', type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'returned_at', type: Date, nullable: true })
+  returnedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => SalesReturnLine, (line) => line.salesReturn)
+  lines = new Collection<SalesReturnLine>(this)
+}
+
+@Entity({ tableName: 'sales_return_lines' })
+@Index({ name: 'sales_return_lines_return_idx', properties: ['salesReturn', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_return_lines_order_line_idx', properties: ['orderLine', 'organizationId', 'tenantId'] })
+export class SalesReturnLine {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => SalesReturn, { fieldName: 'return_id' })
+  salesReturn!: SalesReturn
+
+  @ManyToOne(() => SalesOrderLine, { fieldName: 'order_line_id' })
+  orderLine!: SalesOrderLine
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'quantity_returned', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  quantityReturned: string = '0'
+
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  unitPriceNet: string = '0'
+
+  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  unitPriceGross: string = '0'
+
+  @Property({ name: 'total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  totalNetAmount: string = '0'
+
+  @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  totalGrossAmount: string = '0'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'sales_invoices' })
 @Index({ name: 'sales_invoices_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
 @Index({ name: 'sales_invoices_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
@@ -1345,6 +1468,10 @@ export class SalesInvoice {
 
 @Entity({ tableName: 'sales_invoice_lines' })
 @Index({ name: 'sales_invoice_lines_scope_idx', properties: ['invoice', 'organizationId', 'tenantId'] })
+@Index({
+  name: 'sales_invoice_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesInvoiceLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1375,6 +1502,15 @@ export class SalesInvoiceLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -1484,6 +1620,10 @@ export class SalesCreditMemo {
   name: 'sales_credit_memo_lines_scope_idx',
   properties: ['creditMemo', 'organizationId', 'tenantId'],
 })
+@Index({
+  name: 'sales_credit_memo_lines_normalized_idx',
+  properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
+})
 export class SalesCreditMemoLine {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1511,6 +1651,15 @@ export class SalesCreditMemoLine {
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })
   quantityUnit?: string | null
+
+  @Property({ name: 'normalized_quantity', type: 'numeric', precision: 18, scale: 6, default: '0' })
+  normalizedQuantity: string = '0'
+
+  @Property({ name: 'normalized_unit', type: 'text', nullable: true })
+  normalizedUnit?: string | null
+
+  @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
+  uomSnapshot?: SalesLineUomSnapshot | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string

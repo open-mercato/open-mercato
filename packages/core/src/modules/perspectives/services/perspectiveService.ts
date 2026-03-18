@@ -52,7 +52,7 @@ const scopeKey = (scope: PerspectiveScope) =>
   `${scope.userId}:${scope.tenantId ?? 'null'}:${scope.organizationId ?? 'null'}`
 
 const userCacheKey = (scope: PerspectiveScope, tableId: string, roleIds: string[]) =>
-  `perspectives:user-state:${scopeKey(scope)}:${tableId}:${roleIds.sort().join(',')}`
+  `perspectives:user-state:${scopeKey(scope)}:${tableId}:${roleIds.sort((a, b) => a.localeCompare(b)).join(',')}`
 
 const userTag = (scope: PerspectiveScope, tableId?: string) =>
   tableId

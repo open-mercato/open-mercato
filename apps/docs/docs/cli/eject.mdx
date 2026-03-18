@@ -1,0 +1,114 @@
+---
+title: mercato eject
+sidebar_label: eject
+description: Ejects a core module into your app's local source for full customization.
+---
+
+`yarn mercato eject` copies a module's source code from its installed package (`node_modules`) into your app's `src/modules/` directory and switches its origin in `modules.ts` to `from: '@app'`. After ejecting, the module behaves as a local module that you can freely modify.
+
+The command is bootstrap-free — it reads files and copies them without requiring DI or ORM initialization. It is especially useful in [standalone apps](../customization/standalone-app) where you want to customize core behavior beyond simple overrides.
+
+## Usage
+
+```bash
+# List all ejectable modules
+yarn mercato eject --list
+
+# Eject a specific module
+yarn mercato eject <moduleId>
+```
+
+Aliases: `-l` for `--list`.
+
+## Options
+
+| Option | Description |
+| --- | --- |
+| `--list`, `-l` | List all modules that can be ejected. Modules already marked `from: '@app'` are excluded. |
+| `<moduleId>` | The module identifier to eject (e.g., `currencies`, `catalog`, `customers`). |
+
+## Ejectable Modules
+
+Only modules with `ejectable: true` in their metadata can be ejected. The following core modules currently support ejection:
+
+| Module | Description |
+| --- | --- |
+| `catalog` | Products, categories, variants, pricing |
+| `currencies` | Multi-currency support, exchange rates |
+| `customers` | People, companies, deals, activities |
+| `perspectives` | Sidebar perspectives and view management |
+| `planner` | Planning and scheduling tools |
+| `resources` | Resources and resource types |
+| `sales` | Orders, quotes, invoices, shipments, payments |
+| `staff` | Staff management |
+| `workflows` | Workflow automation engine |
+
+## What the Command Does
+
+1. Validates that the module exists in `src/modules.ts` and is not already local (`from: '@app'`).
+2. Confirms the module is marked `ejectable: true` in its package metadata.
+3. Copies the entire module directory from the package into `src/modules/<moduleId>/`, skipping `__tests__`, `__mocks__`, and `node_modules` directories.
+4. Updates `modules.ts` to change the module's `from` value to `'@app'`, so the framework loads it from your local source instead of the package.
+
+## Post-Eject Steps
+
+After ejecting, run the generators and start development:
+
+```bash
+# 1. Regenerate module registry, entities, DI
+yarn mercato generate all
+
+# 2. Customize the module source
+#    Edit files in src/modules/<moduleId>/
+
+# 3. Start the dev server
+yarn dev
+```
+
+## Examples
+
+List modules available for ejection:
+
+```bash
+yarn mercato eject --list
+```
+
+Output:
+
+```
+Ejectable modules:
+
+  currencies (from: @open-mercato/core) — Multi-currency management
+  catalog (from: @open-mercato/core)
+  customers (from: @open-mercato/core)
+  ...
+
+Usage: yarn mercato eject <moduleId>
+```
+
+Eject the currencies module:
+
+```bash
+yarn mercato eject currencies
+```
+
+Output:
+
+```
+Ejecting module "currencies"...
+
+✅ Module "currencies" ejected successfully!
+
+Next steps:
+  1. Run generators:  yarn mercato generate all
+  2. Customize:       edit src/modules/currencies/
+  3. Start dev:       yarn dev
+```
+
+## Troubleshooting
+
+- **Module not found** — the module must be listed in your `src/modules.ts`. Run `yarn mercato eject --list` to see what is available.
+- **Already ejected** — if the module already has `from: '@app'` in `modules.ts`, it is already local. Edit it directly in `src/modules/<moduleId>/`.
+- **Not marked as ejectable** — only modules whose `index.ts` exports `ejectable: true` in their metadata support ejection. Core-only modules (e.g., `auth`) cannot be ejected.
+- **Destination directory already exists** — remove or rename the existing `src/modules/<moduleId>/` directory before ejecting again.
+- **Build errors after ejection** — run `yarn mercato generate all` to regenerate the module registry and DI bindings, then verify with `yarn build`.

@@ -93,12 +93,11 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
     return { priceKindId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPriceKindSnapshot(em, result.priceKindId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
-    const after = await loadPriceKindSnapshot(em, result.priceKindId)
+  buildLog: async ({ snapshots }) => {
+    const after = snapshots.after as PriceKindSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -168,13 +167,12 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
     return { priceKindId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPriceKindSnapshot(em, result.priceKindId)
   },
-  buildLog: async ({ result, ctx, snapshots }) => {
+  buildLog: async ({ snapshots }) => {
     const before = snapshots.before as PriceKindSnapshot | undefined
-    const em = ctx.container.resolve('em') as EntityManager
-    const after = await loadPriceKindSnapshot(em, result.priceKindId)
+    const after = snapshots.after as PriceKindSnapshot | undefined
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {

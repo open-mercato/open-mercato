@@ -1,6 +1,6 @@
 ---
 title: Tutorial - testing modules
-description: Configure Jest and author deterministic tests for services, APIs, and UI utilities.
+description: Configure Jest for unit tests and Playwright for integration tests.
 ---
 
 # Tutorial: Writing Unit Tests
@@ -9,7 +9,7 @@ This guide shows how to write and run unit tests for Open Mercato using Jest + t
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js `24.x`
 - Jest + ts-jest already configured in this repo
 - Aliases resolved in tests via `jest.config.cjs`
 
@@ -124,4 +124,89 @@ If you introduce new patterns, ensure they don’t live under module `api/` unle
 - “jest is not defined” during `yarn dev`: means a test leaked into the runtime. Ensure tests are under `__tests__` and the generator filters apply.
 - Module not found in tests: verify alias in `jest.config.cjs` and the file path.
 
-You’re set — write focused tests, mock I/O, and keep the loop fast.
+## Integration Testing (Playwright)
+
+Use integration tests for full user flows and API scenarios that require a running app and real HTTP interactions.
+
+### What You Need to Start
+
+- Node.js `24.x`
+- Dependencies installed: `yarn install`
+- Playwright browser installed (first run): `npx playwright install chromium`
+- Seeded local environment (recommended for stable credentials): `yarn initialize`
+- Running app for local mode: `yarn dev` (or set `BASE_URL` to an already running instance)
+- For ephemeral mode only: Docker runtime running (`docker info` must succeed)
+
+Default test credentials come from initialization:
+
+- `superadmin@acme.com` / `secret`
+- `admin@acme.com` / `secret`
+- `employee@acme.com` / `secret`
+
+### How to Create Integration Tests
+
+1. Create a new file in `.ai/qa/tests/<category>/` named `TC-<CATEGORY>-<NNN>.spec.ts`.
+2. Use built-in helpers from `.ai/qa/tests/helpers/`:
+   - UI auth helper: `helpers/auth.ts` (`login(page, 'admin')`)
+   - API helper: `helpers/api.ts`
+3. Prefer Playwright semantic locators:
+   - `getByRole`
+   - `getByLabel`
+   - `getByText`
+   - `getByPlaceholder`
+4. Keep each test independent (login and setup inside the test or `beforeEach`).
+5. If a markdown scenario exists, keep it in `.ai/qa/scenarios/TC-*.md` and align steps with the spec.
+
+Example skeleton:
+
+```ts
+import { test, expect } from '@playwright/test'
+import { login } from '../helpers/auth'
+
+test.describe('TC-ADMIN-999: Example flow', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, 'admin')
+  })
+
+  test('completes the scenario', async ({ page }) => {
+    await page.goto('/backend')
+    await expect(page).toHaveURL(/\/backend/)
+  })
+})
+```
+
+### How to Run Integration Tests
+
+- Run full suite (headless): `yarn test:integration`
+- Run one folder/category:
+  - `npx playwright test --config .ai/qa/tests/playwright.config.ts admin/`
+- Run one test file:
+  - `npx playwright test --config .ai/qa/tests/playwright.config.ts admin/TC-ADMIN-002-api-key-revocation.spec.ts`
+- Run with ephemeral environment (auto bootstrapped app + infra): `yarn test:integration:ephemeral`
+- Run with interactive ephemeral menu (persisted app + DB): `yarn test:integration:ephemeral:interactive`
+- Open HTML report: `yarn test:integration:report`
+
+### How to speed up ephemeral integration runs
+
+`yarn test:integration:ephemeral` rebuilds and boots a fresh isolated environment on each run. That is reliable but slower for tight development loops.
+
+- Start once in interactive mode and reuse:
+  - `yarn test:integration:ephemeral:interactive --no-screenshots`
+- Reuse the active URL from `.ai/qa/ephemeral-env.md` (`base_url`)
+- Then run only the target test against the printed base URL:
+  - `BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts sales/TC-SALES-007.spec.ts --retries=0`
+- Run in parallel locally when tests are independent:
+  - `BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts --workers=4 --retries=0`
+- If you still use full ephemeral command, filter aggressively:
+  - `yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-screenshots`
+
+Use full `yarn test:integration:ephemeral` for pre-merge validation and CI-like isolation.
+
+For repeated local runs, prefer `yarn test:integration:ephemeral:interactive` to select tests from a menu and run them against one persisted ephemeral environment.
+
+### Notes
+
+- Base URL defaults to `http://localhost:3000` and can be overridden with `BASE_URL`.
+- Ephemeral integration mode defaults to port `5001` when available and writes the active URL to `.ai/qa/ephemeral-env.md`.
+- Reports are generated under `.ai/qa/tests/test-results/`.
+- Capture screenshots for each step by setting `PW_CAPTURE_SCREENSHOTS=1`.

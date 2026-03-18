@@ -67,7 +67,7 @@ export async function POST(req: Request) {
   if (!log || log.executionState !== 'undone') {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
-  if (log.actorUserId && log.actorUserId !== auth.sub) {
+  if (log.actorUserId && log.actorUserId !== auth.sub && !canRedoTenant) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
   if (log.tenantId && auth.tenantId && log.tenantId !== auth.tenantId) {
@@ -77,7 +77,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
 
-  const latestUndone = await logs.latestUndoneForActor(auth.sub, {
+  const lookupActorId = canRedoTenant ? (log.actorUserId ?? auth.sub) : auth.sub
+  const latestUndone = await logs.latestUndoneForActor(lookupActorId, {
     tenantId: auth.tenantId ?? null,
     organizationId: scopedOrgId,
   })

@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { buildSystemStatusSnapshot } from '../../lib/system-status'
 import type { SystemStatusSnapshot } from '../../lib/system-status.types'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
+import {
+  configsTag,
+  systemStatusResponseSchema,
+  purgeCacheResponseSchema,
+  configErrorSchema,
+} from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.system_status.view'] },
@@ -64,4 +71,34 @@ export async function POST(req: Request) {
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: configsTag,
+  summary: 'System status and health',
+  methods: {
+    GET: {
+      summary: 'Get system health status',
+      description: 'Returns comprehensive system health information including environment details, version, resource usage, and service connectivity status.',
+      responses: [
+        { status: 200, description: 'System status snapshot', schema: systemStatusResponseSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: configErrorSchema },
+        { status: 500, description: 'Failed to load system status', schema: configErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Clear system cache',
+      description: 'Purges the entire cache for the current tenant. Useful for troubleshooting or forcing fresh data loading.',
+      responses: [
+        { status: 200, description: 'Cache cleared successfully', schema: purgeCacheResponseSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: configErrorSchema },
+        { status: 503, description: 'Cache service unavailable', schema: configErrorSchema },
+        { status: 500, description: 'Failed to purge cache', schema: configErrorSchema },
+      ],
+    },
+  },
 }

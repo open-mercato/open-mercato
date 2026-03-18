@@ -7,6 +7,13 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { z } from 'zod'
+import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+
+const resetConfirmRateLimitConfig = readEndpointRateLimitConfig('RESET_CONFIRM', {
+  points: 5, duration: 300, keyPrefix: 'reset-confirm',
+})
 
 // validation via confirmPasswordResetSchema
 
@@ -14,6 +21,9 @@ export async function POST(req: Request) {
   const form = await req.formData()
   const token = String(form.get('token') ?? '')
   const password = String(form.get('password') ?? '')
+  // Rate limit by IP — checked before validation and DB work
+  const { error: rateLimitError } = await checkAuthRateLimit({ req, ipConfig: resetConfirmRateLimitConfig })
+  if (rateLimitError) return rateLimitError
   const parsed = confirmPasswordResetSchema.safeParse({ token, password })
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid request' }, { status: 400 })
   const c = await createRequestContainer()
@@ -43,9 +53,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, redirect: '/login' })
 }
 
-export const metadata = {
-  POST: {},
-}
+export const metadata = {}
 
 const passwordResetConfirmResponseSchema = z.object({
   ok: z.literal(true),
@@ -71,6 +79,9 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Password reset succeeded', schema: passwordResetConfirmResponseSchema },
         { status: 400, description: 'Invalid token or payload', schema: passwordResetErrorSchema },
+      ],
+      errors: [
+        { status: 429, description: 'Too many reset confirmation attempts', schema: rateLimitErrorSchema },
       ],
     },
   },

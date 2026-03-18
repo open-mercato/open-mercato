@@ -13,8 +13,9 @@ export const metadata = {
   pageTitle: 'API Keys',
   pageTitleKey: 'api_keys.nav.apiKeys',
   pageGroup: 'Auth',
-  pageGroupKey: 'auth.nav.group',
-  pageOrder: 110,
+  pageGroupKey: 'settings.sections.auth',
+  pageOrder: 3,
   icon: keyIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [{ label: 'API Keys', labelKey: 'api_keys.nav.apiKeys' }],
 }

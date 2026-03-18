@@ -83,7 +83,7 @@ npx create-mercato-app my-store --registry http://localhost:4873
 
 ## Requirements
 
-- Node.js 18 or later
+- Node.js 24 or later
 - PostgreSQL database
 - Yarn (recommended) or npm
 

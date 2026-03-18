@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
+  distDir: '.mercato/next',
   experimental: {
     serverMinification: false,
     turbopackMinify: false,

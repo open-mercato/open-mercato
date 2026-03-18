@@ -10,6 +10,7 @@ import {
   type CommandHandler,
   type CommandRuntimeContext,
 } from '@open-mercato/shared/lib/commands'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -122,30 +123,6 @@ function applySnapshot(entry: DictionaryEntry, snapshot: DictionaryEntrySnapshot
   entry.tenantId = snapshot.tenantId
   entry.createdAt = new Date(snapshot.createdAt)
   entry.updatedAt = new Date(snapshot.updatedAt)
-}
-
-type UndoEnvelope<T> = {
-  undo?: T
-  value?: { undo?: T }
-  __redoInput?: unknown
-  [key: string]: unknown
-}
-
-function extractUndoPayload<T>(logEntry: { commandPayload?: unknown } | null | undefined): T | null {
-  if (!logEntry) return null
-  const payload = logEntry.commandPayload as UndoEnvelope<T> | undefined
-  if (!payload || typeof payload !== 'object') return null
-  if (payload.undo) return payload.undo
-  if (payload.value && typeof payload.value === 'object' && payload.value.undo) {
-    return payload.value.undo as T
-  }
-  for (const [key, value] of Object.entries(payload)) {
-    if (key === '__redoInput') continue
-    if (value && typeof value === 'object' && 'undo' in value) {
-      return (value as { undo?: T }).undo ?? null
-    }
-  }
-  return null
 }
 
 function ensureDictionaryForUndoFactory(
@@ -267,7 +244,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
       return { entryId: entry.id }
     },
     captureAfter: async (_input, result, ctx) => {
-      const em = (ctx.container.resolve('em') as EntityManager)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       return loadSnapshot(em, result.entryId)
     },
     buildLog: async ({ result, snapshots }) => {
@@ -358,7 +335,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
       return { entryId: entry.id }
     },
     captureAfter: async (_input, result, ctx) => {
-      const em = (ctx.container.resolve('em') as EntityManager)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       return loadSnapshot(em, result.entryId)
     },
     buildLog: async ({ snapshots }) => {

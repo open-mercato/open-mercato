@@ -14,9 +14,10 @@ export const metadata = {
   requireFeatures: ['planner.manage_availability'],
   pageTitle: 'Availability schedules',
   pageTitleKey: 'planner.availabilityRuleSets.page.title',
-  pageGroup: 'Configuration',
-  pageGroupKey: 'backend.nav.configuration',
-  pageOrder: 75,
+  pageGroup: 'Module Configs',
+  pageGroupKey: 'settings.sections.moduleConfigs',
+  pageOrder: 9,
   icon: scheduleIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [{ label: 'Availability schedules', labelKey: 'planner.availabilityRuleSets.page.title' }],
 }

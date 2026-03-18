@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
@@ -13,6 +14,7 @@ import {
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { promises as fs } from 'fs'
+import { attachmentsTag, imageQuerySchema, attachmentErrorSchema } from '../../../openapi'
 
 const querySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional(),
@@ -110,4 +112,29 @@ export async function GET(
     console.error('attachments.image.read failed', error)
     return NextResponse.json({ error: 'Failed to render image' }, { status: 500 })
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: attachmentsTag,
+  summary: 'Serve resized images',
+  methods: {
+    GET: {
+      summary: 'Serve image with optional resizing',
+      description: 'Returns an image attachment with optional on-the-fly resizing and cropping. Resized images are cached for performance. Only works with image MIME types. Path parameter: {id} - Attachment UUID. Query parameters: ?width=N (1-4000 pixels), ?height=N (1-4000 pixels), ?cropType=cover|contain (resize behavior).',
+      responses: [
+        {
+          status: 200,
+          description: 'Binary image content (Content-Type: image/jpeg, image/png, etc.)',
+          schema: z.any().describe('Binary image content - actual Content-Type header set to image MIME type, not application/json'),
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid parameters, missing ID, or non-image attachment', schema: attachmentErrorSchema },
+        { status: 401, description: 'Unauthorized - authentication required for private partitions', schema: attachmentErrorSchema },
+        { status: 403, description: 'Forbidden - insufficient permissions', schema: attachmentErrorSchema },
+        { status: 404, description: 'Image not found', schema: attachmentErrorSchema },
+        { status: 500, description: 'Partition misconfigured or image rendering failed', schema: attachmentErrorSchema },
+      ],
+    },
+  },
 }

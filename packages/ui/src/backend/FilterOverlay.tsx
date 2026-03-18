@@ -172,16 +172,16 @@ export function FilterOverlay({
     <>
       {open && (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} />
+          <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} role="presentation" />
           <div className="absolute left-0 top-0 h-full w-full sm:w-[380px] bg-background shadow-xl border-r flex flex-col">
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="text-base font-semibold">{defaultTitle}</h2>
-              <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>{t('common.close')}</button>
+              <Button variant="muted" size="sm" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
             </div>
             {/* Top actions: duplicate Clear/Apply */}
             <div className="px-4 py-2 border-b flex items-center justify-between gap-2">
               <Button variant="outline" size="sm" onClick={handleClear}>{t('ui.filters.actions.clear', 'Clear')}</Button>
-              <Button size="sm" onClick={handleApply} className="inline-flex items-center gap-2">
+              <Button size="sm" onClick={handleApply}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
                 {t('ui.filters.actions.apply', 'Apply')}
               </Button>
@@ -194,7 +194,7 @@ export function FilterOverlay({
                   {f.type === 'text' && (
                     <input
                       type="text"
-                      className="w-full h-9 rounded border px-2 text-sm"
+                      className="w-full h-11 rounded border px-2 text-sm"
                       placeholder={f.placeholder}
                       value={values[f.id] ?? ''}
                       onChange={(e) => setValue(f.id, e.target.value || undefined)}
@@ -206,7 +206,7 @@ export function FilterOverlay({
                         <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.from', 'From')}</div>
                         <input
                           type="date"
-                          className="w-full h-9 rounded border px-2 text-sm"
+                          className="w-full h-11 rounded border px-2 text-sm"
                           value={values[f.id]?.from ?? ''}
                           onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), from: e.target.value || undefined })}
                         />
@@ -215,7 +215,7 @@ export function FilterOverlay({
                         <div className="text-xs text-muted-foreground mb-1">{t('ui.filters.dateRange.to', 'To')}</div>
                         <input
                           type="date"
-                          className="w-full h-9 rounded border px-2 text-sm"
+                          className="w-full h-11 rounded border px-2 text-sm"
                           value={values[f.id]?.to ?? ''}
                           onChange={(e) => setValue(f.id, { ...(values[f.id] ?? {}), to: e.target.value || undefined })}
                         />
@@ -248,7 +248,7 @@ export function FilterOverlay({
                         </div>
                       ) : (
                         <select
-                          className="w-full h-9 rounded border px-2 text-sm"
+                          className="w-full h-11 rounded border px-2 text-sm"
                           value={values[f.id] ?? ''}
                           onChange={(e) => setValue(f.id, e.target.value || undefined)}
                         >
@@ -295,7 +295,7 @@ export function FilterOverlay({
                   {f.type === 'checkbox' && (
                     <div>
                       <select
-                        className="w-full h-9 rounded border px-2 text-sm"
+                        className="w-full h-11 rounded border px-2 text-sm"
                         value={values[f.id] === true ? 'true' : values[f.id] === false ? 'false' : ''}
                         onChange={(e) => {
                           const v = e.target.value
@@ -314,10 +314,10 @@ export function FilterOverlay({
               ))}
             </div>
             <div className="p-4 border-t flex items-center justify-between gap-2">
-              <Button variant="outline" onClick={handleClear}>Clear</Button>
-              <Button onClick={handleApply} className="inline-flex items-center gap-2">
+              <Button variant="outline" onClick={handleClear}>{t('ui.filters.actions.clear', 'Clear')}</Button>
+              <Button onClick={handleApply}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
-                Apply
+                {t('ui.filters.actions.apply', 'Apply')}
               </Button>
             </div>
           </div>

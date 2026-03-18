@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning } from '@open-mercato/shared/lib/query/types'
+import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -20,6 +20,7 @@ import {
 } from '@open-mercato/shared/lib/query/join-utils'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 
 function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boolean {
   for (const name of names) {
@@ -116,6 +117,33 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
+    // --- UMES query extension: before-query pipeline ---
+    const ext: QueryExtensionsConfig | undefined = opts.extensions
+    let hybridExtCtx: QueryExtensionContext | null = null
+    const noopDi = { resolve: <R = unknown>(_name: string): R => { throw new Error('No DI context') } }
+
+    if (ext) {
+      hybridExtCtx = {
+        entity: String(entity),
+        engine: 'hybrid',
+        tenantId: opts.tenantId ?? '',
+        organizationId: opts.organizationId,
+        userId: ext.userId,
+        em: this.em,
+        container: ext.container,
+        userFeatures: ext.userFeatures,
+      }
+      const diCtx = ext.resolve ? { resolve: ext.resolve } : noopDi
+      const beforeResult = await runBeforeQueryPipeline(opts, hybridExtCtx, diCtx)
+      if (beforeResult.blocked) {
+        throw new Error(beforeResult.errorMessage ?? 'Query blocked by extension subscriber')
+      }
+      opts = beforeResult.query
+    }
+    // Strip extensions so fallback to BasicQueryEngine doesn't double-execute
+    const { extensions: _stripExt, ...coreOpts } = opts
+    opts = coreOpts
+
     const providedProfiler = opts.profiler
     const profiler = providedProfiler && providedProfiler.enabled
       ? providedProfiler
@@ -126,6 +154,17 @@ export class HybridQueryEngine implements QueryEngine {
       if (!profiler.enabled || profileClosed) return
       profileClosed = true
       profiler.end(meta)
+    }
+
+    const applyAfterExtensions = async <R>(queryResult: QueryResult<R>): Promise<QueryResult<R>> => {
+      if (!ext || !hybridExtCtx) return queryResult
+      const diCtx = ext.resolve ? { resolve: ext.resolve } : noopDi
+      return await runAfterQueryPipeline(
+        queryResult as QueryResult<Record<string, unknown>>,
+        opts,
+        hybridExtCtx,
+        diCtx,
+      ) as QueryResult<R>
     }
 
     try {
@@ -144,7 +183,7 @@ export class HybridQueryEngine implements QueryEngine {
             result: 'custom_entity',
             total: Array.isArray(result.items) ? result.items.length : undefined,
           })
-          return result
+          return await applyAfterExtensions(result)
         } catch (err) {
           section.end({ error: err instanceof Error ? err.message : String(err) })
           throw err
@@ -164,14 +203,14 @@ export class HybridQueryEngine implements QueryEngine {
         if (debugEnabled) this.debug('query:fallback:missing-base', { entity, baseTable })
         const fallbackResult = await this.fallback.query(entity, opts)
         finishProfile({ result: 'fallback', reason: 'missing_base' })
-        return fallbackResult
+        return await applyAfterExtensions(fallbackResult)
       }
 
       const normalizedFilters = normalizeFilters(opts.filters)
-      const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:'))
+      const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:') || filter.field.startsWith('l10n:'))
       const coverageScope = this.resolveCoverageSnapshotScope(opts)
       const wantsCf = (
-        (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
+        (opts.fields || []).some((field) => typeof field === 'string' && (field.startsWith('cf:') || field.startsWith('l10n:'))) ||
         cfFilters.length > 0 ||
         opts.includeCustomFields === true ||
         (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
@@ -200,7 +239,7 @@ export class HybridQueryEngine implements QueryEngine {
           if (debugEnabled) this.debug('query:fallback:no-index', { entity })
           const fallbackResult = await this.fallback.query(entity, opts)
           finishProfile({ result: 'fallback', reason: 'no_index_rows' })
-          return fallbackResult
+          return await applyAfterExtensions(fallbackResult)
         }
         if (entityHasActiveCustomFields) {
           const gap = await profiler.measure(
@@ -215,7 +254,9 @@ export class HybridQueryEngine implements QueryEngine {
               : { scope: null })
           )
           if (gap) {
-            this.scheduleAutoReindex(entity, opts, gap.stats, coverageScope?.organizationId ?? null)
+            if (!opts.skipAutoReindex) {
+              this.scheduleAutoReindex(entity, opts, gap.stats, coverageScope?.organizationId ?? null)
+            }
             const force = this.isForcePartialIndexEnabled()
             if (!force) {
               if (gap.stats) {
@@ -246,7 +287,7 @@ export class HybridQueryEngine implements QueryEngine {
                 baseCount: gap.stats?.baseCount ?? null,
                 indexedCount: gap.stats?.indexedCount ?? null,
               })
-              return resultWithWarning
+              return await applyAfterExtensions(resultWithWarning)
             }
             if (gap.stats) {
               console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
@@ -437,7 +478,9 @@ export class HybridQueryEngine implements QueryEngine {
               : { entity: targetEntity, scope: null })
           )
           if (!gap) continue
-          this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
+          if (!opts.skipAutoReindex) {
+            this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
+          }
           partialIndexWarning = {
             entity: targetEntity,
             entityLabel: this.resolveEntityLabel(targetEntity),
@@ -518,14 +561,41 @@ export class HybridQueryEngine implements QueryEngine {
     }
 
     for (const filter of baseFilters) {
-      const baseField = resolveBaseColumn(String(filter.field))
-      if (!baseField) continue
+      const fieldName = String(filter.field)
+      const baseField = resolveBaseColumn(fieldName)
+      if (!baseField) {
+        builder = this.applyIndexDocFilterFromAlias(
+          knex,
+          builder,
+          'ei',
+          entity,
+          fieldName,
+          filter.op,
+          filter.value,
+          'b.id',
+          searchRuntime,
+        )
+        if (optimizedCountBuilder) {
+          optimizedCountBuilder = this.applyIndexDocFilterFromAlias(
+            knex,
+            optimizedCountBuilder,
+            'ei',
+            entity,
+            fieldName,
+            filter.op,
+            filter.value,
+            'b.id',
+            searchRuntime,
+          )
+        }
+        continue
+      }
       const column = qualify(baseField)
       builder = this.applyColumnFilter(builder, column, filter, {
         ...searchRuntime,
         knex,
         entity,
-        field: String(filter.field),
+        field: fieldName,
         recordIdColumn: 'b.id',
       })
       if (optimizedCountBuilder) {
@@ -533,7 +603,7 @@ export class HybridQueryEngine implements QueryEngine {
           ...searchRuntime,
           knex,
           entity,
-          field: String(filter.field),
+          field: fieldName,
           recordIdColumn: 'b.id',
         })
       }
@@ -761,10 +831,14 @@ export class HybridQueryEngine implements QueryEngine {
     }
 
     const typedItems = items as unknown as T[]
-    const result: QueryResult<T> = { items: typedItems, page, pageSize, total }
+    let result: QueryResult<T> = { items: typedItems, page, pageSize, total }
     if (partialIndexWarning) {
       result.meta = { partialIndexWarning }
     }
+
+    // --- UMES query extension: after-query pipeline ---
+    result = await applyAfterExtensions(result)
+
     finishProfile({
       result: 'ok',
       total,
@@ -1094,6 +1168,79 @@ export class HybridQueryEngine implements QueryEngine {
     }
   }
 
+  private applyIndexDocFilterFromAlias(
+    knex: Knex,
+    q: ResultBuilder,
+    alias: string,
+    entityType: string,
+    key: string,
+    op: FilterOp,
+    value: unknown,
+    recordIdColumn: string,
+    search?: SearchRuntime,
+  ): ResultBuilder {
+    const text = knex.raw(`(${alias}.doc ->> ?)`, [key])
+    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+      const tokens = tokenizeText(String(value), search.config)
+      const hashes = tokens.hashes
+      if (hashes.length) {
+        const applied = this.applySearchTokens(q, {
+          knex,
+          entity: entityType,
+          field: key,
+          hashes,
+          recordIdColumn,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope ?? null,
+        })
+        this.logSearchDebug('search:index-doc-filter', {
+          entity: entityType,
+          field: key,
+          tokens: tokens.tokens,
+          hashes,
+          applied,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope,
+        })
+        if (applied) return q
+      } else {
+        this.logSearchDebug('search:index-doc-skip-empty-hashes', {
+          entity: entityType,
+          field: key,
+          value,
+        })
+      }
+      return q
+    }
+    switch (op) {
+      case 'eq':
+        return q.where(text, '=', value as Knex.Value)
+      case 'ne':
+        return q.where(text, '!=', value as Knex.Value)
+      case 'in':
+        return q.whereIn(text as any, this.toArray(value) as readonly Knex.Value[])
+      case 'nin':
+        return q.whereNotIn(text as any, this.toArray(value) as readonly Knex.Value[])
+      case 'like':
+        return q.where(text, 'like', value as Knex.Value)
+      case 'ilike':
+        return q.where(text, 'ilike', value as Knex.Value)
+      case 'exists':
+        return value
+          ? q.whereRaw(`${text.toString()} is not null`)
+          : q.whereRaw(`${text.toString()} is null`)
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': {
+        const operator = op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<='
+        return q.where(text, operator, value as Knex.Value)
+      }
+      default:
+        return q
+    }
+  }
+
   private async queryCustomEntity<T = unknown>(entity: string, opts: QueryOptions = {}): Promise<QueryResult<T>> {
     const knex = this.getKnex()
     const alias = 'ce'
@@ -1149,10 +1296,16 @@ export class HybridQueryEngine implements QueryEngine {
       })
     }
 
-    // Determine CFs to include
+    // Determine CFs and l10n keys to include
     const cfKeys = new Set<string>()
-    for (const f of (opts.fields || [])) if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
-    for (const filter of normalizedFilters) if (typeof filter.field === 'string' && filter.field.startsWith('cf:')) cfKeys.add(filter.field.slice(3))
+    for (const f of (opts.fields || [])) {
+      if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
+      else if (typeof f === 'string' && f.startsWith('l10n:')) cfKeys.add(f)
+    }
+    for (const filter of normalizedFilters) {
+      if (typeof filter.field === 'string' && filter.field.startsWith('cf:')) cfKeys.add(filter.field.slice(3))
+      else if (typeof filter.field === 'string' && filter.field.startsWith('l10n:')) cfKeys.add(filter.field)
+    }
     if (opts.includeCustomFields === true) {
       try {
         const rows = await knex('custom_field_defs')
@@ -1340,7 +1493,7 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private customFieldKeysCacheKey(entityIds: string[], tenantId: string | null): string {
-    const sorted = entityIds.slice().sort().join(',')
+    const sorted = entityIds.slice().sort((a, b) => a.localeCompare(b)).join(',')
     return `${tenantId ?? '__none__'}|${sorted}`
   }
 
@@ -1417,6 +1570,7 @@ export class HybridQueryEngine implements QueryEngine {
     organizationIdOverride?: string | null
   ) {
     if (!this.isAutoReindexEnabled()) return
+
     const bus = this.resolveEventBus()
     if (!bus) return
     const payload = {

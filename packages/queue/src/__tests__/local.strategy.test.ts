@@ -23,7 +23,7 @@ describe('Queue - local strategy', () => {
 
   test('enqueue adds job to queue file', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'local')
-    const queuePath = path.join('.queue', 'test-queue', 'queue.json')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
 
     const jobId = await queue.enqueue({ value: 42 })
 
@@ -90,7 +90,7 @@ describe('Queue - local strategy', () => {
 
   test('clear removes all jobs from queue', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'local')
-    const queuePath = path.join('.queue', 'test-queue', 'queue.json')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
 
     await queue.enqueue({ value: 1 })
     await queue.enqueue({ value: 2 })
@@ -129,7 +129,7 @@ describe('Queue - local strategy', () => {
 
   test('queue name is used for directory', async () => {
     const queue = createQueue('my-custom-queue', 'local')
-    const queueDir = path.join('.queue', 'my-custom-queue')
+    const queueDir = path.join('.mercato', 'queue', 'my-custom-queue')
 
     await queue.enqueue({ data: 'test' })
 

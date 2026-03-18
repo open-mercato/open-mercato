@@ -40,7 +40,7 @@ export function compareVersions(a: string, b: string): number {
 export const upgradeActions: UpgradeActionDefinition[] = []
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {
-  return upgradeActions
+  return upgradeActions // NOSONAR — upgradeActions is populated at boot time by modules
     .filter((action) => compareVersions(action.version, version) <= 0)
     .sort((a, b) => compareVersions(a.version, b.version) || a.id.localeCompare(b.id))
 }

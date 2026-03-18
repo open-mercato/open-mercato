@@ -41,13 +41,6 @@ export type CatalogProductOptionSchema = {
   options: CatalogProductOptionDefinition[]
 }
 
-export type CatalogOfferContent = {
-  title?: string | null
-  description?: string | null
-}
-
-export type CatalogOfferLocalizedContent = Record<string, CatalogOfferContent>
-
 export type CatalogPricingScope = {
   channelId?: string | null
   offerId?: string | null

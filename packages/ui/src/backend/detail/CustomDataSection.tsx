@@ -19,6 +19,8 @@ import {
 import { ensureDictionaryEntries } from '@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
 type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
 
@@ -216,7 +218,7 @@ function formatFieldValue(
   return resolved
 }
 
-export function CustomDataSection({
+function CustomDataSectionImpl({
   entityId,
   entityIds,
   values,
@@ -449,7 +451,7 @@ export function CustomDataSection({
           className={
             editing
               ? 'opacity-100 transition-opacity duration-150'
-              : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100'
+              : 'opacity-100 md:opacity-0 transition-opacity duration-150 md:group-hover:opacity-100 focus-visible:opacity-100'
           }
         >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
@@ -465,7 +467,7 @@ export function CustomDataSection({
         {editing ? (
           <div
             ref={sectionRef}
-            className="rounded-lg border bg-card p-4"
+            className="rounded-lg border bg-card p-3 sm:p-4"
             onKeyDown={handleEditingKeyDown}
           >
             <CrudForm<Record<string, unknown>>
@@ -482,7 +484,7 @@ export function CustomDataSection({
         ) : (
           <div
             className={cn(
-              'rounded-lg border bg-muted/20 p-4 space-y-3 transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'rounded-lg border bg-muted/20 p-3 sm:p-4 space-y-2 sm:space-y-3 transition hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               hasFields && !loading ? 'cursor-pointer' : 'cursor-default',
             )}
             role={hasFields && !loading ? 'button' : undefined}
@@ -523,6 +525,20 @@ export function CustomDataSection({
           </div>
         )}
       </DataLoader>
+    </div>
+  )
+}
+
+export function CustomDataSection(props: CustomDataSectionProps) {
+  const handle = ComponentReplacementHandles.section('ui.detail', 'CustomDataSection')
+  const Resolved = useRegisteredComponent<CustomDataSectionProps>(
+    handle,
+    CustomDataSectionImpl as React.ComponentType<CustomDataSectionProps>,
+  )
+
+  return (
+    <div data-component-handle={handle}>
+      <Resolved {...props} />
     </div>
   )
 }

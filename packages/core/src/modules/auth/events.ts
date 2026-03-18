@@ -7,14 +7,14 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  */
 const events = [
   // Users
-  { id: 'auth.users.created', label: 'User Created', entity: 'users', category: 'crud' },
-  { id: 'auth.users.updated', label: 'User Updated', entity: 'users', category: 'crud' },
-  { id: 'auth.users.deleted', label: 'User Deleted', entity: 'users', category: 'crud' },
+  { id: 'auth.user.created', label: 'User Created', entity: 'user', category: 'crud' },
+  { id: 'auth.user.updated', label: 'User Updated', entity: 'user', category: 'crud' },
+  { id: 'auth.user.deleted', label: 'User Deleted', entity: 'user', category: 'crud' },
 
   // Roles
-  { id: 'auth.roles.created', label: 'Role Created', entity: 'roles', category: 'crud' },
-  { id: 'auth.roles.updated', label: 'Role Updated', entity: 'roles', category: 'crud' },
-  { id: 'auth.roles.deleted', label: 'Role Deleted', entity: 'roles', category: 'crud' },
+  { id: 'auth.role.created', label: 'Role Created', entity: 'role', category: 'crud' },
+  { id: 'auth.role.updated', label: 'Role Updated', entity: 'role', category: 'crud' },
+  { id: 'auth.role.deleted', label: 'Role Deleted', entity: 'role', category: 'crud' },
 
   // Authentication events
   { id: 'auth.login.success', label: 'Login Successful', category: 'lifecycle' },

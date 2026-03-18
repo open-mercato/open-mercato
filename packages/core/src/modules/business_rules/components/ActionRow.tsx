@@ -30,7 +30,7 @@ export function ActionRow({
   error,
 }: ActionRowProps) {
   const t = useT()
-  const actionTypes = getActionTypeOptions()
+  const actionTypes = getActionTypeOptions(t)
   const requiredFields = getRequiredConfigFields(action.type)
   const optionalFields = getOptionalConfigFields(action.type)
 

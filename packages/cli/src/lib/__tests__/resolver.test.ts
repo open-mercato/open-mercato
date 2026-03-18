@@ -4,24 +4,27 @@ import path from 'node:path'
 // which is not supported in Jest's CommonJS environment.
 // These tests verify the expected behavior through integration tests.
 
+// Helper to normalize paths for cross-platform comparison
+const normalizePath = (p: string) => p.replace(/\\/g, '/')
+
 describe('PackageResolver', () => {
   describe('path resolution logic', () => {
     it('should construct correct monorepo output path', () => {
       const rootDir = '/test/project'
       const outputDir = path.join(rootDir, 'generated')
-      expect(outputDir).toBe('/test/project/generated')
+      expect(normalizePath(outputDir)).toBe('/test/project/generated')
     })
 
     it('should construct correct production output path', () => {
       const rootDir = '/test/project'
       const outputDir = path.join(rootDir, '.mercato', 'generated')
-      expect(outputDir).toBe('/test/project/.mercato/generated')
+      expect(normalizePath(outputDir)).toBe('/test/project/.mercato/generated')
     })
 
     it('should construct correct modules config path', () => {
       const rootDir = '/test/project'
       const configPath = path.join(rootDir, 'src', 'modules.ts')
-      expect(configPath).toBe('/test/project/src/modules.ts')
+      expect(normalizePath(configPath)).toBe('/test/project/src/modules.ts')
     })
   })
 
@@ -30,7 +33,7 @@ describe('PackageResolver', () => {
       const rootDir = '/test/project'
       const moduleId = 'customers'
       const pkgBase = path.resolve(rootDir, 'packages/core/src/modules', moduleId)
-      expect(pkgBase).toContain('packages/core/src/modules/customers')
+      expect(normalizePath(pkgBase)).toContain('packages/core/src/modules/customers')
     })
 
     it('should construct correct onboarding module path in monorepo', () => {
@@ -38,14 +41,14 @@ describe('PackageResolver', () => {
       const moduleId = 'onboarding'
       const pkgName = 'onboarding'
       const pkgBase = path.resolve(rootDir, `packages/${pkgName}/src/modules`, moduleId)
-      expect(pkgBase).toContain('packages/onboarding/src/modules/onboarding')
+      expect(normalizePath(pkgBase)).toContain('packages/onboarding/src/modules/onboarding')
     })
 
     it('should construct correct app module path', () => {
       const rootDir = '/test/project'
       const moduleId = 'custom'
       const appBase = path.resolve(rootDir, 'src/modules', moduleId)
-      expect(appBase).toContain('src/modules/custom')
+      expect(normalizePath(appBase)).toContain('src/modules/custom')
     })
   })
 
@@ -78,7 +81,7 @@ describe('PackageResolver', () => {
       const outputDir = packageName === '@app'
         ? path.join(rootDir, 'generated')
         : path.join(rootDir, `packages/${packageName.replace('@open-mercato/', '')}`, 'generated')
-      expect(outputDir).toBe('/test/project/generated')
+      expect(normalizePath(outputDir)).toBe('/test/project/generated')
     })
 
     it('should return package generated dir for core', () => {
@@ -86,7 +89,7 @@ describe('PackageResolver', () => {
       const packageName = '@open-mercato/core'
       const pkgDir = packageName.replace('@open-mercato/', '')
       const outputDir = path.join(rootDir, `packages/${pkgDir}`, 'generated')
-      expect(outputDir).toBe('/test/project/packages/core/generated')
+      expect(normalizePath(outputDir)).toBe('/test/project/packages/core/generated')
     })
   })
 

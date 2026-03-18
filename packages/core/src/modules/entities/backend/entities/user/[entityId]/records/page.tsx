@@ -15,6 +15,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type RecordsResponse = {
   items: any[]
@@ -54,6 +55,7 @@ export default function RecordsPage({ params }: { params: { entityId?: string } 
   const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { data: cfDefs = [] } = useCustomFieldDefs(entityId, {
     enabled: Boolean(entityId),
     keyExtras: [scopeVersion],
@@ -341,10 +343,11 @@ export RECORD_ID="<record uuid>"`}</code></pre>
                 { id: 'edit', label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(String((row as any).id))}` },
                 { id: 'delete', label: 'Delete', destructive: true, onSelect: async () => {
                   try {
-                    if (typeof window !== 'undefined') {
-                      const ok = window.confirm('Delete this record?')
-                      if (!ok) return
-                    }
+                    const confirmed = await confirm({
+                      title: 'Delete this record?',
+                      variant: 'destructive',
+                    })
+                    if (!confirmed) return
                     const deleteCall = await apiCall(
                       `/api/entities/records?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(String((row as any).id))}`,
                       { method: 'DELETE' },
@@ -383,6 +386,7 @@ export RECORD_ID="<record uuid>"`}</code></pre>
           isLoading={loading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

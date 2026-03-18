@@ -45,21 +45,22 @@ export function DetailTabsLayout<TId extends string = string>({
           aria-label={navAriaLabel}
         >
           {tabs.map((tab) => (
-            <button
+            <Button
               key={tab.id}
-              type="button"
+              variant="ghost"
+              size="sm"
               role="tab"
               aria-selected={activeTab === tab.id}
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
+                'h-auto rounded-none border-b-2 px-0 py-1',
                 activeTab === tab.id
                   ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
               )}
             >
               {tab.label}
-            </button>
+            </Button>
           ))}
         </nav>
         {sectionAction ? (

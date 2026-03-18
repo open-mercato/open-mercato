@@ -6,6 +6,7 @@ import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
+  path: '/directory/tenants/lookup',
   GET: {
     requireAuth: false,
   },

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { z } from 'zod'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Button } from '../../primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
@@ -167,7 +167,7 @@ function AssignmentInputRow({
   onRemove: () => void
 }) {
   return (
-    <div className="grid gap-2 rounded-md border border-border/70 bg-background p-3 md:grid-cols-[1.2fr_1.2fr_1.6fr_1fr_auto]">
+    <div className="grid grid-cols-1 gap-2 rounded-md border border-border/70 bg-background p-3 sm:grid-cols-2 lg:grid-cols-[1.2fr_1.2fr_1.6fr_1fr_auto]">
       <div className="space-y-1">
         <label className="text-xs font-medium">{labels.type}</label>
         <Input
@@ -549,23 +549,25 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
               <div className="rounded border">
                 <div className="flex flex-wrap gap-4 border-b px-3 py-2 text-sm font-medium" role="tablist">
                   {(['preview', 'resize'] as const).map((tab) => (
-                    <button
+                    <Button
                       key={tab}
                       type="button"
+                      variant="ghost"
+                      size="sm"
                       role="tab"
                       aria-selected={imageTab === tab}
                       onClick={() => setImageTab(tab)}
                       className={cn(
-                        'border-b-2 px-0 py-1 transition-colors',
+                        'h-auto -mb-px rounded-none border-b-2 border-transparent px-0 py-1',
                         imageTab === tab
                           ? 'border-primary text-foreground'
-                          : 'border-transparent text-muted-foreground hover:text-foreground',
+                          : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
                       {tab === 'preview'
                         ? t('attachments.library.metadata.preview', 'Preview')
                         : t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="space-y-3 p-3">

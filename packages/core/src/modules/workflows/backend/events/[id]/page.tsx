@@ -8,6 +8,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 
@@ -121,34 +122,25 @@ export default function WorkflowEventDetailPage() {
     <Page>
       <PageBody>
         <div className="space-y-6">
-          {/* Header */}
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/backend/events"
-                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-              >
-                <span aria-hidden className="mr-1 text-base">←</span>
-                <span className="sr-only">{t('workflows.events.backToList', 'Back to events')}</span>
-              </Link>
-              <div className="space-y-1">
-                <p className="text-xs uppercase text-muted-foreground">
-                  {t('workflows.events.detail.type', 'Workflow event')}
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold text-foreground">{event.eventType}</h1>
-                  <span className="font-mono text-sm text-muted-foreground">#{event.id.slice(0, 8)}</span>
-                </div>
+          <FormHeader
+            mode="detail"
+            backHref="/backend/events"
+            backLabel={t('workflows.events.backToList', 'Back to events')}
+            entityTypeLabel={t('workflows.events.detail.type', 'Workflow event')}
+            title={
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{event.eventType}</span>
+                <span className="font-mono text-sm text-muted-foreground">#{event.id.slice(0, 8)}</span>
               </div>
-            </div>
-            <span
-              className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${getEventTypeBadgeClass(
-                event.eventType
-              )}`}
-            >
-              {event.eventType}
-            </span>
-          </div>
+            }
+            statusBadge={
+              <span
+                className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${getEventTypeBadgeClass(event.eventType)}`}
+              >
+                {event.eventType}
+              </span>
+            }
+          />
 
           {/* Event Summary */}
           <div className="rounded-lg border bg-card p-6">

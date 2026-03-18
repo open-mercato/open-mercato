@@ -129,8 +129,6 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     fields: [
       { field: 'command_id' },
       { field: 'action_label' },
-      { field: 'resource_kind' },
-      { field: 'resource_id' },
       { field: 'command_payload' },
       { field: 'snapshot_before' },
       { field: 'snapshot_after' },
@@ -145,6 +143,10 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
       { field: 'fields_json' },
       { field: 'context_json' },
     ],
+  },
+  {
+    entityId: 'integrations:integration_credentials',
+    fields: [{ field: 'credentials' }],
   },
   {
     entityId: 'staff:staff_leave_request',

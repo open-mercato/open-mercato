@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { z } from 'zod'
 import { sendSignal } from '../../../../lib/signal-handler'
+import {
+  workflowsTag,
+  sendSignalRequestSchema,
+  sendSignalResponseSchema,
+  workflowErrorSchema,
+} from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -126,4 +133,30 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: workflowsTag,
+  summary: 'Send signal to workflow instance',
+  methods: {
+    POST: {
+      summary: 'Send signal to specific workflow',
+      description: 'Sends a signal to a specific workflow instance waiting for a signal. The workflow must be in PAUSED status and waiting for the specified signal.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: sendSignalRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Signal sent successfully', schema: sendSignalResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request body or signal name mismatch', schema: workflowErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
+        { status: 403, description: 'Insufficient permissions', schema: workflowErrorSchema },
+        { status: 404, description: 'Instance or definition not found', schema: workflowErrorSchema },
+        { status: 409, description: 'Workflow not paused or not waiting for signal', schema: workflowErrorSchema },
+        { status: 500, description: 'Internal server error or transition failed', schema: workflowErrorSchema },
+      ],
+    },
+  },
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { formatDateTime } from './utils'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 export function normalizeCustomFieldKey(key: string | null | undefined): string {
   if (typeof key !== 'string') return ''

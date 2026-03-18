@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useEffect } from 'react'
+import { useCallback, useMemo, useEffect, useState } from 'react'
 import {
   ReactFlow,
   Node,
@@ -23,6 +23,7 @@ import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
 import { useTheme } from '@open-mercato/ui/theme'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 // NOTE: ReactFlow styles should be imported in the page that uses this component
 // or in a global CSS file. Import: '@xyflow/react/dist/style.css'
@@ -61,6 +62,7 @@ export function WorkflowGraph({
   className = '',
   height = '600px',
 }: WorkflowGraphProps) {
+  const t = useT()
   // Use ReactFlow hooks for node and edge state management
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
@@ -69,6 +71,20 @@ export function WorkflowGraph({
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
   const backgroundDotColor = isDark ? '#374151' : '#e5e7eb'
+  const [isCompactViewport, setIsCompactViewport] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mediaQuery = window.matchMedia('(max-width: 1279px)')
+    const updateViewportMode = () => setIsCompactViewport(mediaQuery.matches)
+
+    updateViewportMode()
+    mediaQuery.addEventListener('change', updateViewportMode)
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateViewportMode)
+    }
+  }, [])
 
   // Sync internal state when external state changes (e.g., when parent adds nodes)
   useEffect(() => {
@@ -163,7 +179,7 @@ export function WorkflowGraph({
         fitView
         fitViewOptions={{
           padding: 0.2,
-          maxZoom: 1,
+          maxZoom: isCompactViewport ? 0.9 : 1,
         }}
         minZoom={0.1}
         maxZoom={2}
@@ -195,40 +211,42 @@ export function WorkflowGraph({
           showZoom={true}
           showFitView={true}
           showInteractive={false}
-          position="top-right"
-          className="!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground [&>button:hover]:!bg-muted"
+          position={isCompactViewport ? 'bottom-right' : 'top-right'}
+          className={`!bg-card !border-border !shadow-md [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground [&>button:hover]:!bg-muted ${isCompactViewport ? 'scale-90 origin-bottom-right' : ''}`}
         />
 
         {/* Mini-map for navigation in large workflows */}
-        <MiniMap
-          nodeStrokeWidth={3}
-          nodeColor={(node) => {
-            // Color nodes by status - using status-based colors
-            const status = (node.data?.status || 'not_started') as keyof typeof STATUS_COLORS
-            return STATUS_COLORS[status]?.hex || STATUS_COLORS.not_started.hex
-          }}
-          maskColor="rgba(0, 0, 0, 0.1)"
-          position="bottom-left"
-          className="!bg-card !border !border-border !rounded-lg"
-        />
+        {!isCompactViewport && (
+          <MiniMap
+            nodeStrokeWidth={3}
+            nodeColor={(node) => {
+              // Color nodes by status - using status-based colors
+              const status = (node.data?.status || 'not_started') as keyof typeof STATUS_COLORS
+              return STATUS_COLORS[status]?.hex || STATUS_COLORS.not_started.hex
+            }}
+            maskColor="rgba(0, 0, 0, 0.1)"
+            position="bottom-left"
+            className="!bg-card !border !border-border !rounded-lg"
+          />
+        )}
 
         {/* Info panel */}
-        {!editable && (
+        {!editable && !isCompactViewport && (
           <Panel position="top-left" style={{ margin: 10 }}>
             <div className="bg-card rounded-lg shadow-sm border border-border px-4 py-2">
               <p className="text-sm text-muted-foreground font-medium">
-                Workflow Visualization
+                {t('workflows.graph.visualization')}
               </p>
             </div>
           </Panel>
         )}
 
-        {editable && (
+        {editable && !isCompactViewport && (
           <Panel position="top-left" style={{ margin: 10 }}>
             <Alert variant="info" className="max-w-sm">
               <Edit3 className="size-4" />
               <AlertDescription className="font-medium">
-                Edit Mode: Drag nodes to reposition
+                {t('workflows.graph.editModeInfo')}
               </AlertDescription>
             </Alert>
           </Panel>

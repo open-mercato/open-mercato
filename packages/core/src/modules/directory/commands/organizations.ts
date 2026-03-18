@@ -13,6 +13,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,
@@ -23,6 +24,8 @@ import {
   buildChanges,
 } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
+import { slugify } from '@open-mercato/shared/lib/slugify'
 
 export const organizationCrudEvents: CrudEventsConfig = {
   module: 'directory',
@@ -78,6 +81,7 @@ type OrganizationUndoSnapshot = {
   id: string
   tenantId: string | null
   name: string
+  slug?: string | null
   isActive: boolean
   parentId: string | null
   childParents: ChildParentSnapshot[]
@@ -113,6 +117,7 @@ function serializeOrganization(entity: Organization, custom?: Record<string, unk
     id: String(entity.id),
     tenantId: resolveTenantIdFromEntity(entity),
     name: entity.name,
+    slug: entity.slug ?? null,
     isActive: !!entity.isActive,
     parentId: entity.parentId ?? null,
     ancestorIds: Array.isArray(entity.ancestorIds) ? [...entity.ancestorIds] : [],
@@ -136,6 +141,7 @@ function captureOrganizationSnapshots(
       id: String(entity.id),
       tenantId,
       name: entity.name,
+      slug: entity.slug ?? null,
       isActive: !!entity.isActive,
       parentId: entity.parentId ?? null,
       childParents: (childParents ?? []).map((entry) => ({
@@ -245,6 +251,24 @@ async function clearRemovedChildren(em: EntityManager, tenantId: string, recordI
   await em.persistAndFlush(toPersist)
 }
 
+async function resolveUniqueSlug(em: EntityManager, tenantId: string, baseSlug: string, excludeId?: string): Promise<string> {
+  let candidate = baseSlug
+  let suffix = 0
+  const maxAttempts = 50
+  while (suffix < maxAttempts) {
+    const filter: FilterQuery<Organization> = {
+      tenant: tenantId,
+      slug: candidate,
+      deletedAt: null,
+    } as unknown as FilterQuery<Organization>
+    const existing = await em.findOne(Organization, filter)
+    if (!existing || (excludeId && String(existing.id) === excludeId)) return candidate
+    suffix += 1
+    candidate = `${baseSlug}-${suffix}`
+  }
+  return `${baseSlug}-${Date.now()}`
+}
+
 const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
   id: 'directory.organizations.create',
   async execute(rawInput, ctx) {
@@ -264,12 +288,15 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const childParentsBefore = await loadChildParentSnapshots(em, tenantId, childIds)
 
     const tenantRef = em.getReference(Tenant, tenantId)
+    const baseSlug = parsed.slug ? parsed.slug : slugify(parsed.name)
+    const slug = baseSlug ? await resolveUniqueSlug(em, tenantId, baseSlug) : null
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const organization = await de.createOrmEntity({
       entity: Organization,
       data: {
         tenant: tenantRef,
         name: parsed.name,
+        slug,
         isActive: parsed.isActive ?? true,
         parentId,
       },
@@ -307,7 +334,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     return organization
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -320,7 +347,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const meta = getUndoMeta(result)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -344,7 +371,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractOrganizationUndoPayload(logEntry)
+    const payload = extractUndoPayload<OrganizationUndoPayload>(logEntry)
     const after = payload?.after
     const childrenBefore = payload?.childrenBefore ?? []
     if (!after) return
@@ -443,12 +470,17 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     ])
     const childParentsBefore = await loadChildParentSnapshots(em, tenantId, combinedChildIds)
 
+    let resolvedSlug: string | null | undefined
+    if (parsed.slug !== undefined) {
+      resolvedSlug = parsed.slug ? await resolveUniqueSlug(em, tenantId, parsed.slug, parsed.id) : parsed.slug
+    }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const organization = await de.updateOrmEntity({
       entity: Organization,
       where: { id: parsed.id, deletedAt: null } as FilterQuery<Organization>,
       apply: (entity) => {
         if (parsed.name !== undefined) entity.name = parsed.name
+        if (resolvedSlug !== undefined) entity.slug = resolvedSlug
         if (parsed.isActive !== undefined) entity.isActive = parsed.isActive
         entity.parentId = parentId
       },
@@ -487,7 +519,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     return organization
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -502,7 +534,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     const meta = getUndoMeta(result)
     const beforeSnapshots = snapshots.before as OrganizationSnapshots | undefined
     const beforeRecord = beforeSnapshots?.view ?? null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tenantId = resolveTenantIdFromEntity(result)
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.directory.organization,
@@ -511,7 +543,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       organizationId: String(result.id),
     })
     const after = serializeOrganization(result, custom)
-    const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'isActive', 'parentId'])
+    const changes = buildChanges(beforeRecord, after as Record<string, unknown>, ['name', 'slug', 'isActive', 'parentId'])
     const customDiff = diffCustomFieldChanges(beforeRecord?.custom, custom)
     for (const [key, diff] of Object.entries(customDiff)) {
       changes[`cf_${key}`] = diff
@@ -531,7 +563,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractOrganizationUndoPayload(logEntry)
+    const payload = extractUndoPayload<OrganizationUndoPayload>(logEntry)
     const before = payload?.before
     const after = payload?.after
     if (!before) return
@@ -544,6 +576,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
       where: { id: before.id } as FilterQuery<Organization>,
       apply: (entity) => {
         entity.name = before.name
+        if (before.slug !== undefined) entity.slug = before.slug
         entity.isActive = before.isActive
         entity.parentId = before.parentId
       },
@@ -675,7 +708,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractOrganizationUndoPayload(logEntry)
+    const payload = extractUndoPayload<OrganizationUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
     const tenantId = before.tenantId
@@ -687,6 +720,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
       organization.deletedAt = null
       organization.isActive = before.isActive
       organization.name = before.name
+      if (before.slug !== undefined) organization.slug = before.slug
       organization.parentId = before.parentId
       await em.flush()
       if (tenantId) setInternalTenantId(organization, tenantId)
@@ -696,6 +730,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
         data: {
           id: before.id,
           name: before.name,
+          slug: before.slug ?? null,
           tenant: tenantId ? em.getReference(Tenant, tenantId) : undefined,
           isActive: before.isActive,
           parentId: before.parentId,
@@ -756,28 +791,9 @@ function setUndoMeta(entity: Organization, meta: Partial<OrganizationUndoMeta>) 
   Reflect.set(entity, UNDO_META_KEY, { ...current, ...meta })
 }
 
-function extractOrganizationUndoPayload(logEntry: { commandPayload?: unknown }): OrganizationUndoPayload | null {
-  if (!logEntry || typeof logEntry !== 'object') return null
-  const payload = logEntry.commandPayload as { undo?: OrganizationUndoPayload } | undefined
-  if (!payload || typeof payload !== 'object') return null
-  const undo = payload.undo
-  if (!undo || typeof undo !== 'object') return null
-  return {
-    before: undo.before ?? null,
-    after: undo.after ?? null,
-    childrenBefore: undo.childrenBefore ?? null,
-  }
-}
-
 registerCommand(createOrganizationCommand)
 registerCommand(updateOrganizationCommand)
 registerCommand(deleteOrganizationCommand)
-
-function toOptionalString(value: unknown): string | null {
-  if (typeof value === 'string' && value.trim()) return value
-  if (typeof value === 'number' || typeof value === 'bigint') return String(value)
-  return null
-}
 
 function setInternalTenantId(entity: Organization, tenantId: string) {
   Reflect.set(entity, '__tenantId', tenantId)

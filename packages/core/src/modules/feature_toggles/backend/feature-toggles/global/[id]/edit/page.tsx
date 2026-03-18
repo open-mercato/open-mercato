@@ -38,6 +38,7 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
         <CrudForm
           title={t('feature_toggles.form.title.edit', 'Edit Feature Toggle')}
           backHref="/backend/feature-toggles/global"
+          versionHistory={{ resourceKind: 'feature_toggles.global', resourceId: id ? String(id) : '' }}
           fields={fields}
           entityId={E.feature_toggles.feature_toggle}
           initialValues={initialValues ?? {}}

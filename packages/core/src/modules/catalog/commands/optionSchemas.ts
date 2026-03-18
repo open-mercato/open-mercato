@@ -108,12 +108,11 @@ const createOptionSchemaCommand: CommandHandler<
     return { schemaId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOptionSchemaSnapshot(em, result.schemaId)
   },
-  buildLog: async ({ result, ctx }) => {
-    const em = ctx.container.resolve('em') as EntityManager
-    const after = await loadOptionSchemaSnapshot(em, result.schemaId)
+  buildLog: async ({ snapshots }) => {
+    const after = snapshots.after as OptionSchemaSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
     return {
@@ -190,13 +189,12 @@ const updateOptionSchemaCommand: CommandHandler<
     return { schemaId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     return loadOptionSchemaSnapshot(em, result.schemaId)
   },
-  buildLog: async ({ result, ctx, snapshots }) => {
-    const em = ctx.container.resolve('em') as EntityManager
+  buildLog: async ({ snapshots }) => {
     const before = snapshots.before as OptionSchemaSnapshot | undefined
-    const after = await loadOptionSchemaSnapshot(em, result.schemaId)
+    const after = snapshots.after as OptionSchemaSnapshot | undefined
     if (!before || !after) return null
     const { translate } = await resolveTranslations()
     return {

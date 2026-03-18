@@ -21,13 +21,17 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Building2, CreditCard, Mail, Pencil, Plus, Store, Trash2, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
@@ -36,6 +40,7 @@ import { SalesDocumentPaymentsSection } from '@open-mercato/core/modules/sales/c
 import { SalesDocumentAdjustmentsSection } from '@open-mercato/core/modules/sales/components/documents/AdjustmentsSection'
 import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/components/documents/AdjustmentDialog'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
+import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -57,6 +62,17 @@ import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/det
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+
+function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
+  if (!currency) return amount.toLocaleString()
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+  } catch {
+    return `${amount.toLocaleString()} ${currency}`
+  }
+}
 
 function CurrencyInlineEditor({
   label,
@@ -857,6 +873,8 @@ type DocumentRecord = {
 }
 
 type DocumentUpdateResult = {
+  orderNumber?: string | null
+  quoteNumber?: string | null
   externalReference?: string | null
   customerReference?: string | null
   comment?: string | null
@@ -1837,13 +1855,16 @@ function StatusInlineEditor({
 export default function SalesDocumentDetailPage({
   params,
   initialKind,
+  includeAmountInMessageMetadata,
 }: {
   params: { id: string }
   initialKind?: 'order' | 'quote'
+  includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [loading, setLoading] = React.useState(true)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
@@ -1860,6 +1881,7 @@ export default function SalesDocumentDetailPage({
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
+  const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -1884,6 +1906,43 @@ export default function SalesDocumentDetailPage({
   const [statusLoading, setStatusLoading] = React.useState(false)
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
+  const mutationContextId = React.useMemo(
+    () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
+    [kind, record?.id],
+  )
+  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    kind: SalesDocumentKind
+    record: DocumentRecord | null
+    formId: string
+    resourceKind: string
+    resourceId?: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const detailInjectionContext = React.useMemo(
+    () => ({
+      kind,
+      record,
+      formId: mutationContextId,
+      resourceKind: `sales.${kind}`,
+      resourceId: record?.id ?? undefined,
+      retryLastMutation,
+    }),
+    [kind, mutationContextId, record, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: detailInjectionContext,
+      })
+    },
+    [detailInjectionContext, runMutation],
+  )
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
   const scopeVersion = useOrganizationScopeVersion()
@@ -1900,6 +1959,42 @@ export default function SalesDocumentDetailPage({
     () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
     [t]
   )
+
+  React.useEffect(() => {
+    let active = true
+    async function loadNumberPermission() {
+      try {
+        const call = await apiCall<{ granted?: unknown[] }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ features: ['sales.documents.number.edit'] }),
+          }
+        )
+        if (!active) return
+        const granted = Array.isArray(call.result?.granted)
+          ? call.result?.granted.map((item) => String(item))
+          : []
+        const has = granted.some((feature) => {
+          if (feature === '*') return true
+          if (feature === 'sales.documents.number.edit') return true
+          if (feature.endsWith('.*')) {
+            const prefix = feature.slice(0, -2)
+            return 'sales.documents.number.edit' === prefix || 'sales.documents.number.edit'.startsWith(`${prefix}.`)
+          }
+          return false
+        })
+        setCanEditNumber(Boolean(call.ok && has))
+      } catch {
+        if (active) setCanEditNumber(false)
+      }
+    }
+    loadNumberPermission().catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [scopeVersion])
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -2487,11 +2582,15 @@ export default function SalesDocumentDetailPage({
   React.useEffect(() => {
     if (kind !== 'order') return
     ensureShippingMethodOption(record?.shippingMethodId ?? null, record?.shippingMethodSnapshot ?? null)
-    ensurePaymentMethodOption(record?.paymentMethodId ?? null, record?.paymentMethodSnapshot ?? null)
+    const paymentMethodSnapshotOrCode =
+      record?.paymentMethodSnapshot ??
+      (record?.paymentMethodCode ? { code: record.paymentMethodCode } : null)
+    ensurePaymentMethodOption(record?.paymentMethodId ?? null, paymentMethodSnapshotOrCode)
   }, [
     ensurePaymentMethodOption,
     ensureShippingMethodOption,
     kind,
+    record?.paymentMethodCode,
     record?.paymentMethodId,
     record?.paymentMethodSnapshot,
     record?.shippingMethodId,
@@ -2636,6 +2735,7 @@ export default function SalesDocumentDetailPage({
     return statusOptions
   }, [kind, statusOptions])
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
+  const numberEditorKey = `${record?.id ?? 'unknown'}:${number ?? ''}`
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
@@ -2646,6 +2746,11 @@ export default function SalesDocumentDetailPage({
       : null
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
+  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null)
+  const messagePreviewMetadata: Record<string, string> = {}
+  if (includeAmountInMessageMetadata && previewAmount) {
+    messagePreviewMetadata[t('sales.documents.detail.totals.grandTotalGross')] = previewAmount
+  }
   const contactRecordId = customerSnapshot?.contact?.id ?? customerSnapshot?.customer?.id ?? record?.customerEntityId ?? null
   const resolveAdjustmentLabel = React.useCallback(
     (row: AdjustmentRowData) => {
@@ -2880,17 +2985,22 @@ export default function SalesDocumentDetailPage({
         throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-      return apiCallOrThrow<DocumentUpdateResult>(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: record.id, ...patch }),
-        },
-        { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+      const mutation = { id: record.id, ...patch }
+      return runMutationWithContext(
+        () =>
+          apiCallOrThrow<DocumentUpdateResult>(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(mutation),
+            },
+            { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+          ),
+        mutation,
       )
     },
-    [kind, record, t]
+    [kind, record, runMutationWithContext, t]
   )
 
   const handleUpdateCurrency = React.useCallback(
@@ -2985,7 +3095,7 @@ export default function SalesDocumentDetailPage({
         throw err
       }
     },
-    [kind, record, t, updateDocument]
+    [canEditNumber, kind, record, t, updateDocument]
   )
 
   const handleUpdateComment = React.useCallback(
@@ -3310,12 +3420,13 @@ export default function SalesDocumentDetailPage({
           !!record.shippingAddressSnapshot ||
           !!record.billingAddressSnapshot
         if (hasAddresses) {
-          const confirmed = window.confirm(
-            t(
+          const confirmed = await confirm({
+            title: t(
               'sales.documents.detail.customerChangeConfirm',
               'Change the customer? Existing shipping and billing addresses will be unassigned.'
-            )
-          )
+            ),
+            variant: 'default',
+          })
           if (!confirmed) return
         }
       }
@@ -3424,89 +3535,171 @@ export default function SalesDocumentDetailPage({
   )
 
   const handleGenerateNumber = React.useCallback(async () => {
-    setGenerating(true)
-    const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind }),
-    })
-    if (call.ok && call.result?.number) {
-      setRecord((prev) => (prev ? { ...prev, orderNumber: kind === 'order' ? call.result?.number : prev.orderNumber, quoteNumber: kind === 'quote' ? call.result?.number : prev.quoteNumber } : prev))
-      flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
-    } else {
-      flash(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'), 'error')
+    if (!canEditNumber) {
+      const message = t('sales.documents.detail.numberEditForbidden', 'You cannot edit document numbers.')
+      flash(message, 'error')
+      throw new Error(message)
     }
-    setGenerating(false)
-  }, [kind, t])
+    setGenerating(true)
+    try {
+      const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind }),
+      })
+      const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
+      if (!call.ok || !nextNumber) {
+        throw new Error(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'))
+      }
+      const payload = kind === 'order' ? { orderNumber: nextNumber } : { quoteNumber: nextNumber }
+      const update = await updateDocument(payload)
+      const savedNumber =
+        kind === 'order'
+          ? (typeof update.result?.orderNumber === 'string' ? update.result.orderNumber : nextNumber)
+          : (typeof update.result?.quoteNumber === 'string' ? update.result.quoteNumber : nextNumber)
+      setRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              orderNumber: kind === 'order' ? savedNumber : prev.orderNumber,
+              quoteNumber: kind === 'quote' ? savedNumber : prev.quoteNumber,
+            }
+          : prev
+      )
+      setNumberEditing(false)
+      flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.detail.numberGenerateError', 'Could not generate number.')
+      flash(message, 'error')
+      throw err
+    } finally {
+      setGenerating(false)
+    }
+  }, [canEditNumber, kind, t, updateDocument])
+
+  const handleUpdateNumber = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      if (!canEditNumber) {
+        const message = t('sales.documents.detail.numberEditForbidden', 'You cannot edit document numbers.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
+      const normalized = typeof next === 'string' ? next.trim() : ''
+      if (!normalized.length) {
+        const message = t('sales.documents.detail.numberRequired', 'Document number is required.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
+      try {
+        const payload = kind === 'order' ? { orderNumber: normalized } : { quoteNumber: normalized }
+        const call = await updateDocument(payload)
+        const savedNumber =
+          kind === 'order'
+            ? (typeof call.result?.orderNumber === 'string' ? call.result.orderNumber : normalized)
+            : (typeof call.result?.quoteNumber === 'string' ? call.result.quoteNumber : normalized)
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                orderNumber: kind === 'order' ? savedNumber : prev.orderNumber,
+                quoteNumber: kind === 'quote' ? savedNumber : prev.quoteNumber,
+              }
+            : prev
+        )
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [canEditNumber, kind, record, t, updateDocument]
+  )
 
   const handleConvert = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      const call = await apiCallOrThrow<{ orderId?: string }>(
-        '/api/sales/quotes/convert',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quoteId: record.id }),
-        },
-        { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
-      )
-      const orderId = call.result?.orderId ?? record.id
-      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-      router.replace(`/backend/sales/orders/${orderId}`)
+      await runMutationWithContext(async () => {
+        const call = await apiCallOrThrow<{ orderId?: string }>(
+          '/api/sales/quotes/convert',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quoteId: record.id }),
+          },
+          { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+        )
+        const orderId = call.result?.orderId ?? record.id
+        flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+        router.replace(`/backend/sales/orders/${orderId}`)
+      }, { quoteId: record.id })
     } catch (err) {
       console.error('sales.documents.convert', err)
       flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, t])
+  }, [kind, record, router, runMutationWithContext, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
     setSending(true)
     try {
-      await apiCallOrThrow('/api/sales/quotes/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quoteId: record.id, validForDays }),
-      })
-      flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
-      setSendOpen(false)
-      // Reload the document to reflect status changes.
-      const updated = await fetchDocumentByKind(record.id, 'quote')
-      if (updated) setRecord(updated)
+      await runMutationWithContext(async () => {
+        await apiCallOrThrow('/api/sales/quotes/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quoteId: record.id, validForDays }),
+        })
+        flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
+        setSendOpen(false)
+        const updated = await fetchDocumentByKind(record.id, 'quote')
+        if (updated) setRecord(updated)
+      }, { quoteId: record.id, validForDays })
     } catch (err) {
       console.error('sales.quotes.send', err)
       flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
     } finally {
       setSending(false)
     }
-  }, [fetchDocumentByKind, flash, kind, record, t, validForDays])
+  }, [fetchDocumentByKind, kind, record, runMutationWithContext, t, validForDays])
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
-    const confirmed = window.confirm(
-      t('sales.documents.detail.deleteConfirm', 'Delete this document? This cannot be undone.')
-    )
-    if (!confirmed) return
+    const ok = await confirm({
+      title: t('sales.documents.detail.deleteConfirm', 'Delete this document? This cannot be undone.'),
+      variant: 'default',
+    })
+    if (!ok) return
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-    const call = await apiCall(endpoint, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: record.id }),
-    })
-    if (call.ok) {
+    try {
+      await runMutationWithContext(async () => {
+        await apiCallOrThrow(endpoint, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: record.id }),
+        }, {
+          errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
+        })
+      }, { id: record.id })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
-    } else {
+    } catch (err) {
+      console.error('sales.documents.delete', err)
       flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
     }
     setDeleting(false)
-  }, [kind, record, router, t])
+  }, [kind, record, router, runMutationWithContext, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -3713,11 +3906,9 @@ export default function SalesDocumentDetailPage({
     []
   )
 
-  const injectionContext = React.useMemo(() => ({ kind, record }), [kind, record])
   const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
-  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
-    context: injectionContext,
+    context: detailInjectionContext,
     triggerOnLoad: true,
   })
   const injectedTabs = React.useMemo(
@@ -3726,11 +3917,13 @@ export default function SalesDocumentDetailPage({
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const id = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title
+          const label = widget.placement?.groupLabel
+            ? t(widget.placement.groupLabel, widget.module.metadata.title)
+            : widget.module.metadata.title
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
-              context={injectionContext}
+              context={detailInjectionContext}
               data={record}
               onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
             />
@@ -3738,7 +3931,7 @@ export default function SalesDocumentDetailPage({
           return { id, label, priority, render }
         })
         .sort((a, b) => b.priority - a.priority),
-    [injectedTabWidgets, injectionContext, record, setRecord],
+    [detailInjectionContext, injectedTabWidgets, record, setRecord],
   )
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
@@ -3753,6 +3946,7 @@ export default function SalesDocumentDetailPage({
         tabs.push(
           { id: 'shipments', label: t('sales.documents.detail.tabs.shipments', 'Shipments') },
           { id: 'payments', label: t('sales.documents.detail.tabs.payments', 'Payments') },
+          { id: 'returns', label: t('sales.documents.detail.tabs.returns', 'Returns') },
         )
       }
       tabs.push({ id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') })
@@ -3891,6 +4085,10 @@ export default function SalesDocumentDetailPage({
         title: t('sales.documents.detail.empty.payments.title', 'No payments yet.'),
         description: t('sales.documents.detail.empty.payments.description', 'Payments are work in progress.'),
       },
+      returns: {
+        title: t('sales.returns.empty.title', 'No returns yet.'),
+        description: t('sales.returns.empty.description', 'Create a return to generate credit adjustments for returned items.'),
+      },
       adjustments: {
         title: t('sales.documents.detail.empty.adjustments.title', 'No adjustments yet.'),
         description: t(
@@ -3981,6 +4179,18 @@ export default function SalesDocumentDetailPage({
         />
       )
     }
+    if (activeTab === 'returns') {
+      if (kind !== 'order') {
+        const placeholder = tabEmptyStates.returns
+        return <TabEmptyState title={placeholder.title} description={placeholder.description} />
+      }
+      return (
+        <SalesReturnsSection
+          orderId={record.id}
+          currencyCode={record.currencyCode ?? null}
+        />
+      )
+    }
     if (activeTab === 'adjustments') {
       return (
         <SalesDocumentAdjustmentsSection
@@ -4012,21 +4222,9 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onPaymentsChange={(payments) => setHasPayments(payments.length > 0)}
-          onTotalsChange={(totals) =>
-            setRecord((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    paidTotalAmount:
-                      totals?.paidTotalAmount ?? prev.paidTotalAmount ?? null,
-                    refundedTotalAmount:
-                      totals?.refundedTotalAmount ?? prev.refundedTotalAmount ?? null,
-                    outstandingAmount:
-                      totals?.outstandingAmount ?? prev.outstandingAmount ?? null,
-                  }
-                : prev
-            )
-          }
+          onTotalsChange={() => {
+            void refreshDocumentTotals()
+          }}
         />
       )
     }
@@ -4077,15 +4275,17 @@ export default function SalesDocumentDetailPage({
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       try {
-        await apiCallOrThrow(
-          endpoint,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: record.id, customFields: customPayload }),
-          },
-          { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
-        )
+        await runMutationWithContext(async () => {
+          await apiCallOrThrow(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: record.id, customFields: customPayload }),
+            },
+            { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
+          )
+        }, { id: record.id, customFields: customPayload })
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
         const mappedErrors = fieldErrors
@@ -4112,7 +4312,7 @@ export default function SalesDocumentDetailPage({
       )
       flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runMutationWithContext, t],
   )
 
   const loadTagOptions = React.useCallback(
@@ -4184,20 +4384,22 @@ export default function SalesDocumentDetailPage({
       if (!record) return
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
-      await apiCallOrThrow(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: record.id, tags: tagIds }),
-        },
-        { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
-      )
+      await runMutationWithContext(async () => {
+        await apiCallOrThrow(
+          endpoint,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: record.id, tags: tagIds }),
+          },
+          { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
+        )
+      }, { id: record.id, tags: tagIds })
       setRecord((prev) => (prev ? { ...prev, tags: next } : prev))
       setTags(next)
       flash(t('sales.documents.detail.tags.success', 'Tags updated.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runMutationWithContext, t],
   )
 
   if (loading) {
@@ -4246,107 +4448,111 @@ export default function SalesDocumentDetailPage({
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
-              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-            >
-              <span aria-hidden className="mr-1 text-base">←</span>
-              <span className="sr-only">{t('sales.documents.detail.back', 'Back to documents')}</span>
-            </Link>
-            <div className="space-y-1">
-              <p className="text-xs uppercase text-muted-foreground">
-                {kind === 'order'
-                  ? t('sales.documents.detail.order', 'Sales order')
-                  : t('sales.documents.detail.quote', 'Sales quote')}
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <InlineTextEditor
-                  label={t('sales.documents.detail.number', 'Document number')}
-                  value={number}
-                  emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
-                  onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving number will land soon.'), 'info')}
-                  variant="plain"
-                  activateOnClick
-                  hideLabel
-                  triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
-                  containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
-                  renderDisplay={({ value: displayValue, emptyLabel }) =>
-                    displayValue && displayValue.length ? (
-                      <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
-                    ) : (
-                      <span className="text-muted-foreground">{emptyLabel}</span>
-                    )
-                  }
-                  onEditingChange={setNumberEditing}
-                  renderActions={
-                    numberEditing ? (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => void handleGenerateNumber()}
-                        disabled={generating}
-                        className="h-9 w-9"
-                      >
-                        {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                        <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
-                      </Button>
-                    ) : null
-              }
-                />
-              </div>
-              {record.status ? (
-                <Badge variant="secondary" className="inline-flex items-center gap-2">
-                  {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
-                  <span className="inline-flex items-center gap-1">
-                    {statusDisplay?.color
-                      ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
-                      : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+        <FormHeader
+          mode="detail"
+          backHref={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
+          backLabel={t('sales.documents.detail.back', 'Back to documents')}
+          utilityActions={record ? (
+            <>
+              <SendObjectMessageDialog
+                object={{
+                  entityModule: 'sales',
+                  entityType: kind,
+                  entityId: record.id,
+                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                  sourceEntityId: record.id,
+                  previewData: {
+                    title: number,
+                    status: statusDisplay?.label ?? record?.status ?? undefined,
+                    metadata: Object.keys(messagePreviewMetadata).length > 0 ? messagePreviewMetadata : undefined,
+                  },
+                }}
+                viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
+                defaultValues={{
+                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                  sourceEntityId: record.id,
+                }}
+              />
+              <VersionHistoryAction
+                config={{
+                  resourceKind: kind === 'order' ? 'sales.order' : 'sales.quote',
+                  resourceId: record.id,
+                }}
+                t={t}
+              />
+            </>
+          ) : null}
+          entityTypeLabel={kind === 'order'
+            ? t('sales.documents.detail.order', 'Sales order')
+            : t('sales.documents.detail.quote', 'Sales quote')}
+          title={
+            canEditNumber ? (
+              <InlineTextEditor
+                key={numberEditorKey}
+                label={t('sales.documents.detail.number', 'Document number')}
+                value={number}
+                emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
+                onSave={handleUpdateNumber}
+                variant="plain"
+                activateOnClick
+                hideLabel
+                triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
+                containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
+                renderDisplay={({ value: displayValue, emptyLabel }) =>
+                  displayValue && displayValue.length ? (
+                    <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
+                  ) : (
+                    <span className="text-muted-foreground">{emptyLabel}</span>
+                  )
+                }
+                onEditingChange={setNumberEditing}
+                renderActions={
+                  numberEditing ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => void handleGenerateNumber()}
+                      disabled={generating}
+                      className="h-9 w-9"
+                    >
+                      {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                      <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
+                    </Button>
+                  ) : null
+                }
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                {number && number.length ? (
+                  <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{number}</span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {t('sales.documents.detail.numberEmpty', 'No number yet')}
                   </span>
-                  <span>{statusDisplay?.label ?? record.status}</span>
-                </Badge>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {kind === 'quote' ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void handleConvert()}
-                disabled={converting}
-              >
-                {converting ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('sales.documents.detail.convertToOrder', 'Convert to order')}
-              </Button>
-            ) : null}
-            {kind === 'quote' ? (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setSendOpen(true)}
-                disabled={!contactEmail || sending}
-              >
-                {sending ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {t('sales.quotes.send.action', 'Send to customer')}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleDelete()}
-              disabled={deleting}
-              className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-            >
-              {deleting ? <Spinner className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" aria-hidden />}
-              {t('sales.documents.detail.delete', 'Delete')}
-            </Button>
-          </div>
-        </div>
-
+                )}
+              </div>
+            )
+          }
+          statusBadge={record.status ? (
+            <Badge variant="secondary" className="inline-flex items-center gap-2">
+              {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
+              <span className="inline-flex items-center gap-1">
+                {statusDisplay?.color
+                  ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
+                  : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+              </span>
+              <span>{statusDisplay?.label ?? record.status}</span>
+            </Badge>
+          ) : undefined}
+          menuActions={kind === 'quote' ? ([
+            { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
+          ] satisfies ActionItem[]) : undefined}
+          onDelete={() => void handleDelete()}
+          isDeleting={deleting}
+          deleteLabel={t('sales.documents.detail.delete', 'Delete')}
+        />
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">
             <CustomerInlineEditor
@@ -4563,7 +4769,7 @@ export default function SalesDocumentDetailPage({
           <DetailFieldsSection fields={detailFields} />
           <InjectionSpot
             spotId={detailsInjectionSpotId}
-            context={injectionContext}
+            context={detailInjectionContext}
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
           />
@@ -4633,6 +4839,7 @@ export default function SalesDocumentDetailPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </Page>
   )
 }

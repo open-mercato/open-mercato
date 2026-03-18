@@ -4,6 +4,7 @@ import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { matchFeature as sharedMatchFeature, hasAllFeatures as sharedHasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 
 interface AclData {
   isSuperAdmin: boolean
@@ -61,18 +62,11 @@ export class RbacService {
    * matchFeature('users.view', 'users.view') // true - exact match
    */
   private matchFeature(required: string, granted: string): boolean {
-    if (granted === '*') return true
-    if (granted.endsWith('.*')) {
-      const prefix = granted.slice(0, -2)
-      return required === prefix || required.startsWith(prefix + '.')
-    }
-    return granted === required
+    return sharedMatchFeature(required, granted)
   }
 
   public hasAllFeatures(required: string[], granted: string[]): boolean {
-    if (!required.length) return true
-    if (!granted.length) return false
-    return required.every((req) => granted.some((g) => this.matchFeature(req, g)))
+    return sharedHasAllFeatures(required, granted)
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {

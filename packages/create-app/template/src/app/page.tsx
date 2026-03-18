@@ -1,5 +1,7 @@
 import { modules } from '@/.mercato/generated/modules.generated'
 import { StartPageContent } from '@/components/StartPageContent'
+import type { Metadata } from 'next'
+import { resolveLocalizedAppMetadata } from '@/lib/metadata'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -13,6 +15,10 @@ function FeatureBadge({ label }: { label: string }) {
       {label}
     </span>
   )
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  return resolveLocalizedAppMetadata()
 }
 
 export default async function Home() {
@@ -53,7 +59,6 @@ export default async function Home() {
           alt={t('app.page.logoAlt', 'Open Mercato')}
           width={40}
           height={40}
-          className="dark:invert"
           priority
         />
         <div className="flex-1">

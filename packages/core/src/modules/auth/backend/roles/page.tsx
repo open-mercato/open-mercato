@@ -11,6 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type Row = {
   id: string
@@ -22,6 +23,7 @@ type Row = {
 }
 
 export default function RolesListPage() {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -69,7 +71,11 @@ export default function RolesListPage() {
   }, [page, search, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: Row) => {
-    if (!window.confirm(t('auth.roles.list.confirmDelete', 'Delete role "{{name}}"?').replace('{{name}}', row.name))) return
+    const confirmed = await confirm({
+      title: t('auth.roles.list.confirmDelete', 'Delete role "{{name}}"?').replace('{{name}}', row.name),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       const call = await apiCall(
         `/api/auth/roles?id=${encodeURIComponent(row.id)}`,
@@ -84,7 +90,7 @@ export default function RolesListPage() {
       const message = error instanceof Error ? error.message : t('auth.roles.list.error.delete', 'Failed to delete role')
       flash(message, 'error')
     }
-  }, [t])
+  }, [confirm, t])
 
   const showTenantColumn = React.useMemo(
     () => isSuperAdmin && rows.some((row) => row.tenantName),
@@ -130,6 +136,7 @@ export default function RolesListPage() {
           isLoading={isLoading}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }
