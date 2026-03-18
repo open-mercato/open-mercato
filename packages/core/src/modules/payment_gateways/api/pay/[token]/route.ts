@@ -58,21 +58,23 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
       customFields: state.customFields,
       customFieldsetCode: state.customFieldsetCode,
     },
-    transaction: {
-      id: state.transaction.id,
-      paymentId: state.transaction.paymentId,
-      providerKey: state.transaction.providerKey,
-      providerSessionId: state.transaction.providerSessionId ?? null,
-      unifiedStatus: state.transaction.unifiedStatus,
-      gatewayStatus: state.transaction.gatewayStatus ?? null,
-      redirectUrl: state.transaction.redirectUrl ?? null,
-      clientSecret: state.transaction.clientSecret ?? null,
-      amount: Number(state.transaction.amount),
-      currencyCode: state.transaction.currencyCode,
-      gatewayMetadata: state.transaction.gatewayMetadata ?? null,
-      createdAt: toIso(state.transaction.createdAt),
-      updatedAt: toIso(state.transaction.updatedAt),
-    },
+    transaction: state.transaction
+      ? {
+          id: state.transaction.id,
+          paymentId: state.transaction.paymentId,
+          providerKey: state.transaction.providerKey,
+          providerSessionId: state.transaction.providerSessionId ?? null,
+          unifiedStatus: state.transaction.unifiedStatus,
+          gatewayStatus: state.transaction.gatewayStatus ?? null,
+          redirectUrl: state.transaction.redirectUrl ?? null,
+          clientSecret: state.transaction.clientSecret ?? null,
+          amount: Number(state.transaction.amount),
+          currencyCode: state.transaction.currencyCode,
+          gatewayMetadata: state.transaction.gatewayMetadata ?? null,
+          createdAt: toIso(state.transaction.createdAt),
+          updatedAt: toIso(state.transaction.updatedAt),
+        }
+      : null,
   })
 }
 

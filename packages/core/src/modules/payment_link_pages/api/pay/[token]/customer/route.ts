@@ -68,6 +68,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   if (state.passwordRequired) {
     return NextResponse.json({ error: 'Password required' }, { status: 403 })
   }
+  if (!state.transaction) {
+    return NextResponse.json({ error: 'No transaction associated with this payment link' }, { status: 409 })
+  }
   if (!state.customerCapture?.enabled) {
     return NextResponse.json({ error: 'Customer capture is disabled for this payment link' }, { status: 409 })
   }

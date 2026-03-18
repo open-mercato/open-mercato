@@ -23,6 +23,7 @@ import { LanguageSwitcher } from '@open-mercato/ui/frontend/LanguageSwitcher'
 export type PaymentLinkPageResponse = {
   passwordRequired: boolean
   accessGranted?: boolean
+  requiresSessionCreation?: boolean
   _meta?: {
     enrichedBy?: string[]
     enricherErrors?: string[]
@@ -101,6 +102,7 @@ type CheckoutSectionProps = SharedSectionProps & {
   onCustomerFieldChange: (field: 'companyName' | 'firstName' | 'lastName' | 'email' | 'phone', value: string) => void
   onCustomerTermsAcceptedChange: (accepted: boolean) => void
   onSubmitCustomer: () => void
+  onSubmitSession: () => void
   onRefreshLink: () => Promise<void>
 }
 
@@ -301,6 +303,7 @@ function DefaultCheckoutSection({
   onCustomerFieldChange,
   onCustomerTermsAcceptedChange,
   onSubmitCustomer,
+  onSubmitSession,
   onRefreshLink,
 }: CheckoutSectionProps) {
   const t = useT()
@@ -390,7 +393,7 @@ function DefaultCheckoutSection({
             </div>
           </div>
         </div>
-      ) : customerCaptureRequired ? (
+      ) : customerCaptureRequired || data?.requiresSessionCreation ? (
         <div className="mx-auto flex min-h-[420px] max-w-xl flex-col justify-center space-y-5">
           <div className="space-y-2">
             <div className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -509,7 +512,11 @@ function DefaultCheckoutSection({
           ) : null}
 
           <div>
-            <Button type="button" disabled={customerSubmitting || !customerFormReady} onClick={onSubmitCustomer}>
+            <Button
+              type="button"
+              disabled={customerSubmitting || !customerFormReady}
+              onClick={data?.requiresSessionCreation ? onSubmitSession : onSubmitCustomer}
+            >
               {customerSubmitting
                 ? t('payment_gateways.paymentLink.customerCapture.submitting', 'Saving details...')
                 : t('payment_gateways.paymentLink.customerCapture.submit', 'Continue to payment')}
@@ -712,6 +719,62 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     setCustomerError(call.result?.error ?? t('payment_gateways.paymentLink.customerCapture.error', 'Unable to save your details.'))
   }, [accessToken, customerForm, customerTermsAccepted, loadLink, t, token])
 
+  const handleSessionSubmit = React.useCallback(async () => {
+    if (!token) return
+    setCustomerSubmitting(true)
+    setCustomerError(null)
+    const call = await apiCall<{ transactionId?: string; redirectUrl?: string | null; clientSecret?: string | null; error?: string }>(
+      `/api/payment_link_pages/pay/${encodeURIComponent(token)}/session`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-om-handle-forbidden': 'true',
+          ...(accessToken ? { 'x-payment-link-access': accessToken } : {}),
+        },
+        body: JSON.stringify({
+          email: customerForm.email,
+          firstName: customerForm.firstName || undefined,
+          lastName: customerForm.lastName || undefined,
+          phone: customerForm.phone || undefined,
+          companyName: customerForm.companyName || undefined,
+          acceptedTerms: customerTermsAccepted,
+        }),
+      },
+      { fallback: null },
+    )
+
+    if (call.ok && call.result) {
+      setCustomerSubmitting(false)
+      if (call.result.redirectUrl) {
+        window.location.replace(call.result.redirectUrl)
+        return
+      }
+      // Merge session transaction into the existing page state so the provider widget renders
+      setData((current) => {
+        if (!current || !call.result) return current
+        return {
+          ...current,
+          requiresSessionCreation: false,
+          transaction: {
+            id: call.result.transactionId ?? '',
+            paymentId: '',
+            providerKey: current.link?.providerKey ?? '',
+            unifiedStatus: 'pending',
+            clientSecret: call.result.clientSecret ?? null,
+            redirectUrl: call.result.redirectUrl ?? null,
+            amount: current.link?.amount ?? 0,
+            currencyCode: current.link?.currencyCode ?? '',
+          },
+        }
+      })
+      return
+    }
+
+    setCustomerSubmitting(false)
+    setCustomerError(call.result?.error ?? t('payment_gateways.paymentLink.customerCapture.error', 'Unable to save your details.'))
+  }, [accessToken, customerForm, customerTermsAccepted, t, token])
+
   const redirectUrl = typeof data?.transaction?.redirectUrl === 'string' && data.transaction.redirectUrl.trim().length > 0
     ? data.transaction.redirectUrl
     : null
@@ -723,6 +786,7 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     && !loading
     && !error
     && !data?.passwordRequired
+    && !data?.requiresSessionCreation
     && !(data?.link?.customerCapture?.enabled && !data.link.customerCapture.collected)
     && !isSettled
     && !checkoutReturnState,
@@ -822,6 +886,9 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
             onCustomerTermsAcceptedChange={setCustomerTermsAccepted}
             onSubmitCustomer={() => {
               void handleCustomerSubmit()
+            }}
+            onSubmitSession={() => {
+              void handleSessionSubmit()
             }}
             onRefreshLink={loadLink}
           />

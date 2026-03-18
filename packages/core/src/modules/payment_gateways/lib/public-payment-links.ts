@@ -14,9 +14,10 @@ type RequestContainer = AwilixContainer & {
 
 export type PublicPaymentLinkState = {
   link: GatewayPaymentLink
-  transaction: GatewayTransaction
+  transaction: GatewayTransaction | null
   accessGranted: boolean
   passwordRequired: boolean
+  requiresSessionCreation: boolean
   paymentLinkWidgetSpotId: string | null
   amount: number
   currencyCode: string
@@ -53,14 +54,23 @@ export async function loadPublicPaymentLinkState({
   if (!link) return null
 
   const scope = { organizationId: link.organizationId, tenantId: link.tenantId }
-  const transaction = await findOneWithDecryption(
-    em,
-    GatewayTransaction,
-    { id: link.transactionId, organizationId: link.organizationId, tenantId: link.tenantId, deletedAt: null },
-    undefined,
-    scope,
-  )
-  if (!transaction) return null
+  const isMultiUseLink = link.linkMode === 'multi'
+
+  let transaction: GatewayTransaction | null = null
+  if (link.transactionId) {
+    transaction = await findOneWithDecryption(
+      em,
+      GatewayTransaction,
+      { id: link.transactionId, organizationId: link.organizationId, tenantId: link.tenantId, deletedAt: null },
+      undefined,
+      scope,
+    )
+    if (!transaction && !isMultiUseLink) return null
+  } else if (!isMultiUseLink) {
+    return null
+  }
+
+  const storedMetadata = readPaymentLinkStoredMetadata(link.metadata)
 
   const accessToken = req.headers.get('x-payment-link-access')
   const accessGranted = !link.passwordHash || verifyPaymentLinkAccessToken(link, accessToken)
@@ -70,9 +80,10 @@ export async function loadPublicPaymentLinkState({
       transaction,
       accessGranted: false,
       passwordRequired: true,
+      requiresSessionCreation: false,
       paymentLinkWidgetSpotId: null,
       amount: 0,
-      currencyCode: transaction.currencyCode,
+      currencyCode: transaction?.currencyCode ?? storedMetadata.currencyCode ?? '',
       pageMetadata: null,
       customFields: null,
       customFieldsetCode: null,
@@ -80,7 +91,7 @@ export async function loadPublicPaymentLinkState({
     }
   }
 
-  if (!isGatewayTransactionSettled(transaction) && transaction.providerSessionId) {
+  if (transaction && !isGatewayTransactionSettled(transaction) && transaction.providerSessionId) {
     const service = container.resolve('paymentGatewayService')
     try {
       await service.getPaymentStatus(transaction.id, scope)
@@ -89,24 +100,32 @@ export async function loadPublicPaymentLinkState({
     }
   }
 
-  await em.refresh(transaction)
-  if (link.status === 'active' && isGatewayTransactionSettled(transaction)) {
-    link.status = 'completed'
-    link.completedAt = link.completedAt ?? new Date()
-    await em.flush()
+  if (transaction) {
+    await em.refresh(transaction)
+    if (link.status === 'active' && isGatewayTransactionSettled(transaction)) {
+      link.status = 'completed'
+      link.completedAt = link.completedAt ?? new Date()
+      await em.flush()
+    }
   }
 
   const integration = getAllIntegrations().find((entry) => entry.providerKey === link.providerKey)
-  const storedMetadata = readPaymentLinkStoredMetadata(link.metadata)
+  const requiresSessionCreation = isMultiUseLink && !transaction
+
+  const amount = typeof storedMetadata.amount === 'number'
+    ? storedMetadata.amount
+    : (transaction ? Number(transaction.amount) : 0)
+  const currencyCode = storedMetadata.currencyCode ?? (transaction?.currencyCode ?? '')
 
   return {
     link,
     transaction,
     accessGranted: true,
     passwordRequired: false,
+    requiresSessionCreation,
     paymentLinkWidgetSpotId: integration?.paymentGateway?.paymentLinkWidgetSpotId ?? null,
-    amount: typeof storedMetadata.amount === 'number' ? storedMetadata.amount : Number(transaction.amount),
-    currencyCode: storedMetadata.currencyCode ?? transaction.currencyCode,
+    amount,
+    currencyCode,
     pageMetadata: storedMetadata.pageMetadata ?? null,
     customFields: storedMetadata.customFields ?? null,
     customFieldsetCode: storedMetadata.customFieldsetCode ?? null,

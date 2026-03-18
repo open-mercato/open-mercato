@@ -48,9 +48,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     await emitPaymentLinkPageEvent('payment_link_pages.page.viewed', {
       paymentLinkId: state.link.id,
       paymentLinkToken: state.link.token,
-      transactionId: state.transaction.id,
-      paymentId: state.transaction.paymentId,
-      providerKey: state.transaction.providerKey,
+      transactionId: state.transaction?.id ?? null,
+      paymentId: state.transaction?.paymentId ?? null,
+      providerKey: state.transaction?.providerKey ?? state.link.providerKey,
       organizationId: state.link.organizationId,
       tenantId: state.link.tenantId,
     })
@@ -58,6 +58,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
     const baseRecord = {
       passwordRequired: false,
       accessGranted: state.accessGranted,
+      requiresSessionCreation: state.requiresSessionCreation,
       link: {
         id: state.link.id,
         token: state.link.token,
@@ -82,21 +83,23 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
             }
           : null,
       },
-      transaction: {
-        id: state.transaction.id,
-        paymentId: state.transaction.paymentId,
-        providerKey: state.transaction.providerKey,
-        providerSessionId: state.transaction.providerSessionId ?? null,
-        unifiedStatus: state.transaction.unifiedStatus,
-        gatewayStatus: state.transaction.gatewayStatus ?? null,
-        redirectUrl: state.transaction.redirectUrl ?? null,
-        clientSecret: state.transaction.clientSecret ?? null,
-        amount: Number(state.transaction.amount),
-        currencyCode: state.transaction.currencyCode,
-        gatewayMetadata: state.transaction.gatewayMetadata ?? null,
-        createdAt: toIso(state.transaction.createdAt),
-        updatedAt: toIso(state.transaction.updatedAt),
-      },
+      transaction: state.transaction
+        ? {
+            id: state.transaction.id,
+            paymentId: state.transaction.paymentId,
+            providerKey: state.transaction.providerKey,
+            providerSessionId: state.transaction.providerSessionId ?? null,
+            unifiedStatus: state.transaction.unifiedStatus,
+            gatewayStatus: state.transaction.gatewayStatus ?? null,
+            redirectUrl: state.transaction.redirectUrl ?? null,
+            clientSecret: state.transaction.clientSecret ?? null,
+            amount: Number(state.transaction.amount),
+            currencyCode: state.transaction.currencyCode,
+            gatewayMetadata: state.transaction.gatewayMetadata ?? null,
+            createdAt: toIso(state.transaction.createdAt),
+            updatedAt: toIso(state.transaction.updatedAt),
+          }
+        : null,
     }
 
     const enriched = await applyResponseEnricherToRecord(baseRecord, PAYMENT_LINK_PAGE_ENRICHER_ENTITY, {
