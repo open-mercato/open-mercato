@@ -470,6 +470,142 @@ export async function run(argv = process.argv) {
     }
   }
 
+  // Handle 'mercato test' — ephemeral DB + Playwright test runner
+  if (first === 'test') {
+    const { spawn, execSync } = await import('child_process')
+    const net = await import('net')
+    const { Client } = await import('pg')
+    const { createResolver } = await import('./lib/resolver')
+
+    const testArgs = parts.slice(1).filter(Boolean)
+    const keepDb = testArgs.includes('--keep')
+    const fileFilter = testArgs.find((a) => !a.startsWith('--'))
+
+    const resolver = createResolver()
+    const appDir = resolver.getAppDir()
+
+    // Parse the original DATABASE_URL to connect to postgres
+    const origDbUrl = process.env.DATABASE_URL
+    if (!origDbUrl) {
+      console.error('DATABASE_URL is not set')
+      return 1
+    }
+    const dbUrlObj = new URL(origDbUrl)
+    const origDbName = dbUrlObj.pathname.slice(1)
+    const testDbName = `${origDbName}_test_${Date.now()}`
+
+    console.log(`\n🧪 mercato test — ephemeral database integration tests\n`)
+    console.log(`  Original DB: ${origDbName}`)
+    console.log(`  Test DB:     ${testDbName}`)
+    if (keepDb) console.log(`  --keep flag: test DB will NOT be dropped`)
+    console.log('')
+
+    // Step 1: Create ephemeral database
+    const adminUrl = new URL(origDbUrl)
+    adminUrl.pathname = '/postgres'
+    const adminClient = new Client({ connectionString: adminUrl.toString() })
+    await adminClient.connect()
+    await adminClient.query(`CREATE DATABASE "${testDbName}"`)
+    await adminClient.end()
+    console.log(`✅ Created ephemeral database: ${testDbName}`)
+
+    // Build the test DATABASE_URL
+    const testDbUrl = new URL(origDbUrl)
+    testDbUrl.pathname = `/${testDbName}`
+    const testEnv = { ...process.env, DATABASE_URL: testDbUrl.toString() }
+
+    // Step 2: Run migrations + init in the test DB
+    const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+    const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+
+    console.log('\n📊 Running migrations...')
+    execSync(`node ${mercatoBin} db migrate`, { stdio: 'inherit', env: testEnv, cwd: appDir })
+
+    console.log('\n🌱 Initializing (seed)...')
+    execSync(`node ${mercatoBin} init`, { stdio: 'inherit', env: testEnv, cwd: appDir })
+
+    // Step 3: Find a free port and start the app
+    const freePort = await new Promise<number>((resolve) => {
+      const srv = net.createServer()
+      srv.listen(0, () => {
+        const port = (srv.address() as net.AddressInfo).port
+        srv.close(() => resolve(port))
+      })
+    })
+    const baseUrl = `http://localhost:${freePort}`
+    const appEnv = { ...testEnv, PORT: String(freePort), AUTO_SPAWN_WORKERS: 'true' }
+
+    console.log(`\n🚀 Starting app on port ${freePort}...`)
+    const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
+    const appProcess = spawn('node', [nextBin, 'dev', '--turbopack', '--port', String(freePort)], {
+      stdio: 'pipe',
+      env: appEnv,
+      cwd: appDir,
+    })
+
+    // Wait for the app to be ready
+    const waitForReady = async (url: string, timeoutMs: number): Promise<boolean> => {
+      const start = Date.now()
+      while (Date.now() - start < timeoutMs) {
+        try {
+          const res = await fetch(`${url}/api/auth/login`)
+          if (res.status > 0) return true
+        } catch {}
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+      return false
+    }
+
+    const ready = await waitForReady(baseUrl, 60_000)
+    if (!ready) {
+      console.error('App did not start within 60s')
+      appProcess.kill('SIGTERM')
+      return 1
+    }
+    console.log(`✅ App ready at ${baseUrl}\n`)
+
+    // Step 4: Run Playwright tests
+    console.log('🎭 Running Playwright tests...\n')
+    const playwrightArgs = ['playwright', 'test']
+    if (fileFilter) playwrightArgs.push(fileFilter)
+    const playwrightEnv = { ...appEnv, BASE_URL: baseUrl }
+
+    let testExitCode = 0
+    try {
+      execSync(`npx ${playwrightArgs.join(' ')}`, {
+        stdio: 'inherit',
+        env: playwrightEnv,
+        cwd: appDir,
+      })
+    } catch {
+      testExitCode = 1
+    }
+
+    // Step 5: Cleanup
+    console.log('\n🧹 Cleaning up...')
+    appProcess.kill('SIGTERM')
+    await new Promise<void>((resolve) => {
+      appProcess.on('exit', () => resolve())
+      setTimeout(() => {
+        if (!appProcess.killed) appProcess.kill('SIGKILL')
+        resolve()
+      }, 5000)
+    })
+
+    if (!keepDb) {
+      const cleanupClient = new Client({ connectionString: adminUrl.toString() })
+      await cleanupClient.connect()
+      await cleanupClient.query(`DROP DATABASE IF EXISTS "${testDbName}" WITH (FORCE)`)
+      await cleanupClient.end()
+      console.log(`✅ Dropped ephemeral database: ${testDbName}`)
+    } else {
+      console.log(`ℹ️  Kept test database: ${testDbName} (use --keep to inspect)`)
+    }
+
+    console.log(testExitCode === 0 ? '\n✅ All tests passed!' : '\n❌ Some tests failed.')
+    return testExitCode
+  }
+
   let modName = first
   let cmdName = second
   let rest = remaining
