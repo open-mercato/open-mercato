@@ -116,6 +116,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
     const scope = resolveTransactionScope(parsed)
     const em = ctx.container.resolve('em') as EntityManager
     let terminalEventPayload: Record<string, unknown> | null = null
+    let emitUsageLimitReached = false
     await em.transactional(async (tx) => {
       const transaction = await tx.findOne(CheckoutTransaction, {
         id: parsed.id,
@@ -147,6 +148,13 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           link.completionCount += 1
         }
         await tx.flush()
+        if (
+          nextStatus === 'completed'
+          && link.maxCompletions != null
+          && link.completionCount >= link.maxCompletions
+        ) {
+          emitUsageLimitReached = true
+        }
       }
       if (nextTerminal) {
         terminalEventPayload = {
@@ -173,6 +181,14 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload ?? {}).catch(() => undefined)
     } else if (parsed.status === 'expired') {
       await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload ?? {}).catch(() => undefined)
+    }
+    if (emitUsageLimitReached && terminalEventPayload) {
+      await emitCheckoutEvent('checkout.link.usageLimitReached', {
+        id: terminalEventPayload.linkId as string,
+        slug: terminalEventPayload.slug as string,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      }).catch(() => undefined)
     }
     return { ok: true }
   },
