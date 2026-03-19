@@ -70,6 +70,7 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
@@ -206,6 +207,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   hideFooterActions?: boolean
   // Optional custom content injected between the header actions and the form body
   contentHeader?: React.ReactNode
+  readOnly?: boolean
+  readOnlyOverlay?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
   // Optional injection spot ID for widget injection
@@ -337,6 +340,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   extraActions,
   versionHistory,
   contentHeader,
+  readOnly = false,
+  readOnlyOverlay,
   customFieldsetBindings,
   injectionSpotId,
   replacementHandle,
@@ -366,6 +371,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const saveErrorMessage = t('ui.forms.flash.saveError')
   const internalFormId = React.useId()
   const formId = providedFormId ?? internalFormId
+  const formReadOnly = Boolean(readOnly)
   const [values, setValues] = React.useState<CrudFormValues<TValues>>(
     () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
   )
@@ -1268,10 +1274,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [allFields, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
 
   const requestSubmit = React.useCallback(() => {
+    if (formReadOnly) return
     if (typeof document === 'undefined') return
     const form = document.getElementById(formId) as HTMLFormElement | null
     form?.requestSubmit()
-  }, [formId])
+  }, [formId, formReadOnly])
 
   const lastFocusedFieldRef = React.useRef<string | null>(null)
   const lastErrorFieldRef = React.useRef<string | null>(null)
@@ -1279,7 +1286,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
 
-    if (isLoading || isLoadingCustomFields) {
+    if (isLoading || isLoadingCustomFields || formReadOnly) {
       lastFocusedFieldRef.current = null
       return
     }
@@ -1326,7 +1333,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         window.clearTimeout(frame as number)
       }
     }
-  }, [firstFieldId, formId, isLoading, isLoadingCustomFields])
+  }, [firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -1486,6 +1493,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (formReadOnly) return
     setFormError(null)
     setErrors({})
 
@@ -1879,7 +1887,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               setValue={setValue}
               values={values}
               loadFieldOptions={loadFieldOptions}
-              autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
+              autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
@@ -2072,6 +2080,35 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     </Dialog>
   )
 
+  const handleReadOnlyFocusCapture = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    if (!formReadOnly) return
+    const target = event.target
+    if (target instanceof HTMLElement) target.blur()
+  }, [formReadOnly])
+
+  const handleReadOnlyKeyDownCapture = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!formReadOnly) return
+    event.preventDefault()
+  }, [formReadOnly])
+
+  const wrapFormBody = React.useCallback((children: React.ReactNode, className?: string) => {
+    if (!formReadOnly) return children
+    return (
+      <div
+        className={cn('relative', className)}
+        onFocusCapture={handleReadOnlyFocusCapture}
+        onKeyDownCapture={handleReadOnlyKeyDownCapture}
+      >
+        <div className="pointer-events-none select-none opacity-70">
+          {children}
+        </div>
+        <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-background/60 p-4 backdrop-blur-[1px] sm:p-6">
+          {readOnlyOverlay ?? <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 shadow-sm" />}
+        </div>
+      </div>
+    )
+  }, [formReadOnly, handleReadOnlyFocusCapture, handleReadOnlyKeyDownCapture, readOnlyOverlay])
+
   // If groups are provided, render the two-column grouped layout
   if (useGroupedLayout) {
 
@@ -2159,12 +2196,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             title={title}
             actions={{
               extraActions: headerExtraActions,
-              showDelete,
+              showDelete: !formReadOnly && showDelete,
               onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
+              submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
         ) : headerExtraActions ? (
@@ -2176,7 +2213,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           loadingMessage={resolvedLoadingMessage}
           spinnerSize="md"
           className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
-          >
+        >
+          {wrapFormBody(
             <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
             {resolvedInjectionSpotId ? (
               <InjectionSpot
@@ -2184,7 +2222,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 context={injectionContext}
                 data={values}
                 onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
-                disabled={pending}
+                disabled={pending || formReadOnly}
                 widgetsOverride={stackedInjectionWidgets}
               />
             ) : null}
@@ -2197,7 +2235,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            {hideFooterActions ? null : (
+            {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -2212,7 +2250,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 }}
               />
             )}
-          </form>
+            </form>,
+          )}
         </DataLoader>
         {fieldsetManagerDialog}
         {ConfirmDialogElement}
@@ -2231,12 +2270,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           title={title}
           actions={{
             extraActions: headerExtraActions,
-            showDelete,
+            showDelete: !formReadOnly && showDelete,
             onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
+            submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
       ) : headerExtraActions ? (
@@ -2249,7 +2288,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         spinnerSize="md"
         className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
       >
-        <div>
+        {wrapFormBody(
+          <div>
           <form
             id={formId}
             onSubmit={handleSubmit}
@@ -2261,7 +2301,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 context={injectionContext}
                 data={values}
                 onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
-                disabled={pending}
+                disabled={pending || formReadOnly}
                 widgetsOverride={stackedInjectionWidgets}
               />
             ) : null}
@@ -2279,7 +2319,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     setValue={setValue}
                     values={values}
                     loadFieldOptions={loadFieldOptions}
-                    autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
+                    autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
@@ -2289,7 +2329,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               })}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            {hideFooterActions ? null : (
+            {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -2305,7 +2345,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               />
             )}
           </form>
-        </div>
+          </div>,
+        )}
       </DataLoader>
       {fieldsetManagerDialog}
       {ConfirmDialogElement}

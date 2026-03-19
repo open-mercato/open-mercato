@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutTransaction, CheckoutLink } from '../data/entities'
 import PaymentStartEmail from '../emails/PaymentStartEmail'
 import PaymentSuccessEmail from '../emails/PaymentSuccessEmail'
@@ -110,6 +111,7 @@ function renderMarkdownBody(markdown: string): string {
 export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: HandlerContext): Promise<void> {
   const { payload } = job
   const em = (ctx.resolve('em') as EntityManager).fork()
+  const { t } = await resolveTranslations()
 
   const transaction = await findOneWithDecryption<CheckoutTransaction>(em, 'CheckoutTransaction', {
     id: payload.transactionId,
@@ -128,8 +130,8 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     deletedAt: null,
   }, undefined, { organizationId: payload.organizationId, tenantId: payload.tenantId })
 
-  const firstName = transaction.firstName ?? 'Customer'
-  const linkTitle = link?.title ?? link?.name ?? 'Payment'
+  const firstName = transaction.firstName ?? t('checkout.systemEmails.common.customerFallback')
+  const linkTitle = link?.title ?? link?.name ?? t('checkout.systemEmails.common.linkTitleFallback')
   const amount = String(transaction.amount ?? '0.00')
   const currencyCode = transaction.currencyCode ?? ''
   const errorMessage = payload.type === 'error' ? (payload.errorMessage ?? null) : null
@@ -162,36 +164,76 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     const { subject, bodyHtml } = await resolveEmailContent(
       link?.startEmailSubject,
       link?.startEmailBody,
-      `Payment initiated — ${linkTitle}`,
+      t('checkout.systemEmails.start.subject', 'Payment initiated - {linkTitle}', { linkTitle }),
     )
     await sendEmail({
       to: email,
       subject,
-      react: PaymentStartEmail({ firstName, amount, currencyCode, linkTitle, bodyHtml }),
+      react: PaymentStartEmail({
+        firstName,
+        amount,
+        currencyCode,
+        linkTitle,
+        bodyHtml,
+        copy: {
+          title: t('checkout.systemEmails.start.title'),
+          preview: t('checkout.systemEmails.start.preview', { amount, currencyCode }),
+          greeting: t('checkout.systemEmails.start.greeting', { firstName, linkTitle }),
+          message: t('checkout.systemEmails.start.message'),
+          hint: t('checkout.systemEmails.start.hint'),
+        },
+      }),
     })
   } else if (payload.type === 'success') {
     if (link?.sendSuccessEmail === false) return
     const { subject, bodyHtml } = await resolveEmailContent(
       link?.successEmailSubject,
       link?.successEmailBody,
-      `Payment successful — ${linkTitle}`,
+      t('checkout.systemEmails.success.subject', 'Payment successful - {linkTitle}', { linkTitle }),
     )
     await sendEmail({
       to: email,
       subject,
-      react: PaymentSuccessEmail({ firstName, amount, currencyCode, linkTitle, transactionId: transaction.id, bodyHtml }),
+      react: PaymentSuccessEmail({
+        firstName,
+        amount,
+        currencyCode,
+        linkTitle,
+        transactionId: transaction.id,
+        bodyHtml,
+        copy: {
+          title: t('checkout.systemEmails.success.title'),
+          preview: t('checkout.systemEmails.success.preview', { amount, currencyCode }),
+          greeting: t('checkout.systemEmails.success.greeting', { firstName, linkTitle }),
+          receipt: t('checkout.systemEmails.success.receipt'),
+          hint: t('checkout.systemEmails.success.hint'),
+          transactionLabel: t('checkout.systemEmails.success.transactionLabel'),
+        },
+      }),
     })
   } else if (payload.type === 'error') {
     if (link?.sendErrorEmail === false) return
     const { subject, bodyHtml } = await resolveEmailContent(
       link?.errorEmailSubject,
       link?.errorEmailBody,
-      `Payment failed — ${linkTitle}`,
+      t('checkout.systemEmails.error.subject', 'Payment failed - {linkTitle}', { linkTitle }),
     )
     await sendEmail({
       to: email,
       subject,
-      react: PaymentErrorEmail({ firstName, linkTitle, errorMessage, bodyHtml }),
+      react: PaymentErrorEmail({
+        firstName,
+        linkTitle,
+        errorMessage,
+        bodyHtml,
+        copy: {
+          title: t('checkout.systemEmails.error.title'),
+          preview: t('checkout.systemEmails.error.preview', { linkTitle }),
+          greeting: t('checkout.systemEmails.error.greeting', { firstName, linkTitle }),
+          retry: t('checkout.systemEmails.error.retry'),
+          hint: t('checkout.systemEmails.error.hint'),
+        },
+      }),
     })
   }
 }

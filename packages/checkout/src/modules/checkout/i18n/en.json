@@ -34,6 +34,8 @@
     },
     "customerFieldsEditor": {
       "addField": "Add customer field",
+      "newFieldLabel": "New field",
+      "newFieldPlaceholder": "Shown on the checkout form",
       "locked": "Locked",
       "columns": {
         "fieldKey": "Field key",
@@ -58,6 +60,7 @@
       "options": {
         "title": "Options",
         "add": "Add option",
+        "defaultLabel": "Option {index}",
         "value": "Value",
         "label": "Label",
         "placeholders": {
@@ -68,6 +71,36 @@
       "notices": {
         "defaultFields": "Default customer fields are only starting suggestions. You can rename, reorder, or remove them to keep the form compact.",
         "empty": "No customer fields configured yet. Add at least one field if you want to collect buyer details on the pay page."
+      }
+    },
+    "defaultCustomerFields": {
+      "firstName": {
+        "label": "First name",
+        "placeholder": "Jane"
+      },
+      "lastName": {
+        "label": "Last name",
+        "placeholder": "Doe"
+      },
+      "email": {
+        "label": "Email",
+        "placeholder": "jane@company.com"
+      },
+      "phone": {
+        "label": "Phone",
+        "placeholder": "+1 555 123 4567"
+      },
+      "companyName": {
+        "label": "Company name",
+        "placeholder": "Acme Inc."
+      },
+      "companyId": {
+        "label": "Company ID",
+        "placeholder": "VAT / registration number"
+      },
+      "address": {
+        "label": "Address",
+        "placeholder": "Street, city, postal code"
       }
     },
     "gatewaySettings": {
@@ -115,6 +148,12 @@
         "messages": "Messages",
         "emails": "Emails",
         "customFields": "Custom fields"
+      },
+      "locked": {
+        "title": "This pay link is read-only",
+        "description": "This pay link already has active transactions. You can review the saved configuration, but editing and deleting are disabled.",
+        "overlayTitle": "Editing disabled",
+        "overlayDescription": "Active transactions are linked to this pay link, so the form is locked to preserve payment integrity."
       },
       "general": {
         "fields": {
@@ -449,6 +488,53 @@
       "cancel": {
         "failed": "Payment failed",
         "cancelled": "Payment cancelled"
+      }
+    },
+    "widgets": {
+      "paymentGatewayToolbarLink": {
+        "action": "Create Payment Link"
+      },
+      "gatewayTransactionLink": {
+        "title": "Checkout transaction",
+        "labels": {
+          "transactionId": "Transaction ID",
+          "link": "Link"
+        },
+        "actions": {
+          "openTransaction": "Open transaction",
+          "openPayPage": "Open pay page"
+        }
+      }
+    },
+    "systemEmails": {
+      "common": {
+        "customerFallback": "Customer",
+        "linkTitleFallback": "Payment"
+      },
+      "start": {
+        "subject": "Payment initiated - {linkTitle}",
+        "title": "Payment initiated",
+        "preview": "Your payment of {amount} {currencyCode} is being processed",
+        "greeting": "Hi {firstName}, your payment for {linkTitle} has been initiated.",
+        "message": "We are processing your payment. You will receive a confirmation once it is complete.",
+        "hint": "If you did not initiate this payment, please contact support."
+      },
+      "success": {
+        "subject": "Payment successful - {linkTitle}",
+        "title": "Payment successful",
+        "preview": "Your payment of {amount} {currencyCode} was successful",
+        "greeting": "Hi {firstName}, your payment for {linkTitle} has been completed successfully.",
+        "receipt": "Thank you for your payment. This email serves as your receipt.",
+        "hint": "Please keep this email for your records.",
+        "transactionLabel": "Transaction"
+      },
+      "error": {
+        "subject": "Payment failed - {linkTitle}",
+        "title": "Payment failed",
+        "preview": "Your payment for {linkTitle} could not be processed",
+        "greeting": "Hi {firstName}, unfortunately your payment for {linkTitle} could not be processed.",
+        "retry": "Please try again or use a different payment method. If the problem persists, contact support.",
+        "hint": "No charges have been applied to your account."
       }
     },
     "validation": {

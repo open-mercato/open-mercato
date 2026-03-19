@@ -8,32 +8,28 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import type { CustomerFieldDefinitionInput } from '../data/validators'
-import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
+import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 
 type Props = {
   value: CustomerFieldDefinitionInput[]
   onChange: (next: CustomerFieldDefinitionInput[]) => void
 }
 
-function normalize(next: CustomerFieldDefinitionInput[]): CustomerFieldDefinitionInput[] {
+function withSortOrder(next: CustomerFieldDefinitionInput[]): CustomerFieldDefinitionInput[] {
   return next.map((field, index) => ({
     ...field,
-    key: field.key.trim(),
-    label: field.label.trim(),
-    placeholder: typeof field.placeholder === 'string' ? field.placeholder.trim() : undefined,
-    options: field.options?.filter((option) => option.value.trim() && option.label.trim()),
     sortOrder: index,
   }))
 }
 
-function createField(index: number): CustomerFieldDefinitionInput {
+function createField(index: number, t: ReturnType<typeof useT>): CustomerFieldDefinitionInput {
   return {
     key: `customField${index + 1}`,
-    label: 'New field',
+    label: t('checkout.customerFieldsEditor.newFieldLabel'),
     kind: 'text',
     required: false,
     fixed: false,
-    placeholder: 'Shown on the checkout form',
+    placeholder: t('checkout.customerFieldsEditor.newFieldPlaceholder'),
     sortOrder: index,
     options: [],
   }
@@ -45,15 +41,15 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
     () => (
       Array.isArray(value)
         ? value
-        : DEFAULT_CHECKOUT_CUSTOMER_FIELDS.map((field) => ({ ...field, options: [] }))
+        : getLocalizedDefaultCheckoutCustomerFields(t).map((field) => ({ ...field, options: [] }))
     ),
-    [value],
+    [t, value],
   )
 
   const updateField = React.useCallback(
     (index: number, patch: Partial<CustomerFieldDefinitionInput>) => {
       onChange(
-        normalize(
+        withSortOrder(
           fields.map((field, currentIndex) => (currentIndex === index ? { ...field, ...patch } : field)),
         ),
       )
@@ -63,7 +59,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
 
   const removeField = React.useCallback(
     (index: number) => {
-      onChange(normalize(fields.filter((_, currentIndex) => currentIndex !== index)))
+      onChange(withSortOrder(fields.filter((_, currentIndex) => currentIndex !== index)))
     },
     [fields, onChange],
   )
@@ -90,11 +86,14 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
       updateField(fieldIndex, {
         options: [
           ...options,
-          { value: `option_${options.length + 1}`, label: `Option ${options.length + 1}` },
+          {
+            value: `option_${options.length + 1}`,
+            label: t('checkout.customerFieldsEditor.options.defaultLabel', 'Option {index}', { index: options.length + 1 }),
+          },
         ],
       })
     },
-    [fields, updateField],
+    [fields, t, updateField],
   )
 
   const removeOption = React.useCallback(
@@ -128,7 +127,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
         {fields.length > 0 ? (
           <div className="divide-y divide-border/70">
             {fields.map((field, index) => (
-              <div key={`${field.key}:${index}`} className="space-y-3 px-4 py-4">
+              <div key={index} className="space-y-3 px-4 py-4">
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1">
                     <Label>{t('checkout.customerFieldsEditor.columns.fieldKey')}</Label>
@@ -221,7 +220,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                         </thead>
                         <tbody className="divide-y divide-border/70">
                           {(field.options ?? []).map((option, optionIndex) => (
-                            <tr key={`${field.key}:option:${optionIndex}`}>
+                            <tr key={optionIndex}>
                               <td className="px-3 py-2">
                                 <Input
                                   value={option.value}
@@ -274,7 +273,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
       <Button
         type="button"
         variant="outline"
-        onClick={() => onChange(normalize([...fields, createField(fields.length)]))}
+        onClick={() => onChange(withSortOrder([...fields, createField(fields.length, t)]))}
       >
         <Plus className="mr-2 h-4 w-4" />
         {t('checkout.customerFieldsEditor.addField')}

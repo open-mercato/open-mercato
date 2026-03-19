@@ -6,6 +6,13 @@ export type PaymentErrorEmailProps = {
   linkTitle: string
   errorMessage?: string | null
   bodyHtml?: string | null
+  copy: {
+    title: string
+    preview: string
+    greeting: string
+    retry: string
+    hint: string
+  }
 }
 
 const styles = {
@@ -18,36 +25,30 @@ const styles = {
   hint: { fontSize: 12, color: '#9ca3af', margin: '16px 0 0' } as React.CSSProperties,
 }
 
-export function PaymentErrorEmail({ firstName, linkTitle, errorMessage, bodyHtml }: PaymentErrorEmailProps) {
+export function PaymentErrorEmail({ errorMessage, bodyHtml, copy }: PaymentErrorEmailProps) {
   return (
     <Html>
-      <Head><title>Payment failed</title></Head>
-      <Preview>Your payment for {linkTitle} could not be processed</Preview>
+      <Head><title>{copy.title}</title></Head>
+      <Preview>{copy.preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
           <Section>
-            <Text style={styles.title}>Payment failed</Text>
+            <Text style={styles.title}>{copy.title}</Text>
             {bodyHtml ? (
               <div style={{ fontSize: 14, color: '#4b5563', lineHeight: '22px', margin: '0 0 16px' }} dangerouslySetInnerHTML={{ __html: bodyHtml }} />
             ) : (
               <>
-                <Text style={styles.paragraph}>
-                  Hi {firstName}, unfortunately your payment for <strong>{linkTitle}</strong> could not be processed.
-                </Text>
+                <Text style={styles.paragraph}>{copy.greeting}</Text>
                 {errorMessage ? (
                   <Section style={styles.errorBox}>
                     <Text style={styles.errorText}>{errorMessage}</Text>
                   </Section>
                 ) : null}
-                <Text style={styles.paragraph}>
-                  Please try again or use a different payment method. If the problem persists, contact support.
-                </Text>
+                <Text style={styles.paragraph}>{copy.retry}</Text>
               </>
             )}
             <Hr style={{ borderColor: '#e5e7eb', margin: '24px 0' }} />
-            <Text style={styles.hint}>
-              No charges have been applied to your account.
-            </Text>
+            <Text style={styles.hint}>{copy.hint}</Text>
           </Section>
         </Container>
       </Body>

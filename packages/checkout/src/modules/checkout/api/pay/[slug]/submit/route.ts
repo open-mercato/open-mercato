@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
 import { CheckoutLink, CheckoutTransaction } from '../../../../data/entities'
@@ -26,7 +27,10 @@ import { checkoutTag } from '../../../openapi'
 type CachedSubmitResponse = {
   transactionId: string
   redirectUrl?: string | null
-  embeddedFormData?: Record<string, unknown> | null
+  paymentSession?: (PaymentGatewayClientSession & {
+    providerKey: string | null
+    gatewayTransactionId: string
+  }) | null
 }
 
 type CheckoutLegalDocumentRequirement = {
@@ -45,8 +49,27 @@ function isIdempotencyConflict(error: unknown): boolean {
     || message.includes('duplicate key value')
 }
 
+function readClientSession(
+  metadata: Record<string, unknown> | null | undefined,
+): PaymentGatewayClientSession | null {
+  const candidate = metadata?.clientSession
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+  if ((candidate as { type?: unknown }).type !== 'embedded') return null
+  if (typeof (candidate as { rendererKey?: unknown }).rendererKey !== 'string') return null
+  const payload = (candidate as { payload?: unknown }).payload
+  return {
+    type: 'embedded',
+    rendererKey: (candidate as { rendererKey: string }).rendererKey,
+    payload: payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : undefined,
+  }
+}
+
 async function buildSubmitResponse(
+  req: Request,
   em: EntityManager,
+  link: CheckoutLink,
   transaction: CheckoutTransaction,
   providerKey: string | null | undefined,
 ): Promise<CachedSubmitResponse> {
@@ -58,15 +81,24 @@ async function buildSubmitResponse(
       deletedAt: null,
     })
     : null
+  const requestUrl = new URL(req.url)
+  const clientSession = gatewayTransaction
+    ? readClientSession(gatewayTransaction.gatewayMetadata)
+    : null
   return {
     transactionId: transaction.id,
     redirectUrl: gatewayTransaction?.redirectUrl ?? null,
-    embeddedFormData: gatewayTransaction?.clientSecret
+    paymentSession: clientSession
       ? {
-        clientSecret: gatewayTransaction.clientSecret,
-        providerKey: providerKey ?? null,
-        gatewayTransactionId: gatewayTransaction.id,
-      }
+          ...clientSession,
+          payload: {
+            ...(clientSession.payload ?? {}),
+            returnUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
+            cancelUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
+          },
+          providerKey: providerKey ?? gatewayTransaction?.providerKey ?? null,
+          gatewayTransactionId: gatewayTransaction.id,
+        }
       : null,
   }
 }
@@ -119,7 +151,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     for (const key of ['terms', 'privacyPolicy'] as const) {
       const document = legalDocuments[key]
       if (document?.required === true && body.acceptedLegalConsents?.[key] !== true) {
-        throw new CrudHttpError(422, { error: `Acceptance is required for ${key}` })
+        throw new CrudHttpError(422, {
+          error: 'checkout.payPage.validation.fixErrors',
+          fieldErrors: {
+            [`acceptedLegalConsents.${key}`]: 'checkout.payPage.validation.documentRequired',
+          },
+        })
       }
     }
     const collectedCustomerData = link.collectCustomerDetails === false ? {} : body.customerData
@@ -131,7 +168,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         if (field.required !== true) continue
         const value = collectedCustomerData?.[field.key]
         if (value == null || `${value}`.trim().length === 0) {
-          throw new CrudHttpError(422, { error: `Field ${field.key} is required` })
+          throw new CrudHttpError(422, {
+            error: 'checkout.payPage.validation.fixErrors',
+            fieldErrors: {
+              [`customerData.${field.key}`]: 'checkout.payPage.validation.requiredField',
+            },
+          })
         }
       }
     }
@@ -145,7 +187,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
     if (existingTransaction?.gatewayTransactionId) {
       return NextResponse.json(
-        await buildSubmitResponse(em, existingTransaction, link.gatewayProviderKey),
+        await buildSubmitResponse(req, em, link, existingTransaction, link.gatewayProviderKey),
       )
     }
 
@@ -253,7 +295,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         organizationId: link.organizationId,
       }).catch(() => undefined)
     }
-    return NextResponse.json(await buildSubmitResponse(em, transaction, link.gatewayProviderKey), { status: 201 })
+    return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
   } catch (error) {
     return handleCheckoutRouteError(error)
   }

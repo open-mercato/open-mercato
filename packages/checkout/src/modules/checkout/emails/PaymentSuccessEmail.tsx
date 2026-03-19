@@ -8,6 +8,14 @@ export type PaymentSuccessEmailProps = {
   linkTitle: string
   transactionId: string
   bodyHtml?: string | null
+  copy: {
+    title: string
+    preview: string
+    greeting: string
+    receipt: string
+    hint: string
+    transactionLabel: string
+  }
 }
 
 const styles = {
@@ -20,33 +28,27 @@ const styles = {
   hint: { fontSize: 12, color: '#9ca3af', margin: '16px 0 0' } as React.CSSProperties,
 }
 
-export function PaymentSuccessEmail({ firstName, amount, currencyCode, linkTitle, transactionId, bodyHtml }: PaymentSuccessEmailProps) {
+export function PaymentSuccessEmail({ amount, currencyCode, transactionId, bodyHtml, copy }: PaymentSuccessEmailProps) {
   return (
     <Html>
-      <Head><title>Payment successful</title></Head>
-      <Preview>Your payment of {amount} {currencyCode} was successful</Preview>
+      <Head><title>{copy.title}</title></Head>
+      <Preview>{copy.preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
           <Section>
-            <Text style={styles.title}>Payment successful</Text>
+            <Text style={styles.title}>{copy.title}</Text>
             {bodyHtml ? (
               <div style={{ fontSize: 14, color: '#4b5563', lineHeight: '22px', margin: '0 0 16px' }} dangerouslySetInnerHTML={{ __html: bodyHtml }} />
             ) : (
               <>
-                <Text style={styles.paragraph}>
-                  Hi {firstName}, your payment for <strong>{linkTitle}</strong> has been completed successfully.
-                </Text>
+                <Text style={styles.paragraph}>{copy.greeting}</Text>
                 <Text style={styles.amountStyle}>{amount} {currencyCode}</Text>
-                <Text style={styles.mono}>Transaction: {transactionId}</Text>
-                <Text style={styles.paragraph}>
-                  Thank you for your payment. This email serves as your receipt.
-                </Text>
+                <Text style={styles.mono}>{copy.transactionLabel}: {transactionId}</Text>
+                <Text style={styles.paragraph}>{copy.receipt}</Text>
               </>
             )}
             <Hr style={{ borderColor: '#e5e7eb', margin: '24px 0' }} />
-            <Text style={styles.hint}>
-              Please keep this email for your records.
-            </Text>
+            <Text style={styles.hint}>{copy.hint}</Text>
           </Section>
         </Container>
       </Body>

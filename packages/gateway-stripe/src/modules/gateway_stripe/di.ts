@@ -54,7 +54,8 @@ export function register(container: AppContainer) {
         { value: 'google_pay', label: 'Google Pay' },
         { value: 'link', label: 'Link' },
       ],
-      presentation: 'redirect',
+      presentation: 'either',
+      embeddedRenderers: ['stripe.payment_element'],
     },
   })
 

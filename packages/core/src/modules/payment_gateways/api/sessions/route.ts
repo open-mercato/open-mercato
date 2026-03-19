@@ -49,6 +49,7 @@ export async function POST(req: Request) {
       clientSecret: session.clientSecret,
       redirectUrl: session.redirectUrl,
       providerData: session.providerData ?? null,
+      clientSession: session.clientSession ?? null,
       status: session.status,
       paymentId: transaction.paymentId,
     }, { status: 201 })

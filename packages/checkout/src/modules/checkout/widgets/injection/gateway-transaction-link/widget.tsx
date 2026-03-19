@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
@@ -14,6 +15,7 @@ type GatewayTransactionLinkPayload = {
 }
 
 function GatewayTransactionLinkWidget({ context }: Props) {
+  const t = useT()
   const transactionId = context?.selectedPaymentId ?? null
   const [payload, setPayload] = React.useState<GatewayTransactionLinkPayload | null>(null)
 
@@ -39,13 +41,13 @@ function GatewayTransactionLinkWidget({ context }: Props) {
 
   return (
     <Card>
-      <CardHeader><CardTitle>Checkout transaction</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t('checkout.widgets.gatewayTransactionLink.title')}</CardTitle></CardHeader>
       <CardContent className="space-y-2 text-sm">
-        <div>Transaction ID: {payload.transaction.id}</div>
-        <div>Link: {payload.transaction.linkName ?? '—'}</div>
+        <div>{t('checkout.widgets.gatewayTransactionLink.labels.transactionId')}: {payload.transaction.id}</div>
+        <div>{t('checkout.widgets.gatewayTransactionLink.labels.link')}: {payload.transaction.linkName ?? t('checkout.common.emptyValue')}</div>
         <div className="flex gap-3">
-          <Link className="underline" href={`/backend/checkout/transactions/${encodeURIComponent(payload.transaction.id)}`}>Open transaction</Link>
-          {payload.transaction.linkSlug ? <Link className="underline" href={`/pay/${encodeURIComponent(payload.transaction.linkSlug)}`}>Open pay page</Link> : null}
+          <Link className="underline" href={`/backend/checkout/transactions/${encodeURIComponent(payload.transaction.id)}`}>{t('checkout.widgets.gatewayTransactionLink.actions.openTransaction')}</Link>
+          {payload.transaction.linkSlug ? <Link className="underline" href={`/pay/${encodeURIComponent(payload.transaction.linkSlug)}`}>{t('checkout.widgets.gatewayTransactionLink.actions.openPayPage')}</Link> : null}
         </div>
       </CardContent>
     </Card>

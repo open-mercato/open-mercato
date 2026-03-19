@@ -66,8 +66,17 @@ export interface PaymentGatewayDescriptor {
     supportedCurrencies?: '*' | string[]
     supportedPaymentTypes?: Array<{ value: string; label: string }>
     presentation?: 'embedded' | 'redirect' | 'either'
+    embeddedRenderers?: string[]
   }
 }
+
+export interface EmbeddedPaymentGatewayClientSession {
+  type: 'embedded'
+  rendererKey: string
+  payload?: Record<string, unknown>
+}
+
+export type PaymentGatewayClientSession = EmbeddedPaymentGatewayClientSession
 
 // ── Input / Output Types ────────────────────────────────────────────────────
 
@@ -101,6 +110,7 @@ export interface CreateSessionResult {
   redirectUrl?: string
   status: UnifiedPaymentStatus
   providerData?: Record<string, unknown>
+  clientSession?: PaymentGatewayClientSession
 }
 
 export interface CaptureInput {

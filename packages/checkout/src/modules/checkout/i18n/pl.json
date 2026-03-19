@@ -1,41 +1,529 @@
 {
   "checkout": {
+    "nav": {
+      "group": "Checkout",
+      "root": "Checkout",
+      "payLinks": "Linki płatności",
+      "templates": "Szablony",
+      "transactions": "Transakcje"
+    },
+    "common": {
+      "enabled": "Włączone",
+      "emptyValue": "—",
+      "flash": {
+        "saved": "Zapisano",
+        "deleted": "Usunięto"
+      },
+      "actions": {
+        "edit": "Edytuj",
+        "preview": "Podgląd",
+        "remove": "Usuń",
+        "delete": "Usuń"
+      },
+      "status": {
+        "draft": "Szkic",
+        "active": "Aktywny",
+        "inactive": "Nieaktywny"
+      }
+    },
+    "currencySelect": {
+      "placeholder": "Wybierz walutę",
+      "errors": {
+        "load": "Nie udało się załadować walut."
+      }
+    },
+    "customerFieldsEditor": {
+      "addField": "Dodaj pole klienta",
+      "locked": "Zablokowane",
+      "columns": {
+        "fieldKey": "Klucz pola",
+        "label": "Etykieta",
+        "placeholder": "Placeholder",
+        "type": "Typ",
+        "required": "Wymagane",
+        "actions": "Akcje"
+      },
+      "types": {
+        "text": "Tekst",
+        "multiline": "Pole tekstowe",
+        "boolean": "Checkbox",
+        "select": "Select",
+        "radio": "Radio"
+      },
+      "placeholders": {
+        "fieldKey": "referenceCode",
+        "label": "Kod referencyjny",
+        "placeholder": "Wyświetlane wewnątrz pola"
+      },
+      "options": {
+        "title": "Opcje",
+        "add": "Dodaj opcję",
+        "value": "Wartość",
+        "label": "Etykieta",
+        "placeholders": {
+          "value": "starter",
+          "label": "Starter"
+        }
+      },
+      "notices": {
+        "defaultFields": "Domyślne pola klienta są tylko punktem wyjścia. Możesz je zmieniać, usuwać i porządkować, aby formularz był bardziej kompaktowy.",
+        "empty": "Nie skonfigurowano jeszcze pól klienta. Dodaj przynajmniej jedno pole, jeśli chcesz zbierać dane kupującego na stronie płatności."
+      }
+    },
+    "gatewaySettings": {
+      "selectPlaceholder": "Wybierz…",
+      "notices": {
+        "chooseProvider": "Wybierz dostawcę bramki, aby skonfigurować ustawienia sesji checkout.",
+        "noSettings": "Ten dostawca nie udostępnia dodatkowych ustawień sesji."
+      }
+    },
+    "logoUpload": {
+      "title": "Logo",
+      "description": "Prześlij logo do załączników lub dalej używaj zewnętrznego URL.",
+      "empty": "Nie wybrano jeszcze logo.",
+      "externalUrl": "Zewnętrzny URL logo",
+      "externalUrlPlaceholder": "https://example.com/logo.png",
+      "previewAlt": "Podgląd logo checkout",
+      "actions": {
+        "attach": "Dołącz logo",
+        "uploading": "Przesyłanie…",
+        "removeUpload": "Usuń przesłane"
+      },
+      "notices": {
+        "attachmentWins": "Najpierw używany jest przesłany załącznik. Usuń go, jeśli chcesz wrócić do zewnętrznego URL."
+      },
+      "errors": {
+        "upload": "Nie udało się przesłać logo.",
+        "remove": "Nie udało się usunąć przesłanego logo."
+      }
+    },
+    "linkTemplateForm": {
+      "titles": {
+        "createLink": "Utwórz link płatności",
+        "editLink": "Edytuj link płatności",
+        "createTemplate": "Utwórz szablon",
+        "editTemplate": "Edytuj szablon"
+      },
+      "groups": {
+        "general": "Ogólne",
+        "appearance": "Wygląd",
+        "pricing": "Cennik",
+        "payment": "Płatność",
+        "customerFields": "Pola klienta",
+        "settings": "Ustawienia",
+        "legal": "Prawne",
+        "messages": "Komunikaty",
+        "emails": "E-maile",
+        "customFields": "Pola niestandardowe"
+      },
+      "locked": {
+        "title": "Ten link płatności jest tylko do odczytu",
+        "description": "Ten link płatności ma już aktywne transakcje. Możesz przejrzeć zapisane ustawienia, ale edycja i usuwanie są zablokowane.",
+        "overlayTitle": "Edycja jest wyłączona",
+        "overlayDescription": "Z tym linkiem płatności są już powiązane aktywne transakcje, więc formularz został zablokowany dla zachowania spójności płatności."
+      },
+      "general": {
+        "fields": {
+          "name": "Nazwa",
+          "title": "Tytuł",
+          "subtitle": "Podtytuł",
+          "description": "Opis",
+          "slug": "Slug"
+        },
+        "hints": {
+          "description": "Na publicznej stronie podglądu obsługiwany jest markdown.",
+          "slug": "To będzie publiczny URL linku płatności."
+        },
+        "placeholders": {
+          "name": "Styczniowa sesja konsultingowa",
+          "title": "Płatność za sesję konsultingową",
+          "subtitle": "Jednogodzinna konsultacja strategiczna",
+          "description": "# Co zawiera oferta\n- 60 minut rozmowy strategicznej\n- Podsumowanie po rozmowie",
+          "slug": "styczen-konsulting"
+        },
+        "actions": {
+          "generateSlug": "Wygeneruj"
+        },
+        "slugPreview": "Podgląd: `/pay/{slug}`"
+      },
+      "appearance": {
+        "fields": {
+          "primaryColor": "Kolor główny",
+          "secondaryColor": "Kolor dodatkowy",
+          "backgroundColor": "Kolor tła",
+          "themeMode": "Tryb motywu",
+          "displayCustomFields": "Pokaż pola niestandardowe na publicznej stronie"
+        },
+        "themeModes": {
+          "auto": "Automatycznie",
+          "light": "Jasny",
+          "dark": "Ciemny"
+        }
+      },
+      "pricing": {
+        "modes": {
+          "fixed": "Stała cena",
+          "customAmount": "Klient wpisuje kwotę",
+          "priceList": "Cennik"
+        },
+        "fields": {
+          "amount": "Kwota",
+          "currency": "Waluta",
+          "compareAtPrice": "Cena porównawcza",
+          "includesTax": "Cena zawiera już podatek",
+          "minimumAmount": "Minimalna kwota",
+          "maximumAmount": "Maksymalna kwota"
+        },
+        "hints": {
+          "compareAtPrice": "Opcjonalna przekreślona kwota pokazana nad aktualną ceną."
+        }
+      },
+      "priceList": {
+        "columns": {
+          "itemCode": "Kod pozycji",
+          "description": "Opis",
+          "amount": "Kwota",
+          "currency": "Waluta",
+          "actions": "Akcje"
+        },
+        "placeholders": {
+          "itemCode": "starter",
+          "description": "Pakiet startowy"
+        },
+        "aria": {
+          "itemCode": "Kod pozycji {index}",
+          "description": "Opis {index}",
+          "amount": "Kwota {index}"
+        },
+        "actions": {
+          "addItem": "Dodaj pozycję"
+        },
+        "notices": {
+          "singleCurrency": "Wszystkie pozycje cennika powinny być w tej samej walucie. Waluta pierwszego wiersza stanie się domyślna dla nowych pozycji.",
+          "empty": "Nie ma jeszcze pozycji cennika. Dodaj przynajmniej jedną, aby klienci mogli wybrać spośród kilku wariantów cenowych."
+        }
+      },
+      "payment": {
+        "fields": {
+          "gatewayProvider": "Dostawca bramki"
+        },
+        "placeholders": {
+          "provider": "Wybierz dostawcę…"
+        }
+      },
+      "customerDetails": {
+        "title": "Zbieraj dane klienta",
+        "description": "Rekomendowane: zbieraj przynajmniej e-mail klienta do potwierdzeń, analizy ryzyka i bezpieczeństwa sporów płatniczych. Nie jest to wymagane.",
+        "notices": {
+          "simpleLink": "Wyłącz to, aby strona działała jako prosty link do płatności bez formularza klienta.",
+          "disabled": "Dane klienta są wyłączone. Kupujący zobaczą tylko sekcję płatności i ewentualne checkboxy zgód prawnych."
+        }
+      },
+      "legal": {
+        "notice": "Te zakładki są pokazywane przy kroku zgody prawnej na stronie płatności. Użyj markdown do nagłówków, list i linków.",
+        "tabs": {
+          "terms": "Regulamin",
+          "privacy": "Prywatność"
+        },
+        "fields": {
+          "termsTitle": "Tytuł regulaminu",
+          "termsBody": "Treść regulaminu",
+          "privacyTitle": "Tytuł polityki prywatności",
+          "privacyBody": "Treść polityki prywatności",
+          "acceptanceRequired": "Akceptacja wymagana"
+        },
+        "placeholders": {
+          "termsTitle": "Regulamin",
+          "termsBody": "# Regulamin\n\nOpisz zasady, które klient akceptuje przed płatnością.",
+          "privacyTitle": "Polityka prywatności",
+          "privacyBody": "# Prywatność\n\nWyjaśnij, jakie dane osobowe zbierasz i dlaczego."
+        }
+      },
+      "messages": {
+        "notice": "Te komunikaty są wyświetlane na publicznych ekranach sukcesu, anulowania i błędu. Treść obsługuje markdown.",
+        "tabs": {
+          "success": "Sukces",
+          "cancel": "Anulowanie",
+          "error": "Błąd"
+        },
+        "labels": {
+          "title": "Tytuł: {state}",
+          "body": "Komunikat: {state}"
+        },
+        "placeholders": {
+          "successTitle": "Płatność zakończona",
+          "successBody": "Dziękujemy za płatność. Przetwarzamy ją właśnie teraz.",
+          "cancelTitle": "Płatność anulowana",
+          "cancelBody": "Płatność została anulowana przed zakończeniem.",
+          "errorTitle": "Płatność nieudana",
+          "errorBody": "Nie udało się zrealizować płatności. Spróbuj ponownie."
+        }
+      },
+      "emails": {
+        "notice": "Treści e-maili obsługują markdown i zmienne poniżej.",
+        "variableHint": "Dostępne zmienne:",
+        "sendToCustomer": "Wyślij ten e-mail do klienta",
+        "tabs": {
+          "start": "Start",
+          "success": "Sukces",
+          "error": "Błąd"
+        },
+        "labels": {
+          "subject": "Temat e-maila: {state}",
+          "body": "Treść e-maila: {state}"
+        },
+        "placeholders": {
+          "startSubject": "Płatność rozpoczęta - {{linkTitle}}",
+          "startBody": "Cześć {{firstName}}, rozpoczęliśmy przetwarzanie Twojej płatności **{{amount}} {{currencyCode}}**.",
+          "successSubject": "Płatność zakończona - {{linkTitle}}",
+          "successBody": "Cześć {{firstName}}, Twoja płatność zakończyła się sukcesem. Numer referencyjny: `{{transactionId}}`.",
+          "errorSubject": "Płatność nieudana - {{linkTitle}}",
+          "errorBody": "Cześć {{firstName}}, nie udało się zrealizować Twojej płatności. {{errorMessage}}"
+        }
+      },
+      "settings": {
+        "fields": {
+          "status": "Status",
+          "maxCompletions": "Maks. liczba użyć",
+          "password": "Hasło"
+        },
+        "hints": {
+          "maxCompletions": "Pozostaw puste, jeśli link ma być używany bez limitu.",
+          "password": "Opcjonalne hasło wymagane przed otwarciem strony płatności."
+        },
+        "placeholders": {
+          "unlimited": "Bez limitu",
+          "password": "Pozostaw puste, aby strona była publiczna"
+        }
+      }
+    },
+    "admin": {
+      "payLinks": {
+        "title": "Linki płatności",
+        "searchPlaceholder": "Szukaj linków płatności…",
+        "filters": {
+          "status": "Status",
+          "pricing": "Cennik"
+        },
+        "columns": {
+          "name": "Nazwa",
+          "slug": "Slug",
+          "pricing": "Cennik",
+          "status": "Status",
+          "uses": "Użycia",
+          "created": "Utworzono"
+        },
+        "pricing": {
+          "fixed": "Stała {amount} {currency}",
+          "customAmount": "Własna {min}-{max} {currency}"
+        },
+        "actions": {
+          "create": "Utwórz link",
+          "viewPayPage": "Zobacz stronę płatności",
+          "copyUrl": "Skopiuj URL linku",
+          "showTransactions": "Pokaż transakcje",
+          "publish": "Opublikuj",
+          "deactivate": "Dezaktywuj"
+        }
+      },
+      "templates": {
+        "title": "Szablony linków",
+        "searchPlaceholder": "Szukaj szablonów…",
+        "unlimited": "Bez limitu",
+        "filters": {
+          "pricingMode": "Tryb wyceny"
+        },
+        "columns": {
+          "name": "Nazwa",
+          "pricingMode": "Tryb wyceny",
+          "gateway": "Bramka",
+          "maxUses": "Maks. użycia",
+          "created": "Utworzono"
+        },
+        "actions": {
+          "create": "Utwórz szablon",
+          "createLinkFromTemplate": "Utwórz link z szablonu"
+        }
+      },
+      "transactions": {
+        "title": "Transakcje",
+        "searchPlaceholder": "Szukaj transakcji…",
+        "filters": {
+          "link": "Link",
+          "status": "Status"
+        },
+        "columns": {
+          "link": "Link",
+          "customer": "Klient",
+          "email": "E-mail",
+          "amount": "Kwota",
+          "status": "Status",
+          "paymentStatus": "Status płatności",
+          "date": "Data"
+        },
+        "actions": {
+          "viewDetail": "Zobacz szczegóły"
+        },
+        "status": {
+          "pending": "Oczekująca",
+          "processing": "Przetwarzana",
+          "completed": "Zakończona",
+          "failed": "Nieudana",
+          "cancelled": "Anulowana",
+          "expired": "Wygasła"
+        }
+      },
+      "transactionDetail": {
+        "title": "Szczegóły transakcji",
+        "description": "Sprawdź transakcję checkout i powiązane dane linku płatności.",
+        "sections": {
+          "payment": "Szczegóły płatności",
+          "link": "Szczegóły linku",
+          "customer": "Dane klienta",
+          "gateway": "Transakcja bramki",
+          "customFields": "Pola niestandardowe"
+        },
+        "fields": {
+          "amount": "Kwota",
+          "status": "Status",
+          "paymentStatus": "Status płatności",
+          "transactionId": "ID transakcji",
+          "created": "Utworzono",
+          "updated": "Zaktualizowano",
+          "linkName": "Nazwa linku",
+          "slug": "Slug",
+          "pricingMode": "Tryb wyceny",
+          "firstName": "Imię",
+          "lastName": "Nazwisko",
+          "email": "E-mail",
+          "phone": "Telefon",
+          "gatewayTransactionId": "ID transakcji bramki",
+          "selectedPriceItem": "Wybrana pozycja cennika",
+          "checkoutTransaction": "Transakcja checkout"
+        },
+        "actions": {
+          "viewPayLink": "Zobacz link płatności"
+        },
+        "emptyCustomFields": "Dla tej transakcji nie zapisano pól niestandardowych."
+      }
+    },
     "payPage": {
-      "loading": "Ladowanie linku platnosci...",
-      "protectedTitle": "Chroniony link platnosci",
-      "passwordPlaceholder": "Haslo",
-      "unavailable": "Ten link platnosci nie jest juz dostepny.",
-      "previewBanner": "Tryb podgladu. Platnosci sa wylaczone.",
+      "loading": "Ładowanie linku płatności...",
+      "protectedTitle": "Chroniony link płatności",
+      "passwordPlaceholder": "Hasło",
+      "unavailable": "Ten link płatności nie jest już dostępny.",
+      "previewBanner": "Tryb podglądu. Płatności są wyłączone.",
       "sections": {
         "customerDetails": "Dane klienta",
-        "payment": "Platnosc"
+        "payment": "Płatność"
       },
       "fields": {
         "selectPlaceholder": "Wybierz..."
       },
       "legal": {
-        "acceptDocument": "Akceptuje {document}.",
+        "acceptDocument": "Akceptuję {document}.",
         "defaultTermsTitle": "regulamin",
-        "defaultPrivacyTitle": "polityke prywatnosci"
+        "defaultPrivacyTitle": "politykę prywatności"
       },
       "summary": {
-        "amountDue": "Kwota do zaplaty"
+        "amountDue": "Kwota do zapłaty"
       },
       "errors": {
-        "loadTitle": "Nie mozna zaladowac linku platnosci",
-        "loadMessage": "Nie udalo sie zaladowac tej strony platnosci. Sprobuj ponownie.",
-        "password": "Nie udalo sie zweryfikowac hasla. Sprobuj ponownie.",
-        "submit": "Nie udalo sie rozpoczac platnosci. Sprobuj ponownie."
+        "loadTitle": "Nie udało się załadować linku płatności",
+        "loadMessage": "Nie udało się załadować tej strony płatności. Spróbuj ponownie.",
+        "password": "Nie udało się zweryfikować hasła. Spróbuj ponownie.",
+        "submit": "Nie udało się rozpocząć płatności. Spróbuj ponownie."
       },
       "actions": {
-        "retry": "Sprobuj ponownie",
-        "backToAdmin": "Wroc do panelu",
+        "retry": "Ponów",
+        "backToAdmin": "Wróć do panelu",
         "continue": "Kontynuuj",
-        "verifying": "Trwa weryfikacja...",
-        "payNow": "Zaplac teraz",
-        "processingPayment": "Trwa przetwarzanie platnosci...",
-        "previewDisabled": "Tylko podglad"
+        "verifying": "Weryfikacja...",
+        "payNow": "Zapłać teraz",
+        "processingPayment": "Przetwarzanie płatności...",
+        "previewDisabled": "Tylko podgląd"
       }
+    },
+    "statusPage": {
+      "backToPayment": "Wróć do strony płatności",
+      "checking": "Sprawdzanie statusu płatności…",
+      "currentStatus": "Aktualny status: {status}",
+      "success": {
+        "completed": "Płatność zakończona",
+        "processing": "Płatność jest przetwarzana"
+      },
+      "cancel": {
+        "failed": "Płatność nieudana",
+        "cancelled": "Płatność anulowana"
+      }
+    },
+    "validation": {
+      "fixedPriceAmount": {
+        "required": "Kwota jest wymagana dla stałej ceny."
+      },
+      "fixedPriceCurrencyCode": {
+        "required": "Waluta jest wymagana dla stałej ceny."
+      },
+      "customAmountMin": {
+        "required": "Minimalna kwota jest wymagana."
+      },
+      "customAmountMax": {
+        "required": "Maksymalna kwota jest wymagana."
+      },
+      "customAmountCurrencyCode": {
+        "required": "Waluta jest wymagana dla własnej kwoty."
+      },
+      "customAmount": {
+        "range": "Maksymalna kwota musi być większa lub równa minimalnej."
+      },
+      "priceListItems": {
+        "required": "Dodaj przynajmniej jedną pozycję cennika.",
+        "singleCurrency": "Wszystkie pozycje cennika muszą mieć tę samą walutę."
+      }
+    },
+    "notifications": {
+      "transaction": {
+        "completed": {
+          "title": "Płatność zakończona",
+          "body": "{customerName} zapłacił(a) {amount} {currency}."
+        },
+        "failed": {
+          "title": "Płatność nieudana",
+          "body": "Płatność na kwotę {amount} {currency} nie powiodła się."
+        }
+      },
+      "link": {
+        "usageLimitReached": {
+          "title": "Osiągnięto limit użyć",
+          "body": "{linkName} osiągnął maksymalną liczbę ukończeń."
+        }
+      },
+      "renderer": {
+        "viewTransaction": "Zobacz transakcję",
+        "viewLink": "Zobacz link płatności"
+      }
+    },
+    "link": {
+      "created": "Utworzono link płatności",
+      "updated": "Zaktualizowano link płatności",
+      "deleted": "Usunięto link płatności",
+      "published": "Opublikowano link płatności",
+      "locked": "Zablokowano link płatności",
+      "usageLimitReached": "Osiągnięto limit użyć linku płatności"
+    },
+    "template": {
+      "created": "Utworzono szablon",
+      "updated": "Zaktualizowano szablon",
+      "deleted": "Usunięto szablon"
+    },
+    "transaction": {
+      "created": "Utworzono transakcję",
+      "sessionStarted": "Rozpoczęto sesję płatności",
+      "completed": "Transakcja zakończona",
+      "failed": "Transakcja nieudana",
+      "cancelled": "Transakcja anulowana",
+      "expired": "Transakcja wygasła",
+      "customerDataCaptured": "Zapisano dane klienta"
     }
   }
 }

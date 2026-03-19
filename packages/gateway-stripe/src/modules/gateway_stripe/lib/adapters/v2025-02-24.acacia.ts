@@ -51,6 +51,16 @@ export const stripeAdapterV20250224Acacia: GatewayAdapter = {
           ? input.credentials.publishableKey
           : undefined,
       },
+      clientSession: paymentIntent.client_secret && typeof input.credentials.publishableKey === 'string'
+        ? {
+            type: 'embedded',
+            rendererKey: 'stripe.payment_element',
+            payload: {
+              clientSecret: paymentIntent.client_secret,
+              publishableKey: input.credentials.publishableKey,
+            },
+          }
+        : undefined,
     }
   },
 

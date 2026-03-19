@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import {
   CircleDollarSign,
   Eye,
@@ -29,7 +29,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
-import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
+import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
 import { CustomerFieldsEditor } from './CustomerFieldsEditor'
@@ -85,8 +85,8 @@ function readBoolean(value: unknown, fallback = false): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
-function cloneDefaultCustomerFields(): CustomerFieldDefinitionInput[] {
-  return DEFAULT_CHECKOUT_CUSTOMER_FIELDS.map((field) => ({
+function cloneDefaultCustomerFields(t?: TranslateFn): CustomerFieldDefinitionInput[] {
+  return getLocalizedDefaultCheckoutCustomerFields(t).map((field) => ({
     ...field,
     placeholder: typeof field.placeholder === 'string' ? field.placeholder : undefined,
   }))
@@ -99,7 +99,7 @@ function createDefaultLegalDocuments(): LegalDocumentsValue {
   }
 }
 
-function createDefaultValues(): FormValues {
+function createDefaultValues(t?: TranslateFn): FormValues {
   return {
     name: '',
     title: '',
@@ -123,7 +123,7 @@ function createDefaultValues(): FormValues {
     gatewayProviderKey: '',
     gatewaySettings: {},
     collectCustomerDetails: true,
-    customerFieldsSchema: cloneDefaultCustomerFields(),
+    customerFieldsSchema: cloneDefaultCustomerFields(t),
     legalDocuments: createDefaultLegalDocuments(),
     status: 'draft',
     maxCompletions: null,
@@ -165,8 +165,8 @@ function normalizePriceListItems(value: unknown): PriceListItem[] {
     .filter((item): item is PriceListItem => item !== null)
 }
 
-function normalizeCustomerFields(value: unknown): CustomerFieldDefinitionInput[] {
-  if (!Array.isArray(value)) return cloneDefaultCustomerFields()
+function normalizeCustomerFields(value: unknown, t?: TranslateFn): CustomerFieldDefinitionInput[] {
+  if (!Array.isArray(value)) return cloneDefaultCustomerFields(t)
   return value.reduce<CustomerFieldDefinitionInput[]>((result, field, index) => {
     if (!isRecord(field)) return result
     const key = readString(field.key).trim()
@@ -198,6 +198,10 @@ function normalizeCustomerFields(value: unknown): CustomerFieldDefinitionInput[]
   }, [])
 }
 
+function readCustomerFields(value: unknown, t?: TranslateFn): CustomerFieldDefinitionInput[] {
+  return Array.isArray(value) ? value as CustomerFieldDefinitionInput[] : cloneDefaultCustomerFields(t)
+}
+
 function normalizeLegalDocuments(value: unknown): LegalDocumentsValue {
   const defaults = createDefaultLegalDocuments()
   if (!isRecord(value)) return defaults
@@ -215,8 +219,8 @@ function normalizeLegalDocuments(value: unknown): LegalDocumentsValue {
   }
 }
 
-function normalizeFormValues(value: FormValues | null | undefined): FormValues {
-  const defaults = createDefaultValues()
+function normalizeFormValues(value: FormValues | null | undefined, t?: TranslateFn): FormValues {
+  const defaults = createDefaultValues(t)
   const source = isRecord(value) ? value : {}
   return {
     ...defaults,
@@ -228,7 +232,7 @@ function normalizeFormValues(value: FormValues | null | undefined): FormValues {
     backgroundColor: readString(source.backgroundColor).trim() || defaults.backgroundColor,
     gatewaySettings: isRecord(source.gatewaySettings) ? source.gatewaySettings : {},
     collectCustomerDetails: readBoolean(source.collectCustomerDetails, true),
-    customerFieldsSchema: normalizeCustomerFields(source.customerFieldsSchema),
+    customerFieldsSchema: normalizeCustomerFields(source.customerFieldsSchema, t),
     legalDocuments: normalizeLegalDocuments(source.legalDocuments),
     priceListItems: normalizePriceListItems(source.priceListItems),
     fixedPriceCurrencyCode: readString(source.fixedPriceCurrencyCode).trim().toUpperCase() || 'USD',
@@ -810,7 +814,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
           </Notice>
           {customerFieldsError ? <p className="text-xs text-destructive">{customerFieldsError}</p> : null}
           <CustomerFieldsEditor
-            value={normalizeCustomerFields(values.customerFieldsSchema)}
+            value={readCustomerFields(values.customerFieldsSchema, t)}
             onChange={(next) => setValue('customerFieldsSchema', next)}
           />
         </>
@@ -1172,7 +1176,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const initialLogoAttachmentIdRef = React.useRef<string | null>(null)
   const [providers, setProviders] = React.useState<ProviderDescriptor[]>([])
   const [initialValues, setInitialValues] = React.useState<FormValues | null>(
-    recordId ? null : normalizeFormValues(createDefaultValues()),
+    recordId ? null : normalizeFormValues(createDefaultValues(t), t),
   )
 
   React.useEffect(() => {
@@ -1202,15 +1206,15 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     void readApiResultOrThrow<FormValues>(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`)
       .then((result) => {
         if (!active) return
-        setInitialValues(normalizeFormValues(result))
+        setInitialValues(normalizeFormValues(result, t))
       })
       .catch(() => {
-        if (active) setInitialValues(normalizeFormValues({}))
+        if (active) setInitialValues(normalizeFormValues({}, t))
       })
     return () => {
       active = false
     }
-  }, [mode, recordId])
+  }, [mode, recordId, t])
 
   React.useEffect(() => {
     if (recordId || mode !== 'link' || !templateId) return
@@ -1223,14 +1227,14 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
             ...result,
             slug: '',
             templateId,
-          }),
+          }, t),
         )
       })
       .catch(() => null)
     return () => {
       active = false
     }
-  }, [mode, recordId, templateId])
+  }, [mode, recordId, t, templateId])
 
   const fields = React.useMemo<CrudField[]>(() => [], [])
 
@@ -1298,6 +1302,28 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     { id: 'customFields', title: t('checkout.linkTemplateForm.groups.customFields'), column: 2, kind: 'customFields' },
   ], [attachmentDraftRecordId, entityId, mode, providers, t])
 
+  const isLocked = mode === 'link' && Boolean(recordId) && readBoolean(initialValues?.isLocked)
+  const lockedNotice = isLocked ? (
+    <Notice
+      variant="warning"
+      title={t('checkout.linkTemplateForm.locked.title')}
+      message={t('checkout.linkTemplateForm.locked.description')}
+    />
+  ) : undefined
+  const lockedOverlay = isLocked ? (
+    <div className="mx-auto mt-6 max-w-md rounded-2xl border border-amber-200 bg-background/95 px-5 py-4 text-center shadow-sm">
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+        <Shield className="h-5 w-5" />
+      </div>
+      <p className="text-sm font-semibold text-foreground">
+        {t('checkout.linkTemplateForm.locked.overlayTitle')}
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {t('checkout.linkTemplateForm.locked.overlayDescription')}
+      </p>
+    </div>
+  ) : undefined
+
   return (
     <Page>
       <PageBody>
@@ -1326,6 +1352,9 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
             ) : null}
             entityId={entityId}
             initialValues={initialValues}
+            contentHeader={lockedNotice}
+            readOnly={isLocked}
+            readOnlyOverlay={lockedOverlay}
             deleteVisible={Boolean(recordId)}
             onSubmit={async (values) => {
               const payload = { ...values, customFields: collectCustomFieldValues(values) }

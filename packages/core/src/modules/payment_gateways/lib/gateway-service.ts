@@ -157,7 +157,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         clientSecret: session.clientSecret ?? null,
         amount: String(input.amount),
         currencyCode: input.currencyCode,
-        gatewayMetadata: session.providerData ?? null,
+        gatewayMetadata: {
+          ...(session.providerData ?? {}),
+          ...(session.clientSession ? { clientSession: session.clientSession } : {}),
+        },
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })

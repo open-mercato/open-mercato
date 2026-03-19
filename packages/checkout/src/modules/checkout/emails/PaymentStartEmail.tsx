@@ -7,6 +7,13 @@ export type PaymentStartEmailProps = {
   currencyCode: string
   linkTitle: string
   bodyHtml?: string | null
+  copy: {
+    title: string
+    preview: string
+    greeting: string
+    message: string
+    hint: string
+  }
 }
 
 const styles = {
@@ -18,32 +25,26 @@ const styles = {
   hint: { fontSize: 12, color: '#9ca3af', margin: '16px 0 0' } as React.CSSProperties,
 }
 
-export function PaymentStartEmail({ firstName, amount, currencyCode, linkTitle, bodyHtml }: PaymentStartEmailProps) {
+export function PaymentStartEmail({ amount, currencyCode, bodyHtml, copy }: PaymentStartEmailProps) {
   return (
     <Html>
-      <Head><title>Payment initiated</title></Head>
-      <Preview>Your payment of {amount} {currencyCode} is being processed</Preview>
+      <Head><title>{copy.title}</title></Head>
+      <Preview>{copy.preview}</Preview>
       <Body style={styles.body}>
         <Container style={styles.container}>
           <Section>
-            <Text style={styles.title}>Payment initiated</Text>
+            <Text style={styles.title}>{copy.title}</Text>
             {bodyHtml ? (
               <div style={{ fontSize: 14, color: '#4b5563', lineHeight: '22px', margin: '0 0 16px' }} dangerouslySetInnerHTML={{ __html: bodyHtml }} />
             ) : (
               <>
-                <Text style={styles.paragraph}>
-                  Hi {firstName}, your payment for <strong>{linkTitle}</strong> has been initiated.
-                </Text>
+                <Text style={styles.paragraph}>{copy.greeting}</Text>
                 <Text style={styles.amountStyle}>{amount} {currencyCode}</Text>
-                <Text style={styles.paragraph}>
-                  We are processing your payment. You will receive a confirmation once it is complete.
-                </Text>
+                <Text style={styles.paragraph}>{copy.message}</Text>
               </>
             )}
             <Hr style={{ borderColor: '#e5e7eb', margin: '24px 0' }} />
-            <Text style={styles.hint}>
-              If you did not initiate this payment, please contact support.
-            </Text>
+            <Text style={styles.hint}>{copy.hint}</Text>
           </Section>
         </Container>
       </Body>

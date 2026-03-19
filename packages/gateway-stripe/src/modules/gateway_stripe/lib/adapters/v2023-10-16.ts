@@ -49,6 +49,16 @@ export const stripeAdapterV20231016: GatewayAdapter = {
           ? input.credentials.publishableKey
           : undefined,
       },
+      clientSession: paymentIntent.client_secret && typeof input.credentials.publishableKey === 'string'
+        ? {
+            type: 'embedded',
+            rendererKey: 'stripe.payment_element',
+            payload: {
+              clientSecret: paymentIntent.client_secret,
+              publishableKey: input.credentials.publishableKey,
+            },
+          }
+        : undefined,
     }
   },
 
