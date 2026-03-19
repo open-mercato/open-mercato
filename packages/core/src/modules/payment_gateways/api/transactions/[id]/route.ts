@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import { GatewayTransaction } from '../../../data/entities'
+import { listGatewayTransactionAssignments, readPrimaryGatewayTransactionAssignment } from '../../../lib/transaction-assignments'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
@@ -96,6 +97,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
   }
 
+  const assignmentRows = await listGatewayTransactionAssignments(em, {
+    transactionIds: [transaction.id],
+    scope,
+  })
+  const assignments = (assignmentRows.get(transaction.id) ?? []).map((assignment) => ({
+    id: assignment.id,
+    entityType: assignment.entityType,
+    entityId: assignment.entityId,
+    createdAt: toIsoString(assignment.createdAt),
+  }))
+  const primaryAssignment = readPrimaryGatewayTransactionAssignment(assignments.map((assignment) => ({
+    entityType: assignment.entityType,
+    entityId: assignment.entityId,
+  })))
+
   const integrationId = `gateway_${transaction.providerKey}`
   const { items: logRows } = await integrationLogService.query(
     {
@@ -122,8 +138,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       amount: transaction.amount,
       currencyCode: transaction.currencyCode,
       gatewayMetadata: transaction.gatewayMetadata ?? null,
-      documentType: transaction.documentType ?? null,
-      documentId: transaction.documentId ?? null,
+      assignments,
+      documentType: transaction.documentType ?? primaryAssignment?.entityType ?? null,
+      documentId: transaction.documentId ?? primaryAssignment?.entityId ?? null,
       webhookLog: Array.isArray(transaction.webhookLog) ? transaction.webhookLog : [],
       lastWebhookAt: toIsoString(transaction.lastWebhookAt),
       lastPolledAt: toIsoString(transaction.lastPolledAt),

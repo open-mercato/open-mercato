@@ -35,6 +35,18 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function getSalesDocumentMain(page: Page): Locator {
+  return page.getByRole('main');
+}
+
+function getSalesDocumentTab(page: Page, name: RegExp): Locator {
+  return getSalesDocumentMain(page).getByRole('button', { name }).first();
+}
+
+function getSalesDocumentActionButton(page: Page, name: RegExp): Locator {
+  return getSalesDocumentMain(page).getByRole('button', { name }).first();
+}
+
 function parseCurrencyAmount(value: string): number {
   const normalized = value.replace(/,/g, '');
   const matches = normalized.match(/-?\$[0-9]+(?:\.[0-9]{2})?/g);
@@ -801,12 +813,12 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
 
 export async function addPayment(page: Page, amount: number): Promise<{ amountLabel: string; added: boolean }> {
   await ensureSalesDocumentReady(page);
-  const paymentsTab = page.getByRole('button', { name: /^Payments$/i }).first();
+  const paymentsTab = getSalesDocumentTab(page, /^Payments$/i);
   await waitForStableVisibility(paymentsTab, TEST_WAIT_TIMEOUT_MS);
   await paymentsTab.click();
   const amountLabel = amount.toFixed(2);
   const amountInputValue = String(Math.max(1, Math.round(amount)));
-  const addPaymentButton = page.getByRole('button', { name: /Add payment/i }).first();
+  const addPaymentButton = getSalesDocumentActionButton(page, /Add payment/i);
   await waitForStableVisibility(addPaymentButton, TEST_WAIT_TIMEOUT_MS);
   await expect(addPaymentButton).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
   await addPaymentButton.click();
@@ -856,7 +868,7 @@ export async function addPayment(page: Page, amount: number): Promise<{ amountLa
 export async function addShipment(page: Page): Promise<{ trackingNumber: string; shipmentNumber: string; added: boolean }> {
   await ensureSalesDocumentReady(page);
   await ensureShippingMethodFixture(page);
-  const shipmentsTab = page.getByRole('button', { name: /^Shipments$/i }).first();
+  const shipmentsTab = getSalesDocumentTab(page, /^Shipments$/i);
   await waitForStableVisibility(shipmentsTab, TEST_WAIT_TIMEOUT_MS);
   await shipmentsTab.click();
   const trackingNumber = `SHIP-${Date.now()}`;
@@ -919,7 +931,7 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
     return { trackingNumber, shipmentNumber, added: false };
   }
 
-  await page.getByRole('button', { name: /^Shipments$/i }).click();
+  await getSalesDocumentTab(page, /^Shipments$/i).click();
   const shipmentLabel = page.getByText(new RegExp(`Shipment\\s+${escapeRegExp(shipmentNumber)}`, 'i')).first();
   const added = await shipmentLabel
     .waitFor({ state: 'visible', timeout: TEST_WAIT_TIMEOUT_MS })

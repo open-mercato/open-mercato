@@ -17,15 +17,15 @@ test.describe('TC-INT-005: Order to Shipment to Invoice to Credit Memo', () => {
     const shipmentResult = await addShipment(page);
     expect(shipmentResult.added, 'Shipment should be saved successfully').toBeTruthy();
 
-    const paymentsSectionButton = page.getByRole('button', { name: /^Payments$/i });
+    const paymentsSectionButton = page.getByRole('main').getByRole('button', { name: /^Payments$/i });
     await expect(paymentsSectionButton).toBeVisible();
     const paymentResult = await addPayment(page, 40);
     expect(paymentResult.added, 'Payment should be saved successfully').toBeTruthy();
 
-    await page.getByRole('button', { name: /^Shipments$/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /^Shipments$/i }).click();
     await expect(page.getByText(new RegExp(`Shipment\\s+${shipmentResult.shipmentNumber}`, 'i')).first()).toBeVisible();
 
-    await page.getByRole('button', { name: /^Payments$/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /^Payments$/i }).click();
     await expect(page.getByText(paymentResult.amountLabel).first()).toBeVisible();
   });
 });

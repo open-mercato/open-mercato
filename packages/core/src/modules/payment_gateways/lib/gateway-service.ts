@@ -16,6 +16,14 @@ import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { GatewayTransaction } from '../data/entities'
 import { isValidTransition } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
+import {
+  assignGatewayTransaction,
+  deassignGatewayTransaction,
+  listGatewayTransactionAssignments,
+  normalizeGatewayTransactionAssignments,
+  replaceGatewayTransactionAssignments,
+  type GatewayTransactionAssignmentInput,
+} from './transaction-assignments'
 
 export interface PaymentGatewayServiceDeps {
   em: EntityManager
@@ -36,8 +44,7 @@ export interface CreatePaymentSessionInput {
   cancelUrl?: string
   metadata?: Record<string, unknown>
   providerInput?: Record<string, unknown>
-  documentType?: string
-  documentId?: string
+  assignments?: GatewayTransactionAssignmentInput[]
   organizationId: string
   tenantId: string
 }
@@ -212,12 +219,20 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         amount: String(input.amount),
         currencyCode: input.currencyCode,
         gatewayMetadata: session.providerData ?? null,
-        documentType: input.documentType ?? null,
-        documentId: input.documentId ?? null,
+        documentType: null,
+        documentId: null,
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })
       await em.persistAndFlush(transaction)
+      const normalizedAssignments = normalizeGatewayTransactionAssignments({ assignments: input.assignments })
+      if (normalizedAssignments.length > 0) {
+        await replaceGatewayTransactionAssignments(em, {
+          transaction,
+          assignments: normalizedAssignments,
+          scope,
+        })
+      }
       await emitTransactionCreatedEvent(transaction, {
         trigger: 'create',
         providerSessionId: transaction.providerSessionId,
@@ -610,6 +625,40 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         },
         scope,
       )
+    },
+
+    async listTransactionAssignments(
+      transactionIds: string[],
+      scope: { organizationId: string; tenantId: string },
+    ) {
+      return listGatewayTransactionAssignments(em, { transactionIds, scope })
+    },
+
+    async replaceTransactionAssignments(
+      transactionId: string,
+      assignments: GatewayTransactionAssignmentInput[],
+      scope: { organizationId: string; tenantId: string },
+    ) {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
+      return replaceGatewayTransactionAssignments(em, { transaction, assignments, scope })
+    },
+
+    async assignTransaction(
+      transactionId: string,
+      assignment: GatewayTransactionAssignmentInput,
+      scope: { organizationId: string; tenantId: string },
+    ) {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
+      return assignGatewayTransaction(em, { transaction, assignment, scope })
+    },
+
+    async deassignTransaction(
+      transactionId: string,
+      assignment: GatewayTransactionAssignmentInput,
+      scope: { organizationId: string; tenantId: string },
+    ) {
+      const transaction = await findTransactionOrThrow(transactionId, scope)
+      return deassignGatewayTransaction(em, { transaction, assignment, scope })
     },
   }
 }

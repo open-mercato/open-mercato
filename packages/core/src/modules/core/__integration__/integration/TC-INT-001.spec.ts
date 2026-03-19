@@ -28,9 +28,9 @@ test.describe('TC-INT-001: Quote to Order to Invoice to Payment', () => {
     const shipmentResult = await addShipment(page);
     await addPayment(page, 50);
 
-    await page.getByRole('button', { name: /^Shipments$/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /^Shipments$/i }).click();
     await expect(page.getByText(new RegExp(`Shipment\\s+${shipmentResult.shipmentNumber}`, 'i')).first()).toBeVisible();
-    await page.getByRole('button', { name: /^Payments$/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /^Payments$/i }).click();
     await expect(page.getByText(/\$50\.00|50\.00/).first()).toBeVisible();
   });
 });

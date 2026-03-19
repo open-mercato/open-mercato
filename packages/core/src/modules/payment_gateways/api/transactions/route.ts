@@ -2,9 +2,18 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { GatewayTransaction } from '../../data/entities'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { SortDir } from '@open-mercato/shared/lib/query/types'
+import { GatewayTransaction, GatewayTransactionAssignment } from '../../data/entities'
 import { listTransactionsQuerySchema } from '../../data/validators'
+import {
+  listGatewayTransactionAssignments,
+  normalizeGatewayTransactionAssignments,
+  readPrimaryGatewayTransactionAssignment,
+} from '../../lib/transaction-assignments'
 import { paymentGatewaysTag } from '../openapi'
+import { E } from '#generated/entities.ids.generated'
+import * as F from '#generated/entities/gateway_transaction'
 
 export const metadata = {
   path: '/payment_gateways/transactions',
@@ -39,31 +48,49 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Invalid query', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { page, pageSize, search, providerKey, status, documentType, documentId } = parsed.data
-  const offset = (page - 1) * pageSize
+  const { page, pageSize, search, providerKey, status, entityType, entityId, documentType, documentId } = parsed.data
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
-  const qb = em.createQueryBuilder(GatewayTransaction, 'gt')
-
-  qb.where({
-    organizationId: auth.orgId,
-    tenantId: auth.tenantId,
-    deletedAt: null,
+  const queryEngine = resolve('queryEngine') as QueryEngine
+  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const assignmentFilters = normalizeGatewayTransactionAssignments({
+    assignments: entityType || entityId ? [{ entityType: entityType ?? documentType ?? '', entityId: entityId ?? documentId ?? '' }] : undefined,
+    documentType,
+    documentId,
   })
+  const assignmentFilter = assignmentFilters[0] ?? null
 
-  if (providerKey) {
-    qb.andWhere({ providerKey })
-  }
-  if (status) {
-    qb.andWhere({ unifiedStatus: status })
-  }
-  if (documentType) {
-    qb.andWhere({ documentType })
-  }
-  if (documentId) {
-    qb.andWhere({ documentId })
-  }
+  let searchedIds: string[] | null = null
   if (search) {
+    const qb = em.createQueryBuilder(GatewayTransaction, 'gt')
+    qb.select('gt.id')
+    qb.where({
+      organizationId: auth.orgId,
+      tenantId: auth.tenantId,
+      deletedAt: null,
+    })
+
+    if (providerKey) {
+      qb.andWhere({ providerKey })
+    }
+    if (status) {
+      qb.andWhere({ unifiedStatus: status })
+    }
+    if (assignmentFilter) {
+      qb.andWhere(
+        `exists (
+          select 1
+          from gateway_transaction_assignments as gta
+          where gta.transaction_id = gt.id
+            and gta.organization_id = ?
+            and gta.tenant_id = ?
+            and gta.entity_type = ?
+            and gta.entity_id = ?
+        )`,
+        [auth.orgId, auth.tenantId, assignmentFilter.entityType, assignmentFilter.entityId],
+      )
+    }
+
     const pattern = `%${escapeLikePattern(search)}%`
     qb.andWhere(`(
       cast(gt.id as text) ilike ?
@@ -73,41 +100,136 @@ export async function GET(req: Request) {
       or coalesce(gt.gateway_payment_id, '') ilike ?
       or coalesce(gt.gateway_refund_id, '') ilike ?
     ) escape '\\'`, [pattern, pattern, pattern, pattern, pattern, pattern])
+
+    const rows = await qb.execute<Array<{ id: string }>>()
+    searchedIds = rows.map((row) => row.id).filter((value) => typeof value === 'string' && value.length > 0)
+    if (searchedIds.length === 0) {
+      return NextResponse.json({
+        items: [],
+        total: 0,
+        page,
+        pageSize,
+        totalPages: 0,
+      })
+    }
   }
 
-  const countQb = qb.clone()
-  qb.orderBy({ createdAt: 'desc' })
-  qb.limit(pageSize).offset(offset)
+  const filters: Record<string, unknown> = {}
+  if (providerKey) {
+    filters[F.provider_key] = { $eq: providerKey }
+  }
+  if (status) {
+    filters[F.unified_status] = { $eq: status }
+  }
+  if (assignmentFilter) {
+    filters['assignments.entity_type'] = { $eq: assignmentFilter.entityType }
+    filters['assignments.entity_id'] = { $eq: assignmentFilter.entityId }
+  }
+  if (searchedIds) {
+    filters[F.id] = { $in: searchedIds }
+  }
 
-  const [items, total] = await Promise.all([
-    qb.getResultList(),
-    countQb.count('gt.id', true),
-  ])
+  const result = await queryEngine.query(E.payment_gateways.gateway_transaction, {
+    fields: [
+      F.id,
+      F.payment_id,
+      F.provider_key,
+      F.provider_session_id,
+      F.gateway_payment_id,
+      F.gateway_refund_id,
+      F.unified_status,
+      F.gateway_status,
+      F.amount,
+      F.currency_code,
+      F.redirect_url,
+      F.last_webhook_at,
+      F.last_polled_at,
+      F.document_type,
+      F.document_id,
+      F.created_at,
+      F.updated_at,
+    ],
+    filters,
+    joins: [
+      {
+        alias: 'assignments',
+        table: 'gateway_transaction_assignments',
+        from: { field: 'id' },
+        to: { field: 'transaction_id' },
+        type: 'left',
+      },
+    ],
+    sort: [{ field: F.created_at, dir: SortDir.Desc }],
+    page: { page, pageSize },
+    organizationId: auth.orgId as string,
+    tenantId: auth.tenantId,
+  })
+
+  const items = Array.isArray(result.items) ? result.items : []
+  const assignmentsByTransaction = await listGatewayTransactionAssignments(em, {
+    transactionIds: items
+      .map((item) => (item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string'
+        ? (item as Record<string, unknown>).id as string
+        : ''))
+      .filter((value) => value.length > 0),
+    scope,
+  })
 
   return NextResponse.json({
     items: items.map((item) => ({
-      id: item.id,
-      paymentId: item.paymentId,
-      providerKey: item.providerKey,
-      providerSessionId: item.providerSessionId ?? null,
-      gatewayPaymentId: item.gatewayPaymentId ?? null,
-      gatewayRefundId: item.gatewayRefundId ?? null,
-      unifiedStatus: item.unifiedStatus,
-      gatewayStatus: item.gatewayStatus ?? null,
-      amount: item.amount,
-      currencyCode: item.currencyCode,
-      documentType: item.documentType ?? null,
-      documentId: item.documentId ?? null,
-      redirectUrl: item.redirectUrl ?? null,
-      lastWebhookAt: formatDateValue(item.lastWebhookAt),
-      lastPolledAt: formatDateValue(item.lastPolledAt),
-      createdAt: formatDateValue(item.createdAt),
-      updatedAt: formatDateValue(item.updatedAt),
+      id: (item as Record<string, unknown>).id,
+      paymentId: (item as Record<string, unknown>).payment_id,
+      providerKey: (item as Record<string, unknown>).provider_key,
+      providerSessionId: (item as Record<string, unknown>).provider_session_id ?? null,
+      gatewayPaymentId: (item as Record<string, unknown>).gateway_payment_id ?? null,
+      gatewayRefundId: (item as Record<string, unknown>).gateway_refund_id ?? null,
+      unifiedStatus: (item as Record<string, unknown>).unified_status,
+      gatewayStatus: (item as Record<string, unknown>).gateway_status ?? null,
+      amount: String((item as Record<string, unknown>).amount ?? ''),
+      currencyCode: (item as Record<string, unknown>).currency_code,
+      assignments: (() => {
+        const transactionId = typeof (item as Record<string, unknown>).id === 'string'
+          ? (item as Record<string, unknown>).id as string
+          : ''
+        return (assignmentsByTransaction.get(transactionId) ?? []).map((assignment) => ({
+          id: assignment.id,
+          entityType: assignment.entityType,
+          entityId: assignment.entityId,
+          createdAt: formatDateValue(assignment.createdAt),
+        }))
+      })(),
+      documentType: (() => {
+        const transactionId = typeof (item as Record<string, unknown>).id === 'string'
+          ? (item as Record<string, unknown>).id as string
+          : ''
+        const assignments = assignmentsByTransaction.get(transactionId) ?? []
+        const primary = readPrimaryGatewayTransactionAssignment(assignments.map((assignment) => ({
+          entityType: assignment.entityType,
+          entityId: assignment.entityId,
+        })))
+        return ((item as Record<string, unknown>).document_type as string | null | undefined) ?? primary?.entityType ?? null
+      })(),
+      documentId: (() => {
+        const transactionId = typeof (item as Record<string, unknown>).id === 'string'
+          ? (item as Record<string, unknown>).id as string
+          : ''
+        const assignments = assignmentsByTransaction.get(transactionId) ?? []
+        const primary = readPrimaryGatewayTransactionAssignment(assignments.map((assignment) => ({
+          entityType: assignment.entityType,
+          entityId: assignment.entityId,
+        })))
+        return ((item as Record<string, unknown>).document_id as string | null | undefined) ?? primary?.entityId ?? null
+      })(),
+      redirectUrl: (item as Record<string, unknown>).redirect_url ?? null,
+      lastWebhookAt: formatDateValue((item as Record<string, unknown>).last_webhook_at),
+      lastPolledAt: formatDateValue((item as Record<string, unknown>).last_polled_at),
+      createdAt: formatDateValue((item as Record<string, unknown>).created_at),
+      updatedAt: formatDateValue((item as Record<string, unknown>).updated_at),
     })),
-    total,
+    total: result.total,
     page,
     pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalPages: Math.max(1, Math.ceil(result.total / pageSize)),
   })
 }
 

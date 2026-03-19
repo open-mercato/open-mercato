@@ -12,8 +12,8 @@ test.describe('TC-SALES-011: Payment Allocation', () => {
     await createSalesDocument(page, { kind: 'order' });
     await addCustomLine(page, { name: `QA TC-SALES-011 ${Date.now()}`, quantity: 1, unitPriceGross: 60 });
 
-    await page.getByRole('button', { name: /^Payments$/i }).click();
-    await page.getByRole('button', { name: /Add payment/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /^Payments$/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /Add payment/i }).click();
     const dialog = page.getByRole('dialog', { name: /Add payment/i });
     await expect(dialog).toBeVisible();
 

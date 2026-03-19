@@ -14,7 +14,7 @@ test.describe('TC-SALES-010: Payment Recording', () => {
     await addCustomLine(page, { name: `QA TC-SALES-010 ${Date.now()}`, quantity: 1, unitPriceGross: 42 });
     const paymentResult = await addPayment(page, amount);
     expect(paymentResult.added, 'Payment should be saved successfully').toBeTruthy();
-    await page.getByRole('button', { name: /^Payments$/i }).click();
+    await page.getByRole('main').getByRole('button', { name: /^Payments$/i }).click();
     await expect(page.getByText(/Last operation:\s*Create payment/i).first()).toBeVisible();
   });
 });

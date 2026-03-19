@@ -266,8 +266,8 @@ export function renderAmountOptionsEditor(props: CrudCustomFieldRenderProps, t: 
   const items = parseAmountOptions(props.value)
   const isDisabled = props.disabled || props.values?.amountType !== 'predefined'
 
-  const inputClass = 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50'
-  const buttonClass = 'inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50'
+  const cellInputClass = 'w-full bg-transparent px-2 py-1.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50'
+  const buttonClass = 'inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50'
 
   const handleAdd = () => {
     props.setValue([...items, { amount: 0, label: '' }])
@@ -286,50 +286,75 @@ export function renderAmountOptionsEditor(props: CrudCustomFieldRenderProps, t: 
     props.setValue(updated)
   }
 
-  const headerRow = React.createElement(
-    'div',
-    { className: 'grid grid-cols-[1fr_2fr_auto] gap-2 text-xs font-medium text-muted-foreground mb-1' },
-    React.createElement('span', null, t('payment_link_pages.amountOptions.amount', 'Amount')),
-    React.createElement('span', null, t('payment_link_pages.amountOptions.label', 'Description')),
-    React.createElement('span', { className: 'w-9' }),
-  )
-
-  const rows = items.map((item, index) =>
-    React.createElement(
-      'div',
-      { key: index, className: 'grid grid-cols-[1fr_2fr_auto] gap-2 items-center' },
-      React.createElement('input', {
-        type: 'number',
-        className: inputClass,
-        value: item.amount || '',
-        placeholder: '0.00',
-        disabled: isDisabled,
-        min: 0,
-        step: 'any',
-        onChange: (event: React.ChangeEvent<HTMLInputElement>) => handleChange(index, 'amount', event.target.value),
-      }),
-      React.createElement('input', {
-        type: 'text',
-        className: inputClass,
-        value: item.label,
-        placeholder: t('payment_link_pages.amountOptions.label.placeholder', 'e.g. Basic Plan'),
-        disabled: isDisabled,
-        maxLength: 200,
-        onChange: (event: React.ChangeEvent<HTMLInputElement>) => handleChange(index, 'label', event.target.value),
-      }),
-      React.createElement(
-        'button',
-        {
-          type: 'button',
-          className: buttonClass,
-          disabled: isDisabled,
-          onClick: () => handleRemove(index),
-          title: t('payment_link_pages.amountOptions.remove', 'Remove'),
-        },
-        '\u00D7',
-      ),
-    ),
-  )
+  const table = items.length > 0
+    ? React.createElement(
+        'table',
+        { className: 'w-full border-collapse rounded-md border border-input text-sm' },
+        React.createElement(
+          'thead',
+          null,
+          React.createElement(
+            'tr',
+            { className: 'border-b border-input bg-muted/40 text-xs font-medium text-muted-foreground' },
+            React.createElement('th', { className: 'px-2 py-1.5 text-left font-medium' }, t('payment_link_pages.amountOptions.amount', 'Amount')),
+            React.createElement('th', { className: 'px-2 py-1.5 text-left font-medium' }, t('payment_link_pages.amountOptions.label', 'Description')),
+            React.createElement('th', { className: 'w-8 px-1' }),
+          ),
+        ),
+        React.createElement(
+          'tbody',
+          null,
+          ...items.map((item, index) =>
+            React.createElement(
+              'tr',
+              { key: index, className: index < items.length - 1 ? 'border-b border-input' : '' },
+              React.createElement(
+                'td',
+                { className: 'px-0' },
+                React.createElement('input', {
+                  type: 'number',
+                  className: cellInputClass,
+                  value: item.amount || '',
+                  placeholder: '0.00',
+                  disabled: isDisabled,
+                  min: 0,
+                  step: 'any',
+                  onChange: (event: React.ChangeEvent<HTMLInputElement>) => handleChange(index, 'amount', event.target.value),
+                }),
+              ),
+              React.createElement(
+                'td',
+                { className: 'border-l border-input px-0' },
+                React.createElement('input', {
+                  type: 'text',
+                  className: cellInputClass,
+                  value: item.label,
+                  placeholder: t('payment_link_pages.amountOptions.label.placeholder', 'e.g. Basic Plan'),
+                  disabled: isDisabled,
+                  maxLength: 200,
+                  onChange: (event: React.ChangeEvent<HTMLInputElement>) => handleChange(index, 'label', event.target.value),
+                }),
+              ),
+              React.createElement(
+                'td',
+                { className: 'border-l border-input px-1 text-center' },
+                React.createElement(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50',
+                    disabled: isDisabled,
+                    onClick: () => handleRemove(index),
+                    title: t('payment_link_pages.amountOptions.remove', 'Remove'),
+                  },
+                  '\u00D7',
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
+    : null
 
   const addButton = React.createElement(
     'button',
@@ -344,9 +369,8 @@ export function renderAmountOptionsEditor(props: CrudCustomFieldRenderProps, t: 
 
   return React.createElement(
     'div',
-    { className: 'space-y-1' },
-    items.length > 0 ? headerRow : null,
-    ...rows,
+    null,
+    table,
     addButton,
   )
 }

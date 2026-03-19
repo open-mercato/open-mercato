@@ -13,6 +13,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSessionSchema } from '../../data/validators'
 import { emitPaymentGatewayEvent } from '../../events'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
+import { normalizeGatewayTransactionAssignments } from '../../lib/transaction-assignments'
 import { paymentGatewaysTag } from '../openapi'
 
 export const metadata = {
@@ -34,6 +35,10 @@ const createPaymentSessionResponseSchema = z.object({
   providerData: z.record(z.string(), z.unknown()).nullable(),
   status: z.string(),
   paymentId: z.string().uuid(),
+  assignments: z.array(z.object({
+    entityType: z.string(),
+    entityId: z.string(),
+  })).optional(),
 })
 
 const createPaymentSessionErrorSchema = z.object({
@@ -68,6 +73,12 @@ const createPaymentSessionResponseExample = {
   },
   status: 'pending',
   paymentId: '123e4567-e89b-12d3-a456-426614174001',
+  assignments: [
+    {
+      entityType: 'sales:sales_order',
+      entityId: '123e4567-e89b-12d3-a456-426614174002',
+    },
+  ],
 }
 
 function resolveUserFeatures(auth: unknown): string[] {
@@ -182,6 +193,12 @@ export async function POST(req: Request) {
   }
 
   try {
+    const normalizedAssignments = normalizeGatewayTransactionAssignments({
+      assignments: parsed.data.assignments,
+      documentType: parsed.data.documentType,
+      documentId: parsed.data.documentId,
+    })
+
     const { transaction, session } = await service.createPaymentSession({
       providerKey: parsed.data.providerKey,
       paymentId: crypto.randomUUID(),
@@ -194,8 +211,7 @@ export async function POST(req: Request) {
       cancelUrl: parsed.data.cancelUrl,
       metadata: parsed.data.metadata,
       providerInput: parsed.data.providerInput,
-      documentType: parsed.data.documentType,
-      documentId: parsed.data.documentId,
+      assignments: normalizedAssignments,
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
     })
@@ -209,6 +225,7 @@ export async function POST(req: Request) {
       providerData: session.providerData ?? null,
       status: session.status,
       paymentId: transaction.paymentId,
+      assignments: normalizedAssignments,
     }
 
     if (guardValidation?.ok && guardValidation.shouldRunAfterSuccess) {

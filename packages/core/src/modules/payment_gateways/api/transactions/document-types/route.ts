@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { GatewayTransaction } from '../../../data/entities'
+import { GatewayTransactionAssignment } from '../../../data/entities'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
@@ -18,22 +18,21 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
-  const qb = em.createQueryBuilder(GatewayTransaction, 'gt')
+  const qb = em.createQueryBuilder(GatewayTransactionAssignment, 'gta')
 
   const rows = await qb
-    .select('gt.document_type')
+    .select('gta.entity_type')
     .where({
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
-      deletedAt: null,
-      documentType: { $ne: null },
+      entityType: { $ne: null },
     })
-    .groupBy('gt.document_type')
-    .orderBy({ documentType: 'asc' })
-    .execute<Array<{ document_type: string }>>()
+    .groupBy('gta.entity_type')
+    .orderBy({ entityType: 'asc' })
+    .execute<Array<{ entity_type: string }>>()
 
   return NextResponse.json({
-    items: rows.map((row) => row.document_type),
+    items: rows.map((row) => row.entity_type),
   })
 }
 

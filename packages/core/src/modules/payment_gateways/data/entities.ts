@@ -81,6 +81,42 @@ export class GatewayTransaction {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'gateway_transaction_assignments' })
+@Index({ name: 'gateway_transaction_assignments_tx_scope_idx', properties: ['transactionId', 'organizationId', 'tenantId'] })
+@Index({ name: 'gateway_transaction_assignments_entity_scope_idx', properties: ['entityType', 'entityId', 'organizationId', 'tenantId'] })
+@Index({
+  name: 'gateway_transaction_assignments_unique',
+  properties: ['transactionId', 'entityType', 'entityId', 'organizationId', 'tenantId'],
+  options: { unique: true },
+})
+export class GatewayTransactionAssignment {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'transaction_id', type: 'uuid' })
+  transactionId!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ name: 'entity_id', type: 'text' })
+  entityId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 @Entity({ tableName: 'gateway_webhook_events' })
 @Index({
   name: 'gateway_webhook_events_idempotency_unique',

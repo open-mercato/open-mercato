@@ -13,6 +13,11 @@ const unifiedPaymentStatusSchema = z.enum([
   'unknown',
 ])
 
+export const gatewayTransactionAssignmentSchema = z.object({
+  entityType: z.string().trim().min(1).max(200),
+  entityId: z.string().trim().min(1).max(200),
+})
+
 export const createSessionSchema = z.object({
   providerKey: z.string().min(1),
   paymentMethodId: z.string().uuid().optional(),
@@ -25,6 +30,7 @@ export const createSessionSchema = z.object({
   cancelUrl: z.string().url().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   providerInput: z.record(z.string(), z.unknown()).optional(),
+  assignments: z.array(gatewayTransactionAssignmentSchema).max(100).optional(),
   documentType: z.string().trim().min(1).max(200).optional(),
   documentId: z.string().trim().min(1).max(200).optional(),
 }).passthrough()
@@ -65,6 +71,8 @@ export const listTransactionsQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
   providerKey: z.string().trim().min(1).max(100).optional(),
   status: unifiedPaymentStatusSchema.optional(),
+  entityType: z.string().trim().min(1).max(200).optional(),
+  entityId: z.string().trim().min(1).max(200).optional(),
   documentType: z.string().trim().min(1).max(200).optional(),
   documentId: z.string().trim().min(1).max(200).optional(),
 })
