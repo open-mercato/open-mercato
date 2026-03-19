@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -26,10 +27,11 @@ type PayLinkPayload = {
   customAmountMax?: number | null
   customAmountCurrencyCode?: string | null
   priceListItems?: Array<{ id: string; description: string; amount: number; currencyCode: string }>
-  customerFieldsSchema?: Array<{ key: string; label: string; kind: string; required: boolean; options?: Array<{ value: string; label: string }> }>
+  collectCustomerDetails?: boolean
+  customerFieldsSchema?: Array<{ key: string; label: string; kind: string; required: boolean; placeholder?: string | null; options?: Array<{ value: string; label: string }> }>
   legalDocuments?: {
-    terms?: { markdown?: string; required?: boolean }
-    privacyPolicy?: { markdown?: string; required?: boolean }
+    terms?: { title?: string; markdown?: string; required?: boolean }
+    privacyPolicy?: { title?: string; markdown?: string; required?: boolean }
   }
   requiresPassword?: boolean
   available?: boolean
@@ -99,6 +101,7 @@ export function PayPage({ mode = 'link', sourceId }: PayPageProps) {
   const selectedPriceItem = payload.priceListItems?.find((item) => item.id === selectedPriceItemId) ?? null
   const effectiveAmount = selectedPriceItem?.amount ?? amount
   const isPreview = payload.preview === true || previewRequested
+  const shouldCollectCustomerDetails = payload.collectCustomerDetails !== false && (payload.customerFieldsSchema?.length ?? 0) > 0
   const backHref = mode === 'template'
     ? `/backend/checkout/templates/${encodeURIComponent(payload.id)}`
     : `/backend/checkout/pay-links/${encodeURIComponent(payload.id)}`
@@ -123,32 +126,46 @@ export function PayPage({ mode = 'link', sourceId }: PayPageProps) {
               <h1 className="text-3xl font-semibold">{payload.title ?? payload.name}</h1>
               {payload.subtitle ? <p className="text-muted-foreground">{payload.subtitle}</p> : null}
             </div>
-            {payload.description ? <div className="whitespace-pre-wrap text-sm leading-6">{payload.description}</div> : null}
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold">Customer details</h2>
-              {(payload.customerFieldsSchema ?? []).map((field) => (
-                <div key={field.key} className="space-y-2">
-                  <label className="text-sm font-medium">{field.label}</label>
-                  {field.kind === 'multiline' ? (
-                    <Textarea value={typeof customerData[field.key] === 'string' ? customerData[field.key] as string : ''} onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.value }))} />
-                  ) : field.kind === 'boolean' ? (
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={customerData[field.key] === true} onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.checked }))} />
-                      {field.label}
-                    </label>
-                  ) : field.kind === 'select' || field.kind === 'radio' ? (
-                    <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={typeof customerData[field.key] === 'string' ? customerData[field.key] as string : ''} onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.value }))}>
-                      <option value="">Select…</option>
-                      {(field.options ?? []).map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input value={typeof customerData[field.key] === 'string' ? customerData[field.key] as string : ''} onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.value }))} />
-                  )}
-                </div>
-              ))}
-            </div>
+            {payload.description ? (
+              <div className="text-sm leading-6">
+                <MarkdownContent body={payload.description} format="markdown" />
+              </div>
+            ) : null}
+            {shouldCollectCustomerDetails ? (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold">Customer details</h2>
+                {(payload.customerFieldsSchema ?? []).map((field) => (
+                  <div key={field.key} className="space-y-2">
+                    <label className="text-sm font-medium">{field.label}</label>
+                    {field.kind === 'multiline' ? (
+                      <Textarea
+                        value={typeof customerData[field.key] === 'string' ? customerData[field.key] as string : ''}
+                        onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.value }))}
+                        placeholder={field.placeholder ?? undefined}
+                      />
+                    ) : field.kind === 'boolean' ? (
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={customerData[field.key] === true} onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.checked }))} />
+                        {field.label}
+                      </label>
+                    ) : field.kind === 'select' || field.kind === 'radio' ? (
+                      <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={typeof customerData[field.key] === 'string' ? customerData[field.key] as string : ''} onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.value }))}>
+                        <option value="">Select…</option>
+                        {(field.options ?? []).map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        value={typeof customerData[field.key] === 'string' ? customerData[field.key] as string : ''}
+                        onChange={(event) => setCustomerData((current) => ({ ...current, [field.key]: event.target.value }))}
+                        placeholder={field.placeholder ?? undefined}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
         <Card>
@@ -183,13 +200,13 @@ export function PayPage({ mode = 'link', sourceId }: PayPageProps) {
                 {payload.legalDocuments?.terms?.markdown ? (
                   <label className="flex items-start gap-2 text-sm">
                     <input type="checkbox" checked={acceptedLegalConsents.terms === true} onChange={(event) => setAcceptedLegalConsents((current) => ({ ...current, terms: event.target.checked }))} />
-                    <span>I accept the terms and conditions.</span>
+                    <span>I accept {payload.legalDocuments.terms.title || 'the terms and conditions'}.</span>
                   </label>
                 ) : null}
                 {payload.legalDocuments?.privacyPolicy?.markdown ? (
                   <label className="flex items-start gap-2 text-sm">
                     <input type="checkbox" checked={acceptedLegalConsents.privacyPolicy === true} onChange={(event) => setAcceptedLegalConsents((current) => ({ ...current, privacyPolicy: event.target.checked }))} />
-                    <span>I accept the privacy policy.</span>
+                    <span>I accept {payload.legalDocuments.privacyPolicy.title || 'the privacy policy'}.</span>
                   </label>
                 ) : null}
               </div>

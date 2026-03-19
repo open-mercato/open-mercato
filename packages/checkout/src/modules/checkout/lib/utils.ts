@@ -83,6 +83,12 @@ export function normalizeOptionalString(value: unknown): string | null {
   return trimmed.length ? trimmed : null
 }
 
+export function buildCheckoutAttachmentPreviewUrl(attachmentId: string | null | undefined): string | null {
+  const normalized = normalizeOptionalString(attachmentId)
+  if (!normalized) return null
+  return `/api/attachments/image/${encodeURIComponent(normalized)}?width=640&height=240&cropType=contain`
+}
+
 export function deriveConfiguredCurrencies(input: TemplateOrLinkInput): string[] {
   const currencies = new Set<string>()
   if (input.pricingMode === 'fixed' && input.fixedPriceCurrencyCode) currencies.add(input.fixedPriceCurrencyCode)
@@ -119,6 +125,7 @@ export function toTemplateOrLinkMutationInput(
     priceListItems: record.priceListItems ?? null,
     gatewayProviderKey: record.gatewayProviderKey ?? null,
     gatewaySettings: record.gatewaySettings ?? {},
+    collectCustomerDetails: record.collectCustomerDetails,
     customerFieldsSchema: (record.customerFieldsSchema ?? []) as CreateTemplateInput['customerFieldsSchema'],
     legalDocuments: (record.legalDocuments ?? undefined) as CreateTemplateInput['legalDocuments'],
     displayCustomFieldsOnPage: record.displayCustomFieldsOnPage,
@@ -130,10 +137,13 @@ export function toTemplateOrLinkMutationInput(
     errorMessage: record.errorMessage ?? null,
     successEmailSubject: record.successEmailSubject ?? null,
     successEmailBody: record.successEmailBody ?? null,
+    sendSuccessEmail: record.sendSuccessEmail,
     errorEmailSubject: record.errorEmailSubject ?? null,
     errorEmailBody: record.errorEmailBody ?? null,
+    sendErrorEmail: record.sendErrorEmail,
     startEmailSubject: record.startEmailSubject ?? null,
     startEmailBody: record.startEmailBody ?? null,
+    sendStartEmail: record.sendStartEmail,
     password: undefined,
     maxCompletions: record.maxCompletions ?? null,
     status: record.status,
@@ -294,6 +304,7 @@ export function resolveSubmittedAmount(link: CheckoutLink, input: PublicSubmitIn
 }
 
 export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutLink) {
+  const logoUrl = buildCheckoutAttachmentPreviewUrl(record.logoAttachmentId) ?? record.logoUrl ?? null
   return {
     id: record.id,
     name: record.name,
@@ -301,7 +312,7 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     subtitle: record.subtitle ?? null,
     description: record.description ?? null,
     logoAttachmentId: record.logoAttachmentId ?? null,
-    logoUrl: record.logoUrl ?? null,
+    logoUrl,
     primaryColor: record.primaryColor ?? null,
     secondaryColor: record.secondaryColor ?? null,
     backgroundColor: record.backgroundColor ?? null,
@@ -317,6 +328,7 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     priceListItems: record.priceListItems ?? [],
     gatewayProviderKey: record.gatewayProviderKey ?? null,
     gatewaySettings: record.gatewaySettings ?? {},
+    collectCustomerDetails: record.collectCustomerDetails,
     customerFieldsSchema: record.customerFieldsSchema ?? [],
     legalDocuments: record.legalDocuments ?? {},
     displayCustomFieldsOnPage: record.displayCustomFieldsOnPage,
@@ -328,10 +340,13 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     errorMessage: record.errorMessage ?? null,
     successEmailSubject: record.successEmailSubject ?? null,
     successEmailBody: record.successEmailBody ?? null,
+    sendSuccessEmail: record.sendSuccessEmail,
     errorEmailSubject: record.errorEmailSubject ?? null,
     errorEmailBody: record.errorEmailBody ?? null,
+    sendErrorEmail: record.sendErrorEmail,
     startEmailSubject: record.startEmailSubject ?? null,
     startEmailBody: record.startEmailBody ?? null,
+    sendStartEmail: record.sendStartEmail,
     maxCompletions: record.maxCompletions ?? null,
     status: record.status,
     checkoutType: record.checkoutType,

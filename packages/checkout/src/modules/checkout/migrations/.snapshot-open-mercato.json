@@ -233,6 +233,16 @@
           "nullable": true,
           "mappedType": "json"
         },
+        "collect_customer_details": {
+          "name": "collect_customer_details",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "customer_fields_schema": {
           "name": "customer_fields_schema",
           "type": "jsonb",
@@ -333,6 +343,16 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "send_success_email": {
+          "name": "send_success_email",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "error_email_subject": {
           "name": "error_email_subject",
           "type": "text",
@@ -351,6 +371,16 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "send_error_email": {
+          "name": "send_error_email",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "start_email_subject": {
           "name": "start_email_subject",
           "type": "text",
@@ -368,6 +398,16 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
+        },
+        "send_start_email": {
+          "name": "send_start_email",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
         },
         "password_hash": {
           "name": "password_hash",
@@ -772,6 +812,16 @@
           "nullable": true,
           "mappedType": "json"
         },
+        "collect_customer_details": {
+          "name": "collect_customer_details",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "customer_fields_schema": {
           "name": "customer_fields_schema",
           "type": "jsonb",
@@ -872,6 +922,16 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "send_success_email": {
+          "name": "send_success_email",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "error_email_subject": {
           "name": "error_email_subject",
           "type": "text",
@@ -890,6 +950,16 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "send_error_email": {
+          "name": "send_error_email",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "start_email_subject": {
           "name": "start_email_subject",
           "type": "text",
@@ -907,6 +977,16 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
+        },
+        "send_start_email": {
+          "name": "send_start_email",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
         },
         "password_hash": {
           "name": "password_hash",

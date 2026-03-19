@@ -158,6 +158,7 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
   }
 
   if (payload.type === 'start') {
+    if (link?.sendStartEmail === false) return
     const { subject, bodyHtml } = await resolveEmailContent(
       link?.startEmailSubject,
       link?.startEmailBody,
@@ -169,6 +170,7 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
       react: PaymentStartEmail({ firstName, amount, currencyCode, linkTitle, bodyHtml }),
     })
   } else if (payload.type === 'success') {
+    if (link?.sendSuccessEmail === false) return
     const { subject, bodyHtml } = await resolveEmailContent(
       link?.successEmailSubject,
       link?.successEmailBody,
@@ -180,6 +182,7 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
       react: PaymentSuccessEmail({ firstName, amount, currencyCode, linkTitle, transactionId: transaction.id, bodyHtml }),
     })
   } else if (payload.type === 'error') {
+    if (link?.sendErrorEmail === false) return
     const { subject, bodyHtml } = await resolveEmailContent(
       link?.errorEmailSubject,
       link?.errorEmailBody,

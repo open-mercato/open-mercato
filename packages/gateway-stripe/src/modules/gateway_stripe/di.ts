@@ -34,6 +34,18 @@ export function register(container: AppContainer) {
             { value: 'manual', label: 'Manual capture' },
           ],
         },
+        {
+          key: 'paymentTypes',
+          label: 'Payment methods',
+          type: 'multiselect',
+          required: false,
+          options: [
+            { value: 'card', label: 'Credit card' },
+            { value: 'apple_pay', label: 'Apple Pay' },
+            { value: 'google_pay', label: 'Google Pay' },
+            { value: 'link', label: 'Link' },
+          ],
+        },
       ],
       supportedCurrencies: '*',
       supportedPaymentTypes: [

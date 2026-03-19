@@ -2,7 +2,7 @@
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -135,7 +135,6 @@ export default function CheckoutTransactionsPage() {
 
   return (
     <Page>
-      <PageHeader title="Transactions" description="Review all pay-link payment attempts." />
       <PageBody>
         <DataTable
           title="Transactions"

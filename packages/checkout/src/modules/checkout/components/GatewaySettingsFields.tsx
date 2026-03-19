@@ -3,6 +3,7 @@ import * as React from 'react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 
 type Descriptor = {
@@ -12,7 +13,7 @@ type Descriptor = {
     fields?: Array<{
       key: string
       label: string
-      type: 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'secret' | 'url'
+      type: 'text' | 'number' | 'select' | 'multiselect' | 'boolean' | 'textarea' | 'secret' | 'url'
       description?: string
       options?: Array<{ value: string; label: string }>
     }>
@@ -27,6 +28,19 @@ type Props = {
 
 export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
   const [descriptor, setDescriptor] = React.useState<Descriptor | null>(null)
+
+  const toggleMultiselectValue = React.useCallback(
+    (fieldKey: string, optionValue: string) => {
+      const current = Array.isArray(value?.[fieldKey])
+        ? value?.[fieldKey].filter((entry): entry is string => typeof entry === 'string')
+        : []
+      const next = current.includes(optionValue)
+        ? current.filter((entry) => entry !== optionValue)
+        : [...current, optionValue]
+      onChange({ ...(value ?? {}), [fieldKey]: next })
+    },
+    [onChange, value],
+  )
 
   React.useEffect(() => {
     let active = true
@@ -46,10 +60,18 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
 
   const fields = descriptor?.sessionConfig?.fields ?? []
   if (!providerKey) {
-    return <p className="text-sm text-muted-foreground">Choose a gateway provider to configure checkout session settings.</p>
+    return (
+      <Notice compact>
+        Choose a gateway provider to configure checkout session settings.
+      </Notice>
+    )
   }
   if (!fields.length) {
-    return <p className="text-sm text-muted-foreground">This provider does not expose additional session settings.</p>
+    return (
+      <Notice compact>
+        This provider does not expose additional session settings.
+      </Notice>
+    )
   }
 
   return (
@@ -57,7 +79,7 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
       {fields.map((field) => {
         const currentValue = value?.[field.key]
         return (
-          <div key={field.key} className="space-y-2">
+          <div key={field.key} className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
             <Label>{field.label}</Label>
             {field.type === 'select' ? (
               <select
@@ -70,6 +92,28 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
+            ) : field.type === 'multiselect' ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(field.options ?? []).map((option) => {
+                  const selectedValues = Array.isArray(currentValue)
+                    ? currentValue.filter((entry): entry is string => typeof entry === 'string')
+                    : []
+                  const checked = selectedValues.includes(option.value)
+                  return (
+                    <label
+                      key={option.value}
+                      className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleMultiselectValue(field.key, option.value)}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
             ) : field.type === 'boolean' ? (
               <label className="flex items-center gap-2 text-sm">
                 <input

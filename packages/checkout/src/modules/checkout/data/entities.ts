@@ -23,6 +23,7 @@ export class CheckoutLinkTemplate {
     | 'priceListItems'
     | 'gatewayProviderKey'
     | 'gatewaySettings'
+    | 'collectCustomerDetails'
     | 'customerFieldsSchema'
     | 'legalDocuments'
     | 'displayCustomFieldsOnPage'
@@ -34,10 +35,13 @@ export class CheckoutLinkTemplate {
     | 'errorMessage'
     | 'successEmailSubject'
     | 'successEmailBody'
+    | 'sendSuccessEmail'
     | 'errorEmailSubject'
     | 'errorEmailBody'
+    | 'sendErrorEmail'
     | 'startEmailSubject'
     | 'startEmailBody'
+    | 'sendStartEmail'
     | 'passwordHash'
     | 'maxCompletions'
     | 'status'
@@ -118,6 +122,9 @@ export class CheckoutLinkTemplate {
   @Property({ name: 'gateway_settings', type: 'jsonb', nullable: true })
   gatewaySettings?: Record<string, unknown> | null
 
+  @Property({ name: 'collect_customer_details', type: 'boolean', default: true })
+  collectCustomerDetails: boolean = true
+
   @Property({ name: 'customer_fields_schema', type: 'jsonb', nullable: true })
   customerFieldsSchema?: Array<Record<string, unknown>> | null
 
@@ -151,17 +158,26 @@ export class CheckoutLinkTemplate {
   @Property({ name: 'success_email_body', type: 'text', nullable: true })
   successEmailBody?: string | null
 
+  @Property({ name: 'send_success_email', type: 'boolean', default: true })
+  sendSuccessEmail: boolean = true
+
   @Property({ name: 'error_email_subject', type: 'text', nullable: true })
   errorEmailSubject?: string | null
 
   @Property({ name: 'error_email_body', type: 'text', nullable: true })
   errorEmailBody?: string | null
 
+  @Property({ name: 'send_error_email', type: 'boolean', default: true })
+  sendErrorEmail: boolean = true
+
   @Property({ name: 'start_email_subject', type: 'text', nullable: true })
   startEmailSubject?: string | null
 
   @Property({ name: 'start_email_body', type: 'text', nullable: true })
   startEmailBody?: string | null
+
+  @Property({ name: 'send_start_email', type: 'boolean', default: true })
+  sendStartEmail: boolean = true
 
   @Property({ name: 'password_hash', type: 'text', nullable: true })
   passwordHash?: string | null

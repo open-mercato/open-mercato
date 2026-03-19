@@ -31,6 +31,7 @@ export interface CreatePaymentSessionInput {
   amount: number
   currencyCode: string
   captureMethod?: 'automatic' | 'manual'
+  paymentTypes?: string[]
   description?: string
   successUrl?: string
   cancelUrl?: string
@@ -137,6 +138,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         amount: input.amount,
         currencyCode: input.currencyCode,
         captureMethod: input.captureMethod,
+        paymentTypes: input.paymentTypes,
         description: input.description,
         successUrl: input.successUrl,
         cancelUrl: input.cancelUrl,

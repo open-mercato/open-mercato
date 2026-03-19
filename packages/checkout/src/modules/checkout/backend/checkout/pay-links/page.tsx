@@ -1,9 +1,10 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
+import { Plus } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -141,7 +142,6 @@ export default function CheckoutPayLinksPage() {
 
   return (
     <Page>
-      <PageHeader title="Pay Links" description="Create and manage public payment links." />
       <PageBody>
         <DataTable
           title="Pay Links"
@@ -157,7 +157,14 @@ export default function CheckoutPayLinksPage() {
           pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
           isLoading={loading}
           perspective={{ tableId: 'checkout-links' }}
-          actions={<Button asChild><Link href="/backend/checkout/pay-links/create">Create Link</Link></Button>}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/checkout/pay-links/create">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Link
+              </Link>
+            </Button>
+          )}
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: 'Edit', href: `/backend/checkout/pay-links/${encodeURIComponent(row.id)}` },

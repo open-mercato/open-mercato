@@ -43,6 +43,7 @@ export type PaymentGatewayDescriptorFieldType =
   | 'text'
   | 'number'
   | 'select'
+  | 'multiselect'
   | 'boolean'
   | 'textarea'
   | 'secret'

@@ -109,11 +109,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         throw new CrudHttpError(422, { error: `Acceptance is required for ${key}` })
       }
     }
-    for (const field of link.customerFieldsSchema ?? []) {
-      if (field.required !== true) continue
-      const value = body.customerData?.[field.key]
-      if (value == null || `${value}`.trim().length === 0) {
-        throw new CrudHttpError(422, { error: `Field ${field.key} is required` })
+    const collectedCustomerData = link.collectCustomerDetails === false ? {} : body.customerData
+    if (link.collectCustomerDetails !== false) {
+      for (const field of link.customerFieldsSchema ?? []) {
+        if (field.required !== true) continue
+        const value = collectedCustomerData?.[field.key]
+        if (value == null || `${value}`.trim().length === 0) {
+          throw new CrudHttpError(422, { error: `Field ${field.key} is required` })
+        }
       }
     }
     const resolvedAmount = resolveSubmittedAmount(link, body)
@@ -135,11 +138,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       amount: resolvedAmount.amount,
       currencyCode: resolvedAmount.currencyCode,
       idempotencyKey,
-      customerData: body.customerData,
-      firstName: typeof body.customerData.firstName === 'string' ? body.customerData.firstName : null,
-      lastName: typeof body.customerData.lastName === 'string' ? body.customerData.lastName : null,
-      email: typeof body.customerData.email === 'string' ? body.customerData.email : null,
-      phone: typeof body.customerData.phone === 'string' ? body.customerData.phone : null,
+      customerData: collectedCustomerData,
+      firstName: typeof collectedCustomerData.firstName === 'string' ? collectedCustomerData.firstName : null,
+      lastName: typeof collectedCustomerData.lastName === 'string' ? collectedCustomerData.lastName : null,
+      email: typeof collectedCustomerData.email === 'string' ? collectedCustomerData.email : null,
+      phone: typeof collectedCustomerData.phone === 'string' ? collectedCustomerData.phone : null,
       selectedPriceItemId: resolvedAmount.selectedPriceItemId,
       acceptedLegalConsents: buildConsentProof(link, body.acceptedLegalConsents),
       ipAddress: req.headers.get('x-forwarded-for') ?? null,
@@ -194,11 +197,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       throw new CrudHttpError(404, { error: 'Transaction not found' })
     }
     if (!transaction.gatewayTransactionId) {
+      const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
+        ? link.gatewaySettings.paymentTypes.filter(
+            (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
+          )
+        : []
       const sessionResult = await paymentGatewayService.createPaymentSession({
         providerKey: link.gatewayProviderKey,
         paymentId: transactionId,
         amount: resolvedAmount.amount,
         currencyCode: resolvedAmount.currencyCode,
+        paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
         description: link.title ?? link.name,
         successUrl,
         cancelUrl,

@@ -1,9 +1,10 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
+import { Plus } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -93,7 +94,6 @@ export default function CheckoutTemplatesPage() {
 
   return (
     <Page>
-      <PageHeader title="Link Templates" description="Save reusable pay-link configurations." />
       <PageBody>
         <DataTable
           title="Link Templates"
@@ -109,7 +109,14 @@ export default function CheckoutTemplatesPage() {
           onFiltersClear={() => { setFilters({}); setPage(1) }}
           pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
           perspective={{ tableId: 'checkout-templates' }}
-          actions={<Button asChild><Link href="/backend/checkout/templates/create">Create Template</Link></Button>}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/checkout/templates/create">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Template
+              </Link>
+            </Button>
+          )}
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: 'Edit', href: `/backend/checkout/templates/${encodeURIComponent(row.id)}` },
