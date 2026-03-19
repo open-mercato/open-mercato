@@ -378,7 +378,7 @@ function DefaultCheckoutSection({
 
   return (
     <section
-      className="rounded-[32px] border border-slate-200/80 bg-[#101828] p-6 text-slate-50 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.55)] sm:p-8"
+      className="rounded-[32px] border border-slate-200 bg-white p-6 text-slate-950 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.25)] dark:border-slate-200/80 dark:bg-[#101828] dark:text-slate-50 dark:shadow-[0_30px_90px_-45px_rgba(15,23,42,0.55)] sm:p-8"
       data-component-handle={buildPaymentLinkPageSectionHandle('checkout')}
     >
       {loading ? (
@@ -388,13 +388,13 @@ function DefaultCheckoutSection({
       ) : data?.passwordRequired ? (
         <div className="mx-auto flex min-h-[420px] max-w-md flex-col justify-center space-y-5">
           <div className="space-y-2">
-            <div className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
+            <div className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
               {t('payment_gateways.paymentLink.passwordTitle', 'Protected access')}
             </div>
-            <h2 className="text-3xl font-semibold text-white">
+            <h2 className="text-3xl font-semibold text-slate-950 dark:text-white">
               {t('payment_gateways.paymentLink.passwordHeading', 'Enter password')}
             </h2>
-            <p className="text-sm leading-6 text-slate-300">
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               {t('payment_gateways.paymentLink.passwordBody', 'This payment link is password protected.')}
             </p>
           </div>
@@ -404,7 +404,7 @@ function DefaultCheckoutSection({
               value={password}
               onChange={(event) => onPasswordChange(event.target.value)}
               placeholder={t('payment_gateways.paymentLink.passwordPlaceholder', 'Password')}
-              className="!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400"
+              className="border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400"
             />
             <Button type="button" disabled={unlocking || password.trim().length === 0} onClick={onUnlock}>
               {unlocking ? t('payment_gateways.paymentLink.unlocking', 'Unlocking...') : t('payment_gateways.paymentLink.unlock', 'Unlock')}
@@ -413,16 +413,16 @@ function DefaultCheckoutSection({
         </div>
       ) : error ? (
         <div className="flex min-h-[420px] items-center justify-center">
-          <div className="max-w-lg rounded-3xl border !border-rose-500/30 bg-rose-500/10 p-6 text-center">
-            <div className="text-lg font-semibold text-white">
+          <div className="max-w-lg rounded-3xl border border-rose-200 bg-rose-50 p-6 text-center dark:border-rose-500/30 dark:bg-rose-500/10">
+            <div className="text-lg font-semibold text-slate-950 dark:text-white">
               {error ?? t('payment_gateways.paymentLink.unavailable', 'This payment link is unavailable.')}
             </div>
           </div>
         </div>
       ) : isSettled ? (
         <div className="flex min-h-[420px] items-center justify-center">
-          <div className="max-w-lg rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-6 text-center">
-            <div className="text-lg font-semibold text-white">
+          <div className="max-w-lg rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-400/20 dark:bg-emerald-500/10">
+            <div className="text-lg font-semibold text-slate-950 dark:text-white">
               {t('payment_gateways.paymentLink.paidMessage', 'This payment link has already been completed.')}
             </div>
           </div>
@@ -430,13 +430,13 @@ function DefaultCheckoutSection({
       ) : customerCaptureRequired || data?.requiresSessionCreation ? (
         <div className="mx-auto flex min-h-[420px] max-w-xl flex-col justify-center space-y-5">
           <div className="space-y-2">
-            <div className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
+            <div className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
               {t('payment_gateways.paymentLink.customerCapture.eyebrow', 'Customer details')}
             </div>
-            <h2 className="text-3xl font-semibold text-white">
+            <h2 className="text-3xl font-semibold text-slate-950 dark:text-white">
               {t('payment_gateways.paymentLink.customerCapture.title', 'Continue to secure checkout')}
             </h2>
-            <p className="text-sm leading-6 text-slate-300">
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               {t(
                 'payment_gateways.paymentLink.customerCapture.body',
                 'Enter your customer details first. The merchant will use them to match or create your customer record before payment.',
@@ -446,7 +446,7 @@ function DefaultCheckoutSection({
 
           {data?.link?.amountType === 'customer_input' ? (
             <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-200">
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 {t('payment_link_pages.paymentPage.enterAmount', 'Enter payment amount')} <span className="text-rose-400">*</span>
               </div>
               <Input
@@ -464,7 +464,7 @@ function DefaultCheckoutSection({
                   const raw = event.target.value
                   onSelectedAmountChange(raw === '' ? '' : Number(raw))
                 }}
-                className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.selectedAmount ? '!border-rose-500' : ''}`}
+                className={`border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors.selectedAmount ? 'border-rose-500 dark:border-rose-500' : ''}`}
               />
               {data.link.minAmount != null || data.link.maxAmount != null ? (
                 <p className="text-xs text-slate-400">
@@ -479,7 +479,7 @@ function DefaultCheckoutSection({
             </div>
           ) : data?.link?.amountType === 'predefined' && data.link.amountOptions?.length ? (
             <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-200">
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 {t('payment_link_pages.paymentPage.selectAmount', 'Select payment amount')} <span className="text-rose-400">*</span>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -489,15 +489,15 @@ function DefaultCheckoutSection({
                     type="button"
                     className={`rounded-2xl border p-4 text-left transition-colors ${
                       selectedAmount === opt.amount
-                        ? '!border-white !bg-white/10 text-white'
-                        : '!border-slate-700 !bg-slate-950/50 text-slate-300 hover:!border-slate-500'
+                        ? 'border-slate-950 bg-slate-100 text-slate-950 dark:border-white dark:bg-white/10 dark:text-white'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-300 dark:hover:border-slate-500'
                     }`}
                     onClick={() => onSelectedAmountChange(opt.amount)}
                   >
                     <div className="text-lg font-semibold">
                       {formatAmount(opt.amount, data.link?.currencyCode, locale)}
                     </div>
-                    <div className="text-sm text-slate-400">{opt.label}</div>
+                    <div className="text-sm text-slate-500 dark:text-slate-400">{opt.label}</div>
                   </button>
                 ))}
               </div>
@@ -508,17 +508,17 @@ function DefaultCheckoutSection({
           <div className="grid gap-4 sm:grid-cols-2">
             {termsRequired ? (
               <div className="space-y-3 sm:col-span-2">
-                <div className="rounded-2xl border !border-slate-700 !bg-slate-950/70 p-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950/70">
                   <div className="mb-3 text-sm font-medium text-slate-200">
                     {t('payment_gateways.paymentLink.customerCapture.termsTitle', 'Terms / GDPR consent')}
                   </div>
                   <MarkdownContent
                     body={customerCapture?.termsMarkdown ?? ''}
                     format="markdown"
-                    className="prose prose-invert max-w-none text-sm"
+                    className="prose max-w-none text-sm dark:prose-invert"
                   />
                 </div>
-                <label className="flex items-start gap-3 rounded-2xl border !border-slate-700 !bg-slate-950/50 p-4 text-sm !text-slate-200">
+                <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-200">
                   <Checkbox
                     checked={customerTermsAccepted}
                     onCheckedChange={(checked: boolean | 'indeterminate') => onCustomerTermsAcceptedChange(checked === true)}
@@ -534,7 +534,7 @@ function DefaultCheckoutSection({
             ) : null}
             {isFieldVisible('companyName') ? (
               <div className="space-y-2 sm:col-span-2">
-                <div className="text-sm font-medium text-slate-200">
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                   {isFieldRequired('companyName')
                     ? <>{t('payment_gateways.paymentLink.customerCapture.companyName', 'Company name')} <span className="text-rose-400">*</span></>
                     : t('payment_gateways.paymentLink.customerCapture.companyOptional', 'Company name (optional)')}
@@ -542,7 +542,7 @@ function DefaultCheckoutSection({
                 <Input
                   value={customerForm.companyName}
                   onChange={(event) => onCustomerFieldChange('companyName', event.target.value)}
-                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.companyName ? '!border-rose-500' : ''}`}
+                  className={`border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors.companyName ? 'border-rose-500 dark:border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
                 {customerFieldErrors.companyName ? <p className="text-xs text-rose-400">{customerFieldErrors.companyName}</p> : null}
@@ -550,13 +550,13 @@ function DefaultCheckoutSection({
             ) : null}
             {isFieldVisible('firstName') ? (
               <div className="space-y-2">
-                <div className="text-sm font-medium text-slate-200">
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                   {t('payment_gateways.paymentLink.customerCapture.firstName', 'First name')}{isFieldRequired('firstName') ? <span className="text-rose-400"> *</span> : ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})`}
                 </div>
                 <Input
                   value={customerForm.firstName}
                   onChange={(event) => onCustomerFieldChange('firstName', event.target.value)}
-                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.firstName ? '!border-rose-500' : ''}`}
+                  className={`border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors.firstName ? 'border-rose-500 dark:border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
                 {customerFieldErrors.firstName ? <p className="text-xs text-rose-400">{customerFieldErrors.firstName}</p> : null}
@@ -564,40 +564,40 @@ function DefaultCheckoutSection({
             ) : null}
             {isFieldVisible('lastName') ? (
               <div className="space-y-2">
-                <div className="text-sm font-medium text-slate-200">
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                   {t('payment_gateways.paymentLink.customerCapture.lastName', 'Last name')}{isFieldRequired('lastName') ? <span className="text-rose-400"> *</span> : ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})`}
                 </div>
                 <Input
                   value={customerForm.lastName}
                   onChange={(event) => onCustomerFieldChange('lastName', event.target.value)}
-                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.lastName ? '!border-rose-500' : ''}`}
+                  className={`border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors.lastName ? 'border-rose-500 dark:border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
                 {customerFieldErrors.lastName ? <p className="text-xs text-rose-400">{customerFieldErrors.lastName}</p> : null}
               </div>
             ) : null}
             <div className="space-y-2">
-              <div className="text-sm font-medium text-slate-200">
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 {t('payment_gateways.paymentLink.customerCapture.email', 'Email')} <span className="text-rose-400">*</span>
               </div>
               <Input
                 type="email"
                 value={customerForm.email}
                 onChange={(event) => onCustomerFieldChange('email', event.target.value)}
-                className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.email ? '!border-rose-500' : ''}`}
+                className={`border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors.email ? 'border-rose-500 dark:border-rose-500' : ''}`}
                 disabled={!canFillCustomerForm}
               />
               {customerFieldErrors.email ? <p className="text-xs text-rose-400">{customerFieldErrors.email}</p> : null}
             </div>
             {isFieldVisible('phone') ? (
               <div className="space-y-2">
-                <div className="text-sm font-medium text-slate-200">
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                   {t('payment_gateways.paymentLink.customerCapture.phone', 'Phone')}{isFieldRequired('phone') ? <span className="text-rose-400"> *</span> : ` (${t('payment_gateways.paymentLink.customerCapture.optional', 'optional')})`}
                 </div>
                 <Input
                   value={customerForm.phone}
                   onChange={(event) => onCustomerFieldChange('phone', event.target.value)}
-                  className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors.phone ? '!border-rose-500' : ''}`}
+                  className={`border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors.phone ? 'border-rose-500 dark:border-rose-500' : ''}`}
                   disabled={!canFillCustomerForm}
                 />
                 {customerFieldErrors.phone ? <p className="text-xs text-rose-400">{customerFieldErrors.phone}</p> : null}
@@ -607,12 +607,12 @@ function DefaultCheckoutSection({
               <>
                 {data.link.customerFieldDefs.map((fieldDef) => (
                   <div key={fieldDef.key} className={`space-y-2 ${fieldDef.kind === 'multiline' ? 'sm:col-span-2' : ''}`}>
-                    <div className="text-sm font-medium text-slate-200">
+                    <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                       {fieldDef.label}{fieldDef.required ? <span className="text-rose-400"> *</span> : ''}
                     </div>
                     {fieldDef.kind === 'select' && fieldDef.options ? (
                       <select
-                        className={`flex h-9 w-full rounded-md !border-slate-700 !bg-slate-950 pl-3 pr-8 py-2 text-sm !text-white ${customerFieldErrors[`cf_${fieldDef.key}`] ? '!border-rose-500' : ''}`}
+                        className={`flex h-9 w-full rounded-md border border-slate-300 bg-white pl-3 pr-8 py-2 text-sm text-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-white ${customerFieldErrors[`cf_${fieldDef.key}`] ? 'border-rose-500 dark:border-rose-500' : ''}`}
                         value={typeof customerCustomValues[fieldDef.key] === 'string' ? customerCustomValues[fieldDef.key] as string : ''}
                         onChange={(event) => onCustomerCustomFieldChange(fieldDef.key, event.target.value || null)}
                       >
@@ -623,7 +623,7 @@ function DefaultCheckoutSection({
                       </select>
                     ) : fieldDef.kind === 'multiline' ? (
                       <textarea
-                        className={`flex min-h-[80px] w-full rounded-md border !border-slate-700 !bg-slate-950 px-3 py-2 text-sm !text-white placeholder:!text-slate-400 ${customerFieldErrors[`cf_${fieldDef.key}`] ? '!border-rose-500' : ''}`}
+                        className={`flex min-h-[80px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors[`cf_${fieldDef.key}`] ? 'border-rose-500 dark:border-rose-500' : ''}`}
                         value={typeof customerCustomValues[fieldDef.key] === 'string' ? customerCustomValues[fieldDef.key] as string : ''}
                         onChange={(event) => onCustomerCustomFieldChange(fieldDef.key, event.target.value)}
                       />
@@ -633,12 +633,12 @@ function DefaultCheckoutSection({
                           checked={customerCustomValues[fieldDef.key] === true}
                           onCheckedChange={(checked: boolean | 'indeterminate') => onCustomerCustomFieldChange(fieldDef.key, checked === true)}
                         />
-                        <span className="text-sm text-slate-300">{fieldDef.description ?? ''}</span>
+                        <span className="text-sm text-slate-600 dark:text-slate-300">{fieldDef.description ?? ''}</span>
                       </label>
                     ) : (
                       <Input
                         type={fieldDef.kind === 'integer' || fieldDef.kind === 'float' ? 'number' : 'text'}
-                        className={`!border-slate-700 !bg-slate-950 !text-white placeholder:!text-slate-400 ${customerFieldErrors[`cf_${fieldDef.key}`] ? '!border-rose-500' : ''}`}
+                        className={`border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-400 ${customerFieldErrors[`cf_${fieldDef.key}`] ? 'border-rose-500 dark:border-rose-500' : ''}`}
                         value={typeof customerCustomValues[fieldDef.key] === 'string' || typeof customerCustomValues[fieldDef.key] === 'number' ? String(customerCustomValues[fieldDef.key]) : ''}
                         onChange={(event) => onCustomerCustomFieldChange(fieldDef.key, fieldDef.kind === 'integer' || fieldDef.kind === 'float' ? (event.target.value === '' ? null : Number(event.target.value)) : event.target.value)}
                       />
@@ -652,7 +652,7 @@ function DefaultCheckoutSection({
           </div>
 
           {customerError ? (
-            <div className="rounded-2xl border !border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-100">
+            <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100">
               {customerError}
             </div>
           ) : null}
@@ -693,8 +693,8 @@ function DefaultCheckoutSection({
         </div>
       ) : (
         <div className="flex min-h-[420px] items-center justify-center">
-          <div className="max-w-lg rounded-3xl border border-amber-400/20 bg-amber-500/10 p-6 text-center">
-            <div className="text-lg font-semibold text-white">
+          <div className="max-w-lg rounded-3xl border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-400/20 dark:bg-amber-500/10">
+            <div className="text-lg font-semibold text-slate-950 dark:text-white">
               {t('payment_gateways.paymentLink.noCheckout', 'No checkout component is configured for this provider.')}
             </div>
           </div>
@@ -705,6 +705,9 @@ function DefaultCheckoutSection({
 }
 
 function DefaultPaymentLinkPageRoot({
+  data,
+  loading,
+  error,
   customCss,
   beforeContent,
   heroContent,
@@ -712,21 +715,41 @@ function DefaultPaymentLinkPageRoot({
   checkoutContent,
   afterContent,
 }: RootProps) {
+  const t = useT()
+  const showErrorOnly = !loading && error && !data?.link
+
   return (
     <main
       className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.14),_transparent_38%),linear-gradient(180deg,_#f5f7f1_0%,_#eef4ff_48%,_#f8fafc_100%)] px-4 py-10 text-slate-950 sm:px-6"
       data-component-handle={PAYMENT_LINK_PAGE_COMPONENT_HANDLE}
     >
       {customCss ? <style>{customCss}</style> : null}
-      {beforeContent}
-      <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-        <div className="space-y-6">
-          {heroContent}
-          {summaryContent}
+      {showErrorOnly ? (
+        <div className="mx-auto flex min-h-[60vh] max-w-lg items-center justify-center">
+          <div className="w-full rounded-3xl border border-rose-200 bg-rose-50 p-8 text-center shadow-lg dark:border-rose-500/30 dark:bg-rose-950/30">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 dark:bg-rose-500/20">
+              <svg className="h-6 w-6 text-rose-600 dark:text-rose-400" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+              </svg>
+            </div>
+            <div className="text-lg font-semibold text-rose-900 dark:text-rose-100">
+              {error ?? t('payment_gateways.paymentLink.unavailable', 'This payment link is unavailable.')}
+            </div>
+          </div>
         </div>
-        <div className="space-y-6">{checkoutContent}</div>
-      </div>
-      {afterContent}
+      ) : (
+        <>
+          {beforeContent}
+          <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <div className="space-y-6">
+              {heroContent}
+              {summaryContent}
+            </div>
+            <div className="space-y-6">{checkoutContent}</div>
+          </div>
+          {afterContent}
+        </>
+      )}
     </main>
   )
 }
