@@ -162,15 +162,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       if (hasAclHints) {
         redirectToForbiddenLogin({ requiredRoles: roles, requiredFeatures: features })
       }
-      const raw = await res.clone().text().catch(() => 'Forbidden')
-      let msg = raw
-      const parsed = await readJsonSafe<Record<string, unknown>>(raw, null)
-      if (parsed && typeof parsed === 'object') {
-        if (typeof parsed.error === 'string') {
-          msg = parsed.error
-        } else if (typeof parsed.message === 'string') {
-          msg = parsed.message
+      let msg = 'Forbidden'
+      if (aclData && typeof aclData === 'object') {
+        if (typeof aclData.error === 'string') {
+          msg = aclData.error
+        } else if (typeof aclData.message === 'string') {
+          msg = aclData.message
         }
+      } else {
+        msg = await res.clone().text().catch(() => 'Forbidden')
       }
       throw new ForbiddenError(msg)
     }
