@@ -7,6 +7,7 @@ const events = [
   { id: 'checkout.link.created', label: 'Link Created', entity: 'link', category: 'crud' },
   { id: 'checkout.link.updated', label: 'Link Updated', entity: 'link', category: 'crud' },
   { id: 'checkout.link.deleted', label: 'Link Deleted', entity: 'link', category: 'crud' },
+  { id: 'checkout.link.published', label: 'Link Published', entity: 'link', category: 'lifecycle', clientBroadcast: true },
   { id: 'checkout.link.locked', label: 'Link Locked', entity: 'link', category: 'lifecycle', clientBroadcast: true },
   { id: 'checkout.transaction.created', label: 'Transaction Created', entity: 'transaction', category: 'crud' },
   { id: 'checkout.transaction.customerDataCaptured', label: 'Customer Data Captured', entity: 'transaction', category: 'lifecycle' },

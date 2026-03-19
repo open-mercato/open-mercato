@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
@@ -8,12 +9,15 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 
 type PayLinkPayload = {
+  id: string
+  slug?: string | null
   name: string
   title?: string | null
   subtitle?: string | null
   description?: string | null
   logoUrl?: string | null
   backgroundColor?: string | null
+  status?: 'draft' | 'active' | 'inactive'
   pricingMode: 'fixed' | 'custom_amount' | 'price_list'
   fixedPriceAmount?: number | null
   fixedPriceCurrencyCode?: string | null
@@ -29,12 +33,20 @@ type PayLinkPayload = {
   }
   requiresPassword?: boolean
   available?: boolean
+  preview?: boolean
 }
 
-export function PayPage() {
+type PayPageProps = {
+  mode?: 'link' | 'template'
+  sourceId?: string
+}
+
+export function PayPage({ mode = 'link', sourceId }: PayPageProps) {
   const params = useParams<{ slug: string }>()
   const router = useRouter()
-  const slug = typeof params?.slug === 'string' ? params.slug : ''
+  const searchParams = useSearchParams()
+  const slug = sourceId ?? (typeof params?.slug === 'string' ? params.slug : '')
+  const previewRequested = searchParams.get('preview') === 'true' || mode === 'template'
   const [payload, setPayload] = React.useState<PayLinkPayload | null>(null)
   const [password, setPassword] = React.useState('')
   const [customerData, setCustomerData] = React.useState<Record<string, unknown>>({})
@@ -43,12 +55,15 @@ export function PayPage() {
   const [selectedPriceItemId, setSelectedPriceItemId] = React.useState<string | null>(null)
 
   const loadPayload = React.useCallback(async () => {
-    const result = await readApiResultOrThrow<PayLinkPayload>(`/api/checkout/pay/${encodeURIComponent(slug)}`)
+    const endpoint = mode === 'template'
+      ? `/api/checkout/templates/${encodeURIComponent(slug)}/preview`
+      : `/api/checkout/pay/${encodeURIComponent(slug)}${previewRequested ? '?preview=true' : ''}`
+    const result = await readApiResultOrThrow<PayLinkPayload>(endpoint)
     setPayload(result)
     if (result.pricingMode === 'fixed' && typeof result.fixedPriceAmount === 'number') {
       setAmount(result.fixedPriceAmount)
     }
-  }, [slug])
+  }, [mode, previewRequested, slug])
 
   React.useEffect(() => {
     void loadPayload()
@@ -83,9 +98,23 @@ export function PayPage() {
 
   const selectedPriceItem = payload.priceListItems?.find((item) => item.id === selectedPriceItemId) ?? null
   const effectiveAmount = selectedPriceItem?.amount ?? amount
+  const isPreview = payload.preview === true || previewRequested
+  const backHref = mode === 'template'
+    ? `/backend/checkout/templates/${encodeURIComponent(payload.id)}`
+    : `/backend/checkout/pay-links/${encodeURIComponent(payload.id)}`
 
   return (
     <div className="min-h-screen px-4 py-10" style={{ background: payload.backgroundColor ?? '#f5f3ee' }}>
+      {isPreview ? (
+        <div className="mx-auto mb-4 max-w-6xl rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>Preview Mode — payments are disabled.</span>
+            <Button asChild type="button" variant="outline">
+              <Link href={backHref}>Back to admin</Link>
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <Card>
           <CardContent className="space-y-6 p-8">
@@ -172,7 +201,9 @@ export function PayPage() {
             <Button
               type="button"
               className="w-full"
+              disabled={isPreview}
               onClick={async () => {
+                if (isPreview) return
                 const result = await readApiResultOrThrow<{ transactionId: string; redirectUrl?: string | null }>(
                   `/api/checkout/pay/${encodeURIComponent(slug)}/submit`,
                   {
@@ -196,7 +227,7 @@ export function PayPage() {
                 router.push(`/pay/${encodeURIComponent(slug)}/success/${encodeURIComponent(result.transactionId)}`)
               }}
             >
-              Pay now
+              {isPreview ? 'Preview - payments disabled' : 'Pay now'}
             </Button>
           </CardContent>
         </Card>

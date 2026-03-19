@@ -1,21 +1,23 @@
 import { NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
+import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
 import { CheckoutLink, CheckoutTransaction } from '../../../../data/entities'
 import { publicSubmitSchema } from '../../../../data/validators'
 import { handleCheckoutRouteError, requireCheckoutPasswordSession } from '../../../helpers'
+import { emitCheckoutEvent } from '../../../../events'
 import {
   buildConsentProof,
+  isCheckoutLinkPublic,
   mapGatewayStatusToCheckoutStatus,
   resolveSubmittedAmount,
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
 import { checkoutTag } from '../../../openapi'
-
-const IDEMPOTENCY_CACHE_KEY = '__openMercatoCheckoutIdempotency__'
 
 type CachedSubmitResponse = {
   transactionId: string
@@ -23,14 +25,37 @@ type CachedSubmitResponse = {
   embeddedFormData?: Record<string, unknown> | null
 }
 
-function getIdempotencyCache(): Map<string, CachedSubmitResponse> {
-  const globalState = globalThis as typeof globalThis & {
-    [IDEMPOTENCY_CACHE_KEY]?: Map<string, CachedSubmitResponse>
+function isIdempotencyConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : ''
+  return message.includes('checkout_transactions_organization_id_tenant_id_link_idempotency_key_index')
+    || message.includes('checkout_transactions_organization_id_tenant_id_link_idempotency_key_unique')
+    || message.includes('duplicate key value')
+}
+
+async function buildSubmitResponse(
+  em: EntityManager,
+  transaction: CheckoutTransaction,
+  providerKey: string | null | undefined,
+): Promise<CachedSubmitResponse> {
+  const gatewayTransaction = transaction.gatewayTransactionId
+    ? await em.findOne(GatewayTransaction, {
+      id: transaction.gatewayTransactionId,
+      organizationId: transaction.organizationId,
+      tenantId: transaction.tenantId,
+      deletedAt: null,
+    })
+    : null
+  return {
+    transactionId: transaction.id,
+    redirectUrl: gatewayTransaction?.redirectUrl ?? null,
+    embeddedFormData: gatewayTransaction?.clientSecret
+      ? {
+        clientSecret: gatewayTransaction.clientSecret,
+        providerKey: providerKey ?? null,
+        gatewayTransactionId: gatewayTransaction.id,
+      }
+      : null,
   }
-  if (!globalState[IDEMPOTENCY_CACHE_KEY]) {
-    globalState[IDEMPOTENCY_CACHE_KEY] = new Map()
-  }
-  return globalState[IDEMPOTENCY_CACHE_KEY]
 }
 
 export const metadata = {
@@ -45,12 +70,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!idempotencyKey) {
       return NextResponse.json({ error: 'Idempotency-Key header is required' }, { status: 400 })
     }
-    const cacheKey = `${resolvedParams.slug}:${idempotencyKey}`
-    const cache = getIdempotencyCache()
-    const cached = cache.get(cacheKey)
-    if (cached) {
-      return NextResponse.json(cached)
-    }
 
     const body = publicSubmitSchema.parse(await req.json().catch(() => ({})))
     const container = await createRequestContainer()
@@ -60,10 +79,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const link = await em.findOne(CheckoutLink, {
       slug: resolvedParams.slug,
       deletedAt: null,
-      isActive: true,
     })
     if (!link) {
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
+    }
+    if (!isCheckoutLinkPublic(link.status)) {
+      throw new CrudHttpError(422, { error: 'This payment link is not currently accepting payments' })
     }
     if (link.passwordHash) {
       requireCheckoutPasswordSession(req, link.slug)
@@ -86,11 +107,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
     const resolvedAmount = resolveSubmittedAmount(link, body)
     validateDescriptorCurrencies(link.gatewayProviderKey, [resolvedAmount.currencyCode])
+    const existingTransaction = await em.findOne(CheckoutTransaction, {
+      linkId: link.id,
+      idempotencyKey,
+      organizationId: link.organizationId,
+      tenantId: link.tenantId,
+    })
+    if (existingTransaction?.gatewayTransactionId) {
+      return NextResponse.json(
+        await buildSubmitResponse(em, existingTransaction, link.gatewayProviderKey),
+      )
+    }
 
     const transactionInput = {
       linkId: link.id,
       amount: resolvedAmount.amount,
       currencyCode: resolvedAmount.currencyCode,
+      idempotencyKey,
       customerData: body.customerData,
       firstName: typeof body.customerData.firstName === 'string' ? body.customerData.firstName : null,
       lastName: typeof body.customerData.lastName === 'string' ? body.customerData.lastName : null,
@@ -111,53 +144,80 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       organizationIds: [link.organizationId],
       request: req,
     }
-    const created = await commandBus.execute<typeof transactionInput, { id: string }>('checkout.transaction.create', {
-      input: transactionInput,
-      ctx,
-    })
-    const transactionId = created.result.id
+    let transactionId = existingTransaction?.id ?? null
+    if (!transactionId) {
+      try {
+        const created = await commandBus.execute<typeof transactionInput, { id: string }>('checkout.transaction.create', {
+          input: transactionInput,
+          ctx,
+        })
+        transactionId = created.result.id
+      } catch (error) {
+        if (!isIdempotencyConflict(error)) {
+          throw error
+        }
+        const duplicated = await em.findOne(CheckoutTransaction, {
+          linkId: link.id,
+          idempotencyKey,
+          organizationId: link.organizationId,
+          tenantId: link.tenantId,
+        })
+        if (!duplicated) {
+          throw error
+        }
+        transactionId = duplicated.id
+      }
+    }
+    if (!transactionId) {
+      throw new CrudHttpError(500, { error: 'Failed to initialize checkout transaction' })
+    }
     const requestUrl = new URL(req.url)
     const successUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transactionId)}`
     const cancelUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transactionId)}`
-    const sessionResult = await paymentGatewayService.createPaymentSession({
-      providerKey: link.gatewayProviderKey,
-      paymentId: transactionId,
-      amount: resolvedAmount.amount,
-      currencyCode: resolvedAmount.currencyCode,
-      description: link.title ?? link.name,
-      successUrl,
-      cancelUrl,
-      metadata: {
-        checkoutLinkId: link.id,
-        checkoutSlug: link.slug,
-      },
-      organizationId: link.organizationId,
-      tenantId: link.tenantId,
-    })
     const transaction = await em.findOne(CheckoutTransaction, {
       id: transactionId,
       organizationId: link.organizationId,
       tenantId: link.tenantId,
     })
-    if (transaction) {
+    if (!transaction) {
+      throw new CrudHttpError(404, { error: 'Transaction not found' })
+    }
+    if (!transaction.gatewayTransactionId) {
+      const sessionResult = await paymentGatewayService.createPaymentSession({
+        providerKey: link.gatewayProviderKey,
+        paymentId: transactionId,
+        amount: resolvedAmount.amount,
+        currencyCode: resolvedAmount.currencyCode,
+        description: link.title ?? link.name,
+        successUrl,
+        cancelUrl,
+        metadata: {
+          checkoutLinkId: link.id,
+          checkoutSlug: link.slug,
+        },
+        organizationId: link.organizationId,
+        tenantId: link.tenantId,
+      })
       transaction.gatewayTransactionId = sessionResult.transaction.id
       transaction.paymentStatus = sessionResult.transaction.unifiedStatus
       transaction.status = mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus)
       await em.flush()
+      await emitCheckoutEvent('checkout.transaction.sessionStarted', {
+        transactionId: transaction.id,
+        linkId: transaction.linkId,
+        slug: link.slug,
+        status: transaction.status,
+        paymentStatus: transaction.paymentStatus ?? null,
+        amount: Number(transaction.amount),
+        currency: transaction.currencyCode,
+        gatewayProvider: link.gatewayProviderKey,
+        gatewayTransactionId: transaction.gatewayTransactionId,
+        occurredAt: new Date().toISOString(),
+        tenantId: link.tenantId,
+        organizationId: link.organizationId,
+      }).catch(() => undefined)
     }
-    const responsePayload: CachedSubmitResponse = {
-      transactionId,
-      redirectUrl: sessionResult.session.redirectUrl ?? null,
-      embeddedFormData: sessionResult.session.clientSecret
-        ? {
-          clientSecret: sessionResult.session.clientSecret,
-          providerKey: link.gatewayProviderKey,
-          gatewayTransactionId: sessionResult.transaction.id,
-        }
-        : null,
-    }
-    cache.set(cacheKey, responsePayload)
-    return NextResponse.json(responsePayload, { status: 201 })
+    return NextResponse.json(await buildSubmitResponse(em, transaction, link.gatewayProviderKey), { status: 201 })
   } catch (error) {
     return handleCheckoutRouteError(error)
   }

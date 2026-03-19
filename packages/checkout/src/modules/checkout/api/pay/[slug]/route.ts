@@ -3,8 +3,9 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CheckoutLink } from '../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../lib/constants'
-import { handleCheckoutRouteError, readCheckoutPasswordCookie } from '../../helpers'
+import { handleCheckoutRouteError, readCheckoutPasswordCookie, requirePreviewContext } from '../../helpers'
 import {
+  isCheckoutLinkPublic,
   serializeTemplateOrLink,
   verifyCheckoutPasswordAccess,
 } from '../../../lib/utils'
@@ -18,21 +19,23 @@ export const metadata = {
 export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
     const resolvedParams = await params
+    const url = new URL(req.url)
+    const previewRequested = url.searchParams.get('preview') === 'true'
+    const previewContext = previewRequested ? await requirePreviewContext(req) : null
     const container = await createRequestContainer()
     const em = container.resolve('em')
     const link = await em.findOne(CheckoutLink, {
       slug: resolvedParams.slug,
       deletedAt: null,
-      isActive: true,
     })
-    if (!link) {
+    if (!link || (!previewRequested && !isCheckoutLinkPublic(link.status))) {
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
     }
     const available = link.maxCompletions == null
       ? true
       : (link.completionCount + link.activeReservationCount) < link.maxCompletions
     const token = readCheckoutPasswordCookie(req)
-    const passwordVerified = !link.passwordHash || verifyCheckoutPasswordAccess(token, link.slug)
+    const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutPasswordAccess(token, link.slug)
     if (!passwordVerified) {
       return NextResponse.json({
         requiresPassword: true,
@@ -49,11 +52,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     return NextResponse.json({
       ...serializeTemplateOrLink(link),
       customFields: customValues[link.id] ?? {},
-      available,
+      available: previewRequested ? false : available,
       remainingUses: link.maxCompletions == null
         ? null
         : Math.max(0, link.maxCompletions - link.completionCount - link.activeReservationCount),
       requiresPassword: false,
+      preview: previewRequested,
+      previewUserId: previewContext?.auth.sub ?? null,
       gatewaySettings: undefined,
     })
   } catch (error) {

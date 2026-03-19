@@ -5,6 +5,7 @@ import { CHECKOUT_PASSWORD_COOKIE } from '../../../../lib/constants'
 import { publicPasswordVerifySchema } from '../../../../data/validators'
 import { handleCheckoutRouteError } from '../../../helpers'
 import {
+  isCheckoutLinkPublic,
   signCheckoutPasswordAccess,
   verifyCheckoutPassword,
 } from '../../../../lib/utils'
@@ -24,9 +25,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const link = await em.findOne(CheckoutLink, {
       slug: resolvedParams.slug,
       deletedAt: null,
-      isActive: true,
     })
-    if (!link || !link.passwordHash) {
+    if (!link || !isCheckoutLinkPublic(link.status) || !link.passwordHash) {
       return NextResponse.json({ error: 'Invalid password' }, { status: 401 })
     }
     const ok = await verifyCheckoutPassword(body.password, link.passwordHash)

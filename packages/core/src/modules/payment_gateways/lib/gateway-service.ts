@@ -152,7 +152,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         providerSessionId: session.sessionId,
         unifiedStatus: session.status,
         redirectUrl: session.redirectUrl ?? null,
-        clientSecret: null,
+        clientSecret: session.clientSecret ?? null,
         amount: String(input.amount),
         currencyCode: input.currencyCode,
         gatewayMetadata: session.providerData ?? null,

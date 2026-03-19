@@ -136,7 +136,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       terms: { title: '', markdown: '', required: false },
       privacyPolicy: { title: '', markdown: '', required: false },
     },
-    isActive: true,
+    status: 'draft',
   })
 
   React.useEffect(() => {
@@ -229,9 +229,18 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       ],
     },
     { id: 'displayCustomFieldsOnPage', label: 'Show custom fields on page', type: 'checkbox' },
+    {
+      id: 'status',
+      label: 'Status',
+      type: 'select',
+      options: [
+        { value: 'draft', label: 'Draft' },
+        { value: 'active', label: 'Active' },
+        { value: 'inactive', label: 'Inactive' },
+      ],
+    },
     { id: 'maxCompletions', label: 'Max completions', type: 'number', placeholder: 'Leave empty for unlimited' },
     { id: 'password', label: 'Password', type: 'password' },
-    { id: 'isActive', label: 'Active', type: 'checkbox' },
     { id: 'successTitle', label: 'Success title', type: 'text' },
     { id: 'successMessage', label: 'Success message', type: 'textarea' },
     { id: 'cancelTitle', label: 'Cancel title', type: 'text' },
@@ -316,7 +325,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
         )
       },
     },
-    { id: 'settings', title: 'Settings', column: 2, fields: ['maxCompletions', 'password', 'isActive'] },
+    { id: 'settings', title: 'Settings', column: 2, fields: ['status', 'maxCompletions', 'password'] },
     { id: 'messages', title: 'Messages', column: 1, fields: ['successTitle', 'successMessage', 'cancelTitle', 'cancelMessage', 'errorTitle', 'errorMessage'] },
     { id: 'emails', title: 'Emails', column: 1, fields: ['startEmailSubject', 'startEmailBody', 'successEmailSubject', 'successEmailBody', 'errorEmailSubject', 'errorEmailBody'] },
     { id: 'customFields', title: 'Custom fields', column: 2, kind: 'customFields' },
@@ -332,6 +341,19 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
           cancelHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
           fields={fields}
           groups={groups}
+            extraActions={recordId ? (
+              <Button asChild type="button" variant="outline">
+                <a
+                  href={mode === 'link'
+                    ? `/pay/${encodeURIComponent(String(initialValues.slug ?? ''))}?preview=true`
+                    : `/backend/checkout/templates/${encodeURIComponent(recordId)}/preview`}
+                  target={mode === 'link' ? '_blank' : undefined}
+                  rel={mode === 'link' ? 'noreferrer' : undefined}
+                >
+                  Preview
+                </a>
+              </Button>
+            ) : null}
             entityId={entityId}
             initialValues={initialValues}
             deleteVisible={Boolean(recordId)}

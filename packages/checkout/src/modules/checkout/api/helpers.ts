@@ -28,6 +28,26 @@ export async function requireAdminContext(req: Request): Promise<{
   }
 }
 
+export async function requirePreviewContext(
+  req: Request,
+  feature = 'checkout.view',
+): Promise<{
+  auth: Exclude<AuthContext, null>
+  container: Awaited<ReturnType<typeof createRequestContainer>>
+  em: EntityManager
+}> {
+  const context = await requireAdminContext(req)
+  const allowed = await userHasCheckoutFeature(context.container, context.auth, feature)
+  if (!allowed) {
+    throw new CrudHttpError(403, { error: 'Forbidden' })
+  }
+  return {
+    auth: context.auth,
+    container: context.container,
+    em: context.em,
+  }
+}
+
 export function buildCommandRuntimeContext(
   req: Request,
   container: Awaited<ReturnType<typeof createRequestContainer>>,

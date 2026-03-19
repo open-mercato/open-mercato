@@ -20,7 +20,7 @@ type LinkRow = {
   customAmountMin?: number | null
   customAmountMax?: number | null
   customAmountCurrencyCode?: string | null
-  isActive: boolean
+  status: 'draft' | 'active' | 'inactive'
   completionCount: number
   maxCompletions?: number | null
   createdAt?: string | null
@@ -48,6 +48,12 @@ function formatPricing(row: LinkRow): string {
   return 'Price List'
 }
 
+function formatStatus(status: LinkRow['status']): string {
+  if (status === 'active') return 'Active'
+  if (status === 'inactive') return 'Inactive'
+  return 'Draft'
+}
+
 export default function CheckoutPayLinksPage() {
   const [rows, setRows] = React.useState<LinkRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -59,12 +65,13 @@ export default function CheckoutPayLinksPage() {
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
-      id: 'isActive',
+      id: 'status',
       label: 'Status',
       type: 'select',
       options: [
-        { value: 'true', label: 'Active' },
-        { value: 'false', label: 'Inactive' },
+        { value: 'draft', label: 'Draft' },
+        { value: 'active', label: 'Active' },
+        { value: 'inactive', label: 'Inactive' },
       ],
     },
     {
@@ -86,14 +93,14 @@ export default function CheckoutPayLinksPage() {
       pageSize: '25',
       search,
     })
-    if (typeof filters.isActive === 'string' && filters.isActive) params.set('isActive', filters.isActive)
+    if (typeof filters.status === 'string' && filters.status) params.set('status', filters.status)
     if (typeof filters.pricingMode === 'string' && filters.pricingMode) params.set('pricingMode', filters.pricingMode)
     const result = await readApiResultOrThrow<ListResponse>(`/api/checkout/links?${params.toString()}`)
     setRows(result.items ?? [])
     setTotal(result.total ?? 0)
     setTotalPages(result.totalPages ?? 1)
     setLoading(false)
-  }, [filters.isActive, filters.pricingMode, page, search])
+  }, [filters.pricingMode, filters.status, page, search])
 
   React.useEffect(() => {
     void loadRows()
@@ -112,11 +119,11 @@ export default function CheckoutPayLinksPage() {
       cell: ({ row }) => formatPricing(row.original),
     },
     {
-      accessorKey: 'isActive',
+      accessorKey: 'status',
       header: 'Status',
       cell: ({ row }) => (
-        <Badge variant={row.original.isActive ? 'default' : 'secondary'}>
-          {row.original.isActive ? 'Active' : 'Inactive'}
+        <Badge variant={row.original.status === 'active' ? 'default' : 'secondary'}>
+          {formatStatus(row.original.status)}
         </Badge>
       ),
     },
@@ -154,7 +161,10 @@ export default function CheckoutPayLinksPage() {
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: 'Edit', href: `/backend/checkout/pay-links/${encodeURIComponent(row.id)}` },
-              { id: 'view', label: 'View Pay Page', href: `/pay/${encodeURIComponent(row.slug)}` },
+              { id: 'preview', label: 'Preview', href: `/pay/${encodeURIComponent(row.slug)}?preview=true` },
+              ...(row.status === 'active'
+                ? [{ id: 'view', label: 'View Pay Page', href: `/pay/${encodeURIComponent(row.slug)}` }]
+                : []),
               {
                 id: 'copy',
                 label: 'Copy Link URL',
@@ -163,6 +173,31 @@ export default function CheckoutPayLinksPage() {
                 },
               },
               { id: 'transactions', label: 'Show Transactions', href: `/backend/checkout/transactions?linkId=${encodeURIComponent(row.id)}` },
+              ...(row.status !== 'active'
+                ? [{
+                  id: 'publish',
+                  label: 'Publish',
+                  onSelect: async () => {
+                    await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'active' }),
+                    })
+                    void loadRows()
+                  },
+                }]
+                : [{
+                  id: 'deactivate',
+                  label: 'Deactivate',
+                  onSelect: async () => {
+                    await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'inactive' }),
+                    })
+                    void loadRows()
+                  },
+                }]),
               {
                 id: 'delete',
                 label: 'Delete',

@@ -113,6 +113,7 @@ export default function CheckoutTemplatesPage() {
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: 'Edit', href: `/backend/checkout/templates/${encodeURIComponent(row.id)}` },
+              { id: 'preview', label: 'Preview', href: `/backend/checkout/templates/${encodeURIComponent(row.id)}/preview` },
               { id: 'create-link', label: 'Create Link from Template', href: `/backend/checkout/pay-links/create?templateId=${encodeURIComponent(row.id)}` },
               {
                 id: 'delete',

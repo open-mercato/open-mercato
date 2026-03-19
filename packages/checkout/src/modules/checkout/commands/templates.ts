@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CheckoutLinkTemplate } from '../data/entities'
 import { createTemplateSchema, updateTemplateSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
+import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
   hashCheckoutPassword,
@@ -45,6 +46,11 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
       organizationId: scope.organizationId,
       values: customFields,
     })
+    await emitCheckoutEvent('checkout.template.created', {
+      id: template.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }).catch(() => undefined)
     return { id: template.id }
   },
 }
@@ -84,6 +90,11 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       organizationId: scope.organizationId,
       values: customFields,
     })
+    await emitCheckoutEvent('checkout.template.updated', {
+      id: template.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }).catch(() => undefined)
     return { ok: true }
   },
 }
@@ -103,6 +114,11 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
     if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
     template.deletedAt = new Date()
     await em.flush()
+    await emitCheckoutEvent('checkout.template.deleted', {
+      id: template.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }).catch(() => undefined)
     return { ok: true }
   },
 }

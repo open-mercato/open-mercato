@@ -19,7 +19,9 @@ function GatewayTransactionLinkWidget({ context }: Props) {
       setPayload(null)
       return () => { active = false }
     }
-    void readApiResultOrThrow<{ transaction?: { id: string; linkSlug?: string | null; linkName?: string | null } }>(`/api/checkout/transactions/${encodeURIComponent(transactionId)}`)
+    void readApiResultOrThrow<{ transaction?: { id: string; linkSlug?: string | null; linkName?: string | null } | null }>(
+      `/api/checkout/transactions/by-gateway/${encodeURIComponent(transactionId)}`,
+    )
       .then((result) => {
         if (active) setPayload(result)
       })

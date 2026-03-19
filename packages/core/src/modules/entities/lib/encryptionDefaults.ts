@@ -145,6 +145,18 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'checkout:transaction',
+    fields: [
+      { field: 'customer_data' },
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'email' },
+      { field: 'phone' },
+      { field: 'accepted_legal_consents' },
+      { field: 'ip_address' },
+    ],
+  },
+  {
     entityId: 'integrations:integration_credentials',
     fields: [{ field: 'credentials' }],
   },

@@ -4,6 +4,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CheckoutLink, CheckoutTransaction } from '../data/entities'
 import { transactionCreateSchema, transactionUpdateStatusSchema } from '../data/validators'
+import { emitCheckoutEvent } from '../events'
 import {
   isTerminalCheckoutStatus,
   mapGatewayStatusToCheckoutStatus,
@@ -27,7 +28,20 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
     const { parsed } = parseCheckoutInput(rawInput, transactionCreateSchema.parse)
     const scope = resolveTransactionScope(parsed)
     const em = ctx.container.resolve('em') as EntityManager
+    let lockedLink: CheckoutLink | null = null
     const transaction = await em.transactional(async (tx) => {
+      const currentLink = await tx.findOne(CheckoutLink, {
+        id: parsed.linkId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      })
+      if (!currentLink) {
+        throw new CrudHttpError(404, { error: 'Payment link not found' })
+      }
+      if (currentLink.status !== 'active') {
+        throw new CrudHttpError(422, { error: 'This payment link is not currently accepting payments' })
+      }
       const reserved = await tx.getConnection().execute<Array<{ id: string }>>(
         `
           UPDATE checkout_links
@@ -38,7 +52,7 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
             AND organization_id = ?
             AND tenant_id = ?
             AND deleted_at IS NULL
-            AND is_active = true
+            AND status = 'active'
             AND (
               max_completions IS NULL
               OR completion_count + active_reservation_count < max_completions
@@ -50,15 +64,7 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       if (!reserved[0]?.id) {
         throw new CrudHttpError(422, { error: 'This payment link is no longer available' })
       }
-      const currentLink = await tx.findOne(CheckoutLink, {
-        id: parsed.linkId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      })
-      if (!currentLink) {
-        throw new CrudHttpError(404, { error: 'Payment link not found' })
-      }
+      lockedLink = currentLink
       const transaction = tx.create(CheckoutTransaction, {
         ...parsed,
         organizationId: scope.organizationId,
@@ -70,6 +76,31 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       await tx.flush()
       return transaction
     })
+    if (lockedLink && !lockedLink.isLocked) {
+      await emitCheckoutEvent('checkout.link.locked', {
+        id: lockedLink.id,
+        slug: lockedLink.slug,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      }).catch(() => undefined)
+    }
+    await emitCheckoutEvent('checkout.transaction.created', {
+      transactionId: transaction.id,
+      linkId: transaction.linkId,
+      status: transaction.status,
+      amount: Number(transaction.amount),
+      currency: transaction.currencyCode,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }).catch(() => undefined)
+    await emitCheckoutEvent('checkout.transaction.customerDataCaptured', {
+      transactionId: transaction.id,
+      linkId: transaction.linkId,
+      status: transaction.status,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      customerDataCaptured: true,
+    }).catch(() => undefined)
     return { id: transaction.id }
   },
 }
@@ -80,6 +111,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
     const { parsed } = parseCheckoutInput(rawInput, transactionUpdateStatusSchema.parse)
     const scope = resolveTransactionScope(parsed)
     const em = ctx.container.resolve('em') as EntityManager
+    let terminalEventPayload: Record<string, unknown> | null = null
     await em.transactional(async (tx) => {
       const transaction = await tx.findOne(CheckoutTransaction, {
         id: parsed.id,
@@ -112,7 +144,32 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
         }
         await tx.flush()
       }
+      if (nextTerminal) {
+        terminalEventPayload = {
+          transactionId: transaction.id,
+          linkId: transaction.linkId,
+          slug: link.slug,
+          status: transaction.status,
+          paymentStatus: transaction.paymentStatus ?? null,
+          amount: Number(transaction.amount),
+          currency: transaction.currencyCode,
+          gatewayProvider: link.gatewayProviderKey ?? null,
+          gatewayTransactionId: transaction.gatewayTransactionId ?? null,
+          occurredAt: new Date().toISOString(),
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+        }
+      }
     })
+    if (parsed.status === 'completed') {
+      await emitCheckoutEvent('checkout.transaction.completed', terminalEventPayload ?? {}).catch(() => undefined)
+    } else if (parsed.status === 'failed') {
+      await emitCheckoutEvent('checkout.transaction.failed', terminalEventPayload ?? {}).catch(() => undefined)
+    } else if (parsed.status === 'cancelled') {
+      await emitCheckoutEvent('checkout.transaction.cancelled', terminalEventPayload ?? {}).catch(() => undefined)
+    } else if (parsed.status === 'expired') {
+      await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload ?? {}).catch(() => undefined)
+    }
     return { ok: true }
   },
 }

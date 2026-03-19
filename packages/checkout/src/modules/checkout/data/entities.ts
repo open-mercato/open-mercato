@@ -40,7 +40,7 @@ export class CheckoutLinkTemplate {
     | 'startEmailBody'
     | 'passwordHash'
     | 'maxCompletions'
-    | 'isActive'
+    | 'status'
     | 'checkoutType'
     | 'createdAt'
     | 'updatedAt'
@@ -169,8 +169,8 @@ export class CheckoutLinkTemplate {
   @Property({ name: 'max_completions', type: 'integer', nullable: true })
   maxCompletions?: number | null
 
-  @Property({ name: 'is_active', type: 'boolean', default: true })
-  isActive: boolean = true
+  @Property({ type: 'text', default: 'draft' })
+  status: 'draft' | 'active' | 'inactive' = 'draft'
 
   @Property({ name: 'checkout_type', type: 'text', default: 'pay_link' })
   checkoutType: 'pay_link' | 'simple_checkout' = 'pay_link'
@@ -186,8 +186,8 @@ export class CheckoutLinkTemplate {
 }
 
 @Entity({ tableName: 'checkout_links' })
-@Index({ properties: ['organizationId', 'tenantId', 'isActive', 'deletedAt'] })
-@Index({ properties: ['organizationId', 'tenantId', 'slug'], options: { unique: true, where: 'deleted_at is null' } })
+@Index({ properties: ['organizationId', 'tenantId', 'status', 'deletedAt'] })
+@Index({ properties: ['slug'], options: { unique: true, where: 'deleted_at is null' } })
 export class CheckoutLink extends CheckoutLinkTemplate {
   @Property({ name: 'template_id', type: 'uuid', nullable: true })
   templateId?: string | null
@@ -209,8 +209,13 @@ export class CheckoutLink extends CheckoutLinkTemplate {
 @Index({ properties: ['organizationId', 'tenantId', 'linkId', 'status'] })
 @Index({ properties: ['organizationId', 'tenantId', 'createdAt'] })
 @Index({ properties: ['gatewayTransactionId'] })
+@Index({
+  properties: ['organizationId', 'tenantId', 'linkId', 'idempotencyKey'],
+  options: { unique: true },
+})
 export class CheckoutTransaction {
   [OptionalProps]?:
+    | 'idempotencyKey'
     | 'customerData'
     | 'firstName'
     | 'lastName'
@@ -245,6 +250,9 @@ export class CheckoutTransaction {
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
+
+  @Property({ name: 'idempotency_key', type: 'text' })
+  idempotencyKey!: string
 
   @Property({ name: 'customer_data', type: 'jsonb', nullable: true })
   customerData?: Record<string, unknown> | null

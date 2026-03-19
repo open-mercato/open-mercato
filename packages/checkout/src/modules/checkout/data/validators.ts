@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../setup'
+import { CHECKOUT_LINK_STATUSES } from '../lib/constants'
 
 const hexColorSchema = z.string().regex(/^#([0-9a-fA-F]{6})$/)
 const currencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/)
 const optionalTrimmedString = z.string().trim().min(1).optional().nullable()
 const positiveMoneySchema = z.coerce.number().finite().nonnegative()
+const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
 
 export const customerFieldOptionSchema = z.object({
   value: z.string().trim().min(1),
@@ -81,7 +83,7 @@ const checkoutContentSchema = z.object({
   startEmailBody: z.string().optional().nullable(),
   password: optionalTrimmedString,
   maxCompletions: z.coerce.number().int().positive().optional().nullable(),
-  isActive: z.boolean().default(true),
+  status: linkStatusSchema.default('draft'),
   checkoutType: z.enum(['pay_link', 'simple_checkout']).default('pay_link'),
 })
 
@@ -158,6 +160,7 @@ export const transactionCreateSchema = z.object({
   linkId: z.string().uuid(),
   amount: positiveMoneySchema,
   currencyCode: currencyCodeSchema,
+  idempotencyKey: z.string().trim().min(1),
   customerData: z.record(z.string(), z.unknown()).default({}),
   firstName: optionalTrimmedString,
   lastName: optionalTrimmedString,

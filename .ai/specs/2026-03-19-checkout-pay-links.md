@@ -1813,7 +1813,11 @@ Preferred doc locations:
 | TC-CHKT-020 | Checkout sidebar section visible with checkout.view feature via route metadata | Navigate to `/backend`, verify sidebar group |
 | TC-CHKT-021 | Custom fields copy from template to link | Verify custom field values after link creation |
 | TC-CHKT-022 | Link deletion blocked with active transactions | `DELETE /api/checkout/links/:id` → 422 |
-| TC-CHKT-023 | Inactive link returns 404 on public page | Deactivate link, `GET /api/checkout/pay/:slug` → 404 |
+| TC-CHKT-023 | Draft/inactive link returns 404 on public page | `GET /api/checkout/pay/:slug` for draft/inactive → 404 |
+| TC-CHKT-029 | Admin preview of draft link renders pay page | `GET /api/checkout/pay/:slug?preview=true` with admin session → 200 with `preview: true` |
+| TC-CHKT-030 | Preview mode disables payment submission | `POST /submit` on draft link → 422 |
+| TC-CHKT-031 | Publish draft link makes it publicly accessible | Update status to `active`, `GET /api/checkout/pay/:slug` → 200 |
+| TC-CHKT-032 | Publish requires gateway provider | Attempt publish without `gatewayProviderKey` → validation error |
 | TC-CHKT-024 | Amount tampering prevention (fixed mode) | `POST /submit` with wrong amount → 422 |
 | TC-CHKT-025 | Submit replay with same `Idempotency-Key` does not create duplicate transactions | Repeat `POST /submit` with same header |
 | TC-CHKT-026 | Status endpoint rejects transaction from another slug | `GET /status/:transactionId` with mismatched slug → 404 |

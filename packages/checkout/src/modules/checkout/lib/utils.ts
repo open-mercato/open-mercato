@@ -19,6 +19,8 @@ export type CheckoutScope = {
   tenantId: string
 }
 
+export type CheckoutLinkStatus = 'draft' | 'active' | 'inactive'
+
 export type CheckoutPayloadWithCustomFields<TInput> = {
   parsed: TInput
   customFields: Record<string, unknown>
@@ -134,7 +136,7 @@ export function toTemplateOrLinkMutationInput(
     startEmailBody: record.startEmailBody ?? null,
     password: undefined,
     maxCompletions: record.maxCompletions ?? null,
-    isActive: record.isActive,
+    status: record.status,
     checkoutType: record.checkoutType,
     ...(record instanceof CheckoutLink ? { slug: record.slug, templateId: record.templateId ?? null } : {}),
     ...overrides,
@@ -156,7 +158,7 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
 
 export async function ensureUniqueSlug(
   em: EntityManager,
-  scope: CheckoutScope,
+  _scope: CheckoutScope,
   requestedSlug: string | null | undefined,
   fallbackText: string,
   excludeId?: string | null,
@@ -166,8 +168,6 @@ export async function ensureUniqueSlug(
   let counter = 1
   while (true) {
     const existing = await em.findOne(CheckoutLink, {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
       slug: candidate,
       deletedAt: null,
       ...(excludeId ? { id: { $ne: excludeId } } : {}),
@@ -230,6 +230,10 @@ export function mapGatewayStatusToCheckoutStatus(status: string | null | undefin
 
 export function isTerminalCheckoutStatus(status: string | null | undefined): boolean {
   return typeof status === 'string' && CHECKOUT_TERMINAL_STATUSES.has(status)
+}
+
+export function isCheckoutLinkPublic(status: CheckoutLinkStatus | string | null | undefined): boolean {
+  return status === 'active'
 }
 
 export function buildConsentProof(link: CheckoutLink, acceptedLegalConsents: PublicSubmitInput['acceptedLegalConsents']) {
@@ -329,7 +333,7 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     startEmailSubject: record.startEmailSubject ?? null,
     startEmailBody: record.startEmailBody ?? null,
     maxCompletions: record.maxCompletions ?? null,
-    isActive: record.isActive,
+    status: record.status,
     checkoutType: record.checkoutType,
     createdAt: toIsoString(record.createdAt),
     updatedAt: toIsoString(record.updatedAt),

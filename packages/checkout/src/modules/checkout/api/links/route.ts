@@ -24,8 +24,8 @@ export async function GET(req: Request) {
       deletedAt: null,
     }
     const templateId = url.searchParams.get('templateId')
-    const isActive = url.searchParams.get('isActive')
     const isLocked = url.searchParams.get('isLocked')
+    const status = url.searchParams.get('status')
     const pricingMode = url.searchParams.get('pricingMode')
     if (search) {
       where.$or = [
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
       ]
     }
     if (templateId) where.templateId = templateId
-    if (isActive === 'true' || isActive === 'false') where.isActive = isActive === 'true'
+    if (status === 'draft' || status === 'active' || status === 'inactive') where.status = status
     if (isLocked === 'true' || isLocked === 'false') where.isLocked = isLocked === 'true'
     if (pricingMode === 'fixed' || pricingMode === 'custom_amount' || pricingMode === 'price_list') where.pricingMode = pricingMode
     const [items, total] = await em.findAndCount(CheckoutLink, where, {

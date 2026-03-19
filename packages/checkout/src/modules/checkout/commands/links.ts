@@ -8,10 +8,12 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
 import { createLinkSchema, updateLinkSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
+import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
   ensureUniqueSlug,
   hashCheckoutPassword,
+  isCheckoutLinkPublic,
   parseCheckoutInput,
   serializeTemplateOrLink,
   toMoneyString,
@@ -55,6 +57,9 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     }
 
     validateDescriptorCurrencies(sourceValues.gatewayProviderKey ?? null, deriveConfiguredCurrencies(sourceValues))
+    if (isCheckoutLinkPublic(sourceValues.status) && !sourceValues.gatewayProviderKey) {
+      throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
+    }
     const slug = await ensureUniqueSlug(
       em,
       scope,
@@ -85,6 +90,21 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       organizationId: scope.organizationId,
       values: { ...templateCustomFields, ...customFields },
     })
+    await emitCheckoutEvent('checkout.link.created', {
+      id: link.id,
+      slug: link.slug,
+      status: link.status,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }).catch(() => undefined)
+    if (link.status === 'active') {
+      await emitCheckoutEvent('checkout.link.published', {
+        id: link.id,
+        slug: link.slug,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      }).catch(() => undefined)
+    }
     return { id: link.id, slug: link.slug }
   },
 }
@@ -106,14 +126,19 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
     if (link.isLocked) {
       throw new CrudHttpError(422, { error: 'This link has active transactions and cannot be edited' })
     }
+    const nextValues = toTemplateOrLinkMutationInput(link, parsed)
     validateDescriptorCurrencies(
       parsed.gatewayProviderKey ?? link.gatewayProviderKey ?? null,
-      deriveConfiguredCurrencies(toTemplateOrLinkMutationInput(link, parsed)),
+      deriveConfiguredCurrencies(nextValues),
     )
+    if (isCheckoutLinkPublic(nextValues.status) && !nextValues.gatewayProviderKey) {
+      throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
+    }
     const slug = parsed.slug !== undefined || parsed.name !== undefined || parsed.title !== undefined
       ? await ensureUniqueSlug(em, scope, parsed.slug ?? link.slug, parsed.title ?? parsed.name ?? link.title ?? link.name, link.id)
       : link.slug
     const passwordHash = parsed.password !== undefined ? await hashCheckoutPassword(parsed.password) : link.passwordHash
+    const previousStatus = link.status
     Object.assign(link, {
       ...parsed,
       fixedPriceAmount: parsed.fixedPriceAmount !== undefined ? toMoneyString(parsed.fixedPriceAmount) : link.fixedPriceAmount,
@@ -132,6 +157,22 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
       organizationId: scope.organizationId,
       values: customFields,
     })
+    await emitCheckoutEvent('checkout.link.updated', {
+      id: link.id,
+      slug: link.slug,
+      status: link.status,
+      previousStatus,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }).catch(() => undefined)
+    if (previousStatus !== 'active' && link.status === 'active') {
+      await emitCheckoutEvent('checkout.link.published', {
+        id: link.id,
+        slug: link.slug,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      }).catch(() => undefined)
+    }
     return { ok: true }
   },
 }
@@ -160,6 +201,12 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
     }
     link.deletedAt = new Date()
     await em.flush()
+    await emitCheckoutEvent('checkout.link.deleted', {
+      id: link.id,
+      slug: link.slug,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }).catch(() => undefined)
     return { ok: true }
   },
 }
