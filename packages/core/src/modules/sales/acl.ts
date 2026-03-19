@@ -9,6 +9,8 @@ export const features = [
   { id: 'sales.documents.number.edit', title: 'Edit sales document numbers', module: 'sales' },
   { id: 'sales.shipments.manage', title: 'Manage order shipments', module: 'sales' },
   { id: 'sales.payments.manage', title: 'Manage order payments', module: 'sales' },
+  { id: 'sales.returns.view', title: 'View order returns', module: 'sales' },
+  { id: 'sales.returns.create', title: 'Create order returns', module: 'sales' },
   { id: 'sales.invoices.manage', title: 'Manage sales invoices', module: 'sales' },
   { id: 'sales.credit_memos.manage', title: 'Manage credit memos', module: 'sales' },
   { id: 'sales.channels.manage', title: 'Manage sales channels', module: 'sales' },

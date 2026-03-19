@@ -19,8 +19,57 @@ import {
   resolveCustomerEntityIdByEmail,
   resolveContactIdByNameAndType,
 } from '../inbox_ops/lib/executionHelpers'
-import { splitPersonName } from '../inbox_ops/lib/contactValidation'
+import { splitPersonName, stripTitleFromName } from '../inbox_ops/lib/contactValidation'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function resolveOrCreateCompany(
+  hCtx: ReturnType<typeof asHelperContext>,
+  companyName: string,
+): Promise<string | null> {
+  const CustomerEntityClass = resolveEntityClass(hCtx, 'CustomerEntity')
+  if (CustomerEntityClass) {
+    const allCompanies = await findWithDecryption(
+      hCtx.em,
+      CustomerEntityClass,
+      {
+        kind: 'company',
+        tenantId: hCtx.tenantId,
+        organizationId: hCtx.organizationId,
+        deletedAt: null,
+      },
+      { limit: 500 },
+      { tenantId: hCtx.tenantId, organizationId: hCtx.organizationId },
+    )
+    const trimmedLower = companyName.trim().toLowerCase()
+    const existing = allCompanies.find(
+      (c) => c.displayName && c.displayName.toLowerCase() === trimmedLower,
+    )
+    if (existing) return existing.id
+  }
+
+  try {
+    const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
+      hCtx,
+      'customers.companies.create',
+      {
+        organizationId: hCtx.organizationId,
+        tenantId: hCtx.tenantId,
+        displayName: companyName.trim(),
+        legalName: companyName.trim(),
+        source: 'ai_inbox',
+        status: 'active',
+      },
+    )
+    return result.entityId ?? null
+  } catch (err) {
+    console.warn('[customers:inbox-action] Failed to create company (non-fatal):', err)
+    return null
+  }
+}
 
 // ---------------------------------------------------------------------------
 // create_contact
@@ -36,11 +85,13 @@ async function executeCreateContactAction(
   const CustomerEntityClass = resolveEntityClass(hCtx, 'CustomerEntity')
   if (payload.email && CustomerEntityClass) {
     const emailLower = payload.email.trim().toLowerCase()
+    const targetKind = payload.type === 'company' ? 'company' : 'person'
     let existingContact = await findOneWithDecryption(
       hCtx.em,
       CustomerEntityClass,
       {
         primaryEmail: emailLower,
+        kind: targetKind,
         tenantId: hCtx.tenantId,
         organizationId: hCtx.organizationId,
         deletedAt: null,
@@ -53,6 +104,7 @@ async function executeCreateContactAction(
         hCtx.em,
         CustomerEntityClass,
         {
+          kind: targetKind,
           tenantId: hCtx.tenantId,
           organizationId: hCtx.organizationId,
           deletedAt: null,
@@ -76,40 +128,47 @@ async function executeCreateContactAction(
   }
 
   if (payload.type === 'company') {
-    const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
-      hCtx,
-      'customers.companies.create',
-      {
-        organizationId: hCtx.organizationId,
-        tenantId: hCtx.tenantId,
-        displayName: payload.name,
-        legalName: payload.companyName ?? payload.name,
-        primaryEmail: payload.email,
-        primaryPhone: payload.phone,
-        source: payload.source,
-      },
-    )
-    if (!result.entityId) {
+    // Use find-or-create to prevent duplicates when a person action with the
+    // same companyName already created this company (or vice versa).
+    const companyId = await resolveOrCreateCompany(hCtx, payload.name)
+    if (!companyId) {
       throw new ExecutionError('Company creation did not return an entity ID', 500)
     }
-    return { createdEntityId: result.entityId, createdEntityType: 'customer_company' }
+    return { createdEntityId: companyId, createdEntityType: 'customer_company' }
   }
 
+  const { cleanedName } = stripTitleFromName(payload.name)
   const { firstName, lastName } = splitPersonName(payload.name, payload.email)
+
+  // If company name is provided, find or create the company and link it to the person.
+  // No separate permission check — the user already passed customers.people.manage
+  // in the execution engine, and company creation is an integral part of contact setup.
+  let companyEntityId: string | null = null
+  if (payload.companyName) {
+    companyEntityId = await resolveOrCreateCompany(hCtx, payload.companyName)
+  }
+
+  const personInput: Record<string, unknown> = {
+    organizationId: hCtx.organizationId,
+    tenantId: hCtx.tenantId,
+    displayName: cleanedName,
+    firstName,
+    lastName,
+    primaryEmail: payload.email,
+    primaryPhone: payload.phone,
+    jobTitle: payload.role || undefined,
+    source: 'ai_inbox',
+    status: 'active',
+    lifecycleStage: 'lead',
+  }
+  if (companyEntityId) {
+    personInput.companyEntityId = companyEntityId
+  }
+
   const result = await executeCommand<Record<string, unknown>, { entityId?: string }>(
     hCtx,
     'customers.people.create',
-    {
-      organizationId: hCtx.organizationId,
-      tenantId: hCtx.tenantId,
-      displayName: payload.name,
-      firstName,
-      lastName,
-      primaryEmail: payload.email,
-      primaryPhone: payload.phone,
-      jobTitle: payload.role,
-      source: payload.source,
-    },
+    personInput,
   )
 
   if (!result.entityId) {

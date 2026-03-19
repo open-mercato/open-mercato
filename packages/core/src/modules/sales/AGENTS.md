@@ -45,6 +45,7 @@ const calcService = container.resolve('salesCalculationService')
 ### Fulfillment
 - **Shipments** — delivery tracking. MUST follow status workflow
 - **Payments** — payment recording. MUST follow status workflow
+- **Returns** — order returns with line selection; create return generates line-level adjustments (kind `return`, negative amounts), updates `returned_quantity`, recalculates order totals. Use `sales.return.create` command; list via `GET /api/sales/returns?orderId=...`
 
 ### Configuration — MUST NOT Modify Directly
 - **Channels** — sales channels (web, POS). Configure via admin UI

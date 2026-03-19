@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { resolveNotificationContext } from '@open-mercato/core/modules/notifications/lib/routeHelpers'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const emitNotificationSchema = z.object({
@@ -65,27 +66,23 @@ export async function POST(request: Request) {
   return Response.json({ id: notification.id }, { status: 201 })
 }
 
-export const openApi = {
-  POST: {
-    summary: 'Emit example actionable notification',
-    tags: ['Example'],
-    requestBody: {
-      required: false,
-      content: {
-        'application/json': {
-          schema: emitNotificationSchema,
-        },
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Example',
+  methods: {
+    POST: {
+      summary: 'Emit example actionable notification',
+      tags: ['Example'],
+      requestBody: {
+        contentType: 'application/json',
+        schema: emitNotificationSchema.optional(),
       },
-    },
-    responses: {
-      201: {
-        description: 'Notification emitted',
-        content: {
-          'application/json': {
-            schema: z.object({ id: z.string().uuid() }),
-          },
+      responses: [
+        {
+          status: 201,
+          description: 'Notification emitted',
+          schema: z.object({ id: z.string().uuid() }),
         },
-      },
+      ],
     },
   },
 }

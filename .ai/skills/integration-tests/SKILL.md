@@ -40,7 +40,7 @@ Debug/development policy (fail fast while authoring/fixing tests):
 
 Determine the feature scope from one of these sources (in priority order):
 
-1. **Spec file**: If a spec is referenced or was just implemented, read it from `.ai/specs/SPEC-*.md`. Extract testable scenarios from the API Contracts, UI/UX, and Data Models sections.
+1. **Spec file**: If a spec is referenced or was just implemented, read it from `.ai/specs/*.md` or `.ai/specs/enterprise/*.md`. Prefer the new `{YYYY-MM-DD}-{slug}.md` filenames, but tolerate legacy numbered names while the repo is being normalized. Extract testable scenarios from the API Contracts, UI/UX, and Data Models sections.
 2. **User description**: If the user describes a feature ("test the company creation flow"), map it to the relevant module and pages.
 3. **Recent changes**: If triggered after implementation, use `git diff` or recent commits to identify changed endpoints, pages, and components.
 

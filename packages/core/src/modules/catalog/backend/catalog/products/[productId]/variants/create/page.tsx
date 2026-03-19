@@ -203,7 +203,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
       {
         id: 'general',
         column: 1,
-        title: t('catalog.variants.form.nameLabel', 'Name'),
+        title: t('catalog.variants.form.general', 'General'),
         component: ({ values, setValue, errors }) => (
           <VariantBasicsSection values={values as VariantFormValues} setValue={setValue} errors={errors} />
         ),

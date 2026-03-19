@@ -49,8 +49,14 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/eventBus', () => ({
   resolveOptionalEventBus: jest.fn(() => mockEventBus),
 }))
 
+const mockEmitInboxOpsEvent = jest.fn()
 jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
-  emitInboxOpsEvent: jest.fn(),
+  emitInboxOpsEvent: (...args: unknown[]) => mockEmitInboxOpsEvent(...args),
+}))
+
+const mockCreateMessageRecordForReply = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/messagesIntegration', () => ({
+  createMessageRecordForReply: (...args: unknown[]) => mockCreateMessageRecordForReply(...args),
 }))
 
 const originalEnv = process.env
@@ -100,6 +106,8 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.flush.mockResolvedValue(undefined)
+    mockEmitInboxOpsEvent.mockResolvedValue(undefined)
+    mockCreateMessageRecordForReply.mockResolvedValue(null)
     process.env = { ...originalEnv, RESEND_API_KEY: 'test-api-key' }
     mockResendSend.mockResolvedValue({ data: { id: 'sent-msg-1' }, error: null })
   })
@@ -130,7 +138,8 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     )
   })
 
-  it('returns 503 when RESEND_API_KEY is not set', async () => {
+  it('returns 503 when RESEND_API_KEY is not set and messages module unavailable', async () => {
+    setupHappyPath()
     delete process.env.RESEND_API_KEY
 
     const response = await POST(makeRequest())
@@ -140,7 +149,8 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     expect(payload.error).toContain('not configured')
   })
 
-  it('returns 503 when email delivery is disabled', async () => {
+  it('returns 503 when email delivery is disabled and messages module unavailable', async () => {
+    setupHappyPath()
     process.env.OM_DISABLE_EMAIL_DELIVERY = 'true'
 
     const response = await POST(makeRequest())
@@ -228,5 +238,97 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
 
     const response = await POST(makeRequest())
     expect(response.status).toBe(401)
+  })
+
+  describe('messages registration', () => {
+    it('records the sent reply in messages after external delivery succeeds', async () => {
+      const { action } = setupHappyPath()
+      mockCreateMessageRecordForReply.mockResolvedValueOnce({ messageId: 'msg-record-123' })
+
+      const response = await POST(makeRequest())
+      const payload = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(payload.ok).toBe(true)
+      expect(payload.sentMessageId).toBe('sent-msg-1')
+      expect(payload.messageRecordId).toBe('msg-record-123')
+      expect(mockResendSend).toHaveBeenCalled()
+      expect(action.metadata).toEqual(expect.objectContaining({
+        sentMessageId: 'sent-msg-1',
+        messageRecordId: 'msg-record-123',
+      }))
+      expect(mockResendSend.mock.invocationCallOrder[0]).toBeLessThan(
+        mockCreateMessageRecordForReply.mock.invocationCallOrder[0],
+      )
+    })
+
+    it('emits reply.sent event with delivery and message record identifiers', async () => {
+      setupHappyPath()
+      mockCreateMessageRecordForReply.mockResolvedValueOnce({ messageId: 'msg-record-456' })
+
+      await POST(makeRequest())
+
+      expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+        'inbox_ops.reply.sent',
+        expect.objectContaining({
+          proposalId: 'proposal-1',
+          actionId: 'reply-1',
+          toAddress: 'customer@example.com',
+          sentMessageId: 'sent-msg-1',
+          messageRecordId: 'msg-record-456',
+        }),
+      )
+    })
+
+    it('calls createMessageRecordForReply with correct arguments', async () => {
+      setupHappyPath()
+      mockCreateMessageRecordForReply.mockResolvedValueOnce({ messageId: 'msg-123' })
+
+      await POST(makeRequest())
+
+      expect(mockCreateMessageRecordForReply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'customer@example.com',
+          subject: 'Re: Order inquiry',
+          body: 'Thank you for your order.',
+        }),
+        'email-1',
+        expect.objectContaining({
+          scope: expect.objectContaining({
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            userId: 'user-1',
+          }),
+        }),
+      )
+    })
+
+    it('falls back to Resend when messages integration returns null', async () => {
+      setupHappyPath()
+      mockCreateMessageRecordForReply.mockResolvedValueOnce(null)
+
+      const response = await POST(makeRequest())
+      const payload = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(payload.ok).toBe(true)
+      expect(payload.messageRecordId).toBeUndefined()
+      expect(mockResendSend).toHaveBeenCalled()
+    })
+
+    it('does not create a message record when external delivery fails', async () => {
+      setupHappyPath()
+      mockResendSend.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'Invalid API key' },
+      })
+
+      const response = await POST(makeRequest())
+      const payload = await response.json()
+
+      expect(response.status).toBe(502)
+      expect(payload.error).toContain('Failed to send email')
+      expect(mockCreateMessageRecordForReply).not.toHaveBeenCalled()
+    })
   })
 })

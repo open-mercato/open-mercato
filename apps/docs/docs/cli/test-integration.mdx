@@ -58,6 +58,10 @@ Options for `yarn test:integration:coverage`:
 - `--json` outputs machine-readable totals
 - `--keep-raw-v8` keeps raw process coverage files in `.ai/qa/test-results/coverage/raw-v8/`
 
+Environment overrides:
+
+- `OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS=<seconds>` increases the ephemeral app readiness timeout (default `90`). This is the knob to raise in slower CI runners, for example `OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS=180 yarn test:integration:coverage`.
+
 If you still need scenario/spec mapping coverage:
 
 ```bash

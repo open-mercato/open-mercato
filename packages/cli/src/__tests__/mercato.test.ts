@@ -1,4 +1,9 @@
-import { registerCliModules, getCliModules, hasCliModules, padByCodePointWidth } from '../mercato'
+import {
+  registerCliModules,
+  getCliModules,
+  hasCliModules,
+  padByCodePointWidth,
+} from '../mercato'
 
 describe('mercato CLI module registration', () => {
   beforeEach(() => {

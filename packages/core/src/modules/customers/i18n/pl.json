@@ -616,6 +616,8 @@
   "customers.people.detail.deals.loadMore": "Załaduj więcej szans",
   "customers.people.detail.deals.loading": "Ładowanie szans…",
   "customers.people.detail.deals.openDeal": "Otwórz szansę",
+  "customers.people.detail.deals.pipelineIdInvalid": "Wybierz prawidłowy lejek.",
+  "customers.people.detail.deals.pipelineStageIdInvalid": "Wybierz prawidłowy etap lejka.",
   "customers.people.detail.deals.pipelineTooLong": "Etap lejka jest za długi",
   "customers.people.detail.deals.probabilityInvalid": "Prawdopodobieństwo musi mieścić się między 0 a 100",
   "customers.people.detail.deals.save": "Zapisz szansę (⌘/Ctrl + Enter)",

@@ -137,7 +137,7 @@ export async function GET(req: Request) {
   )
 
   const items = rows.map((log) => ({
-    id: log.id,
+    id: String(log.id),
     ruleId: log.rule.id,
     ruleName: log.rule.ruleName,
     ruleType: log.rule.ruleType,
