@@ -11,7 +11,6 @@ import {
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSessionSchema } from '../../data/validators'
-import { emitPaymentGatewayEvent } from '../../events'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { normalizeGatewayTransactionAssignments } from '../../lib/transaction-assignments'
 import { paymentGatewaysTag } from '../openapi'

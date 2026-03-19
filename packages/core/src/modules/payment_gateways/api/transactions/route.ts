@@ -4,11 +4,10 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
-import { GatewayTransaction, GatewayTransactionAssignment } from '../../data/entities'
+import { GatewayTransaction } from '../../data/entities'
 import { listTransactionsQuerySchema } from '../../data/validators'
 import {
   listGatewayTransactionAssignments,
-  normalizeGatewayTransactionAssignments,
   readPrimaryGatewayTransactionAssignment,
 } from '../../lib/transaction-assignments'
 import { paymentGatewaysTag } from '../openapi'
@@ -53,12 +52,8 @@ export async function GET(req: Request) {
   const em = resolve('em') as EntityManager
   const queryEngine = resolve('queryEngine') as QueryEngine
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
-  const assignmentFilters = normalizeGatewayTransactionAssignments({
-    assignments: entityType || entityId ? [{ entityType: entityType ?? documentType ?? '', entityId: entityId ?? documentId ?? '' }] : undefined,
-    documentType,
-    documentId,
-  })
-  const assignmentFilter = assignmentFilters[0] ?? null
+  const resolvedEntityType = entityType ?? documentType ?? null
+  const resolvedEntityId = entityId ?? documentId ?? null
 
   let searchedIds: string[] | null = null
   if (search) {
@@ -76,18 +71,28 @@ export async function GET(req: Request) {
     if (status) {
       qb.andWhere({ unifiedStatus: status })
     }
-    if (assignmentFilter) {
+    if (resolvedEntityType || resolvedEntityId) {
+      const clauses = [
+        'gta.transaction_id = gt.id',
+        'gta.organization_id = ?',
+        'gta.tenant_id = ?',
+      ]
+      const params: Array<string> = [auth.orgId as string, auth.tenantId]
+      if (resolvedEntityType) {
+        clauses.push('gta.entity_type = ?')
+        params.push(resolvedEntityType)
+      }
+      if (resolvedEntityId) {
+        clauses.push('gta.entity_id = ?')
+        params.push(resolvedEntityId)
+      }
       qb.andWhere(
         `exists (
           select 1
           from gateway_transaction_assignments as gta
-          where gta.transaction_id = gt.id
-            and gta.organization_id = ?
-            and gta.tenant_id = ?
-            and gta.entity_type = ?
-            and gta.entity_id = ?
+          where ${clauses.join('\n            and ')}
         )`,
-        [auth.orgId, auth.tenantId, assignmentFilter.entityType, assignmentFilter.entityId],
+        params,
       )
     }
 
@@ -121,9 +126,11 @@ export async function GET(req: Request) {
   if (status) {
     filters[F.unified_status] = { $eq: status }
   }
-  if (assignmentFilter) {
-    filters['assignments.entity_type'] = { $eq: assignmentFilter.entityType }
-    filters['assignments.entity_id'] = { $eq: assignmentFilter.entityId }
+  if (resolvedEntityType) {
+    filters['assignments.entity_type'] = { $eq: resolvedEntityType }
+  }
+  if (resolvedEntityId) {
+    filters['assignments.entity_id'] = { $eq: resolvedEntityId }
   }
   if (searchedIds) {
     filters[F.id] = { $in: searchedIds }
