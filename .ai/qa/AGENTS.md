@@ -87,7 +87,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 
 | Path | Input | Output |
 |------|-------|--------|
-| **From spec** | `.ai/specs/SPEC-*.md` | `.spec.ts` directly (no scenario needed) |
+| **From spec** | `.ai/specs/*.md` or `.ai/specs/enterprise/*.md` | `.spec.ts` directly (no scenario needed) |
 | **From scenario** | `.ai/qa/scenarios/TC-*.md` | `.spec.ts` mapped from scenario steps |
 | **From description** | Verbal/written feature description | `.spec.ts` directly |
 | **From skill** | `/integration-tests` | `.spec.ts` + optional scenario markdown |
@@ -158,7 +158,7 @@ The skill reads the related spec, explores the running app via Playwright MCP, a
 #### Step 1 — Understand What to Test
 
 Read one of:
-- A spec from `.ai/specs/SPEC-*.md`
+- A spec from `.ai/specs/*.md` or `.ai/specs/enterprise/*.md`
 - A scenario from `.ai/qa/scenarios/TC-*.md` (if one exists)
 - A feature description from the user
 

@@ -6,9 +6,9 @@ These features are commercial and are not released under the open source license
 
 For licensing, permissions, and partnership details, see [`packages/enterprise/README.md`](../../../packages/enterprise/README.md).
 
-## Numbering
+## Naming
 
-Enterprise specifications are numbered independently from OSS specs and use the `SPEC-ENT-{number}` format, starting from `SPEC-ENT-001` in this folder.
+New enterprise specifications use `{YYYY-MM-DD}-{slug}.md`. The `enterprise/` directory defines the scope, so filename prefixes such as `SPEC-ENT-*` are no longer used for new files. Legacy numbered filenames may remain until they are intentionally normalized.
 
 ## Specification Directory
 
