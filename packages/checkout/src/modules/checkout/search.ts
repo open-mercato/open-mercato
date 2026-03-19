@@ -1,4 +1,5 @@
 import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
+import { CHECKOUT_ENTITY_IDS } from './lib/constants'
 
 function asSearchText(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -7,7 +8,7 @@ function asSearchText(value: unknown): string {
 export const searchConfig: SearchModuleConfig = {
   entities: [
     {
-      entityId: 'checkout:link',
+      entityId: CHECKOUT_ENTITY_IDS.link,
       enabled: true,
       priority: 10,
       fieldPolicy: {
@@ -26,7 +27,7 @@ export const searchConfig: SearchModuleConfig = {
       }),
     },
     {
-      entityId: 'checkout:template',
+      entityId: CHECKOUT_ENTITY_IDS.template,
       enabled: true,
       priority: 8,
       fieldPolicy: {

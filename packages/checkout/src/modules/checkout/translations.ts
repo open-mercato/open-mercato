@@ -1,5 +1,7 @@
+import { CHECKOUT_ENTITY_IDS } from './lib/constants'
+
 export const translatableFields: Record<string, string[]> = {
-  'checkout:link': [
+  [CHECKOUT_ENTITY_IDS.link]: [
     'name',
     'title',
     'subtitle',
@@ -17,7 +19,7 @@ export const translatableFields: Record<string, string[]> = {
     'errorEmailSubject',
     'errorEmailBody',
   ],
-  'checkout:template': [
+  [CHECKOUT_ENTITY_IDS.template]: [
     'name',
     'title',
     'subtitle',

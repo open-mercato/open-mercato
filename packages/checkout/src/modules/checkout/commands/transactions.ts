@@ -28,7 +28,9 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
     const { parsed } = parseCheckoutInput(rawInput, transactionCreateSchema.parse)
     const scope = resolveTransactionScope(parsed)
     const em = ctx.container.resolve('em') as EntityManager
-    let lockedLink: CheckoutLink | null = null
+    let lockedLinkId: string | null = null
+    let lockedLinkSlug: string | null = null
+    let shouldEmitLockedEvent = false
     const transaction = await em.transactional(async (tx) => {
       const currentLink = await tx.findOne(CheckoutLink, {
         id: parsed.linkId,
@@ -64,7 +66,9 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       if (!reserved[0]?.id) {
         throw new CrudHttpError(422, { error: 'This payment link is no longer available' })
       }
-      lockedLink = currentLink
+      lockedLinkId = currentLink.id
+      lockedLinkSlug = currentLink.slug
+      shouldEmitLockedEvent = !currentLink.isLocked
       const transaction = tx.create(CheckoutTransaction, {
         ...parsed,
         organizationId: scope.organizationId,
@@ -76,10 +80,10 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       await tx.flush()
       return transaction
     })
-    if (lockedLink && !lockedLink.isLocked) {
+    if (shouldEmitLockedEvent && lockedLinkId && lockedLinkSlug) {
       await emitCheckoutEvent('checkout.link.locked', {
-        id: lockedLink.id,
-        slug: lockedLink.slug,
+        id: lockedLinkId,
+        slug: lockedLinkSlug,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       }).catch(() => undefined)

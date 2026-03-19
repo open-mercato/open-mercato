@@ -1,7 +1,7 @@
 export const CHECKOUT_ENTITY_IDS = {
-  link: 'checkout:link',
-  template: 'checkout:template',
-  transaction: 'checkout:transaction',
+  link: 'checkout:checkout_link',
+  template: 'checkout:checkout_link_template',
+  transaction: 'checkout:checkout_transaction',
 } as const
 
 export const CHECKOUT_PASSWORD_COOKIE = 'om_checkout_access'

@@ -9,9 +9,13 @@ type Props = {
   context?: { selectedPaymentId?: string | null }
 }
 
+type GatewayTransactionLinkPayload = {
+  transaction?: { id: string; linkSlug?: string | null; linkName?: string | null } | null
+}
+
 function GatewayTransactionLinkWidget({ context }: Props) {
   const transactionId = context?.selectedPaymentId ?? null
-  const [payload, setPayload] = React.useState<{ transaction?: { id: string; linkSlug?: string | null; linkName?: string | null } } | null>(null)
+  const [payload, setPayload] = React.useState<GatewayTransactionLinkPayload | null>(null)
 
   React.useEffect(() => {
     let active = true
@@ -19,7 +23,7 @@ function GatewayTransactionLinkWidget({ context }: Props) {
       setPayload(null)
       return () => { active = false }
     }
-    void readApiResultOrThrow<{ transaction?: { id: string; linkSlug?: string | null; linkName?: string | null } | null }>(
+    void readApiResultOrThrow<GatewayTransactionLinkPayload>(
       `/api/checkout/transactions/by-gateway/${encodeURIComponent(transactionId)}`,
     )
       .then((result) => {

@@ -1,8 +1,9 @@
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
+import { CHECKOUT_ENTITY_IDS } from './lib/constants'
 
 export const entities: CustomEntitySpec[] = [
   {
-    id: 'checkout:link',
+    id: CHECKOUT_ENTITY_IDS.link,
     label: 'Pay Link',
     description: 'Custom fields for pay links',
     labelField: 'name',
@@ -10,7 +11,7 @@ export const entities: CustomEntitySpec[] = [
     fields: [],
   },
   {
-    id: 'checkout:template',
+    id: CHECKOUT_ENTITY_IDS.template,
     label: 'Link Template',
     description: 'Custom fields for checkout link templates',
     labelField: 'name',
@@ -18,7 +19,7 @@ export const entities: CustomEntitySpec[] = [
     fields: [],
   },
   {
-    id: 'checkout:transaction',
+    id: CHECKOUT_ENTITY_IDS.transaction,
     label: 'Checkout Transaction',
     description: 'Custom fields for checkout transactions',
     labelField: 'id',
