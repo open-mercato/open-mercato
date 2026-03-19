@@ -11,19 +11,19 @@
 
 **Key Points:**
 - New `@open-mercato/checkout` npm package (`packages/checkout/`) with a `checkout` module providing Pay Links — shareable payment pages with customizable branding, pricing modes, and customer data collection.
-- Zero direct references from core modules to checkout. All cross-module integration via UMES (menu injection, widget injection, response enrichers). Checkout reuses the existing `paymentGatewayService` (DI) contract unchanged by setting `paymentId = checkoutTransaction.id` and correlating gateway events back to checkout transactions through that existing field.
+- Zero direct references from core modules to checkout. Cross-module integration is kept minimal: backend sidebar navigation comes from normal backend route discovery plus `page.meta`, while real cross-module touchpoints use UMES only where needed (gateway transaction widgets, DataTable toolbar injection, pay-page extension points). Checkout reuses the existing `paymentGatewayService` (DI) contract unchanged by setting `paymentId = checkoutTransaction.id` and correlating gateway events back to checkout transactions through that existing field.
 
 **Scope:**
 - Pay Links and Link Templates CRUD with shared CrudForm (tab-organized)
 - Three pricing modes: fixed (incl/excl tax + promotion strikethrough), custom amount (range-validated), price list selection
 - Customizable customer data collection reusing `FieldDefinitionsEditor` UI
-- Gateway-agnostic payment via the existing `paymentGatewayService` (DI) contract, with no required contract changes in `payment_gateways`
+- Gateway-agnostic payment via the existing `paymentGatewayService` (DI) contract plus one small additive generic provider-descriptor surface in `payment_gateways` for settings, currencies, and presentation capabilities
 - Public pay pages with branding, markdown descriptions, light/dark mode, password protection
 - Transaction tracking with gateway payment status correlation
 - Transactional emails (start, success, error) with markdown-editable templates
 - Admin notifications for payment events
 - Atomic usage limit enforcement (single-use, N-use, unlimited)
-- UMES extension points on public pay pages for third-party customization
+- Rich UMES extension points on public pay pages for third-party customization, including section-level replacement/wrapper support
 - Standard custom fields on links/templates, copyable from template to link
 
 **Concerns:**
@@ -60,7 +60,7 @@ Pay Links provide merchants with a no-code way to accept payments through sharea
 Build a **self-contained checkout module** as an independent npm package that:
 - Provides pay links as a standalone payment collection mechanism
 - Works with any installed payment gateway via the adapter pattern
-- Requires zero required changes to existing core contract surfaces
+- Requires only minimal additive core changes where the platform does not yet expose a generic provider descriptor surface
 - Is architecturally prepared for Phase B (Simple Checkout with cart/order flow)
 
 ---
@@ -72,7 +72,7 @@ A new `@open-mercato/checkout` package containing a single `checkout` module wit
 - **Pay Links** — public-facing payment pages with unique URL slugs
 - **Transactions** — records of each payment attempt with gateway status tracking
 - **Public pay pages** — branded, responsive pages with light/dark mode
-- **UMES integration** — menu injection into sidebar, widget injection into gateway transactions, extension points for third-party modules
+- **Extension integration** — widget injection into gateway transactions, DataTable toolbar injection where needed, and pay-page extension/replacement points for third-party modules
 
 The module creates payment sessions via the existing `paymentGatewayService` (resolved from DI) without changing its current contract. Checkout creates its own `CheckoutTransaction` first, then calls `createPaymentSession()` with `paymentId = checkoutTransaction.id`. Webhooks remain fully owned by the gateway module; checkout updates its transaction statuses by subscribing to existing `payment_gateways.payment.*` events and matching the emitted `paymentId` back to `CheckoutTransaction.id` within tenant scope.
 
@@ -140,16 +140,16 @@ The module creates payment sessions via the existing `paymentGatewayService` (re
 
 ### Cross-Module Communication
 
-All integration with core modules is via UMES — the checkout module never imports from core module internals:
+Checkout never imports from core module internals. Integration stays on stable platform surfaces: discovered backend routes and `page.meta` for navigation, DI for payment sessions, events for payment-status sync, and UMES only for true extension points.
 
 | Direction | Mechanism | Detail |
 |-----------|-----------|--------|
-| Checkout → Sidebar | Menu injection | Adds "Checkout" section with Pay Links, Templates, Transactions |
-| Checkout → Gateway Transactions | Widget injection + Response enricher | Shows checkout transaction link on gateway transaction detail |
+| Checkout → Sidebar | Backend route discovery + `page.meta` | Adds "Checkout" section with Pay Links, Templates, Transactions without a menu widget |
+| Checkout → Gateway Transactions | Widget injection | Shows checkout transaction link on gateway transaction detail via checkout-owned lookup API |
 | Other modules → Checkout pay page | UMES extension points | Spots and replaceable components on the public pay page |
 | Checkout → Payment sessions | DI: `paymentGatewayService` | `createPaymentSession({ paymentId: checkoutTransaction.id, ... })` |
 | Gateway → Checkout | Event subscription | Checkout subscribes to `payment_gateways.payment.*`, then resolves `CheckoutTransaction` by `id = paymentId` in scoped lookup |
-| Checkout → Provider settings | Sales provider registry | `getPaymentProvider()` for settings field definitions |
+| Checkout → Provider settings | Generic payment-gateway descriptor service | Resolve provider session fields, supported currencies, and presentation capabilities without checkout-specific coupling |
 
 ---
 
@@ -190,17 +190,21 @@ packages/checkout/
 │           │       └── [slug]/status/[transactionId]/route.ts  # Public: GET status
 │           ├── backend/
 │           │   ├── checkout/
-│           │   │   └── page.tsx            # Section landing (redirect)
+│           │   │   ├── page.tsx            # Section landing (redirect)
+│           │   │   └── page.meta.ts        # Sidebar section registration via discovered backend route
 │           │   ├── checkout/pay-links/
 │           │   │   ├── page.tsx            # Pay Links list
+│           │   │   └── page.meta.ts        # Child page metadata for Checkout section
 │           │   │   ├── create/page.tsx     # Create pay link
 │           │   │   └── [id]/page.tsx       # Edit/view pay link
 │           │   ├── checkout/templates/
 │           │   │   ├── page.tsx            # Templates list
+│           │   │   └── page.meta.ts        # Child page metadata for Checkout section
 │           │   │   ├── create/page.tsx     # Create template
 │           │   │   └── [id]/page.tsx       # Edit/view template
 │           │   └── checkout/transactions/
 │           │       ├── page.tsx            # Transactions list
+│           │       └── page.meta.ts        # Child page metadata for Checkout section
 │           │       └── [id]/page.tsx       # Transaction detail
 │           ├── frontend/
 │           │   └── pay/
@@ -218,20 +222,28 @@ packages/checkout/
 │           │   ├── links.ts                # Link CRUD commands
 │           │   └── transactions.ts         # Transaction status commands
 │           ├── components/
+│           │   ├── index.ts               # Public exports for wrapper/replace/eject-style customization
 │           │   ├── LinkTemplateForm.tsx     # Shared CrudForm for links & templates
 │           │   ├── PricingModeFields.tsx    # Pricing mode form section
 │           │   ├── CustomerFieldsEditor.tsx # Customer data field definitions
 │           │   ├── GatewaySettingsFields.tsx # Dynamic gateway settings
 │           │   ├── PayPage.tsx             # Public pay page component
+│           │   ├── PayPageHeader.tsx       # Header block
+│           │   ├── PayPageDescription.tsx  # Description block
+│           │   ├── PayPageSummary.tsx      # Amount summary block
 │           │   ├── PayPageCustomerForm.tsx  # Customer data form on pay page
 │           │   ├── PayPagePricing.tsx       # Pricing section on pay page
+│           │   ├── PayPagePaymentSection.tsx # Payment section shell
 │           │   ├── PayPagePaymentForm.tsx   # Gateway payment form wrapper
+│           │   ├── PayPageHelp.tsx          # Help/legal section
+│           │   ├── PayPageFooter.tsx        # Footer block
 │           │   ├── SuccessPage.tsx          # Success page component
-│           │   └── ErrorPage.tsx            # Error/cancel page component
+│           │   ├── SuccessPageContent.tsx   # Success content block
+│           │   ├── ErrorPage.tsx            # Error/cancel page component
+│           │   └── ErrorPageContent.tsx     # Error/cancel content block
 │           ├── data/
 │           │   ├── entities.ts             # MikroORM entities
 │           │   ├── validators.ts           # Zod schemas
-│           │   ├── enrichers.ts            # Response enrichers
 │           │   └── extensions.ts           # Entity extensions (Phase B prep)
 │           ├── emails/
 │           │   ├── PaymentStartEmail.tsx    # Transaction started email
@@ -265,7 +277,6 @@ packages/checkout/
 │           │   ├── injection-table.ts      # UMES slot mappings
 │           │   ├── components.ts           # Component replacement definitions
 │           │   ├── injection/
-│           │   │   ├── sidebar-menu/       # Sidebar menu injection
 │           │   │   └── gateway-transaction-link/  # Widget on gateway transaction detail
 │           │   └── notifications/
 │           │       ├── TransactionCompletedRenderer.tsx
@@ -467,11 +478,24 @@ type PriceListItem = {
 }
 ```
 
+**Currency consistency rules**
+
+- Phase A supports exactly one checkout currency per link at payment time.
+- `fixed` mode uses `fixedPriceCurrencyCode`.
+- `custom_amount` mode uses `customAmountCurrencyCode`.
+- `price_list` mode may offer multiple amounts, but all `priceListItems` on a single link/template MUST share the same `currencyCode`; this is enforced in validation.
+- If a gateway provider is already selected, create/update validation MUST reject any configured currency that is not supported by that provider's published capabilities.
+- Public submit flow MUST re-validate the final currency against the selected provider's capabilities before creating the gateway session. Frontend currency checks are advisory only.
+
 ---
 
 ## Commands
 
-All write operations use the Command pattern with undo support. Commands live in `commands/`.
+All **admin/backend mutations** use the Command pattern with undo support. Commands live in `commands/`.
+
+Undoability boundary:
+- Template, link, and later Phase B cart-item mutations are admin operations and MUST be undoable.
+- Public checkout submissions and payment-status lifecycle changes are financial events, not backoffice edits, so they are intentionally **not** undoable.
 
 ### Template Commands
 
@@ -719,7 +743,40 @@ DataTable with `extensionTableId="checkout-links"`:
 - Columns: Name, Title, Slug, Pricing Mode, Status (Active/Inactive), Completions (`3 / 10` or `5 / ∞`), Created At
 - Row actions: Edit, View Pay Page (external link), Show Transactions (navigates to transactions filtered by `linkId`), Copy Link URL, Delete
 - Bulk actions: Activate, Deactivate, Delete
-- Filters: Status, Pricing Mode, Locked, Template
+- FilterBar with `FilterDef[]`:
+  - `status` (select: Active / Inactive)
+  - `pricingMode` (select: Fixed / Custom Amount / Price List)
+  - `isLocked` (checkbox)
+  - `templateId` (select with `loadOptions` — async template lookup)
+  - Custom field filters auto-merged via `useCustomFieldFilterDefs('checkout:link')`
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Pay Links                                                    [+ Create Link]  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  [🔍 Search pay links…                              ]  [⚙ Filters (2)]  [↗]  │
+│                                                                                 │
+│  Active filters:  [Status: Active ✕]  [Pricing: Fixed ✕]         [Clear all]  │
+├────┬──────────────┬──────────────┬──────────────┬────────┬────────┬────────┬───┤
+│ □  │ Name         │ Slug         │ Pricing      │ Status │ Uses   │ Created│   │
+├────┼──────────────┼──────────────┼──────────────┼────────┼────────┼────────┼───┤
+│ □  │ Jan Consult  │ /pay/jan-c.. │ Fixed $150   │ Active │ 1 / 1  │ Mar 15 │ ⋮ │
+│ □  │ Donation     │ /pay/donate  │ Custom $5-500│ Active │ 12 / ∞ │ Mar 10 │ ⋮ │
+│ □  │ Spring Gala  │ /pay/spring..│ Price List   │ Active │ 45/100 │ Mar 08 │ ⋮ │
+│ □  │ Workshop Fee │ /pay/works.. │ Fixed $75    │ Inact. │ 0 / ∞  │ Mar 01 │ ⋮ │
+├────┴──────────────┴──────────────┴──────────────┴────────┴────────┴────────┴───┤
+│  ⋮ row action menu:                                                            │
+│  ┌──────────────────────┐                                                      │
+│  │ ✏️  Edit              │                                                      │
+│  │ ↗  View Pay Page     │                                                      │
+│  │ 📋 Copy Link URL     │                                                      │
+│  │ 📊 Show Transactions │                                                      │
+│  │ ──────────────────── │                                                      │
+│  │ 🗑  Delete            │                                                      │
+│  └──────────────────────┘                                                      │
+│                                                     Page 1 of 3  [< 1 2 3 >]  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
 
 #### Templates List (`/backend/checkout/templates`)
 
@@ -727,17 +784,158 @@ DataTable with `extensionTableId="checkout-templates"`:
 - Columns: Name, Pricing Mode, Gateway Provider, Max Completions, Created At
 - Row actions: Edit, Create Link from Template, Delete
 
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Link Templates                                                [+ Create]      │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  [Search…]                                                                     │
+├────┬──────────────────┬──────────────┬──────────────┬───────────┬─────────┬────┤
+│ □  │ Name             │ Pricing Mode │ Gateway      │ Max Uses  │ Created │    │
+├────┼──────────────────┼──────────────┼──────────────┼───────────┼─────────┼────┤
+│ □  │ Consulting Fee   │ Fixed        │ Stripe       │ 1         │ Mar 12  │ ⋮  │
+│ □  │ Donation         │ Custom Amt   │ Stripe       │ Unlimited │ Mar 10  │ ⋮  │
+│ □  │ Event Ticket     │ Price List   │ PayU         │ 100       │ Mar 08  │ ⋮  │
+├────┴──────────────────┴──────────────┴──────────────┴───────────┴─────────┴────┤
+│  ⋮ row action menu:                                                            │
+│  ┌────────────────────────────┐                                                │
+│  │ ✏️  Edit                    │                                                │
+│  │ ➕ Create Link from Tmpl.  │                                                │
+│  │ ─────────────────────────  │                                                │
+│  │ 🗑  Delete                  │                                                │
+│  └────────────────────────────┘                                                │
+│                                                       Page 1 of 1  [< 1 >]    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
 #### Transactions List (`/backend/checkout/transactions`)
 
 DataTable with `extensionTableId="checkout-transactions"`:
 - Columns: Link Name, Customer (First + Last), Email, Amount, Status, Payment Status, Created At
 - Row actions: View Detail
-- Filters: Link (select), Status, Date Range
+- FilterBar with `FilterDef[]`:
+  - `linkId` (select with `loadOptions` — async link lookup)
+  - `status` (select: Pending / Processing / Completed / Failed / Cancelled / Expired)
+  - `date` (dateRange: from/to)
+  - Custom field filters auto-merged via `useCustomFieldFilterDefs('checkout:transaction')`
 - **PII columns** (Customer, Email) only visible to users with `checkout.viewPii`
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│  Transactions                                                                           │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│  [🔍 Search transactions…                           ]  [⚙ Filters (1)]  [↗]  │
+│                                                                                 │
+│  Active filters:  [Link: Spring Gala ✕]                              [Clear]   │
+├──────────────────┬──────────────┬────────────────┬─────────┬──────────┬────────┬────────┤
+│ Link             │ Customer*    │ Email*         │ Amount  │ Status   │ Pay.St │ Date   │
+├──────────────────┼──────────────┼────────────────┼─────────┼──────────┼────────┼────────┤
+│ Jan Consulting   │ John Smith   │ john@acme.com  │ $150.00 │ Compltd  │ Captrd │ Mar 18 │
+│ Donation         │ Alice Jones  │ alice@mail.co  │  $50.00 │ Compltd  │ Captrd │ Mar 17 │
+│ Spring Gala      │ Bob Wilson   │ bob@corp.io    │  $75.00 │ Process. │ Pendng │ Mar 17 │
+│ Donation         │ Eve Davis    │ eve@test.org   │  $25.00 │ Failed   │ Failed │ Mar 16 │
+├──────────────────┴──────────────┴────────────────┴─────────┴──────────┴────────┴────────┤
+│  * Customer and Email columns require checkout.viewPii permission.                      │
+│    Users without this permission see these columns hidden.                              │
+│                                                           Page 1 of 5  [< 1 2 3 4 5 >] │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Transaction Detail Page
+
+Accessed from the transactions list row action ("View Detail"). Shows full transaction information in read-only cards.
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│  ← Back to Transactions                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  ● Completed                                    Mar 18, 2026 │  │
+│  │  Transaction completed successfully.                         │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Payment Details ────────────────────────────────────────────┐  │
+│  │  Amount:          $150.00 USD                                │  │
+│  │  Status:          Completed                                  │  │
+│  │  Payment Status:  Captured                                   │  │
+│  │  Transaction ID:  a1b2c3d4-e5f6-7890-abcd-ef1234567890      │  │
+│  │  Created:         2026-03-18 14:32:05                        │  │
+│  │  Updated:         2026-03-18 14:33:12                        │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Link Details ───────────────────────────────────────────────┐  │
+│  │  Link Name:       January Consulting Session                 │  │
+│  │  Slug:            /pay/january-consulting                    │  │
+│  │  Pricing Mode:    Fixed                                      │  │
+│  │  [View Pay Link →]                                           │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Customer Information ───────────────────────────────────────┐  │
+│  │  * Requires checkout.viewPii permission                      │  │
+│  │                                                              │  │
+│  │  First Name:      John                                       │  │
+│  │  Last Name:       Smith                                      │  │
+│  │  Email:           john@acme.com                              │  │
+│  │  Phone:           +1 555-123-4567                            │  │
+│  │  Company:         Acme Corp                                  │  │
+│  │  Address:         123 Main St, Springfield                   │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Gateway Transaction ────────────────────────────────────────┐  │
+│  │  Gateway:         Stripe                                     │  │
+│  │  Gateway Txn ID:  gw_9f8e7d6c-5b4a-3210                     │  │
+│  │  [View Gateway Transaction →]                                │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Custom Fields ──────────────────────────────────────────────┐  │
+│  │  Reference Code:  INV-2026-0042                              │  │
+│  │  Priority:        High                                       │  │
+│  │  Internal Notes:  VIP client — fast-track processing         │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 #### Link/Template Create/Edit (Shared `CrudForm`)
 
 The `LinkTemplateForm` component is shared between link and template creation/editing. It renders as a `CrudForm` with **tabs**:
+
+The form uses `CrudForm` with `entityId` prop to auto-handle entity custom fields:
+- Links: `entityId="checkout:link"` — custom fields from `ce.ts` auto-rendered
+- Templates: `entityId="checkout:template"` — custom fields auto-rendered
+- Custom field values are collected via `collectCustomFieldValues()` on submit
+- Template-to-link creation copies custom field values via `loadCustomFieldValues` + `setCustomFieldsIfAny`
+
+Groups are defined with `CrudFormGroup[]` using responsive columns. The last group uses `kind: 'customFields'` to auto-render entity custom fields without manual wiring.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Create Pay Link                                              [Save] [Cancel]  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌─────────┬────────────┬─────────┬──────────────┬─────────┬──────────┐        │
+│  │ General │ Appearance │ Pricing │ Cust. Fields │ Payment │ Messages │ ...    │
+│  └─────────┴────────────┴─────────┴──────────────┴─────────┴──────────┘        │
+│            (active tab content rendered below)               Emails  Settings  │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+CrudForm groups declaration pattern:
+
+```typescript
+const groups: CrudFormGroup[] = [
+  { id: 'general', title: t('checkout.form.tabs.general'), fields: ['name', 'title', 'subtitle', 'description', 'slug'] },
+  { id: 'appearance', title: t('checkout.form.tabs.appearance'), fields: ['logoAttachmentId', 'logoUrl', 'primaryColor', 'secondaryColor', 'backgroundColor', 'themeMode', 'displayCustomFieldsOnPage'] },
+  { id: 'pricing', title: t('checkout.form.tabs.pricing'), fields: ['pricingMode', /* conditional fields */] },
+  { id: 'customerFields', title: t('checkout.form.tabs.customerFields'), component: CustomerFieldsEditor },
+  { id: 'payment', title: t('checkout.form.tabs.payment'), fields: ['gatewayProviderKey'], component: GatewaySettingsFields },
+  { id: 'messages', title: t('checkout.form.tabs.messages'), fields: ['successTitle', 'successMessage', 'cancelTitle', 'cancelMessage', 'errorTitle', 'errorMessage'] },
+  { id: 'emails', title: t('checkout.form.tabs.emails'), fields: ['startEmailSubject', 'startEmailBody', 'successEmailSubject', 'successEmailBody', 'errorEmailSubject', 'errorEmailBody'] },
+  { id: 'settings', title: t('checkout.form.tabs.settings'), fields: ['maxCompletions', 'password', 'isActive'] },
+  { id: 'customFields', title: t('checkout.form.tabs.customFields'), kind: 'customFields' },
+]
+```
 
 **Tab 1: General**
 - Name (required, text)
@@ -745,6 +943,42 @@ The `LinkTemplateForm` component is shared between link and template creation/ed
 - Subtitle (text)
 - Description (textarea, markdown editor)
 - Slug (text, auto-generated from title — link only, not on templates)
+
+```text
+┌─ General ───────────────────────────────────────────────────────────┐
+│                                                                     │
+│  Name *                                                             │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ January Consulting Session                                  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  Title                                                              │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ Consulting Session Payment                                  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  Subtitle                                                           │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ One-hour strategy consultation                              │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  Description (Markdown)                                             │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ Book your **one-hour consulting session** with our team.    │    │
+│  │ Includes:                                                   │    │
+│  │ - Strategy review                                           │    │
+│  │ - Action plan document                                      │    │
+│  │                                                             │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  Slug  (link only)                                                  │
+│  ┌──────────────────────────────────────────────────────┐ [↻ Gen]   │
+│  │ january-consulting                                   │           │
+│  └──────────────────────────────────────────────────────┘           │
+│  Preview: https://yourstore.com/pay/january-consulting              │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 **Tab 2: Appearance**
 - Logo: Upload (to attachments) OR URL input (toggle)
@@ -754,6 +988,33 @@ The `LinkTemplateForm` component is shared between link and template creation/ed
 - Theme Mode (select: Light / Dark / Auto)
 - Display Custom Fields on Page (checkbox)
 
+```text
+┌─ Appearance ────────────────────────────────────────────────────────┐
+│                                                                     │
+│  Logo                                                               │
+│  ○ Upload file   ● External URL                                    │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ https://example.com/logo.png                                │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│  Preview: ┌──────┐                                                  │
+│           │ LOGO │                                                  │
+│           └──────┘                                                  │
+│                                                                     │
+│  Primary Color          Secondary Color       Background Color      │
+│  ┌───────────────┐      ┌───────────────┐     ┌───────────────┐    │
+│  │ ■  #3B82F6    │      │ ■  #1E40AF    │     │ ■  #FFFFFF    │    │
+│  └───────────────┘      └───────────────┘     └───────────────┘    │
+│                                                                     │
+│  Theme Mode                                                         │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ Auto (follow system preference)                         ▾   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ☑ Display custom fields on pay page                                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 **Tab 3: Pricing**
 - Pricing Mode (select: Fixed Price / Custom Amount / Price List)
 - _Conditional fields based on mode:_
@@ -761,21 +1022,214 @@ The `LinkTemplateForm` component is shared between link and template creation/ed
   - **Custom Amount**: Min Amount, Max Amount, Currency
   - **Price List**: Sortable list editor with Description + Amount + Currency per item
 
+```text
+┌─ Pricing ───────────────────────────────────────────────────────────┐
+│                                                                     │
+│  Pricing Mode                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ Fixed Price                                             ▾   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ╔═══════════════════════════════════════════════════════════════╗  │
+│  ║  When "Fixed Price" is selected:                             ║  │
+│  ║                                                              ║  │
+│  ║  Amount *                        Currency *                  ║  │
+│  ║  ┌──────────────────────┐        ┌──────────────────────┐   ║  │
+│  ║  │ 150.00               │        │ USD              ▾   │   ║  │
+│  ║  └──────────────────────┘        └──────────────────────┘   ║  │
+│  ║                                                              ║  │
+│  ║  ☑ Price includes tax                                       ║  │
+│  ║                                                              ║  │
+│  ║  Original Amount (strikethrough — promotional display)       ║  │
+│  ║  ┌──────────────────────┐                                   ║  │
+│  ║  │ 199.00               │  Shows as: ~~$199.00~~ $150.00    ║  │
+│  ║  └──────────────────────┘                                   ║  │
+│  ╚═══════════════════════════════════════════════════════════════╝  │
+│                                                                     │
+│  ╔═══════════════════════════════════════════════════════════════╗  │
+│  ║  When "Custom Amount" is selected:                           ║  │
+│  ║                                                              ║  │
+│  ║  Min Amount                      Max Amount                  ║  │
+│  ║  ┌──────────────────────┐        ┌──────────────────────┐   ║  │
+│  ║  │ 5.00                 │        │ 500.00               │   ║  │
+│  ║  └──────────────────────┘        └──────────────────────┘   ║  │
+│  ║                                                              ║  │
+│  ║  Currency *                                                  ║  │
+│  ║  ┌──────────────────────┐                                   ║  │
+│  ║  │ USD              ▾   │                                   ║  │
+│  ║  └──────────────────────┘                                   ║  │
+│  ╚═══════════════════════════════════════════════════════════════╝  │
+│                                                                     │
+│  ╔═══════════════════════════════════════════════════════════════╗  │
+│  ║  When "Price List" is selected:                              ║  │
+│  ║                                                              ║  │
+│  ║  ┌────┬──────────────────────┬───────────┬──────────┬──────┐║  │
+│  ║  │ ⠿  │ Description          │ Amount    │ Currency │      │║  │
+│  ║  ├────┼──────────────────────┼───────────┼──────────┼──────┤║  │
+│  ║  │ ⠿  │ General Admission    │  25.00    │ USD  ▾   │  ✕   │║  │
+│  ║  │ ⠿  │ VIP Access           │  75.00    │ USD  ▾   │  ✕   │║  │
+│  ║  │ ⠿  │ Premium Package      │ 150.00    │ USD  ▾   │  ✕   │║  │
+│  ║  └────┴──────────────────────┴───────────┴──────────┴──────┘║  │
+│  ║  [+ Add Price Item]                                          ║  │
+│  ║                                                              ║  │
+│  ║  ⠿ = drag handle for reordering                              ║  │
+│  ╚═══════════════════════════════════════════════════════════════╝  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 **Tab 4: Customer Fields**
 - Reuses `FieldDefinitionsEditor` from `@open-mercato/ui/backend/custom-fields/`
 - Pre-populated with fixed fields (firstName, lastName, email, phone — non-removable)
 - Admin can add additional fields (text, multiline, boolean, select, radio)
 - Each field: label, key (auto-generated), kind, required toggle, options (for select/radio)
 
+```text
+┌─ Customer Fields ───────────────────────────────────────────────────┐
+│                                                                     │
+│  Configure which fields customers must fill in on the pay page.     │
+│                                                                     │
+│  ┌────┬────┬───────────────────┬────────────┬──────────┬──────────┐│
+│  │    │    │ Label             │ Type       │ Required │          ││
+│  ├────┼────┼───────────────────┼────────────┼──────────┼──────────┤│
+│  │ 🔒 │    │ First Name        │ text       │ ☑        │          ││
+│  │ 🔒 │    │ Last Name         │ text       │ ☑        │          ││
+│  │ 🔒 │    │ Email             │ text       │ ☑        │          ││
+│  │ 🔒 │    │ Phone             │ text       │ □        │          ││
+│  │    │ ⠿  │ Company Name      │ text       │ □        │ ✏️  ✕    ││
+│  │    │ ⠿  │ Company ID        │ text       │ □        │ ✏️  ✕    ││
+│  │    │ ⠿  │ Address           │ multiline  │ □        │ ✏️  ✕    ││
+│  │    │ ⠿  │ T-Shirt Size      │ select     │ ☑        │ ✏️  ✕    ││
+│  └────┴────┴───────────────────┴────────────┴──────────┴──────────┘│
+│                                                                     │
+│  🔒 = fixed (cannot be removed)    ⠿ = drag to reorder             │
+│                                                                     │
+│  [+ Add Field]                                                      │
+│                                                                     │
+│  ┌─ Add Field Dialog ──────────────────────────────────────────┐   │
+│  │                                                             │   │
+│  │  Label *                                                    │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ T-Shirt Size                                      │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Type *                                                     │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Select                                        ▾   │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  ☑ Required                                                 │   │
+│  │                                                             │   │
+│  │  Options (for select/radio):                                │   │
+│  │  ┌──────────────────┬──────────────────┬──────┐             │   │
+│  │  │ Value            │ Label            │      │             │   │
+│  │  ├──────────────────┼──────────────────┼──────┤             │   │
+│  │  │ s                │ Small            │  ✕   │             │   │
+│  │  │ m                │ Medium           │  ✕   │             │   │
+│  │  │ l                │ Large            │  ✕   │             │   │
+│  │  │ xl               │ X-Large          │  ✕   │             │   │
+│  │  └──────────────────┴──────────────────┴──────┘             │   │
+│  │  [+ Add Option]                                             │   │
+│  │                                                             │   │
+│  │                            [Cancel]  [Add Field (Cmd+Enter)]│   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 **Tab 5: Payment**
 - Gateway Provider (select — populated from installed payment integrations)
 - **Notice when no provider selected**: "You must set up a payment integration first. Go to [Integrations](/backend/integrations) to configure a payment provider."
-- Dynamic gateway settings fields (loaded from `PaymentProvider.settings.fields` for selected provider)
+- Dynamic gateway settings fields (loaded from the selected payment-gateway descriptor)
+
+```text
+┌─ Payment ───────────────────────────────────────────────────────────┐
+│                                                                     │
+│  Gateway Provider                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ Stripe                                                  ▾   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+│  ┌─ Provider Settings (Stripe) ────────────────────────────────┐   │
+│  │                                                             │   │
+│  │  Capture Method                                             │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Automatic                                     ▾   │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Payment Form Style                                         │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Embedded                                      ▾   │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ╔═══════════════════════════════════════════════════════════════╗  │
+│  ║  When NO provider is selected:                               ║  │
+│  ║                                                              ║  │
+│  ║  ⚠ You must set up a payment integration first.              ║  │
+│  ║    Go to Integrations to configure a payment provider.       ║  │
+│  ║    [Set up integrations →]                                   ║  │
+│  ╚═══════════════════════════════════════════════════════════════╝  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 **Tab 6: Messages**
 - Success: Title + Message (markdown)
 - Cancel: Title + Message (markdown)
 - Error: Title + Message (markdown)
+
+```text
+┌─ Messages ──────────────────────────────────────────────────────────┐
+│                                                                     │
+│  ┌─ Success Message ───────────────────────────────────────────┐   │
+│  │                                                             │   │
+│  │  Title                                                      │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Payment Successful!                               │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Message (Markdown)                                         │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Thank you for your payment. You will receive a   │      │   │
+│  │  │ confirmation email shortly.                      │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                              [Preview]      │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Cancel Message ────────────────────────────────────────────┐   │
+│  │                                                             │   │
+│  │  Title                                                      │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Payment Cancelled                                 │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Message (Markdown)                                         │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Your payment was cancelled. You can try again     │      │   │
+│  │  │ using the original link.                         │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                              [Preview]      │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Error Message ─────────────────────────────────────────────┐   │
+│  │                                                             │   │
+│  │  Title                                                      │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Payment Error                                     │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Message (Markdown)                                         │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Something went wrong with your payment. Please    │      │   │
+│  │  │ try again or contact support.                    │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                              [Preview]      │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 **Tab 7: Emails**
 - Start Email: Subject + Body (markdown)
@@ -783,15 +1237,173 @@ The `LinkTemplateForm` component is shared between link and template creation/ed
 - Error Email: Subject + Body (markdown)
 - Preview button for each email
 
+```text
+┌─ Emails ────────────────────────────────────────────────────────────┐
+│                                                                     │
+│  Available variables: {{firstName}}, {{amount}}, {{currencyCode}},  │
+│  {{linkTitle}}, {{transactionId}}, {{errorMessage}}                 │
+│                                                                     │
+│  ┌─ Start Email (sent when payment begins) ────────────────────┐   │
+│  │                                                             │   │
+│  │  Subject                                                    │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Your payment for {{linkTitle}} is being processed │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Body (Markdown)                                            │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Hi {{firstName}},                                │      │   │
+│  │  │                                                  │      │   │
+│  │  │ We're processing your payment of                 │      │   │
+│  │  │ **{{amount}} {{currencyCode}}**.                  │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                              [Preview]      │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Success Email ─────────────────────────────────────────────┐   │
+│  │                                                             │   │
+│  │  Subject                                                    │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Payment confirmed — {{linkTitle}}                 │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Body (Markdown)                                            │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Hi {{firstName}},                                │      │   │
+│  │  │                                                  │      │   │
+│  │  │ Your payment of **{{amount}} {{currencyCode}}**  │      │   │
+│  │  │ has been confirmed. Reference: {{transactionId}} │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                              [Preview]      │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─ Error Email ───────────────────────────────────────────────┐   │
+│  │                                                             │   │
+│  │  Subject                                                    │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Payment issue — {{linkTitle}}                     │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                                             │   │
+│  │  Body (Markdown)                                            │   │
+│  │  ┌───────────────────────────────────────────────────┐      │   │
+│  │  │ Hi {{firstName}},                                │      │   │
+│  │  │                                                  │      │   │
+│  │  │ There was an issue with your payment:            │      │   │
+│  │  │ {{errorMessage}}                                 │      │   │
+│  │  └───────────────────────────────────────────────────┘      │   │
+│  │                                              [Preview]      │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 **Tab 8: Settings**
 - Max Completions (number input, empty = unlimited)
 - Password (password input — stored as bcrypt hash)
 - Is Active (toggle)
 
+```text
+┌─ Settings ──────────────────────────────────────────────────────────┐
+│                                                                     │
+│  Max Completions                                                    │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ 100                                                         │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│  Leave empty for unlimited uses.                                    │
+│                                                                     │
+│  Password                                                           │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ ••••••••                                                    │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│  If set, customers must enter this password before viewing          │
+│  the pay page.                                                      │
+│                                                                     │
+│  Active                                                             │
+│  [====●]  On                                                        │
+│                                                                     │
+│  Checkout Type                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ Pay Link                                                ▾   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Custom Fields Group (auto-rendered)**
+
+A final group with `kind: 'customFields'` is appended after all tabs. This auto-renders any entity custom fields defined for `checkout:link` or `checkout:template` via the standard CrudForm mechanism — no manual field wiring needed.
+
+```text
+┌─ Custom Fields (auto-rendered via entityId) ────────────────────────────────────┐
+│                                                                                 │
+│  (Fields below are defined by admins in Settings → Entities → Pay Link)         │
+│                                                                                 │
+│  Reference Code                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │ INV-2026-0042                                                           │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
+│                                                                                 │
+│  Priority                                                                       │
+│  ┌──────────────────────────┐                                                   │
+│  │ High                  ▾  │                                                   │
+│  └──────────────────────────┘                                                   │
+│                                                                                 │
+│  Internal Notes                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │ VIP client — expedite processing                                        │    │
+│  │                                                                    ↕ 3  │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
 **Locked link display:** When `is_locked = true`, the form shows a read-only banner:
 > "This pay link has been used in {completionCount} transaction(s) and can no longer be edited."
 > Below: read-only detail view with all fields displayed as text.
 > Action: "Show Transactions" button linking to filtered transactions list.
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│  Pay Link: January Consulting Session                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │  🔒 This pay link has been used in 3 transaction(s) and can  │  │
+│  │     no longer be edited.                                     │  │
+│  │                                                              │  │
+│  │     [Show Transactions →]   [View Pay Page ↗]                │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ General ────────────────────────────────────────────────────┐  │
+│  │  Name:          January Consulting Session                   │  │
+│  │  Title:         Consulting Session Payment                   │  │
+│  │  Subtitle:      One-hour strategy consultation               │  │
+│  │  Slug:          /pay/january-consulting                      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Payment ───────────────────────────────────────────────────┐  │
+│  │  Gateway:       Stripe                                      │  │
+│  │  Pricing Mode:  Fixed Price                                 │  │
+│  │  Amount:        $150.00 USD                                 │  │
+│  │  Includes Tax:  Yes                                         │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Settings ──────────────────────────────────────────────────┐  │
+│  │  Max Uses:      1                                           │  │
+│  │  Completions:   1 / 1                                       │  │
+│  │  Password:      Set                                         │  │
+│  │  Status:        Active                                      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌─ Description ───────────────────────────────────────────────┐  │
+│  │  Book your one-hour consulting session with our team.       │  │
+│  │  Includes:                                                  │  │
+│  │  - Strategy review                                          │  │
+│  │  - Action plan document                                     │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ### Public Pay Page (`/pay/[slug]`)
 
@@ -806,21 +1418,302 @@ Responsive, single-page design supporting light and dark mode. Fully replaceable
    - Fixed: Displays price with optional strikethrough original price
    - Custom Amount: Number input with min/max validation, real-time feedback
    - Price List: Radio button selection of items with descriptions and prices
-6. **Customer Form** — Renders fields from `customerFieldsSchema`, fixed fields always shown
-7. **Payment Section** — Gateway-rendered form (embedded) or "Pay Now" button (redirect)
-8. **Footer** — Powered by branding (optional)
+6. **Summary Section** — Selected amount summary, promotion context, and helper text
+7. **Customer Form** — Renders fields from `customerFieldsSchema`, fixed fields always shown
+8. **Payment Section** — Gateway-rendered form (embedded) or "Pay Now" button (redirect)
+9. **Help / Legal Section** — Optional support, legal, refund, tax, or trust information
+10. **Footer** — Powered by branding (optional)
 
 **Password gate:** If password-protected, show a password form first. On verification, store a slug-bound signed access session in an HttpOnly cookie, then render the full page.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                       ┌──────┐                                  │
+│                       │ LOGO │                                  │
+│                       └──────┘                                  │
+│                                                                 │
+│               Consulting Session Payment                        │
+│                                                                 │
+│         This payment page is password-protected.                │
+│         Please enter the password to continue.                  │
+│                                                                 │
+│           ┌─────────────────────────────────────┐               │
+│           │ ••••••••                            │               │
+│           └─────────────────────────────────────┘               │
+│           ✕ Invalid password. Please try again.                 │
+│                                                                 │
+│                  [     Continue     ]                            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Public Pay Page — Fixed Price Mode
+
+Full-page wireframe for the default fixed-price pay page with all layout sections and UMES injection spots marked.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│  ◄── checkout.pay-page:header:before  (UMES injection spot)            │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                         ┌──────┐                               │    │
+│  │            bg color     │ LOGO │                               │    │
+│  │                         └──────┘                               │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+│  ◄── checkout.pay-page:header:after  (UMES injection spot)             │
+│                                                                         │
+│           ┌───────────────────────────────────────────┐                  │
+│           │                                           │                  │
+│           │     Consulting Session Payment             │                  │
+│           │     One-hour strategy consultation         │                  │
+│           │                                           │                  │
+│           │  Book your **one-hour consulting           │                  │
+│           │  session** with our team. Includes:        │                  │
+│           │  - Strategy review                         │                  │
+│           │  - Action plan document                    │                  │
+│           │                                           │                  │
+│           └───────────────────────────────────────────┘                  │
+│                                                                         │
+│  ◄── checkout.pay-page:description:after  (UMES injection spot)        │
+│                                                                         │
+│  ◄── checkout.pay-page:pricing:before  (UMES injection spot)           │
+│                                                                         │
+│           ┌─ Pricing ────────────────────────────────┐                  │
+│           │                                          │                  │
+│           │     ~~$199.00~~    $150.00 USD            │                  │
+│           │                   (tax included)          │                  │
+│           │                                          │                  │
+│           └──────────────────────────────────────────┘                  │
+│                                                                         │
+│  ◄── checkout.pay-page:pricing:after  (UMES injection spot)            │
+│                                                                         │
+│           ┌─ Your Information ───────────────────────┐                  │
+│           │                                          │                  │
+│           │  ┌──────────────┐  ┌──────────────┐      │                  │
+│           │  │ John         │  │ Smith        │      │                  │
+│           │  └──────────────┘  └──────────────┘      │                  │
+│           │  First Name *       Last Name *           │                  │
+│           │                                          │                  │
+│           │  ┌─────────────────────────────────┐     │                  │
+│           │  │ john@acme.com                   │     │                  │
+│           │  └─────────────────────────────────┘     │                  │
+│           │  Email *                                  │                  │
+│           │                                          │                  │
+│           │  ┌─────────────────────────────────┐     │                  │
+│           │  │ +1 555-123-4567                 │     │                  │
+│           │  └─────────────────────────────────┘     │                  │
+│           │  Phone                                    │                  │
+│           │                                          │                  │
+│           │  ┌─────────────────────────────────┐     │                  │
+│           │  │ Acme Corp                       │     │                  │
+│           │  └─────────────────────────────────┘     │                  │
+│           │  Company                                  │                  │
+│           │                                          │                  │
+│           └──────────────────────────────────────────┘                  │
+│                                                                         │
+│  ◄── checkout.pay-page:customer-fields:after  (UMES injection spot)    │
+│                                                                         │
+│  ◄── checkout.pay-page:payment:before  (UMES injection spot)           │
+│                                                                         │
+│           ┌─ Payment ────────────────────────────────┐                  │
+│           │                                          │                  │
+│           │  Card Number                              │                  │
+│           │  ┌─────────────────────────────────┐     │                  │
+│           │  │ 4242 4242 4242 4242              │     │                  │
+│           │  └─────────────────────────────────┘     │                  │
+│           │                                          │                  │
+│           │  ┌───────────────┐  ┌───────────────┐    │                  │
+│           │  │ 12/28         │  │ 123           │    │                  │
+│           │  └───────────────┘  └───────────────┘    │                  │
+│           │  Expiry              CVC                   │                  │
+│           │                                          │                  │
+│           └──────────────────────────────────────────┘                  │
+│                                                                         │
+│              ┌──────────────────────────────────┐                       │
+│              │        Pay $150.00 USD            │                       │
+│              └──────────────────────────────────┘                       │
+│                                                                         │
+│  ◄── checkout.pay-page:footer:before  (UMES injection spot)            │
+│                                                                         │
+│           ┌──────────────────────────────────────┐                      │
+│           │        Powered by Open Mercato        │                      │
+│           └──────────────────────────────────────┘                      │
+│                                                                         │
+│  ◄── checkout.pay-page:footer:after  (UMES injection spot)             │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Public Pay Page — Custom Amount Mode (pricing section variant)
+
+```text
+           ┌─ Pricing ────────────────────────────────┐
+           │                                          │
+           │  Enter your amount:                       │
+           │                                          │
+           │  ┌──────┬───────────────────────────┐    │
+           │  │ USD  │ 50.00                      │    │
+           │  └──────┴───────────────────────────┘    │
+           │                                          │
+           │  Min: $5.00 — Max: $500.00                │
+           │                                          │
+           │  ✕ Amount must be between $5.00           │
+           │    and $500.00.                           │
+           │                                          │
+           └──────────────────────────────────────────┘
+```
+
+#### Public Pay Page — Price List Mode (pricing section variant)
+
+```text
+           ┌─ Select an Option ────────────────────────┐
+           │                                            │
+           │  ● General Admission                       │
+           │    Standard entry to the event    $25.00   │
+           │                                            │
+           │  ○ VIP Access                              │
+           │    Front-row seating + backstage   $75.00  │
+           │                                            │
+           │  ○ Premium Package                         │
+           │    VIP + dinner + signed merch    $150.00  │
+           │                                            │
+           └────────────────────────────────────────────┘
+```
 
 **Usage limit reached:** Display friendly message with the link title but no payment form:
 > "This payment link has reached its maximum number of uses."
 
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                       ┌──────┐                                  │
+│                       │ LOGO │                                  │
+│                       └──────┘                                  │
+│                                                                 │
+│               Consulting Session Payment                        │
+│                                                                 │
+│         ┌───────────────────────────────────────────┐           │
+│         │                                           │           │
+│         │   This payment link has reached its        │           │
+│         │   maximum number of uses.                  │           │
+│         │                                           │           │
+│         │   If you believe this is an error,         │           │
+│         │   please contact the merchant.             │           │
+│         │                                           │           │
+│         └───────────────────────────────────────────┘           │
+│                                                                 │
+│           ┌──────────────────────────────────────┐              │
+│           │        Powered by Open Mercato        │              │
+│           └──────────────────────────────────────┘              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 **Dark mode:** Uses `themeMode` setting. `'auto'` follows system preference via `prefers-color-scheme`. Colors applied via CSS custom properties.
 
-### Success/Error Pages
+**Customization model**
 
-- **Success** (`/pay/[slug]/success/[transactionId]`): Shows `successTitle` + rendered `successMessage` markdown. Polls transaction status to confirm.
-- **Cancel/Error** (`/pay/[slug]/cancel/[transactionId]`): Shows `cancelTitle` + `cancelMessage` or `errorTitle` + `errorMessage` based on transaction status.
+- Additive content should use UMES injection spots.
+- Visual or behavioral reshaping of an existing section should use replacement-aware section handles with `wrapper` or `propsTransform` first.
+- Full `replace` is supported for the whole page and for key sections where a custom experience is required.
+- Checkout ships and exports its default frontend components from the package so app modules can:
+  - reuse them directly
+  - wrap them via UMES
+  - replace them with their own implementation
+  - copy/fork them into app code for deeper "eject-style" customization
+- There is no special runtime eject feature; exported defaults + replaceable handles are the supported customization path.
+
+### Success Page (`/pay/[slug]/success/[transactionId]`)
+
+Shows `successTitle` + rendered `successMessage` markdown. Polls transaction status to confirm payment was captured by the gateway.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                       ┌──────┐                                  │
+│                       │ LOGO │                                  │
+│                       └──────┘                                  │
+│                                                                 │
+│                         ✔                                       │
+│                                                                 │
+│                Payment Successful!                               │
+│                                                                 │
+│         ┌───────────────────────────────────────────┐           │
+│         │                                           │           │
+│         │  Thank you for your payment. You will      │           │
+│         │  receive a confirmation email shortly.     │           │
+│         │                                           │           │
+│         └───────────────────────────────────────────┘           │
+│                                                                 │
+│         Transaction Reference:                                  │
+│         a1b2c3d4-e5f6-7890-abcd-ef1234567890                   │
+│                                                                 │
+│         Amount: $150.00 USD                                     │
+│                                                                 │
+│         (Polling transaction status for confirmation...)         │
+│                                                                 │
+│           ┌──────────────────────────────────────┐              │
+│           │        Powered by Open Mercato        │              │
+│           └──────────────────────────────────────┘              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Cancel/Error Page (`/pay/[slug]/cancel/[transactionId]`)
+
+Shows `cancelTitle` + `cancelMessage` or `errorTitle` + `errorMessage` based on transaction status. Provides a button to return to the payment page for retry.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                       ┌──────┐                                  │
+│                       │ LOGO │                                  │
+│                       └──────┘                                  │
+│                                                                 │
+│                         ✕                                       │
+│                                                                 │
+│                  Payment Cancelled                               │
+│                                                                 │
+│         ┌───────────────────────────────────────────┐           │
+│         │                                           │           │
+│         │  Your payment was cancelled. You can try   │           │
+│         │  again using the original link.            │           │
+│         │                                           │           │
+│         └───────────────────────────────────────────┘           │
+│                                                                 │
+│              ┌──────────────────────────────────┐               │
+│              │    Return to Payment Page         │               │
+│              └──────────────────────────────────┘               │
+│                                                                 │
+│           ┌──────────────────────────────────────┐              │
+│           │        Powered by Open Mercato        │              │
+│           └──────────────────────────────────────┘              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Gateway Transaction Widget
+
+Checkout injects a widget on the gateway transaction detail page (`admin.page:payment-gateways/transactions:after`) showing the related checkout transaction details. This widget is only rendered when the gateway transaction is linked to a checkout transaction (resolved via `paymentId` lookup).
+
+```text
+┌─ Checkout Transaction ──────────────────────────────────────────────┐
+│                                                                     │
+│  Link Name:       January Consulting Session                        │
+│  Slug:            /pay/january-consulting                           │
+│  Transaction ID:  a1b2c3d4-e5f6-7890-abcd-ef1234567890             │
+│  Status:          Completed                                         │
+│  Customer:        John Smith (john@acme.com)                        │
+│  Amount:          $150.00 USD                                       │
+│  Created:         2026-03-18 14:32:05                               │
+│                                                                     │
+│  [View Checkout Transaction →]   [View Pay Link →]                  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -830,55 +1723,35 @@ Responsive, single-page design supporting light and dark mode. Fully replaceable
 
 | Target | UMES Mechanism | Spot/ID | Detail |
 |--------|---------------|---------|--------|
-| Main sidebar | Menu injection | `menu:sidebar:main` | "Checkout" group with items: Pay Links, Templates, Transactions |
-| Gateway transactions DataTable | Row-actions injection | `data-table:payment_gateways.transactions.list:row-actions` | Inject checkout action buttons into the payment-gateway transactions table in Settings |
-| Gateway transaction detail page | Widget injection | `admin.page:payment-gateways/transactions:after` | Checkout transaction details panel |
-| Gateway transaction response | Response enricher | Target: `payment_gateways:gateway_transaction` | Adds `_checkout.transactionId`, `_checkout.linkName` if related |
+| Gateway transactions DataTable | Toolbar injection | `data-table:payment_gateways.transactions.list:toolbar` | Inject checkout action buttons into the top action area of the payment-gateway transactions table in Settings |
+| Gateway transaction detail page | Widget injection | `admin.page:payment-gateways/transactions:after` | Checkout transaction details panel fed by a checkout-owned lookup API |
+
+**Backend sidebar navigation**
+
+- The Checkout sidebar section is **not** implemented via UMES menu injection.
+- It is provided by normal backend route discovery plus `page.meta.ts` on the checkout backend pages.
+- The checkout root backend page metadata owns the top-level sidebar entry and group metadata.
+- Child pages under `/backend/checkout/...` reuse the same `pageGroup`/`pageGroupKey` and rely on standard route-prefix nesting, which keeps the nav behavior simpler and aligned with existing modules.
 
 **Payment gateway transactions DataTable actions**
 
-- **Create Payment Link** — available from the payment-gateway transactions DataTable row actions in Settings
+- **Create Payment Link** — available in the top action area of the payment-gateway transactions DataTable in Settings
 - Opens checkout link creation prefilled from the selected gateway transaction where possible:
   - provider key
   - amount / currency
   - title or description fallback from transaction metadata
-- Uses the existing DataTable row-actions injection contract (`data-table:<tableId>:row-actions`)
-- If the host page in the target release does not yet expose this standard action-button injection surface, add it as a minimal additive host change and keep the stable table id `payment_gateways.transactions.list`
+- Uses the DataTable toolbar injection contract (`data-table:<tableId>:toolbar`)
+- Requires a minimal additive `DataTable` host enhancement in Phase A so top action buttons can be injected next to the standard create/export/refresh controls while keeping the stable table id `payment_gateways.transactions.list`
 
-**Menu injection detail:**
+**Top-of-table action area note**
 
-```typescript
-// widgets/injection/sidebar-menu/widget.ts
-export const menuItems: InjectionMenuItem[] = [
-  {
-    id: 'checkout-pay-links',
-    labelKey: 'checkout.sidebar.payLinks',
-    href: '/backend/checkout/pay-links',
-    icon: 'link',
-  },
-  {
-    id: 'checkout-templates',
-    labelKey: 'checkout.sidebar.templates',
-    href: '/backend/checkout/templates',
-    icon: 'file-text',
-  },
-  {
-    id: 'checkout-transactions',
-    labelKey: 'checkout.sidebar.transactions',
-    href: '/backend/checkout/transactions',
-    icon: 'receipt',
-  },
-]
-
-// widgets/injection-table.ts
-export const injectionTable = {
-  'menu:sidebar:main': {
-    widgetId: 'checkout.sidebar-menu',
-    priority: 60,
-    placement: { kind: 'group', groupLabel: 'checkout.sidebar.group', groupIcon: 'shopping-bag' },
-  },
-}
-```
+- The current `DataTable` host already supports injected row actions and a rendered `data-table:<tableId>:header` spot.
+- The nominal `data-table:<tableId>:toolbar` spot id exists in shared UI constants, but is not yet wired as an active injection surface in the current `DataTable` implementation.
+- Phase A explicitly includes this minimal additive UI enhancement:
+  - wire `data-table:<tableId>:toolbar` as a real injection host next to existing top action buttons
+  - keep `data-table:<tableId>:header` unchanged for backward compatibility
+  - prefer `:toolbar` for action buttons and keep `:header` for richer informational/instructional widgets
+- The required checkout integration is therefore toolbar injection on `payment_gateways.transactions.list`, not row actions
 
 ### Inbound: Extension Points Exposed by Checkout
 
@@ -888,15 +1761,27 @@ Other modules can extend checkout surfaces via these UMES spots:
 
 | Spot ID | Location | Context |
 |---------|----------|---------|
-| `checkout.pay-page:header:before` | Before header on pay page | `{ link, themeMode }` |
-| `checkout.pay-page:header:after` | After header/logo | `{ link, themeMode }` |
-| `checkout.pay-page:description:after` | After description | `{ link, themeMode }` |
-| `checkout.pay-page:pricing:before` | Before pricing section | `{ link, pricingMode }` |
-| `checkout.pay-page:pricing:after` | After pricing section | `{ link, selectedAmount }` |
-| `checkout.pay-page:customer-fields:after` | After customer form fields | `{ link, customerData }` |
-| `checkout.pay-page:payment:before` | Before payment section | `{ link, transaction }` |
-| `checkout.pay-page:footer:before` | Before footer | `{ link }` |
-| `checkout.pay-page:footer:after` | After footer | `{ link }` |
+| `checkout.pay-page:header:before` | Before header on pay page | `{ link, themeMode, themeTokens }` |
+| `checkout.pay-page:header:after` | After header/logo | `{ link, themeMode, themeTokens }` |
+| `checkout.pay-page:description:after` | After description | `{ link, themeMode, themeTokens }` |
+| `checkout.pay-page:summary:before` | Before amount summary section | `{ link, selectedAmount, currencyCode, themeTokens }` |
+| `checkout.pay-page:summary:after` | After amount summary section | `{ link, selectedAmount, currencyCode, themeTokens }` |
+| `checkout.pay-page:pricing:before` | Before pricing section | `{ link, pricingMode, themeTokens }` |
+| `checkout.pay-page:pricing:after` | After pricing section | `{ link, selectedAmount, currencyCode, themeTokens }` |
+| `checkout.pay-page:customer-fields:before` | Before customer form fields | `{ link, customerSchema, themeTokens }` |
+| `checkout.pay-page:customer-fields:after` | After customer form fields | `{ link, customerData, themeTokens }` |
+| `checkout.pay-page:payment:before` | Before payment section | `{ link, transaction, paymentView, themeTokens }` |
+| `checkout.pay-page:payment:after` | After payment section | `{ link, transaction, paymentView, themeTokens }` |
+| `checkout.pay-page:submit:before` | Before submit / pay CTA area | `{ link, selectedAmount, currencyCode, themeTokens }` |
+| `checkout.pay-page:submit:after` | After submit / pay CTA area | `{ link, selectedAmount, currencyCode, themeTokens }` |
+| `checkout.pay-page:help:before` | Before help/legal section | `{ link, themeTokens }` |
+| `checkout.pay-page:help:after` | After help/legal section | `{ link, themeTokens }` |
+| `checkout.pay-page:footer:before` | Before footer | `{ link, themeTokens }` |
+| `checkout.pay-page:footer:after` | After footer | `{ link, themeTokens }` |
+| `checkout.success-page:header:after` | After success page heading | `{ link, transaction, themeTokens }` |
+| `checkout.success-page:actions:after` | After success page actions | `{ link, transaction, themeTokens }` |
+| `checkout.error-page:header:after` | After error/cancel page heading | `{ link, transaction, themeTokens }` |
+| `checkout.error-page:actions:after` | After error/cancel page actions | `{ link, transaction, themeTokens }` |
 | `crud-form:checkout:link:fields` | Link CrudForm field injection | Standard CrudForm context |
 | `crud-form:checkout:template:fields` | Template CrudForm field injection | Standard CrudForm context |
 | `data-table:checkout-links:columns` | Link DataTable columns | Standard DataTable context |
@@ -914,9 +1799,30 @@ Other modules can extend checkout surfaces via these UMES spots:
 | `page:checkout.pay-page` | `PayPage` | Replace entire public pay page |
 | `page:checkout.success-page` | `SuccessPage` | Replace success page |
 | `page:checkout.error-page` | `ErrorPage` | Replace error/cancel page |
+| `section:checkout.pay-page.header` | `PayPageHeader` | Replace or wrap header block |
+| `section:checkout.pay-page.description` | `PayPageDescription` | Replace or wrap description block |
+| `section:checkout.pay-page.summary` | `PayPageSummary` | Replace or wrap amount summary block |
 | `section:checkout.pay-page.pricing` | `PayPagePricing` | Replace pricing section |
+| `section:checkout.pay-page.payment` | `PayPagePaymentSection` | Replace full payment section shell |
 | `section:checkout.pay-page.customer-form` | `PayPageCustomerForm` | Replace customer data form |
-| `section:checkout.pay-page.payment-form` | `PayPagePaymentForm` | Replace payment form wrapper |
+| `section:checkout.pay-page.gateway-form` | `PayPagePaymentForm` | Replace gateway form wrapper only |
+| `section:checkout.pay-page.help` | `PayPageHelp` | Replace help/legal section |
+| `section:checkout.pay-page.footer` | `PayPageFooter` | Replace footer block |
+| `section:checkout.success-page.content` | `SuccessPageContent` | Replace success content area |
+| `section:checkout.error-page.content` | `ErrorPageContent` | Replace error/cancel content area |
+
+**Replacement contract**
+
+- All section handles are replacement-aware through `useRegisteredComponent`.
+- `wrapper` and `propsTransform` SHOULD be preferred over `replace` where possible.
+- Props contracts for exported default components are part of the checkout package surface and must remain stable under the backward-compatibility policy.
+- Extensions may alter copy, layout, helper UI, and decorative behavior, but MUST NOT change server-authoritative payment data, status values, gateway payload integrity, or security checks.
+
+**Theme token context**
+
+- `themeTokens` is a safe, computed presentation object passed to pay-page widgets/replacements.
+- It includes normalized values such as `themeMode`, `primaryColor`, `secondaryColor`, `backgroundColor`, `textColor`, and `resolvedLogoUrl`.
+- Extensions consume these tokens instead of re-deriving branding state from raw link fields.
 
 ---
 
@@ -1081,26 +1987,71 @@ This approach means:
 
 When an admin selects a gateway provider in the pay link form:
 
-1. The form calls `getPaymentProvider(providerKey)` from the sales provider registry
-2. The provider's `settings.fields` array defines form fields (capture mode, form style, etc.)
+1. The form resolves a generic provider descriptor from `payment_gateways`, not from checkout-specific logic
+2. The descriptor exposes safe UI metadata for:
+   - session settings fields
+   - supported currencies
+   - supported payment types (if applicable)
+   - presentation mode: `embedded` / `redirect` / `either`
 3. These fields are rendered dynamically in the Payment tab
 4. Values are stored in `link.gatewaySettings`
 5. At payment time, checkout normalizes the supported subset of `gatewaySettings` into the current gateway session contract (`captureMethod`, `paymentTypes`, descriptive metadata)
-6. Unsupported provider-specific session options are preserved in `link.gatewaySettings` for display / future extension, but are not sent to the gateway unless a later additive gateway-session contract explicitly supports them
+6. Unsupported or unknown provider-specific keys are rejected at validation time if they are submitted through checkout APIs
+7. Unsupported future-safe keys may still exist in provider-owned config UIs, but checkout only accepts keys published by the generic descriptor
 
-This pattern stays aligned with the current platform boundary: the provider exposes configurable options generically, checkout renders them without knowing provider internals, and only the subset supported by the existing gateway session contract is active in Phase A.
+**Proposed additive platform change**
+
+To keep checkout decoupled from provider packages while still supporting dynamic configuration, Phase A introduces a minimal generic descriptor surface in `payment_gateways`:
+
+```typescript
+type PaymentGatewayDescriptor = {
+  providerKey: string
+  label: string
+  sessionConfig?: {
+    fields: Array<{
+      key: string
+      label: string
+      type: 'text' | 'number' | 'select' | 'boolean' | 'textarea' | 'secret' | 'url'
+      description?: string
+      required?: boolean
+      options?: Array<{ value: string; label: string }>
+    }>
+    supportedCurrencies?: '*' | string[]
+    supportedPaymentTypes?: Array<{ value: string; label: string }>
+    presentation?: 'embedded' | 'redirect' | 'either'
+  }
+}
+```
+
+The core `payment_gateways` module should expose this generically through a DI service and safe API route such as:
+- `paymentGatewayDescriptorService.list(scope)`
+- `paymentGatewayDescriptorService.get(providerKey, scope)`
+- `GET /api/payment_gateways/providers`
+- `GET /api/payment_gateways/providers/:providerKey`
+
+Provider packages register descriptors next to their adapters. Core remains unaware of pay links; it only exposes generic provider capabilities.
+
+**Currency validation**
+
+- Checkout MUST validate that every configured payment currency is supported by the selected provider descriptor.
+- `POST /api/checkout/links` and `PUT /api/checkout/links/:id` reject unsupported currencies when `gatewayProviderKey` is set.
+- `POST /api/checkout/pay/:slug/submit` re-validates the final transaction currency before calling `createPaymentSession`.
+- If a provider publishes `supportedCurrencies = '*'`, checkout accepts any ISO currency code but still normalizes to uppercase and lets the adapter be the final authority.
 
 ### Core Module Change Policy
 
-Phase A is designed to ship with **no required changes** to existing `payment_gateways` or `sales` contract surfaces:
+Phase A is designed to keep core changes **minimal and additive**:
 
-- `paymentGatewayService.createPaymentSession()` already accepts a required `paymentId`; checkout uses `CheckoutTransaction.id`
+- `paymentGatewayService.createPaymentSession()` remains unchanged; checkout uses `CheckoutTransaction.id` as `paymentId`
 - gateway events already emit `paymentId`, which is sufficient for checkout correlation
 - webhook scope derivation already supports `organizationId` / `tenantId` in metadata
-- checkout-specific gateway detail links are added through checkout-owned response enrichers and widgets, not by teaching core modules about checkout
+- checkout-specific gateway detail links are added through checkout-owned widgets and lookup APIs, not by teaching core modules about checkout
+- the only required core-module addition is a **generic payment gateway descriptor surface** for UI settings/capabilities/currency support
 
-Optional future optimization:
-- a later additive-only enhancement may introduce generic `sourceType` / `sourceId` on gateway transactions for richer diagnostics, but that is explicitly **out of scope for Phase A**
+Out of scope for Phase A:
+- adding checkout-specific concepts to `payment_gateways`
+- adding `sourceType` / `sourceId` to gateway transactions
+- letting core know what a pay link is
 
 ---
 
@@ -1227,9 +2178,9 @@ export const notificationTypes: NotificationTypeDefinition[] = [
 ```
 
 Subscribers create notifications on:
-- `checkout.transaction.completed` → success notification to all users with `checkout.view`
-- `checkout.transaction.failed` → error notification to all users with `checkout.view`
-- `checkout.link.usageLimitReached` → warning notification to users with `checkout.edit`
+- `checkout.transaction.completed` → success notification to admin/staff recipients with checkout operational visibility (default: users with `checkout.view`)
+- `checkout.transaction.failed` → error notification to admin/staff recipients with checkout operational visibility (default: users with `checkout.view`)
+- `checkout.link.usageLimitReached` → warning notification to admin/staff recipients who can manage checkout links (default: users with `checkout.edit`)
 
 ---
 
@@ -1367,7 +2318,7 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 
 - `LinkTemplateForm` component: Phase B adds a new tab "Products" visible when `checkoutType = 'simple_checkout'`
 - `PayPage` component: Phase B adds an items/cart section above the pricing section, replaces pricing with order totals
-- Public API: Phase B extends `POST /submit` to accept `cartItems` in the body
+- Public API: Phase B extends `GET /api/checkout/pay/:slug` with cart/totals data and keeps `POST /submit` customer-data-only while deriving cart items server-side
 - Payment flow: identical — adapter-based session creation with the order total
 
 ### Code Sharing Strategy
@@ -1385,6 +2336,36 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 | UMES spots | All spots | +Cart-specific spots |
 
 ---
+
+## Documentation Requirements
+
+Implementation of Phase A MUST ship with documentation updates.
+
+Required deliverables:
+- `packages/checkout/README.md` covering package purpose, install/enable flow, build/watch/test scripts, and canary publication expectations
+- Admin/user docs for Pay Links:
+  - creating templates
+  - creating links
+  - pricing modes
+  - password protection
+  - usage limits
+  - transaction tracking
+  - email/notification behavior
+- Developer docs for extensibility:
+  - available UMES spots
+  - replacement handles
+  - exported default components and supported wrapper/replace/eject-style customization path
+  - limits of customization for payment-critical behavior
+- Integration docs for gateway providers:
+  - required provider-descriptor surface in `payment_gateways`
+  - supported gateway settings contract
+  - supported currency validation behavior
+- API docs/OpenAPI coverage for all new checkout endpoints and the additive provider-descriptor endpoints in `payment_gateways`
+
+Preferred doc locations:
+- package-level overview in `packages/checkout/README.md`
+- framework/product docs in `apps/docs/docs/framework/modules/checkout*.mdx` or equivalent checkout docs section
+- API docs through generated OpenAPI plus any needed handbook pages for public checkout flow and customization
 
 ## Implementation Plan
 
@@ -1408,17 +2389,20 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 5. Create backend pages for templates (list, create, edit)
 6. Create backend pages for links (list, create, edit) with locked-link read-only view
 7. Add slug generation and uniqueness validation
-8. Wire custom fields (ce.ts) and verify copy from template to link
-9. Wire search configuration
+8. Add currency validation rules, including single-currency enforcement for Phase A price lists
+9. Wire custom fields (ce.ts) and verify copy from template to link
+10. Export default frontend components and stable props contracts for wrapper/replace/eject-style customization
+11. Wire search configuration
 
 ### Phase A.3: Sidebar & UMES Outbound
 
-1. Implement sidebar menu injection (Checkout group with 3 items)
-2. Inject `Create Payment Link` into the payment-gateway transactions DataTable row actions (`data-table:payment_gateways.transactions.list:row-actions`)
-3. Implement widget injection into gateway transaction detail
-4. Implement response enricher on gateway transactions
-5. Create injection-table.ts with all spot definitions
-6. Define component replacement handles
+1. Implement checkout backend `page.meta.ts` files so sidebar registration comes from discovered routes, not menu injection
+2. Add the minimal additive `payment_gateways` provider-descriptor surface (DI service + safe API) for gateway settings, supported currencies, payment types, and presentation mode
+3. Add the minimal additive `DataTable` enhancement to wire `data-table:<tableId>:toolbar` as a real injection host
+4. Inject `Create Payment Link` into the payment-gateway transactions DataTable toolbar (`data-table:payment_gateways.transactions.list:toolbar`)
+5. Implement widget injection into gateway transaction detail
+6. Create injection-table.ts with checkout-owned spot definitions
+7. Define component replacement handles and exported default component contracts
 
 ### Phase A.4: Public Pay Page & Payment Flow
 
@@ -1427,11 +2411,12 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 3. Implement payment session creation via existing `paymentGatewayService` contract using `paymentId = checkoutTransaction.id`
 4. Create gateway event subscriber (`gateway-payment-status.ts`) resolving checkout transactions by emitted `paymentId`
 5. Implement password verification with slug-bound HttpOnly cookie sessions
-6. Implement atomic reservation-based usage limit enforcement
-7. Implement submit idempotency and transaction/slug binding on status pages
-8. Create success/cancel/error pages
-9. Add light/dark mode support
-10. Add UMES extension spots on pay page
+6. Validate final transaction currency and selected gateway settings against the provider descriptor before session creation
+7. Implement atomic reservation-based usage limit enforcement
+8. Implement submit idempotency and transaction/slug binding on status pages
+9. Create success/cancel/error pages
+10. Add light/dark mode support
+11. Add UMES extension spots and section replacement handles on pay page
 
 ### Phase A.5: Transactions, Emails & Notifications
 
@@ -1452,6 +2437,7 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 5. Security audit: validate all inputs, verify no PII leakage, test tenant isolation, verify slug/transaction binding, and confirm search excludes sensitive fields
 6. Add i18n translations (en, pl)
 7. Translatable fields declaration (translations.ts)
+8. Write/update package README and product/developer docs for Pay Links, gateway descriptors, and UMES customization
 
 ### Phase A.7: Integration Tests
 
@@ -1461,7 +2447,7 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 4. Payment flow tests (submit, webhook, status updates)
 5. Transaction list and detail tests
 6. PII access control tests (viewPii feature)
-7. UMES integration tests (sidebar, gateway widget, payment-gateway transactions row action injection)
+7. Integration tests for sidebar route metadata, gateway widget, payment-gateway transactions toolbar injection, provider descriptor loading, and key pay-page replacement/extension paths
 
 ---
 
@@ -1488,7 +2474,7 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 | TC-CHKT-017 | Transaction detail with PII (viewPii feature) | `GET /api/checkout/transactions/:id` |
 | TC-CHKT-018 | Transaction detail without PII | Same endpoint, user without `checkout.viewPii` |
 | TC-CHKT-019 | Gateway event updates checkout transaction status | Gateway event → checkout subscriber → status update |
-| TC-CHKT-020 | Sidebar menu visible with checkout.view feature | Navigate to `/backend`, verify sidebar group |
+| TC-CHKT-020 | Checkout sidebar section visible with checkout.view feature via route metadata | Navigate to `/backend`, verify sidebar group |
 | TC-CHKT-021 | Custom fields copy from template to link | Verify custom field values after link creation |
 | TC-CHKT-022 | Link deletion blocked with active transactions | `DELETE /api/checkout/links/:id` → 422 |
 | TC-CHKT-023 | Inactive link returns 404 on public page | Deactivate link, `GET /api/checkout/pay/:slug` → 404 |
@@ -1496,7 +2482,10 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 | TC-CHKT-025 | Submit replay with same `Idempotency-Key` does not create duplicate transactions | Repeat `POST /submit` with same header |
 | TC-CHKT-026 | Status endpoint rejects transaction from another slug | `GET /status/:transactionId` with mismatched slug → 404 |
 | TC-CHKT-027 | Password-protected status/success page requires verified session | Access after cookie expiry → blocked |
-| TC-CHKT-028 | Payment-gateway transactions DataTable shows injected `Create Payment Link` row action | Settings → Payment Transactions table |
+| TC-CHKT-028 | Payment-gateway transactions DataTable shows injected `Create Payment Link` toolbar action | Settings → Payment Transactions table |
+| TC-CHKT-029 | Link create/update rejects currency unsupported by selected gateway provider | `POST/PUT /api/checkout/links` |
+| TC-CHKT-030 | Payment-gateway descriptor API exposes safe settings/currency metadata without credentials | `GET /api/payment_gateways/providers/:providerKey` |
+| TC-CHKT-031 | Pay page section wrapper/replacement handle can customize summary/help area without changing payment integrity | UMES component replacement test |
 
 ---
 
@@ -1570,14 +2559,16 @@ The Phase A data model and UI are designed to maximize code reuse for [Phase B �
 
 ## Migration & Backward Compatibility
 
-Phase A intentionally avoids modifications to existing public contract surfaces in `payment_gateways`, `sales`, or other core modules.
+Phase A keeps core changes minimal, but it does introduce one **additive** contract surface in `payment_gateways`: a generic provider-descriptor registry/service/API for session settings, supported currencies, payment types, and presentation capabilities.
 
 - **Auto-discovery conventions**: additive only; new package/module files follow existing conventions
 - **Type/function contracts**: no existing public signatures need to change
 - **Event IDs**: checkout adds new event IDs only; it consumes existing `payment_gateways.payment.*` events unchanged
+- **Gateway service**: `paymentGatewayService.createPaymentSession()` remains unchanged
+- **Gateway descriptor surface**: new additive service/API only; no existing fields or routes are removed or renamed
 - **API routes**: additive only; checkout introduces new `/api/checkout/*` endpoints
 - **Database schema**: additive only; checkout introduces new checkout-owned tables/columns
-- **Widget spots**: additive only; checkout adds new UMES spots and new checkout-owned enrichers/widgets
+- **Widget spots**: additive only; checkout adds new UMES spots and checkout-owned widgets
 
 Optional future enhancements to generic payment-source correlation in `payment_gateways` must be specified separately and follow the full deprecation / BC process if they alter existing contracts.
 
@@ -1628,7 +2619,7 @@ Optional future enhancements to generic payment-source correlation in `payment_g
 | Data models match API contracts | Pass | All entity fields reflected in API request/response schemas |
 | API contracts match UI/UX section | Pass | All CrudForm tabs map to API fields |
 | Risks cover all write operations | Pass | Template/Link CRUD, transaction creation, webhook processing, usage enforcement |
-| Commands defined for all mutations | Pass | 7 commands covering all write operations |
+| Commands defined for all admin mutations | Pass | 6 undoable admin commands + 2 non-undoable internal financial commands |
 | Cache strategy covered | N/A | Read-heavy public endpoint can add caching in future; admin CRUD volume is low |
 | Events cover all state changes | Pass | 14 events covering CRUD + lifecycle |
 | Search covers key entities | Pass | Links and templates indexed |
