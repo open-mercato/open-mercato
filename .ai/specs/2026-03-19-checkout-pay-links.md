@@ -1980,6 +1980,21 @@ None identified.
 
 ## Changelog
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase A — Pay Links | Done | 2026-03-19 | Public flow, admin CRUD, workers, docs, and verification completed |
+
+### Phase A — Detailed Progress
+- [x] Package scaffolding and data layer
+- [x] Admin CRUD for templates, links, and transactions
+- [x] Sidebar wiring and UMES outbound integrations
+- [x] Public pay page and payment flow
+- [x] Emails, notifications, and expiry worker
+- [x] Seeding, security polish, and public endpoint protections
+- [x] Documentation and unit-test verification
+
 ### 2026-03-19
 - Initial specification created
 - Defined Phase A scope: Pay Links, Link Templates, Transactions

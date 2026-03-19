@@ -22,6 +22,21 @@ function resolveTransactionScope(input: { tenantId?: string | null; organization
   }
 }
 
+type CheckoutTerminalEventPayload = {
+  transactionId: string
+  linkId: string
+  slug: string
+  status: CheckoutTransaction['status']
+  paymentStatus: string | null
+  amount: number
+  currency: string
+  gatewayProvider: string | null
+  gatewayTransactionId: string | null
+  occurredAt: string
+  tenantId: string
+  organizationId: string
+}
+
 const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: string }> = {
   id: 'checkout.transaction.create',
   async execute(rawInput, ctx) {
@@ -115,8 +130,10 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
     const { parsed } = parseCheckoutInput(rawInput, transactionUpdateStatusSchema.parse)
     const scope = resolveTransactionScope(parsed)
     const em = ctx.container.resolve('em') as EntityManager
-    let terminalEventPayload: Record<string, unknown> | null = null
+    let terminalEventPayload: CheckoutTerminalEventPayload | null = null
     let emitUsageLimitReached = false
+    let usageLimitReachedLinkId: string | null = null
+    let usageLimitReachedLinkSlug: string | null = null
     await em.transactional(async (tx) => {
       const transaction = await tx.findOne(CheckoutTransaction, {
         id: parsed.id,
@@ -154,6 +171,8 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           && link.completionCount >= link.maxCompletions
         ) {
           emitUsageLimitReached = true
+          usageLimitReachedLinkId = link.id
+          usageLimitReachedLinkSlug = link.slug
         }
       }
       if (nextTerminal) {
@@ -182,10 +201,10 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
     } else if (parsed.status === 'expired') {
       await emitCheckoutEvent('checkout.transaction.expired', terminalEventPayload ?? {}).catch(() => undefined)
     }
-    if (emitUsageLimitReached && terminalEventPayload) {
+    if (emitUsageLimitReached && usageLimitReachedLinkId && usageLimitReachedLinkSlug) {
       await emitCheckoutEvent('checkout.link.usageLimitReached', {
-        id: terminalEventPayload.linkId as string,
-        slug: terminalEventPayload.slug as string,
+        id: usageLimitReachedLinkId,
+        slug: usageLimitReachedLinkSlug,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       }).catch(() => undefined)

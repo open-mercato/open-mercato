@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const INVALID_SCOPE = Symbol('invalid-scope')
@@ -26,12 +26,12 @@ function resolveActorOrganizationId(auth: NonNullable<AuthContext>): NormalizedS
   return normalizeScopeId(actorOrgId ?? auth.orgId ?? null)
 }
 
-export async function isAuthContextValid(
+export async function resolveCanonicalStaffAuthContext(
   em: EntityManager,
   auth: AuthContext,
-): Promise<boolean> {
-  if (!auth) return false
-  if (auth.isApiKey) return true
+): Promise<AuthContext> {
+  if (!auth) return null
+  if (auth.isApiKey) return auth
 
   const subjectId = normalizeScopeId(auth.sub)
   const actorTenantId = resolveActorTenantId(auth)
@@ -41,7 +41,7 @@ export async function isAuthContextValid(
     actorTenantId === INVALID_SCOPE ||
     actorOrganizationId === INVALID_SCOPE
   ) {
-    return false
+    return null
   }
 
   const user = await findOneWithDecryption(
@@ -51,10 +51,50 @@ export async function isAuthContextValid(
     undefined,
     { tenantId: actorTenantId, organizationId: actorOrganizationId },
   )
-  if (!user) return false
+  if (!user) return null
 
-  return (
-    normalizeScopeId(user.tenantId ?? null) === actorTenantId &&
-    normalizeScopeId(user.organizationId ?? null) === actorOrganizationId
-  )
+  const currentTenantId = normalizeScopeId(user.tenantId ?? null)
+  const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)
+  if (
+    currentTenantId === INVALID_SCOPE ||
+    currentOrganizationId === INVALID_SCOPE ||
+    currentTenantId !== actorTenantId ||
+    currentOrganizationId !== actorOrganizationId
+  ) {
+    return null
+  }
+
+  const links = currentTenantId
+    ? await findWithDecryption(
+        em,
+        UserRole,
+        {
+          user: user.id,
+          deletedAt: null,
+          role: { tenantId: currentTenantId, deletedAt: null } as unknown as Role,
+        } as never,
+        { populate: ['role'] },
+        { tenantId: currentTenantId, organizationId: currentOrganizationId },
+      )
+    : []
+
+  const roles = links
+    .map((link) => link.role?.name)
+    .filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+
+  return {
+    ...auth,
+    sub: user.id,
+    tenantId: currentTenantId,
+    orgId: currentOrganizationId,
+    roles,
+    isSuperAdmin: roles.some((role) => role.trim().toLowerCase() === 'superadmin'),
+  }
+}
+
+export async function isAuthContextValid(
+  em: EntityManager,
+  auth: AuthContext,
+): Promise<boolean> {
+  return (await resolveCanonicalStaffAuthContext(em, auth)) !== null
 }

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { CheckoutTransaction, CheckoutLink } from '../data/entities'
 
 export const CHECKOUT_EXPIRY_QUEUE = 'checkout-transaction-expiry'
@@ -38,6 +39,13 @@ export default async function handle(job: QueuedJob<CheckoutExpiryJob>, ctx: Han
 
   for (const transaction of staleTransactions) {
     try {
+      const commandCtx: CommandRuntimeContext = {
+        container: { resolve: ctx.resolve } as unknown as CommandRuntimeContext['container'],
+        auth: null,
+        organizationScope: null,
+        selectedOrganizationId: transaction.organizationId,
+        organizationIds: [transaction.organizationId],
+      }
       await commandBus.execute('checkout.transaction.updateStatus', {
         input: {
           id: transaction.id,
@@ -46,13 +54,7 @@ export default async function handle(job: QueuedJob<CheckoutExpiryJob>, ctx: Han
           organizationId: transaction.organizationId,
           tenantId: transaction.tenantId,
         },
-        ctx: {
-          container: { resolve: ctx.resolve },
-          auth: null,
-          organizationScope: null,
-          selectedOrganizationId: transaction.organizationId,
-          organizationIds: [transaction.organizationId],
-        },
+        ctx: commandCtx,
       })
     } catch (error) {
       console.error('[checkout:transaction-expiry] Failed to expire transaction', transaction.id, error)

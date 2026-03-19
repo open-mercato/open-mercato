@@ -28,20 +28,83 @@ function interpolateVariables(template: string, variables: Record<string, string
   return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => variables[key] ?? match)
 }
 
-async function renderMarkdownBody(markdown: string): Promise<string> {
-  try {
-    const [{ default: React }, { default: ReactMarkdown }, { default: remarkGfm }, { renderToStaticMarkup }] = await Promise.all([
-      import('react'),
-      import('react-markdown'),
-      import('remark-gfm'),
-      import('react-dom/server'),
-    ])
-    return renderToStaticMarkup(
-      React.createElement(ReactMarkdown, { remarkPlugins: [remarkGfm] }, markdown),
-    )
-  } catch {
-    return markdown.replace(/\n/g, '<br/>')
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function renderInlineMarkdown(value: string): string {
+  let rendered = escapeHtml(value)
+  rendered = rendered.replace(/`([^`]+)`/g, '<code>$1</code>')
+  rendered = rendered.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>')
+  rendered = rendered.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  rendered = rendered.replace(/__([^_]+)__/g, '<strong>$1</strong>')
+  rendered = rendered.replace(/(^|[\s(])\*([^*]+)\*(?=$|[\s).,!?:;])/g, '$1<em>$2</em>')
+  rendered = rendered.replace(/(^|[\s(])_([^_]+)_(?=$|[\s).,!?:;])/g, '$1<em>$2</em>')
+  return rendered
+}
+
+function renderParagraph(lines: string[]): string {
+  return `<p>${renderInlineMarkdown(lines.join(' '))}</p>`
+}
+
+function renderMarkdownBody(markdown: string): string {
+  const normalized = markdown.replace(/\r\n/g, '\n').trim()
+  if (!normalized) return ''
+
+  const blocks: string[] = []
+  const lines = normalized.split('\n')
+  let paragraph: string[] = []
+  let listItems: string[] = []
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return
+    blocks.push(renderParagraph(paragraph))
+    paragraph = []
   }
+
+  const flushList = () => {
+    if (listItems.length === 0) return
+    blocks.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ul>`)
+    listItems = []
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) {
+      flushParagraph()
+      flushList()
+      continue
+    }
+
+    const headingMatch = /^(#{1,6})\s+(.+)$/.exec(line)
+    if (headingMatch) {
+      flushParagraph()
+      flushList()
+      const level = headingMatch[1].length
+      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`)
+      continue
+    }
+
+    const listMatch = /^[-*]\s+(.+)$/.exec(line)
+    if (listMatch) {
+      flushParagraph()
+      listItems.push(listMatch[1])
+      continue
+    }
+
+    flushList()
+    paragraph.push(line)
+  }
+
+  flushParagraph()
+  flushList()
+
+  return blocks.join('')
 }
 
 export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: HandlerContext): Promise<void> {
@@ -89,7 +152,7 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
       ? interpolateVariables(subjectField, variables)
       : defaultSubject
     const bodyHtml = bodyField
-      ? await renderMarkdownBody(interpolateVariables(bodyField, variables))
+      ? renderMarkdownBody(interpolateVariables(bodyField, variables))
       : null
     return { subject, bodyHtml }
   }

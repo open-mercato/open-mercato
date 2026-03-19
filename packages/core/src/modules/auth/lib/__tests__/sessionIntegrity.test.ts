@@ -1,11 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { isAuthContextValid } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
+import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 
 const findOneWithDecryption = jest.fn()
+const findWithDecryption = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryption(...args),
+  findWithDecryption: (...args: unknown[]) => findWithDecryption(...args),
 }))
 
 const userId = '11111111-1111-4111-8111-111111111111'
@@ -19,6 +21,7 @@ describe('isAuthContextValid', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    findWithDecryption.mockResolvedValue([])
   })
 
   it('accepts a user that still exists in the same tenant and organization', async () => {
@@ -39,6 +42,33 @@ describe('isAuthContextValid', () => {
       undefined,
       { tenantId, organizationId },
     )
+  })
+
+  it('returns canonical auth with roles refreshed from the database', async () => {
+    findOneWithDecryption.mockResolvedValue({
+      id: userId,
+      tenantId,
+      organizationId,
+    })
+    findWithDecryption.mockResolvedValue([
+      { role: { name: 'admin' } },
+      { role: { name: 'superadmin' } },
+    ])
+
+    await expect(
+      resolveCanonicalStaffAuthContext(em, {
+        sub: userId,
+        tenantId,
+        orgId: organizationId,
+        roles: ['employee'],
+      }),
+    ).resolves.toEqual({
+      sub: userId,
+      tenantId,
+      orgId: organizationId,
+      roles: ['admin', 'superadmin'],
+      isSuperAdmin: true,
+    })
   })
 
   it('rejects an auth context when the user no longer exists', async () => {
