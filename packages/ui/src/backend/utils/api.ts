@@ -3,6 +3,7 @@
 // Used across UI data utilities to avoid duplication.
 import { flash } from '../FlashMessages'
 import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { pushOperation } from '../operations/store'
 import { pushPartialIndexWarning } from '../indexes/store'
 import { createScopedHeaderStack } from './scopedHeaderStack'
@@ -127,13 +128,16 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     let roles: string[] | null = null
     let features: string[] | null = null
     let payload: unknown = null
-    try {
-      const clone = res.clone()
-      const data = await clone.json()
-      if (Array.isArray(data?.requiredRoles)) roles = data.requiredRoles.map((r: any) => String(r))
-      if (Array.isArray(data?.requiredFeatures)) features = data.requiredFeatures.map((f: any) => String(f))
-      if (data && typeof data === 'object') payload = data
-    } catch {}
+    const aclData = await readJsonSafe<Record<string, unknown>>(res.clone(), null)
+    if (aclData && typeof aclData === 'object') {
+      if (Array.isArray(aclData.requiredRoles)) {
+        roles = aclData.requiredRoles.map((r) => String(r))
+      }
+      if (Array.isArray(aclData.requiredFeatures)) {
+        features = aclData.requiredFeatures.map((f) => String(f))
+      }
+      payload = aclData
+    }
     // Only redirect if not already on login page or a portal route
     if (!onLoginPage && !onPortalRoute && !disableForbiddenRedirect) {
       const target =
@@ -160,16 +164,14 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       }
       const raw = await res.clone().text().catch(() => 'Forbidden')
       let msg = raw
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object') {
-          if (typeof (parsed as { error?: unknown }).error === 'string') {
-            msg = (parsed as { error: string }).error
-          } else if (typeof (parsed as { message?: unknown }).message === 'string') {
-            msg = (parsed as { message: string }).message
-          }
+      const parsed = await readJsonSafe<Record<string, unknown>>(raw, null)
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.error === 'string') {
+          msg = parsed.error
+        } else if (typeof parsed.message === 'string') {
+          msg = parsed.message
         }
-      } catch {}
+      }
       throw new ForbiddenError(msg)
     }
     // If already on login, just return the response for the caller to handle
