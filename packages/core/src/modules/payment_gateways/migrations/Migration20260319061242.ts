@@ -3,7 +3,8 @@ import { Migration } from '@mikro-orm/migrations';
 export class Migration20260319061242 extends Migration {
 
   override async up(): Promise<void> {
-    this.addSql(`alter table "gateway_transaction_assignments" drop constraint "gateway_transaction_assignments_unique";`);
+    this.addSql(`alter table "gateway_transaction_assignments" drop constraint if exists "gateway_transaction_assignments_unique";`);
+    this.addSql(`drop index if exists "gateway_transaction_assignments_unique";`);
 
     this.addSql(`
       insert into "gateway_transaction_assignments" (
@@ -41,8 +42,8 @@ export class Migration20260319061242 extends Migration {
 
     this.addSql(`alter table "gateway_transaction_assignments" add constraint "gateway_transaction_assignments_unique" unique ("transaction_id", "entity_type", "entity_id", "organization_id", "tenant_id");`);
 
-    this.addSql(`drop index "gateway_transactions_document_type_document_id_org_b1ff6_index";`);
-    this.addSql(`alter table "gateway_transactions" drop column "document_type", drop column "document_id";`);
+    this.addSql(`drop index if exists "gateway_transactions_document_type_document_id_org_b1ff6_index";`);
+    this.addSql(`alter table "gateway_transactions" drop column if exists "document_type", drop column if exists "document_id";`);
   }
 
   override async down(): Promise<void> {
@@ -65,7 +66,8 @@ export class Migration20260319061242 extends Migration {
       where src."transaction_id" = gt."id";
     `);
 
-    this.addSql(`drop index "gateway_transaction_assignments_unique";`);
+    this.addSql(`alter table "gateway_transaction_assignments" drop constraint if exists "gateway_transaction_assignments_unique";`);
+    this.addSql(`drop index if exists "gateway_transaction_assignments_unique";`);
 
     this.addSql(`create index "gateway_transaction_assignments_unique" on "gateway_transaction_assignments" ("transaction_id", "entity_type", "entity_id", "organization_id", "tenant_id");`);
   }
