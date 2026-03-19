@@ -208,6 +208,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
+| `generators.ts` | `generatorPlugins` | Generator plugin declarations for additional aggregated output files |
 | `ai-tools.ts` | `aiTools` | MCP AI tool definitions |
 | `api/interceptors.ts` | `interceptors` | API route interception hooks (before/after) |
 | `data/entities.ts` | — | MikroORM entities |

@@ -18,3 +18,4 @@ New enterprise specifications use `{YYYY-MM-DD}-{slug}.md`. The `enterprise/` di
 | [SPEC-ENT-002](SPEC-ENT-005-2026-02-20-enterprise-record-lock-extensibility.md) | 2026-02-20 | Enterprise Record Lock Extensibility (Moved) | Historical pointer. Canonical mutation guard spec moved to OSS: [`SPEC-035`](../SPEC-035-2026-02-22-mutation-guard-mechanism.md) |
 | [SPEC-ENT-003](SPEC-ENT-003-2026-01-23-record-locking-module.md) | 2026-01-23 | Enterprise Record Locking Module | Current implementation-accurate record locking specification |
 | [SPEC-ENT-004](SPEC-ENT-004-2026-02-19-sso-directory-sync.md) | 2026-02-19 | SSO & Directory Sync Module | Enterprise SSO (OIDC/SAML) and SCIM directory sync architecture specification |
+| [SPEC-ENT-008](SPEC-ENT-008-2026-03-08-mfa-challenge-ui-component-registry.md) | 2026-03-08 | MFA Challenge UI Component Registry | Provider-specific MFA challenge UI registry with generic fallback component resolution |
