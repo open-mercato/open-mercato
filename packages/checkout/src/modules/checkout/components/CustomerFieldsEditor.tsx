@@ -6,9 +6,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import type { CustomerFieldDefinitionInput } from '../data/validators'
-import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../setup'
+import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
 
 type Props = {
   value: CustomerFieldDefinitionInput[]
@@ -40,8 +39,12 @@ function createField(index: number): CustomerFieldDefinitionInput {
 }
 
 export function CustomerFieldsEditor({ value, onChange }: Props) {
-  const fields = React.useMemo(
-    () => (Array.isArray(value) ? value : [...DEFAULT_CHECKOUT_CUSTOMER_FIELDS]),
+  const fields = React.useMemo<CustomerFieldDefinitionInput[]>(
+    () => (
+      Array.isArray(value)
+        ? value
+        : DEFAULT_CHECKOUT_CUSTOMER_FIELDS.map((field) => ({ ...field, options: [] }))
+    ),
     [value],
   )
 
@@ -61,6 +64,47 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
       onChange(normalize(fields.filter((_, currentIndex) => currentIndex !== index)))
     },
     [fields, onChange],
+  )
+
+  const updateOption = React.useCallback(
+    (fieldIndex: number, optionIndex: number, patch: { value?: string; label?: string }) => {
+      const field = fields[fieldIndex]
+      if (!field) return
+      const options = Array.isArray(field.options) ? field.options : []
+      updateField(fieldIndex, {
+        options: options.map((option: { value: string; label: string }, currentIndex: number) => (
+          currentIndex === optionIndex ? { ...option, ...patch } : option
+        )),
+      })
+    },
+    [fields, updateField],
+  )
+
+  const addOption = React.useCallback(
+    (fieldIndex: number) => {
+      const field = fields[fieldIndex]
+      if (!field) return
+      const options = Array.isArray(field.options) ? field.options : []
+      updateField(fieldIndex, {
+        options: [
+          ...options,
+          { value: `option_${options.length + 1}`, label: `Option ${options.length + 1}` },
+        ],
+      })
+    },
+    [fields, updateField],
+  )
+
+  const removeOption = React.useCallback(
+    (fieldIndex: number, optionIndex: number) => {
+      const field = fields[fieldIndex]
+      if (!field) return
+      const options = Array.isArray(field.options) ? field.options : []
+      updateField(fieldIndex, {
+        options: options.filter((_: { value: string; label: string }, currentIndex: number) => currentIndex !== optionIndex),
+      })
+    },
+    [fields, updateField],
   )
 
   return (
@@ -83,9 +127,9 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
           <div className="divide-y divide-border/70">
             {fields.map((field, index) => (
               <div key={`${field.key}:${index}`} className="space-y-3 px-4 py-4">
-                <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_180px_90px_110px] md:items-center">
+                <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1">
-                    <Label className="md:sr-only">Field key</Label>
+                    <Label>Field key</Label>
                     <Input
                       value={field.key}
                       onChange={(event) => updateField(index, { key: event.target.value })}
@@ -95,16 +139,18 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                   </div>
 
                   <div className="space-y-1">
-                    <Label className="md:sr-only">Label</Label>
+                    <Label>Label</Label>
                     <Input
                       value={field.label}
                       onChange={(event) => updateField(index, { label: event.target.value })}
                       placeholder="Reference code"
                     />
                   </div>
+                </div>
 
+                <div className="grid gap-3 md:grid-cols-[1.2fr_180px_100px_110px] md:items-end">
                   <div className="space-y-1">
-                    <Label className="md:sr-only">Placeholder</Label>
+                    <Label>Placeholder</Label>
                     <Input
                       value={field.placeholder ?? ''}
                       onChange={(event) => updateField(index, { placeholder: event.target.value })}
@@ -113,7 +159,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                   </div>
 
                   <div className="space-y-1">
-                    <Label className="md:sr-only">Type</Label>
+                    <Label>Type</Label>
                     <select
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                       value={field.kind}
@@ -128,7 +174,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                     </select>
                   </div>
 
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex h-9 items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-3 text-sm">
                     <input
                       type="checkbox"
                       checked={field.required}
@@ -162,28 +208,53 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                       <Settings2 className="h-4 w-4 text-muted-foreground" />
                       Options
                     </div>
-                    <Textarea
-                      value={(field.options ?? []).map((option) => `${option.value}:${option.label}`).join('\n')}
-                      onChange={(event) => {
-                        const options = event.target.value
-                          .split('\n')
-                          .map((line) => line.trim())
-                          .filter(Boolean)
-                          .map((line) => {
-                            const [valuePart, ...labelParts] = line.split(':')
-                            const normalizedValue = valuePart?.trim() ?? ''
-                            return {
-                              value: normalizedValue,
-                              label: labelParts.join(':').trim() || normalizedValue,
-                            }
-                          })
-                        updateField(index, { options })
-                      }}
-                      placeholder={'starter:Starter\npro:Pro'}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      One option per line in the format <code>value:Label</code>.
-                    </p>
+                    <div className="overflow-hidden rounded-lg border border-border/70 bg-background">
+                      <table className="w-full table-fixed">
+                        <thead className="border-b bg-muted/30">
+                          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            <th className="px-3 py-2 w-[40%]">Value</th>
+                            <th className="px-3 py-2">Label</th>
+                            <th className="px-3 py-2 w-[96px] text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/70">
+                          {(field.options ?? []).map((option, optionIndex) => (
+                            <tr key={`${field.key}:option:${optionIndex}`}>
+                              <td className="px-3 py-2">
+                                <Input
+                                  value={option.value}
+                                  onChange={(event) => updateOption(index, optionIndex, { value: event.target.value })}
+                                  placeholder="starter"
+                                  className="h-8"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <Input
+                                  value={option.label}
+                                  onChange={(event) => updateOption(index, optionIndex, { label: event.target.value })}
+                                  placeholder="Starter"
+                                  className="h-8"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => removeOption(index, optionIndex)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => addOption(index)}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add option
+                    </Button>
                   </div>
                 ) : null}
               </div>

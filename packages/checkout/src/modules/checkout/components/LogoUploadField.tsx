@@ -23,6 +23,7 @@ type Props = {
   recordId: string
   attachmentId: string | null | undefined
   logoUrl: string | null | undefined
+  error?: string
   onChange: (next: { logoAttachmentId: string | null; logoUrl: string | null }) => void
 }
 
@@ -30,7 +31,7 @@ function resolvePreviewUrl(attachmentId: string | null | undefined, logoUrl: str
   return buildCheckoutAttachmentPreviewUrl(attachmentId) ?? (typeof logoUrl === 'string' && logoUrl.trim().length > 0 ? logoUrl.trim() : null)
 }
 
-export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, onChange }: Props) {
+export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, error: externalError, onChange }: Props) {
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const [uploading, setUploading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -176,6 +177,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, onC
           The uploaded attachment is used first. Remove it if you want to fall back to the external URL.
         </Notice>
       ) : null}
+      {externalError ? <p className="text-xs text-destructive">{externalError}</p> : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   )

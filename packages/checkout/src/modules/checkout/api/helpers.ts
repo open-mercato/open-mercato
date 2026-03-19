@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
@@ -96,6 +97,22 @@ export function requireCheckoutPasswordSession(req: Request, slug: string): void
 export function handleCheckoutRouteError(error: unknown) {
   if (error instanceof CrudHttpError) {
     return NextResponse.json(error.body ?? { error: error.message }, { status: error.status })
+  }
+  if (error instanceof z.ZodError) {
+    const fieldErrors = error.issues.reduce<Record<string, string>>((result, issue) => {
+      const path = issue.path.map((part) => String(part)).join('.')
+      if (!path || result[path]) return result
+      result[path] = issue.message
+      return result
+    }, {})
+    return NextResponse.json(
+      {
+        error: 'Validation failed',
+        fieldErrors,
+        details: error.issues,
+      },
+      { status: 400 },
+    )
   }
   const message = error instanceof Error ? error.message : 'Unexpected error'
   return NextResponse.json({ error: message }, { status: 500 })

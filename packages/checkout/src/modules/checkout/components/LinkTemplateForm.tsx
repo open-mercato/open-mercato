@@ -28,8 +28,8 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
+import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
-import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../setup'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
 import { CustomerFieldsEditor } from './CustomerFieldsEditor'
 import { GatewaySettingsFields } from './GatewaySettingsFields'
@@ -266,13 +266,14 @@ function ColorField({
         <input
           type="color"
           value={pickerValue}
-          className="h-10 w-12 cursor-pointer rounded-md border bg-transparent p-1"
+          className="h-10 w-12 shrink-0 cursor-pointer rounded-md border bg-transparent p-1"
           onChange={(event) => onChange(event.target.value.toUpperCase())}
         />
         <Input
           value={value}
           onChange={(event) => onChange(event.target.value.toUpperCase())}
           placeholder="#1E3A8A"
+          className="min-w-0"
         />
       </div>
     </SectionLabel>
@@ -314,62 +315,73 @@ function PriceListEditor({
       </Notice>
 
       <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
-        <div className="hidden grid-cols-[1fr_1.6fr_140px_220px_120px] gap-3 border-b bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
-          <div>Item code</div>
-          <div>Description</div>
-          <div>Amount</div>
-          <div>Currency</div>
-          <div className="text-right">Actions</div>
-        </div>
-
         {items.length > 0 ? (
-          <div className="divide-y divide-border/70">
-            {items.map((item, index) => (
-              <div key={`${item.id}:${index}`} className="grid gap-3 px-4 py-4 md:grid-cols-[1fr_1.6fr_140px_220px_120px] md:items-center">
-                <SectionLabel label="Item code">
-                  <Input
-                    value={item.id}
-                    onChange={(event) => updateItem(index, { id: event.target.value })}
-                    placeholder="starter"
-                  />
-                </SectionLabel>
-                <SectionLabel label="Description">
-                  <Input
-                    value={item.description}
-                    onChange={(event) => updateItem(index, { description: event.target.value })}
-                    placeholder="Starter package"
-                  />
-                </SectionLabel>
-                <SectionLabel label="Amount">
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={item.amount}
-                    onChange={(event) => updateItem(index, { amount: Number(event.target.value) })}
-                    placeholder="0.00"
-                  />
-                </SectionLabel>
-                <SectionLabel label="Currency">
-                  <CheckoutCurrencySelect
-                    value={item.currencyCode}
-                    onChange={(next) => updateItem(index, { currencyCode: next })}
-                    placeholder="Select currency"
-                  />
-                </SectionLabel>
-                <div className="flex items-end justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onChange(items.filter((_, currentIndex) => currentIndex !== index))}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] table-fixed">
+              <thead className="border-b bg-muted/30">
+                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <th className="px-3 py-2 w-[22%]">Item code</th>
+                  <th className="px-3 py-2">Description</th>
+                  <th className="px-3 py-2 w-[16%]">Amount</th>
+                  <th className="px-3 py-2 w-[24%]">Currency</th>
+                  <th className="px-3 py-2 w-[110px] text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/70">
+                {items.map((item, index) => (
+                  <tr key={`${item.id}:${index}`} className="align-top">
+                    <td className="px-3 py-2">
+                      <Input
+                        value={item.id}
+                        onChange={(event) => updateItem(index, { id: event.target.value })}
+                        placeholder="starter"
+                        aria-label={`Item code ${index + 1}`}
+                        className="h-8"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        value={item.description}
+                        onChange={(event) => updateItem(index, { description: event.target.value })}
+                        placeholder="Starter package"
+                        aria-label={`Description ${index + 1}`}
+                        className="h-8"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.amount}
+                        onChange={(event) => updateItem(index, { amount: Number(event.target.value) })}
+                        placeholder="0.00"
+                        aria-label={`Amount ${index + 1}`}
+                        className="h-8"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <CheckoutCurrencySelect
+                        value={item.currencyCode}
+                        onChange={(next) => updateItem(index, { currencyCode: next })}
+                        placeholder="Select currency"
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onChange(items.filter((_, currentIndex) => currentIndex !== index))}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Remove
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
           <div className="px-4 py-8">
@@ -380,7 +392,7 @@ function PriceListEditor({
         )}
       </div>
 
-      <Button type="button" variant="outline" onClick={addItem}>
+      <Button type="button" variant="outline" size="sm" onClick={addItem}>
         <Plus className="mr-2 h-4 w-4" />
         Add item
       </Button>
@@ -598,7 +610,7 @@ function AppearanceSection({
         }}
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="space-y-4">
         <ColorField
           label="Primary color"
           value={readString(values.primaryColor) || DEFAULT_COLORS.primaryColor}

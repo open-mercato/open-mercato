@@ -1,10 +1,33 @@
 import { z } from 'zod'
-import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../setup'
+import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
 import { CHECKOUT_LINK_STATUSES } from '../lib/constants'
+
+function normalizeBlankString(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeOptionalDocument(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const source = value as Record<string, unknown>
+  const title = typeof source.title === 'string' ? source.title.trim() : ''
+  const markdown = typeof source.markdown === 'string' ? source.markdown.trim() : ''
+  const required = source.required === true
+  if (!title && !markdown && !required) return undefined
+  return value
+}
 
 const hexColorSchema = z.string().regex(/^#([0-9a-fA-F]{6})$/)
 const currencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/)
-const optionalTrimmedString = z.string().trim().min(1).optional().nullable()
+const optionalTrimmedString = z.preprocess(
+  normalizeBlankString,
+  z.string().trim().min(1).optional().nullable(),
+)
+const optionalUrlSchema = z.preprocess(
+  normalizeBlankString,
+  z.string().url().optional().nullable(),
+)
 const positiveMoneySchema = z.coerce.number().finite().nonnegative()
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
 
@@ -24,11 +47,14 @@ export const customerFieldDefinitionSchema = z.object({
   sortOrder: z.coerce.number().int().min(0),
 })
 
-export const legalDocumentSchema = z.object({
-  title: z.string().trim().min(1),
-  markdown: z.string().trim().min(1),
-  required: z.boolean().default(false),
-})
+export const legalDocumentSchema = z.preprocess(
+  normalizeOptionalDocument,
+  z.object({
+    title: z.string().trim().min(1),
+    markdown: z.string().trim().min(1),
+    required: z.boolean().default(false),
+  }).optional(),
+)
 
 export const legalDocumentsSchema = z.object({
   terms: legalDocumentSchema.optional(),
@@ -50,7 +76,7 @@ const checkoutContentSchema = z.object({
   subtitle: optionalTrimmedString,
   description: z.string().optional().nullable(),
   logoAttachmentId: z.string().uuid().optional().nullable(),
-  logoUrl: z.string().url().optional().nullable(),
+  logoUrl: optionalUrlSchema,
   primaryColor: hexColorSchema.optional().nullable(),
   secondaryColor: hexColorSchema.optional().nullable(),
   backgroundColor: hexColorSchema.optional().nullable(),

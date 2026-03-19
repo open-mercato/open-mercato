@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
+import { buildCheckoutAttachmentPreviewUrl, normalizeOptionalString } from './client-utils'
 import type {
   CreateLinkInput,
   CreateTemplateInput,
