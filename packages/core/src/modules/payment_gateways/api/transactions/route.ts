@@ -151,8 +151,6 @@ export async function GET(req: Request) {
       F.redirect_url,
       F.last_webhook_at,
       F.last_polled_at,
-      F.document_type,
-      F.document_id,
       F.created_at,
       F.updated_at,
     ],
@@ -214,7 +212,7 @@ export async function GET(req: Request) {
           entityType: assignment.entityType,
           entityId: assignment.entityId,
         })))
-        return ((item as Record<string, unknown>).document_type as string | null | undefined) ?? primary?.entityType ?? null
+        return primary?.entityType ?? null
       })(),
       documentId: (() => {
         const transactionId = typeof (item as Record<string, unknown>).id === 'string'
@@ -225,7 +223,7 @@ export async function GET(req: Request) {
           entityType: assignment.entityType,
           entityId: assignment.entityId,
         })))
-        return ((item as Record<string, unknown>).document_id as string | null | undefined) ?? primary?.entityId ?? null
+        return primary?.entityId ?? null
       })(),
       redirectUrl: (item as Record<string, unknown>).redirect_url ?? null,
       lastWebhookAt: formatDateValue((item as Record<string, unknown>).last_webhook_at),

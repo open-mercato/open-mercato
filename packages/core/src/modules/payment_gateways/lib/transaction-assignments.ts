@@ -61,15 +61,6 @@ export function readPrimaryGatewayTransactionAssignment(
   return assignments.length > 0 ? assignments[0] ?? null : null
 }
 
-function syncLegacyDocumentBridge(
-  transaction: GatewayTransaction,
-  assignments: ReadonlyArray<GatewayTransactionAssignmentInput>,
-) {
-  const primary = readPrimaryGatewayTransactionAssignment(assignments)
-  transaction.documentType = primary?.entityType ?? null
-  transaction.documentId = primary?.entityId ?? null
-}
-
 export async function listGatewayTransactionAssignments(
   em: EntityManager,
   {
@@ -169,7 +160,6 @@ export async function replaceGatewayTransactionAssignments(
     }))
   })
 
-  syncLegacyDocumentBridge(transaction, normalizedAssignments)
   await em.flush()
 
   return findWithDecryption(

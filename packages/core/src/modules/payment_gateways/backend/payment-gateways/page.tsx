@@ -15,10 +15,11 @@ import { PAYMENT_GATEWAY_TRANSACTIONS_TABLE_ID } from '@open-mercato/shared/modu
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { ChevronDown, ChevronRight, CreditCard, RefreshCw, Webhook } from 'lucide-react'
+import { ChevronDown, ChevronRight, CreditCard, Plus, RefreshCw, Webhook, X } from 'lucide-react'
 
 type TransactionAssignmentRef = {
   id?: string
@@ -149,6 +150,10 @@ function formatEntityTypeLabel(value: string): string {
   return formatTypeLabel(value.replace(/[:.]/g, ' '))
 }
 
+function buildAssignmentKey(assignment: Pick<TransactionAssignmentRef, 'entityType' | 'entityId'>): string {
+  return `${assignment.entityType}::${assignment.entityId}`
+}
+
 function formatLogDetailLabel(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -273,6 +278,10 @@ export default function PaymentTransactionsPage() {
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
   const [entityTypes, setEntityTypes] = React.useState<string[]>([])
+  const [assignmentDraft, setAssignmentDraft] = React.useState({ entityType: '', entityId: '' })
+  const [assignmentError, setAssignmentError] = React.useState<string | null>(null)
+  const [isMutatingAssignment, setIsMutatingAssignment] = React.useState(false)
+  const [assignmentMutationKey, setAssignmentMutationKey] = React.useState<string | null>(null)
   const noneLabel = t('common.none', 'None')
   const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
     if (value === null) return noneLabel
@@ -346,6 +355,7 @@ export default function PaymentTransactionsPage() {
     if (!selectedId) {
       setDetail(null)
       setDetailError(null)
+      setAssignmentError(null)
       return
     }
     void loadDetail(selectedId)

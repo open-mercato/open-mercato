@@ -78,3 +78,9 @@ export const listTransactionsQuerySchema = z.object({
 })
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>
+
+export const replaceGatewayTransactionAssignmentsSchema = z.object({
+  assignments: z.array(gatewayTransactionAssignmentSchema).max(100),
+})
+
+export type ReplaceGatewayTransactionAssignmentsPayload = z.infer<typeof replaceGatewayTransactionAssignmentsSchema>

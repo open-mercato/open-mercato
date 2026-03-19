@@ -219,8 +219,6 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         amount: String(input.amount),
         currencyCode: input.currencyCode,
         gatewayMetadata: session.providerData ?? null,
-        documentType: null,
-        documentId: null,
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })
