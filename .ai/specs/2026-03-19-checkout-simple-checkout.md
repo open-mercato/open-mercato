@@ -43,7 +43,7 @@ Phase B is an **additive extension** of Phase A. All Phase A code remains unchan
 | Entity discriminator | `checkoutType = 'pay_link'` | `checkoutType = 'simple_checkout'` |
 | Pricing | Fixed / Custom Amount / Price List | Cart items with totals |
 | Data model | `CheckoutLink`, `CheckoutTransaction` | + `CheckoutCartItem`, + quote/order FK columns |
-| CrudForm | 8 tabs | + "Products" tab |
+| CrudForm | 9 groups (2-column) | + "Products" group |
 | Pay page | Amount-based | Items review + totals |
 | Payment flow | Direct amount → adapter | Order total → adapter |
 | Financial record | Transaction amount | Transaction + Quote + Order |
@@ -270,109 +270,22 @@ const additionalEvents = [
 
 ## UI/UX (Phase B Additions)
 
-### CrudForm: "Products" Tab (Tab 9)
+### CrudForm: "Products" Group
 
 Uses the same `CrudForm` instance as Phase A with an additional group. The `checkoutType` field value controls group visibility — when `'simple_checkout'`, the Products group is shown and the Pricing group is hidden.
+
+The Products group uses `column: 1` (full-width main content area) since it contains a wide items table that benefits from spanning the full form width.
 
 Visible only when `checkoutType = 'simple_checkout'`. Contains:
 - **Product Selector**: Search catalog products by name/SKU or add custom freeform item
 - **Items Table**: Sortable list with columns: Image, Name, SKU, Quantity, Unit Price, Tax Rate, Line Total
 - **Add Item Button**: Opens product search dialog or freeform item form
 - **Totals Summary**: Subtotal, Tax, Grand Total (calculated by `salesCalculationService`)
-- **Pricing tab hidden**: When `checkoutType = 'simple_checkout'`, the Pricing tab (Tab 3) is hidden since pricing comes from items
+- **Pricing group hidden**: When `checkoutType = 'simple_checkout'`, the Pricing group is hidden since pricing comes from items
 
-**Products Tab Wireframe:**
+**Wireframe:** See [Products Group wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#products-group)
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Products Tab                                                                   │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│  ┌─────────────────────────────────────────────────┐  ┌───────────────────────┐ │
-│  │ 🔍 Search products by name or SKU...            │  │ + Add Custom Item     │ │
-│  └─────────────────────────────────────────────────┘  └───────────────────────┘ │
-│                                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │ ⠿ │ Image   │ Name            │ SKU        │ Qty │ Unit Price │ Tax  │ Line Total │ ✕ │
-│  ├───┼─────────┼─────────────────┼────────────┼─────┼────────────┼──────┼────────────┼───┤
-│  │ ⠿ │ [img]   │ Widget A        │ WDG-A-001  │  1  │   $29.00   │ 20%  │     $29.00 │ ✕ │
-│  │ ⠿ │ [img]   │ Widget B        │ WDG-B-002  │  1  │   $49.00   │ 20%  │     $49.00 │ ✕ │
-│  │ ⠿ │         │ Service Fee     │ SVC-FEE    │  1  │   $15.00   │  0%  │     $15.00 │ ✕ │
-│  └───┴─────────┴─────────────────┴────────────┴─────┴────────────┴──────┴────────────┴───┘
-│                                                                                 │
-│                                              ┌────────────────────────────────┐ │
-│                                              │  Subtotal:          $93.00    │ │
-│                                              │  Tax:               $15.60    │ │
-│                                              │  ─────────────────────────── │ │
-│                                              │  Grand Total:      $108.60    │ │
-│                                              └────────────────────────────────┘ │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Add Product Dialog Wireframe:**
-
-```text
-┌──────────────────────────────────────────────────────────────┐
-│  Add Product                                          [✕]    │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  [ Catalog Product ]  [ Custom Item ]                        │
-│  ─────────────────────────────────                           │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ 🔍 Search by name or SKU...                            │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ [img]  Widget A               WDG-A-001     $29.00    │  │
-│  │        High-quality widget component                   │  │
-│  ├────────────────────────────────────────────────────────┤  │
-│  │ [img]  Widget B               WDG-B-002     $49.00    │  │
-│  │        Premium widget with extras                      │  │
-│  ├────────────────────────────────────────────────────────┤  │
-│  │ [img]  Widget C               WDG-C-003     $19.00    │  │
-│  │        Basic widget model                              │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-│  Showing 3 of 12 results                                     │
-│                                                              │
-├──────────────────────────────────────────────────────────────┤
-│                                     [ Cancel ] [ Add Item ]  │
-└──────────────────────────────────────────────────────────────┘
-
-──────────────────────────────────────────────────────────────
-
-┌──────────────────────────────────────────────────────────────┐
-│  Add Product                                          [✕]    │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  [ Catalog Product ]  [ Custom Item ]                        │
-│                       ─────────────                          │
-│                                                              │
-│  Name *         ┌────────────────────────────────────────┐   │
-│                 │ Service Fee                             │   │
-│                 └────────────────────────────────────────┘   │
-│  Description    ┌────────────────────────────────────────┐   │
-│                 │ One-time setup and onboarding fee       │   │
-│                 └────────────────────────────────────────┘   │
-│  SKU            ┌────────────────────────────────────────┐   │
-│                 │ SVC-FEE                                 │   │
-│                 └────────────────────────────────────────┘   │
-│  Quantity *     ┌────────────────────────────────────────┐   │
-│                 │ 1                                       │   │
-│                 └────────────────────────────────────────┘   │
-│  Unit Price *   ┌────────────────────────────────────────┐   │
-│                 │ 15.00                                   │   │
-│                 └────────────────────────────────────────┘   │
-│  Tax Rate (%)   ┌────────────────────────────────────────┐   │
-│                 │ 0                                       │   │
-│                 └────────────────────────────────────────┘   │
-│                                                              │
-├──────────────────────────────────────────────────────────────┤
-│                                     [ Cancel ] [ Add Item ]  │
-└──────────────────────────────────────────────────────────────┘
-```
+**Wireframe:** See [Add Product Dialog wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#add-product-dialog)
 
 ### Public Pay Page: Cart View
 
@@ -383,94 +296,7 @@ For `simple_checkout` links, the pricing section is replaced with:
 3. **Customer Form** — Same as Phase A (shared component)
 4. **Payment Section** — Same as Phase A (shared component, uses order total)
 
-**Public Pay Page Wireframe (Cart View):**
-
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│                         [ Company Logo ]                            │
-│                                                                     │
-│                       Spring Sale Bundle                            │
-│                   Get our best products together                    │
-│                                                                     │
-│         Save on Widget A, Widget B, and onboarding with             │
-│                   this exclusive bundle offer.                      │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ◄── UMES: checkout.pay-page:items:before                           │
-│                                                                     │
-│  Your Items                                                         │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │       │ Item                  │ Qty │ Unit Price │ Total    │    │
-│  ├───────┼───────────────────────┼─────┼────────────┼──────────┤    │
-│  │ [img] │ Widget A              │  1  │    $29.00  │   $29.00 │    │
-│  │ [img] │ Widget B              │  1  │    $49.00  │   $49.00 │    │
-│  │       │ Service Fee           │  1  │    $15.00  │   $15.00 │    │
-│  └───────┴───────────────────────┴─────┴────────────┴──────────┘    │
-│                                                                     │
-│  ◄── UMES: checkout.pay-page:items:after                            │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │  Order Summary                                              │    │
-│  │  ───────────────────────────────────────────────────────── │    │
-│  │  Subtotal                                         $93.00   │    │
-│  │  Tax (20%)                                        $15.60   │    │
-│  │  Shipping                                          $0.00   │    │
-│  │  ───────────────────────────────────────────────────────── │    │
-│  │  Grand Total                                     $108.60   │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  ◄── UMES: checkout.pay-page:totals:after                           │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  Your Details                                                       │
-│                                                                     │
-│  First Name *        ┌──────────────────────────────────────────┐   │
-│                      │                                          │   │
-│                      └──────────────────────────────────────────┘   │
-│  Last Name *         ┌──────────────────────────────────────────┐   │
-│                      │                                          │   │
-│                      └──────────────────────────────────────────┘   │
-│  Email *             ┌──────────────────────────────────────────┐   │
-│                      │                                          │   │
-│                      └──────────────────────────────────────────┘   │
-│  Phone               ┌──────────────────────────────────────────┐   │
-│                      │                                          │   │
-│                      └──────────────────────────────────────────┘   │
-│  Company             ┌──────────────────────────────────────────┐   │
-│                      │                                          │   │
-│                      └──────────────────────────────────────────┘   │
-│                                                                     │
-│  (+ Custom fields injected via UMES)                                │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  Payment                                                            │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │  (Payment gateway form — Stripe / provider embed)           │    │
-│  │                                                             │    │
-│  │  Card Number   ┌────────────────────────────────────────┐   │    │
-│  │                │ 4242 4242 4242 4242                     │   │    │
-│  │                └────────────────────────────────────────┘   │    │
-│  │  Exp / CVC     ┌──────────────┐  ┌──────────────┐         │    │
-│  │                │ 12/28        │  │ 123          │         │    │
-│  │                └──────────────┘  └──────────────┘         │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                     Pay $108.60                              │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│                    Powered by Open Mercato                           │
-│                  Terms · Privacy · Contact                           │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+**Wireframe:** See [Public Pay Page: Cart View wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#public-pay-page-cart-view)
 
 ### UMES Extension Points (Phase B Additions)
 
@@ -498,61 +324,9 @@ Checkout injects into sales module:
 - **Quote detail page**: Same badge
 - **Orders DataTable**: Optional column "Source" showing "Checkout" for checkout-originated orders
 
-**Order Detail Page — Checkout Source Badge:**
+**Wireframe:** See [Order Detail Page — Checkout Source Badge wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#order-detail-page----checkout-source-badge)
 
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│  Order #ORD-2026-0042                                               │
-│                                                                     │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │  ℹ  Created from Checkout Link: Spring Sale Bundle            │  │
-│  │     View checkout transaction →                               │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │  Status: Confirmed       Date: 2026-03-19                   │    │
-│  │  Customer: jane@example.com                                 │    │
-│  │  Total: $108.60                                             │    │
-│  ├─────────────────────────────────────────────────────────────┤    │
-│  │  Items                                                      │    │
-│  │  ─────────────────────────────────────────────────────────  │    │
-│  │  Widget A              1 × $29.00               $29.00     │    │
-│  │  Widget B              1 × $49.00               $49.00     │    │
-│  │  Service Fee           1 × $15.00               $15.00     │    │
-│  │  ─────────────────────────────────────────────────────────  │    │
-│  │  Subtotal: $93.00   Tax: $15.60   Total: $108.60           │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  ...                                                                │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Orders DataTable — Source Column:**
-
-```text
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│  Orders                                                          [ + New Order ]         │
-├──────┬──────────────────┬──────────────────┬──────────┬──────────┬──────────┬────────────┤
-│  #   │ Order Number     │ Customer         │ Total    │ Status   │ Source   │ Actions    │
-├──────┼──────────────────┼──────────────────┼──────────┼──────────┼──────────┼────────────┤
-│  1   │ ORD-2026-0042    │ Jane Smith       │ $108.60  │ Confirmed│ Checkout │  ⋮         │
-│      │                  │                  │          │          │ ┌──────┐ │            │
-│      │                  │                  │          │          │ │ badge│ │            │
-│      │                  │                  │          │          │ └──────┘ │            │
-├──────┼──────────────────┼──────────────────┼──────────┼──────────┼──────────┼────────────┤
-│  2   │ ORD-2026-0041    │ Acme Corp        │ $250.00  │ Shipped  │          │  ⋮         │
-├──────┼──────────────────┼──────────────────┼──────────┼──────────┼──────────┼────────────┤
-│  3   │ ORD-2026-0040    │ Bob Johnson      │  $79.00  │ Draft    │ Checkout │  ⋮         │
-│      │                  │                  │          │          │ ┌──────┐ │            │
-│      │                  │                  │          │          │ │ badge│ │            │
-│      │                  │                  │          │          │ └──────┘ │            │
-├──────┼──────────────────┼──────────────────┼──────────┼──────────┼──────────┼────────────┤
-│  4   │ ORD-2026-0039    │ Alice Williams   │ $149.99  │ Confirmed│          │  ⋮         │
-└──────┴──────────────────┴──────────────────┴──────────┴──────────┴──────────┴────────────┘
-│                                                                                          │
-│  Showing 1–4 of 4 orders                                                                 │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
-```
+**Wireframe:** See [Orders DataTable — Source Column wireframe](./2026-03-19-checkout-simple-checkout-wireframes.md#orders-datatable----source-column)
 
 ---
 
@@ -668,9 +442,9 @@ Preferred doc locations:
 3. Create cart item commands (create/update/delete/reorder) with undo
 4. Create cart item API routes with OpenAPI
 5. Enforce single-currency cart validation and gateway-supported-currency validation on admin item mutations
-6. Add "Products" tab to `LinkTemplateForm` (conditional on `checkoutType`)
+6. Add "Products" group to `LinkTemplateForm` (conditional on `checkoutType`, `column: 1`)
 7. Add product search/selector component
-8. Hide Pricing tab for `simple_checkout` type
+8. Hide Pricing group for `simple_checkout` type
 
 ### Phase B.2: Quote/Order Integration
 1. Wire `salesCalculationService` resolution via DI
@@ -714,8 +488,8 @@ Preferred doc locations:
 | TC-CHKT-B06 | Payment completion creates order | Webhook → verify order created |
 | TC-CHKT-B07 | Transaction detail shows quote/order links | `GET /api/checkout/transactions/:id` |
 | TC-CHKT-B08 | Order detail shows checkout source badge | Navigate to order, verify badge |
-| TC-CHKT-B09 | Products tab hidden for pay_link type | Create pay_link, verify no Products tab |
-| TC-CHKT-B10 | Pricing tab hidden for simple_checkout type | Create simple_checkout, verify no Pricing tab |
+| TC-CHKT-B09 | Products group hidden for pay_link type | Create pay_link, verify no Products group |
+| TC-CHKT-B10 | Pricing group hidden for simple_checkout type | Create simple_checkout, verify no Pricing group |
 | TC-CHKT-B11 | GET preview does not create a quote | `GET /api/checkout/pay/:slug` then assert no new sales quote |
 | TC-CHKT-B12 | Duplicate submit with same idempotency key reuses quote/session | Repeat `POST /submit` |
 | TC-CHKT-B13 | Expired or failed checkout cancels cleanup quote | Expire transaction → verify quote cleanup |
@@ -820,7 +594,7 @@ No existing checkout, sales, or payment gateway route is renamed or removed.
 - Initial specification created as companion to Phase A (Pay Links)
 - Defined cart item entity and transaction extensions (additive-only)
 - Defined quote → order flow via existing sales commands + `salesCalculationService`
-- Defined UI extensions (Products tab, cart view on pay page)
+- Defined UI extensions (Products group, cart view on pay page)
 - Defined implementation plan (4 sub-phases)
 - Expanded security and abuse-prevention coverage, including no-quote-on-GET and submit idempotency
 - Completed compliance review
