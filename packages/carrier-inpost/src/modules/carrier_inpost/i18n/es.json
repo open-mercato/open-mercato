@@ -1,7 +1,7 @@
 {
   "carrier_inpost.config.action.configureCredentials": "Configurar credenciales",
   "carrier_inpost.config.credential.apiToken": "Token API (Bearer) — desde InPost Manager → API → Tokens",
-  "carrier_inpost.config.credential.organizationId": "ID de organización — ID numérico (entero, p. ej. 6183). Use GET /v1/organizations para encontrarlo — NO use el UUID de cuenta JWT.",
+  "carrier_inpost.config.credential.organizationId": "ID de organización — UUID visible en la URL de InPost Manager después de /organizations/",
   "carrier_inpost.config.help": "Configure su token de API de InPost y el ID de organización en las credenciales de integración. Servicios disponibles: taquillas Paczkomat (estándar y exprés) y entrega por mensajero.",
   "carrier_inpost.config.requiredCredentials": "Credenciales requeridas:",
   "carrier_inpost.demo.action.cancelShipment": "Cancelar envío",

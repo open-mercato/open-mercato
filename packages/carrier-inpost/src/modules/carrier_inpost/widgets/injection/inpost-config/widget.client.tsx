@@ -10,7 +10,7 @@ export default function InpostConfigWidget(props: InjectionWidgetComponentProps)
   const t = useT()
   const integrationId = (props.context as Record<string, unknown> | undefined)?.integrationId as string | undefined
   const credentialsHref = integrationId
-    ? `/backend/integrations/${integrationId}`
+    ? `/backend/integrations/${integrationId}/credentials`
     : '/backend/integrations'
 
   return (

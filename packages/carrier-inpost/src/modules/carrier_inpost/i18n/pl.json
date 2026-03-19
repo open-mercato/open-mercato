@@ -1,7 +1,7 @@
 {
   "carrier_inpost.config.action.configureCredentials": "Skonfiguruj dane uwierzytelniające",
   "carrier_inpost.config.credential.apiToken": "Token API (Bearer) — z InPost Managera → API → Tokeny",
-  "carrier_inpost.config.credential.organizationId": "ID organizacji — numeryczny identyfikator (liczba całkowita, np. 6183). Użyj GET /v1/organizations, aby go znaleźć — NIE używaj UUID konta JWT.",
+  "carrier_inpost.config.credential.organizationId": "ID organizacji — UUID widoczny w adresie URL InPost Managera po /organizations/",
   "carrier_inpost.config.help": "Skonfiguruj token API InPost i identyfikator organizacji w danych uwierzytelniających integracji. Dostępne usługi: paczkomaty (standardowy i ekspres) oraz kurier.",
   "carrier_inpost.config.requiredCredentials": "Wymagane dane uwierzytelniające:",
   "carrier_inpost.demo.action.cancelShipment": "Anuluj przesyłkę",
