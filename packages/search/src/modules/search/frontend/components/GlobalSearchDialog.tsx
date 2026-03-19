@@ -55,6 +55,7 @@ import {
 } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
+import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
 import { fetchGlobalSearchResults } from '../utils'
 
 const MIN_QUERY_LENGTH = 2
@@ -253,11 +254,7 @@ export function GlobalSearchDialog({
         if (controller.signal.aborted) return
         const abortError = err as { name?: string }
         if (abortError?.name === 'AbortError') return
-        const status = typeof (err as { status?: unknown })?.status === 'number'
-          ? (err as { status: number }).status
-          : null
-        const message = err instanceof Error ? err.message : ''
-        if (status === 403 || /forbidden/i.test(message)) {
+        if (err instanceof ForbiddenError) {
           setError(t('search.dialog.errors.noPermission'))
         } else {
           setError(err instanceof Error ? err.message : t('search.dialog.errors.searchFailed'))
