@@ -2999,12 +2999,12 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
           autoFocus={autoFocusField}
-          suggestions={options.map((opt) => opt.label)}
+          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {
                   const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => opt.label)
+                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
                 }
               : undefined
           }

@@ -30,6 +30,7 @@ type LoadedUser = {
   tenantName: string | null
   organizationName: string | null
   roles: string[]
+  roleIds: string[]
 }
 
 type UserApiItem = {
@@ -40,6 +41,7 @@ type UserApiItem = {
   tenantName?: string | null
   organizationName?: string | null
   roles?: unknown
+  roleIds?: unknown
 }
 
 type UserListResponse = {
@@ -146,6 +148,14 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             setInitialUser(null)
             setSelectedTenantId(null)
           } else {
+            const roleNames = Array.isArray(item.roles)
+              ? item.roles
+                  .map((role) => (typeof role === 'string' ? role : role == null ? '' : String(role)))
+                  .filter((role) => role.trim().length > 0)
+              : []
+            const roleIds = Array.isArray(item.roleIds)
+              ? (item.roleIds as string[]).filter((rid) => typeof rid === 'string' && rid.trim().length > 0)
+              : []
             setInitialUser({
               id: item.id ? String(item.id) : String(id),
               email: item.email ? String(item.email) : '',
@@ -153,11 +163,8 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               tenantId: item.tenantId ? String(item.tenantId) : null,
               tenantName: item.tenantName ? String(item.tenantName) : null,
               organizationName: item.organizationName ? String(item.organizationName) : null,
-              roles: Array.isArray(item.roles)
-                ? item.roles
-                    .map((role) => (typeof role === 'string' ? role : role == null ? '' : String(role)))
-                    .filter((role) => role.trim().length > 0)
-                : [],
+              roles: roleNames,
+              roleIds: roleIds.length > 0 ? roleIds : roleNames,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
             const custom: Record<string, unknown> = {}
@@ -323,7 +330,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         password: '',
         tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
-        roles: initialUser.roles,
+        roles: initialUser.roleIds,
         ...customFieldValues,
       }
     }
