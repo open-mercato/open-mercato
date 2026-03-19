@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/core",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -207,7 +207,6 @@
     }
   },
   "dependencies": {
-    "@open-mercato/shared": "workspace:*",
     "@types/html-to-text": "^9.0.4",
     "@types/semver": "^7.5.8",
     "@xyflow/react": "^12.6.0",
@@ -217,7 +216,11 @@
     "html-to-text": "^9.0.5",
     "semver": "^7.6.3"
   },
+  "peerDependencies": {
+    "@open-mercato/shared": "workspace:*"
+  },
   "devDependencies": {
+    "@open-mercato/shared": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",

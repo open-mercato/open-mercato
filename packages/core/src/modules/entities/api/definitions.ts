@@ -198,7 +198,16 @@ export async function GET(req: Request) {
     for (const d of winning) {
       const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
       const normalizedFieldset = rawFieldset.length > 0 ? rawFieldset : undefined
-      if (fieldsetFilter && normalizedFieldset !== fieldsetFilter) continue
+      const normalizedFieldsets = Array.isArray(d.configJson?.fieldsets)
+        ? d.configJson.fieldsets
+            .filter((entry: unknown): entry is string => typeof entry === 'string')
+            .map((entry: string) => entry.trim())
+            .filter((entry: string) => entry.length > 0)
+        : []
+      const effectiveFieldsets = normalizedFieldsets.length > 0
+        ? normalizedFieldsets
+        : (normalizedFieldset ? [normalizedFieldset] : [])
+      if (fieldsetFilter && !effectiveFieldsets.includes(fieldsetFilter)) continue
       const groupInfo = normalizeFieldGroup(d.configJson?.group)
       const keyLower = String(d.key).toLowerCase()
       const candidateBase = {
@@ -235,7 +244,8 @@ export async function GET(req: Request) {
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
         entityId,
-        fieldset: normalizedFieldset,
+        fieldset: normalizedFieldset ?? effectiveFieldsets[0],
+        fieldsets: effectiveFieldsets.length > 0 ? effectiveFieldsets : undefined,
         group: groupInfo,
       } as any
       const metrics = computeDefinitionScore(d, candidateBase, entityOrder.get(entityId) ?? Number.MAX_SAFE_INTEGER)

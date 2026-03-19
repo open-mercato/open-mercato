@@ -642,3 +642,25 @@ export async function resolveStripeClient(
 | `IntegrationCredentials` resolution | §9, §10 | All integrations |
 | `integrationLog` scoped logging | §5.2 | All integrations |
 | `registerPaymentProvider()` backward compat | §8 | Payment gateways specifically |
+
+---
+
+## 13. Testing Strategy
+
+Stripe-specific integration tests (§11) that require a real Stripe API key are **deferred** and not included in the initial implementation. These tests cover Stripe-specific behaviors (webhook signature verification, Payment Intent creation, etc.) that cannot be validated with a mock adapter.
+
+The mock adapter tests in `packages/core/src/modules/payment_gateways/__integration__/` validate the `GatewayAdapter` contract and cover all generic payment lifecycle operations (create session, capture, refund, cancel, webhooks, tenant isolation, edge cases). These tests run without any external API keys.
+
+When Stripe-specific tests are added in the future, they should:
+- Be gated behind a `STRIPE_TEST_SECRET_KEY` env variable
+- Skip automatically when the variable is not set
+- Use Stripe test mode keys only (never live keys in CI)
+- Run in a separate CI job or test suite
+
+---
+
+## Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-03-10 | Added §13 Testing Strategy noting deferred Stripe-specific integration tests. Mock adapter tests validate the GatewayAdapter contract. Added `company` field to integration metadata. |

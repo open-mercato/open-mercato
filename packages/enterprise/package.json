@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -65,11 +65,14 @@
   },
   "dependencies": {
     "@open-mercato/core": "workspace:*",
-    "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "openid-client": "^6.3.3"
   },
+  "peerDependencies": {
+    "@open-mercato/shared": "workspace:*"
+  },
   "devDependencies": {
+    "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.6"

@@ -1,0 +1,7 @@
+{
+  "shipping_carriers.action.createShipment": "Crear envio",
+  "shipping_carriers.column.shippingStatus": "Estado del envio",
+  "shipping_carriers.column.trackingStatus": "Estado del seguimiento",
+  "shipping_carriers.feature.manage": "Gestionar operaciones de transportistas",
+  "shipping_carriers.feature.view": "Ver envios de transportistas"
+}

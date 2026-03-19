@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ui",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -116,7 +116,6 @@
     }
   },
   "dependencies": {
-    "@open-mercato/shared": "workspace:*",
     "@radix-ui/react-popover": "^1.1.6",
     "@radix-ui/react-tooltip": "^1.2.8",
     "date-fns": "^4.1.0",
@@ -125,10 +124,12 @@
     "recharts": "^2.15.0"
   },
   "peerDependencies": {
+    "@open-mercato/shared": "workspace:*",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
   "devDependencies": {
+    "@open-mercato/shared": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",

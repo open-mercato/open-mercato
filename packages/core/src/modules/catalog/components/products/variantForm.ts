@@ -1,7 +1,8 @@
 "use client"
 
 import type { ProductMediaItem } from './ProductMediaManager'
-import { createLocalId } from './productForm'
+import { createLocalId, type PriceKindSummary } from './productForm'
+import { isCatalogPriceAmountInputValid } from '../../lib/priceValidation'
 
 export type OptionDefinition = {
   id: string
@@ -95,6 +96,20 @@ function extractString(value: unknown): string {
 export function buildVariantMetadata(values: VariantFormValues): Record<string, unknown> {
   const metadata = typeof values.metadata === 'object' && values.metadata ? { ...values.metadata } : {}
   return metadata
+}
+
+export function findInvalidVariantPriceKinds(
+  priceKinds: PriceKindSummary[],
+  priceDrafts: Record<string, VariantPriceDraft> | undefined,
+): string[] {
+  const invalid: string[] = []
+  for (const kind of priceKinds) {
+    const draft = priceDrafts?.[kind.id]
+    const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
+    if (!amount) continue
+    if (!isCatalogPriceAmountInputValid(amount)) invalid.push(kind.id)
+  }
+  return invalid
 }
 
 export function mapPriceItemToDraft(

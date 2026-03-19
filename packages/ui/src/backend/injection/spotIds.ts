@@ -40,6 +40,21 @@ export const DataTableInjectionSpots = {
   filters: (tableId: string): InjectionSpotId => `data-table:${tableId}:filters`,
 } as const
 
+// Portal chrome spot IDs (FROZEN once shipped)
+export const PORTAL_SIDEBAR_MAIN_INJECTION_SPOT_ID: InjectionSpotId = 'menu:portal:sidebar:main'
+export const PORTAL_SIDEBAR_ACCOUNT_INJECTION_SPOT_ID: InjectionSpotId = 'menu:portal:sidebar:account'
+export const PORTAL_HEADER_ACTIONS_INJECTION_SPOT_ID: InjectionSpotId = 'menu:portal:header:actions'
+export const PORTAL_USER_DROPDOWN_INJECTION_SPOT_ID: InjectionSpotId = 'menu:portal:user-dropdown'
+
+// Portal page injection spots (FROZEN once shipped)
+export const PortalInjectionSpots = {
+  dashboardSections: 'portal:dashboard:sections' as InjectionSpotId,
+  dashboardProfile: 'portal:dashboard:profile' as InjectionSpotId,
+  dashboardSidebar: 'portal:dashboard:sidebar' as InjectionSpotId,
+  pageBefore: (pageId: string): InjectionSpotId => `portal:${pageId}:before` as InjectionSpotId,
+  pageAfter: (pageId: string): InjectionSpotId => `portal:${pageId}:after` as InjectionSpotId,
+} as const
+
 export const DetailInjectionSpots = {
   header: (entityId: string): InjectionSpotId => `detail:${entityId}:header`,
   tabs: (entityId: string): InjectionSpotId => `detail:${entityId}:tabs`,

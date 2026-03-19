@@ -1,0 +1,76 @@
+{
+  "name": "@open-mercato/sync-akeneo",
+  "version": "0.4.8",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    }
+  },
+  "dependencies": {
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "node-html-markdown": "^2.0.0"
+  },
+  "peerDependencies": {
+    "@mikro-orm/postgresql": "^6.6.2",
+    "@open-mercato/shared": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@open-mercato/shared": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "esbuild": "^0.25.0",
+    "glob": "^13.0.6",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

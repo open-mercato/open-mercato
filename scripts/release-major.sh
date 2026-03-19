@@ -9,6 +9,9 @@ else
   echo "==> Skipping template sync in CI"
 fi
 
+echo "==> Checking version alignment across packages..."
+./scripts/check-version-alignment.sh
+
 echo "==> Bumping major version..."
 yarn workspaces foreach -A --no-private version major
 
@@ -22,6 +25,6 @@ echo "==> Rebuilding packages with generated files..."
 yarn build:packages
 
 echo "==> Publishing with @latest tag..."
-yarn workspaces foreach -A --no-private npm publish --access public
+./scripts/publish-packages.sh
 
 echo "==> Done!"

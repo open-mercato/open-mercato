@@ -37,8 +37,9 @@ export async function POST(req: Request) {
     const maxTextSize = parseInt(process.env.INBOX_OPS_MAX_TEXT_SIZE || '204800', 10)
     const truncatedText = text.slice(0, maxTextSize)
 
+    const submitterEmail = ctx.auth?.email || ctx.userId
     const email = ctx.em.create(InboxEmail, {
-      forwardedByAddress: ctx.userId,
+      forwardedByAddress: submitterEmail,
       forwardedByName: null,
       toAddress: 'text-extract',
       subject: title || 'Text extraction',
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
         emailId: email.id,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
-        forwardedByAddress: ctx.userId,
+        forwardedByAddress: submitterEmail,
         subject: title || 'Text extraction',
       })
     } catch (eventError) {

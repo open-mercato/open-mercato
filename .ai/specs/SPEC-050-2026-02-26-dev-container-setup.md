@@ -55,6 +55,7 @@ A `.devcontainer/` directory containing a Docker Compose-based Dev Container con
 | 12 GB Docker Desktop memory recommendation | Turbopack compilation + 14 package watchers + workers spike to ~8-10 GB during page compilation |
 | Always regenerate `.env` on rebuild | New keys from `.env.example` appear automatically; personal overrides live in `.env.local` (Next.js native priority) |
 | Claude Code CLI native install (`~/.claude/bin/`) | Enables AI-assisted development out of the box; native install supports auto-updates without sudo |
+| Named service syntax for non-workspace `forwardPorts` (e.g., `"postgres:5432"`) | When the primary `service` is `workspace`, VS Code forwards numeric port entries on the workspace container — not on the service that actually listens. Named syntax routes the forward to the correct service, fixing host tool connections to PostgreSQL, Redis, and Meilisearch. |
 | Database query for first-run detection | Queries `information_schema.tables` to determine init vs migrate — no marker volume needed, eliminates stale state issues |
 
 ### Alternatives Considered
@@ -164,12 +165,14 @@ Host env vars `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are forwarded into the co
 
 ### Forwarded Ports
 
-| Port | Service | Auto-forward |
-|------|---------|-------------|
-| 3000 | App (Next.js) | Notify |
-| 5432 | PostgreSQL | Silent |
-| 6379 | Redis | Silent |
-| 7700 | Meilisearch | Silent |
+| Entry in `forwardPorts` | Port | Service | Auto-forward |
+|------------------------|------|---------|-------------|
+| `3000` | 3000 | App (Next.js) | Notify |
+| `"postgres:5432"` | 5432 | PostgreSQL | Silent |
+| `"redis:6379"` | 6379 | Redis | Silent |
+| `"meilisearch:7700"` | 7700 | Meilisearch | Silent |
+
+Non-workspace services **must** use the named service syntax (`"<service>:<port>"`) in `forwardPorts`. Numeric entries are forwarded on the primary `workspace` container, not on the container that actually listens on that port, causing connection failures from host tools.
 
 ### Service Versions
 
@@ -286,8 +289,9 @@ When the project evolves, the Dev Container needs corresponding updates:
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| Docker Compose services match forwarded ports in devcontainer.json | Pass | 3000, 5432, 6379, 7700 all match |
+| Docker Compose services match forwarded ports in devcontainer.json | Pass | 3000, 5432, 6379, 7700 all match via named service syntax |
 | Named volumes cover all gitignored dirs | Pass | Static: node_modules, .next, storage. Auto-generated: all package dist/ dirs via `generate-compose-volumes.sh` |
+| Non-workspace `forwardPorts` use named service syntax | Pass | `"postgres:5432"`, `"redis:6379"`, `"meilisearch:7700"` — numeric entries broke host connections |
 | setup-env.sh hostname rewrites match docker-compose service names | Pass | postgres, redis, meilisearch all consistent |
 | Meilisearch API key in compose matches setup-env.sh | Pass | Both use `meilisearch-dev-key` |
 | Dockerfile Yarn version matches project's packageManager | Pass | `yarn@4.12.0` |
@@ -331,3 +335,10 @@ None.
 - Added Homebrew shellenv to `.bashrc`, `.profile`, and `.zshrc` for the `node` user
 - Switched Claude Code CLI from npm-global install to native install (`curl https://claude.ai/install.sh | bash`) — installs to `~/.claude/bin/`, enabling auto-updates without sudo; uses `bash` explicitly because Debian-slim's `/bin/sh` is `dash` which doesn't support bash-specific syntax
 - Updated README: new "Included Developer Tools" section, updated services table, added Debian design decision, updated maintenance guide
+
+### 2026-03-13
+- Fixed `forwardPorts` for all non-workspace services: changed numeric entries (`5432`, `6379`, `7700`) to named service syntax (`"postgres:5432"`, `"redis:6379"`, `"meilisearch:7700"`). Numeric entries are forwarded on the primary `workspace` container, not on the service that listens on that port, causing "server closed the connection unexpectedly" errors for host-based DB/Redis/Meilisearch tools. Fixes [#954](https://github.com/open-mercato/open-mercato/issues/954).
+- Updated README: added design decision row for named service syntax, added troubleshooting row for host tool connection failures.
+- Updated spec: Forwarded Ports table now shows the `forwardPorts` entry string alongside port/service, added design decision row, added internal consistency check row.
+- Updated audit checklist: port forwarding check now verifies named service syntax.
+- Updated troubleshooting guide: extended "Cannot connect to database from host tools" to cover Redis and Meilisearch; added named service syntax note.

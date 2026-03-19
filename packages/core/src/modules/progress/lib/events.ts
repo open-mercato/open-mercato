@@ -27,6 +27,7 @@ export type ProgressJobCreatedPayload = {
   cancellable?: boolean
   startedAt?: string | null
   finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   tenantId: string
   organizationId?: string | null
 }
@@ -44,6 +45,7 @@ export type ProgressJobStartedPayload = {
   cancellable?: boolean
   startedAt?: string | null
   finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   tenantId: string
   organizationId?: string | null
 }
@@ -63,6 +65,7 @@ export type ProgressJobUpdatedPayload = {
   cancellable?: boolean
   startedAt?: string | null
   finishedAt?: string | null
+  meta?: Record<string, unknown> | null
 }
 
 export type ProgressJobCompletedPayload = {
@@ -78,6 +81,7 @@ export type ProgressJobCompletedPayload = {
   cancellable?: boolean
   startedAt?: string | null
   finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   resultSummary?: Record<string, unknown> | null
   tenantId: string
   organizationId?: string | null
@@ -96,6 +100,7 @@ export type ProgressJobFailedPayload = {
   cancellable?: boolean
   startedAt?: string | null
   finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   errorMessage: string
   tenantId: string
   organizationId?: string | null
@@ -115,6 +120,7 @@ export type ProgressJobCancelledPayload = {
   cancellable?: boolean
   startedAt?: string | null
   finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   tenantId: string
   organizationId?: string | null
 }

@@ -4,6 +4,7 @@ import { SalesDocumentSequence, SalesSettings } from '../data/entities'
 import {
   DEFAULT_ORDER_NUMBER_FORMAT,
   DEFAULT_QUOTE_NUMBER_FORMAT,
+  DEFAULT_RETURN_NUMBER_FORMAT,
   type SalesDocumentNumberKind,
 } from '../lib/documentNumberTokens'
 
@@ -25,6 +26,7 @@ type SettingsSnapshot = {
 type SequenceSnapshot = {
   order: number
   quote: number
+  return: number
 }
 
 const MAX_SEQUENCE = 1_000_000_000
@@ -68,11 +70,12 @@ export class SalesDocumentNumberGenerator {
   }
 
   async peekSequences(scope: Scope): Promise<SequenceSnapshot> {
-    const [order, quote] = await Promise.all([
+    const [order, quote, salesReturn] = await Promise.all([
       this.peekNextSequence('order', scope),
       this.peekNextSequence('quote', scope),
+      this.peekNextSequence('return', scope),
     ])
-    return { order, quote }
+    return { order, quote, return: salesReturn }
   }
 
   async setNextSequence(kind: SalesDocumentNumberKind, scope: Scope, nextValue: number): Promise<void> {
@@ -93,7 +96,11 @@ export class SalesDocumentNumberGenerator {
     const settings = await this.getSettings(params)
     const format =
       params.format?.trim() ||
-      (params.kind === 'order' ? settings.orderNumberFormat : settings.quoteNumberFormat)
+      (params.kind === 'order'
+        ? settings.orderNumberFormat
+        : params.kind === 'quote'
+          ? settings.quoteNumberFormat
+          : DEFAULT_RETURN_NUMBER_FORMAT)
     const sequence = await this.claimSequence(params.kind, params)
     const number = this.formatNumber(format, {
       kind: params.kind,
@@ -138,7 +145,11 @@ export class SalesDocumentNumberGenerator {
   ): string {
     const source =
       template?.trim() ||
-      (context.kind === 'order' ? DEFAULT_ORDER_NUMBER_FORMAT : DEFAULT_QUOTE_NUMBER_FORMAT)
+      (context.kind === 'order'
+        ? DEFAULT_ORDER_NUMBER_FORMAT
+        : context.kind === 'quote'
+          ? DEFAULT_QUOTE_NUMBER_FORMAT
+          : DEFAULT_RETURN_NUMBER_FORMAT)
     const now = context.date
     return source.replace(/\{([a-zA-Z]+)(?::([^}]+))?\}/g, (match, rawToken, rawArg) => {
       const token = rawToken.toLowerCase()

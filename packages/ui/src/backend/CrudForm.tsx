@@ -38,6 +38,7 @@ import {
   Gift,
   Globe,
   Heart,
+  Info,
   Key,
   Map as MapIcon,
   Palette,
@@ -88,7 +89,7 @@ export type CrudFieldBase = {
   id: string
   label: string
   placeholder?: string
-  description?: string // inline field-level help
+  description?: React.ReactNode // inline field-level help
   required?: boolean
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
@@ -100,6 +101,7 @@ export type CrudFieldOption = { value: string; label: string }
 export type CrudBuiltinField = CrudFieldBase & {
   type:
     | 'text'
+    | 'password'
     | 'textarea'
     | 'checkbox'
     | 'select'
@@ -479,6 +481,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     },
     [extendedInjectionEventsEnabled, triggerInjectionEvent],
+  )
+
+  const translateValidationMessage = React.useCallback(
+    (message: string | null | undefined): string => {
+      if (typeof message !== 'string') return ''
+      const trimmed = message.trim()
+      if (!trimmed) return ''
+      return t(trimmed, trimmed)
+    },
+    [t],
+  )
+
+  const translateValidationErrors = React.useCallback(
+    (fieldErrors: Record<string, string>): Record<string, string> =>
+      Object.fromEntries(
+        Object.entries(fieldErrors).map(([fieldId, message]) => [fieldId, translateValidationMessage(message)]),
+      ),
+    [translateValidationMessage],
   )
 
   const canNavigateTo = React.useCallback(
@@ -924,6 +944,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         entitySettings[entityId]?.singleFieldsetPerRecord !== false
       const defsByFieldset = new globalThis.Map<string | null, CustomFieldDefDto[]>()
       defsForEntity.forEach((def) => {
+        const memberships = Array.isArray(def.fieldsets)
+          ? def.fieldsets
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((entry) => entry.trim())
+              .filter((entry) => entry.length > 0)
+          : []
+        if (memberships.length > 0) {
+          memberships.forEach((code) => {
+            const bucket = defsByFieldset.get(code) ?? []
+            bucket.push(def)
+            defsByFieldset.set(code, bucket)
+          })
+          return
+        }
         const code = typeof def.fieldset === 'string' && def.fieldset.trim().length > 0 ? def.fieldset.trim() : null
         const bucket = defsByFieldset.get(code) ?? []
         bucket.push(def)
@@ -1548,7 +1582,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           console.debug('[crud-form] Schema validation failed', res.error.issues)
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
-        setErrors(transformedErrors)
+        setErrors(translateValidationErrors(transformedErrors))
         flash(highlightedMessage, 'error')
         return
       }
@@ -2333,6 +2367,7 @@ function TextInput({
   onSubmit,
   disabled,
   suggestions,
+  inputType = 'text',
 }: {
   value: string
   onChange: (v: string) => void
@@ -2341,6 +2376,7 @@ function TextInput({
   onSubmit?: () => void
   disabled?: boolean
   suggestions?: string[]
+  inputType?: 'text' | 'password'
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -2384,7 +2420,7 @@ function TextInput({
   return (
     <>
       <input
-        type="text"
+        type={inputType}
         className="w-full h-9 rounded border px-2 text-sm"
         placeholder={placeholder}
         value={local}
@@ -2845,6 +2881,17 @@ const FieldControl = React.memo(function FieldControlImpl({
           suggestions={field.type === 'text' ? field.suggestions : undefined}
         />
       )}
+      {field.type === 'password' && (
+        <TextInput
+          value={value == null ? '' : String(value)}
+          placeholder={placeholder}
+          onChange={(next) => fieldSetValue(next)}
+          autoFocus={autoFocusField}
+          onSubmit={onSubmitRequest}
+          disabled={disabled}
+          inputType="password"
+        />
+      )}
       {field.type === 'number' && (
         <NumberInput
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
@@ -3077,7 +3124,10 @@ const FieldControl = React.memo(function FieldControlImpl({
         </>
       )}
       {field.description ? (
-        <div className="text-xs text-muted-foreground">{field.description}</div>
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div>{field.description}</div>
+        </div>
       ) : null}
       {error ? <div className="text-xs text-red-600">{error}</div> : null}
     </div>
@@ -3087,6 +3137,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.id === next.field.id &&
   prev.field.type === next.field.type &&
   prev.field.label === next.field.label &&
+  prev.field.description === next.field.description &&
   prev.field.required === next.field.required &&
   prev.value === next.value &&
   prev.error === next.error &&

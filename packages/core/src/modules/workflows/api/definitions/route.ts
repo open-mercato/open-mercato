@@ -16,10 +16,35 @@ import {
   createWorkflowDefinitionInputSchema,
   type CreateWorkflowDefinitionApiInput,
 } from '../../data/validators'
+import { serializeWorkflowDefinition } from './serialize'
 
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['workflows.definitions.view'],
+}
+
+const WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT = 'workflow_definitions_workflow_id_tenant_id_unique'
+
+function isWorkflowIdUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const value = error as Record<string, unknown>
+  const constraint = value.constraint
+  const code = value.code
+  const message = typeof value.message === 'string' ? value.message : ''
+  const detail = typeof value.detail === 'string' ? value.detail : ''
+
+  if (constraint === WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT) {
+    return true
+  }
+
+  if (code === '23505' && detail.includes('(workflow_id, tenant_id)')) {
+    return true
+  }
+
+  return message.includes(WORKFLOW_ID_TENANT_UNIQUE_CONSTRAINT)
 }
 
 /**
@@ -66,7 +91,7 @@ export async function GET(request: NextRequest) {
     if (search) {
       where.$or = [
         { workflowId: { $ilike: `%${search}%` } },
-        { 'definition.workflowName': { $ilike: `%${search}%` } },
+        { workflowName: { $ilike: `%${search}%` } },
       ]
     }
 
@@ -81,7 +106,7 @@ export async function GET(request: NextRequest) {
     )
 
     return NextResponse.json({
-      data: definitions,
+      data: definitions.map(serializeWorkflowDefinition),
       pagination: {
         total,
         limit,
@@ -151,19 +176,16 @@ export async function POST(request: NextRequest) {
 
     const input: CreateWorkflowDefinitionApiInput = validation.data
 
-    // Check if workflow with same ID and version already exists
+    // workflow_id is unique per tenant; check upfront to return 409 instead of DB error.
     const existing = await em.findOne(WorkflowDefinition, {
       workflowId: input.workflowId,
-      version: input.version,
       tenantId,
-      organizationId,
-      deletedAt: null,
     })
 
     if (existing) {
       return NextResponse.json(
         {
-          error: `Workflow definition with ID "${input.workflowId}" and version ${input.version} already exists`,
+          error: `Workflow definition with ID "${input.workflowId}" already exists`,
         },
         { status: 409 }
       )
@@ -188,12 +210,19 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        data: definition,
+        data: serializeWorkflowDefinition(definition),
         message: 'Workflow definition created successfully',
       },
       { status: 201 }
     )
   } catch (error) {
+    if (isWorkflowIdUniqueConstraintError(error)) {
+      return NextResponse.json(
+        { error: 'Workflow definition with this ID already exists' },
+        { status: 409 }
+      )
+    }
+
     console.error('Error creating workflow definition:', error)
     return NextResponse.json(
       { error: 'Failed to create workflow definition' },

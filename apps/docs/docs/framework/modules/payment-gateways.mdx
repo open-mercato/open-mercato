@@ -1,0 +1,512 @@
+---
+title: Payment Gateways
+description: Build and register payment gateway adapters with unified status tracking, webhook processing, and provider-agnostic checkout flows.
+---
+
+# Payment Gateways
+
+The `payment_gateways` module provides a provider-agnostic hub for payment processing. Each payment provider (Stripe, PayU, etc.) is a separate npm package implementing the `GatewayAdapter` interface — zero provider-specific code lives in core.
+
+## Architecture
+
+The system uses a two-layer architecture:
+
+- **Core module** (`packages/core/src/modules/payment_gateways/`) — adapter contract, status machine, webhook routing, `GatewayTransaction` entity, API endpoints.
+- **Provider packages** (`packages/gateway-<provider>/`) — each provider implements `GatewayAdapter`, registers adapters and webhook handlers, and is developed independently.
+
+Providers plug into the Integration Marketplace for credentials management, health checks, and admin UI.
+
+## GatewayAdapter interface
+
+Every provider implements this contract:
+
+```ts
+import type { GatewayAdapter } from '@open-mercato/shared/modules/payment_gateways/types'
+
+const myAdapter: GatewayAdapter = {
+  providerKey: 'my_provider',
+
+  async createSession(input) {
+    // Create payment intent / checkout session
+    return { sessionId: '...', status: 'pending', redirectUrl: '...' }
+  },
+
+  async capture(input) {
+    // Capture an authorized payment
+    return { status: 'captured', capturedAmount: input.amount ?? 0 }
+  },
+
+  async refund(input) {
+    // Refund (full or partial)
+    return { refundId: '...', status: 'refunded', refundedAmount: input.amount ?? 0 }
+  },
+
+  async cancel(input) {
+    // Cancel / void before capture
+    return { status: 'cancelled' }
+  },
+
+  async getStatus(input) {
+    // Query current status from provider
+    return { status: 'captured', amount: 100, amountReceived: 100, currencyCode: 'USD' }
+  },
+
+  async verifyWebhook(input) {
+    // Verify signature and parse event
+    return { eventType: 'payment.captured', eventId: '...', data: {}, idempotencyKey: '...', timestamp: new Date() }
+  },
+
+  mapStatus(providerStatus) {
+    // Map provider-specific status to unified status
+    return 'captured'
+  },
+}
+```
+
+## Unified payment status
+
+All providers map to a single status enum:
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Session created, awaiting customer action |
+| `authorized` | Payment authorized, ready for capture |
+| `captured` | Funds captured successfully |
+| `partially_captured` | Partial capture completed |
+| `refunded` | Full refund issued |
+| `partially_refunded` | Partial refund issued |
+| `cancelled` | Payment voided before capture |
+| `failed` | Payment attempt failed |
+| `expired` | Session expired |
+
+## Stripe integration from A to Z
+
+The Stripe provider is designed around **Payment Intents**. Open Mercato creates the intent through the payment hub, stores it as a `GatewayTransaction`, and gives your app enough data to either:
+
+- redirect the customer to a hosted checkout page when the provider returns `redirectUrl`
+- render a Stripe Elements card form when the provider returns a `clientSecret`
+
+The practical flow is:
+
+1. Configure Stripe credentials in **External systems -> Integrations -> Stripe**.
+2. Create a payment session with `providerKey: "stripe"`.
+3. If `redirectUrl` is present, send the customer there.
+4. If `clientSecret` is present, confirm the payment with Stripe.js.
+5. Refresh status or wait for webhooks to synchronize the transaction.
+6. Capture, refund, or cancel by transaction ID through the payment hub API.
+7. Inspect the full lifecycle in **External systems -> Payment Transactions**.
+
+### 1. Configure Stripe in admin
+
+Set these credentials in the Stripe integration screen:
+
+- `Publishable Key`
+- `Secret Key`
+- `Webhook Signing Secret`
+
+The current Stripe package exposes these API version slots:
+
+- `2025-02-24.acacia` as the latest default
+- `2024-12-18` as a compatibility slot
+- `2023-10-16` as a deprecated legacy slot
+
+For a real integration, the webhook secret is strongly recommended because Stripe updates payment state asynchronously.
+
+### 2. Create a payment session
+
+Open Mercato creates the Stripe Payment Intent through `POST /api/payment_gateways/sessions` and stores the result as a `GatewayTransaction`.
+
+```ts
+const response = await fetch('/api/payment_gateways/sessions', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Api-Key': process.env.OPEN_MERCATO_API_KEY!,
+  },
+  body: JSON.stringify({
+    providerKey: 'stripe',
+    amount: 49.99,
+    currencyCode: 'USD',
+    captureMethod: 'manual',
+    description: 'Order #100024',
+    orderId: '7d2d8a9e-7f53-4c1d-bb3c-91fd2fa4a35f',
+    metadata: {
+      salesOrderNumber: 'SO-100024',
+      channel: 'b2c-web',
+    },
+  }),
+})
+
+if (!response.ok) {
+  throw new Error(`Create session failed: ${response.status}`)
+}
+
+const session = await response.json()
+```
+
+Typical Stripe response:
+
+```json
+{
+  "transactionId": "54cbcc3f-b029-4a84-b145-33122d0eeb16",
+  "sessionId": "pi_3T9SHbHUCMrz3qXx0JwuemJp",
+  "providerKey": "stripe",
+  "clientSecret": "pi_3T9SHbHUCMrz3qXx0JwuemJp_secret_xxx",
+  "redirectUrl": null,
+  "providerData": {
+    "paymentIntentId": "pi_3T9SHbHUCMrz3qXx0JwuemJp",
+    "publishableKey": "pk_live_xxx"
+  },
+  "status": "pending",
+  "paymentId": "f86c1f5e-ee94-406a-b1a9-dc04c8c3db28"
+}
+```
+
+Important fields:
+
+- `transactionId`: Open Mercato identifier used later for status, capture, refund, cancel, and admin tracking
+- `sessionId`: Stripe Payment Intent ID
+- `clientSecret`: used by Stripe.js when your app renders card inputs
+- `redirectUrl`: if present, send the customer there instead of rendering Stripe Elements
+- `providerData.publishableKey`: safe public key your frontend can use with Stripe.js
+
+### 3. Make the payment payable
+
+After creating the session, your app must complete one of the following branches.
+
+#### Branch A: hosted redirect checkout
+
+If the provider returns `redirectUrl`, send the customer there immediately:
+
+```ts
+if (session.redirectUrl) {
+  window.location.assign(session.redirectUrl)
+}
+```
+
+#### Branch B: Stripe Elements / Payment Intents
+
+If Stripe returns a `clientSecret`, confirm it with Stripe.js:
+
+```tsx
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js'
+import { loadStripe } from '@stripe/stripe-js'
+
+const stripePromise = loadStripe(session.providerData.publishableKey)
+
+function CheckoutForm() {
+  const stripe = useStripe()
+  const elements = useElements()
+
+  async function handleSubmit() {
+    if (!stripe || !elements) return
+
+    const card = elements.getElement(CardElement)
+    if (!card) return
+
+    const result = await stripe.confirmCardPayment(session.clientSecret, {
+      payment_method: {
+        card,
+      },
+    })
+
+    if (result.error) {
+      throw new Error(result.error.message ?? 'Stripe confirmation failed')
+    }
+
+    console.log('Stripe payment intent status:', result.paymentIntent?.status)
+  }
+
+  return (
+    <>
+      <CardElement />
+      <button onClick={() => void handleSubmit()}>Pay now</button>
+    </>
+  )
+}
+
+export function StripeCheckout() {
+  return (
+    <Elements stripe={stripePromise}>
+      <CheckoutForm />
+    </Elements>
+  )
+}
+```
+
+How Stripe intent statuses map into Open Mercato:
+
+- `requires_capture` -> `authorized`
+- `succeeded` -> `captured`
+- `canceled` -> `cancelled`
+- `requires_payment_method`, `requires_action`, `processing` -> `pending`
+
+For test payments, Stripe’s standard card works:
+
+```text
+4242 4242 4242 4242
+```
+
+Use any future expiry date and any CVC.
+
+### 4. Refresh and synchronize payment status
+
+Once the payment is confirmed, read status from the payment hub using the `transactionId` returned earlier:
+
+```ts
+const statusResponse = await fetch(
+  `/api/payment_gateways/status?transactionId=${session.transactionId}`,
+  {
+    headers: { 'X-Api-Key': process.env.OPEN_MERCATO_API_KEY! },
+  },
+)
+
+const status = await statusResponse.json()
+console.log(status.status, status.gatewayStatus)
+```
+
+The status endpoint returns both:
+
+- `status`: the unified Open Mercato payment status
+- `gatewayStatus`: the provider-specific status stored from Stripe
+
+Without webhooks, you can still poll this endpoint, but webhooks are the correct mechanism for keeping authorizations, captures, refunds, failures, and disputes synchronized.
+
+### 5. Capture, refund, or cancel
+
+If you created the intent with `captureMethod: "manual"`, a successful card confirmation usually moves the transaction to `authorized`. Your app can then capture the funds:
+
+```ts
+await fetch('/api/payment_gateways/capture', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Api-Key': process.env.OPEN_MERCATO_API_KEY!,
+  },
+  body: JSON.stringify({
+    transactionId: session.transactionId,
+  }),
+})
+```
+
+Partial capture:
+
+```ts
+await fetch('/api/payment_gateways/capture', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Api-Key': process.env.OPEN_MERCATO_API_KEY!,
+  },
+  body: JSON.stringify({
+    transactionId: session.transactionId,
+    amount: 20.0,
+  }),
+})
+```
+
+Refund:
+
+```ts
+await fetch('/api/payment_gateways/refund', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Api-Key': process.env.OPEN_MERCATO_API_KEY!,
+  },
+  body: JSON.stringify({
+    transactionId: session.transactionId,
+    amount: 10.0,
+    reason: 'Customer requested partial refund',
+  }),
+})
+```
+
+Cancel / void before capture:
+
+```ts
+await fetch('/api/payment_gateways/cancel', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Api-Key': process.env.OPEN_MERCATO_API_KEY!,
+  },
+  body: JSON.stringify({
+    transactionId: session.transactionId,
+    reason: 'Customer abandoned checkout',
+  }),
+})
+```
+
+### 6. Track transactions and logs in admin
+
+The admin UI now includes a payment hub transaction browser:
+
+- **External systems -> Payment Transactions**
+- route: `/backend/payment-gateways`
+
+Use it to inspect:
+
+- provider and unified status
+- Stripe session and refund IDs
+- gateway metadata
+- webhook history
+- transaction-scoped provider logs
+
+For Stripe integration health, credentials, and version selection, use:
+
+- **External systems -> Integrations -> Stripe**
+
+## Registering adapters
+
+Register adapters and webhook handlers in your provider module's `di.ts` so they are available at normal app runtime:
+
+```ts
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { registerGatewayAdapter, registerWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+import { myAdapter } from './lib/adapter'
+import { verifyMyWebhook } from './lib/webhook-handler'
+
+export function register(container: AppContainer) {
+  registerGatewayAdapter(myAdapter)
+  registerWebhookHandler('my_provider', verifyMyWebhook, { queue: 'my-provider-webhook' })
+}
+```
+
+Versioned adapters are supported — pass `{ version: '2024-12-18' }` to register multiple API versions for the same provider.
+
+## Webhook processing
+
+Webhooks flow through an async pipeline:
+
+1. Provider sends `POST /api/payment_gateways/webhook/{provider}`.
+2. Route handler looks up the registered webhook handler, verifies the signature, and constructs a normalized `WebhookEvent`.
+3. Event is enqueued to a dedicated worker queue (e.g., `stripe-webhook`).
+4. Returns `202 Accepted` immediately.
+5. Worker processes the event: updates `GatewayTransaction`, emits domain events, logs via `integrationLog`.
+
+Webhook handlers are idempotent — duplicate events are detected via `idempotencyKey`.
+
+## Stripe webhook setup
+
+Stripe should deliver webhook events into Open Mercato so the payment hub can update transaction status automatically, append webhook history, and record provider logs. Session creation can work without webhooks, but the integration is incomplete without them.
+
+### Production / hosted environments
+
+1. Open **Stripe Dashboard -> Workbench -> Webhooks**.
+2. Create a webhook endpoint for your Open Mercato app.
+3. Set the endpoint URL to:
+
+```text
+https://YOUR_APP_URL/api/payment_gateways/webhook/stripe
+```
+
+4. Subscribe at minimum to these events:
+
+```text
+payment_intent.succeeded
+payment_intent.payment_failed
+payment_intent.canceled
+payment_intent.requires_action
+charge.refunded
+charge.refund.updated
+charge.dispute.created
+charge.dispute.closed
+```
+
+5. Reveal the endpoint signing secret in Stripe and copy the `whsec_...` value into **Settings -> Integrations -> Stripe -> Webhook Signing Secret** in Open Mercato.
+
+### Local development with ngrok
+
+Stripe cannot deliver webhooks to `localhost` directly, so expose your local app with a tunnel.
+
+1. Start your app locally, for example on `http://localhost:3000`.
+2. Run:
+
+```bash
+ngrok http 3000
+```
+
+3. Copy the HTTPS forwarding URL from ngrok.
+4. In **Stripe Dashboard -> Workbench -> Webhooks**, create the endpoint:
+
+```text
+https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/stripe
+```
+
+5. Subscribe to the same Stripe events listed above.
+6. Reveal the endpoint signing secret and paste that `whsec_...` value into the Stripe integration credentials form in Open Mercato.
+
+The webhook route is unauthenticated by design; request authenticity is enforced by Stripe signature verification using the webhook signing secret.
+
+## Integration Marketplace
+
+Provider modules declare an `IntegrationDefinition` in `integration.ts` with `hub: 'payment_gateways'` and `category: 'payment'`. This registers the provider in the marketplace for:
+
+- Credential management (API keys, secrets)
+- Enable/disable toggle
+- Health check monitoring
+- Activity logging
+- API version selection
+
+### Provider-owned env preconfiguration
+
+Gateway providers can preconfigure themselves from deployment env without adding provider-specific logic to core.
+
+Recommended pattern:
+
+1. Read env vars in a provider-local helper such as `lib/preset.ts`.
+2. Apply them from the provider module's `setup.ts`.
+3. Expose a provider CLI command such as `configure-from-env` so operators can rerun the same logic later.
+4. Persist through the normal integration credential/state services.
+
+Stripe supports this today with:
+
+```env
+OM_INTEGRATION_STRIPE_PUBLISHABLE_KEY=pk_test_...
+OM_INTEGRATION_STRIPE_SECRET_KEY=sk_test_...
+OM_INTEGRATION_STRIPE_WEBHOOK_SECRET=whsec_...
+OM_INTEGRATION_STRIPE_API_VERSION=2025-02-24.acacia
+OM_INTEGRATION_STRIPE_ENABLED=true
+OM_INTEGRATION_STRIPE_FORCE_PRECONFIGURE=false
+```
+
+Rerun command:
+
+```bash
+yarn mercato gateway_stripe configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
+## Credential resolution
+
+Adapters receive credentials resolved by the core service in priority order:
+
+1. **IntegrationCredentials** (marketplace-managed, encrypted)
+2. **SalesPaymentMethod.providerSettings** (legacy fallback)
+
+During migration, both stores are updated simultaneously.
+
+## Events
+
+The module emits these domain events:
+
+- `payment_gateways.transaction.created` — new payment session
+- `payment_gateways.transaction.status_changed` — status transition
+- `payment_gateways.transaction.captured` — payment captured
+- `payment_gateways.transaction.refunded` — refund processed
+- `payment_gateways.transaction.cancelled` — payment cancelled
+- `payment_gateways.webhook.received` — webhook processed
+- `payment_gateways.webhook.failed` — webhook verification failed
+
+## Mock adapter
+
+A mock gateway is included for development and testing:
+
+```ts
+import { registerGatewayAdapter } from '@open-mercato/shared/modules/payment_gateways/types'
+import { mockGatewayAdapter } from './lib/mock-gateway-adapter'
+
+registerGatewayAdapter(mockGatewayAdapter)
+```
+
+The mock adapter simulates the full payment lifecycle in-memory without external API calls.

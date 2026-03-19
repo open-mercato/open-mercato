@@ -4,8 +4,10 @@ import {
   normalizeOptionSchema,
   buildVariantMetadata,
   mapPriceItemToDraft,
+  findInvalidVariantPriceKinds,
 } from '../variantForm'
 import type { VariantFormValues } from '../variantForm'
+import type { PriceKindSummary } from '../productForm'
 
 describe('VARIANT_BASE_VALUES', () => {
   it('has correct string defaults', () => {
@@ -335,5 +337,74 @@ describe('mapPriceItemToDraft', () => {
     const draft = mapPriceItemToDraft(item, modes)
     expect(draft!.amount).toBe('100.00')
     expect(draft!.displayMode).toBe('including-tax')
+  })
+})
+
+describe('findInvalidVariantPriceKinds', () => {
+  const priceKinds: PriceKindSummary[] = [
+    { id: 'regular', code: 'regular', title: 'Regular', currencyCode: 'USD', displayMode: 'excluding-tax' },
+    { id: 'promo', code: 'promo', title: 'Promo', currencyCode: 'USD', displayMode: 'including-tax' },
+  ]
+
+  it('returns empty list when no prices provided', () => {
+    expect(findInvalidVariantPriceKinds(priceKinds, undefined)).toEqual([])
+    expect(findInvalidVariantPriceKinds(priceKinds, {})).toEqual([])
+  })
+
+  it('ignores empty amounts', () => {
+    const drafts = {
+      regular: { priceKindId: 'regular', amount: '   ', displayMode: 'excluding-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual([])
+  })
+
+  it('accepts valid numeric input', () => {
+    const drafts = {
+      regular: { priceKindId: 'regular', amount: '99.50', displayMode: 'excluding-tax' as const },
+      promo: { priceKindId: 'promo', amount: '0', displayMode: 'including-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual([])
+  })
+
+  it('accepts valid numeric input with whitespace separators', () => {
+    const drafts = {
+      promo: { priceKindId: 'promo', amount: '1 000', displayMode: 'including-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual([])
+  })
+
+  it('flags negative values', () => {
+    const drafts = {
+      regular: { priceKindId: 'regular', amount: '-10', displayMode: 'excluding-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['regular'])
+  })
+
+  it('flags non-numeric values', () => {
+    const drafts = {
+      promo: { priceKindId: 'promo', amount: '99q', displayMode: 'including-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['promo'])
+  })
+
+  it('flags localized decimal strings with commas', () => {
+    const drafts = {
+      promo: { priceKindId: 'promo', amount: '99,9999', displayMode: 'including-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['promo'])
+  })
+
+  it('flags values above numeric(16,4) integer precision', () => {
+    const drafts = {
+      regular: { priceKindId: 'regular', amount: '1000000000000', displayMode: 'excluding-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['regular'])
+  })
+
+  it('flags values with more than four decimal places', () => {
+    const drafts = {
+      regular: { priceKindId: 'regular', amount: '12.34567', displayMode: 'excluding-tax' as const },
+    }
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['regular'])
   })
 })

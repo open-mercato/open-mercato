@@ -3,6 +3,51 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { createApiKeyFixture } from '@open-mercato/core/modules/core/__integration__/helpers/apiKeysFixtures';
 
+async function openApiKeysPage(page: import('@playwright/test').Page): Promise<void> {
+  const searchInput = page.getByRole('textbox', { name: 'Search' });
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.goto('/backend/api-keys', { waitUntil: 'domcontentloaded' });
+    await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+
+    if (await searchInput.isVisible().catch(() => false)) {
+      return;
+    }
+
+    const retryButton = page.getByRole('button', { name: /Try again/i }).first();
+    if (await retryButton.isVisible().catch(() => false)) {
+      await retryButton.click().catch(() => {});
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+      if (await searchInput.isVisible().catch(() => false)) {
+        return;
+      }
+    }
+  }
+
+  await expect(searchInput).toBeVisible({ timeout: 10_000 });
+}
+
+async function clickDeleteMenuItem(
+  page: import('@playwright/test').Page,
+  openMenu: () => Promise<void>,
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await openMenu();
+    const deleteMenuItem = page.getByRole('menuitem').filter({ hasText: /^Delete$/ }).first();
+    const opened = await deleteMenuItem.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true).catch(() => false);
+    if (!opened) {
+      continue;
+    }
+    const clicked = await deleteMenuItem.click().then(() => true).catch(() => false);
+    if (clicked) {
+      return;
+    }
+  }
+
+  throw new Error('Could not click the Delete menu item for the API key row.');
+}
+
 /**
  * TC-ADMIN-002: Revoke API Key
  * Source: .ai/qa/scenarios/TC-ADMIN-002-api-key-revocation.md
@@ -24,8 +69,7 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       keyId = created.id;
 
       await login(page, 'admin');
-      await page.goto('/backend/api-keys', { waitUntil: 'domcontentloaded' });
-      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+      await openApiKeysPage(page);
 
       // Search for the key
       await page.getByRole('textbox', { name: 'Search' }).fill(keyName);
@@ -35,14 +79,26 @@ test.describe('TC-ADMIN-002: Revoke API Key', () => {
       const keyRow = page.locator('table tbody tr').filter({ hasText: keyName }).first();
       await expect(keyRow).toBeVisible();
 
-      // Click the actions button on the row
-      const actionsButton = keyRow.getByRole('button', { name: 'Open actions' });
-      await actionsButton.focus();
-      await actionsButton.press('Enter');
+      const openRowActions = async (): Promise<void> => {
+        const actionsButton = keyRow.getByRole('button', { name: 'Open actions' });
+        await expect(actionsButton).toBeVisible({ timeout: 5_000 });
+        await actionsButton.click().catch(async () => {
+          await actionsButton.focus();
+          await actionsButton.press('Enter');
+        });
+        const deleteMenuItem = page.getByRole('menuitem').filter({ hasText: /^Delete$/ }).first();
+        if (await deleteMenuItem.isVisible().catch(() => false)) {
+          return;
+        }
+        await actionsButton.focus().catch(() => {});
+        await actionsButton.press('Enter').catch(() => {});
+        if (await deleteMenuItem.isVisible().catch(() => false)) {
+          return;
+        }
+        await actionsButton.press('Space').catch(() => {});
+      };
 
-      // Click the Delete option in the dropdown menu
-      const deleteMenuItem = page.getByRole('menuitem').filter({ hasText: /^Delete$/ }).first();
-      await deleteMenuItem.click();
+      await clickDeleteMenuItem(page, openRowActions);
 
       // Confirm deletion in the dialog
       const confirmButton = page.getByRole('button', { name: 'Confirm' });

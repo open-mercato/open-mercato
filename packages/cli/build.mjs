@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { readFileSync, writeFileSync, chmodSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, chmodSync, existsSync, cpSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -91,5 +91,12 @@ const binPath = join(__dirname, 'dist/bin.js')
 const binContent = readFileSync(binPath, 'utf-8')
 writeFileSync(binPath, '#!/usr/bin/env node\n' + binContent)
 chmodSync(binPath, 0o755)
+
+// Copy agentic source files from create-app so generators can read them at runtime
+const agenticSrc = join(__dirname, '..', 'create-app', 'agentic')
+if (existsSync(agenticSrc)) {
+  cpSync(agenticSrc, join(outdir, 'agentic'), { recursive: true })
+  console.log('Copied create-app/agentic/ → dist/agentic/')
+}
 
 console.log('CLI built successfully')

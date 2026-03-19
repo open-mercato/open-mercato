@@ -36,7 +36,7 @@ yarn build:packages
 echo "==> Rebuild completed"
 
 echo "==> Publishing packages..."
-yarn workspaces foreach -Av --topological --no-private npm publish --access public
+./scripts/publish-packages.sh --tag canary
 echo "==> Publish completed"
 
 echo "==> Done!"

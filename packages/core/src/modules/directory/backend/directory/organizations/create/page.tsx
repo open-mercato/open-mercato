@@ -124,7 +124,8 @@ export default function CreateOrganizationPage() {
               setSelectedTenantId(normalized)
               setValue(normalized)
             }}
-            includeEmptyOption={false}
+            includeEmptyOption
+            emptyOptionLabel={t('directory.organizations.form.tenant.select', 'Select tenant')}
             className="w-full h-9 rounded border px-2 text-sm"
           />
         ),

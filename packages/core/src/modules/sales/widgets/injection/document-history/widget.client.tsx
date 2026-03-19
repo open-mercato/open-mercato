@@ -258,24 +258,33 @@ export const DocumentHistoryWidget: React.FC<InjectionWidgetComponentProps<unkno
   const [filter, setFilter] = React.useState<FilterKind>('all')
 
   React.useEffect(() => {
-    apiCall<{ items?: unknown[] }>('/api/sales/order-statuses?pageSize=100')
-      .then((res) => {
-        if (res.ok && Array.isArray(res.result?.items)) {
-          const map: Record<string, StatusOption> = {}
-          for (const item of res.result.items) {
-            if (!item || typeof item !== 'object') continue
-            const d = item as Record<string, unknown>
-            const value = typeof d.value === 'string' ? d.value : null
-            if (!value) continue
-            map[value] = {
-              value,
-              label: typeof d.label === 'string' && d.label.length ? d.label : value,
-              color: typeof d.color === 'string' && d.color.length ? d.color : null,
-              icon: typeof d.icon === 'string' && d.icon.length ? d.icon : null,
-            }
-          }
-          setStatusMap(map)
+    const urls = [
+      '/api/sales/order-statuses?pageSize=100',
+      '/api/sales/shipment-statuses?pageSize=100',
+      '/api/sales/payment-statuses?pageSize=100',
+    ]
+    const map: Record<string, StatusOption> = {}
+    const merge = (items: unknown[]) => {
+      if (!Array.isArray(items)) return
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue
+        const d = item as Record<string, unknown>
+        const value = typeof d.value === 'string' ? d.value : null
+        if (!value) continue
+        map[value] = {
+          value,
+          label: typeof d.label === 'string' && d.label.length ? d.label : value,
+          color: typeof d.color === 'string' && d.color.length ? d.color : null,
+          icon: typeof d.icon === 'string' && d.icon.length ? d.icon : null,
         }
+      }
+    }
+    Promise.all(urls.map((url) => apiCall<{ items?: unknown[] }>(url)))
+      .then((responses) => {
+        for (const res of responses) {
+          if (res.ok && Array.isArray(res.result?.items)) merge(res.result.items)
+        }
+        setStatusMap(map)
       })
       .catch(() => {})
   }, [])

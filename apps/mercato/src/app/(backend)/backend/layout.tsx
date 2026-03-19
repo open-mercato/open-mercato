@@ -13,6 +13,7 @@ import {
 } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
+import { IntegrationsButton } from '@open-mercato/ui/backend/IntegrationsButton'
 import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
 import { MessagesIcon } from '@open-mercato/ui/backend/messages'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
@@ -180,6 +181,9 @@ export default async function BackendLayout({ children, params }: { children: Re
     userEntities,
     (key, fallback) => (key ? translate(key, fallback) : fallback),
     featureChecker ? { checkFeatures: featureChecker } : undefined,
+  )
+  const showIntegrationsButton = entries.some(
+    (entry) => entry.href === '/backend/integrations' && entry.enabled !== false && entry.hidden !== true,
   )
 
   const groupMap = new Map<string, {
@@ -359,6 +363,7 @@ export default async function BackendLayout({ children, params }: { children: Re
       <div className="hidden lg:contents">
         <OrganizationSwitcher />
       </div>
+      {showIntegrationsButton ? <IntegrationsButton /> : null}
       <SettingsButton />
       <ProfileDropdown email={auth?.email} />
       <NotificationBellWrapper />

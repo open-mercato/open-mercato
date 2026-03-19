@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "private": true,
   "packageManager": "yarn@4.12.0",
   "engines": {
@@ -29,6 +29,24 @@
     "db:migrate": "turbo run db:migrate --filter=@open-mercato/app",
     "db:greenfield": "turbo run db:greenfield --filter=@open-mercato/app",
     "initialize": "turbo run initialize --filter=@open-mercato/app",
+    "docker:up": "docker compose -f docker-compose.fullapp.yml up --build -d",
+    "docker:down": "docker compose -f docker-compose.fullapp.yml down",
+    "docker:dev:up": "docker compose -f docker-compose.fullapp.dev.yml up --build -d",
+    "docker:dev:down": "docker compose -f docker-compose.fullapp.dev.yml down",
+    "docker:ephemeral": "docker compose -f docker-compose.preview.yaml up --build",
+    "docker:ephemeral:down": "docker compose -f docker-compose.preview.yaml down",
+    "docker:dev": "node scripts/docker-exec.mjs dev",
+    "docker:build:packages": "node scripts/docker-exec.mjs build:packages",
+    "docker:generate": "node scripts/docker-exec.mjs generate",
+    "docker:initialize": "node scripts/docker-exec.mjs initialize",
+    "docker:reinstall": "node scripts/docker-exec.mjs reinstall",
+    "docker:db:migrate": "node scripts/docker-exec.mjs db:migrate",
+    "docker:db:generate": "node scripts/docker-exec.mjs db:generate",
+    "docker:lint": "node scripts/docker-exec.mjs lint",
+    "docker:typecheck": "node scripts/docker-exec.mjs typecheck",
+    "docker:test": "node scripts/docker-exec.mjs test",
+    "docker:install-skills": "node scripts/docker-exec.mjs install-skills",
+    "docker:mercato": "node scripts/docker-exec.mjs mercato",
     "docs:dev": "turbo run dev --filter=@open-mercato/docs",
     "clean:generated": "./scripts/clean-generated.sh",
     "clean:packages": "./scripts/clean-packages.sh",
@@ -47,6 +65,7 @@
     "i18n:check-usage": "tsx scripts/i18n-check-usage.ts",
     "i18n:check": "tsx scripts/i18n-check-sync.ts && tsx scripts/i18n-check-usage.ts",
     "i18n:fix": "tsx scripts/i18n-check-sync.ts --fix",
+    "check:dep-versions": "tsx scripts/check-dep-versions.ts",
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
@@ -61,7 +80,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.80",
+    "@ai-sdk/openai": "^3.0.5",
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",
@@ -84,7 +103,7 @@
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
-    "newrelic": "^13.7.0",
+    "newrelic": "^13.16.0",
     "next": "16.1.5",
     "pdf2pic": "^3.2.0",
     "pg": "8.20.0",
@@ -137,6 +156,8 @@
     "serialize-javascript": "7.0.3",
     "svgo": "3.3.3",
     "qs": "6.14.2",
-    "tar": "7.5.10"
+    "flatted": "3.4.0",
+    "tar": "7.5.11",
+    "undici": "7.24.0"
   }
 }

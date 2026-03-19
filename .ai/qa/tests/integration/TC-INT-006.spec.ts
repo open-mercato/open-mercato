@@ -38,16 +38,22 @@ test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Membe
       expect(teamMemberId, 'Team member id should be returned by create response').toBeTruthy();
 
       await page.goto(`/backend/resources/resources/${encodeURIComponent(resourceId ?? '')}`);
-      await expect(page.getByRole('heading', { name: 'Resource settings' })).toBeVisible();
-      await expect(page.getByText('Name *', { exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
-      await expect(page.getByText('Edit resource', { exact: true })).toHaveCount(0);
+      const resourceSettingsHeading = page.getByRole('heading', {
+        name: /resource settings|ressourceneinstellungen|configuración del recurso|ustawienia zasobu/i,
+      });
+      await expect(resourceSettingsHeading).toBeVisible();
+      const resourceCard = page.locator('div.rounded-lg.border.bg-card.p-4').filter({ has: resourceSettingsHeading }).first();
+      await expect(resourceCard.locator('button[type="submit"]')).toBeVisible();
+      await expect(resourceCard.getByText(/edit resource|ressource bearbeiten|editar recurso|edytuj zasób/i)).toHaveCount(0);
 
       await page.goto(`/backend/staff/team-members/${encodeURIComponent(teamMemberId ?? '')}`);
-      await expect(page.getByRole('heading', { name: 'Member settings' })).toBeVisible();
-      await expect(page.getByText('Display name *', { exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
-      await expect(page.getByText('Edit team member', { exact: true })).toHaveCount(0);
+      const memberSettingsHeading = page.getByRole('heading', {
+        name: /member settings|mitgliedseinstellungen|configuración del miembro|ustawienia członka/i,
+      });
+      await expect(memberSettingsHeading).toBeVisible();
+      const memberCard = page.locator('div.rounded-lg.border.bg-card.p-4').filter({ has: memberSettingsHeading }).first();
+      await expect(memberCard.locator('button[type="submit"]')).toBeVisible();
+      await expect(memberCard.getByText(/edit team member|teammitglied bearbeiten|editar miembro|edytuj członka/i)).toHaveCount(0);
     } finally {
       if (token && resourceId) {
         await apiRequest(request, 'DELETE', `/api/resources/resources?id=${encodeURIComponent(resourceId)}`, {

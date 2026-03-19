@@ -403,3 +403,4 @@ All integration tests MUST be self-contained (create fixtures in setup and clean
 |------|--------|
 | 2026-02-24 | Initial phase draft for payment/shipping alignment |
 | 2026-03-04 | Added API contract details, risk matrix, integration test matrix, and migration/BC bridge plan |
+| 2026-03-10 | Implementation: `carrier_inpost`/`gateway_payu`/`gateway_przelewy24` deferred. Tests use mock adapters. Added `company` to `IntegrationDefinition`. Shipping: events.ts, status-sync.ts, mock adapter, widgets, TC-SHIP-001..007. Payment: TC-PGWY-008..011 edge-case tests. |

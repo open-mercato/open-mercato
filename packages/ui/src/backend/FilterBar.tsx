@@ -15,6 +15,7 @@ export type FilterBarProps = {
   onClear?: () => void
   className?: string
   leadingItems?: React.ReactNode
+  trailingItems?: React.ReactNode
   layout?: 'stacked' | 'inline'
   filtersExtraContent?: React.ReactNode
 }
@@ -30,6 +31,7 @@ export function FilterBar({
   onClear,
   className,
   leadingItems,
+  trailingItems,
   layout = 'stacked',
   filtersExtraContent,
 }: FilterBarProps) {
@@ -83,6 +85,7 @@ export function FilterBar({
           </Button>
         )}
         {leadingItems}
+        {trailingItems}
         {onSearchChange && (
           <div className={`relative w-full sm:w-auto sm:min-w-[180px] sm:max-w-[240px] ${searchAlign === 'right' ? 'sm:ml-auto' : ''}`}>
             <input
