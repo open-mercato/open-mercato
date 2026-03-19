@@ -1,432 +1,40 @@
 {
   "checkout": {
-    "nav": {
-      "group": "Checkout",
-      "root": "Checkout",
-      "payLinks": "Enlaces de pago",
-      "templates": "Plantillas",
-      "transactions": "Transacciones"
-    },
-    "common": {
-      "enabled": "Activado",
-      "emptyValue": "—",
-      "flash": {
-        "saved": "Guardado",
-        "deleted": "Eliminado"
-      },
-      "actions": {
-        "edit": "Editar",
-        "preview": "Vista previa",
-        "remove": "Quitar",
-        "delete": "Eliminar"
-      },
-      "status": {
-        "draft": "Borrador",
-        "active": "Activo",
-        "inactive": "Inactivo"
-      }
-    },
-    "currencySelect": {
-      "placeholder": "Seleccionar moneda",
-      "errors": {
-        "load": "No se pudieron cargar las monedas."
-      }
-    },
-    "customerFieldsEditor": {
-      "addField": "Agregar campo del cliente",
-      "locked": "Bloqueado",
-      "columns": {
-        "fieldKey": "Clave del campo",
-        "label": "Etiqueta",
-        "placeholder": "Placeholder",
-        "type": "Tipo",
-        "required": "Obligatorio",
-        "actions": "Acciones"
-      },
-      "types": {
-        "text": "Texto",
-        "multiline": "Área de texto",
-        "boolean": "Checkbox",
-        "select": "Select",
-        "radio": "Radio"
-      },
-      "placeholders": {
-        "fieldKey": "referenceCode",
-        "label": "Código de referencia",
-        "placeholder": "Se muestra dentro del campo"
-      },
-      "options": {
-        "title": "Opciones",
-        "add": "Agregar opción",
-        "value": "Valor",
-        "label": "Etiqueta",
-        "placeholders": {
-          "value": "starter",
-          "label": "Starter"
-        }
-      },
-      "notices": {
-        "defaultFields": "Los campos predeterminados del cliente son solo sugerencias iniciales. Puedes renombrarlos, reordenarlos o eliminarlos para mantener el formulario compacto.",
-        "empty": "Todavía no hay campos del cliente configurados. Agrega al menos un campo si quieres recoger datos del comprador en la página de pago."
-      }
-    },
-    "gatewaySettings": {
-      "selectPlaceholder": "Seleccionar…",
-      "notices": {
-        "chooseProvider": "Elige un proveedor de pasarela para configurar los ajustes de sesión del checkout.",
-        "noSettings": "Este proveedor no expone ajustes adicionales de sesión."
-      }
-    },
-    "logoUpload": {
-      "title": "Logo",
-      "description": "Sube un logo a adjuntos o sigue usando una URL externa.",
-      "empty": "Todavía no se ha seleccionado un logo.",
-      "externalUrl": "URL externa del logo",
-      "externalUrlPlaceholder": "https://example.com/logo.png",
-      "previewAlt": "Vista previa del logo del checkout",
-      "actions": {
-        "attach": "Adjuntar logo",
-        "uploading": "Subiendo…",
-        "removeUpload": "Quitar subida"
-      },
-      "notices": {
-        "attachmentWins": "El adjunto subido se usa primero. Elimínalo si quieres volver a la URL externa."
-      },
-      "errors": {
-        "upload": "No se pudo subir el logo.",
-        "remove": "No se pudo eliminar el logo subido."
-      }
-    },
-    "linkTemplateForm": {
-      "titles": {
-        "createLink": "Crear enlace de pago",
-        "editLink": "Editar enlace de pago",
-        "createTemplate": "Crear plantilla",
-        "editTemplate": "Editar plantilla"
-      },
-      "groups": {
-        "general": "General",
-        "appearance": "Apariencia",
-        "pricing": "Precios",
-        "payment": "Pago",
-        "customerFields": "Campos del cliente",
-        "settings": "Ajustes",
-        "legal": "Legal",
-        "messages": "Mensajes",
-        "emails": "Correos",
-        "customFields": "Campos personalizados"
-      },
-      "general": {
-        "fields": {
-          "name": "Nombre",
-          "title": "Título",
-          "subtitle": "Subtítulo",
-          "description": "Descripción",
-          "slug": "Slug"
-        },
-        "hints": {
-          "description": "Se admite markdown en la vista previa pública.",
-          "slug": "Esta será la URL pública del enlace de pago."
-        },
-        "placeholders": {
-          "name": "Sesión de consultoría de enero",
-          "title": "Pago de sesión de consultoría",
-          "subtitle": "Consulta estratégica de una hora",
-          "description": "# Qué incluye\n- Llamada estratégica de 60 minutos\n- Resumen después de la llamada",
-          "slug": "enero-consultoria"
-        },
-        "actions": {
-          "generateSlug": "Generar"
-        },
-        "slugPreview": "Vista previa: `/pay/{slug}`"
-      },
-      "appearance": {
-        "fields": {
-          "primaryColor": "Color principal",
-          "secondaryColor": "Color secundario",
-          "backgroundColor": "Color de fondo",
-          "themeMode": "Modo de tema",
-          "displayCustomFields": "Mostrar campos personalizados en la página pública"
-        },
-        "themeModes": {
-          "auto": "Automático",
-          "light": "Claro",
-          "dark": "Oscuro"
-        }
-      },
-      "pricing": {
-        "modes": {
-          "fixed": "Precio fijo",
-          "customAmount": "El cliente introduce el importe",
-          "priceList": "Lista de precios"
-        },
-        "fields": {
-          "amount": "Importe",
-          "currency": "Moneda",
-          "compareAtPrice": "Precio comparativo",
-          "includesTax": "El precio ya incluye impuestos",
-          "minimumAmount": "Importe mínimo",
-          "maximumAmount": "Importe máximo"
-        },
-        "hints": {
-          "compareAtPrice": "Importe tachado opcional que se muestra sobre el precio actual."
-        }
-      },
-      "priceList": {
-        "columns": {
-          "itemCode": "Código del ítem",
-          "description": "Descripción",
-          "amount": "Importe",
-          "currency": "Moneda",
-          "actions": "Acciones"
-        },
-        "placeholders": {
-          "itemCode": "starter",
-          "description": "Paquete starter"
-        },
-        "aria": {
-          "itemCode": "Código del ítem {index}",
-          "description": "Descripción {index}",
-          "amount": "Importe {index}"
-        },
-        "actions": {
-          "addItem": "Agregar ítem"
-        },
-        "notices": {
-          "singleCurrency": "Mantén todos los ítems de la lista de precios en la misma moneda. La primera moneda será la predeterminada para nuevas filas.",
-          "empty": "Todavía no hay ítems en la lista de precios. Agrega al menos uno para permitir al cliente elegir entre varios importes."
-        }
-      },
-      "payment": {
-        "fields": {
-          "gatewayProvider": "Proveedor de pasarela"
-        },
-        "placeholders": {
-          "provider": "Seleccionar proveedor…"
-        }
-      },
-      "customerDetails": {
-        "title": "Recoger datos del cliente",
-        "description": "Recomendado: recoge al menos el correo del cliente para recibos, revisión de fraude y disputas de pago. No es obligatorio.",
-        "notices": {
-          "simpleLink": "Desactívalo para que la página sea un enlace de pago simple sin formulario de cliente.",
-          "disabled": "Los datos del cliente están desactivados. Los compradores solo verán la sección de pago y las casillas legales que correspondan."
-        }
-      },
-      "legal": {
-        "notice": "Estas pestañas se muestran alrededor del paso de consentimiento legal en la página de pago. Usa markdown para encabezados, listas y enlaces.",
-        "tabs": {
-          "terms": "Términos",
-          "privacy": "Privacidad"
-        },
-        "fields": {
-          "termsTitle": "Título de términos",
-          "termsBody": "Contenido de términos",
-          "privacyTitle": "Título de privacidad",
-          "privacyBody": "Contenido de privacidad",
-          "acceptanceRequired": "Aceptación obligatoria"
-        },
-        "placeholders": {
-          "termsTitle": "Términos y condiciones",
-          "termsBody": "# Términos\n\nDescribe las reglas que los clientes aceptan antes de pagar.",
-          "privacyTitle": "Política de privacidad",
-          "privacyBody": "# Privacidad\n\nExplica qué datos personales recopilas y por qué."
-        }
-      },
-      "messages": {
-        "notice": "Estos mensajes se muestran en los estados públicos de éxito, cancelación y error. El cuerpo admite markdown.",
-        "tabs": {
-          "success": "Éxito",
-          "cancel": "Cancelación",
-          "error": "Error"
-        },
-        "labels": {
-          "title": "Título de {state}",
-          "body": "Mensaje de {state}"
-        },
-        "placeholders": {
-          "successTitle": "Pago completado",
-          "successBody": "Gracias por tu pago. Lo estamos procesando ahora.",
-          "cancelTitle": "Pago cancelado",
-          "cancelBody": "El pago se canceló antes de completarse.",
-          "errorTitle": "Pago fallido",
-          "errorBody": "No pudimos completar el pago. Inténtalo de nuevo."
-        }
-      },
-      "emails": {
-        "notice": "Los cuerpos de correo admiten markdown y las variables de abajo.",
-        "variableHint": "Variables disponibles:",
-        "sendToCustomer": "Enviar este correo al cliente",
-        "tabs": {
-          "start": "Inicio",
-          "success": "Éxito",
-          "error": "Error"
-        },
-        "labels": {
-          "subject": "Asunto del correo de {state}",
-          "body": "Contenido del correo de {state}"
-        },
-        "placeholders": {
-          "startSubject": "Pago iniciado - {{linkTitle}}",
-          "startBody": "Hola {{firstName}}, hemos empezado a procesar tu pago de **{{amount}} {{currencyCode}}**.",
-          "successSubject": "Pago exitoso - {{linkTitle}}",
-          "successBody": "Hola {{firstName}}, tu pago se ha completado correctamente. Referencia: `{{transactionId}}`.",
-          "errorSubject": "Pago fallido - {{linkTitle}}",
-          "errorBody": "Hola {{firstName}}, tu pago no pudo completarse. {{errorMessage}}"
-        }
-      },
-      "settings": {
-        "fields": {
-          "status": "Estado",
-          "maxCompletions": "Máx. completados",
-          "password": "Contraseña"
-        },
-        "hints": {
-          "maxCompletions": "Déjalo vacío si el enlace debe poder reutilizarse para siempre.",
-          "password": "Contraseña opcional requerida antes de abrir la página de pago."
-        },
-        "placeholders": {
-          "unlimited": "Sin límite",
-          "password": "Déjalo vacío para que la página sea pública"
-        }
-      }
-    },
-    "admin": {
-      "payLinks": {
-        "title": "Enlaces de pago",
-        "searchPlaceholder": "Buscar enlaces de pago…",
-        "filters": {
-          "status": "Estado",
-          "pricing": "Precios"
-        },
-        "columns": {
-          "name": "Nombre",
-          "slug": "Slug",
-          "pricing": "Precios",
-          "status": "Estado",
-          "uses": "Usos",
-          "created": "Creado"
-        },
-        "pricing": {
-          "fixed": "Fijo {amount} {currency}",
-          "customAmount": "Personalizado {min}-{max} {currency}"
-        },
-        "actions": {
-          "create": "Crear enlace",
-          "viewPayPage": "Ver página de pago",
-          "copyUrl": "Copiar URL del enlace",
-          "showTransactions": "Ver transacciones",
-          "publish": "Publicar",
-          "deactivate": "Desactivar"
-        }
-      },
-      "templates": {
-        "title": "Plantillas de enlace",
-        "searchPlaceholder": "Buscar plantillas…",
-        "unlimited": "Sin límite",
-        "filters": {
-          "pricingMode": "Modo de precio"
-        },
-        "columns": {
-          "name": "Nombre",
-          "pricingMode": "Modo de precio",
-          "gateway": "Pasarela",
-          "maxUses": "Máx. usos",
-          "created": "Creado"
-        },
-        "actions": {
-          "create": "Crear plantilla",
-          "createLinkFromTemplate": "Crear enlace desde plantilla"
-        }
-      },
-      "transactions": {
-        "title": "Transacciones",
-        "searchPlaceholder": "Buscar transacciones…",
-        "filters": {
-          "link": "Enlace",
-          "status": "Estado"
-        },
-        "columns": {
-          "link": "Enlace",
-          "customer": "Cliente",
-          "email": "Correo",
-          "amount": "Importe",
-          "status": "Estado",
-          "paymentStatus": "Estado del pago",
-          "date": "Fecha"
-        },
-        "actions": {
-          "viewDetail": "Ver detalle"
-        },
-        "status": {
-          "pending": "Pendiente",
-          "processing": "Procesando",
-          "completed": "Completada",
-          "failed": "Fallida",
-          "cancelled": "Cancelada",
-          "expired": "Expirada"
-        }
-      },
-      "transactionDetail": {
-        "title": "Detalle de transacción",
-        "description": "Inspecciona la transacción de checkout y los datos relacionados del enlace de pago.",
-        "sections": {
-          "payment": "Detalles del pago",
-          "link": "Detalles del enlace",
-          "customer": "Información del cliente",
-          "gateway": "Transacción de pasarela",
-          "customFields": "Campos personalizados"
-        },
-        "fields": {
-          "amount": "Importe",
-          "status": "Estado",
-          "paymentStatus": "Estado del pago",
-          "transactionId": "ID de transacción",
-          "created": "Creado",
-          "updated": "Actualizado",
-          "linkName": "Nombre del enlace",
-          "slug": "Slug",
-          "pricingMode": "Modo de precio",
-          "firstName": "Nombre",
-          "lastName": "Apellido",
-          "email": "Correo",
-          "phone": "Teléfono",
-          "gatewayTransactionId": "ID de transacción de pasarela",
-          "selectedPriceItem": "Ítem de precio seleccionado",
-          "checkoutTransaction": "Transacción de checkout"
-        },
-        "actions": {
-          "viewPayLink": "Ver enlace de pago"
-        },
-        "emptyCustomFields": "No se capturaron campos personalizados para esta transacción."
-      }
-    },
     "payPage": {
       "loading": "Cargando enlace de pago...",
       "protectedTitle": "Enlace de pago protegido",
-      "passwordPlaceholder": "Contraseña",
-      "unavailable": "Este enlace de pago ya no está disponible.",
-      "previewBanner": "Modo vista previa. Los pagos están desactivados.",
+      "passwordPlaceholder": "Contrasena",
+      "unavailable": "Este enlace de pago ya no esta disponible.",
+      "previewBanner": "Modo de vista previa. Los pagos estan deshabilitados.",
       "sections": {
         "customerDetails": "Datos del cliente",
-        "payment": "Pago"
+        "payment": "Pago",
+        "legal": "Confirmaciones legales"
       },
       "fields": {
-        "selectPlaceholder": "Seleccionar..."
+        "selectPlaceholder": "Seleccionar...",
+        "customAmount": "Importe"
+      },
+      "help": {
+        "customerDetails": "Completa los datos del comprador y luego continua al pago.",
+        "payment": "Elige el importe, revisa el resumen y continua con el paso de pago seguro.",
+        "legal": "Las confirmaciones obligatorias deben aceptarse antes de iniciar el pago."
       },
       "legal": {
         "acceptDocument": "Acepto {document}.",
-        "defaultTermsTitle": "los términos y condiciones",
-        "defaultPrivacyTitle": "la política de privacidad"
+        "defaultTermsTitle": "los terminos y condiciones",
+        "defaultPrivacyTitle": "la politica de privacidad"
       },
       "summary": {
-        "amountDue": "Importe a pagar"
+        "amountDue": "Importe pendiente",
+        "awaitingSelection": "Selecciona un importe"
       },
       "errors": {
         "loadTitle": "No se pudo cargar el enlace de pago",
-        "loadMessage": "No pudimos cargar esta página de pago. Inténtalo de nuevo.",
-        "password": "No se pudo verificar la contraseña. Inténtalo de nuevo.",
-        "submit": "No se pudo iniciar el pago. Inténtalo de nuevo."
+        "loadMessage": "No pudimos cargar esta pagina de pago. Intentalo de nuevo.",
+        "password": "No se pudo verificar la contrasena. Intentalo de nuevo.",
+        "submit": "No se pudo iniciar el pago. Intentalo de nuevo.",
+        "embeddedUnavailable": "El formulario de pago no esta disponible ahora mismo. Intentalo otra vez o usa la pagina alojada del proveedor."
       },
       "actions": {
         "retry": "Reintentar",
@@ -435,12 +43,26 @@
         "verifying": "Verificando...",
         "payNow": "Pagar ahora",
         "processingPayment": "Procesando pago...",
-        "previewDisabled": "Solo vista previa"
+        "previewDisabled": "Solo vista previa",
+        "editDetails": "Editar datos"
+      },
+      "validation": {
+        "thisField": "este campo",
+        "fixErrors": "Revisa los campos marcados y vuelve a intentarlo.",
+        "requiredField": "Completa {field}.",
+        "documentRequired": "Acepta {field} para continuar.",
+        "amountRequired": "Introduce un importe para continuar.",
+        "amountMin": "Introduce al menos {amount}.",
+        "amountMax": "Introduce como maximo {amount}.",
+        "priceSelectionRequired": "Elige una opcion de pago para continuar.",
+        "labels": {
+          "option": "opcion de pago"
+        }
       }
     },
     "statusPage": {
-      "backToPayment": "Volver a la página de pago",
-      "checking": "Comprobando estado del pago…",
+      "backToPayment": "Volver a la pagina de pago",
+      "checking": "Comprobando el estado del pago...",
       "currentStatus": "Estado actual: {status}",
       "success": {
         "completed": "Pago completado",
@@ -449,75 +71,15 @@
       "cancel": {
         "failed": "Pago fallido",
         "cancelled": "Pago cancelado"
+      },
+      "status": {
+        "pending": "Pendiente",
+        "processing": "En proceso",
+        "completed": "Completado",
+        "failed": "Fallido",
+        "cancelled": "Cancelado",
+        "expired": "Caducado"
       }
-    },
-    "validation": {
-      "fixedPriceAmount": {
-        "required": "El importe es obligatorio para el precio fijo."
-      },
-      "fixedPriceCurrencyCode": {
-        "required": "La moneda es obligatoria para el precio fijo."
-      },
-      "customAmountMin": {
-        "required": "El importe mínimo es obligatorio."
-      },
-      "customAmountMax": {
-        "required": "El importe máximo es obligatorio."
-      },
-      "customAmountCurrencyCode": {
-        "required": "La moneda es obligatoria para el importe personalizado."
-      },
-      "customAmount": {
-        "range": "El importe máximo debe ser mayor o igual que el mínimo."
-      },
-      "priceListItems": {
-        "required": "Agrega al menos un ítem a la lista de precios.",
-        "singleCurrency": "Todos los ítems de la lista de precios deben usar la misma moneda."
-      }
-    },
-    "notifications": {
-      "transaction": {
-        "completed": {
-          "title": "Pago completado",
-          "body": "{customerName} pagó {amount} {currency}."
-        },
-        "failed": {
-          "title": "Pago fallido",
-          "body": "Un pago de {amount} {currency} ha fallado."
-        }
-      },
-      "link": {
-        "usageLimitReached": {
-          "title": "Límite de uso alcanzado",
-          "body": "{linkName} alcanzó su número máximo de completados."
-        }
-      },
-      "renderer": {
-        "viewTransaction": "Ver transacción",
-        "viewLink": "Ver enlace de pago"
-      }
-    },
-    "link": {
-      "created": "Enlace de pago creado",
-      "updated": "Enlace de pago actualizado",
-      "deleted": "Enlace de pago eliminado",
-      "published": "Enlace de pago publicado",
-      "locked": "Enlace de pago bloqueado",
-      "usageLimitReached": "Se alcanzó el límite de uso del enlace de pago"
-    },
-    "template": {
-      "created": "Plantilla creada",
-      "updated": "Plantilla actualizada",
-      "deleted": "Plantilla eliminada"
-    },
-    "transaction": {
-      "created": "Transacción creada",
-      "sessionStarted": "Sesión de pago iniciada",
-      "completed": "Transacción completada",
-      "failed": "Transacción fallida",
-      "cancelled": "Transacción cancelada",
-      "expired": "Transacción expirada",
-      "customerDataCaptured": "Datos del cliente capturados"
     }
   }
 }

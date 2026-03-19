@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fieldsetCodeRegex } from '@open-mercato/shared/modules/entities/validators'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
 import { CHECKOUT_LINK_STATUSES } from '../lib/constants'
 
@@ -27,6 +28,10 @@ const optionalTrimmedString = z.preprocess(
 const optionalUrlSchema = z.preprocess(
   normalizeBlankString,
   z.string().url().optional().nullable(),
+)
+const optionalFieldsetCodeSchema = z.preprocess(
+  normalizeBlankString,
+  z.string().regex(fieldsetCodeRegex).optional().nullable(),
 )
 const positiveMoneySchema = z.coerce.number().finite().nonnegative()
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
@@ -92,6 +97,7 @@ const checkoutContentSchema = z.object({
   priceListItems: z.array(priceListItemSchema).optional().nullable(),
   gatewayProviderKey: optionalTrimmedString,
   gatewaySettings: gatewaySettingsSchema,
+  customFieldsetCode: optionalFieldsetCodeSchema,
   collectCustomerDetails: z.boolean().default(true),
   customerFieldsSchema: z.array(customerFieldDefinitionSchema).default([...DEFAULT_CHECKOUT_CUSTOMER_FIELDS]),
   legalDocuments: legalDocumentsSchema,

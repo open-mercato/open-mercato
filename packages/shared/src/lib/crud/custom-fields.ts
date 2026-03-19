@@ -331,6 +331,7 @@ export async function loadCustomFieldDefinitionIndex(opts: {
   entityIds: string | string[]
   tenantId?: string | null | undefined
   organizationIds?: Array<string | null | undefined> | null
+  fieldset?: string | string[] | null
 }): Promise<CustomFieldDefinitionIndex> {
   const list = Array.isArray(opts.entityIds) ? opts.entityIds : [opts.entityIds]
   const entityIds = list
@@ -362,8 +363,25 @@ export async function loadCustomFieldDefinitionIndex(opts: {
     $and: scopeClauses,
   }
   const defs = await opts.em.find(CustomFieldDef, where as any)
+  const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
   const index: CustomFieldDefinitionIndex = new Map()
   defs.forEach((def) => {
+    if (fieldsetFilter) {
+      const config = normalizeDefinitionConfig((def as any).configJson)
+      const fieldsets = Array.isArray(config.fieldsets)
+        ? config.fieldsets
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+        : []
+      const fieldset = typeof config.fieldset === 'string' && config.fieldset.trim().length > 0
+        ? config.fieldset.trim()
+        : null
+      const matches = fieldsets.length > 0
+        ? fieldsets.some((entry) => fieldsetFilter.has(entry))
+        : fieldsetFilter.has(fieldset)
+      if (!matches) return
+    }
     const summary = summarizeDefinition(def)
     if (!summary) return
     const normalizedKey = normalizeDefinitionKey(summary.key)

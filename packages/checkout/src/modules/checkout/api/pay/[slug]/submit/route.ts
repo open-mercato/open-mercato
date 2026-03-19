@@ -85,21 +85,22 @@ async function buildSubmitResponse(
   const clientSession = gatewayTransaction
     ? readClientSession(gatewayTransaction.gatewayMetadata)
     : null
+  const paymentSession = (clientSession && gatewayTransaction)
+    ? {
+        ...clientSession,
+        payload: {
+          ...(clientSession.payload ?? {}),
+          returnUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
+          cancelUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
+        },
+        providerKey: providerKey ?? gatewayTransaction.providerKey ?? null,
+        gatewayTransactionId: gatewayTransaction.id,
+      }
+    : null
   return {
     transactionId: transaction.id,
     redirectUrl: gatewayTransaction?.redirectUrl ?? null,
-    paymentSession: clientSession
-      ? {
-          ...clientSession,
-          payload: {
-            ...(clientSession.payload ?? {}),
-            returnUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
-            cancelUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
-          },
-          providerKey: providerKey ?? gatewayTransaction?.providerKey ?? null,
-          gatewayTransactionId: gatewayTransaction.id,
-        }
-      : null,
+    paymentSession,
   }
 }
 

@@ -122,6 +122,7 @@ function createDefaultValues(t?: TranslateFn): FormValues {
     priceListItems: [],
     gatewayProviderKey: '',
     gatewaySettings: {},
+    customFieldsetCode: null,
     collectCustomerDetails: true,
     customerFieldsSchema: cloneDefaultCustomerFields(t),
     legalDocuments: createDefaultLegalDocuments(),
@@ -231,6 +232,7 @@ function normalizeFormValues(value: FormValues | null | undefined, t?: Translate
     secondaryColor: readString(source.secondaryColor).trim() || defaults.secondaryColor,
     backgroundColor: readString(source.backgroundColor).trim() || defaults.backgroundColor,
     gatewaySettings: isRecord(source.gatewaySettings) ? source.gatewaySettings : {},
+    customFieldsetCode: readString(source.customFieldsetCode).trim() || null,
     collectCustomerDetails: readBoolean(source.collectCustomerDetails, true),
     customerFieldsSchema: normalizeCustomerFields(source.customerFieldsSchema, t),
     legalDocuments: normalizeLegalDocuments(source.legalDocuments),
@@ -1246,6 +1248,18 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       component: (ctx) => <GeneralSection {...ctx} mode={mode} />,
     },
     {
+      id: 'payment',
+      title: t('checkout.linkTemplateForm.groups.payment'),
+      column: 2,
+      component: (ctx) => <PaymentSection {...ctx} providers={providers} />,
+    },
+    {
+      id: 'pricing',
+      title: t('checkout.linkTemplateForm.groups.pricing'),
+      column: 1,
+      component: (ctx) => <PricingSection {...ctx} />,
+    },
+    {
       id: 'appearance',
       title: t('checkout.linkTemplateForm.groups.appearance'),
       column: 2,
@@ -1256,18 +1270,6 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
           attachmentRecordId={attachmentDraftRecordId}
         />
       ),
-    },
-    {
-      id: 'pricing',
-      title: t('checkout.linkTemplateForm.groups.pricing'),
-      column: 1,
-      component: (ctx) => <PricingSection {...ctx} />,
-    },
-    {
-      id: 'payment',
-      title: t('checkout.linkTemplateForm.groups.payment'),
-      column: 2,
-      component: (ctx) => <PaymentSection {...ctx} providers={providers} />,
     },
     {
       id: 'customerFields',
@@ -1351,6 +1353,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
               </Button>
             ) : null}
             entityId={entityId}
+            customFieldsetBindings={{ [entityId]: { valueKey: 'customFieldsetCode' } }}
             initialValues={initialValues}
             contentHeader={lockedNotice}
             readOnly={isLocked}

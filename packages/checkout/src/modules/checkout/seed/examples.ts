@@ -1,10 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
+import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import type { InitSetupContext } from '@open-mercato/shared/modules/setup'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
+import { CHECKOUT_LINK_CUSTOM_FIELDS, CHECKOUT_LINK_FIELDSETS } from '../lib/customFields'
 import { toMoneyString, toTemplateOrLinkMutationInput } from '../lib/utils'
 
 type TemplateSeed = {
@@ -20,6 +23,20 @@ type TemplateSeed = {
   customAmountCurrencyCode?: string | null
   priceListItems?: Array<{ id: string; description: string; amount: number; currencyCode: string }>
   maxCompletions?: number | null
+  customFieldsetCode?: string | null
+  displayCustomFieldsOnPage?: boolean
+  successTitle?: string
+  successMessage?: string
+  cancelTitle?: string
+  cancelMessage?: string
+  errorTitle?: string
+  errorMessage?: string
+  startEmailSubject?: string
+  startEmailBody?: string
+  successEmailSubject?: string
+  successEmailBody?: string
+  errorEmailSubject?: string
+  errorEmailBody?: string
   collectCustomerDetails?: boolean
   customFields?: Record<string, unknown>
 }
@@ -44,11 +61,26 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
     fixedPriceAmount: 150,
     fixedPriceCurrencyCode: 'USD',
     maxCompletions: 1,
+    customFieldsetCode: 'service_package',
+    displayCustomFieldsOnPage: true,
+    successTitle: 'Booking confirmed',
+    successMessage: '## Payment received\n\nThank you for booking your consulting session. We will send the meeting invite and prep notes within one business day.',
+    cancelTitle: 'Payment cancelled',
+    cancelMessage: 'No worries. Your consulting slot has not been confirmed yet. You can return to this link when you are ready.',
+    errorTitle: 'Payment needs another try',
+    errorMessage: 'We could not finish the payment for your consulting session. Please retry or contact us if the issue continues.',
+    startEmailSubject: 'We received your consulting payment request',
+    startEmailBody: 'Hi {{firstName}},\n\nWe started processing your payment for **{{linkTitle}}** in the amount of **{{amount}} {{currencyCode}}**.',
+    successEmailSubject: 'Your consulting session is confirmed',
+    successEmailBody: 'Hi {{firstName}},\n\nYour payment for **{{linkTitle}}** was completed successfully.\n\nTransaction reference: `{{transactionId}}`.\n\nWe will follow up with scheduling details shortly.',
+    errorEmailSubject: 'We could not complete your payment',
+    errorEmailBody: 'Hi {{firstName}},\n\nYour payment for **{{linkTitle}}** could not be completed. {{errorMessage}}\n\nYou can retry using the same link.',
     collectCustomerDetails: true,
     customFields: {
-      internal_reference: 'TPL-CONSULTING-FEE',
-      campaign_code: 'SERVICES',
-      sales_note: 'Use for bespoke consulting or advisory invoices.',
+      service_deliverables: '- 60 minute strategy call\n- Written summary with next steps\n- Follow-up recommendations by email',
+      delivery_timeline: 'We send the meeting invite and prep notes within 1 business day after payment.',
+      session_format: 'Remote video call',
+      support_contact: 'ops@open-mercato.com',
     },
   },
   {
@@ -61,11 +93,26 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
     customAmountMax: 500,
     customAmountCurrencyCode: 'USD',
     maxCompletions: null,
+    customFieldsetCode: 'donation_campaign',
+    displayCustomFieldsOnPage: true,
+    successTitle: 'Thank you for your support',
+    successMessage: '## Donation received\n\nThank you for supporting our community work. Your contribution helps us fund new workshops, scholarships, and open events.',
+    cancelTitle: 'Donation not completed',
+    cancelMessage: 'Your donation was not completed. You can come back to this page any time and try again.',
+    errorTitle: 'Donation payment failed',
+    errorMessage: 'We could not complete the donation payment. Please retry in a moment or use another payment method if available.',
+    startEmailSubject: 'Your donation payment is being processed',
+    startEmailBody: 'Hi {{firstName}},\n\nWe started processing your donation for **{{linkTitle}}** in the amount of **{{amount}} {{currencyCode}}**.',
+    successEmailSubject: 'Thank you for your donation',
+    successEmailBody: 'Hi {{firstName}},\n\nYour donation for **{{linkTitle}}** was completed successfully.\n\nReference: `{{transactionId}}`.\n\nThank you for helping us continue this work.',
+    errorEmailSubject: 'Your donation payment needs another try',
+    errorEmailBody: 'Hi {{firstName}},\n\nWe could not complete your donation payment. {{errorMessage}}\n\nYou can use the same link to try again.',
     collectCustomerDetails: false,
     customFields: {
-      internal_reference: 'TPL-DONATION',
-      campaign_code: 'FUNDRAISING',
-      sales_note: 'Simple pay-link example without mandatory customer details.',
+      impact_summary: 'Your donation helps fund free community workshops and scholarship places for new participants.',
+      donation_usage: 'Funds support programming, venue costs, and materials.',
+      tax_receipt_note: 'A donation confirmation email is sent after successful payment.',
+      support_contact: 'donations@open-mercato.com',
     },
   },
   {
@@ -80,11 +127,26 @@ const TEMPLATE_SEEDS: TemplateSeed[] = [
       { id: 'premium', description: 'Premium table seat', amount: 150, currencyCode: 'USD' },
     ],
     maxCompletions: 100,
+    customFieldsetCode: 'event_ticket',
+    displayCustomFieldsOnPage: true,
+    successTitle: 'Your seat is reserved',
+    successMessage: '## Ticket purchased\n\nThank you for purchasing your Spring Gala ticket. Please keep the confirmation email for check-in details.',
+    cancelTitle: 'Ticket payment cancelled',
+    cancelMessage: 'Your ticket was not reserved. You can return to this page to complete the purchase later.',
+    errorTitle: 'Ticket payment failed',
+    errorMessage: 'We could not complete the ticket payment. Please retry or contact the events team for assistance.',
+    startEmailSubject: 'Your event ticket payment is being processed',
+    startEmailBody: 'Hi {{firstName}},\n\nWe started processing your payment for **{{linkTitle}}** in the amount of **{{amount}} {{currencyCode}}**.',
+    successEmailSubject: 'Your Spring Gala ticket is confirmed',
+    successEmailBody: 'Hi {{firstName}},\n\nYour payment for **{{linkTitle}}** was successful.\n\nTicket reference: `{{transactionId}}`.\n\nWe look forward to seeing you at the event.',
+    errorEmailSubject: 'We could not confirm your event ticket',
+    errorEmailBody: 'Hi {{firstName}},\n\nWe could not complete your ticket payment. {{errorMessage}}\n\nPlease use the same link to try again.',
     collectCustomerDetails: true,
     customFields: {
-      internal_reference: 'TPL-SPRING-GALA',
-      campaign_code: 'EVENTS',
-      sales_note: 'Event ticketing example with a compact price list.',
+      event_date: 'May 14, 2026 at 7:00 PM',
+      event_location: 'Mercato Hall, 12 River Street, New York',
+      ticket_includes: '- Entry to the gala\n- Welcome drink\n- Networking session',
+      support_contact: 'events@open-mercato.com',
     },
   },
 ]
@@ -98,9 +160,10 @@ const LINK_SEEDS: LinkSeed[] = [
     description: '## January consulting session\n\nThis pay link covers the agreed one-hour consulting engagement.',
     slug: 'january-consulting',
     customFields: {
-      internal_reference: 'LINK-JAN-CONSULTING',
-      campaign_code: 'JAN-2026',
-      sales_note: 'Seeded sample link for one-off consulting work.',
+      service_deliverables: '- 60 minute planning call\n- Action summary tailored to the January brief\n- Follow-up notes by email',
+      delivery_timeline: 'We send the calendar invite within 4 business hours after payment.',
+      session_format: 'Remote video call',
+      support_contact: 'ops@open-mercato.com',
     },
   },
   {
@@ -111,9 +174,10 @@ const LINK_SEEDS: LinkSeed[] = [
     description: '## Support the mission\n\nA simple pay link for collecting donations without a long customer form.',
     slug: 'donate',
     customFields: {
-      internal_reference: 'LINK-DONATE',
-      campaign_code: 'COMMUNITY',
-      sales_note: 'Seeded simple pay-link example.',
+      impact_summary: 'Your support keeps the community program accessible and free to attend.',
+      donation_usage: 'Funds go directly to programming, speakers, and participant materials.',
+      tax_receipt_note: 'A donation confirmation will be emailed right after payment.',
+      support_contact: 'donations@open-mercato.com',
     },
   },
   {
@@ -124,15 +188,66 @@ const LINK_SEEDS: LinkSeed[] = [
     description: '## Spring Gala 2026\n\nPick your ticket tier and complete the payment to confirm attendance.',
     slug: 'spring-gala-2026',
     customFields: {
-      internal_reference: 'LINK-SPRING-GALA-2026',
-      campaign_code: 'GALA-2026',
-      sales_note: 'Seeded event ticket pay link.',
+      event_date: 'May 14, 2026 at 7:00 PM',
+      event_location: 'Mercato Hall, 12 River Street, New York',
+      ticket_includes: '- Gala entry\n- Welcome drink\n- Access to the networking lounge',
+      support_contact: 'events@open-mercato.com',
     },
   },
 ]
 
 function cloneCustomerFields() {
   return DEFAULT_CHECKOUT_CUSTOMER_FIELDS.map((field) => ({ ...field }))
+}
+
+async function ensureFieldsetConfig(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  entityId: string,
+) {
+  const now = new Date()
+  let config = await em.findOne(CustomFieldEntityConfig, {
+    entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  if (!config) {
+    config = em.create(CustomFieldEntityConfig, {
+      entityId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }
+  config.configJson = {
+    fieldsets: CHECKOUT_LINK_FIELDSETS,
+    singleFieldsetPerRecord: true,
+  }
+  config.isActive = true
+  config.updatedAt = now
+  em.persist(config)
+}
+
+async function ensureCheckoutFieldsetsAndDefinitions(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+) {
+  await ensureFieldsetConfig(em, scope, CHECKOUT_ENTITY_IDS.link)
+  await ensureFieldsetConfig(em, scope, CHECKOUT_ENTITY_IDS.template)
+  await ensureCustomFieldDefinitions(
+    em,
+    [
+      { entity: CHECKOUT_ENTITY_IDS.link, fields: CHECKOUT_LINK_CUSTOM_FIELDS },
+      { entity: CHECKOUT_ENTITY_IDS.template, fields: CHECKOUT_LINK_CUSTOM_FIELDS },
+    ],
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    },
+  )
+  await em.flush()
 }
 
 async function ensureTemplate(
@@ -169,10 +284,23 @@ async function ensureTemplate(
     priceListItems: seed.priceListItems?.map((item) => ({ ...item })) ?? null,
     gatewayProviderKey: null,
     gatewaySettings: {},
+    customFieldsetCode: seed.customFieldsetCode ?? null,
     collectCustomerDetails: seed.collectCustomerDetails ?? true,
     customerFieldsSchema: cloneCustomerFields(),
     legalDocuments: {},
-    displayCustomFieldsOnPage: false,
+    displayCustomFieldsOnPage: seed.displayCustomFieldsOnPage ?? false,
+    successTitle: seed.successTitle ?? null,
+    successMessage: seed.successMessage ?? null,
+    cancelTitle: seed.cancelTitle ?? null,
+    cancelMessage: seed.cancelMessage ?? null,
+    errorTitle: seed.errorTitle ?? null,
+    errorMessage: seed.errorMessage ?? null,
+    startEmailSubject: seed.startEmailSubject ?? null,
+    startEmailBody: seed.startEmailBody ?? null,
+    successEmailSubject: seed.successEmailSubject ?? null,
+    successEmailBody: seed.successEmailBody ?? null,
+    errorEmailSubject: seed.errorEmailSubject ?? null,
+    errorEmailBody: seed.errorEmailBody ?? null,
     sendStartEmail: true,
     sendSuccessEmail: true,
     sendErrorEmail: true,
@@ -253,6 +381,7 @@ async function assignCustomFields(args: {
 export async function seedCheckoutExamples({ em, container, tenantId, organizationId }: InitSetupContext) {
   const scope = { tenantId, organizationId }
   const dataEngine = container.resolve('dataEngine') as DataEngine
+  await ensureCheckoutFieldsetsAndDefinitions(em, scope)
   const templateAssignments: Array<() => Promise<void>> = []
   const linkAssignments: Array<() => Promise<void>> = []
   const templatesByName = new Map<string, CheckoutLinkTemplate>()

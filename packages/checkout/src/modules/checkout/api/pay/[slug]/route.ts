@@ -6,6 +6,7 @@ import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/serv
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { CheckoutLink } from '../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../lib/constants'
+import { resolveCheckoutPublicCustomFields } from '../../../lib/customFields'
 import { checkoutPublicViewRateLimitConfig } from '../../../lib/rateLimiter'
 import { handleCheckoutRouteError, readCheckoutPasswordCookie, requirePreviewContext } from '../../helpers'
 import {
@@ -63,9 +64,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       tenantIdByRecord: { [link.id]: link.tenantId },
       organizationIdByRecord: { [link.id]: link.organizationId },
     })
+    const publicCustomFields = await resolveCheckoutPublicCustomFields({
+      em,
+      entityId: CHECKOUT_ENTITY_IDS.link,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
+      customFieldsetCode: link.customFieldsetCode ?? null,
+      customValues: customValues[link.id] ?? {},
+      displayCustomFieldsOnPage: link.displayCustomFieldsOnPage,
+    })
     return NextResponse.json({
       ...serializeTemplateOrLink(link),
       customFields: customValues[link.id] ?? {},
+      publicCustomFields,
       available: previewRequested ? false : available,
       remainingUses: link.maxCompletions == null
         ? null

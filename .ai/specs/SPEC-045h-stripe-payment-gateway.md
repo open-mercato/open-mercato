@@ -82,6 +82,7 @@ packages/core/src/modules/gateway_stripe/
 ├── acl.ts                      # gateway_stripe.view, .configure
 ├── setup.ts                    # Register adapters, payment provider, webhook handler
 ├── di.ts                       # Stripe client, health check service
+├── payments.client.tsx         # Registers the public embedded Stripe payment renderer
 ├── lib/
 │   ├── shared.ts               # Common logic shared across API versions
 │   ├── client.ts               # Stripe SDK wrapper with credential resolution
@@ -167,6 +168,14 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       clientSecret: paymentIntent.client_secret!,
       status: mapStripeStatus(paymentIntent.status),
       providerData: { paymentIntentId: paymentIntent.id },
+      clientSession: {
+        type: 'embedded',
+        rendererKey: 'stripe.payment_element',
+        payload: {
+          clientSecret: paymentIntent.client_secret!,
+          publishableKey: input.credentials.publishableKey,
+        },
+      },
     }
   },
 
@@ -604,6 +613,8 @@ export async function resolveStripeClient(
 | Test | Method | Assert |
 |------|--------|--------|
 | Create payment intent | `createSession()` | PaymentIntent created in Stripe, sessionId + clientSecret returned |
+| Embedded renderer registration | `payments.client.tsx` | Registers `stripe.payment_element` in the shared client registry |
+| Embedded confirmation flow | Public pay page + renderer | `PaymentElement` confirms the PaymentIntent without checkout importing Stripe UI directly |
 | Capture authorized payment | `capturePayment()` | Amount captured, status → `captured` |
 | Partial capture | `capturePayment()` with amount | Only specified amount captured |
 | Full refund | `refundPayment()` | Refund created, status → `refunded` |
@@ -664,3 +675,4 @@ When Stripe-specific tests are added in the future, they should:
 | Date | Change |
 |------|--------|
 | 2026-03-10 | Added §13 Testing Strategy noting deferred Stripe-specific integration tests. Mock adapter tests validate the GatewayAdapter contract. Added `company` field to integration metadata. |
+| 2026-03-19 | Added provider-owned embedded payment renderer support: `payments.client.tsx`, `stripe.payment_element`, and `clientSession` returned from `createSession()`. |

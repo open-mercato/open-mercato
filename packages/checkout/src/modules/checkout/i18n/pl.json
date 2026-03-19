@@ -34,6 +34,8 @@
     },
     "customerFieldsEditor": {
       "addField": "Dodaj pole klienta",
+      "newFieldLabel": "Nowe pole",
+      "newFieldPlaceholder": "Widoczne w formularzu płatności",
       "locked": "Zablokowane",
       "columns": {
         "fieldKey": "Klucz pola",
@@ -58,6 +60,7 @@
       "options": {
         "title": "Opcje",
         "add": "Dodaj opcję",
+        "defaultLabel": "Opcja {index}",
         "value": "Wartość",
         "label": "Etykieta",
         "placeholders": {
@@ -68,6 +71,36 @@
       "notices": {
         "defaultFields": "Domyślne pola klienta są tylko punktem wyjścia. Możesz je zmieniać, usuwać i porządkować, aby formularz był bardziej kompaktowy.",
         "empty": "Nie skonfigurowano jeszcze pól klienta. Dodaj przynajmniej jedno pole, jeśli chcesz zbierać dane kupującego na stronie płatności."
+      }
+    },
+    "defaultCustomerFields": {
+      "firstName": {
+        "label": "Imię",
+        "placeholder": "Jan"
+      },
+      "lastName": {
+        "label": "Nazwisko",
+        "placeholder": "Kowalski"
+      },
+      "email": {
+        "label": "E-mail",
+        "placeholder": "jan@firma.pl"
+      },
+      "phone": {
+        "label": "Telefon",
+        "placeholder": "+48 500 123 456"
+      },
+      "companyName": {
+        "label": "Nazwa firmy",
+        "placeholder": "Acme Sp. z o.o."
+      },
+      "companyId": {
+        "label": "NIP / ID firmy",
+        "placeholder": "NIP / numer rejestrowy"
+      },
+      "address": {
+        "label": "Adres",
+        "placeholder": "Ulica, miasto, kod pocztowy"
       }
     },
     "gatewaySettings": {
@@ -415,10 +448,17 @@
       "previewBanner": "Tryb podglądu. Płatności są wyłączone.",
       "sections": {
         "customerDetails": "Dane klienta",
-        "payment": "Płatność"
+        "payment": "Płatność",
+        "legal": "Potwierdzenia prawne"
       },
       "fields": {
-        "selectPlaceholder": "Wybierz..."
+        "selectPlaceholder": "Wybierz...",
+        "customAmount": "Kwota"
+      },
+      "help": {
+        "customerDetails": "Uzupełnij dane kupującego, a potem przejdź do płatności.",
+        "payment": "Wybierz kwotę, sprawdź podsumowanie i przejdź do bezpiecznej płatności.",
+        "legal": "Wymagane zgody muszą być zaakceptowane przed rozpoczęciem płatności."
       },
       "legal": {
         "acceptDocument": "Akceptuję {document}.",
@@ -426,13 +466,15 @@
         "defaultPrivacyTitle": "politykę prywatności"
       },
       "summary": {
-        "amountDue": "Kwota do zapłaty"
+        "amountDue": "Kwota do zapłaty",
+        "awaitingSelection": "Wybierz kwotę"
       },
       "errors": {
         "loadTitle": "Nie udało się załadować linku płatności",
         "loadMessage": "Nie udało się załadować tej strony płatności. Spróbuj ponownie.",
         "password": "Nie udało się zweryfikować hasła. Spróbuj ponownie.",
-        "submit": "Nie udało się rozpocząć płatności. Spróbuj ponownie."
+        "submit": "Nie udało się rozpocząć płatności. Spróbuj ponownie.",
+        "embeddedUnavailable": "Formularz płatności jest teraz niedostępny. Spróbuj ponownie albo użyj strony operatora płatności."
       },
       "actions": {
         "retry": "Ponów",
@@ -441,7 +483,21 @@
         "verifying": "Weryfikacja...",
         "payNow": "Zapłać teraz",
         "processingPayment": "Przetwarzanie płatności...",
-        "previewDisabled": "Tylko podgląd"
+        "previewDisabled": "Tylko podgląd",
+        "editDetails": "Edytuj dane"
+      },
+      "validation": {
+        "thisField": "to pole",
+        "fixErrors": "Popraw zaznaczone pola i spróbuj ponownie.",
+        "requiredField": "Uzupełnij pole {field}.",
+        "documentRequired": "Zaakceptuj {field}, aby kontynuować.",
+        "amountRequired": "Podaj kwotę, aby kontynuować.",
+        "amountMin": "Podaj co najmniej {amount}.",
+        "amountMax": "Podaj nie więcej niż {amount}.",
+        "priceSelectionRequired": "Wybierz opcję płatności, aby kontynuować.",
+        "labels": {
+          "option": "opcję płatności"
+        }
       }
     },
     "statusPage": {
@@ -455,6 +511,61 @@
       "cancel": {
         "failed": "Płatność nieudana",
         "cancelled": "Płatność anulowana"
+      },
+      "status": {
+        "pending": "Oczekująca",
+        "processing": "W trakcie",
+        "completed": "Zakończona",
+        "failed": "Nieudana",
+        "cancelled": "Anulowana",
+        "expired": "Wygasła"
+      }
+    },
+    "widgets": {
+      "paymentGatewayToolbarLink": {
+        "action": "Utwórz link płatniczy"
+      },
+      "gatewayTransactionLink": {
+        "title": "Transakcja checkout",
+        "labels": {
+          "transactionId": "ID transakcji",
+          "link": "Link"
+        },
+        "actions": {
+          "openTransaction": "Otwórz transakcję",
+          "openPayPage": "Otwórz stronę płatności"
+        }
+      }
+    },
+    "systemEmails": {
+      "common": {
+        "customerFallback": "Klient",
+        "linkTitleFallback": "Płatność"
+      },
+      "start": {
+        "subject": "Płatność rozpoczęta - {linkTitle}",
+        "title": "Płatność rozpoczęta",
+        "preview": "Twoja płatność {amount} {currencyCode} jest przetwarzana",
+        "greeting": "Cześć {firstName}, rozpoczęliśmy płatność za {linkTitle}.",
+        "message": "Przetwarzamy Twoją płatność. Po zakończeniu otrzymasz potwierdzenie.",
+        "hint": "Jeśli to nie Ty rozpocząłeś tę płatność, skontaktuj się z pomocą."
+      },
+      "success": {
+        "subject": "Płatność zakończona powodzeniem - {linkTitle}",
+        "title": "Płatność zakończona powodzeniem",
+        "preview": "Twoja płatność {amount} {currencyCode} zakończyła się powodzeniem",
+        "greeting": "Cześć {firstName}, Twoja płatność za {linkTitle} została pomyślnie zakończona.",
+        "receipt": "Dziękujemy za płatność. Ta wiadomość stanowi potwierdzenie.",
+        "hint": "Zachowaj tę wiadomość do swojej dokumentacji.",
+        "transactionLabel": "Transakcja"
+      },
+      "error": {
+        "subject": "Płatność nie powiodła się - {linkTitle}",
+        "title": "Płatność nie powiodła się",
+        "preview": "Nie udało się przetworzyć płatności za {linkTitle}",
+        "greeting": "Cześć {firstName}, niestety nie udało się przetworzyć płatności za {linkTitle}.",
+        "retry": "Spróbuj ponownie lub użyj innej metody płatności. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
+        "hint": "Na Twoim koncie nie naliczono żadnych opłat."
       }
     },
     "validation": {

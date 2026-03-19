@@ -448,10 +448,17 @@
       "previewBanner": "Preview mode. Payments are disabled.",
       "sections": {
         "customerDetails": "Customer details",
-        "payment": "Payment"
+        "payment": "Payment",
+        "legal": "Legal confirmations"
       },
       "fields": {
-        "selectPlaceholder": "Select..."
+        "selectPlaceholder": "Select...",
+        "customAmount": "Amount"
+      },
+      "help": {
+        "customerDetails": "Add the buyer details once, then continue to payment.",
+        "payment": "Choose the amount, review the summary, then continue with the secure payment step.",
+        "legal": "Required confirmations must be accepted before the payment step starts."
       },
       "legal": {
         "acceptDocument": "I accept {document}.",
@@ -459,13 +466,15 @@
         "defaultPrivacyTitle": "the privacy policy"
       },
       "summary": {
-        "amountDue": "Amount due"
+        "amountDue": "Amount due",
+        "awaitingSelection": "Select an amount"
       },
       "errors": {
         "loadTitle": "Unable to load payment link",
         "loadMessage": "We couldn't load this payment page. Please try again.",
         "password": "Unable to verify password. Please try again.",
-        "submit": "Unable to start the payment. Please try again."
+        "submit": "Unable to start the payment. Please try again.",
+        "embeddedUnavailable": "The payment form is unavailable right now. Please try again or use the hosted payment page."
       },
       "actions": {
         "retry": "Retry",
@@ -474,7 +483,21 @@
         "verifying": "Verifying...",
         "payNow": "Pay now",
         "processingPayment": "Processing payment...",
-        "previewDisabled": "Preview only"
+        "previewDisabled": "Preview only",
+        "editDetails": "Edit details"
+      },
+      "validation": {
+        "thisField": "this field",
+        "fixErrors": "Check the highlighted fields and try again.",
+        "requiredField": "Enter {field}.",
+        "documentRequired": "Accept {field} to continue.",
+        "amountRequired": "Enter an amount to continue.",
+        "amountMin": "Enter at least {amount}.",
+        "amountMax": "Enter no more than {amount}.",
+        "priceSelectionRequired": "Choose a payment option to continue.",
+        "labels": {
+          "option": "payment option"
+        }
       }
     },
     "statusPage": {
@@ -488,6 +511,14 @@
       "cancel": {
         "failed": "Payment failed",
         "cancelled": "Payment cancelled"
+      },
+      "status": {
+        "pending": "Pending",
+        "processing": "Processing",
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "expired": "Expired"
       }
     },
     "widgets": {

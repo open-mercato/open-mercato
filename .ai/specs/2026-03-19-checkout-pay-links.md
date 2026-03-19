@@ -721,7 +721,9 @@ const events = [
   - Password session verified if link is password-protected
   - Usage slot reserved atomically
   - Replayed `Idempotency-Key` returns the already-created transaction/session response instead of creating duplicates
-- Response: `{ transactionId, redirectUrl?, embeddedFormData? }`
+- Response: `{ transactionId, redirectUrl?, paymentSession? }`
+  - `paymentSession` is the generic provider-owned embedded session shape returned from `paymentGatewayService`
+  - checkout resolves the browser renderer through the shared client registry; it never imports Stripe/other provider UI directly
 - Creates `CheckoutTransaction` with status `processing`
 - Creates gateway session via `paymentGatewayService` with `paymentId = checkoutTransaction.id`
 - Sends start email to customer
@@ -1264,7 +1266,7 @@ Customer visits /pay/[slug]
   Yes                                     No
   │                                        │
   ▼                                        ▼
-  Return embeddedFormData              Return redirectUrl
+  Return paymentSession                Return redirectUrl
   (render inline)                      (frontend redirects)
 ```
 
@@ -1353,6 +1355,7 @@ type PaymentGatewayDescriptor = {
     supportedCurrencies?: '*' | string[]
     supportedPaymentTypes?: Array<{ value: string; label: string }>
     presentation?: 'embedded' | 'redirect' | 'either'
+    embeddedRenderers?: string[]
   }
 }
 ```
@@ -1364,6 +1367,8 @@ The core `payment_gateways` module should expose this generically through a DI s
 - `GET /api/payment_gateways/providers/:providerKey`
 
 Provider packages register descriptors next to their adapters. Core remains unaware of pay links; it only exposes generic provider capabilities.
+
+For embedded payments, provider packages also register their browser renderer through `payments.client.ts(x)`, discovered by the generator and imported by client bootstrap. Checkout receives `{ providerKey, rendererKey, payload }` from the session response and mounts the provider-owned component through the shared registry, keeping the pay page fully gateway-agnostic.
 
 **Currency validation**
 
@@ -2006,3 +2011,5 @@ None identified.
 - Defined implementation plan (7 sub-phases)
 - Defined 24 integration test cases
 - Completed compliance review against all AGENTS.md rules
+- Updated public payment flow to return generic `paymentSession` descriptors instead of checkout-owned embedded form payloads
+- Added provider-owned client renderer registration via generated `payments.client.generated.ts`

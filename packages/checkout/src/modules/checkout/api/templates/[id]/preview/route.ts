@@ -3,6 +3,7 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLinkTemplate } from '../../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../../lib/constants'
+import { resolveCheckoutPublicCustomFields } from '../../../../lib/customFields'
 import { serializeTemplateRecord } from '../../../../commands/templates'
 import { handleCheckoutRouteError, requireAdminContext } from '../../../helpers'
 import { checkoutTag } from '../../../openapi'
@@ -32,10 +33,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       tenantIdByRecord: { [template.id]: auth.tenantId },
       organizationIdByRecord: { [template.id]: auth.orgId },
     })
+    const publicCustomFields = await resolveCheckoutPublicCustomFields({
+      em,
+      entityId: CHECKOUT_ENTITY_IDS.template,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      customFieldsetCode: template.customFieldsetCode ?? null,
+      customValues: customValues[template.id] ?? {},
+      displayCustomFieldsOnPage: template.displayCustomFieldsOnPage,
+    })
     return NextResponse.json({
       ...serializeTemplateRecord(template),
       slug: `preview-${template.id.slice(0, 8)}`,
       customFields: customValues[template.id] ?? {},
+      publicCustomFields,
       available: false,
       remainingUses: null,
       requiresPassword: false,

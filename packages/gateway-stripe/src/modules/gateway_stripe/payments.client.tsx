@@ -111,6 +111,7 @@ function StripeEmbeddedPaymentForm({
 function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProps) {
   const t = useT()
   const payload = readStripePayload(props.session.payload)
+  const onError = props.onError
   const stripePromise = React.useMemo(
     () => (payload.publishableKey ? loadStripe(payload.publishableKey) : null),
     [payload.publishableKey],
@@ -130,9 +131,9 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
 
   React.useEffect(() => {
     if (!payload.publishableKey || !payload.clientSecret) {
-      props.onError(t('gateway_stripe.payments.unavailable', 'Stripe is configured for embedded checkout, but the public payment form could not be prepared.'))
+      onError(t('gateway_stripe.payments.unavailable', 'Stripe is configured for embedded checkout, but the public payment form could not be prepared.'))
     }
-  }, [payload.clientSecret, payload.publishableKey, props, t])
+  }, [onError, payload.clientSecret, payload.publishableKey, t])
 
   if (!payload.publishableKey || !payload.clientSecret || !stripePromise) {
     return null
@@ -157,7 +158,7 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
           returnUrl={payload.returnUrl}
           disabled={props.disabled}
           onComplete={props.onComplete}
-          onError={props.onError}
+          onError={onError}
         />
       </Elements>
     </div>

@@ -1,446 +1,68 @@
 {
   "checkout": {
-    "nav": {
-      "group": "Checkout",
-      "root": "Checkout",
-      "payLinks": "Zahlungslinks",
-      "templates": "Vorlagen",
-      "transactions": "Transaktionen"
-    },
-    "common": {
-      "enabled": "Aktiviert",
-      "emptyValue": "—",
-      "flash": {
-        "saved": "Gespeichert",
-        "deleted": "Gelöscht"
-      },
-      "actions": {
-        "edit": "Bearbeiten",
-        "preview": "Vorschau",
-        "remove": "Entfernen",
-        "delete": "Löschen"
-      },
-      "status": {
-        "draft": "Entwurf",
-        "active": "Aktiv",
-        "inactive": "Inaktiv"
-      }
-    },
-    "currencySelect": {
-      "placeholder": "Währung auswählen",
-      "errors": {
-        "load": "Währungen konnten nicht geladen werden."
-      }
-    },
-    "customerFieldsEditor": {
-      "addField": "Kundenfeld hinzufügen",
-      "locked": "Gesperrt",
-      "columns": {
-        "fieldKey": "Feldschlüssel",
-        "label": "Bezeichnung",
-        "placeholder": "Platzhalter",
-        "type": "Typ",
-        "required": "Erforderlich",
-        "actions": "Aktionen"
-      },
-      "types": {
-        "text": "Text",
-        "multiline": "Textarea",
-        "boolean": "Checkbox",
-        "select": "Auswahl",
-        "radio": "Radio"
-      },
-      "placeholders": {
-        "fieldKey": "referenceCode",
-        "label": "Referenzcode",
-        "placeholder": "Im Eingabefeld angezeigt"
-      },
-      "options": {
-        "title": "Optionen",
-        "add": "Option hinzufügen",
-        "value": "Wert",
-        "label": "Bezeichnung",
-        "placeholders": {
-          "value": "starter",
-          "label": "Starter"
-        }
-      },
-      "notices": {
-        "defaultFields": "Standard-Kundenfelder sind nur Startvorschläge. Du kannst sie umbenennen, neu anordnen oder entfernen, damit das Formular kompakt bleibt.",
-        "empty": "Noch keine Kundenfelder konfiguriert. Füge mindestens ein Feld hinzu, wenn du auf der Zahlungsseite Kundendaten erfassen möchtest."
-      }
-    },
-    "gatewaySettings": {
-      "selectPlaceholder": "Auswählen…",
-      "notices": {
-        "chooseProvider": "Wähle einen Gateway-Anbieter aus, um Checkout-Sitzungseinstellungen zu konfigurieren.",
-        "noSettings": "Dieser Anbieter stellt keine zusätzlichen Sitzungseinstellungen bereit."
-      }
-    },
-    "logoUpload": {
-      "title": "Logo",
-      "description": "Lade ein Logo in die Anhänge hoch oder verwende weiterhin eine externe URL.",
-      "empty": "Noch kein Logo ausgewählt.",
-      "externalUrl": "Externe Logo-URL",
-      "externalUrlPlaceholder": "https://example.com/logo.png",
-      "previewAlt": "Checkout-Logo-Vorschau",
-      "actions": {
-        "attach": "Logo anhängen",
-        "uploading": "Wird hochgeladen…",
-        "removeUpload": "Upload entfernen"
-      },
-      "notices": {
-        "attachmentWins": "Der hochgeladene Anhang wird zuerst verwendet. Entferne ihn, wenn stattdessen wieder die externe URL genutzt werden soll."
-      },
-      "errors": {
-        "upload": "Logo konnte nicht hochgeladen werden.",
-        "remove": "Das hochgeladene Logo konnte nicht entfernt werden."
-      }
-    },
-    "linkTemplateForm": {
-      "titles": {
-        "createLink": "Zahlungslink erstellen",
-        "editLink": "Zahlungslink bearbeiten",
-        "createTemplate": "Vorlage erstellen",
-        "editTemplate": "Vorlage bearbeiten"
-      },
-      "groups": {
-        "general": "Allgemein",
-        "appearance": "Darstellung",
-        "pricing": "Preise",
-        "payment": "Zahlung",
-        "customerFields": "Kundenfelder",
-        "settings": "Einstellungen",
-        "legal": "Rechtliches",
-        "messages": "Nachrichten",
-        "emails": "E-Mails",
-        "customFields": "Benutzerdefinierte Felder"
-      },
-      "general": {
-        "fields": {
-          "name": "Name",
-          "title": "Titel",
-          "subtitle": "Untertitel",
-          "description": "Beschreibung",
-          "slug": "Slug"
-        },
-        "hints": {
-          "description": "Markdown wird in der öffentlichen Vorschau unterstützt.",
-          "slug": "Dies wird die öffentliche Zahlungslink-URL."
-        },
-        "placeholders": {
-          "name": "Beratungssitzung im Januar",
-          "title": "Bezahlung der Beratungssitzung",
-          "subtitle": "Einstündige Strategieberatung",
-          "description": "# Was enthalten ist\n- 60 Minuten Strategietermin\n- Zusammenfassung nach dem Gespräch",
-          "slug": "januar-beratung"
-        },
-        "actions": {
-          "generateSlug": "Generieren"
-        },
-        "slugPreview": "Vorschau: `/pay/{slug}`"
-      },
-      "appearance": {
-        "fields": {
-          "primaryColor": "Primärfarbe",
-          "secondaryColor": "Sekundärfarbe",
-          "backgroundColor": "Hintergrundfarbe",
-          "themeMode": "Theme-Modus",
-          "displayCustomFields": "Benutzerdefinierte Felder auf der öffentlichen Seite anzeigen"
-        },
-        "themeModes": {
-          "auto": "Automatisch",
-          "light": "Hell",
-          "dark": "Dunkel"
-        }
-      },
-      "pricing": {
-        "modes": {
-          "fixed": "Festpreis",
-          "customAmount": "Kunde gibt Betrag ein",
-          "priceList": "Preisliste"
-        },
-        "fields": {
-          "amount": "Betrag",
-          "currency": "Währung",
-          "compareAtPrice": "Vergleichspreis",
-          "includesTax": "Preis enthält bereits Steuern",
-          "minimumAmount": "Mindestbetrag",
-          "maximumAmount": "Höchstbetrag"
-        },
-        "hints": {
-          "compareAtPrice": "Optionaler durchgestrichener Betrag über dem aktuellen Preis."
-        }
-      },
-      "priceList": {
-        "columns": {
-          "itemCode": "Artikelcode",
-          "description": "Beschreibung",
-          "amount": "Betrag",
-          "currency": "Währung",
-          "actions": "Aktionen"
-        },
-        "placeholders": {
-          "itemCode": "starter",
-          "description": "Starter-Paket"
-        },
-        "aria": {
-          "itemCode": "Artikelcode {index}",
-          "description": "Beschreibung {index}",
-          "amount": "Betrag {index}"
-        },
-        "actions": {
-          "addItem": "Artikel hinzufügen"
-        },
-        "notices": {
-          "singleCurrency": "Alle Preisliste-Positionen sollten dieselbe Währung verwenden. Die erste Währung wird zur Standardwährung für neue Zeilen.",
-          "empty": "Noch keine Preisliste-Positionen. Füge mindestens eine Position hinzu, damit Kunden zwischen mehreren Preisoptionen wählen können."
-        }
-      },
-      "payment": {
-        "fields": {
-          "gatewayProvider": "Gateway-Anbieter"
-        },
-        "placeholders": {
-          "provider": "Anbieter auswählen…"
-        }
-      },
-      "customerDetails": {
-        "title": "Kundendaten erfassen",
-        "description": "Empfohlen: Erfasse mindestens die E-Mail-Adresse des Kunden für Belege, Betrugsprüfung und Zahlungskonflikte. Es ist nicht verpflichtend.",
-        "notices": {
-          "simpleLink": "Deaktiviere dies, damit die Seite ein einfacher Zahlungslink ohne Kundenformular ist.",
-          "disabled": "Kundendaten sind deaktiviert. Käufer sehen nur den Zahlungsbereich und ggf. rechtliche Zustimmungs-Checkboxen."
-        }
-      },
-      "legal": {
-        "notice": "Diese Tabs werden rund um den Schritt zur rechtlichen Zustimmung auf der Zahlungsseite angezeigt. Verwende Markdown für Überschriften, Listen und Links.",
-        "tabs": {
-          "terms": "Bedingungen",
-          "privacy": "Datenschutz"
-        },
-        "fields": {
-          "termsTitle": "Titel der Bedingungen",
-          "termsBody": "Text der Bedingungen",
-          "privacyTitle": "Titel des Datenschutzes",
-          "privacyBody": "Text des Datenschutzes",
-          "acceptanceRequired": "Zustimmung erforderlich"
-        },
-        "placeholders": {
-          "termsTitle": "Allgemeine Geschäftsbedingungen",
-          "termsBody": "# Bedingungen\n\nBeschreibe die Regeln, denen Kunden vor der Zahlung zustimmen.",
-          "privacyTitle": "Datenschutzerklärung",
-          "privacyBody": "# Datenschutz\n\nErkläre, welche personenbezogenen Daten du erhebst und warum."
-        }
-      },
-      "messages": {
-        "notice": "Diese Nachrichten werden auf den öffentlichen Statusseiten für Erfolg, Abbruch und Fehler angezeigt. Im Text wird Markdown unterstützt.",
-        "tabs": {
-          "success": "Erfolg",
-          "cancel": "Abbruch",
-          "error": "Fehler"
-        },
-        "labels": {
-          "title": "{state}-Titel",
-          "body": "{state}-Nachricht"
-        },
-        "placeholders": {
-          "successTitle": "Zahlung abgeschlossen",
-          "successBody": "Vielen Dank für deine Zahlung. Wir verarbeiten sie jetzt.",
-          "cancelTitle": "Zahlung abgebrochen",
-          "cancelBody": "Die Zahlung wurde vor Abschluss abgebrochen.",
-          "errorTitle": "Zahlung fehlgeschlagen",
-          "errorBody": "Die Zahlung konnte nicht abgeschlossen werden. Bitte versuche es erneut."
-        }
-      },
-      "emails": {
-        "notice": "E-Mail-Texte unterstützen Markdown und die unten stehenden Variablen.",
-        "variableHint": "Verfügbare Variablen:",
-        "sendToCustomer": "Diese E-Mail an den Kunden senden",
-        "tabs": {
-          "start": "Gestartet",
-          "success": "Erfolg",
-          "error": "Fehler"
-        },
-        "labels": {
-          "subject": "{state}-E-Mail-Betreff",
-          "body": "{state}-E-Mail-Text"
-        },
-        "placeholders": {
-          "startSubject": "Zahlung gestartet - {{linkTitle}}",
-          "startBody": "Hallo {{firstName}}, wir haben die Verarbeitung deiner Zahlung über **{{amount}} {{currencyCode}}** gestartet.",
-          "successSubject": "Zahlung erfolgreich - {{linkTitle}}",
-          "successBody": "Hallo {{firstName}}, deine Zahlung war erfolgreich. Referenz: `{{transactionId}}`.",
-          "errorSubject": "Zahlung fehlgeschlagen - {{linkTitle}}",
-          "errorBody": "Hallo {{firstName}}, deine Zahlung konnte nicht abgeschlossen werden. {{errorMessage}}"
-        }
-      },
-      "settings": {
-        "fields": {
-          "status": "Status",
-          "maxCompletions": "Max. Abschlüsse",
-          "password": "Passwort"
-        },
-        "hints": {
-          "maxCompletions": "Leer lassen, wenn der Link unbegrenzt wiederverwendbar bleiben soll.",
-          "password": "Optionales Passwort, das vor dem Öffnen der Zahlungsseite erforderlich ist."
-        },
-        "placeholders": {
-          "unlimited": "Unbegrenzt",
-          "password": "Leer lassen, damit die Seite öffentlich bleibt"
-        }
-      }
-    },
-    "admin": {
-      "payLinks": {
-        "title": "Zahlungslinks",
-        "searchPlaceholder": "Zahlungslinks suchen…",
-        "filters": {
-          "status": "Status",
-          "pricing": "Preise"
-        },
-        "columns": {
-          "name": "Name",
-          "slug": "Slug",
-          "pricing": "Preise",
-          "status": "Status",
-          "uses": "Nutzungen",
-          "created": "Erstellt"
-        },
-        "pricing": {
-          "fixed": "Fest {amount} {currency}",
-          "customAmount": "Variabel {min}-{max} {currency}"
-        },
-        "actions": {
-          "create": "Link erstellen",
-          "viewPayPage": "Zahlungsseite anzeigen",
-          "copyUrl": "Link-URL kopieren",
-          "showTransactions": "Transaktionen anzeigen",
-          "publish": "Veröffentlichen",
-          "deactivate": "Deaktivieren"
-        }
-      },
-      "templates": {
-        "title": "Link-Vorlagen",
-        "searchPlaceholder": "Vorlagen suchen…",
-        "unlimited": "Unbegrenzt",
-        "filters": {
-          "pricingMode": "Preis-Modus"
-        },
-        "columns": {
-          "name": "Name",
-          "pricingMode": "Preis-Modus",
-          "gateway": "Gateway",
-          "maxUses": "Max. Nutzungen",
-          "created": "Erstellt"
-        },
-        "actions": {
-          "create": "Vorlage erstellen",
-          "createLinkFromTemplate": "Link aus Vorlage erstellen"
-        }
-      },
-      "transactions": {
-        "title": "Transaktionen",
-        "searchPlaceholder": "Transaktionen suchen…",
-        "filters": {
-          "link": "Link",
-          "status": "Status"
-        },
-        "columns": {
-          "link": "Link",
-          "customer": "Kunde",
-          "email": "E-Mail",
-          "amount": "Betrag",
-          "status": "Status",
-          "paymentStatus": "Zahlungsstatus",
-          "date": "Datum"
-        },
-        "actions": {
-          "viewDetail": "Details anzeigen"
-        },
-        "status": {
-          "pending": "Ausstehend",
-          "processing": "In Bearbeitung",
-          "completed": "Abgeschlossen",
-          "failed": "Fehlgeschlagen",
-          "cancelled": "Storniert",
-          "expired": "Abgelaufen"
-        }
-      },
-      "transactionDetail": {
-        "title": "Transaktionsdetails",
-        "description": "Prüfe die Checkout-Transaktion und zugehörige Zahlungslink-Daten.",
-        "sections": {
-          "payment": "Zahlungsdetails",
-          "link": "Link-Details",
-          "customer": "Kundeninformationen",
-          "gateway": "Gateway-Transaktion",
-          "customFields": "Benutzerdefinierte Felder"
-        },
-        "fields": {
-          "amount": "Betrag",
-          "status": "Status",
-          "paymentStatus": "Zahlungsstatus",
-          "transactionId": "Transaktions-ID",
-          "created": "Erstellt",
-          "updated": "Aktualisiert",
-          "linkName": "Link-Name",
-          "slug": "Slug",
-          "pricingMode": "Preis-Modus",
-          "firstName": "Vorname",
-          "lastName": "Nachname",
-          "email": "E-Mail",
-          "phone": "Telefon",
-          "gatewayTransactionId": "Gateway-Transaktions-ID",
-          "selectedPriceItem": "Ausgewählter Preislistenpunkt",
-          "checkoutTransaction": "Checkout-Transaktion"
-        },
-        "actions": {
-          "viewPayLink": "Zahlungslink anzeigen"
-        },
-        "emptyCustomFields": "Für diese Transaktion wurden keine benutzerdefinierten Felder erfasst."
-      }
-    },
     "payPage": {
       "loading": "Zahlungslink wird geladen...",
-      "protectedTitle": "Geschützter Zahlungslink",
+      "protectedTitle": "Geschutzter Zahlungslink",
       "passwordPlaceholder": "Passwort",
-      "unavailable": "Dieser Zahlungslink ist nicht mehr verfügbar.",
+      "unavailable": "Dieser Zahlungslink ist nicht mehr verfugbar.",
       "previewBanner": "Vorschaumodus. Zahlungen sind deaktiviert.",
       "sections": {
         "customerDetails": "Kundendaten",
-        "payment": "Zahlung"
+        "payment": "Zahlung",
+        "legal": "Rechtliche Bestatigungen"
       },
       "fields": {
-        "selectPlaceholder": "Auswählen..."
+        "selectPlaceholder": "Auswaehlen...",
+        "customAmount": "Betrag"
+      },
+      "help": {
+        "customerDetails": "Erfasse die Kundendaten und gehe dann weiter zur Zahlung.",
+        "payment": "Waehle den Betrag, pruefe die Zusammenfassung und gehe dann zum sicheren Zahlungsschritt weiter.",
+        "legal": "Pflichtbestaetigungen muessen vor dem Zahlungsstart akzeptiert werden."
       },
       "legal": {
         "acceptDocument": "Ich akzeptiere {document}.",
-        "defaultTermsTitle": "die Allgemeinen Geschäftsbedingungen",
-        "defaultPrivacyTitle": "die Datenschutzerklärung"
+        "defaultTermsTitle": "die Allgemeinen Geschaeftsbedingungen",
+        "defaultPrivacyTitle": "die Datenschutzerklaerung"
       },
       "summary": {
-        "amountDue": "Zu zahlender Betrag"
+        "amountDue": "Faelliger Betrag",
+        "awaitingSelection": "Betrag auswaehlen"
       },
       "errors": {
         "loadTitle": "Zahlungslink konnte nicht geladen werden",
         "loadMessage": "Diese Zahlungsseite konnte nicht geladen werden. Bitte versuche es erneut.",
-        "password": "Passwort konnte nicht verifiziert werden. Bitte versuche es erneut.",
-        "submit": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut."
+        "password": "Das Passwort konnte nicht verifiziert werden. Bitte versuche es erneut.",
+        "submit": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut.",
+        "embeddedUnavailable": "Das Zahlungsformular ist derzeit nicht verfuegbar. Bitte versuche es erneut oder nutze die gehostete Zahlungsseite."
       },
       "actions": {
         "retry": "Erneut versuchen",
-        "backToAdmin": "Zurück zum Adminbereich",
+        "backToAdmin": "Zuruck zum Adminbereich",
         "continue": "Weiter",
-        "verifying": "Wird geprüft...",
+        "verifying": "Wird verifiziert...",
         "payNow": "Jetzt bezahlen",
         "processingPayment": "Zahlung wird verarbeitet...",
-        "previewDisabled": "Nur Vorschau"
+        "previewDisabled": "Nur Vorschau",
+        "editDetails": "Daten bearbeiten"
+      },
+      "validation": {
+        "thisField": "dieses Feld",
+        "fixErrors": "Pruefe die markierten Felder und versuche es erneut.",
+        "requiredField": "Bitte {field} ausfuellen.",
+        "documentRequired": "Bitte {field} akzeptieren, um fortzufahren.",
+        "amountRequired": "Bitte einen Betrag eingeben, um fortzufahren.",
+        "amountMin": "Bitte mindestens {amount} eingeben.",
+        "amountMax": "Bitte hoechstens {amount} eingeben.",
+        "priceSelectionRequired": "Bitte eine Zahlungsoption auswaehlen, um fortzufahren.",
+        "labels": {
+          "option": "Zahlungsoption"
+        }
       }
     },
     "statusPage": {
-      "backToPayment": "Zurück zur Zahlungsseite",
-      "checking": "Zahlungsstatus wird geprüft…",
+      "backToPayment": "Zuruck zur Zahlungsseite",
+      "checking": "Zahlungsstatus wird geprueft...",
       "currentStatus": "Aktueller Status: {status}",
       "success": {
         "completed": "Zahlung abgeschlossen",
@@ -448,76 +70,16 @@
       },
       "cancel": {
         "failed": "Zahlung fehlgeschlagen",
-        "cancelled": "Zahlung storniert"
+        "cancelled": "Zahlung abgebrochen"
+      },
+      "status": {
+        "pending": "Ausstehend",
+        "processing": "In Bearbeitung",
+        "completed": "Abgeschlossen",
+        "failed": "Fehlgeschlagen",
+        "cancelled": "Abgebrochen",
+        "expired": "Abgelaufen"
       }
-    },
-    "validation": {
-      "fixedPriceAmount": {
-        "required": "Für Festpreis ist ein Betrag erforderlich."
-      },
-      "fixedPriceCurrencyCode": {
-        "required": "Für Festpreis ist eine Währung erforderlich."
-      },
-      "customAmountMin": {
-        "required": "Ein Mindestbetrag ist erforderlich."
-      },
-      "customAmountMax": {
-        "required": "Ein Höchstbetrag ist erforderlich."
-      },
-      "customAmountCurrencyCode": {
-        "required": "Für variable Beträge ist eine Währung erforderlich."
-      },
-      "customAmount": {
-        "range": "Der Höchstbetrag muss größer oder gleich dem Mindestbetrag sein."
-      },
-      "priceListItems": {
-        "required": "Füge mindestens einen Eintrag zur Preisliste hinzu.",
-        "singleCurrency": "Alle Preislisten-Einträge müssen dieselbe Währung verwenden."
-      }
-    },
-    "notifications": {
-      "transaction": {
-        "completed": {
-          "title": "Zahlung abgeschlossen",
-          "body": "{customerName} hat {amount} {currency} bezahlt."
-        },
-        "failed": {
-          "title": "Zahlung fehlgeschlagen",
-          "body": "Eine Zahlung über {amount} {currency} ist fehlgeschlagen."
-        }
-      },
-      "link": {
-        "usageLimitReached": {
-          "title": "Nutzungslimit erreicht",
-          "body": "{linkName} hat die maximale Anzahl an Abschlüssen erreicht."
-        }
-      },
-      "renderer": {
-        "viewTransaction": "Transaktion anzeigen",
-        "viewLink": "Zahlungslink anzeigen"
-      }
-    },
-    "link": {
-      "created": "Zahlungslink erstellt",
-      "updated": "Zahlungslink aktualisiert",
-      "deleted": "Zahlungslink gelöscht",
-      "published": "Zahlungslink veröffentlicht",
-      "locked": "Zahlungslink gesperrt",
-      "usageLimitReached": "Nutzungslimit des Zahlungslinks erreicht"
-    },
-    "template": {
-      "created": "Vorlage erstellt",
-      "updated": "Vorlage aktualisiert",
-      "deleted": "Vorlage gelöscht"
-    },
-    "transaction": {
-      "created": "Transaktion erstellt",
-      "sessionStarted": "Zahlungssitzung gestartet",
-      "completed": "Transaktion abgeschlossen",
-      "failed": "Transaktion fehlgeschlagen",
-      "cancelled": "Transaktion storniert",
-      "expired": "Transaktion abgelaufen",
-      "customerDataCaptured": "Kundendaten erfasst"
     }
   }
 }

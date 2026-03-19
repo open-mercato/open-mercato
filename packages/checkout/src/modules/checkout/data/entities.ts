@@ -23,6 +23,7 @@ export class CheckoutLinkTemplate {
     | 'priceListItems'
     | 'gatewayProviderKey'
     | 'gatewaySettings'
+    | 'customFieldsetCode'
     | 'collectCustomerDetails'
     | 'customerFieldsSchema'
     | 'legalDocuments'
@@ -121,6 +122,9 @@ export class CheckoutLinkTemplate {
 
   @Property({ name: 'gateway_settings', type: 'jsonb', nullable: true })
   gatewaySettings?: Record<string, unknown> | null
+
+  @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
+  customFieldsetCode?: string | null
 
   @Property({ name: 'collect_customer_details', type: 'boolean', default: true })
   collectCustomerDetails: boolean = true

@@ -1,33 +1,6 @@
-import type { CustomEntitySpec, CustomFieldDefinition } from '@open-mercato/shared/modules/entities'
+import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import { CHECKOUT_ENTITY_IDS } from './lib/constants'
-
-const checkoutLinkFields = [
-  {
-    key: 'internal_reference',
-    kind: 'text',
-    label: 'Internal reference',
-    description: 'Private reference visible only in the admin.',
-    filterable: true,
-    formEditable: true,
-    indexed: true,
-  },
-  {
-    key: 'campaign_code',
-    kind: 'text',
-    label: 'Campaign code',
-    description: 'Optional code used to group pay links by campaign or source.',
-    filterable: true,
-    formEditable: true,
-  },
-  {
-    key: 'sales_note',
-    kind: 'multiline',
-    label: 'Sales note',
-    description: 'Internal context for the team handling this pay link.',
-    editor: 'markdown',
-    formEditable: true,
-  },
-] satisfies CustomFieldDefinition[]
+import { CHECKOUT_LINK_CUSTOM_FIELDS } from './lib/customFields'
 
 const checkoutTransactionFields = [
   {
@@ -65,7 +38,7 @@ export const entities: CustomEntitySpec[] = [
     description: 'Custom fields for pay links',
     labelField: 'name',
     showInSidebar: false,
-    fields: checkoutLinkFields,
+    fields: CHECKOUT_LINK_CUSTOM_FIELDS,
   },
   {
     id: CHECKOUT_ENTITY_IDS.template,
@@ -73,7 +46,7 @@ export const entities: CustomEntitySpec[] = [
     description: 'Custom fields for checkout link templates',
     labelField: 'name',
     showInSidebar: false,
-    fields: checkoutLinkFields,
+    fields: CHECKOUT_LINK_CUSTOM_FIELDS,
   },
   {
     id: CHECKOUT_ENTITY_IDS.transaction,

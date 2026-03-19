@@ -116,6 +116,7 @@ export function toTemplateOrLinkMutationInput(
     priceListItems: record.priceListItems ?? null,
     gatewayProviderKey: record.gatewayProviderKey ?? null,
     gatewaySettings: record.gatewaySettings ?? {},
+    customFieldsetCode: record.customFieldsetCode ?? null,
     collectCustomerDetails: record.collectCustomerDetails,
     customerFieldsSchema: (record.customerFieldsSchema ?? []) as CreateTemplateInput['customerFieldsSchema'],
     legalDocuments: (record.legalDocuments ?? undefined) as CreateTemplateInput['legalDocuments'],
@@ -261,31 +262,40 @@ export function resolveSubmittedAmount(link: CheckoutLink, input: PublicSubmitIn
   if (link.pricingMode === 'fixed') {
     const expected = toMoneyNumber(link.fixedPriceAmount)
     if (expected == null || !link.fixedPriceCurrencyCode) {
-      throw new CrudHttpError(422, { error: 'Fixed price configuration is incomplete' })
+      throw new CrudHttpError(422, { error: 'checkout.payPage.errors.submit' })
     }
     if (input.amount != null && Number(input.amount) !== expected) {
-      throw new CrudHttpError(422, { error: 'Submitted amount does not match the configured fixed price' })
+      throw new CrudHttpError(422, { error: 'checkout.payPage.errors.submit' })
     }
     return { amount: expected, currencyCode: link.fixedPriceCurrencyCode, selectedPriceItemId: null }
   }
   if (link.pricingMode === 'custom_amount') {
     if (input.amount == null || !link.customAmountCurrencyCode) {
-      throw new CrudHttpError(422, { error: 'Custom amount is required' })
+      throw new CrudHttpError(422, {
+        error: 'checkout.payPage.validation.fixErrors',
+        fieldErrors: { amount: 'checkout.payPage.validation.amountRequired' },
+      })
     }
     const min = toMoneyNumber(link.customAmountMin) ?? 0
     const max = toMoneyNumber(link.customAmountMax)
     const amount = Number(input.amount)
     if (amount < min || (max != null && amount > max)) {
-      throw new CrudHttpError(422, { error: 'Submitted amount is outside the allowed range' })
+      throw new CrudHttpError(422, {
+        error: 'checkout.payPage.validation.fixErrors',
+        fieldErrors: { amount: 'checkout.payPage.errors.submit' },
+      })
     }
     return { amount, currencyCode: link.customAmountCurrencyCode, selectedPriceItemId: null }
   }
   const selectedPriceItem = (link.priceListItems ?? []).find((item) => item.id === input.selectedPriceItemId)
   if (!selectedPriceItem) {
-    throw new CrudHttpError(422, { error: 'Selected price item is invalid' })
+    throw new CrudHttpError(422, {
+      error: 'checkout.payPage.validation.fixErrors',
+      fieldErrors: { selectedPriceItemId: 'checkout.payPage.validation.priceSelectionRequired' },
+    })
   }
   if (input.amount != null && Number(input.amount) !== Number(selectedPriceItem.amount)) {
-    throw new CrudHttpError(422, { error: 'Submitted amount does not match the selected price item' })
+    throw new CrudHttpError(422, { error: 'checkout.payPage.errors.submit' })
   }
   return {
     amount: Number(selectedPriceItem.amount),
@@ -319,6 +329,7 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     priceListItems: record.priceListItems ?? [],
     gatewayProviderKey: record.gatewayProviderKey ?? null,
     gatewaySettings: record.gatewaySettings ?? {},
+    customFieldsetCode: record.customFieldsetCode ?? null,
     collectCustomerDetails: record.collectCustomerDetails,
     customerFieldsSchema: record.customerFieldsSchema ?? [],
     legalDocuments: record.legalDocuments ?? {},
