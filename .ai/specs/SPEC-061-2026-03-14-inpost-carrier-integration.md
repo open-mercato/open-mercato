@@ -273,7 +273,9 @@ The wizard UI (`ConfigureStep`) uses this to let users search for and select a v
 
 ---
 
-## Credentials Schema
+ ## Credentials Schema
+
+Credentials are configured at **`/backend/integrations/carrier_inpost`** (Integration detail page → Credentials tab).
 
 ```typescript
 credentials: {
