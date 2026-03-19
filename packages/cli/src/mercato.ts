@@ -494,6 +494,12 @@ export async function run(argv = process.argv) {
     const origDbName = dbUrlObj.pathname.slice(1)
     const testDbName = `${origDbName}_test_${Date.now()}`
 
+    // I1: Validate database name contains only safe identifier characters
+    if (!/^[a-zA-Z0-9_]+$/.test(testDbName)) {
+      console.error('DATABASE_URL contains unsafe characters in database name')
+      return 1
+    }
+
     console.log(`\n🧪 mercato test — ephemeral database integration tests\n`)
     console.log(`  Original DB: ${origDbName}`)
     console.log(`  Test DB:     ${testDbName}`)
@@ -514,92 +520,107 @@ export async function run(argv = process.argv) {
     testDbUrl.pathname = `/${testDbName}`
     const testEnv = { ...process.env, DATABASE_URL: testDbUrl.toString() }
 
-    // Step 2: Run migrations + init in the test DB
-    const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
-    const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
-
-    console.log('\n📊 Running migrations...')
-    execSync(`node ${mercatoBin} db migrate`, { stdio: 'inherit', env: testEnv, cwd: appDir })
-
-    console.log('\n🌱 Initializing (seed)...')
-    execSync(`node ${mercatoBin} init`, { stdio: 'inherit', env: testEnv, cwd: appDir })
-
-    // Step 3: Find a free port and start the app
-    const freePort = await new Promise<number>((resolve) => {
-      const srv = net.createServer()
-      srv.listen(0, () => {
-        const port = (srv.address() as net.AddressInfo).port
-        srv.close(() => resolve(port))
-      })
-    })
-    const baseUrl = `http://localhost:${freePort}`
-    const appEnv = { ...testEnv, PORT: String(freePort), AUTO_SPAWN_WORKERS: 'true' }
-
-    console.log(`\n🚀 Starting app on port ${freePort}...`)
-    const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
-    const appProcess = spawn('node', [nextBin, 'dev', '--turbopack', '--port', String(freePort)], {
-      stdio: 'pipe',
-      env: appEnv,
-      cwd: appDir,
-    })
-
-    // Wait for the app to be ready
-    const waitForReady = async (url: string, timeoutMs: number): Promise<boolean> => {
-      const start = Date.now()
-      while (Date.now() - start < timeoutMs) {
-        try {
-          const res = await fetch(`${url}/api/auth/login`)
-          if (res.status > 0) return true
-        } catch {}
-        await new Promise((r) => setTimeout(r, 1000))
-      }
-      return false
-    }
-
-    const ready = await waitForReady(baseUrl, 60_000)
-    if (!ready) {
-      console.error('App did not start within 60s')
-      appProcess.kill('SIGTERM')
-      return 1
-    }
-    console.log(`✅ App ready at ${baseUrl}\n`)
-
-    // Step 4: Run Playwright tests
-    console.log('🎭 Running Playwright tests...\n')
-    const playwrightArgs = ['playwright', 'test']
-    if (fileFilter) playwrightArgs.push(fileFilter)
-    const playwrightEnv = { ...appEnv, BASE_URL: baseUrl }
-
+    // C1/C2: Wrap lifecycle in try/finally to guarantee cleanup on any failure
+    let appProcess: ReturnType<typeof spawn> | null = null
     let testExitCode = 0
+
     try {
-      execSync(`npx ${playwrightArgs.join(' ')}`, {
-        stdio: 'inherit',
-        env: playwrightEnv,
+      // Step 2: Run migrations + init in the test DB
+      const nodeModulesBase = resolver.isMonorepo() ? resolver.getRootDir() : appDir
+      const mercatoBin = path.join(nodeModulesBase, 'node_modules/@open-mercato/cli/bin/mercato')
+
+      console.log('\n📊 Running migrations...')
+      execSync(`node ${mercatoBin} db migrate`, { stdio: 'inherit', env: testEnv, cwd: appDir })
+
+      console.log('\n🌱 Initializing (seed)...')
+      execSync(`node ${mercatoBin} init`, { stdio: 'inherit', env: testEnv, cwd: appDir })
+
+      // Step 3: Find a free port and start the app
+      const freePort = await new Promise<number>((resolve) => {
+        const srv = net.createServer()
+        srv.listen(0, () => {
+          const addr = srv.address()
+          const port = typeof addr === 'object' && addr !== null ? addr.port : 0
+          srv.close(() => resolve(port))
+        })
+      })
+      const baseUrl = `http://localhost:${freePort}`
+      const appEnv = { ...testEnv, PORT: String(freePort), AUTO_SPAWN_WORKERS: 'true' }
+
+      console.log(`\n🚀 Starting app on port ${freePort}...`)
+      const nextBin = path.join(nodeModulesBase, 'node_modules/next/dist/bin/next')
+      appProcess = spawn('node', [nextBin, 'dev', '--turbopack', '--port', String(freePort)], {
+        stdio: 'pipe',
+        env: appEnv,
         cwd: appDir,
       })
-    } catch {
+
+      // M4: Wait for the app to be ready — require 2xx/4xx, not just any response
+      const waitForReady = async (url: string, timeoutMs: number): Promise<boolean> => {
+        const start = Date.now()
+        while (Date.now() - start < timeoutMs) {
+          try {
+            const res = await fetch(`${url}/api/auth/login`)
+            if (res.status >= 200 && res.status < 500) return true
+          } catch {}
+          await new Promise((r) => setTimeout(r, 1000))
+        }
+        return false
+      }
+
+      const ready = await waitForReady(baseUrl, 60_000)
+      if (!ready) {
+        throw new Error('App did not start within 60s')
+      }
+      console.log(`✅ App ready at ${baseUrl}\n`)
+
+      // Step 4: Run Playwright tests
+      console.log('🎭 Running Playwright tests...\n')
+      const playwrightArgs = ['playwright', 'test']
+      if (fileFilter) playwrightArgs.push(fileFilter)
+      const playwrightEnv = { ...appEnv, BASE_URL: baseUrl }
+
+      try {
+        execSync(`npx ${playwrightArgs.join(' ')}`, {
+          stdio: 'inherit',
+          env: playwrightEnv,
+          cwd: appDir,
+        })
+      } catch {
+        testExitCode = 1
+      }
+    } catch (err) {
+      console.error(`\n❌ Error: ${err instanceof Error ? err.message : err}`)
       testExitCode = 1
-    }
+    } finally {
+      // Step 5: Cleanup — always runs regardless of failure
+      console.log('\n🧹 Cleaning up...')
 
-    // Step 5: Cleanup
-    console.log('\n🧹 Cleaning up...')
-    appProcess.kill('SIGTERM')
-    await new Promise<void>((resolve) => {
-      appProcess.on('exit', () => resolve())
-      setTimeout(() => {
-        if (!appProcess.killed) appProcess.kill('SIGKILL')
-        resolve()
-      }, 5000)
-    })
+      if (appProcess) {
+        appProcess.kill('SIGTERM')
+        // M1: Track actual exit instead of relying on .killed
+        await new Promise<void>((resolve) => {
+          let exited = false
+          appProcess!.on('exit', () => {
+            exited = true
+            resolve()
+          })
+          setTimeout(() => {
+            if (!exited) appProcess!.kill('SIGKILL')
+            resolve()
+          }, 5000)
+        })
+      }
 
-    if (!keepDb) {
-      const cleanupClient = new Client({ connectionString: adminUrl.toString() })
-      await cleanupClient.connect()
-      await cleanupClient.query(`DROP DATABASE IF EXISTS "${testDbName}" WITH (FORCE)`)
-      await cleanupClient.end()
-      console.log(`✅ Dropped ephemeral database: ${testDbName}`)
-    } else {
-      console.log(`ℹ️  Kept test database: ${testDbName} (use --keep to inspect)`)
+      if (!keepDb) {
+        const cleanupClient = new Client({ connectionString: adminUrl.toString() })
+        await cleanupClient.connect()
+        await cleanupClient.query(`DROP DATABASE IF EXISTS "${testDbName}" WITH (FORCE)`)
+        await cleanupClient.end()
+        console.log(`✅ Dropped ephemeral database: ${testDbName}`)
+      } else {
+        console.log(`ℹ️  Kept test database: ${testDbName} (use --keep to inspect)`)
+      }
     }
 
     console.log(testExitCode === 0 ? '\n✅ All tests passed!' : '\n❌ Some tests failed.')

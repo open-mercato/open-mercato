@@ -117,6 +117,10 @@
       "types": "./src/modules/widgets/lib/injection.ts",
       "default": "./dist/modules/widgets/lib/injection.js"
     },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "default": "./dist/testing.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"
