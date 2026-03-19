@@ -77,17 +77,7 @@ export function toMoneyString(value: string | number | null | undefined): string
   return numeric == null ? null : numeric.toFixed(2)
 }
 
-export function normalizeOptionalString(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length ? trimmed : null
-}
-
-export function buildCheckoutAttachmentPreviewUrl(attachmentId: string | null | undefined): string | null {
-  const normalized = normalizeOptionalString(attachmentId)
-  if (!normalized) return null
-  return `/api/attachments/image/${encodeURIComponent(normalized)}?width=640&height=240&cropType=contain`
-}
+export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl } from './client-utils'
 
 export function deriveConfiguredCurrencies(input: TemplateOrLinkInput): string[] {
   const currencies = new Set<string>()

@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
-import { buildCheckoutAttachmentPreviewUrl } from '../lib/utils'
+import { buildCheckoutAttachmentPreviewUrl } from '../lib/client-utils'
 
 type UploadResponse = {
   item?: {
