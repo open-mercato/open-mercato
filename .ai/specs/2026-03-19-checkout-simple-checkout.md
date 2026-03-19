@@ -43,8 +43,8 @@ Phase B is an **additive extension** of Phase A. All Phase A code remains unchan
 | Entity discriminator | `checkoutType = 'pay_link'` | `checkoutType = 'simple_checkout'` |
 | Pricing | Fixed / Custom Amount / Price List | Cart items with totals |
 | Data model | `CheckoutLink`, `CheckoutTransaction` | + `CheckoutCartItem`, + quote/order FK columns |
-| CrudForm | 9 groups (2-column) | + "Products" group |
-| Pay page | Amount-based | Items review + totals |
+| CrudForm | 10 groups (2-column) | + "Products" group |
+| Pay page | Amount-based + legal-consent flow | Items review + totals + inherited legal-consent flow |
 | Payment flow | Direct amount → adapter | Order total → adapter |
 | Financial record | Transaction amount | Transaction + Quote + Order |
 
@@ -387,8 +387,9 @@ Phase B inherits all Phase A public-flow protections and adds these rules:
 4. **Submit idempotency remains mandatory**: repeated submits with the same key must reuse the existing quote/transaction/session instead of creating duplicates.
 5. **Quote/order tenant isolation**: checkout may only create, read, or convert sales documents inside the same `organizationId` / `tenantId`.
 6. **Password/session inheritance**: password-protected simple checkout links require the same slug-bound access session for page load, submit, status, success, and cancel flows.
-7. **Sales-side data minimization**: checkout-specific customer data copied into quote/order metadata must avoid storing unnecessary PII outside the encrypted checkout transaction unless required by sales document rules.
-8. **Search hygiene**: any checkout-derived fields added to sales metadata or search presenters must exclude or hash PII; Phase B must not make customer-entered checkout data searchable by default.
+7. **Legal-consent inheritance**: Terms & Conditions / Privacy Policy markdown documents and required acceptance rules defined in Phase A continue to apply to simple checkout links, and acceptance proof remains stored on the checkout transaction.
+8. **Sales-side data minimization**: checkout-specific customer data copied into quote/order metadata must avoid storing unnecessary PII outside the encrypted checkout transaction unless required by sales document rules.
+9. **Search hygiene**: any checkout-derived fields added to sales metadata or search presenters must exclude or hash PII; Phase B must not make customer-entered checkout data searchable by default.
 
 ### Admin Access Control
 
@@ -470,9 +471,10 @@ Preferred doc locations:
 5. Integration tests for duplicate submit idempotency and password/session inheritance
 6. Integration tests for mixed-currency rejection and gateway-supported-currency enforcement
 7. Integration tests for key cart-section replacement/extension paths
-8. Seed examples for simple checkout
-9. i18n translations for new strings
-10. Extend package README and framework/developer docs for Simple Checkout
+8. Integration tests for inherited required terms/privacy consent flow on simple checkout
+9. Seed examples for simple checkout
+10. i18n translations for new strings
+11. Extend package README and framework/developer docs for Simple Checkout
 
 ---
 
@@ -497,6 +499,7 @@ Preferred doc locations:
 | TC-CHKT-B15 | Mixed-currency cart is rejected in admin APIs | `POST/PUT /api/checkout/links/:id/items` |
 | TC-CHKT-B16 | Submit rejects cart currency unsupported by selected gateway provider | `POST /api/checkout/pay/:slug/submit` |
 | TC-CHKT-B17 | Items/totals section wrapper or replacement can customize presentation without changing totals integrity | UMES component replacement test |
+| TC-CHKT-B18 | Simple checkout inherits required terms/privacy consent gating and stores acceptance proof | Public submit flow + transaction detail |
 
 ---
 
