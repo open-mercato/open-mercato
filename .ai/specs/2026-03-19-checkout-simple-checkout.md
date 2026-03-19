@@ -17,18 +17,18 @@
 - New `CheckoutCartItem` entity for pre-defined items on a link
 - Product/service selection from catalog (by FK ID) or custom items (name + price)
 - One-page checkout UX: items review, customer info, totals, payment
-- Quote creation on checkout start → Order creation on payment completion
+- Quote creation on checkout submit → Order creation on payment completion
 - Integration with sales module via UMES + DI-resolved `salesCalculationService`
 
 **Concerns:**
-- Sales module dependency for quote/order creation — carefully scoped to DI services, no direct entity imports
+- Sales module dependency for quote/order creation — carefully scoped to existing sales command contracts, no direct entity imports
 - Pricing must flow through `salesCalculationService` for consistency with tax rules, adjustments, and currency handling
 
 ---
 
 ## Overview
 
-Simple Checkout transforms pay links from single-amount payment pages into mini storefronts. A merchant pre-defines items (products from the catalog or custom line items) on a checkout link. Customers visit the link, see the items with quantities and prices, review totals, fill in their details, and pay — all on a single page. Behind the scenes, a sales quote is created when checkout opens and converts to an order upon successful payment.
+Simple Checkout transforms pay links from single-amount payment pages into mini storefronts. A merchant pre-defines items (products from the catalog or custom line items) on a checkout link. Customers visit the link, see the items with quantities and prices, review totals, fill in their details, and pay — all on a single page. Behind the scenes, totals are previewed without persistence on page load; a sales quote is created only when the customer actually submits checkout, then converted to an order upon successful payment.
 
 ### Market Reference
 
@@ -65,7 +65,7 @@ Phase A Pay Links handle single-amount payments well, but merchants need a way t
 
 Extend the `checkout` module with a `simple_checkout` link type that:
 - Adds a `CheckoutCartItem` entity for pre-defined items on a link
-- On checkout page load, creates a `SalesQuote` (via sales module's DI service)
+- On checkout submit, creates a `SalesQuote` via existing sales command contracts
 - On payment completion, converts the quote to a `SalesOrder`
 - Stores `quoteId` and `orderId` on `CheckoutTransaction` for traceability
 
@@ -89,7 +89,7 @@ The pricing section on the pay page is replaced with an items table showing prod
 │       ▼                                                                │
 │  ┌──────────────────────────────────────────────┐                      │
 │  │ Checkout Flow:                                │                      │
-│  │ 1. Create SalesQuote via DI service           │                      │
+│  │ 1. Create SalesQuote via command bus          │                      │
 │  │ 2. Add line items from CheckoutCartItem       │                      │
 │  │ 3. Calculate totals via salesCalculationSvc   │                      │
 │  │ 4. Show one-page checkout (items + totals)    │                      │
@@ -102,17 +102,17 @@ The pricing section on the pay page is replaced with an items table showing prod
 │    + orderId (FK → sales_orders by ID)                                 │
 └────────────────────────────────────────────────────────────────────────┘
           │                           │
-          │ DI resolution             │ DI resolution
+          │ DI resolution             │ command bus
           ▼                           ▼
-   salesCalculationService    Sales quote/order commands
-   (from sales module)        (from sales module, via DI)
+   salesCalculationService    `sales.quotes.create`
+   (from sales module)        `sales.quotes.convert_to_order`
 ```
 
 ### Cross-Module Integration
 
 | Direction | Mechanism | Detail |
 |-----------|-----------|--------|
-| Checkout → Sales (quote/order creation) | DI-resolved services | Resolve `salesQuoteService`, `salesOrderService` from container |
+| Checkout → Sales (quote/order creation) | Existing command contracts | Execute `sales.quotes.create` and `sales.quotes.convert_to_order` through `commandBus` |
 | Checkout → Sales (calculations) | DI-resolved service | `salesCalculationService` for totals, tax, adjustments |
 | Checkout → Catalog (product refs) | FK IDs + API | Store `productId`/`variantId` as FK IDs; fetch product data via API or DI service |
 | Sales → Checkout (traceability) | UMES widget injection | Inject "Created from Checkout" badge on order/quote detail if `metadata.sourceModule = 'checkout'` |
@@ -146,6 +146,7 @@ Pre-defined items on a simple checkout link. These define what the customer will
 | `sort_order` | integer | DEFAULT `0` | Display order |
 | `created_at` | timestamptz | NOT NULL | |
 | `updated_at` | timestamptz | NOT NULL | |
+| `deleted_at` | timestamptz | NULL | Soft delete to support undoable admin delete |
 
 **Indexes:**
 - Index: `(link_id, sort_order)`
@@ -182,7 +183,8 @@ The existing `checkout.transaction.create` command is extended (not replaced) to
 - Stores `quoteId` on the transaction
 
 The existing `checkout.transaction.updateStatus` command is extended:
-- On `completed` status for `simple_checkout` type: converts quote to order, stores `orderId`
+- On `completed` status for `simple_checkout` type: executes `sales.quotes.convert_to_order`, stores `orderId`
+- On `failed` / `cancelled` / `expired`: triggers quote cleanup via existing sales command path and marks checkout-owned quotes as cancelled/abandoned
 
 ---
 
@@ -298,8 +300,8 @@ Checkout injects into sales module:
 Customer visits /pay/[slug] (simple_checkout type)
          │
          ▼
-  Load pay page with items, calculate totals
-  (salesCalculationService via API)
+  Load pay page with items, calculate totals preview
+  (salesCalculationService via API, no quote persisted)
          │
          ▼
   Customer reviews items + fills customer form
@@ -311,7 +313,8 @@ Customer visits /pay/[slug] (simple_checkout type)
   ┌─────────────────────────────────────────────┐
   │  Server-side:                                │
   │  1. Validate customer fields                 │
-  │  2. Create SalesQuote with line items        │
+  │  2. Create SalesQuote via commandBus         │
+  │     (`sales.quotes.create`)                  │
   │  3. Calculate totals via salesCalcService    │
   │  4. Create CheckoutTransaction               │
   │     (status: processing, quoteId: quote.id)  │
@@ -330,10 +333,31 @@ Customer visits /pay/[slug] (simple_checkout type)
   │  Server-side:                                │
   │  1. Update transaction status → completed    │
   │  2. Convert SalesQuote → SalesOrder          │
+  │     via `sales.quotes.convert_to_order`      │
   │  3. Store orderId on transaction             │
   │  4. Emit checkout.order.created event        │
   └─────────────────────────────────────────────┘
 ```
+
+---
+
+## Security & Access (Phase B Additions)
+
+Phase B inherits all Phase A public-flow protections and adds these rules:
+
+1. **No quote creation on GET**: public page loads and totals previews must not persist `SalesQuote` rows.
+2. **Server-authoritative totals**: product snapshots, taxes, discounts, shipping, and payment totals used for the payment session are recalculated on submit; preview totals are informational only.
+3. **No public cart mutation**: public APIs cannot add/remove/reprice line items; only admin APIs manage `CheckoutCartItem`.
+4. **Submit idempotency remains mandatory**: repeated submits with the same key must reuse the existing quote/transaction/session instead of creating duplicates.
+5. **Quote/order tenant isolation**: checkout may only create, read, or convert sales documents inside the same `organizationId` / `tenantId`.
+6. **Password/session inheritance**: password-protected simple checkout links require the same slug-bound access session for page load, submit, status, success, and cancel flows.
+7. **Sales-side data minimization**: checkout-specific customer data copied into quote/order metadata must avoid storing unnecessary PII outside the encrypted checkout transaction unless required by sales document rules.
+8. **Search hygiene**: any checkout-derived fields added to sales metadata or search presenters must exclude or hash PII; Phase B must not make customer-entered checkout data searchable by default.
+
+### Admin Access Control
+
+- Admin cart-item APIs reuse existing checkout admin features: `checkout.view`, `checkout.edit`
+- Sales widgets injected by checkout only render when the viewer also has the relevant `sales.*.view` permission for the host page
 
 ---
 
@@ -360,10 +384,11 @@ Customer visits /pay/[slug] (simple_checkout type)
 
 ### Phase B.2: Quote/Order Integration
 1. Wire `salesCalculationService` resolution via DI
-2. Implement quote creation from cart items on checkout submit
-3. Implement quote → order conversion on payment completion
+2. Implement quote creation from cart items on checkout submit via `commandBus.execute('sales.quotes.create', ...)`
+3. Implement quote → order conversion on payment completion via `commandBus.execute('sales.quotes.convert_to_order', ...)`
 4. Store `quoteId`/`orderId` on transaction
-5. Add UMES widgets to sales order/quote detail pages
+5. Implement quote cleanup for failed / cancelled / expired checkout transactions
+6. Add UMES widgets to sales order/quote detail pages
 
 ### Phase B.3: Public Checkout Page
 1. Create cart view components (items table, totals section)
@@ -375,8 +400,10 @@ Customer visits /pay/[slug] (simple_checkout type)
 1. Integration tests for cart item CRUD
 2. Integration tests for checkout → quote → order flow
 3. Integration tests for totals calculation
-4. Seed examples for simple checkout
-5. i18n translations for new strings
+4. Integration tests proving GET preview does not create quotes
+5. Integration tests for duplicate submit idempotency and password/session inheritance
+6. Seed examples for simple checkout
+7. i18n translations for new strings
 
 ---
 
@@ -394,6 +421,10 @@ Customer visits /pay/[slug] (simple_checkout type)
 | TC-CHKT-B08 | Order detail shows checkout source badge | Navigate to order, verify badge |
 | TC-CHKT-B09 | Products tab hidden for pay_link type | Create pay_link, verify no Products tab |
 | TC-CHKT-B10 | Pricing tab hidden for simple_checkout type | Create simple_checkout, verify no Pricing tab |
+| TC-CHKT-B11 | GET preview does not create a quote | `GET /api/checkout/pay/:slug` then assert no new sales quote |
+| TC-CHKT-B12 | Duplicate submit with same idempotency key reuses quote/session | Repeat `POST /submit` |
+| TC-CHKT-B13 | Expired or failed checkout cancels cleanup quote | Expire transaction → verify quote cleanup |
+| TC-CHKT-B14 | Password-protected checkout requires verified session on submit/status/success | Public guarded flow |
 
 ---
 
@@ -404,7 +435,7 @@ Customer visits /pay/[slug] (simple_checkout type)
 - **Scenario**: Sales module changes its quote/order creation API or calculation service signature, breaking the checkout integration.
 - **Severity**: Medium
 - **Affected area**: Simple checkout quote/order creation
-- **Mitigation**: Checkout resolves services via DI (interface-based coupling, not implementation). Sales module services are STABLE contract surfaces. Integration tests verify the end-to-end flow.
+- **Mitigation**: Checkout uses existing sales command contracts plus `salesCalculationService`, which is already registered in DI. Integration tests verify the end-to-end flow.
 - **Residual risk**: Low — DI indirection + integration tests catch regressions.
 
 #### Product Price Drift
@@ -423,6 +454,14 @@ Customer visits /pay/[slug] (simple_checkout type)
 - **Mitigation**: The `transaction-expiry` worker (Phase A) handles expiration. On transaction expiry for `simple_checkout` type, the associated quote is cancelled (via sales command). Orphaned quotes are identifiable by `metadata.sourceModule = 'checkout'` and `status = 'cancelled'`.
 - **Residual risk**: Brief window where a pending quote exists. Acceptable — same behavior as abandoned shopping carts in e-commerce.
 
+#### Quote Spam / GET Side Effects
+
+- **Scenario**: Refreshing or bot-crawling a public checkout URL creates many quotes if quote creation happens during page load.
+- **Severity**: High
+- **Affected area**: Sales data quality, abuse resistance
+- **Mitigation**: Phase B explicitly forbids quote creation on GET. Quotes are created only during authenticated submit flow with idempotency protection.
+- **Residual risk**: Low — abuse now requires repeated POSTs and is constrained by rate limiting + idempotency.
+
 #### Totals Calculation Consistency
 
 - **Scenario**: The totals shown on the public checkout page differ from the totals calculated at payment time due to race conditions or stale data.
@@ -430,6 +469,19 @@ Customer visits /pay/[slug] (simple_checkout type)
 - **Affected area**: Customer trust, financial accuracy
 - **Mitigation**: Totals are always recalculated server-side at submit time using `salesCalculationService`. The displayed totals are for preview only. If the recalculated total differs (e.g., tax rule changed), the customer sees the updated total before payment is initiated.
 - **Residual risk**: None — server is authoritative for payment amounts.
+
+---
+
+## Migration & Backward Compatibility
+
+Phase B remains additive to Phase A:
+
+- adds a new checkout-owned table: `checkout_cart_items`
+- adds nullable `quote_id` / `order_id` columns to `checkout_transactions`
+- extends existing checkout APIs with additive fields for `simple_checkout`
+- consumes existing sales command contracts plus `salesCalculationService` without changing their signatures
+
+No existing checkout, sales, or payment gateway route is renamed or removed.
 
 ---
 
@@ -468,8 +520,8 @@ Customer visits /pay/[slug] (simple_checkout type)
 ### 2026-03-19
 - Initial specification created as companion to Phase A (Pay Links)
 - Defined cart item entity and transaction extensions (additive-only)
-- Defined quote → order flow via DI-resolved sales services
+- Defined quote → order flow via existing sales commands + `salesCalculationService`
 - Defined UI extensions (Products tab, cart view on pay page)
 - Defined implementation plan (4 sub-phases)
-- Defined 10 integration test cases
+- Expanded security and abuse-prevention coverage, including no-quote-on-GET and submit idempotency
 - Completed compliance review
