@@ -253,7 +253,15 @@ export function GlobalSearchDialog({
         if (controller.signal.aborted) return
         const abortError = err as { name?: string }
         if (abortError?.name === 'AbortError') return
-        setError(err instanceof Error ? err.message : t('search.dialog.errors.searchFailed'))
+        const status = typeof (err as { status?: unknown })?.status === 'number'
+          ? (err as { status: number }).status
+          : null
+        const message = err instanceof Error ? err.message : ''
+        if (status === 403 || /forbidden/i.test(message)) {
+          setError(t('search.dialog.errors.noPermission'))
+        } else {
+          setError(err instanceof Error ? err.message : t('search.dialog.errors.searchFailed'))
+        }
         setResults([])
       } finally {
         if (!controller.signal.aborted) setLoading(false)
