@@ -144,12 +144,12 @@ export const updateTemplateSchema = checkoutContentSchema.partial().extend({
   }
 })
 
-export const createLinkSchema = createTemplateSchema.extend({
+export const createLinkSchema = createTemplateSchema.safeExtend({
   templateId: z.string().uuid().optional().nullable(),
   slug: optionalTrimmedString,
 })
 
-export const updateLinkSchema = createLinkSchema.partial().extend({
+export const updateLinkSchema = createLinkSchema.partial().safeExtend({
   id: z.string().uuid(),
   slug: optionalTrimmedString,
 })
