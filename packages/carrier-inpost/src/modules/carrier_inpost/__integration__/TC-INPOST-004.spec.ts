@@ -36,6 +36,8 @@ function makeInpostPackage() {
  * the sandbox confirms shipments faster than any subsequent cancel call can arrive.
  */
 test.describe('TC-INPOST-004: Cancel InPost shipment (post-buy)', () => {
+  test.skip(!process.env.OM_INTEGRATION_INPOST_API_TOKEN, 'InPost credentials not configured — set OM_INTEGRATION_INPOST_API_TOKEN to run this test')
+
   test('should return 200 cancelled or 502 invalid_action for a confirmed shipment', async ({ request }) => {
     const token = await getAuthToken(request)
 

@@ -37,6 +37,8 @@ const EXPECTED_INPOST_SERVICE_CODES = [
  * all 4 expected InPost service codes with PLN amounts.
  */
 test.describe('TC-INPOST-002: InPost rate calculator', () => {
+  test.skip(!process.env.OM_INTEGRATION_INPOST_API_TOKEN, 'InPost credentials not configured — set OM_INTEGRATION_INPOST_API_TOKEN to run this test')
+
   test('should return rates for all 4 InPost services', async ({ request }) => {
     const token = await getAuthToken(request)
 

@@ -33,6 +33,8 @@ function makeInpostPackage() {
  * the cancel route surfaces as a 502.
  */
 test.describe('TC-INPOST-003: Cancel InPost shipment', () => {
+  test.skip(!process.env.OM_INTEGRATION_INPOST_API_TOKEN, 'InPost credentials not configured — set OM_INTEGRATION_INPOST_API_TOKEN to run this test')
+
   test('should successfully cancel a newly-created InPost shipment (pre-confirmed)', async ({ request }) => {
     const token = await getAuthToken(request)
 
