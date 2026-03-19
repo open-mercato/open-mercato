@@ -74,7 +74,7 @@ function ProviderInjectedFields({
             <div className="text-sm font-medium">{t('payment_gateways.create.providerSettings', 'Provider settings')}</div>
             <div className="text-xs text-muted-foreground">{t('payment_gateways.create.providerSettingsHelp', 'These options are defined by the selected payment gateway.')}</div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4">
             {providerFields.map(field => (
               <InjectedField
                 key={field.id}
@@ -110,30 +110,8 @@ export default function CreatePaymentLinkPage() {
   const [providerErrors, setProviderErrors] = React.useState<Record<string, string>>({})
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<Partial<PaymentLinkCreateFormValues>>({})
-  const logoSetValueRef = React.useRef<((url: string) => void) | null>(null)
   const openPreviewAfterCreateRef = React.useRef(false)
   const paymentLinkFormId = 'create-payment-link-form'
-
-  const handleLogoFileSelect = React.useCallback(async (file: File) => {
-    const fd = new FormData()
-    fd.set('file', file)
-    fd.set('entityId', 'payment_link_pages:branding')
-    fd.set('recordId', 'logo-upload')
-    try {
-      const call = await apiCallOrThrow<{ item?: { url?: string } }>('/api/attachments', {
-        method: 'POST',
-        body: fd,
-      })
-      const url = call.result?.item?.url
-      if (url) {
-        setInitialValues(prev => ({ ...prev, brandingLogoUrl: url }))
-        setFormResetKey(k => k + 1)
-        flash(t('payment_link_pages.create.branding.logoUploaded', 'Logo uploaded'), 'success')
-      }
-    } catch {
-      flash(t('payment_link_pages.create.branding.logoUploadError', 'Failed to upload logo'), 'error')
-    }
-  }, [t])
 
   React.useEffect(() => {
     let mounted = true
@@ -173,16 +151,21 @@ export default function CreatePaymentLinkPage() {
       const record = res.result?.items?.[0]
       if (!record) return
       const templateValues = recordToTemplateFormValues(record)
+      const cfEntries: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(templateValues)) {
+        if (key.startsWith('cf_')) cfEntries[key] = value
+      }
       setInitialValues(prev => ({
         ...prev,
+        ...cfEntries,
         templateId,
         brandingLogoUrl: templateValues.brandingLogoUrl,
         brandingBrandName: templateValues.brandingBrandName,
         brandingSecuritySubtitle: templateValues.brandingSecuritySubtitle,
         brandingAccentColor: templateValues.brandingAccentColor,
-        brandingCustomCss: templateValues.brandingCustomCss,
         defaultTitle: templateValues.defaultTitle,
         defaultDescription: templateValues.defaultDescription,
+        completedContent: templateValues.completedContent,
         customerCaptureEnabled: templateValues.customerCaptureEnabled,
         customerCaptureHandlingMode: templateValues.customerCaptureHandlingMode,
         customerCaptureCompanyRequired: templateValues.customerCaptureCompanyRequired,
@@ -194,10 +177,17 @@ export default function CreatePaymentLinkPage() {
         capturePhoneRequired: templateValues.capturePhoneRequired,
         captureCompanyVisible: templateValues.captureCompanyVisible,
         captureCompanyRequired: templateValues.captureCompanyRequired,
+        captureAddressVisible: templateValues.captureAddressVisible,
+        captureAddressRequired: templateValues.captureAddressRequired,
+        captureAddressFormat: templateValues.captureAddressFormat,
         customerCaptureTermsRequired: templateValues.customerCaptureTermsRequired,
         customerCaptureTermsMarkdown: templateValues.customerCaptureTermsMarkdown,
+        customerFieldsetCode: templateValues.customerFieldsetCode,
+        displayCustomFields: templateValues.displayCustomFields,
         amountType: templateValues.amountType,
         amountOptions: templateValues.amountOptions,
+        minAmount: templateValues.minAmount,
+        maxAmount: templateValues.maxAmount,
         customFieldsetCode: templateValues.customFieldsetCode,
         customFieldsJson: templateValues.customFieldsJson,
         metadataJson: templateValues.metadataJson,
@@ -222,8 +212,7 @@ export default function CreatePaymentLinkPage() {
     loadingTemplates,
     onProviderChange: (key) => setCurrentProviderKey(key),
     onTemplateSelect: handleTemplateSelect,
-    onLogoFileSelect: handleLogoFileSelect,
-  }), [t, providers, currencies, templates, loadingProviders, loadingCurrencies, loadingTemplates, handleTemplateSelect, handleLogoFileSelect])
+  }), [t, providers, currencies, templates, loadingProviders, loadingCurrencies, loadingTemplates, handleTemplateSelect])
 
   const handleProviderFieldChange = React.useCallback((fieldId: string) => {
     setProviderErrors(prev => {

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { GatewayPaymentLink } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
+import { PaymentLink } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
 import { paymentGatewaysTag } from '@open-mercato/core/modules/payment_gateways/api/openapi'
 import { hashPaymentLinkPassword } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-links'
 
@@ -33,6 +33,17 @@ const customerCaptureSchema = z.object({
   })).optional(),
 }).optional()
 
+const notificationsSchema = z.object({
+  onFormSubmitted: z.object({
+    enabled: z.boolean().optional(),
+    emailTemplate: z.string().max(50000).nullable().optional(),
+  }).optional(),
+  onPaymentCompleted: z.object({
+    enabled: z.boolean().optional(),
+    emailTemplate: z.string().max(50000).nullable().optional(),
+  }).optional(),
+}).optional()
+
 const updatePaymentLinkSchema = z.object({
   id: z.string().uuid(),
   title: z.string().trim().max(160).optional(),
@@ -44,6 +55,7 @@ const updatePaymentLinkSchema = z.object({
   defaultTitle: z.string().max(160).nullable().optional(),
   defaultDescription: z.string().max(500).nullable().optional(),
   customerCapture: customerCaptureSchema,
+  notifications: notificationsSchema,
   amountType: z.enum(['fixed', 'customer_input', 'predefined']).optional(),
   amountOptions: z.array(z.object({
     amount: z.number().positive(),
@@ -77,14 +89,14 @@ export async function PUT(req: Request) {
   const {
     id, title, description, status, maxUses, password,
     branding, defaultTitle, defaultDescription,
-    customerCapture, amountType, amountOptions, minAmount, maxAmount,
+    customerCapture, notifications, amountType, amountOptions, minAmount, maxAmount,
     customerFieldsetCode, customFields, metadata: userMetadata,
   } = parsed.data
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
 
-  const link = await em.findOne(GatewayPaymentLink, {
+  const link = await em.findOne(PaymentLink, {
     id,
     organizationId: auth.orgId,
     tenantId: auth.tenantId,
@@ -147,6 +159,9 @@ export async function PUT(req: Request) {
   if (customFields !== undefined) {
     existingMeta.customFields = customFields
   }
+  if (notifications !== undefined) {
+    existingMeta.notifications = notifications
+  }
 
   // Merge user metadata (non-reserved keys only)
   if (userMetadata) {
@@ -154,7 +169,7 @@ export async function PUT(req: Request) {
       'amount', 'amountType', 'amountOptions', 'currencyCode',
       'pageMetadata', 'customFields', 'customFieldsetCode',
       'customerFieldsetCode', 'customerFieldValues',
-      'customerCapture', 'sessionParams',
+      'customerCapture', 'sessionParams', 'notifications',
     ])
     for (const [key, value] of Object.entries(userMetadata)) {
       if (!reservedKeys.has(key)) {

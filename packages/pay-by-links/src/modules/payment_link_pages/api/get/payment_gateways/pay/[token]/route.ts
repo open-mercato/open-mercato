@@ -87,6 +87,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
       customerFieldsetCode: state.customerFieldsetCode,
       displayCustomFields: state.displayCustomFields,
       customerFieldValues: state.customerFieldValues,
+      completedContent: state.completedContent ?? null,
       customerFieldDefs,
     },
     transaction: state.transaction

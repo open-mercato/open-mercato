@@ -6,12 +6,12 @@ import {
   OptionalProps,
 } from '@mikro-orm/core'
 
-@Entity({ tableName: 'gateway_payment_links' })
+@Entity({ tableName: 'payment_links' })
 @Index({ properties: ['token'], options: { unique: true } })
 @Index({ properties: ['transactionId', 'organizationId', 'tenantId'] })
 @Index({ properties: ['organizationId', 'tenantId', 'status'] })
 @Index({ properties: ['organizationId', 'tenantId', 'linkMode'] })
-export class GatewayPaymentLink {
+export class PaymentLink {
   [OptionalProps]?: 'description' | 'passwordHash' | 'status' | 'completedAt' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'metadata' | 'linkMode' | 'transactionId' | 'templateId' | 'useCount' | 'maxUses'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -72,10 +72,10 @@ export class GatewayPaymentLink {
   deletedAt?: Date | null
 }
 
-@Entity({ tableName: 'gateway_payment_link_transactions' })
+@Entity({ tableName: 'payment_link_transactions' })
 @Index({ properties: ['paymentLinkId'] })
 @Index({ properties: ['transactionId'] })
-export class GatewayPaymentLinkTransaction {
+export class PaymentLinkTransaction {
   [OptionalProps]?: 'customerData' | 'createdAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -100,7 +100,7 @@ export class GatewayPaymentLinkTransaction {
 @Entity({ tableName: 'payment_link_templates' })
 @Index({ name: 'idx_payment_link_templates_org_tenant', properties: ['organizationId', 'tenantId'] })
 export class PaymentLinkTemplate {
-  [OptionalProps]?: 'isDefault' | 'amountType' | 'amountOptions' | 'minAmount' | 'maxAmount' | 'customerFieldsetCode' | 'displayCustomFields' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isDefault' | 'amountType' | 'amountOptions' | 'minAmount' | 'maxAmount' | 'completedContent' | 'customerFieldsetCode' | 'displayCustomFields' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -140,6 +140,9 @@ export class PaymentLinkTemplate {
 
   @Property({ name: 'default_description', type: 'text', nullable: true })
   defaultDescription?: string | null
+
+  @Property({ name: 'completed_content', type: 'text', nullable: true })
+  completedContent?: string | null
 
   @Property({ name: 'custom_fields', type: 'json', nullable: true })
   customFields?: Record<string, unknown> | null

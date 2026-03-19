@@ -129,5 +129,9 @@
   "payment_link_pages.paymentPage.amountMin": "Kwota minimalna",
   "payment_link_pages.paymentPage.amountMax": "Kwota maksymalna",
   "payment_link_pages.validation.minAmount": "Kwota minimalna to",
-  "payment_link_pages.validation.maxAmount": "Kwota maksymalna to"
+  "payment_link_pages.validation.maxAmount": "Kwota maksymalna to",
+
+  "payment_link_pages.create.completedContent": "Treść po opłaceniu",
+  "payment_link_pages.create.completedContent.description": "Treść markdown wyświetlana klientowi po pomyślnym dokonaniu płatności",
+  "payment_link_pages.create.completedContent.placeholder": "Dziękujemy za płatność! Twoje zamówienie zostanie wkrótce zrealizowane."
 }

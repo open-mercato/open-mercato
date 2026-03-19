@@ -49,6 +49,7 @@ export type PaymentLinkPageResponse = {
     customerFieldsetCode?: string | null
     displayCustomFields?: boolean
     customerFieldValues?: Record<string, unknown> | null
+    completedContent?: string | null
     customerFieldDefs?: Array<{
       key: string
       kind: string
@@ -133,7 +134,6 @@ type RootProps = {
   data: PaymentLinkPageResponse | null
   loading: boolean
   error: string | null
-  customCss: string | null
   beforeContent: React.ReactNode
   heroContent: React.ReactNode
   summaryContent: React.ReactNode
@@ -421,10 +421,17 @@ function DefaultCheckoutSection({
         </div>
       ) : isSettled ? (
         <div className="flex min-h-[420px] items-center justify-center">
-          <div className="max-w-lg rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-400/20 dark:bg-emerald-500/10">
-            <div className="text-lg font-semibold text-slate-950 dark:text-white">
-              {t('payment_gateways.paymentLink.paidMessage', 'This payment link has already been completed.')}
+          <div className="max-w-lg space-y-4">
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-center dark:border-emerald-400/20 dark:bg-emerald-500/10">
+              <div className="text-lg font-semibold text-slate-950 dark:text-white">
+                {t('payment_gateways.paymentLink.paidMessage', 'This payment link has already been completed.')}
+              </div>
             </div>
+            {data?.link?.completedContent ? (
+              <div className="rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+                <MarkdownContent body={data.link.completedContent} format="markdown" />
+              </div>
+            ) : null}
           </div>
         </div>
       ) : customerCaptureRequired || data?.requiresSessionCreation ? (
@@ -708,7 +715,6 @@ function DefaultPaymentLinkPageRoot({
   data,
   loading,
   error,
-  customCss,
   beforeContent,
   heroContent,
   summaryContent,
@@ -723,7 +729,6 @@ function DefaultPaymentLinkPageRoot({
       className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.14),_transparent_38%),linear-gradient(180deg,_#f5f7f1_0%,_#eef4ff_48%,_#f8fafc_100%)] px-4 py-10 text-slate-950 sm:px-6"
       data-component-handle={PAYMENT_LINK_PAGE_COMPONENT_HANDLE}
     >
-      {customCss ? <style>{customCss}</style> : null}
       {showErrorOnly ? (
         <div className="mx-auto flex min-h-[60vh] max-w-lg items-center justify-center">
           <div className="w-full rounded-3xl border border-rose-200 bg-rose-50 p-8 text-center shadow-lg dark:border-rose-500/30 dark:bg-rose-950/30">
@@ -1088,16 +1093,11 @@ export function PaymentLinkPageClient({ token }: { token: string }) {
     enrichedBy: data?._meta?.enrichedBy ?? [],
   }), [data, token])
 
-  const customCss = data?.link?.metadata && typeof data.link.metadata.customCss === 'string'
-    ? data.link.metadata.customCss
-    : null
-
   return (
     <RootComponent
       data={data}
       loading={loading}
       error={error}
-      customCss={customCss}
       beforeContent={
         <InjectionSpot
           spotId={buildPaymentLinkPageInjectionSpotId('before')}

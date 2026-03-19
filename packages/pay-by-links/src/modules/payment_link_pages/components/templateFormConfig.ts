@@ -16,7 +16,6 @@ import {
   buildCaptureGroup,
   buildMetadataGroup,
   buildAmountTypeGroup,
-  type SharedFieldBuilderOptions,
 } from './sharedFormFields'
 
 // ---------------------------------------------------------------------------
@@ -50,7 +49,6 @@ export type TemplateFormValues = z.infer<typeof templateFormSchema>
 
 export function buildTemplateFormFields(
   t: (key: string, fallback?: string) => string,
-  options: SharedFieldBuilderOptions,
 ): CrudField[] {
   return [
     // Template-only fields
@@ -62,7 +60,7 @@ export function buildTemplateFormFields(
     ...buildAmountTypeFields(t),
 
     // Shared fields
-    ...buildBrandingFields(t, options),
+    ...buildBrandingFields(t),
     ...buildContentFields(t),
     ...buildCaptureFields(t),
 
@@ -79,9 +77,9 @@ export function buildTemplateFormGroups(t: (key: string, fallback?: string) => s
   return [
     // Column 1 (left)
     { id: 'general', column: 1, title: t('payment_link_pages.templates.form.group.general', 'General'), fields: ['name', 'description', 'isDefault'] },
+    { ...buildContentGroup(t), column: 1 },
     { ...buildAmountTypeGroup(t), column: 1 },
     { ...buildBrandingGroup(t), column: 1 },
-    { ...buildContentGroup(t), column: 1 },
     { ...buildCaptureGroup(t), column: 1 },
     { ...buildMetadataGroup(t), column: 1 },
     // Column 2 (right) — custom fields
@@ -127,6 +125,7 @@ export function templateFormValuesToPayload(values: TemplateFormValues) {
     },
     defaultTitle: values.defaultTitle || null,
     defaultDescription: values.defaultDescription || null,
+    completedContent: values.completedContent || null,
     customerCapture: {
       enabled: values.customerCaptureEnabled ?? false,
       customerHandlingMode: values.customerCaptureHandlingMode ?? 'no_customer',
@@ -198,6 +197,7 @@ export function recordToTemplateFormValues(record: Record<string, unknown>): Tem
     brandingCustomCss: branding.customCss != null ? String(branding.customCss) : null,
     defaultTitle: record.default_title != null || record.defaultTitle != null ? String(record.default_title ?? record.defaultTitle ?? '') : null,
     defaultDescription: record.default_description != null || record.defaultDescription != null ? String(record.default_description ?? record.defaultDescription ?? '') : null,
+    completedContent: record.completed_content != null || record.completedContent != null ? String(record.completed_content ?? record.completedContent ?? '') : null,
     customerCaptureEnabled: capture.enabled === true,
     customerCaptureHandlingMode: typeof capture.customerHandlingMode === 'string' && (capture.customerHandlingMode === 'no_customer' || capture.customerHandlingMode === 'create_new') ? capture.customerHandlingMode : 'no_customer',
     customerCaptureCompanyRequired: capture.companyRequired === true,

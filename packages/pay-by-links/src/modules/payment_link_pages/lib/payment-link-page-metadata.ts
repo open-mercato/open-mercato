@@ -14,6 +14,17 @@ export type CustomerHandlingMode = 'no_customer' | 'create_new' | 'verify_and_me
 export type AmountOption = { amount: number; label: string }
 export type AmountType = 'fixed' | 'customer_input' | 'predefined'
 
+export type PaymentLinkNotificationSettings = {
+  onFormSubmitted?: {
+    enabled?: boolean
+    emailTemplate?: string | null
+  }
+  onPaymentCompleted?: {
+    enabled?: boolean
+    emailTemplate?: string | null
+  }
+}
+
 export type PaymentLinkPageStoredMetadata = {
   amount?: number
   amountType?: AmountType
@@ -21,6 +32,7 @@ export type PaymentLinkPageStoredMetadata = {
   minAmount?: number
   maxAmount?: number
   currencyCode?: string
+  completedContent?: string | null
   pageMetadata?: Record<string, unknown>
   customFields?: Record<string, unknown>
   customFieldsetCode?: string | null
@@ -28,6 +40,7 @@ export type PaymentLinkPageStoredMetadata = {
   displayCustomFields?: boolean
   customerFieldValues?: Record<string, unknown>
   sessionParams?: PaymentLinkSessionParams
+  notifications?: PaymentLinkNotificationSettings
   customerCapture?: {
     enabled?: boolean
     companyRequired?: boolean
@@ -53,6 +66,7 @@ const RESERVED_KEYS = new Set([
   'minAmount',
   'maxAmount',
   'currencyCode',
+  'completedContent',
   'pageMetadata',
   'customFields',
   'customFieldsetCode',
@@ -61,6 +75,7 @@ const RESERVED_KEYS = new Set([
   'customerFieldValues',
   'customerCapture',
   'sessionParams',
+  'notifications',
 ])
 
 function toPlainObject(input: unknown): Record<string, unknown> {
@@ -114,6 +129,27 @@ function toCustomerCapture(input: unknown): PaymentLinkPageStoredMetadata['custo
   }
 }
 
+function toNotifications(input: unknown): PaymentLinkNotificationSettings | undefined {
+  const source = toPlainObject(input)
+  if (!Object.keys(source).length) return undefined
+  const result: PaymentLinkNotificationSettings = {}
+  const onFormSubmitted = toPlainObject(source.onFormSubmitted)
+  if (Object.keys(onFormSubmitted).length > 0) {
+    result.onFormSubmitted = {
+      enabled: onFormSubmitted.enabled === true,
+      emailTemplate: toStringOrNull(onFormSubmitted.emailTemplate),
+    }
+  }
+  const onPaymentCompleted = toPlainObject(source.onPaymentCompleted)
+  if (Object.keys(onPaymentCompleted).length > 0) {
+    result.onPaymentCompleted = {
+      enabled: onPaymentCompleted.enabled === true,
+      emailTemplate: toStringOrNull(onPaymentCompleted.emailTemplate),
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
 export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetadata): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
   if (typeof input.amount === 'number' && Number.isFinite(input.amount)) payload.amount = input.amount
@@ -123,6 +159,9 @@ export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetad
   if (typeof input.maxAmount === 'number' && Number.isFinite(input.maxAmount)) payload.maxAmount = input.maxAmount
   if (typeof input.currencyCode === 'string' && input.currencyCode.trim().length > 0) {
     payload.currencyCode = input.currencyCode.trim().toUpperCase()
+  }
+  if (typeof input.completedContent === 'string' && input.completedContent.trim().length > 0) {
+    payload.completedContent = input.completedContent.trim()
   }
   if (input.pageMetadata && Object.keys(input.pageMetadata).length > 0) {
     payload.pageMetadata = input.pageMetadata
@@ -147,6 +186,22 @@ export function buildPaymentLinkStoredMetadata(input: PaymentLinkPageStoredMetad
   }
   if (input.sessionParams && typeof input.sessionParams.providerKey === 'string') {
     payload.sessionParams = input.sessionParams
+  }
+  if (input.notifications) {
+    const notif: Record<string, unknown> = {}
+    if (input.notifications.onFormSubmitted?.enabled || input.notifications.onFormSubmitted?.emailTemplate) {
+      notif.onFormSubmitted = {
+        enabled: input.notifications.onFormSubmitted.enabled === true,
+        emailTemplate: input.notifications.onFormSubmitted.emailTemplate?.trim() || null,
+      }
+    }
+    if (input.notifications.onPaymentCompleted?.enabled || input.notifications.onPaymentCompleted?.emailTemplate) {
+      notif.onPaymentCompleted = {
+        enabled: input.notifications.onPaymentCompleted.enabled === true,
+        emailTemplate: input.notifications.onPaymentCompleted.emailTemplate?.trim() || null,
+      }
+    }
+    if (Object.keys(notif).length > 0) payload.notifications = notif
   }
   return payload
 }
@@ -199,6 +254,7 @@ export function readPaymentLinkStoredMetadata(input: unknown): PaymentLinkPageSt
     minAmount: toNumber(source.minAmount),
     maxAmount: toNumber(source.maxAmount),
     currencyCode: toStringOrNull(source.currencyCode) ?? undefined,
+    completedContent: toStringOrNull(source.completedContent),
     pageMetadata: Object.keys(pageMetadata).length > 0 ? pageMetadata : undefined,
     customFields: Object.keys(toPlainObject(source.customFields)).length > 0
       ? toPlainObject(source.customFields)
@@ -210,6 +266,7 @@ export function readPaymentLinkStoredMetadata(input: unknown): PaymentLinkPageSt
       ? toPlainObject(source.customerFieldValues)
       : undefined,
     sessionParams,
+    notifications: toNotifications(source.notifications),
     customerCapture: toCustomerCapture(source.customerCapture),
   }
 }

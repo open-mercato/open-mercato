@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'
-import type { GatewayPaymentLink } from '../data/entities'
+import type { PaymentLink } from '../data/entities'
 
 const ACCESS_TOKEN_VERSION = 'v1'
 const ACCESS_TOKEN_TTL_MS = 1000 * 60 * 60 * 8
@@ -45,14 +45,14 @@ export async function verifyPaymentLinkPassword(password: string, hash: string |
   return bcrypt.compare(password, hash)
 }
 
-export function createPaymentLinkAccessToken(link: GatewayPaymentLink): string {
+export function createPaymentLinkAccessToken(link: PaymentLink): string {
   const expiresAt = Date.now() + ACCESS_TOKEN_TTL_MS
   const payload = `${ACCESS_TOKEN_VERSION}.${link.id}.${link.token}.${expiresAt}`
   const signature = crypto.createHmac('sha256', resolveSecret()).update(payload).digest('base64url')
   return `${payload}.${signature}`
 }
 
-export function verifyPaymentLinkAccessToken(link: GatewayPaymentLink, token: string | null | undefined): boolean {
+export function verifyPaymentLinkAccessToken(link: PaymentLink, token: string | null | undefined): boolean {
   if (!token) return false
   const parts = token.split('.')
   if (parts.length !== 5) return false

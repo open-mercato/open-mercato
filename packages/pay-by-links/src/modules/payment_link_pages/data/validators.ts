@@ -54,6 +54,7 @@ export const templateCreateSchema = z.object({
   branding: brandingSchema,
   defaultTitle: z.string().trim().max(160).optional().nullable(),
   defaultDescription: z.string().trim().max(500).optional().nullable(),
+  completedContent: z.string().trim().max(50000).optional().nullable(),
   customFields: z.record(z.string(), z.unknown()).optional().nullable(),
   customFieldsetCode: z.string().trim().max(100).optional().nullable(),
   customerFieldsetCode: z.string().trim().max(100).optional().nullable(),
@@ -138,6 +139,9 @@ export const paymentLinkInputSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   customFields: z.record(z.string(), z.unknown()).optional(),
   customFieldsetCode: z.string().trim().max(100).optional(),
+  customerFieldsetCode: z.string().trim().max(100).optional(),
+  displayCustomFields: z.boolean().optional().default(false),
+  completedContent: z.string().trim().max(50000).optional(),
   customerCapture: z.object({
     enabled: z.boolean().default(false),
     companyRequired: z.boolean().default(false).optional(),

@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { GatewayPaymentLink } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
+import { PaymentLink } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
 import { paymentLinkUnlockSchema } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/validators'
 import {
   createPaymentLinkAccessToken,
@@ -30,7 +30,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const link = await findOneWithDecryption(em, GatewayPaymentLink, { token, deletedAt: null })
+  const link = await findOneWithDecryption(em, PaymentLink, { token, deletedAt: null })
   if (!link) {
     return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
   }

@@ -186,11 +186,11 @@
           "mappedType": "datetime"
         }
       },
-      "name": "gateway_payment_links",
+      "name": "payment_links",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "gateway_payment_links_organization_id_tenant_id_link_mode_index",
+          "keyName": "payment_links_organization_id_tenant_id_link_mode_index",
           "columnNames": [
             "organization_id",
             "tenant_id",
@@ -202,7 +202,7 @@
           "unique": false
         },
         {
-          "keyName": "gateway_payment_links_organization_id_tenant_id_status_index",
+          "keyName": "payment_links_organization_id_tenant_id_status_index",
           "columnNames": [
             "organization_id",
             "tenant_id",
@@ -214,7 +214,7 @@
           "unique": false
         },
         {
-          "keyName": "gateway_payment_links_transaction_id_organization__0b731_index",
+          "keyName": "payment_links_transaction_id_organization__0b731_index",
           "columnNames": [
             "transaction_id",
             "organization_id",
@@ -226,7 +226,7 @@
           "unique": false
         },
         {
-          "keyName": "gateway_payment_links_token_index",
+          "keyName": "payment_links_token_index",
           "columnNames": [
             "token"
           ],
@@ -239,7 +239,7 @@
           }
         },
         {
-          "keyName": "gateway_payment_links_pkey",
+          "keyName": "payment_links_pkey",
           "columnNames": [
             "id"
           ],
@@ -312,11 +312,11 @@
           "mappedType": "datetime"
         }
       },
-      "name": "gateway_payment_link_transactions",
+      "name": "payment_link_transactions",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "gateway_payment_link_transactions_transaction_id_index",
+          "keyName": "payment_link_transactions_transaction_id_index",
           "columnNames": [
             "transaction_id"
           ],
@@ -326,7 +326,7 @@
           "unique": false
         },
         {
-          "keyName": "gateway_payment_link_transactions_payment_link_id_index",
+          "keyName": "payment_link_transactions_payment_link_id_index",
           "columnNames": [
             "payment_link_id"
           ],
@@ -336,7 +336,7 @@
           "unique": false
         },
         {
-          "keyName": "gateway_payment_link_transactions_pkey",
+          "keyName": "payment_link_transactions_pkey",
           "columnNames": [
             "id"
           ],

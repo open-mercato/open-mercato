@@ -20,12 +20,12 @@ export const sharedBrandingSchema = {
     .optional()
     .nullable()
     .or(z.literal('')),
-  brandingCustomCss: z.string().max(10000).optional().nullable(),
 }
 
 export const sharedContentSchema = {
   defaultTitle: z.string().max(160).optional().nullable(),
   defaultDescription: z.string().max(500).optional().nullable(),
+  completedContent: z.string().max(50000).optional().nullable(),
 }
 
 export const sharedCaptureSchema = {
@@ -137,64 +137,94 @@ export function renderAccentColorField(props: CrudCustomFieldRenderProps): React
   )
 }
 
-export function renderLogoField(
-  props: CrudCustomFieldRenderProps,
-  extra: { onFileSelect: (file: File) => void; uploadLabel: string },
-): React.ReactNode {
+function LogoFieldInner(props: CrudCustomFieldRenderProps & { uploadLabel: string }) {
   const urlValue = typeof props.value === 'string' ? props.value : ''
-  const fileInputRef = { current: null as HTMLInputElement | null }
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const [uploading, setUploading] = React.useState(false)
 
-  const urlInput = React.createElement('input', {
-    type: 'text',
-    value: urlValue,
-    placeholder: 'https://example.com/logo.png',
-    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-      props.setValue(event.target.value)
-    },
-    autoFocus: props.autoFocus,
-    disabled: props.disabled,
-    className: 'flex h-9 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm',
-  })
-
-  const hiddenInput = React.createElement('input', {
-    type: 'file',
-    accept: 'image/*',
-    className: 'hidden',
-    ref: (el: HTMLInputElement | null) => { fileInputRef.current = el },
-    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (file) extra.onFileSelect(file)
-    },
-  })
-
-  const uploadButton = React.createElement(
-    'button',
-    {
-      type: 'button',
-      disabled: props.disabled,
-      className: 'inline-flex h-9 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground',
-      onClick: () => fileInputRef.current?.click(),
-    },
-    extra.uploadLabel,
-  )
-
-  const preview = urlValue
-    ? React.createElement('img', {
-        src: urlValue,
-        alt: 'Logo preview',
-        className: 'mt-2 h-10 max-w-[160px] rounded border object-contain',
-        onError: (event: React.SyntheticEvent<HTMLImageElement>) => {
-          (event.target as HTMLImageElement).style.display = 'none'
-        },
-      })
-    : null
+  const handleFileChange = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.set('file', file)
+      fd.set('entityId', 'payment_link_pages:branding')
+      fd.set('recordId', 'logo-upload')
+      const res = await fetch('/api/attachments', { method: 'POST', body: fd })
+      if (res.ok) {
+        const json = await res.json() as { item?: { url?: string } }
+        const url = json.item?.url
+        if (url) props.setValue(url)
+      }
+    } catch { /* skip */ }
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [props.setValue])
 
   return React.createElement(
     'div',
     null,
-    React.createElement('div', { className: 'flex items-center gap-2' }, urlInput, uploadButton, hiddenInput),
-    preview,
+    React.createElement(
+      'div',
+      { className: 'flex items-center gap-2' },
+      React.createElement('input', {
+        type: 'text',
+        value: urlValue,
+        placeholder: 'https://example.com/logo.png',
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) => { props.setValue(event.target.value) },
+        autoFocus: props.autoFocus,
+        disabled: props.disabled || uploading,
+        className: 'flex h-9 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm',
+      }),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          disabled: props.disabled || uploading,
+          className: 'inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground',
+          onClick: () => fileInputRef.current?.click(),
+        },
+        React.createElement('svg', {
+          xmlns: 'http://www.w3.org/2000/svg',
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 2,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          className: 'h-4 w-4',
+        },
+          React.createElement('path', { d: 'm21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48' }),
+        ),
+        uploading ? '...' : props.uploadLabel,
+      ),
+      React.createElement('input', {
+        type: 'file',
+        accept: 'image/*',
+        className: 'hidden',
+        ref: fileInputRef,
+        onChange: handleFileChange,
+      }),
+    ),
+    urlValue
+      ? React.createElement('img', {
+          src: urlValue,
+          alt: 'Logo preview',
+          className: 'mt-2 h-10 max-w-[160px] rounded border object-contain',
+          onError: (event: React.SyntheticEvent<HTMLImageElement>) => {
+            (event.target as HTMLImageElement).style.display = 'none'
+          },
+        })
+      : null,
   )
+}
+
+export function renderLogoField(
+  props: CrudCustomFieldRenderProps,
+  extra: { uploadLabel: string },
+): React.ReactNode {
+  return React.createElement(LogoFieldInner, { ...props, uploadLabel: extra.uploadLabel })
 }
 
 const LazyJsonBuilder = React.lazy(() =>
@@ -459,17 +489,12 @@ function CustomerFieldsetSelect(props: CrudCustomFieldRenderProps & { entityId: 
 // Shared field builder options
 // ---------------------------------------------------------------------------
 
-export type SharedFieldBuilderOptions = {
-  onLogoFileSelect: (file: File) => void
-}
-
 // ---------------------------------------------------------------------------
 // Shared field builders
 // ---------------------------------------------------------------------------
 
 export function buildBrandingFields(
   t: (key: string, fallback?: string) => string,
-  options: SharedFieldBuilderOptions,
 ): CrudField[] {
   return [
     {
@@ -478,7 +503,6 @@ export function buildBrandingFields(
       type: 'custom' as const,
       component: (props: CrudCustomFieldRenderProps) =>
         renderLogoField(props, {
-          onFileSelect: options.onLogoFileSelect,
           uploadLabel: t('payment_link_pages.create.branding.logoUpload', 'Upload'),
         }),
     },
@@ -503,12 +527,6 @@ export function buildBrandingFields(
       layout: 'half',
       component: renderAccentColorField,
     },
-    {
-      id: 'brandingCustomCss',
-      label: t('payment_link_pages.create.branding.customCss', 'Custom CSS'),
-      type: 'textarea',
-      placeholder: t('payment_link_pages.create.branding.customCss.placeholder', '/* Custom styles */'),
-    },
   ]
 }
 
@@ -529,6 +547,14 @@ export function buildContentFields(
       type: 'richtext',
       editor: 'uiw',
       placeholder: t('payment_link_pages.create.defaultDescription.placeholder', 'Description shown on the payment page'),
+    },
+    {
+      id: 'completedContent',
+      label: t('payment_link_pages.create.completedContent', 'Post-payment content'),
+      type: 'richtext',
+      editor: 'uiw',
+      description: t('payment_link_pages.create.completedContent.description', 'Markdown content displayed to the customer after successful payment'),
+      placeholder: t('payment_link_pages.create.completedContent.placeholder', 'Thank you for your payment! Your order will be processed shortly.'),
     },
   ]
 }
@@ -699,7 +725,6 @@ export function buildBrandingGroup(
       'brandingBrandName',
       'brandingSecuritySubtitle',
       'brandingAccentColor',
-      'brandingCustomCss',
     ],
   }
 }
@@ -710,7 +735,7 @@ export function buildContentGroup(
   return {
     id: 'content',
     title: t('payment_link_pages.create.group.content', 'Content'),
-    fields: ['defaultTitle', 'defaultDescription'],
+    fields: ['defaultTitle', 'defaultDescription', 'completedContent'],
   }
 }
 

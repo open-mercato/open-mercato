@@ -1,4 +1,5 @@
 import type { InjectionMenuItemWidget } from '@open-mercato/shared/modules/widgets/injection'
+import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
 
 const widget: InjectionMenuItemWidget = {
   metadata: {
@@ -10,8 +11,12 @@ const widget: InjectionMenuItemWidget = {
       labelKey: 'payment_gateways.nav.providers',
       label: 'Payment Providers',
       href: '/backend/integrations?category=payment',
-      groupId: 'payments',
-      groupLabelKey: 'payment_gateways.nav.paymentsGroup',
+      groupId: 'external-systems',
+      features: ['integrations.view'],
+      placement: {
+        position: InjectionPosition.After,
+        relativeTo: 'backend-integrations',
+      },
     },
   ],
 }

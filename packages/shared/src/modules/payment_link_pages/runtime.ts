@@ -5,8 +5,11 @@ export type PaymentLinkTemplateData = {
   metadata: unknown
   customFields: unknown
   customFieldsetCode: string | null | undefined
+  customerFieldsetCode?: string | null | undefined
+  displayCustomFields?: boolean
   defaultTitle: string | null | undefined
   defaultDescription: string | null | undefined
+  completedContent?: string | null | undefined
   customerCapture: unknown
   amountType?: string | null
   amountOptions?: Array<{ amount: number; label: string }> | null

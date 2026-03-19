@@ -6,7 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { readApiResultOrThrow, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -25,8 +25,6 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
   const [record, setRecord] = React.useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [formResetKey, setFormResetKey] = React.useState(0)
-  const [extraValues, setExtraValues] = React.useState<Partial<TemplateFormValues>>({})
 
   React.useEffect(() => {
     async function load() {
@@ -49,30 +47,9 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
     load()
   }, [params.id])
 
-  const handleLogoFileSelect = React.useCallback(async (file: File) => {
-    const fd = new FormData()
-    fd.set('file', file)
-    fd.set('entityId', 'payment_link_pages:branding')
-    fd.set('recordId', 'logo-upload')
-    try {
-      const call = await apiCallOrThrow<{ item?: { url?: string } }>('/api/attachments', {
-        method: 'POST',
-        body: fd,
-      })
-      const url = call.result?.item?.url
-      if (url) {
-        setExtraValues(prev => ({ ...prev, brandingLogoUrl: url }))
-        setFormResetKey(k => k + 1)
-        flash(t('payment_link_pages.create.branding.logoUploaded', 'Logo uploaded'), 'success')
-      }
-    } catch {
-      flash(t('payment_link_pages.create.branding.logoUploadError', 'Failed to upload logo'), 'error')
-    }
-  }, [t])
-
   const fields = React.useMemo(
-    () => buildTemplateFormFields(t, { onLogoFileSelect: handleLogoFileSelect }),
-    [t, handleLogoFileSelect],
+    () => buildTemplateFormFields(t),
+    [t],
   )
 
   const groups = React.useMemo(() => buildTemplateFormGroups(t), [t])
@@ -80,16 +57,12 @@ export default function EditTemplatePage({ params }: { params: { id: string } })
   if (loading) return <LoadingMessage label={t('payment_link_pages.templates.edit.title', 'Edit Template')} />
   if (error || !record) return <ErrorMessage label={error ?? 'Template not found'} />
 
-  const initialValues: TemplateFormValues = {
-    ...recordToTemplateFormValues(record),
-    ...extraValues,
-  }
+  const initialValues: TemplateFormValues = recordToTemplateFormValues(record)
 
   return (
     <Page>
       <PageBody>
         <CrudForm<TemplateFormValues>
-          key={formResetKey}
           title={t('payment_link_pages.templates.edit.title', 'Edit Template')}
           backHref="/backend/payment-link-templates"
           cancelHref="/backend/payment-link-templates"

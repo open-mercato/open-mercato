@@ -20,6 +20,8 @@ import {
   paymentLinkEditSchema,
   buildPaymentLinkEditFields,
   buildPaymentLinkEditGroups,
+  buildNotificationFields,
+  buildNotificationGroups,
   recordToPaymentLinkEditFormValues,
   paymentLinkEditFormToPayload,
   type PaymentLinkEditFormValues,
@@ -271,6 +273,8 @@ function TransactionsPanel({
   )
 }
 
+type EditTab = 'general' | 'notifications'
+
 export default function PaymentLinkEditPage({ params }: { params: { id: string } }) {
   const t = useT()
   const locale = useLocale()
@@ -280,6 +284,7 @@ export default function PaymentLinkEditPage({ params }: { params: { id: string }
   const [error, setError] = React.useState<string | null>(null)
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [extraValues, setExtraValues] = React.useState<Partial<PaymentLinkEditFormValues>>({})
+  const [activeTab, setActiveTab] = React.useState<EditTab>('general')
 
   React.useEffect(() => {
     let cancelled = false
@@ -341,14 +346,20 @@ export default function PaymentLinkEditPage({ params }: { params: { id: string }
   }, [t])
 
   const fields = React.useMemo(
-    () => buildPaymentLinkEditFields(t, {
-      onLogoFileSelect: handleLogoFileSelect,
-      passwordProtected: record?.passwordProtected,
-    }),
+    () => [
+      ...buildPaymentLinkEditFields(t, {
+        onLogoFileSelect: handleLogoFileSelect,
+        passwordProtected: record?.passwordProtected,
+      }),
+      ...buildNotificationFields(t),
+    ],
     [t, handleLogoFileSelect, record?.passwordProtected],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
+    if (activeTab === 'notifications') {
+      return buildNotificationGroups(t)
+    }
     const baseGroups = buildPaymentLinkEditGroups(t)
     const detailsGroup: CrudFormGroup = {
       id: 'details',
@@ -372,7 +383,7 @@ export default function PaymentLinkEditPage({ params }: { params: { id: string }
     const withDetails = [...baseGroups]
     withDetails.splice(customFieldsIdx >= 0 ? customFieldsIdx : baseGroups.length, 0, detailsGroup, transactionsGroup)
     return withDetails
-  }, [t, record, locale, handleCopyLink])
+  }, [t, record, locale, handleCopyLink, activeTab])
 
   if (loading) {
     return (
@@ -444,21 +455,47 @@ export default function PaymentLinkEditPage({ params }: { params: { id: string }
     ...extraValues,
   }
 
+  const tabs: { id: EditTab; label: string }[] = [
+    { id: 'general', label: t('payment_link_pages.edit.tabs.general', 'General') },
+    { id: 'notifications', label: t('payment_link_pages.edit.tabs.notifications', 'Notifications') },
+  ]
+
   return (
     <Page>
       <PageBody>
+        <div className="mb-4">
+          <nav className="flex items-center gap-3 text-sm" role="tablist" aria-label={t('payment_link_pages.edit.tabs.label', 'Edit payment link tabs')}>
+            {tabs.map((tab) => (
+              <Button
+                key={tab.id}
+                variant="ghost"
+                size="sm"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={
+                  activeTab === tab.id
+                    ? 'h-auto rounded-none border-b-2 border-primary px-0 py-1 text-foreground'
+                    : 'h-auto rounded-none border-b-2 border-transparent px-0 py-1 text-muted-foreground hover:text-foreground hover:bg-transparent'
+                }
+              >
+                {tab.label}
+              </Button>
+            ))}
+          </nav>
+        </div>
         <CrudForm<PaymentLinkEditFormValues>
-          key={formResetKey}
+          key={`${formResetKey}-${activeTab}`}
           title={`${t('payment_gateways.links.edit.title', 'Edit Payment Link')}: ${record.title}`}
           backHref="/backend/payment-links"
           cancelHref="/backend/payment-links"
           fields={fields}
           groups={groups}
-          twoColumn
+          twoColumn={activeTab === 'general'}
           schema={paymentLinkEditSchema}
           initialValues={initialValues}
-          entityIds={[PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]}
-          customFieldsetBindings={{ [PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]: { valueKey: 'customFieldsetCode' } }}
+          entityIds={activeTab === 'general' ? [PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID] : []}
+          customFieldsetBindings={activeTab === 'general' ? { [PAYMENT_LINK_PAGE_CUSTOM_FIELD_ENTITY_ID]: { valueKey: 'customFieldsetCode' } } : {}}
           submitLabel={t('payment_gateways.links.edit.submit', 'Save Payment Link')}
           onSubmit={async (values) => {
             const customFieldPayload = collectCustomFieldValues(values as Record<string, unknown>)

@@ -9,7 +9,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CustomerEntity as CustomerEntityType } from '@open-mercato/core/modules/customers/data/entities'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
-import { GatewayPaymentLink, GatewayPaymentLinkTransaction } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
+import { PaymentLink, PaymentLinkTransaction } from '@open-mercato/pay-by-links/modules/payment_link_pages/data/entities'
 import { readPaymentLinkStoredMetadata } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-link-page-metadata'
 import type { CustomerHandlingMode } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-link-page-metadata'
 import { buildPaymentLinkUrl } from '@open-mercato/pay-by-links/modules/payment_link_pages/lib/payment-links'
@@ -24,6 +24,7 @@ const sessionPayloadSchema = z.object({
   companyName: z.string().max(200).optional(),
   acceptedTerms: z.boolean().optional(),
   customFormFields: z.record(z.string(), z.unknown()).optional(),
+  customerFieldValues: z.record(z.string(), z.unknown()).optional(),
   amount: z.number().positive().optional(),
 })
 
@@ -68,7 +69,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     const container = await createRequestContainer()
     const em = (container as RequestContainer).resolve('em')
 
-    const link = await findOneWithDecryption(em, GatewayPaymentLink, { token, deletedAt: null })
+    const link = await findOneWithDecryption(em, PaymentLink, { token, deletedAt: null })
     if (!link) {
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
     }
@@ -250,7 +251,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     }
     // customerHandlingMode === 'no_customer': no CRM records, data only in transaction
 
-    const linkTransaction = em.create(GatewayPaymentLinkTransaction, {
+    const linkTransaction = em.create(PaymentLinkTransaction, {
       paymentLinkId: link.id,
       transactionId: transaction.id,
       customerEmail: email,
@@ -261,6 +262,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
         companyName,
         acceptedTerms: parsed.data.acceptedTerms ?? false,
         customFormFields: parsed.data.customFormFields ?? null,
+        customerFieldValues: parsed.data.customerFieldValues ?? null,
         customerCreated,
         customerHandlingMode,
         personEntityId,

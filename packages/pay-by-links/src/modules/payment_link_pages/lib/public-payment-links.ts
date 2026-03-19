@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getAllIntegrations } from '@open-mercato/shared/modules/integrations/types'
-import { GatewayPaymentLink } from '../data/entities'
+import { PaymentLink } from '../data/entities'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { verifyPaymentLinkAccessToken } from './payment-links'
@@ -19,7 +19,7 @@ type RequestContainer = AwilixContainer & {
 }
 
 export type PublicPaymentLinkState = {
-  link: GatewayPaymentLink
+  link: PaymentLink
   transaction: GatewayTransaction | null
   accessGranted: boolean
   passwordRequired: boolean
@@ -36,6 +36,7 @@ export type PublicPaymentLinkState = {
   customFieldsetCode: string | null
   customerFieldsetCode: string | null
   displayCustomFields: boolean
+  completedContent: string | null
   customerFieldValues: Record<string, unknown> | null
   customerCapture: {
     enabled: boolean
@@ -65,7 +66,7 @@ export async function loadPublicPaymentLinkState({
   token: string
 }): Promise<PublicPaymentLinkState | null> {
   const em = container.resolve('em')
-  const link = await findOneWithDecryption(em, GatewayPaymentLink, { token, deletedAt: null })
+  const link = await findOneWithDecryption(em, PaymentLink, { token, deletedAt: null })
   if (!link) return null
 
   const scope = { organizationId: link.organizationId, tenantId: link.tenantId }
@@ -108,6 +109,7 @@ export async function loadPublicPaymentLinkState({
       customFieldsetCode: null,
       customerFieldsetCode: null,
       displayCustomFields: false,
+      completedContent: null,
       customerFieldValues: null,
       customerCapture: null,
     }
@@ -157,6 +159,7 @@ export async function loadPublicPaymentLinkState({
     customFieldsetCode: storedMetadata.customFieldsetCode ?? null,
     customerFieldsetCode: storedMetadata.customerFieldsetCode ?? null,
     displayCustomFields: storedMetadata.displayCustomFields === true,
+    completedContent: storedMetadata.completedContent ?? null,
     customerFieldValues: storedMetadata.customerFieldValues ?? null,
     customerCapture: storedMetadata.customerCapture?.enabled
       ? {

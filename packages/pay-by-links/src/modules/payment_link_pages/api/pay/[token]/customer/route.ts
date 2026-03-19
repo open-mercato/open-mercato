@@ -20,6 +20,7 @@ const customerCapturePayloadSchema = z.object({
   phone: z.string().trim().max(50).optional(),
   companyName: z.string().trim().max(200).optional(),
   acceptedTerms: z.boolean().optional(),
+  customerFieldValues: z.record(z.string(), z.unknown()).optional(),
 })
 
 type RequestContainer = AwilixContainer & {
@@ -261,6 +262,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     pageMetadata: state.pageMetadata ?? undefined,
     customFields: state.customFields ?? undefined,
     customFieldsetCode: state.customFieldsetCode,
+    customerFieldValues: parsed.data.customerFieldValues ?? state.customerFieldValues ?? undefined,
     customerCapture: {
       enabled: true,
       companyRequired: state.customerCapture.companyRequired,

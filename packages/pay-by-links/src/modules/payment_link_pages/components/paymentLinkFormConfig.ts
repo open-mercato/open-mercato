@@ -52,7 +52,6 @@ export type BuildPaymentLinkFormFieldsOptions = {
   loadingTemplates: boolean
   onProviderChange: (key: string) => void
   onTemplateSelect: (templateId: string | null) => void
-  onLogoFileSelect: (file: File) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +62,7 @@ export const paymentLinkCreateSchema = z
   .object({
     // Payment fields
     providerKey: z.string().min(1),
-    amount: z.union([z.number().positive(), z.literal(''), z.number().min(0)]),
+    amount: z.union([z.number().min(0), z.literal('')]).optional().default(0),
     currencyCode: z.string().length(3),
     description: z.string().max(500).optional().default(''),
     captureMethod: z.enum(['automatic', 'manual']).default('automatic'),
@@ -371,7 +370,7 @@ export function buildPaymentLinkFormFields(
     },
 
     // Shared fields
-    ...buildBrandingFields(t, { onLogoFileSelect: options.onLogoFileSelect }),
+    ...buildBrandingFields(t),
     ...buildContentFields(t),
     ...buildCaptureFields(t),
     ...buildMetadataFields(t),
@@ -405,13 +404,13 @@ export function buildPaymentLinkFormGroups(
       column: 1,
       fields: ['templateId'],
     },
+    { ...buildContentGroup(t), column: 1 },
     {
       id: 'payment',
       column: 1,
       title: t('payment_link_pages.create.group.payment', 'Payment'),
       fields: ['providerKey', 'currencyCode', 'amountType', 'amount', 'description', 'minAmount', 'maxAmount', 'amountOptions'],
     },
-    { ...buildContentGroup(t), column: 1 },
     {
       id: 'linkSettings',
       column: 1,
@@ -476,6 +475,7 @@ export function paymentLinkFormToSessionPayload(values: PaymentLinkCreateFormVal
       templateId: values.templateId || undefined,
       title: values.defaultTitle?.trim() || undefined,
       description: values.defaultDescription?.trim() || undefined,
+      completedContent: values.completedContent?.trim() || undefined,
       password: values.password?.trim() || undefined,
       token: values.customLinkPath?.trim() || undefined,
       metadata: parseJsonSafe(values.metadataJson),
@@ -548,6 +548,10 @@ export const paymentLinkEditSchema = z
     ...sharedMetadataSchema,
     customFieldsetCode: z.string().max(100).optional().nullable(),
     customerFieldsetCode: z.string().max(100).optional().nullable(),
+    notifyOnFormSubmitted: z.boolean().optional().default(false),
+    notifyOnFormSubmittedTemplate: z.string().max(50000).optional().nullable(),
+    notifyOnPaymentCompleted: z.boolean().optional().default(false),
+    notifyOnPaymentCompletedTemplate: z.string().max(50000).optional().nullable(),
   })
   .passthrough()
 
@@ -592,9 +596,61 @@ export function buildPaymentLinkEditFields(
     },
     ...buildAmountTypeFields(t),
     ...buildContentFields(t),
-    ...buildBrandingFields(t, { onLogoFileSelect: options.onLogoFileSelect }),
+    ...buildBrandingFields(t),
     ...buildCaptureFields(t),
     ...buildMetadataFields(t),
+  ]
+}
+
+export function buildNotificationFields(
+  t: (key: string, fallback?: string) => string,
+): CrudField[] {
+  return [
+    {
+      id: 'notifyOnFormSubmitted',
+      label: t('payment_link_pages.notifications.onFormSubmitted.enabled', 'Send email when form is submitted'),
+      type: 'checkbox',
+      description: t('payment_link_pages.notifications.onFormSubmitted.description', 'Send an email notification to the customer when the payment form has been submitted'),
+    },
+    {
+      id: 'notifyOnFormSubmittedTemplate',
+      label: t('payment_link_pages.notifications.onFormSubmitted.template', 'Submission email template'),
+      type: 'richtext',
+      editor: 'uiw',
+      placeholder: t('payment_link_pages.notifications.onFormSubmitted.placeholder', 'Enter the email content in Markdown...'),
+    },
+    {
+      id: 'notifyOnPaymentCompleted',
+      label: t('payment_link_pages.notifications.onPaymentCompleted.enabled', 'Send email when payment is completed'),
+      type: 'checkbox',
+      description: t('payment_link_pages.notifications.onPaymentCompleted.description', 'Send an email notification to the customer when the payment has been completed'),
+    },
+    {
+      id: 'notifyOnPaymentCompletedTemplate',
+      label: t('payment_link_pages.notifications.onPaymentCompleted.template', 'Payment completed email template'),
+      type: 'richtext',
+      editor: 'uiw',
+      placeholder: t('payment_link_pages.notifications.onPaymentCompleted.placeholder', 'Enter the email content in Markdown...'),
+    },
+  ]
+}
+
+export function buildNotificationGroups(
+  t: (key: string, fallback?: string) => string,
+): CrudFormGroup[] {
+  return [
+    {
+      id: 'notifyFormSubmitted',
+      column: 1,
+      title: t('payment_link_pages.notifications.group.onFormSubmitted', 'Form Submission Notification'),
+      fields: ['notifyOnFormSubmitted', 'notifyOnFormSubmittedTemplate'],
+    },
+    {
+      id: 'notifyPaymentCompleted',
+      column: 1,
+      title: t('payment_link_pages.notifications.group.onPaymentCompleted', 'Payment Completed Notification'),
+      fields: ['notifyOnPaymentCompleted', 'notifyOnPaymentCompletedTemplate'],
+    },
   ]
 }
 
@@ -694,6 +750,10 @@ export function recordToPaymentLinkEditFormValues(
     customFieldsetCode: storedMetadata.customFieldsetCode ?? null,
     customerFieldsetCode: storedMetadata.customerFieldsetCode ?? null,
     displayCustomFields: storedMetadata.displayCustomFields === true,
+    notifyOnFormSubmitted: storedMetadata.notifications?.onFormSubmitted?.enabled === true,
+    notifyOnFormSubmittedTemplate: storedMetadata.notifications?.onFormSubmitted?.emailTemplate ?? null,
+    notifyOnPaymentCompleted: storedMetadata.notifications?.onPaymentCompleted?.enabled === true,
+    notifyOnPaymentCompletedTemplate: storedMetadata.notifications?.onPaymentCompleted?.emailTemplate ?? null,
     metadataJson: null,
   }
 }
@@ -743,6 +803,16 @@ export function paymentLinkEditFormToPayload(
     minAmount: values.amountType === 'customer_input' && typeof values.minAmount === 'number' ? values.minAmount : null,
     maxAmount: values.amountType === 'customer_input' && typeof values.maxAmount === 'number' ? values.maxAmount : null,
     customerFieldsetCode: values.customerFieldsetCode?.trim() || null,
+    notifications: {
+      onFormSubmitted: {
+        enabled: values.notifyOnFormSubmitted === true,
+        emailTemplate: values.notifyOnFormSubmittedTemplate?.trim() || null,
+      },
+      onPaymentCompleted: {
+        enabled: values.notifyOnPaymentCompleted === true,
+        emailTemplate: values.notifyOnPaymentCompletedTemplate?.trim() || null,
+      },
+    },
     ...(userMetadata ? { metadata: userMetadata } : {}),
   }
 }

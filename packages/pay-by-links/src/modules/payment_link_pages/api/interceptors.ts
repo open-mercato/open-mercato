@@ -2,7 +2,7 @@ import type { ApiInterceptor, InterceptorAfterResult, InterceptorContext, Interc
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolvePaymentLinkTemplate, type PaymentLinkTemplateData } from '@open-mercato/shared/modules/payment_link_pages/runtime'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
-import { GatewayPaymentLink, GatewayPaymentLinkTransaction } from '../data/entities'
+import { PaymentLink, PaymentLinkTransaction } from '../data/entities'
 import { paymentLinkInputSchema } from '../data/validators'
 import {
   buildPaymentLinkUrl,
@@ -30,12 +30,15 @@ type ResolvedPaymentLinkValues = {
   pageMetadata: Record<string, unknown> | undefined
   customFields: Record<string, unknown> | undefined
   customFieldsetCode: string | undefined
+  customerFieldsetCode: string | undefined
+  displayCustomFields: boolean
   customerCapture: {
     enabled: boolean
     companyRequired: boolean
     termsRequired: boolean
     termsMarkdown: string | undefined
     customerHandlingMode: CustomerHandlingMode | undefined
+    fields?: Record<string, { visible?: boolean; required?: boolean; format?: string }> | null
   } | undefined
 }
 
@@ -46,12 +49,15 @@ function mergePaymentLinkWithTemplate(
     metadata?: Record<string, unknown>
     customFields?: Record<string, unknown>
     customFieldsetCode?: string
+    customerFieldsetCode?: string
+    displayCustomFields?: boolean
     customerCapture?: {
       enabled?: boolean
       companyRequired?: boolean
       termsRequired?: boolean
       termsMarkdown?: string
       customerHandlingMode?: CustomerHandlingMode
+      fields?: Record<string, { visible?: boolean; required?: boolean; format?: string }> | null
     }
   },
   template: PaymentLinkTemplateData,
@@ -76,6 +82,8 @@ function mergePaymentLinkWithTemplate(
 
   let customerCapture: ResolvedPaymentLinkValues['customerCapture']
   if (request.customerCapture?.enabled || (templateCapture?.enabled === true && request.customerCapture?.enabled !== false)) {
+    const templateFields = templateCapture?.fields as Record<string, { visible?: boolean; required?: boolean; format?: string }> | null | undefined
+    const mergedFields = request.customerCapture?.fields ?? templateFields ?? null
     customerCapture = {
       enabled: true,
       companyRequired: request.customerCapture?.companyRequired
@@ -86,6 +94,7 @@ function mergePaymentLinkWithTemplate(
         ?? (typeof templateCapture?.termsMarkdown === 'string' ? templateCapture.termsMarkdown : undefined),
       customerHandlingMode: request.customerCapture?.customerHandlingMode
         ?? (typeof templateCapture?.customerHandlingMode === 'string' ? templateCapture.customerHandlingMode as CustomerHandlingMode : undefined),
+      fields: mergedFields,
     }
   }
 
@@ -95,6 +104,8 @@ function mergePaymentLinkWithTemplate(
     pageMetadata,
     customFields,
     customFieldsetCode: request.customFieldsetCode?.trim() || template.customFieldsetCode?.trim() || undefined,
+    customerFieldsetCode: request.customerFieldsetCode?.trim() || template.customerFieldsetCode?.trim() || undefined,
+    displayCustomFields: request.displayCustomFields ?? template.displayCustomFields ?? false,
     customerCapture,
   }
 }
@@ -176,7 +187,7 @@ const sessionsInterceptor: ApiInterceptor = {
     if (paymentLinkTokenOverride && context.em) {
       const existingLink = await findOneWithDecryption(
         context.em,
-        GatewayPaymentLink,
+        PaymentLink,
         {
           token: paymentLinkTokenOverride,
           organizationId: context.organizationId,
@@ -242,16 +253,20 @@ const sessionsInterceptor: ApiInterceptor = {
     let resolvedPageMetadata = paymentLinkData.metadata as Record<string, unknown> | undefined
     let resolvedCustomFields = paymentLinkData.customFields as Record<string, unknown> | undefined
     let resolvedCustomFieldsetCode: string | null = (paymentLinkData.customFieldsetCode as string) ?? null
+    let resolvedCustomerFieldsetCode: string | null = (paymentLinkData.customerFieldsetCode as string) ?? null
+    let resolvedDisplayCustomFields: boolean = (paymentLinkData.displayCustomFields as boolean) ?? false
+    let resolvedCompletedContent: string | null = (paymentLinkData.completedContent as string) ?? null
     let resolvedAmountType: AmountType = (paymentLinkData.amountType as AmountType) ?? 'fixed'
     let resolvedAmountOptions: AmountOption[] | undefined = Array.isArray(paymentLinkData.amountOptions)
       ? (paymentLinkData.amountOptions as AmountOption[]).filter(opt => opt.amount > 0 && opt.label?.trim())
       : undefined
     let resolvedMinAmount: number | undefined = typeof paymentLinkData.minAmount === 'number' ? paymentLinkData.minAmount : undefined
     let resolvedMaxAmount: number | undefined = typeof paymentLinkData.maxAmount === 'number' ? paymentLinkData.maxAmount : undefined
-    let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null; customerHandlingMode: CustomerHandlingMode | undefined } | undefined
+    let resolvedCustomerCapture: { enabled: boolean; companyRequired: boolean; termsRequired: boolean; termsMarkdown: string | null; customerHandlingMode: CustomerHandlingMode | undefined; fields?: Record<string, { visible?: boolean; required?: boolean; format?: string }> | null } | undefined
 
     const customerCaptureInput = paymentLinkData.customerCapture as Record<string, unknown> | undefined
     const rawHandlingMode = (customerCaptureInput?.customerHandlingMode as CustomerHandlingMode) || undefined
+    const rawCaptureFields = customerCaptureInput?.fields as Record<string, { visible?: boolean; required?: boolean; format?: string }> | null | undefined
     if (isMultiUseLink) {
       resolvedCustomerCapture = {
         enabled: true,
@@ -261,6 +276,7 @@ const sessionsInterceptor: ApiInterceptor = {
           ? (customerCaptureInput?.termsMarkdown as string)?.trim() || null
           : null,
         customerHandlingMode: rawHandlingMode,
+        fields: rawCaptureFields ?? null,
       }
     } else if (customerCaptureInput?.enabled) {
       resolvedCustomerCapture = {
@@ -271,6 +287,7 @@ const sessionsInterceptor: ApiInterceptor = {
           ? (customerCaptureInput.termsMarkdown as string)?.trim() || null
           : null,
         customerHandlingMode: rawHandlingMode,
+        fields: rawCaptureFields ?? null,
       }
     }
 
@@ -290,6 +307,8 @@ const sessionsInterceptor: ApiInterceptor = {
             metadata: paymentLinkData.metadata as Record<string, unknown> | undefined,
             customFields: paymentLinkData.customFields as Record<string, unknown> | undefined,
             customFieldsetCode: paymentLinkData.customFieldsetCode as string | undefined,
+            customerFieldsetCode: paymentLinkData.customerFieldsetCode as string | undefined,
+            displayCustomFields: paymentLinkData.displayCustomFields as boolean | undefined,
             customerCapture: customerCaptureInput as Record<string, unknown> | undefined,
           },
           template,
@@ -300,6 +319,8 @@ const sessionsInterceptor: ApiInterceptor = {
         resolvedPageMetadata = merged.pageMetadata
         resolvedCustomFields = merged.customFields
         resolvedCustomFieldsetCode = merged.customFieldsetCode ?? null
+        resolvedCustomerFieldsetCode = merged.customerFieldsetCode ?? null
+        resolvedDisplayCustomFields = merged.displayCustomFields
         if (resolvedAmountType === 'fixed' && template.amountType && template.amountType !== 'fixed') {
           resolvedAmountType = template.amountType as AmountType
         }
@@ -319,6 +340,7 @@ const sessionsInterceptor: ApiInterceptor = {
             termsRequired: merged.customerCapture.termsRequired,
             termsMarkdown: merged.customerCapture.termsMarkdown?.trim() || null,
             customerHandlingMode: merged.customerCapture.customerHandlingMode,
+            fields: merged.customerCapture.fields,
           }
         }
       }
@@ -334,6 +356,9 @@ const sessionsInterceptor: ApiInterceptor = {
       pageMetadata: resolvedPageMetadata,
       customFields: resolvedCustomFields,
       customFieldsetCode: resolvedCustomFieldsetCode,
+      customerFieldsetCode: resolvedCustomerFieldsetCode,
+      displayCustomFields: resolvedDisplayCustomFields,
+      completedContent: resolvedCompletedContent,
       customerCapture: resolvedCustomerCapture,
       ...(isMultiUseLink ? {
         sessionParams: {
@@ -350,7 +375,7 @@ const sessionsInterceptor: ApiInterceptor = {
       } : {}),
     })
 
-    const paymentLink = em.create(GatewayPaymentLink, {
+    const paymentLink = em.create(PaymentLink, {
       transactionId: isMultiUseLink ? null : transactionId,
       token: paymentLinkToken,
       providerKey,
@@ -415,7 +440,7 @@ const transactionDetailInterceptor: ApiInterceptor = {
 
     const paymentLink = await findOneWithDecryption(
       em,
-      GatewayPaymentLink,
+      PaymentLink,
       {
         transactionId,
         organizationId: context.organizationId,
@@ -431,7 +456,7 @@ const transactionDetailInterceptor: ApiInterceptor = {
     if (!paymentLink) {
       const linkTransaction = await findOneWithDecryption(
         em,
-        GatewayPaymentLinkTransaction,
+        PaymentLinkTransaction,
         { transactionId },
         { orderBy: { createdAt: 'desc' } },
         { organizationId: context.organizationId, tenantId: context.tenantId },
@@ -440,7 +465,7 @@ const transactionDetailInterceptor: ApiInterceptor = {
 
       const parentLink = await findOneWithDecryption(
         em,
-        GatewayPaymentLink,
+        PaymentLink,
         {
           id: linkTransaction.paymentLinkId,
           organizationId: context.organizationId,
@@ -483,7 +508,7 @@ const transactionDetailInterceptor: ApiInterceptor = {
 
     const linkTransaction = await findOneWithDecryption(
       em,
-      GatewayPaymentLinkTransaction,
+      PaymentLinkTransaction,
       { transactionId },
       { orderBy: { createdAt: 'desc' } },
       { organizationId: context.organizationId, tenantId: context.tenantId },
