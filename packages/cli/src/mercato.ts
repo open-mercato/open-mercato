@@ -542,7 +542,8 @@ export async function run(argv = process.argv) {
     const testDbName = `${origDbName}_test_${Date.now()}`
 
     // I1: Validate database name contains only safe identifier characters
-    if (!/^[a-zA-Z0-9_]+$/.test(testDbName)) {
+    // Allow hyphens since they're valid in quoted PostgreSQL identifiers
+    if (!/^[a-zA-Z0-9_-]+$/.test(testDbName)) {
       console.error('DATABASE_URL contains unsafe characters in database name')
       return 1
     }

@@ -129,6 +129,20 @@ describe('mercato test command', () => {
 
       delete process.env.DATABASE_URL
     })
+
+    it('accepts DATABASE_URL with hyphens in database name', async () => {
+      process.env.DATABASE_URL = 'postgres://user:pass@localhost:5432/b2b-prm-example'
+      mockFetchReady()
+      simulateAppExit()
+
+      await run(argv('test'))
+
+      expect(mockPgQuery).toHaveBeenCalledWith(
+        expect.stringMatching(/CREATE DATABASE "b2b-prm-example_test_\d+"/),
+      )
+
+      delete process.env.DATABASE_URL
+    })
   })
 
   describe('argument parsing', () => {
