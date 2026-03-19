@@ -1,5 +1,3 @@
-import * as React from 'react'
-import { renderToStaticMarkup } from 'react-dom/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -32,8 +30,12 @@ function interpolateVariables(template: string, variables: Record<string, string
 
 async function renderMarkdownBody(markdown: string): Promise<string> {
   try {
-    const ReactMarkdown = (await import('react-markdown')).default
-    const remarkGfm = (await import('remark-gfm')).default
+    const [{ default: React }, { default: ReactMarkdown }, { default: remarkGfm }, { renderToStaticMarkup }] = await Promise.all([
+      import('react'),
+      import('react-markdown'),
+      import('remark-gfm'),
+      import('react-dom/server'),
+    ])
     return renderToStaticMarkup(
       React.createElement(ReactMarkdown, { remarkPlugins: [remarkGfm] }, markdown),
     )

@@ -1,0 +1,136 @@
+---
+title: Checkout
+description: Build standalone pay links with branded public payment pages, gateway-agnostic session creation, and stable checkout extension points.
+---
+
+# Checkout
+
+The `checkout` module lives in the standalone `@open-mercato/checkout` package and adds Phase A pay links to Open Mercato. It is intentionally decoupled from `sales`: merchants can collect one-off payments through shareable URLs without creating quotes or orders.
+
+## What Phase A delivers
+
+- Link templates for reusable defaults
+- Pay links with `fixed`, `custom_amount`, and `price_list` pricing modes
+- Public pay pages with password protection, usage limits, markdown content, and legal-consent gating
+- Checkout transactions correlated to gateway transactions through the existing `paymentGatewayService`
+- Admin transaction tracking, emails, and notifications
+
+## Enable the module
+
+Add the package and register it in the app module list:
+
+```ts
+// apps/mercato/src/modules.ts
+{ id: 'checkout', from: '@open-mercato/checkout' }
+```
+
+After enabling the module, run migrations and `npm run modules:prepare` when you add or modify auto-discovered module files.
+
+## Admin workflow
+
+### Templates
+
+Use templates when you repeat the same payment setup:
+
+- branding
+- pricing mode
+- customer-field collection
+- legal documents
+- success/cancel/error messages
+- transactional email defaults
+
+### Pay links
+
+Create a pay link directly or from a template. The link form supports:
+
+- fixed pricing with optional strikethrough original amount
+- custom amount ranges
+- price lists with server-authoritative price selection
+- password protection
+- max completion limits
+- gateway provider selection
+
+Links start in `draft`, can be previewed, and become public only after they are published.
+
+### Transactions
+
+Transactions are read-only in admin. Users with `checkout.view` can inspect status and gateway correlation. Users also need `checkout.viewPii` to see decrypted customer fields.
+
+## Public flow
+
+The public flow uses four endpoints:
+
+- `GET /api/checkout/pay/:slug`
+- `POST /api/checkout/pay/:slug/verify-password`
+- `POST /api/checkout/pay/:slug/submit`
+- `GET /api/checkout/pay/:slug/status/:transactionId`
+
+The server remains authoritative for:
+
+- amount validation
+- selected price-list item validation
+- password-session enforcement
+- required legal-consent acceptance
+- usage-limit reservation
+- status reconciliation
+
+`POST /submit` requires `Idempotency-Key` to prevent duplicate transactions during client retries.
+
+## Emails and notifications
+
+Checkout can send:
+
+- payment start emails
+- payment success emails
+- payment error emails
+
+It also emits in-app notifications for:
+
+- completed transactions
+- failed transactions
+- links that reach their usage limit
+
+## Extensibility
+
+Checkout exposes stable UMES surfaces for extension without forking the module.
+
+### Injection spots
+
+- `data-table:payment_gateways.transactions.list:toolbar`
+- `admin.page:payment-gateways/transactions:after`
+
+### Replacement handles
+
+- `page:checkout.pay-page`
+- `page:checkout.success-page`
+- `page:checkout.error-page`
+- `section:checkout.pay-page.header`
+- `section:checkout.pay-page.description`
+- `section:checkout.pay-page.summary`
+- `section:checkout.pay-page.pricing`
+- `section:checkout.pay-page.payment`
+- `section:checkout.pay-page.customer-form`
+- `section:checkout.pay-page.legal-consent`
+- `section:checkout.pay-page.gateway-form`
+- `section:checkout.pay-page.help`
+- `section:checkout.pay-page.footer`
+- `section:checkout.success-page.content`
+- `section:checkout.error-page.content`
+- `crud-form:checkout:link`
+- `crud-form:checkout:template`
+- `data-table:checkout-links`
+- `data-table:checkout-templates`
+- `data-table:checkout-transactions`
+
+Customization stops at payment-critical boundaries. Extensions can change layout and presentation, but they must not replace the server-side pricing, consent, password, or transaction-reconciliation rules.
+
+## Gateway-provider integration
+
+Checkout relies on the additive provider-descriptor surface from `payment_gateways`, not on provider-specific code. Gateway packages must publish safe descriptors that expose:
+
+- settings fields for the admin form
+- supported currencies
+- supported payment types
+- presentation capabilities (`embedded`, `redirect`, `either`)
+
+Checkout reads these descriptors through the descriptor service and the safe provider endpoints in `payment_gateways`. Credentials stay owned by the gateway package and its integration records.
