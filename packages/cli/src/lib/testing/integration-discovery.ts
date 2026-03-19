@@ -96,31 +96,44 @@ function collectDirectDirectoryNames(directoryPath: string): string[] {
     .map((entry) => entry.name)
 }
 
+function collectModuleIdsFromModulesRoot(modulesRoot: string, enabledModules: Set<string>): void {
+  for (const moduleName of collectDirectDirectoryNames(modulesRoot)) {
+    enabledModules.add(normalizeModuleId(moduleName))
+  }
+}
+
 function resolveEnabledModuleIds(projectRoot: string): Set<string> {
   const enabledModules = new Set<string>()
+  const appModulesRoot = path.join(projectRoot, 'src', 'modules')
   const appsRoot = path.join(projectRoot, 'apps')
   const packagesRoot = path.join(projectRoot, 'packages')
+  const installedPackagesRoot = path.join(projectRoot, 'node_modules', '@open-mercato')
   const enterpriseEnabled = isEnterpriseModulesEnabled()
+
+  // Standalone app: src/modules at project root
+  collectModuleIdsFromModulesRoot(appModulesRoot, enabledModules)
 
   for (const appName of collectDirectDirectoryNames(appsRoot)) {
     const moduleRoot = path.join(appsRoot, appName, 'src', 'modules')
-    for (const moduleName of collectDirectDirectoryNames(moduleRoot)) {
-      enabledModules.add(normalizeModuleId(moduleName))
-    }
+    collectModuleIdsFromModulesRoot(moduleRoot, enabledModules)
   }
   for (const packageName of collectDirectDirectoryNames(packagesRoot)) {
     if (packageName === 'enterprise' && !enterpriseEnabled) {
       continue
     }
     const moduleRoot = path.join(packagesRoot, packageName, 'src', 'modules')
-    for (const moduleName of collectDirectDirectoryNames(moduleRoot)) {
-      enabledModules.add(normalizeModuleId(moduleName))
+    collectModuleIdsFromModulesRoot(moduleRoot, enabledModules)
+  }
+  // Standalone app: installed @open-mercato packages in node_modules
+  for (const packageName of collectDirectDirectoryNames(installedPackagesRoot)) {
+    if (packageName === 'enterprise' && !enterpriseEnabled) {
+      continue
     }
+    const moduleRoot = path.join(installedPackagesRoot, packageName, 'src', 'modules')
+    collectModuleIdsFromModulesRoot(moduleRoot, enabledModules)
   }
   const createAppTemplateModulesRoot = path.join(projectRoot, 'packages', 'create-app', 'template', 'src', 'modules')
-  for (const moduleName of collectDirectDirectoryNames(createAppTemplateModulesRoot)) {
-    enabledModules.add(normalizeModuleId(moduleName))
-  }
+  collectModuleIdsFromModulesRoot(createAppTemplateModulesRoot, enabledModules)
 
   return enabledModules
 }
@@ -223,8 +236,10 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
   const overlayRoot = resolveOverlayRootPath()
   const enterpriseEnabled = isEnterpriseModulesEnabled()
   const discoveryRoots = [
+    path.join(projectRoot, 'src', 'modules'),
     path.join(projectRoot, 'apps'),
     path.join(projectRoot, 'packages'),
+    path.join(projectRoot, 'node_modules', '@open-mercato'),
   ]
 
   for (const specFile of collectSpecFilesFromDirectory(legacyIntegrationRoot)) {

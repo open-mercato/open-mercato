@@ -7,6 +7,7 @@ Do NOT load the entire src/ tree — Open Mercato apps can have many modules.
 
 A standalone Open Mercato application built ON TOP of the framework.
 The framework lives in `node_modules/@open-mercato/*`. Never edit `node_modules` directly.
+Install official packages with `yarn mercato module add @open-mercato/<package>`.
 To customise a built-in module beyond extensions, eject with `yarn mercato eject <module>`.
 
 ## Task → Context Map
@@ -158,6 +159,7 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 |---|---|
 | `yarn dev` | Start dev server |
 | `yarn generate` | Regenerate `.mercato/generated/` |
+| `yarn mercato module add <package>` | Install and enable an official module package |
 | `yarn db:generate` | Create migration for entity changes |
 | `yarn db:migrate` | Apply pending migrations |
 | `yarn initialize` | Bootstrap DB + first admin account |

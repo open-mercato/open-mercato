@@ -199,6 +199,11 @@ async function main(): Promise<void> {
   try {
     copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
 
+    // Create an empty placeholder so globals.css @import resolves before generators run
+    const generatedDir = join(targetDir, '.mercato', 'generated')
+    mkdirSync(generatedDir, { recursive: true })
+    writeFileSync(join(generatedDir, 'module-package-sources.css'), '')
+
     console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
     console.log('')
 

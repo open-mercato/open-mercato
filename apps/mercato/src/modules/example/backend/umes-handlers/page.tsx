@@ -72,6 +72,8 @@ export default function UmesHandlersPage() {
   const [draftTitle, setDraftTitle] = React.useState('display me')
   const [formSeed, setFormSeed] = React.useState({ nonce: 0, title: 'display me', note: '  draft note  ' })
   const [personId, setPersonId] = React.useState('')
+  const personIdRef = React.useRef(personId)
+  personIdRef.current = personId
   const [probeTodoTitle, setProbeTodoTitle] = React.useState('UMES enricher probe')
   const [enricherProbeStatus, setEnricherProbeStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [enricherProbeError, setEnricherProbeError] = React.useState<string | null>(null)
@@ -149,15 +151,16 @@ export default function UmesHandlersPage() {
         })
       }
 
+      const currentPersonId = personIdRef.current.trim()
       const params = new URLSearchParams()
       params.set('pageSize', '5')
-      if (personId.trim().length > 0) {
-        params.set('id', personId.trim())
+      if (currentPersonId.length > 0) {
+        params.set('ids', currentPersonId)
       }
       const payload = await readApiResultOrThrow<CustomersResponse>(`/api/customers/people?${params.toString()}`)
       const items = readCustomerItems(payload)
-      const selected = personId.trim().length > 0
-        ? items.find((item) => item.id === personId.trim()) ?? null
+      const selected = currentPersonId.length > 0
+        ? items.find((item) => item.id === currentPersonId) ?? null
         : items[0] ?? null
 
       setEnricherProbeResult({
@@ -171,7 +174,7 @@ export default function UmesHandlersPage() {
       setEnricherProbeError(message)
       setEnricherProbeStatus('error')
     }
-  }, [personId, probeTodoTitle, t])
+  }, [probeTodoTitle, t])
 
   const phaseASidebarItems = React.useMemo(
     () => sidebarMenuItems.filter((item) => item.id.startsWith('example-')),
