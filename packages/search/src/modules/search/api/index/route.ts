@@ -6,9 +6,11 @@ import type { SearchService } from '../../../../service'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { VectorSearchStrategy } from '../../../../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebugWarn, searchError } from '../../../../lib/debug'
+import { indexOpenApi } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -74,9 +76,15 @@ export async function GET(req: Request) {
     }
 
     // List vector entries via the strategy
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
+      return NextResponse.json({ entries: [], limit, offset })
+    }
+    const organizationId =
+      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
     const entries = await vectorStrategy.listEntries({
       tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
+      organizationId,
       entityId: entityIdParam ?? undefined,
       limit,
       offset,
@@ -295,3 +303,5 @@ export async function DELETE(req: Request) {
     }
   }
 }
+
+export const openApi = indexOpenApi

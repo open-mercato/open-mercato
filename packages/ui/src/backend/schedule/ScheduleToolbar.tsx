@@ -147,7 +147,7 @@ export function ScheduleToolbar({
               const nextStart = parseDateInputValue(event.target.value, range.start)
               onRangeChange({ start: nextStart, end: range.end })
             }}
-            className="h-8 w-[140px]"
+            className="h-8 w-full sm:w-[140px]"
           />
         </label>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -159,7 +159,7 @@ export function ScheduleToolbar({
               const nextEnd = parseDateInputValue(event.target.value, range.end)
               onRangeChange({ start: range.start, end: nextEnd })
             }}
-            className="h-8 w-[140px]"
+            className="h-8 w-full sm:w-[140px]"
           />
         </label>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -168,7 +168,7 @@ export function ScheduleToolbar({
             type="text"
             value={timezone ?? ''}
             onChange={(event) => onTimezoneChange?.(event.target.value)}
-            className="h-8 w-[180px]"
+            className="h-8 w-full sm:w-[180px]"
             placeholder={t('schedule.range.timezone.placeholder', 'UTC')}
           />
         </label>

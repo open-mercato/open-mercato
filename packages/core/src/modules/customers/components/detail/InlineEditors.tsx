@@ -32,7 +32,8 @@ import {
 } from '../../lib/dictionaries'
 import { DictionarySelectField } from '../formConfig'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { createDictionarySelectLabels, formatDateTime } from './utils'
+import { createDictionarySelectLabels } from './utils'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
 import {
   invalidateCustomerDictionary,
   useCustomerDictionary,

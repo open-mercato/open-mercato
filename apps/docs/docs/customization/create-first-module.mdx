@@ -5,42 +5,44 @@ description: Scaffold the Inventory module and surface its first admin page in t
 
 # Step 2: Create your first module
 
-With the base app running, add a custom `inventory` package that the generators can pick up.
+With the base app running, add a custom `inventory` module directly inside the app. Modules placed under `apps/mercato/src/modules/<id>/` are automatically resolved when you register them with `from: '@app'`—no separate package setup required.
 
-## 1. Scaffold the package
+## 1. Scaffold the module
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory
-touch packages/inventory/src/modules/inventory/{index.ts,acl.ts,di.ts}
+mkdir -p apps/mercato/src/modules/inventory
+touch apps/mercato/src/modules/inventory/{index.ts,acl.ts,di.ts}
 ```
 
 Populate the metadata in `index.ts` so the module shows up in registries:
 
-```ts title="packages/inventory/src/modules/inventory/index.ts"
+```ts title="apps/mercato/src/modules/inventory/index.ts"
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry';
 
 export const metadata: ModuleInfo = {
-  id: 'inventory',
+  name: 'inventory',
   title: 'Inventory',
   version: '0.1.0',
   description: 'Track stock levels for sellable items.',
 };
 ```
 
-Declare the RBAC features you plan to enforce:
+Declare the RBAC features you plan to enforce in `acl.ts`:
 
-```ts title="packages/inventory/src/modules/inventory/acl.ts"
+```ts title="apps/mercato/src/modules/inventory/acl.ts"
 export const features = [
-  'inventory.view',
-  'inventory.create',
-  'inventory.edit',
-  'inventory.delete',
+  { id: 'inventory.view',   title: 'View inventory',   module: 'inventory' },
+  { id: 'inventory.create', title: 'Create inventory', module: 'inventory' },
+  { id: 'inventory.edit',   title: 'Edit inventory',   module: 'inventory' },
+  { id: 'inventory.delete', title: 'Delete inventory', module: 'inventory' },
 ];
+
+export default features;
 ```
 
-Create an Awilix registrar even if you do not wire services yet—the file keeps the structure predictable:
+Create an Awilix registrar in `di.ts` even if you do not wire services yet—the file keeps the structure predictable:
 
-```ts title="packages/inventory/src/modules/inventory/di.ts"
+```ts title="apps/mercato/src/modules/inventory/di.ts"
 import type { AppContainer } from '@open-mercato/shared/lib/di/container';
 
 export function register(_: AppContainer) {
@@ -50,18 +52,16 @@ export function register(_: AppContainer) {
 
 ## 2. Enable the module
 
-Open `apps/mercato/src/modules.ts` and reference the new package:
+Open `apps/mercato/src/modules.ts` and add the new entry to the `enabledModules` array:
 
 ```ts title="apps/mercato/src/modules.ts"
-import { defineModules } from '@open-mercato/shared/modules';
-
-export default defineModules([
-  { id: 'auth', from: '@open-mercato/core' },
-  { id: 'directory', from: '@open-mercato/core' },
-  { id: 'entities', from: '@open-mercato/core' },
-  { id: 'inventory', from: '@open-mercato/inventory' }, // 👈 new module
-]);
+export const enabledModules: ModuleEntry[] = [
+  // ... existing modules ...
+  { id: 'inventory', from: '@app' }, // 👈 new module
+];
 ```
+
+The `from: '@app'` value tells the generator to look for the module inside `apps/mercato/src/modules/inventory/`.
 
 Run the generators so the new module is included in the registry:
 
@@ -74,12 +74,12 @@ yarn generate
 Create the backend page directory and metadata:
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory/backend/inventory
-touch packages/inventory/src/modules/inventory/backend/inventory/page.tsx
-touch packages/inventory/src/modules/inventory/backend/inventory/page.meta.ts
+mkdir -p apps/mercato/src/modules/inventory/backend/inventory
+touch apps/mercato/src/modules/inventory/backend/inventory/page.tsx
+touch apps/mercato/src/modules/inventory/backend/inventory/page.meta.ts
 ```
 
-```tsx title="backend/inventory/page.tsx"
+```tsx title="apps/mercato/src/modules/inventory/backend/inventory/page.tsx"
 const InventoryLanding = () => {
   return (
     <div className="container">
@@ -92,7 +92,7 @@ const InventoryLanding = () => {
 export default InventoryLanding;
 ```
 
-```ts title="backend/inventory/page.meta.ts"
+```ts title="apps/mercato/src/modules/inventory/backend/inventory/page.meta.ts"
 import type { PageMetadata } from '@open-mercato/shared/modules/registry';
 
 export const metadata: PageMetadata = {
@@ -106,4 +106,4 @@ export const metadata: PageMetadata = {
 
 Restart the dev server (or wait for hot reload) and open `/backend`. You should now see an **Inventory** link in the sidebar that leads to the placeholder page.
 
-> Override packaged pages by creating a file under `apps/mercato/src/modules/<module>/backend`. Because your inventory module lives in a package you control, you can edit it directly. Core modules from `@open-mercato/core` can be replaced by adding files under `apps/mercato/src/modules/auth`, `apps/mercato/src/modules/directory`, etc.
+> To see a working example of the same pattern, refer to `apps/mercato/src/modules/example/`. Core modules from `@open-mercato/core` can be replaced by adding override files under `apps/mercato/src/modules/auth`, `apps/mercato/src/modules/directory`, etc.

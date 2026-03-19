@@ -6,12 +6,13 @@ import { X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from './AuditLogsActions'
-
-type ChangeRow = {
-  field: string
-  from: unknown
-  to: unknown
-}
+import {
+  ChangedFieldsTable,
+  CollapsibleJsonSection,
+  extractChangeRows,
+  formatDate,
+  formatResource,
+} from '../lib/display-helpers'
 
 export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem; onClose: () => void }) {
   const t = useT()
@@ -32,23 +33,10 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
     }
   }, [onClose])
 
-  const changeRows = React.useMemo<ChangeRow[]>(() => {
-    const source = item.changes
-    if (!source || typeof source !== 'object' || Array.isArray(source)) return []
-    const before = isRecord(item.snapshotBefore) ? item.snapshotBefore : null
-    return Object.entries(source).map(([field, value]) => {
-      if (isRecord(value) && ('from' in value || 'to' in value)) {
-        const from = (value as Record<string, unknown>).from ?? before?.[field]
-        const to = (value as Record<string, unknown>).to ?? null
-        return { field, from, to }
-      }
-      return {
-        field,
-        from: before?.[field],
-        to: value,
-      }
-    }).sort((a, b) => a.field.localeCompare(b.field))
-  }, [item.changes, item.snapshotBefore])
+  const changeRows = React.useMemo(
+    () => extractChangeRows(item.changes, item.snapshotBefore),
+    [item.changes, item.snapshotBefore],
+  )
 
   const hasContext = !!item.context && typeof item.context === 'object' && Object.keys(item.context).length > 0
   const snapshots = React.useMemo(() => {
@@ -131,74 +119,18 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
             </dl>
           </section>
 
-          <section>
-            <h3 className="text-sm font-semibold">
-              {t('audit_logs.actions.details.changed_fields')}
-            </h3>
-            {changeRows.length ? (
-              <div className="mt-2 overflow-x-auto rounded-lg border">
-                <table className="min-w-full divide-y text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                        {t('audit_logs.actions.details.field')}
-                      </th>
-                      <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                        {t('audit_logs.actions.details.before')}
-                      </th>
-                      <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                        {t('audit_logs.actions.details.after')}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {changeRows.map((row) => (
-                      <tr key={row.field} className="align-top">
-                        <td className="px-4 py-2 align-top font-medium">
-                          {humanizeField(row.field)}
-                        </td>
-                        <td className="px-4 py-2">
-                          {renderValue(row.from, noneLabel)}
-                        </td>
-                        <td className="px-4 py-2">
-                          {renderValue(row.to, noneLabel)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('audit_logs.actions.details.no_changes')}
-              </p>
-            )}
-          </section>
+          <ChangedFieldsTable changeRows={changeRows} noneLabel={noneLabel} t={t} />
 
           {hasContext ? (
             <section>
-              <details className="group rounded-lg border px-4 py-3">
-                <summary className="cursor-pointer text-sm font-semibold text-foreground transition-colors group-open:text-primary">
-                  {t('audit_logs.actions.details.context')}
-                </summary>
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-                  {safeStringify(item.context)}
-                </pre>
-              </details>
+              <CollapsibleJsonSection label={t('audit_logs.actions.details.context')} value={item.context} />
             </section>
           ) : null}
 
           {snapshots.length ? (
             <section className="space-y-4">
               {snapshots.map((entry) => (
-                <details key={entry.label} className="group rounded-lg border px-4 py-3">
-                  <summary className="cursor-pointer text-sm font-semibold text-foreground transition-colors group-open:text-primary">
-                    {entry.label}
-                  </summary>
-                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-                    {safeStringify(entry.value)}
-                  </pre>
-                </details>
+                <CollapsibleJsonSection key={entry.label} label={entry.label} value={entry.value} />
               ))}
             </section>
           ) : null}
@@ -207,53 +139,4 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
     </div>,
     document.body
   )
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function humanizeField(field: string) {
-  return field
-    .replace(/[_-]+/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, (s) => s.toUpperCase())
-}
-
-function renderValue(value: unknown, fallback: string) {
-  if (value === undefined || value === null || value === '') {
-    return <span className="text-muted-foreground">{fallback}</span>
-  }
-  if (typeof value === 'boolean') return <span>{value ? 'true' : 'false'}</span>
-  if (typeof value === 'number' || typeof value === 'bigint') return <span>{String(value)}</span>
-  if (value instanceof Date) return <span>{value.toISOString()}</span>
-  if (typeof value === 'string') return <span className="break-words">{value}</span>
-  return (
-    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 px-2 py-1 text-xs leading-5 text-muted-foreground">
-      {safeStringify(value)}
-    </pre>
-  )
-}
-
-function safeStringify(value: unknown) {
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-function formatResource(item: Pick<ActionLogItem, 'resourceKind' | 'resourceId'>, fallback: string) {
-  if (!item.resourceKind && !item.resourceId) return fallback
-  return [item.resourceKind, item.resourceId].filter(Boolean).join(' · ')
-}
-
-function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
 }

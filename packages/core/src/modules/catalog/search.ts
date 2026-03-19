@@ -242,6 +242,20 @@ function buildPriceKindPresenter(
   return { title, subtitle, icon: 'dollar-sign', badge: label }
 }
 
+function buildUnitConversionPresenter(
+  translate: TranslateFn,
+  record: Record<string, unknown>,
+): SearchResultPresenter {
+  const label = translate('catalog.search.badge.unitConversion', 'Unit Conversion')
+  const unitCode = readRecordText(record, 'unit_code', 'unitCode')
+  const factor = readRecordText(record, 'to_base_factor', 'toBaseFactor')
+  const title = unitCode ? `${unitCode} (×${factor ?? '?'})` : label
+  const isActive = record.is_active ?? record.isActive
+  const statusText = isActive === false ? translate('catalog.search.status.inactive', 'Inactive') : null
+  const subtitle = formatSubtitle(unitCode, statusText)
+  return { title, subtitle, icon: 'ruler', badge: label }
+}
+
 function buildOptionSchemaPresenter(
   translate: TranslateFn,
   record: Record<string, unknown>,
@@ -277,6 +291,26 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'SKU', record.sku)
         appendLine(lines, 'Handle', record.handle)
         appendLine(lines, 'Product type', record.product_type ?? record.productType)
+        appendLine(lines, 'Base unit', record.default_unit ?? record.defaultUnit)
+        appendLine(lines, 'Default sales unit', record.default_sales_unit ?? record.defaultSalesUnit)
+        appendLine(
+          lines,
+          'Default sales quantity',
+          record.default_sales_unit_quantity ?? record.defaultSalesUnitQuantity,
+        )
+        appendLine(lines, 'UoM rounding mode', record.uom_rounding_mode ?? record.uomRoundingMode)
+        appendLine(lines, 'UoM rounding scale', record.uom_rounding_scale ?? record.uomRoundingScale)
+        appendLine(lines, 'Unit price enabled', record.unit_price_enabled ?? record.unitPriceEnabled)
+        appendLine(
+          lines,
+          'Unit price reference unit',
+          record.unit_price_reference_unit ?? record.unitPriceReferenceUnit,
+        )
+        appendLine(
+          lines,
+          'Unit price base quantity',
+          record.unit_price_base_quantity ?? record.unitPriceBaseQuantity,
+        )
         return buildIndexSource(ctx, buildProductPresenter(translate, record), lines)
       },
       formatResult: async (ctx) => {
@@ -285,7 +319,17 @@ export const searchConfig: SearchModuleConfig = {
       },
       resolveUrl: async (ctx) => buildProductUrl(readRecordText(ctx.record, 'id')),
       fieldPolicy: {
-        searchable: ['title', 'subtitle', 'description', 'sku', 'handle', 'product_type'],
+        searchable: [
+          'title',
+          'subtitle',
+          'description',
+          'sku',
+          'handle',
+          'product_type',
+          'default_unit',
+          'default_sales_unit',
+          'unit_price_reference_unit',
+        ],
         excluded: ['metadata', 'dimensions', 'tax_rate_id'],
       },
     },
@@ -364,7 +408,7 @@ export const searchConfig: SearchModuleConfig = {
       },
       fieldPolicy: {
         searchable: ['title', 'description'],
-        excluded: ['metadata', 'localized_content'],
+        excluded: ['metadata'],
       },
     },
     {
@@ -409,6 +453,34 @@ export const searchConfig: SearchModuleConfig = {
       resolveUrl: async () => CATALOG_CONFIG_URL,
       fieldPolicy: {
         searchable: ['title', 'code'],
+      },
+    },
+    {
+      entityId: 'catalog:catalog_product_unit_conversion',
+      enabled: true,
+      priority: 3,
+      buildSource: async (ctx) => {
+        const { t: translate } = await resolveTranslations()
+        const record = ctx.record
+        const lines: string[] = []
+        appendLine(lines, 'Unit code', record.unit_code ?? record.unitCode)
+        appendLine(lines, 'To base factor', record.to_base_factor ?? record.toBaseFactor)
+        appendLine(lines, 'Sort order', record.sort_order ?? record.sortOrder)
+        const isActive = record.is_active ?? record.isActive
+        appendLine(lines, 'Active', isActive)
+        return buildIndexSource(ctx, buildUnitConversionPresenter(translate, record), lines)
+      },
+      formatResult: async (ctx) => {
+        const { t: translate } = await resolveTranslations()
+        return buildUnitConversionPresenter(translate, ctx.record)
+      },
+      resolveUrl: async (ctx) => {
+        const productId = resolveProductId(ctx.record)
+        return buildProductUrl(productId)
+      },
+      fieldPolicy: {
+        searchable: ['unit_code'],
+        excluded: ['metadata'],
       },
     },
     {

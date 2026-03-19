@@ -147,7 +147,7 @@ export function resolveNotificationPanelUrl(config: NotificationDeliveryConfig):
     || process.env.NEXT_PUBLIC_APP_URL
     || process.env.APP_URL
   if (!base || !base.trim()) {
-    return config.panelPath
+    return null
   }
   return `${base.replace(/\/$/, '')}${config.panelPath}`
 }

@@ -207,4 +207,38 @@ describe('calculateDocumentTotals', () => {
       unregister()
     }
   })
+
+  it('reduces grand total for line-scoped return (credit) adjustments', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 2,
+        currencyCode: 'USD',
+        unitPriceNet: 10,
+        taxRate: 0,
+        totalGrossAmount: 24,
+      },
+    ]
+    const adjustments: SalesAdjustmentDraft[] = [
+      {
+        scope: 'line',
+        kind: 'return',
+        amountNet: -12,
+        amountGross: -12,
+        currencyCode: 'USD',
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments,
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(8, 4)
+    expect(result.totals.subtotalGrossAmount).toBeCloseTo(12, 4)
+    expect(result.totals.grandTotalNetAmount).toBeCloseTo(8, 4)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(12, 4)
+  })
 })

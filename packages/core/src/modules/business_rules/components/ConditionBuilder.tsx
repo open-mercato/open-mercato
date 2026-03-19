@@ -7,6 +7,7 @@ import { ConditionGroup } from './ConditionGroup'
 import type { GroupCondition, ConditionExpression } from './utils/conditionValidation'
 import { validateConditionExpression } from './utils/conditionValidation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 export type ConditionBuilderProps = {
   value: GroupCondition | null | undefined
@@ -26,6 +27,7 @@ export function ConditionBuilder({
   showJsonPreview = false,
 }: ConditionBuilderProps) {
   const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [showDebug, setShowDebug] = React.useState(false)
 
   const handleInitialize = () => {
@@ -46,8 +48,12 @@ export function ConditionBuilder({
     onChangeAction(updatedGroup)
   }
 
-  const handleClear = () => {
-    if (confirm(t('business_rules.components.conditionBuilder.confirm.clearAll'))) {
+  const handleClear = async () => {
+    const confirmed = await confirmDialog({
+      title: t('business_rules.components.conditionBuilder.confirm.clearAll'),
+      variant: 'destructive',
+    })
+    if (confirmed) {
       onChangeAction({
         operator: 'AND',
         rules: [],
@@ -57,8 +63,8 @@ export function ConditionBuilder({
 
   // Validate current value (memoized to avoid expensive re-computation)
   const validation = React.useMemo(() => {
-    return value ? validateConditionExpression(value) : { valid: true, errors: [] }
-  }, [value])
+    return value ? validateConditionExpression(value, 0, 5, t) : { valid: true, errors: [] }
+  }, [value, t])
 
   return (
     <div className="space-y-3">
@@ -168,6 +174,7 @@ export function ConditionBuilder({
           {t('business_rules.components.conditionBuilder.help.fieldComparisonDescription')}
         </p>
       </div>
+      {ConfirmDialogElement}
     </div>
   )
 }

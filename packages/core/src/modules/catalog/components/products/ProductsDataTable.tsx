@@ -16,6 +16,7 @@ import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import { ProductImageCell } from './ProductImageCell'
 
@@ -140,11 +141,13 @@ function renderPrice(pricing: PricingInfo | undefined, currency?: string | null,
 
 export default function ProductsDataTable() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<ProductRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -534,6 +537,7 @@ export default function ProductsDataTable() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      setCacheStatus(null)
       try {
         const fallback: ProductsResponse = { items: [], total: 0, totalPages: 1 }
         const call = await apiCall<ProductsResponse>(
@@ -544,10 +548,12 @@ export default function ProductsDataTable() {
         if (!call.ok) {
           const message = t('catalog.products.list.error.load', 'Failed to load products')
           flash(message, 'error')
+          if (!cancelled) setCacheStatus(null)
           return
         }
         const payload = call.result ?? fallback
         if (cancelled) return
+        setCacheStatus(call.cacheStatus ?? null)
         const items = Array.isArray(payload.items) ? payload.items : []
         const normalized = items.filter((item): item is ProductRow => typeof item?.id === 'string')
         setRows(normalized)
@@ -555,6 +561,7 @@ export default function ProductsDataTable() {
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
       } catch (error) {
         if (!cancelled) {
+          setCacheStatus(null)
           const message =
             error instanceof Error
               ? error.message
@@ -572,7 +579,11 @@ export default function ProductsDataTable() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: ProductRow) => {
-    if (!window.confirm(t('catalog.products.list.deleteConfirm', 'Delete this product?'))) return
+    const confirmed = await confirm({
+      title: t('catalog.products.list.deleteConfirm', 'Delete this product?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await deleteCrud('catalog/products', row.id, {
         errorMessage: t('catalog.products.list.error.delete', 'Failed to delete product'),
@@ -586,7 +597,7 @@ export default function ProductsDataTable() {
           : t('catalog.products.list.error.delete', 'Failed to delete product')
       flash(message, 'error')
     }
-  }, [t])
+  }, [confirm, t])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
 
@@ -602,69 +613,75 @@ export default function ProductsDataTable() {
   }), [currentParams])
 
   return (
-    <DataTable<ProductRow>
-      title={t('catalog.products.page.title', 'Products & services')}
-      entityId={ENTITY_ID}
-      customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
-      refreshButton={{
-        label: t('catalog.products.actions.refresh', 'Refresh'),
-        onRefresh: handleRefresh,
-        isRefreshing: isLoading,
-      }}
-      actions={(
-        <Button asChild>
-          <Link href="/backend/catalog/products/create">
-            {t('catalog.products.actions.create', 'Create')}
-          </Link>
-        </Button>
-      )}
-      columns={columns}
-      data={rows}
-      searchValue={search}
-      onSearchChange={handleSearchChange}
-      filters={filters}
-      filterValues={filterValues}
-      onFiltersApply={handleFiltersApply}
-      onFiltersClear={handleFiltersClear}
-      onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
-      sorting={sorting}
-      onSortingChange={setSorting}
-      injectionSpotId="data-table:catalog.products"
-      injectionContext={{
-        search,
-        filters: filterValues,
-        page,
-        scopeVersion,
-      }}
-      pagination={{
-        page,
-        pageSize: PAGE_SIZE,
-        total,
-        totalPages,
-        onPageChange: setPage,
-      }}
-      exporter={exportConfig}
-      isLoading={isLoading}
-      perspective={{ tableId: 'catalog.products.list' }}
-      rowActions={(row) => (
-        <RowActions
-          items={[
-            {
-              id: 'edit',
-              label: t('catalog.products.table.actions.edit', 'Edit'),
-              href: `/backend/catalog/products/${row.id}`,
-            },
-            {
-              id: 'delete',
-              label: t('catalog.products.table.actions.delete', 'Delete'),
-              destructive: true,
-              onSelect: () => {
-                void handleDelete(row)
+    <>
+      <DataTable<ProductRow>
+        title={t('catalog.products.page.title', 'Products & services')}
+        entityId={ENTITY_ID}
+        customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
+        refreshButton={{
+          label: t('catalog.products.actions.refresh', 'Refresh'),
+          onRefresh: handleRefresh,
+          isRefreshing: isLoading,
+        }}
+        actions={(
+          <Button asChild>
+            <Link href="/backend/catalog/products/create">
+              {t('catalog.products.actions.create', 'Create')}
+            </Link>
+          </Button>
+        )}
+        columns={columns}
+        data={rows}
+        searchValue={search}
+        onSearchChange={handleSearchChange}
+        filters={filters}
+        filterValues={filterValues}
+        onFiltersApply={handleFiltersApply}
+        onFiltersClear={handleFiltersClear}
+        onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
+        sorting={sorting}
+        onSortingChange={setSorting}
+        injectionSpotId="data-table:catalog.products"
+        injectionContext={{
+          search,
+          filters: filterValues,
+          customFieldset: customFieldsetFilter,
+          page,
+          sorting,
+          scopeVersion,
+        }}
+        pagination={{
+          page,
+          pageSize: PAGE_SIZE,
+          total,
+          totalPages,
+          onPageChange: setPage,
+          cacheStatus,
+        }}
+        exporter={exportConfig}
+        isLoading={isLoading}
+        perspective={{ tableId: 'catalog.products.list' }}
+        rowActions={(row) => (
+          <RowActions
+            items={[
+              {
+                id: 'edit',
+                label: t('catalog.products.table.actions.edit', 'Edit'),
+                href: `/backend/catalog/products/${row.id}`,
               },
-            },
-          ]}
-        />
-      )}
-    />
+              {
+                id: 'delete',
+                label: t('catalog.products.table.actions.delete', 'Delete'),
+                destructive: true,
+                onSelect: () => {
+                  void handleDelete(row)
+                },
+              },
+            ]}
+          />
+        )}
+      />
+      {ConfirmDialogElement}
+    </>
   )
 }

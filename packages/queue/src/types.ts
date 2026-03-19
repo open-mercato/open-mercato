@@ -55,7 +55,7 @@ export type QueueStrategyType = 'local' | 'async'
  * Options for local (file-based) queue strategy.
  */
 export type LocalQueueOptions = {
-  /** Base directory for queue files. Defaults to '.queue' */
+  /** Base directory for queue files. Defaults to QUEUE_BASE_DIR or '.mercato/queue' */
   baseDir?: string
   /** Number of concurrent job processors. Defaults to 1 */
   concurrency?: number

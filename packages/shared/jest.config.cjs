@@ -2,10 +2,12 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/shared/(.*)$': '<rootDir>/src/$1',
+    '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [

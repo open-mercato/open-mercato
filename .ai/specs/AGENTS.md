@@ -1,92 +1,59 @@
-# Specs Folder Guidelines
+# Specs Folder — Agent Rules
 
-This folder contains specifications and Architecture Decision Records (ADRs) that serve as the source of truth for design decisions and module behavior.
+Check `.ai/specs/` and `.ai/specs/enterprise/` before modifying any module. Create or update specs when the change is non-trivial.
 
-## Purpose
+## Spec Separation
 
-The `.ai/specs/` folder is the central repository for:
+- `.ai/specs/` contains Open Source edition specifications.
+- `.ai/specs/enterprise/` contains commercial Enterprise Edition specifications.
+- Enterprise specs are numbered independently and use the `SPEC-ENT-{number}` format, starting from `SPEC-ENT-001` within `.ai/specs/enterprise/`.
+- Enterprise specifications are not distributed under the open source license. For commercial licensing and partnership details, see [`packages/enterprise/README.md`](../../packages/enterprise/README.md).
 
-- **Specifications**: Documented design decisions with context, alternatives considered, and rationale
-- **Feature specifications**: Detailed descriptions of module functionality, API contracts, and data models
-- **Implementation reference**: Living documentation that stays synchronized with the codebase
+## Detailed Guidance
 
-## File Naming
+For detailed spec writing and review, use the spec-writing skill:
+- `.ai/skills/spec-writing/SKILL.md`
 
-Specification files follow the pattern `SPEC-{number}-{date}-{title}.md`:
+## Create/Update Triggers
 
-- **Number**: Sequential identifier (e.g., `001`, `002`, `003`)
-- **Date**: Creation date in ISO format (`YYYY-MM-DD`)
-- **Title**: Descriptive kebab-case title (e.g., `sidebar-reorganization`, `messages-module`)
+- Create a new spec for a new module, significant feature, or architecture change touching multiple files.
+- Update an existing spec when changing APIs, data models, workflows, permissions, or cross-module behavior.
+- Skip specs for small bug fixes, typo-only edits, and isolated one-file refactors with no behavior change.
 
-**Examples:**
+## File Naming Convention
 
-- `SPEC-003-2026-01-23-notifications-module.md` – Notifications module specification
-- `SPEC-002-2026-01-23-messages-module.md` – Messages module specification
-- `SPEC-001-2026-01-21-ui-reusable-components.md` – Reusable UI component library reference
+Use the naming format that matches scope:
+- OSS: `SPEC-{number}-{date}-{title}.md`
+- Enterprise: `SPEC-ENT-{number}-{date}-{title}.md`
+- `number`: sequential zero-padded ID (`001`, `002`, ...)
+- `date`: `YYYY-MM-DD`
+- `title`: kebab-case summary
 
-**Meta-documentation files** like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numbered—they provide guidelines for working with the specs themselves.
+Examples:
+- `SPEC-023-2026-02-11-confirmation-dialog-migration.md`
+- `SPEC-024-2026-02-12-example-module.md`
+- `SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md`
 
-## Spec File Structure
+## Workflow Triggers
 
-Each spec should include:
+### Before coding
 
-1. **Overview** – What the module/feature does and its purpose
-2. **Architecture** – High-level design and component relationships
-3. **Data Models** – Entity definitions, relationships, and database schema
-4. **API Contracts** – Endpoints, request/response schemas, and examples
-5. **UI/UX** – Frontend components and user interactions (if applicable)
-6. **Configuration** – Environment variables, feature flags, and settings
-7. **Changelog** – Version history with dates and summaries
+- Find related spec(s), read current intent, and identify deltas.
+- If no spec exists and triggers apply, create one before implementation.
 
-### Changelog Format
+### During coding
 
-Every spec must maintain a changelog at the bottom:
+- Keep spec sections in sync with architecture and API/model decisions.
+- Record scope changes and tradeoffs as they happen.
 
-```markdown
-## Changelog
+### After coding
 
-### 2026-01-23
-- Added email notification channel support
-- Updated notification preferences API
+- Update changelog with exact date and concise summary.
+- Re-run review checklist and final compliance gate before approval.
 
-### 2026-01-15
-- Initial specification
-```
+## MUST Rules (Condensed)
 
-## Workflow
-
-### Before Coding
-1. Check if a spec exists for the module you're modifying
-2. Read the spec to understand design intent and constraints
-3. Identify gaps or outdated sections
-
-### When Adding Features
-1. Update the corresponding spec file with:
-   - New functionality description
-   - API changes
-   - Data model updates
-2. Add a changelog entry with the date and summary
-
-### When Creating New Modules
-
-1. Create a new spec file at `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md`
-2. Document the initial design before or alongside implementation
-3. Include a changelog entry for the initial specification
-4. Update [README.md](README.md) with a link to the new specification in the directory table
-
-### After Coding
-Even when not explicitly asked to update specs:
-- Generate or update the spec when implementing significant changes
-- Keep specs synchronized with actual implementation
-- Document architectural decisions made during development
-
-## For AI Agents
-
-AI agents working on this codebase should:
-1. **Always check** for existing specs before making changes
-2. **Reference specs** to understand module behavior and constraints
-3. **Update specs** when implementing features, even if not explicitly requested
-4. **Create specs** for new modules or significant features
-5. **Maintain changelogs** with clear, dated entries
-
-This ensures the `.ai/specs/` folder remains a reliable reference for understanding module behavior and evolution over time.
+- Every non-trivial spec includes: TLDR, Overview, Problem Statement, Proposed Solution, Architecture, Data Models, API Contracts, Risks & Impact Review, Final Compliance Report, Changelog.
+- Risks must document concrete failure scenarios, severity, affected area, mitigation, and residual risk.
+- Keep specs implementation-accurate: no stale endpoints, entities, or assumptions.
+- Use Task Router from root `AGENTS.md` to identify all related guides for review.

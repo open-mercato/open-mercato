@@ -19,6 +19,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { resolvePartitionEnvKey } from '@open-mercato/core/modules/attachments/lib/partitionEnv'
 
 type Partition = {
@@ -54,6 +55,7 @@ const OCR_MODEL_OPTIONS = [
 
 export function AttachmentPartitionSettings() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [items, setItems] = React.useState<Partition[]>([])
   const [loading, setLoading] = React.useState(false)
   const [search, setSearch] = React.useState('')
@@ -184,7 +186,11 @@ export function AttachmentPartitionSettings() {
         '{{code}}',
         entry.code,
       )
-      if (!window.confirm(confirmMessage)) return
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       try {
         const call = await apiCall(`/api/attachments/partitions?id=${encodeURIComponent(entry.id)}`, {
           method: 'DELETE',
@@ -202,7 +208,7 @@ export function AttachmentPartitionSettings() {
         flash(t('attachments.partitions.errors.delete', 'Failed to delete partition.'), 'error')
       }
     },
-    [loadItems, t],
+    [confirm, loadItems, t],
   )
 
   const columns = React.useMemo<ColumnDef<Partition>[]>(
@@ -442,6 +448,7 @@ export function AttachmentPartitionSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

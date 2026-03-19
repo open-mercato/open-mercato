@@ -61,7 +61,7 @@ export function LastOperationBanner() {
   }
 
   return (
-    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+    <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-200/80 bg-amber-50/95 pl-3 pr-2 py-2 text-sm text-amber-900 shadow-xs sm:pr-3">
       <div className="min-w-0 truncate">
         <span className="font-medium text-amber-950">
           {t('audit_logs.banner.last_operation')}
@@ -75,7 +75,7 @@ export function LastOperationBanner() {
         size="sm"
         onClick={() => { void handleUndo() }}
         disabled={isPending}
-        className="border-amber-300 text-amber-900 hover:bg-amber-100"
+        className="border-amber-200/80 bg-amber-50 text-amber-900 hover:bg-amber-100 hover:text-amber-900 px-2.5 sm:px-3"
       >
         <Undo2 className="mr-1 size-4" aria-hidden="true" />
         {isPending ? t('audit_logs.actions.undoing') : t('audit_logs.banner.undo')}

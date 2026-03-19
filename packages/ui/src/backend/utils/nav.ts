@@ -16,6 +16,7 @@ export type AdminNavItem = {
   priority?: number
   icon?: ReactNode
   children?: AdminNavItem[]
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
 }
 
 export type AdminNavFeatureChecker = (features: string[]) => Promise<Iterable<string> | null | undefined>
@@ -28,7 +29,7 @@ export type BuildAdminNavOptions = {
  * @deprecated The internal fetch-based feature check will be removed.
  *             Provide `options.checkFeatures` so buildAdminNav can reuse your RBAC context.
  */
-async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string>> {
+async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string>> { // NOSONAR — mutable accumulator pattern; Set is populated between early return and final return
   const granted = new Set<string>()
   if (!requestFeatures.length) return granted
   let url = '/api/auth/feature-check'
@@ -64,6 +65,150 @@ async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string
     // ignore fetch failures and keep feature set empty
   }
   return granted
+}
+
+/**
+ * @deprecated Use number directly in sectionOrder config instead
+ */
+export type SettingsSectionConfig = {
+  label: string
+  labelKey?: string
+  order: number
+}
+
+export type SettingsSection = {
+  id: string
+  label: string
+  labelKey?: string
+  order: number
+  items: SettingsSectionItem[]
+}
+
+export type SettingsSectionItem = {
+  id: string
+  label: string
+  labelKey?: string
+  href: string
+  icon?: ReactNode
+  requireFeatures?: string[]
+  order: number
+  children?: SettingsSectionItem[]
+}
+
+export function buildSettingsSections(
+  entries: AdminNavItem[],
+  sectionOrder: Record<string, number>
+): SettingsSection[] {
+  const settingsItems = entries.filter(e => e.pageContext === 'settings')
+
+  const sectionMap = new Map<string, SettingsSection>()
+
+  const mapSectionItem = (item: AdminNavItem): SettingsSectionItem => {
+    const itemId = item.href.replace(/\//g, '-').slice(1)
+    return {
+      id: itemId,
+      label: item.title,
+      labelKey: item.titleKey,
+      href: item.href,
+      icon: item.icon,
+      requireFeatures: undefined as string[] | undefined,
+      order: item.order ?? item.priority ?? 100,
+      children: item.children?.map(mapSectionItem),
+    }
+  }
+
+  for (const item of settingsItems) {
+    const sectionId = item.group.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    const order = sectionOrder[sectionId] ?? 999
+
+    if (!sectionMap.has(sectionId)) {
+      sectionMap.set(sectionId, {
+        id: sectionId,
+        label: item.group,
+        labelKey: item.groupKey,
+        order,
+        items: []
+      })
+    }
+
+    const section = sectionMap.get(sectionId)!
+    section.items.push(mapSectionItem(item))
+  }
+
+  const sections = Array.from(sectionMap.values())
+  const sortItems = (items: SettingsSectionItem[]) => {
+    items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    for (const item of items) {
+      if (item.children?.length) sortItems(item.children)
+    }
+  }
+  sections.sort((a, b) => a.order - b.order)
+  for (const section of sections) {
+    sortItems(section.items)
+  }
+
+  return sections
+}
+
+export function computeSettingsPathPrefixes(sections: SettingsSection[]): string[] {
+  const prefixes = new Set<string>()
+  const visitItem = (item: SettingsSectionItem) => {
+    const parts = item.href.split('/')
+    if (parts.length > 3) {
+      prefixes.add(parts.slice(0, -1).join('/'))
+    }
+    prefixes.add(item.href)
+    if (item.children?.length) {
+      for (const child of item.children) visitItem(child)
+    }
+  }
+  for (const section of sections) {
+    for (const item of section.items) {
+      visitItem(item)
+    }
+  }
+  return Array.from(prefixes)
+}
+
+export function convertToSectionNavGroups(
+  sections: SettingsSection[],
+  translate?: (key: string | undefined, fallback: string) => string
+): Array<{
+  id: string
+  label: string
+  labelKey?: string
+  order?: number
+  items: ConvertedSectionNavItem[]
+}> {
+  const t = translate || ((key, fallback) => fallback)
+  const mapSectionItem = (item: SettingsSectionItem): ConvertedSectionNavItem => ({
+    id: item.id,
+    label: t(item.labelKey, item.label),
+    labelKey: item.labelKey,
+    href: item.href,
+    icon: item.icon,
+    order: item.order,
+    children: item.children?.map(mapSectionItem),
+  })
+
+  return sections.map(section => ({
+    id: section.id,
+    label: t(section.labelKey, section.label),
+    labelKey: section.labelKey,
+    order: section.order,
+    items: section.items.map(mapSectionItem),
+  }))
+}
+
+type ConvertedSectionNavItem = {
+  id: string
+  label: string
+  labelKey?: string
+  href: string
+  icon?: ReactNode
+  requireFeatures?: string[]
+  order?: number
+  children?: ConvertedSectionNavItem[]
 }
 
 export async function buildAdminNav(
@@ -150,6 +295,7 @@ export async function buildAdminNav(
       const order = (r as any).order as number | undefined
       const priority = ((r as any).priority as number | undefined) ?? order
       let icon = (r as any).icon as ReactNode | undefined
+      const pageContext = (r as any).pageContext as 'main' | 'admin' | 'settings' | 'profile' | undefined
       entries.push({
         group: displayGroup,
         groupId,
@@ -163,6 +309,7 @@ export async function buildAdminNav(
         order,
         priority,
         icon,
+        pageContext,
       })
     }
   }
@@ -195,8 +342,13 @@ export async function buildAdminNav(
       React.createElement('rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }),
       React.createElement('path', { d: 'M3 10h18M9 4v16M15 4v16' }),
     )
-    // Find the "User Entities" item in the Data designer group (it should be a root item)
-    const userEntitiesItem = roots.find(item => item.groupKey === 'entities.nav.group' && item.titleKey === 'entities.nav.userEntities')
+    const userEntitiesLegacyGroupKeys = new Set(['settings.sections.dataDesigner', 'entities.nav.group'])
+    const userEntitiesItem = entries.find((entry) => entry.href === '/backend/entities/user')
+      ?? entries.find((entry) =>
+        entry.titleKey === 'entities.nav.userEntities' &&
+        typeof entry.groupKey === 'string' &&
+        userEntitiesLegacyGroupKeys.has(entry.groupKey),
+      )
     if (userEntitiesItem) {
       const existingChildren = userEntitiesItem.children || []
       const dynamicUserEntities = userEntities.map((entity) => ({

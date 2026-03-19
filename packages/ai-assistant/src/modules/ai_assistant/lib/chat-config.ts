@@ -1,7 +1,13 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import {
+  OPEN_CODE_PROVIDER_IDS,
+  OPEN_CODE_PROVIDERS,
+  isOpenCodeProviderConfigured,
+  type OpenCodeProviderId,
+} from '@open-mercato/shared/lib/ai/opencode-provider'
 
 // Types
-export type ChatProviderId = 'openai' | 'anthropic' | 'google'
+export type ChatProviderId = OpenCodeProviderId
 
 export type ChatModelInfo = {
   id: string
@@ -27,54 +33,44 @@ export const CHAT_CONFIG_KEY = 'chat_provider'
 
 export const CHAT_PROVIDERS: Record<ChatProviderId, ChatProviderInfo> = {
   openai: {
-    name: 'OpenAI',
-    envKeyRequired: 'OPENAI_API_KEY',
-    defaultModel: 'gpt-5-mini',
+    name: OPEN_CODE_PROVIDERS.openai.name,
+    envKeyRequired: OPEN_CODE_PROVIDERS.openai.envKeys[0],
+    defaultModel: OPEN_CODE_PROVIDERS.openai.defaultModel,
     models: [
-      { id: 'gpt-5-mini', name: 'GPT-5 Mini', contextWindow: 128000 },
+      { id: OPEN_CODE_PROVIDERS.openai.defaultModel, name: 'GPT-4o Mini', contextWindow: 128000 },
     ],
   },
   anthropic: {
-    name: 'Anthropic',
-    envKeyRequired: 'ANTHROPIC_API_KEY',
-    defaultModel: 'claude-haiku-4-5-20251001',
+    name: OPEN_CODE_PROVIDERS.anthropic.name,
+    envKeyRequired: OPEN_CODE_PROVIDERS.anthropic.envKeys[0],
+    defaultModel: OPEN_CODE_PROVIDERS.anthropic.defaultModel,
     models: [
-      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', contextWindow: 200000 },
+      { id: OPEN_CODE_PROVIDERS.anthropic.defaultModel, name: 'Claude Haiku 4.5', contextWindow: 200000 },
     ],
   },
   google: {
-    name: 'Google',
-    envKeyRequired: 'GOOGLE_GENERATIVE_AI_API_KEY',
-    defaultModel: 'gemini-3-flash-preview',
+    name: OPEN_CODE_PROVIDERS.google.name,
+    envKeyRequired: OPEN_CODE_PROVIDERS.google.envKeys[0],
+    defaultModel: OPEN_CODE_PROVIDERS.google.defaultModel,
     models: [
-      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', contextWindow: 1048576 },
+      { id: OPEN_CODE_PROVIDERS.google.defaultModel, name: 'Gemini 3 Flash', contextWindow: 1048576 },
     ],
   },
 }
 
 export const DEFAULT_CHAT_CONFIG: Omit<ChatProviderConfig, 'updatedAt'> = {
   providerId: 'openai',
-  model: 'gpt-5-mini',
+  model: OPEN_CODE_PROVIDERS.openai.defaultModel,
 }
 
 // Provider configuration checks
 export function isProviderConfigured(providerId: ChatProviderId): boolean {
-  switch (providerId) {
-    case 'openai':
-      return Boolean(process.env.OPENAI_API_KEY?.trim())
-    case 'anthropic':
-      return Boolean(process.env.ANTHROPIC_API_KEY?.trim())
-    case 'google':
-      return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim())
-    default:
-      return false
-  }
+  return isOpenCodeProviderConfigured(providerId)
 }
 
 export function getConfiguredProviders(): ChatProviderId[] {
   const providers: ChatProviderId[] = []
-  const allProviders: ChatProviderId[] = ['openai', 'anthropic', 'google']
-  for (const providerId of allProviders) {
+  for (const providerId of OPEN_CODE_PROVIDER_IDS) {
     if (isProviderConfigured(providerId)) {
       providers.push(providerId)
     }

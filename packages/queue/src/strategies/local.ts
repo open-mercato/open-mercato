@@ -13,13 +13,14 @@ type StoredJob<T> = QueuedJob<T>
 
 /** Default polling interval in milliseconds */
 const DEFAULT_POLL_INTERVAL = 1000
+const DEFAULT_LOCAL_QUEUE_BASE_DIR = '.mercato/queue'
 
 /**
  * Creates a file-based local queue.
  *
  * Jobs are stored in JSON files within a directory structure:
- * - `.queue/<name>/queue.json` - Array of queued jobs
- * - `.queue/<name>/state.json` - Processing state (last processed ID)
+ * - `.mercato/queue/<name>/queue.json` - Array of queued jobs
+ * - `.mercato/queue/<name>/state.json` - Processing state (last processed ID)
  *
  * **Limitations:**
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
@@ -34,7 +35,10 @@ export function createLocalQueue<T = unknown>(
   name: string,
   options?: LocalQueueOptions
 ): Queue<T> {
-  const baseDir = options?.baseDir ?? path.resolve('.queue')
+  const nodeProcess = (globalThis as typeof globalThis & { process?: NodeJS.Process }).process
+  const queueBaseDirFromEnv = nodeProcess?.env?.QUEUE_BASE_DIR
+  const baseDir = options?.baseDir
+    ?? path.resolve(queueBaseDirFromEnv || DEFAULT_LOCAL_QUEUE_BASE_DIR)
   const queueDir = path.join(baseDir, name)
   const queueFile = path.join(queueDir, 'queue.json')
   const stateFile = path.join(queueDir, 'state.json')

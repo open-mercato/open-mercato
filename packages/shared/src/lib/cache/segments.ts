@@ -30,7 +30,7 @@ export async function analyzeCacheSegments(
   for (const [segment, keySet] of segments.entries()) {
     results.push({
       segment,
-      keys: Array.from(keySet).sort(),
+      keys: Array.from(keySet).sort((a, b) => a.localeCompare(b)),
     })
   }
   results.sort((a, b) => a.segment.localeCompare(b.segment))

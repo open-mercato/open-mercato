@@ -2,6 +2,7 @@
 
 import { Edge } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -51,6 +52,7 @@ export interface EdgeEditDialogCrudFormProps {
  * - Keyboard shortcuts (Cmd/Ctrl+Enter save, Escape cancel)
  */
 export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete }: EdgeEditDialogCrudFormProps) {
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [initialValues, setInitialValues] = useState<Partial<EdgeFormValues>>({})
 
   // Load edge data when dialog opens
@@ -76,12 +78,16 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
 
   const handleDelete = useCallback(async () => {
     if (!edge) return
-    if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to delete this transition?')) {
-      return
-    }
+    const confirmed = await confirm({
+      title: 'Delete Transition',
+      text: 'Are you sure you want to delete this transition?',
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
     onDelete(edge.id)
     onClose()
-  }, [edge, onDelete, onClose])
+  }, [confirm, edge, onDelete, onClose])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -255,6 +261,7 @@ export function EdgeEditDialogCrudForm({ edge, isOpen, onClose, onSave, onDelete
             }
           />
         </div>
+        {ConfirmDialogElement}
       </DialogContent>
     </Dialog>
   )

@@ -7,14 +7,14 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  */
 const events = [
   // Tenants
-  { id: 'directory.tenants.created', label: 'Tenant Created', entity: 'tenants', category: 'crud' },
-  { id: 'directory.tenants.updated', label: 'Tenant Updated', entity: 'tenants', category: 'crud' },
-  { id: 'directory.tenants.deleted', label: 'Tenant Deleted', entity: 'tenants', category: 'crud' },
+  { id: 'directory.tenant.created', label: 'Tenant Created', entity: 'tenant', category: 'crud' },
+  { id: 'directory.tenant.updated', label: 'Tenant Updated', entity: 'tenant', category: 'crud' },
+  { id: 'directory.tenant.deleted', label: 'Tenant Deleted', entity: 'tenant', category: 'crud' },
 
   // Organizations
-  { id: 'directory.organizations.created', label: 'Organization Created', entity: 'organizations', category: 'crud' },
-  { id: 'directory.organizations.updated', label: 'Organization Updated', entity: 'organizations', category: 'crud' },
-  { id: 'directory.organizations.deleted', label: 'Organization Deleted', entity: 'organizations', category: 'crud' },
+  { id: 'directory.organization.created', label: 'Organization Created', entity: 'organization', category: 'crud' },
+  { id: 'directory.organization.updated', label: 'Organization Updated', entity: 'organization', category: 'crud' },
+  { id: 'directory.organization.deleted', label: 'Organization Deleted', entity: 'organization', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

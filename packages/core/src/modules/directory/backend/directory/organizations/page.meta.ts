@@ -13,8 +13,9 @@ export const metadata = {
   pageTitle: 'Organizations',
   pageTitleKey: 'directory.nav.organizations',
   pageGroup: 'Directory',
-  pageGroupKey: 'directory.nav.group',
-  pageOrder: 30,
+  pageGroupKey: 'settings.sections.directory',
+  pageOrder: 1,
   icon: orgIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [{ label: 'Organizations', labelKey: 'directory.nav.organizations' }],
 }

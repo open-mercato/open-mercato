@@ -14,6 +14,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { z } from 'zod'
 import { RuleSetMembers } from '@open-mercato/core/modules/business_rules/components/RuleSetMembers'
 
@@ -63,6 +64,7 @@ export default function EditRuleSetPage() {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const queryClient = useQueryClient()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const { data: ruleSet, isLoading, error } = useQuery({
     queryKey: ['business-rules', 'sets', setId],
@@ -141,9 +143,11 @@ export default function EditRuleSetPage() {
   }
 
   const handleRemoveMember = async (memberId: string, ruleName: string) => {
-    if (!confirm(t('business_rules.sets.members.confirm.remove', { name: ruleName }))) {
-      return
-    }
+    const confirmed = await confirm({
+      title: t('business_rules.sets.members.confirm.remove', { name: ruleName }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
 
     const result = await apiCall(`/api/business_rules/sets/${setId}/members?memberId=${memberId}`, {
       method: 'DELETE',
@@ -231,6 +235,7 @@ export default function EditRuleSetPage() {
             <span>{t('business_rules.sets.edit.loading')}</span>
           </div>
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -246,6 +251,7 @@ export default function EditRuleSetPage() {
             </Button>
           </div>
         </PageBody>
+        {ConfirmDialogElement}
       </Page>
     )
   }
@@ -265,6 +271,7 @@ export default function EditRuleSetPage() {
           groups={formGroups}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

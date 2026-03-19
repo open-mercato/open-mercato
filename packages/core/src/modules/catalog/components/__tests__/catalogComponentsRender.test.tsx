@@ -39,6 +39,10 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
+  withDataTableNamespaces: (mappedRow: Record<string, unknown>, sourceItem: Record<string, unknown>) => ({
+    ...mappedRow,
+    ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
+  }),
   DataTable: ({ title, actions, children, data = [] }: any) => (
     <div data-testid="data-table">
       <h2>{title}</h2>
@@ -290,6 +294,15 @@ describe('catalog module components', () => {
       channelIds: ['ch-1'],
       tags: ['featured'],
       optionSchemaId: null,
+      defaultUnit: null,
+      defaultSalesUnit: null,
+      defaultSalesUnitQuantity: '1',
+      uomRoundingScale: '4',
+      uomRoundingMode: 'half_up',
+      unitPriceEnabled: false,
+      unitPriceReferenceUnit: null,
+      unitPriceBaseQuantity: '',
+      unitConversions: [],
     }
     render(<ProductCategorizeSection values={values} setValue={setValue} errors={{}} />)
     expect(screen.getByText(/Categories/)).toBeInTheDocument()

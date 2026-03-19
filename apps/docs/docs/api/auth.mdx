@@ -52,6 +52,10 @@ Successful responses include a JWT (`token`) and set the `auth_token` cookie:
 
 Store the `token` securely if you need to keep a browser session alive, but use API keys for server-to-server calls.
 
+:::caution Rate Limiting
+The login endpoint uses two-layer rate limiting: **20 attempts per 60s** per IP (regardless of email) and **5 attempts per 60s** per IP+email combination. After exceeding either limit, the endpoint returns `429 Too Many Requests` with a `Retry-After` header. Successful login resets the per-account counter. The password reset endpoints (`POST /reset` and `POST /reset/confirm`) are also rate limited. See [Rate Limiting](../framework/security/rate-limiting) for configuration details.
+:::
+
 ## Users
 
 ### List Users — `GET /auth/users`

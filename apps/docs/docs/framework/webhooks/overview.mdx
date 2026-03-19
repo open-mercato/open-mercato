@@ -1,0 +1,241 @@
+---
+title: Webhooks
+description: Send and receive webhooks using the Standard Webhooks specification for real-time event delivery to external systems.
+---
+
+# Webhooks
+
+Open Mercato provides a built-in webhook system compliant with the [Standard Webhooks](https://www.standardwebhooks.com/) specification. The webhooks module enables:
+
+1. **Outbound webhooks** — push domain events to external HTTP endpoints, SQS queues, or SNS topics
+2. **Inbound webhooks** — receive and verify webhooks from external systems via a generic adapter pattern
+
+## How It Works
+
+### Outbound Flow
+
+When any module emits a domain event (e.g., `customers.person.created`, `sales.order.fulfilled`), the webhooks module:
+
+1. A persistent wildcard subscriber (`*`) catches all platform events
+2. Matches each event against registered webhook subscriptions (supports wildcards like `customers.*`)
+3. Enqueues delivery jobs to a dedicated `webhook-deliveries` queue
+4. A delivery worker signs the payload per Standard Webhooks spec and delivers it
+5. On failure, retries with exponential backoff (up to 10 attempts over ~24 hours)
+
+```
+  Module emits event → Event Bus → Webhook Dispatcher → Delivery Queue → HTTP POST
+```
+
+### Standard Webhooks Headers
+
+Every outbound delivery includes these headers per the specification:
+
+```
+webhook-id: msg_2KWPBgLlAfxdpx2AI54pPJ85f4W
+webhook-timestamp: 1674087231
+webhook-signature: v1,K5oZfzN95Z9UVu1EsfQmfVNQhnkZ2pj9o9NDN/H/pI4=
+content-type: application/json
+```
+
+**Signature format**: `v1,<base64_hmac_sha256>` of `{webhook-id}.{webhook-timestamp}.{body}`
+
+### Payload Structure
+
+```json
+{
+  "type": "customers.person.created",
+  "timestamp": "2026-03-04T10:30:00.000Z",
+  "data": {
+    "id": "uuid-here",
+    "firstName": "John",
+    "lastName": "Doe",
+    "tenantId": "tenant-uuid",
+    "organizationId": "org-uuid"
+  }
+}
+```
+
+## Webhook Management
+
+### Creating a Webhook
+
+Via API:
+
+```bash
+POST /api/webhooks
+{
+  "name": "My Integration",
+  "url": "https://example.com/webhook",
+  "subscribedEvents": ["customers.*", "sales.order.created"],
+  "httpMethod": "POST"
+}
+```
+
+The response includes a `whsec_`-prefixed signing secret. **This is the only time the secret is returned in plaintext** — store it securely.
+
+### Event Subscriptions
+
+Webhooks support pattern-based event subscriptions:
+
+| Pattern | Matches |
+|---------|---------|
+| `customers.person.created` | Exact match only |
+| `customers.*` | All events in the `customers` namespace |
+| `*` | All platform events |
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/webhooks` | List webhooks |
+| `POST` | `/api/webhooks` | Create webhook |
+| `GET` | `/api/webhooks/:id` | Get webhook details |
+| `PUT` | `/api/webhooks/:id` | Update webhook |
+| `DELETE` | `/api/webhooks/:id` | Soft-delete webhook |
+| `POST` | `/api/webhooks/:id/rotate-secret` | Rotate signing secret |
+| `POST` | `/api/webhooks/:id/test` | Send test delivery |
+| `GET` | `/api/webhooks/deliveries` | List delivery logs |
+| `POST` | `/api/webhooks/deliveries/:id/retry` | Retry failed delivery |
+| `GET` | `/api/webhooks/events` | List available event types |
+
+## Verifying Webhooks (Consumer Guide)
+
+If you're building a service that receives webhooks from Open Mercato, verify the signature to ensure authenticity:
+
+```typescript
+import { createHmac, timingSafeEqual } from 'node:crypto'
+
+function verifyWebhook(headers: Record<string, string>, body: string, secret: string): boolean {
+  const webhookId = headers['webhook-id']
+  const timestamp = headers['webhook-timestamp']
+  const signature = headers['webhook-signature']
+
+  // Check replay window (5 minutes)
+  const now = Math.floor(Date.now() / 1000)
+  if (Math.abs(now - parseInt(timestamp)) > 300) return false
+
+  // Verify signature
+  const toSign = `${webhookId}.${timestamp}.${body}`
+  const secretBytes = Buffer.from(secret.replace('whsec_', ''), 'base64')
+  const expected = createHmac('sha256', secretBytes).update(toSign).digest('base64')
+
+  // Extract signature value (after "v1,")
+  const received = signature.split(' ').find(s => s.startsWith('v1,'))?.slice(3)
+  if (!received) return false
+
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(received))
+}
+```
+
+:::tip
+Use the official [Standard Webhooks libraries](https://github.com/standard-webhooks/standard-webhooks/tree/main/libraries) for verification in production — they handle edge cases like key rotation and multiple signatures.
+:::
+
+## Retry Behavior
+
+Failed deliveries are retried with exponential backoff:
+
+| Attempt | Delay |
+|---------|-------|
+| 1 | Immediate |
+| 2 | ~5 seconds |
+| 3 | ~5 minutes |
+| 4 | ~30 minutes |
+| 5 | ~2 hours |
+| 6 | ~5 hours |
+| 7 | ~10 hours |
+| 8-10 | ~14-24 hours |
+
+**Non-retryable responses**: HTTP 4xx (except 408 and 429) are not retried.
+
+**Auto-disable**: After a configurable number of consecutive failures (default: 100), the webhook is automatically disabled. HTTP 410 (Gone) responses immediately disable the webhook.
+
+## Key Rotation
+
+Rotate webhook secrets without downtime:
+
+```bash
+POST /api/webhooks/:id/rotate-secret
+```
+
+During the rotation period (default: 24 hours):
+- Outbound deliveries are **dual-signed** with both the new and old secret
+- Consumers can verify with either secret
+- After the rotation period, the old secret is automatically removed
+
+## Secret Format
+
+Webhook secrets use the Standard Webhooks format:
+- Prefix: `whsec_`
+- Content: Base64-encoded random bytes (minimum 24 bytes / 192 bits)
+- Example: `whsec_h4fk4iWceEsgYw/JbT9Feg98sgSFYsAy`
+
+## Delivery Strategies
+
+| Strategy | Use Case | Phase |
+|----------|----------|-------|
+| `http` | Standard HTTP/HTTPS endpoints (default) | 1 |
+| `sqs` | AWS SQS queues for async processing | 2 |
+| `sns` | AWS SNS topics for fan-out | 2 |
+
+## Inbound Webhooks
+
+The webhooks module provides a generic receiver for external webhook sources:
+
+```
+POST /api/webhooks/inbound/:endpointId
+```
+
+Third-party modules can register `WebhookEndpointAdapter` implementations to handle specific providers (e.g., Stripe, Zapier). The adapter contract:
+
+```typescript
+interface WebhookEndpointAdapter {
+  readonly providerKey: string
+  readonly subscribedEvents: string[]
+  formatPayload(event): Promise<WebhookPayload>
+  verifyWebhook(input): Promise<InboundWebhookEvent>
+  processInbound(event): Promise<void>
+}
+```
+
+Inbound webhooks are:
+- **Rate limited** per endpoint
+- **Deduplicated** by message ID
+- Processed via **fire-and-forget** (return 200 immediately, emit event for async processing)
+
+## Shared Primitives
+
+The webhook signing, verification, and secret management utilities are available as a shared library for use by any module:
+
+```typescript
+import {
+  signPayload,
+  buildStandardHeaders,
+  verifyStandardWebhook,
+  generateWebhookSecret,
+  parseWebhookSecret,
+} from '@open-mercato/shared/lib/webhooks'
+```
+
+## Admin UI
+
+The webhook management dashboard is available at `/backend/webhooks` with:
+- Webhook list with status, event count, and delivery health indicators
+- Create/edit forms with event subscription picker
+- Delivery log viewer with request/response details
+- Secret rotation and test delivery controls
+
+## RBAC Features
+
+| Feature | Description |
+|---------|-------------|
+| `webhooks.view` | View webhooks and delivery logs |
+| `webhooks.manage` | Create, edit, and delete webhooks |
+| `webhooks.secrets` | View and rotate webhook secrets |
+| `webhooks.test` | Send test webhook deliveries |
+
+## Related
+
+- [Events & Subscribers](../events/overview.mdx) — the event system that powers webhook dispatching
+- [Queue & Workers](../events/queue-workers.mdx) — the queue infrastructure used for delivery processing
+- [SPEC-057 — Webhooks Module](https://github.com/open-mercato/open-mercato/issues/257) — full technical specification

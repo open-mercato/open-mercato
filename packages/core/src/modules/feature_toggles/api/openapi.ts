@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
     toggleCreateSchema,
     toggleUpdateSchema,
+    toggleTypeSchema,
     changeOverrideStateBaseSchema,
     overrideListQuerySchema,
     getToggleOverrideQuerySchema,
@@ -24,8 +25,8 @@ export const featureToggleSchema = z
         name: z.string(),
         description: z.string().nullable().optional(),
         category: z.string().nullable().optional(),
-        default_state: z.boolean(),
-
+        type: toggleTypeSchema,
+        defaultValue: z.any().nullable().optional(),
         created_at: z.string().optional(),
         updated_at: z.string().optional(),
     })

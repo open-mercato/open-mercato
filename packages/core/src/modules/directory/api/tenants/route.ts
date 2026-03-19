@@ -109,7 +109,10 @@ export async function GET(req: Request) {
     isActive: url.searchParams.get('isActive') ?? undefined,
   })
   if (!parsed.success) {
-    return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Invalid query parameters', details: parsed.error.flatten() },
+      { status: 400 },
+    )
   }
 
   const container = await createRequestContainer()

@@ -1,0 +1,161 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/core'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createQueue } from '@open-mercato/queue'
+import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { ScheduledJob } from '../../data/entities.js'
+import { scheduleTriggerSchema } from '../../data/validators.js'
+import type { ExecuteSchedulePayload } from '../../workers/execute-schedule.worker.js'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+
+export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['scheduler.jobs.trigger'],
+}
+
+/**
+ * POST /api/scheduler/trigger
+ * Manually trigger a schedule
+ * 
+ * This enqueues the schedule execution job in BullMQ.
+ * Execution history is tracked in BullMQ job state.
+ */
+export async function POST(req: NextRequest) {
+  const { translate } = await resolveTranslations()
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.sub) {
+    return NextResponse.json({ error: translate('scheduler.error.unauthorized', 'Unauthorized') }, { status: 401 })
+  }
+
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
+
+  try {
+    const body = await req.json()
+    const input = scheduleTriggerSchema.parse(body)
+
+    // Find the schedule with tenant/org scope filter
+    const findFilter: Record<string, unknown> = {
+      id: input.id,
+      deletedAt: null,
+    }
+
+    // Apply tenant isolation: scope the query to the user's tenant/org
+    if (auth.tenantId) {
+      findFilter.tenantId = auth.tenantId
+    }
+    if (auth.orgId) {
+      findFilter.organizationId = auth.orgId
+    }
+
+    const schedule = await em.findOne(ScheduledJob, findFilter)
+
+    if (!schedule) {
+      return NextResponse.json({ error: translate('scheduler.error.not_found', 'Schedule not found') }, { status: 404 })
+    }
+
+    // System-scoped schedules (no tenantId/orgId) require superadmin
+    const isSuperAdmin = Array.isArray(auth.roles) && auth.roles.some(
+      (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin'
+    )
+    if (!schedule.tenantId && !schedule.organizationId && !isSuperAdmin) {
+      return NextResponse.json({ error: translate('scheduler.error.access_denied', 'Access denied') }, { status: 403 })
+    }
+
+    // Check if using async queue strategy
+    const queueStrategy = (process.env.QUEUE_STRATEGY || 'local') as 'local' | 'async'
+    
+    if (queueStrategy !== 'async') {
+      return NextResponse.json(
+        { 
+          error: translate('scheduler.error.trigger_async_required', 'Manual trigger requires QUEUE_STRATEGY=async'),
+          message: translate('scheduler.error.trigger_async_hint', 'Execution history and manual triggers are only available with BullMQ (async strategy)')
+        },
+        { status: 400 }
+      )
+    }
+
+    // Enqueue execution job to scheduler-execution queue
+    const executionQueue = createQueue<ExecuteSchedulePayload>('scheduler-execution', queueStrategy, {
+      connection: { url: getRedisUrl('QUEUE') },
+    })
+
+    const payload: ExecuteSchedulePayload = {
+      scheduleId: schedule.id,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      scopeType: schedule.scopeType,
+      triggerType: 'manual',
+      triggeredByUserId: auth.sub,
+    }
+
+    const jobId = await executionQueue.enqueue(payload)
+    await executionQueue.close()
+
+    console.log('[scheduler:trigger] Manually triggered schedule:', {
+      scheduleId: schedule.id,
+      scheduleName: schedule.name,
+      jobId,
+      triggeredBy: auth.sub,
+    })
+
+    return NextResponse.json({
+      ok: true,
+      jobId, // BullMQ job ID
+      message: translate('scheduler.success.triggered', 'Schedule queued for execution'),
+    })
+
+  } catch (error) {
+    console.error('[scheduler:trigger] Error:', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : translate('scheduler.error.trigger_failed', 'Failed to trigger schedule') },
+      { status: 400 }
+    )
+  }
+}
+
+// Response schemas
+const triggerResponseSchema = z.object({
+  ok: z.boolean(),
+  jobId: z.string(),
+  message: z.string(),
+})
+
+const errorResponseSchema = z.object({
+  error: z.string(),
+  message: z.string().optional(),
+})
+
+// OpenAPI specification
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Scheduler',
+  summary: 'Manually trigger a schedule',
+  description: 'Execute a schedule immediately by enqueueing it in the scheduler-execution queue. Requires QUEUE_STRATEGY=async.',
+  methods: {
+    POST: {
+      operationId: 'triggerScheduledJob',
+      summary: 'Manually trigger a schedule',
+      description: 'Executes a scheduled job immediately, bypassing the scheduled time. Only works with async queue strategy.',
+      requestBody: {
+        schema: scheduleTriggerSchema,
+        contentType: 'application/json',
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'Schedule triggered successfully',
+          schema: triggerResponseSchema,
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request or local strategy not supported', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 403, description: 'Access denied', schema: errorResponseSchema },
+        { status: 404, description: 'Schedule not found', schema: errorResponseSchema },
+      ],
+    },
+  },
+}

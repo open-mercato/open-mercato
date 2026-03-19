@@ -98,7 +98,7 @@ function parseArgs(rest: string[]) {
 }
 
 function normalizeKeyInput(value: string): string {
-  return value.trim().replace(/^['"]|['"]$/g, '')
+  return value.trim().replace(/(?:^['"]|['"]$)/g, '')
 }
 
 function hashSecret(value: string | null | undefined): string | null {

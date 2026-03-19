@@ -6,6 +6,13 @@ import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerResponseEnrichers } from '../crud/enricher-registry'
+import { registerApiInterceptors } from '../crud/interceptor-registry'
+import { registerComponentOverrides } from '../../modules/widgets/component-registry'
+import { registerMutationGuards } from '../crud/mutation-guard-store'
+import { registerCommandInterceptors } from '../commands/command-interceptor-store'
+import { registerNotificationHandlers } from '../notifications/handler-registry'
+import { clearRegisteredIntegrations, registerBundles, registerIntegrations } from '../../modules/integrations/types'
 
 let _bootstrapped = false
 
@@ -35,6 +42,15 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     // === 2. Modules registry (required by i18n, query engine, dashboards, CLI) ===
     registerModules(data.modules)
+    clearRegisteredIntegrations()
+    for (const module of data.modules) {
+      if (module.integrations?.length) {
+        registerIntegrations(module.integrations)
+      }
+      if (module.bundles?.length) {
+        registerBundles(module.bundles)
+      }
+    }
 
     // === 3. Entity IDs (required by encryption, indexing, entity links) ===
     registerEntityIds(data.entityIds)
@@ -52,6 +68,37 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6. Analytics module configs (for dashboard widgets and analytics API) ===
     if (data.analyticsModuleConfigs) {
       registerAnalyticsModuleConfigs(data.analyticsModuleConfigs)
+    }
+
+    // === 6b. Response enrichers (for CRUD response enrichment) ===
+    if (data.enricherEntries) {
+      registerResponseEnrichers(data.enricherEntries)
+    }
+
+    // === 6c. API interceptors (for CRUD route interception) ===
+    if (data.interceptorEntries) {
+      registerApiInterceptors(data.interceptorEntries)
+    }
+
+    // === 6d. Component overrides (for page/component replacement) ===
+    if (data.componentOverrideEntries) {
+      const allOverrides = data.componentOverrideEntries.flatMap((entry) => entry.componentOverrides ?? [])
+      registerComponentOverrides(allOverrides)
+    }
+
+    // === 6e. Mutation guards (for CRUD mutation lifecycle) ===
+    if (data.guardEntries) {
+      registerMutationGuards(data.guardEntries)
+    }
+
+    // === 6f. Command interceptors (for command bus lifecycle) ===
+    if (data.commandInterceptorEntries) {
+      registerCommandInterceptors(data.commandInterceptorEntries)
+    }
+
+    // === 6g. Notification handlers (reactive notification side-effects) ===
+    if (data.notificationHandlerEntries) {
+      registerNotificationHandlers(data.notificationHandlerEntries)
     }
 
     // === 7-8. UI Widgets and Optional packages (async to avoid circular deps) ===

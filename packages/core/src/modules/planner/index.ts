@@ -8,6 +8,7 @@ export const metadata: ModuleInfo = {
   description: 'Availability schedules, rulesets, and shared planning rules.',
   author: 'Open Mercato Team',
   license: 'Proprietary',
+  ejectable: true,
 }
 
 export { features } from './acl'

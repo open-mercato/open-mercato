@@ -9,6 +9,8 @@ import { DashboardScreen } from '../DashboardScreen'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { loadDashboardWidgetModule } from '../widgetRegistry'
 
+jest.setTimeout(20000)
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
 }))

@@ -177,6 +177,7 @@ describe('generator file output patterns', () => {
       const expectedPath = `${outputDir}/search.generated.ts`
       expect(expectedPath).toContain('search.generated.ts')
     })
+
   })
 
   describe('module-entities generator', () => {

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Button } from '../primitives/button'
+import { IconButton } from '../primitives/icon-button'
 import { Plus, Trash2, ChevronRight, ChevronDown, Code, LayoutList } from 'lucide-react'
 
 function cn(...classes: (string | undefined | null | false)[]) {
@@ -82,32 +83,26 @@ export function JsonBuilder({
     return (
         <div className="space-y-4 border rounded-md p-4 bg-card">
             <div className="flex items-center space-x-2 border-b pb-2 mb-2">
-                <button
+                <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(mode === 'raw' && "bg-muted text-foreground")}
                     onClick={() => setMode('raw')}
-                    className={cn(
-                        "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-                        mode === 'raw'
-                            ? "bg-muted text-foreground"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    )}
                 >
                     <Code className="w-4 h-4" />
                     Raw JSON
-                </button>
-                <button
+                </Button>
+                <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(mode === 'builder' && "bg-muted text-foreground")}
                     onClick={switchToBuilder}
-                    className={cn(
-                        "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-                        mode === 'builder'
-                            ? "bg-muted text-foreground"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                    )}
                 >
                     <LayoutList className="w-4 h-4" />
                     Builder
-                </button>
+                </Button>
             </div>
 
             {mode === 'raw' ? (
@@ -226,9 +221,9 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
             <div className="flex items-start gap-2 py-1 group">
 
                 {isContainer && (
-                    <button type="button" onClick={() => setCollapsed(!collapsed)} className="mt-1 text-muted-foreground hover:text-foreground">
+                    <IconButton type="button" variant="ghost" size="xs" className="mt-1 text-muted-foreground hover:text-foreground" onClick={() => setCollapsed(!collapsed)}>
                         {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </button>
+                    </IconButton>
                 )}
                 {!isContainer && !isRoot && <div className="w-3" />} {/* Spacer */}
 
@@ -260,7 +255,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
 
                     {type === 'string' && (
                         <input
-                            className="flex-1 min-w-[120px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 min-w-0 sm:min-w-[120px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
                             value={data}
                             onChange={e => onChange(e.target.value)}
                             disabled={readOnly}
@@ -269,7 +264,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     {type === 'number' && (
                         <input
                             type="number"
-                            className="flex-1 w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
                             value={data}
                             onChange={e => onChange(parseFloat(e.target.value) || 0)}
                             disabled={readOnly}
@@ -277,7 +272,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     )}
                     {type === 'boolean' && (
                         <select
-                            className="flex-1 w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
+                            className="flex-1 w-full sm:w-[100px] text-sm border rounded px-2 py-0.5 focus:outline-none focus:border-blue-500"
                             value={String(data)}
                             onChange={e => onChange(e.target.value === 'true')}
                             disabled={readOnly}
@@ -294,14 +289,16 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                     )}
 
                     {onDelete && !readOnly && (
-                        <button
+                        <IconButton
                             type="button"
-                            onClick={onDelete}
+                            variant="ghost"
+                            size="xs"
                             className="text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                             title="Remove item"
+                            onClick={onDelete}
                         >
                             <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        </IconButton>
                     )}
                 </div>
             </div>
@@ -313,7 +310,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot }: JsonNod
                             <div className="pt-2">
                                 {/* Key Renamer */}
                                 <input
-                                    className="w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent focus:outline-none text-right pr-1"
+                                    className="w-full sm:w-[100px] text-xs font-mono border-b border-transparent hover:border-gray-300 focus:border-blue-500 bg-transparent focus:outline-none text-right pr-1"
                                     value={key}
                                     onChange={(e) => handleKeyRename(key, e.target.value)}
                                     disabled={readOnly}

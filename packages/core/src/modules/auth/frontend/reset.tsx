@@ -1,6 +1,8 @@
 "use client"
 import { useState } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -10,17 +12,23 @@ export default function ResetPage() {
   const [sent, setSent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState<string | null>(null)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
+    setFieldError(null)
     setSubmitting(true)
     try {
       const form = new FormData(e.currentTarget)
       const res = await fetch('/api/auth/reset', { method: 'POST', body: form })
       if (!res.ok) {
         const data = await res.json().catch(() => null)
-        setError(data?.error || 'Something went wrong')
+        if (data?.fieldErrors?.email?.length) {
+          setFieldError(t('auth.reset.errors.emailInvalid', 'Please enter a valid email address.'))
+          return
+        }
+        setError(data?.error || t('auth.reset.error', 'Something went wrong'))
         return
       }
       setSent(true)
@@ -34,23 +42,34 @@ export default function ResetPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>{t('auth.resetPassword')}</CardTitle>
-          <CardDescription>Enter your email to receive reset link</CardDescription>
+          <CardDescription>{t('auth.reset.description', 'Enter your email to receive reset link')}</CardDescription>
         </CardHeader>
         <CardContent>
           {sent ? (
-            <div className="text-sm text-muted-foreground">
-              If an account with that email exists, we sent a reset link. Please check your inbox.
+            <div className="grid gap-3">
+              <p className="text-sm text-muted-foreground">
+                {t('auth.reset.sent', 'If an account with that email exists, we sent a reset link. Please check your inbox.')}
+              </p>
+              <Link href="/login" className="text-sm underline">
+                {t('auth.reset.backToLogin', 'Back to login')}
+              </Link>
             </div>
           ) : (
             <form className="grid gap-3" onSubmit={onSubmit} noValidate>
               {error && <div className="text-sm text-red-600">{error}</div>}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input id="email" name="email" type="email" required />
+                <Input id="email" name="email" type="email" required aria-invalid={!!fieldError} aria-describedby={fieldError ? 'email-error' : undefined} />
+                {fieldError && <p id="email-error" className="text-sm text-red-600">{fieldError}</p>}
               </div>
-              <button disabled={submitting} className="h-10 rounded-md bg-foreground text-background mt-2 hover:opacity-90 transition disabled:opacity-60">
+              <Button type="submit" className="mt-2 w-full" disabled={submitting}>
                 {submitting ? '...' : t('auth.sendResetLink')}
-              </button>
+              </Button>
+              <div className="text-center">
+                <Link href="/login" className="text-xs text-muted-foreground underline">
+                  {t('auth.reset.backToLogin', 'Back to login')}
+                </Link>
+              </div>
             </form>
           )}
         </CardContent>

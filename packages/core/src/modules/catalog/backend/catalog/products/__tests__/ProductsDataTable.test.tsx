@@ -20,9 +20,14 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 jest.mock('next/link', () => ({ children, href }: any) => <a href={href}>{children}</a>)
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
+  withDataTableNamespaces: (mappedRow: Record<string, unknown>, sourceItem: Record<string, unknown>) => ({
+    ...mappedRow,
+    ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
+  }),
   DataTable: (props: any) => (
     <div data-testid="data-table-mock">
       <div data-testid="data-table-title">{props.title}</div>
+      <div data-testid="data-table-cache-status">{props.pagination?.cacheStatus ?? ''}</div>
       <button data-testid="search-trigger" onClick={() => props.onSearchChange?.('widgets')}>
         trigger-search
       </button>
@@ -96,11 +101,34 @@ jest.mock('lucide-react', () => ({
   RefreshCw: () => null,
 }))
 
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  useConfirmDialog: () => ({
+    confirm: jest.fn(() => {
+      return new Promise<boolean>((resolve) => {
+        // Auto-confirm after a tick
+        setTimeout(() => resolve(true), 0)
+      })
+    }),
+    ConfirmDialogElement: null,
+  }),
+}))
+
+// Mock HTMLDialogElement methods for jsdom compatibility
+HTMLDialogElement.prototype.showModal = jest.fn(function(this: HTMLDialogElement) {
+  this.open = true
+  this.setAttribute('open', '')
+})
+HTMLDialogElement.prototype.close = jest.fn(function(this: HTMLDialogElement) {
+  this.open = false
+  this.removeAttribute('open')
+})
+
 describe('ProductsDataTable', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     ;(apiCall as jest.Mock).mockResolvedValue({
       ok: true,
+      cacheStatus: 'hit',
       result: {
         items: [{ id: 'prod-1', title: 'Mock product', sku: 'SKU-001' }],
         total: 1,
@@ -115,16 +143,15 @@ describe('ProductsDataTable', () => {
     ;(useCustomFieldDefs as jest.Mock).mockReturnValue({ data: [], isLoading: false })
     ;(applyCustomFieldVisibility as jest.Mock).mockImplementation((cols) => cols)
     ;(useOrganizationScopeVersion as jest.Mock).mockReturnValue(1)
-    Object.defineProperty(window, 'confirm', {
-      value: jest.fn().mockReturnValue(true),
-      configurable: true,
-    })
   })
 
   it('renders table title and loads catalog data', async () => {
     render(<ProductsDataTable />)
 
-    await waitFor(() => expect(apiCall).toHaveBeenCalled())
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalled()
+      expect(screen.getByTestId('data-table-cache-status')).toHaveTextContent('hit')
+    })
     expect(screen.getByTestId('data-table-title')).toHaveTextContent('Products & services')
     expect((apiCall as jest.Mock).mock.calls[0][0]).toContain('/api/catalog/products?page=1&pageSize=25')
     expect(applyCustomFieldVisibility).toHaveBeenCalled()
@@ -137,6 +164,7 @@ describe('ProductsDataTable', () => {
     const deleteButton = await screen.findByTestId('row-action-1')
     fireEvent.click(deleteButton)
 
+    // Wait for delete to complete (mock auto-confirms)
     await waitFor(() => expect(deleteCrud).toHaveBeenCalledWith('catalog/products', 'prod-1', expect.any(Object)))
     expect(flash).toHaveBeenCalledWith(expect.stringContaining('Product deleted'), 'success')
   })

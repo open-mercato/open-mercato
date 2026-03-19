@@ -1,38 +1,60 @@
-import { NextResponse } from 'next/server'
-import { z } from 'zod'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { SalesQuote, SalesQuoteLine, SalesQuoteAdjustment } from '../../../../data/entities'
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
+import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
+import type { EntityManager } from "@mikro-orm/postgresql";
+import { findOneWithDecryption, findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
+import {
+  SalesQuote,
+  SalesQuoteLine,
+  SalesQuoteAdjustment,
+} from "../../../../data/entities";
+import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
-})
+});
 
 export const metadata = {
   GET: { requireAuth: false },
-}
+};
 
 export async function GET(_req: Request, ctx: { params: { token: string } }) {
   try {
-    const { token } = paramsSchema.parse(ctx.params ?? {})
-    const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager
-    const quote = await em.findOne(SalesQuote, { acceptanceToken: token, deletedAt: null })
-    const { translate } = await resolveTranslations()
+    const { token } = paramsSchema.parse(ctx.params ?? {});
+    const container = await createRequestContainer();
+    const em = container.resolve("em") as EntityManager;
+    const quote = await findOneWithDecryption(em, SalesQuote, {
+      acceptanceToken: token,
+      deletedAt: null,
+    });
+    const { translate } = await resolveTranslations();
     if (!quote) {
-      throw new CrudHttpError(404, { error: translate('sales.quotes.public.notFound', 'Quote not found.') })
+      throw new CrudHttpError(404, {
+        error: translate("sales.quotes.public.notFound", "Quote not found."),
+      });
     }
 
-    const now = new Date()
-    const isExpired = !!quote.validUntil && quote.validUntil.getTime() < now.getTime()
+    const now = new Date();
+    const isExpired =
+      !!quote.validUntil && quote.validUntil.getTime() < now.getTime();
 
     const [lines, adjustments] = await Promise.all([
-      em.find(SalesQuoteLine, { quote: quote.id, deletedAt: null }, { orderBy: { lineNumber: 'asc' } }),
-      em.find(SalesQuoteAdjustment, { quote: quote.id }, { orderBy: { position: 'asc' } }),
-    ])
+      findWithDecryption(
+        em,
+        SalesQuoteLine,
+        { quote: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId, deletedAt: null },
+        { orderBy: { lineNumber: "asc" } },
+      ),
+      findWithDecryption(
+        em,
+        SalesQuoteAdjustment,
+        { quote: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId },
+        { orderBy: { position: "asc" } },
+      ),
+    ]);
 
     return NextResponse.json({
       quote: {
@@ -54,7 +76,17 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         name: line.name ?? null,
         description: line.description ?? null,
         quantity: line.quantity,
-        quantityUnit: line.quantityUnit ?? null,
+        quantityUnit: canonicalizeUnitCode(line.quantityUnit) ?? null,
+        normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+        normalizedUnit:
+          canonicalizeUnitCode(line.normalizedUnit ?? line.quantityUnit) ??
+          null,
+        uomSnapshot: line.uomSnapshot
+          ? {
+              baseUnitCode: line.uomSnapshot.baseUnitCode ?? null,
+              enteredUnitCode: line.uomSnapshot.enteredUnitCode ?? null,
+            }
+          : null,
         currencyCode: line.currencyCode,
         unitPriceNet: line.unitPriceNet,
         unitPriceGross: line.unitPriceGross,
@@ -64,6 +96,18 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         taxAmount: line.taxAmount,
         totalNetAmount: line.totalNetAmount,
         totalGrossAmount: line.totalGrossAmount,
+        unitPriceReference: (() => {
+          if (!line.uomSnapshot) return null;
+          const ref = line.uomSnapshot.unitPriceReference;
+          if (!ref) return null;
+          return {
+            enabled: ref.enabled ?? null,
+            referenceUnitCode: ref.referenceUnitCode ?? null,
+            baseQuantity: ref.baseQuantity ?? null,
+            grossPerReference: ref.grossPerReference ?? null,
+            netPerReference: ref.netPerReference ?? null,
+          };
+        })(),
       })),
       adjustments: adjustments.map((adj) => ({
         scope: adj.scope,
@@ -77,14 +121,19 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
         quoteLineId: adj.quoteLine?.id ?? null,
       })),
       isExpired,
-    })
+    });
   } catch (err) {
     if (err instanceof CrudHttpError) {
-      return NextResponse.json(err.body, { status: err.status })
+      return NextResponse.json(err.body, { status: err.status });
     }
-    const { translate } = await resolveTranslations()
-    console.error('sales.quotes.public failed', err)
-    return NextResponse.json({ error: translate('sales.quotes.public.failed', 'Failed to load quote.') }, { status: 400 })
+    const { translate } = await resolveTranslations();
+    console.error("sales.quotes.public failed", err);
+    return NextResponse.json(
+      {
+        error: translate("sales.quotes.public.failed", "Failed to load quote."),
+      },
+      { status: 400 },
+    );
   }
 }
 
@@ -110,9 +159,35 @@ const publicQuoteResponseSchema = z.object({
       description: z.string().nullable(),
       quantity: z.string(),
       quantityUnit: z.string().nullable(),
+      normalizedQuantity: z.string(),
+      normalizedUnit: z.string().nullable(),
+      uomSnapshot: z
+        .object({
+          baseUnitCode: z.string().nullable(),
+          enteredUnitCode: z.string().nullable(),
+        })
+        .nullable()
+        .optional(),
       currencyCode: z.string(),
+      unitPriceNet: z.string(),
+      unitPriceGross: z.string(),
+      discountAmount: z.string(),
+      discountPercent: z.string(),
+      taxRate: z.string(),
+      taxAmount: z.string(),
+      totalNetAmount: z.string(),
       totalGrossAmount: z.string(),
-    })
+      unitPriceReference: z
+        .object({
+          enabled: z.boolean().nullable().optional(),
+          referenceUnitCode: z.string().nullable().optional(),
+          baseQuantity: z.string().nullable().optional(),
+          grossPerReference: z.string().nullable().optional(),
+          netPerReference: z.string().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
+    }),
   ),
   adjustments: z.array(
     z.object({
@@ -122,22 +197,33 @@ const publicQuoteResponseSchema = z.object({
       rate: z.string().nullable(),
       amountNet: z.string().nullable(),
       amountGross: z.string().nullable(),
-    })
+      currencyCode: z.string().nullable(),
+      position: z.number().nullable(),
+      quoteLineId: z.string().uuid().nullable(),
+    }),
   ),
   isExpired: z.boolean(),
-})
+});
 
 export const openApi: OpenApiRouteDoc = {
-  tag: 'Sales',
-  summary: 'View a quote (public)',
+  tag: "Sales",
+  summary: "View a quote (public)",
   pathParams: z.object({ token: z.string().uuid() }),
   methods: {
     GET: {
-      summary: 'Get quote details by acceptance token',
+      summary: "Get quote details by acceptance token",
       responses: [
-        { status: 200, description: 'Quote details', schema: publicQuoteResponseSchema },
-        { status: 404, description: 'Quote not found', schema: z.object({ error: z.string() }) },
+        {
+          status: 200,
+          description: "Quote details",
+          schema: publicQuoteResponseSchema,
+        },
+        {
+          status: 404,
+          description: "Quote not found",
+          schema: z.object({ error: z.string() }),
+        },
       ],
     },
   },
-}
+};

@@ -28,3 +28,16 @@ export const NODE_TYPE_LABELS: Record<NodeType, { title: string; description: st
   subWorkflow: { title: 'SUB-WORKFLOW', description: 'Invoke workflow' },
   waitForSignal: { title: 'WAIT FOR SIGNAL', description: 'Pause for external event' },
 }
+
+const STEP_TYPE_TO_NODE_TYPE: Record<string, NodeType> = {
+  START: 'start',
+  END: 'end',
+  USER_TASK: 'userTask',
+  AUTOMATED: 'automated',
+  SUB_WORKFLOW: 'subWorkflow',
+  WAIT_FOR_SIGNAL: 'waitForSignal',
+}
+
+export function stepTypeToNodeType(stepType: string): NodeType {
+  return STEP_TYPE_TO_NODE_TYPE[stepType] || 'automated'
+}

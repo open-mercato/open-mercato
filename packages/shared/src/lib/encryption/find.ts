@@ -37,7 +37,7 @@ export async function findWithDecryption<Entity extends object, Hint extends str
   return records
 }
 
-export async function findOneWithDecryption<Entity extends object, Hint extends string = any>(
+export async function findOneWithDecryption<Entity extends object, Hint extends string = any>( // NOSONAR — returns null or decrypted entity; same variable name, different values
   em: EntityManager,
   entityName: EntityName<Entity>,
   where: FilterQuery<Entity>,

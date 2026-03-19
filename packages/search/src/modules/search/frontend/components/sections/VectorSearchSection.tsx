@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -234,13 +235,17 @@ export function VectorSearchSection({
     fetchActivityLogs()
   }, [fetchActivityLogs])
 
-  // Poll for activity when reindexing
-  React.useEffect(() => {
-    if (vectorReindexLock || vectorReindexing) {
-      const interval = setInterval(fetchActivityLogs, 5000)
-      return () => clearInterval(interval)
-    }
-  }, [vectorReindexLock, vectorReindexing, fetchActivityLogs])
+  useAppEvent('progress.job.updated', () => {
+    void fetchActivityLogs()
+  }, [fetchActivityLogs])
+
+  useAppEvent('progress.job.completed', () => {
+    void fetchActivityLogs()
+  }, [fetchActivityLogs])
+
+  useAppEvent('om:bridge:reconnected', () => {
+    void fetchActivityLogs()
+  }, [fetchActivityLogs])
 
   // Update auto-indexing
   const updateAutoIndexing = React.useCallback(async (nextValue: boolean) => {
@@ -594,7 +599,7 @@ export function VectorSearchSection({
 
                         {/* Model Selection */}
                         {isSelected && isConfigured && (
-                          <div className="mt-3 pt-3 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
+                          <div className="mt-3 pt-3 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} role="presentation">
                             <div className="space-y-1">
                               <Label htmlFor={`model-${providerId}`} className="text-xs font-medium">
                                 {t('search.settings.model.label', 'Model')}

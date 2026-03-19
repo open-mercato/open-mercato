@@ -4,6 +4,7 @@ import {
   validateActionsForApi,
   isSafeExpression,
 } from '../lib/payload-validation'
+import type { TranslatorFn } from '../components/utils/conditionValidation'
 
 /**
  * Business Rules Module - Zod Validators
@@ -58,29 +59,33 @@ export type ExecutionResult = z.infer<typeof executionResultSchema>
 
 // Condition Expression Schema with Validation
 // Uses runtime validation to check structure, nesting, and field paths
-export const conditionExpressionSchema = z.any()
-  .superRefine((val, ctx) => {
-    // Null/undefined is allowed (optional field)
-    if (val === null || val === undefined) return
+function createConditionExpressionSchema(t?: TranslatorFn) {
+  return z.any()
+    .superRefine((val, ctx) => {
+      // Null/undefined is allowed (optional field)
+      if (val === null || val === undefined) return
 
-    // Check for dangerous patterns first (DoS prevention)
-    if (!isSafeExpression(val)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Condition expression exceeds safety limits (max depth: 10, max rules per group: 50, max field path length: 200)'
-      })
-      return
-    }
+      // Check for dangerous patterns first (DoS prevention)
+      if (!isSafeExpression(val)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Condition expression exceeds safety limits (max depth: 10, max rules per group: 50, max field path length: 200)'
+        })
+        return
+      }
 
-    // Validate structure and content
-    const result = validateConditionExpressionForApi(val)
-    if (!result.valid) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: result.error || 'Invalid condition expression'
-      })
-    }
-  })
+      // Validate structure and content
+      const result = validateConditionExpressionForApi(val, t)
+      if (!result.valid) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: result.error || 'Invalid condition expression'
+        })
+      }
+    })
+}
+
+export const conditionExpressionSchema = createConditionExpressionSchema()
 
 // Action Schema with Validation
 // Validates action type and required config fields
@@ -89,19 +94,23 @@ export const actionSchema = z.object({
   config: z.record(z.string(), z.any()).optional(),
 })
 
-export const actionsArraySchema = z.array(actionSchema).optional().nullable()
-  .superRefine((val, ctx) => {
-    // Null/undefined/empty is allowed (optional field)
-    if (!val || (Array.isArray(val) && val.length === 0)) return
+function createActionsArraySchema(t?: TranslatorFn) {
+  return z.array(actionSchema).optional().nullable()
+    .superRefine((val, ctx) => {
+      // Null/undefined/empty is allowed (optional field)
+      if (!val || (Array.isArray(val) && val.length === 0)) return
 
-    const result = validateActionsForApi(val, 'actions')
-    if (!result.valid) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: result.error || 'Invalid actions'
-      })
-    }
-  })
+      const result = validateActionsForApi(val, 'actions', t)
+      if (!result.valid) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: result.error || 'Invalid actions'
+        })
+      }
+    })
+}
+
+export const actionsArraySchema = createActionsArraySchema()
 
 // Date preprocessing helper
 const dateOrNull = z.preprocess((value) => {
@@ -110,8 +119,8 @@ const dateOrNull = z.preprocess((value) => {
   return Number.isNaN(date.getTime()) ? null : date
 }, z.date().nullable())
 
-// BusinessRule Create Schema
-export const createBusinessRuleSchema = z.object({
+// BusinessRule base fields (without condition/action schemas)
+const businessRuleBaseFields = {
   ruleId: z.string().min(1).max(50),
   ruleName: z.string().min(1).max(200),
   description: z.string().max(5000).optional().nullable(),
@@ -119,9 +128,6 @@ export const createBusinessRuleSchema = z.object({
   ruleCategory: z.string().max(50).optional().nullable(),
   entityType: z.string().min(1).max(50),
   eventType: z.string().max(50).optional().nullable(),
-  conditionExpression: conditionExpressionSchema,
-  successActions: actionsArraySchema,
-  failureActions: actionsArraySchema,
   enabled: z.boolean().optional().default(true),
   priority: z.number().int().min(0).max(9999).optional().default(100),
   version: z.number().int().min(1).optional().default(1),
@@ -130,16 +136,41 @@ export const createBusinessRuleSchema = z.object({
   tenantId: uuid,
   organizationId: uuid,
   createdBy: z.string().max(50).optional().nullable(),
+} as const
+
+// Static schemas (without i18n — used for OpenAPI docs and non-route contexts)
+export const createBusinessRuleSchema = z.object({
+  ...businessRuleBaseFields,
+  conditionExpression: conditionExpressionSchema,
+  successActions: actionsArraySchema,
+  failureActions: actionsArraySchema,
 })
 
 export type CreateBusinessRuleInput = z.infer<typeof createBusinessRuleSchema>
 
-// BusinessRule Update Schema
 export const updateBusinessRuleSchema = createBusinessRuleSchema.partial().extend({
   id: uuid,
 })
 
 export type UpdateBusinessRuleInput = z.infer<typeof updateBusinessRuleSchema>
+
+// Factory functions for i18n-aware schemas (used in API routes with resolveTranslations)
+export function createLocalizedBusinessRuleSchema(t: TranslatorFn) {
+  const conditionSchema = createConditionExpressionSchema(t)
+  const actionsSchema = createActionsArraySchema(t)
+  return z.object({
+    ...businessRuleBaseFields,
+    conditionExpression: conditionSchema,
+    successActions: actionsSchema,
+    failureActions: actionsSchema,
+  })
+}
+
+export function createLocalizedUpdateBusinessRuleSchema(t: TranslatorFn) {
+  return createLocalizedBusinessRuleSchema(t).partial().extend({
+    id: uuid,
+  })
+}
 
 // Query/Filter Schema
 export const businessRuleFilterSchema = z.object({

@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { executeUpgradeAction, getCurrentVersion, isUpgradeActionsEnabled, listPendingUpgradeActions } from '../../services/upgradeActionsService'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  configsTag,
+  upgradeActionsListResponseSchema,
+  executeUpgradeActionRequestSchema,
+  executeUpgradeActionResponseSchema,
+  configErrorSchema,
+} from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.manage'] },
@@ -134,4 +142,40 @@ export async function POST(req: Request) {
     const details = error instanceof Error ? error.message : null
     return NextResponse.json({ error: message, details }, { status: 500 })
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: configsTag,
+  summary: 'Upgrade actions management',
+  methods: {
+    GET: {
+      summary: 'List pending upgrade actions',
+      description: 'Returns a list of pending upgrade actions for the current version. These are one-time setup tasks that need to be executed after upgrading to a new version. Requires organization and tenant context.',
+      responses: [
+        { status: 200, description: 'List of pending upgrade actions', schema: upgradeActionsListResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing organization or tenant context', schema: configErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: configErrorSchema },
+        { status: 500, description: 'Failed to load upgrade actions', schema: configErrorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Execute upgrade action',
+      description: 'Executes a specific upgrade action by ID. Typically used for one-time setup tasks like seeding example data after version upgrade. Returns execution status and localized success message.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: executeUpgradeActionRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Upgrade action executed successfully', schema: executeUpgradeActionResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request body or missing context', schema: configErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: configErrorSchema },
+        { status: 403, description: 'Upgrade actions are disabled', schema: configErrorSchema },
+        { status: 500, description: 'Failed to execute upgrade action', schema: configErrorSchema },
+      ],
+    },
+  },
 }

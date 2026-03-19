@@ -9,6 +9,11 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import {
+  resolveFirstConfiguredOpenCodeProvider,
+  resolveOpenCodeModel,
+  resolveOpenCodeProviderApiKey,
+} from '@open-mercato/shared/lib/ai/opencode-provider'
+import {
   resolveChatConfig,
   isProviderConfigured,
   type ChatProviderId,
@@ -25,34 +30,36 @@ const RouteResultSchema = z.object({
   reasoning: z.string(),
 })
 
-// Fast/cheap models for each provider
-const ROUTING_MODELS: Record<ChatProviderId, string> = {
-  anthropic: 'claude-haiku-4-5-20251001',
-  openai: 'gpt-5-mini',
-  google: 'gemini-3-flash',
-}
-
-function createRoutingModel(providerId: ChatProviderId) {
-  const modelId = ROUTING_MODELS[providerId]
+function createRoutingModel(providerId: ChatProviderId, configuredModel?: string) {
+  const { modelId, modelWithProvider } = resolveOpenCodeModel(providerId, {
+    overrideModel: configuredModel,
+  })
+  const apiKey = resolveOpenCodeProviderApiKey(providerId)
+  if (!apiKey) {
+    throw new Error(`${providerId.toUpperCase()} API key not configured`)
+  }
 
   switch (providerId) {
     case 'openai': {
-      const apiKey = process.env.OPENAI_API_KEY
-      if (!apiKey) throw new Error('OPENAI_API_KEY not configured')
       const openai = createOpenAI({ apiKey })
-      return openai(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
+      return {
+        model: openai(modelId) as unknown as Parameters<typeof generateObject>[0]['model'],
+        modelWithProvider,
+      }
     }
     case 'anthropic': {
-      const apiKey = process.env.ANTHROPIC_API_KEY
-      if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
       const anthropic = createAnthropic({ apiKey })
-      return anthropic(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
+      return {
+        model: anthropic(modelId) as unknown as Parameters<typeof generateObject>[0]['model'],
+        modelWithProvider,
+      }
     }
     case 'google': {
-      const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-      if (!apiKey) throw new Error('GOOGLE_GENERATIVE_AI_API_KEY not configured')
       const google = createGoogleGenerativeAI({ apiKey })
-      return google(modelId) as unknown as Parameters<typeof generateObject>[0]['model']
+      return {
+        model: google(modelId) as unknown as Parameters<typeof generateObject>[0]['model'],
+        modelWithProvider,
+      }
     }
     default:
       throw new Error(`Unknown provider: ${providerId}`)
@@ -90,8 +97,7 @@ export async function POST(req: NextRequest) {
 
     // Fallback to first configured provider
     if (!config) {
-      const providers: ChatProviderId[] = ['openai', 'anthropic', 'google']
-      const configuredProvider = providers.find((p) => isProviderConfigured(p))
+      const configuredProvider = resolveFirstConfiguredOpenCodeProvider()
       if (!configuredProvider) {
         return NextResponse.json(
           { error: 'No AI provider configured. Please set an API key for OpenAI, Anthropic, or Google.' },
@@ -112,13 +118,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Use fast model for the configured provider
-    const model = createRoutingModel(config.providerId)
+    const { model, modelWithProvider } = createRoutingModel(config.providerId, config.model)
 
     const toolList = availableTools
       .map((t) => `- ${t.name}: ${t.description}`)
       .join('\n')
 
-    console.log('[AI Route] Calling generateObject with', ROUTING_MODELS[config.providerId])
+    console.log('[AI Route] Calling generateObject with', modelWithProvider)
 
     const result = await generateObject({
       model,

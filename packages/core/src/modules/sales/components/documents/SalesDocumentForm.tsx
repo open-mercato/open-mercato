@@ -69,6 +69,7 @@ type AddressOption = {
   label: string
   summary: string
   name?: string | null
+  isPrimary: boolean
   value: AddressValue
 }
 
@@ -91,10 +92,19 @@ export type SalesDocumentFormValues = {
   comments?: string | null
 } & Record<string, unknown>
 
+type InboxPreFill = {
+  customerEntityId?: string
+  currencyCode?: string
+  channelId?: string
+  comments?: string
+  lineItems?: Record<string, unknown>[]
+}
+
 type SalesDocumentFormProps = {
   onCreated: (params: { id: string; kind: DocumentKind }) => void
   isSubmitting?: boolean
   initialKind?: DocumentKind
+  inboxPreFill?: InboxPreFill
 }
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
@@ -388,7 +398,7 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
   return Object.keys(normalized).length ? normalized : null
 }
 
-export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind }: SalesDocumentFormProps) {
+export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
@@ -524,7 +534,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     }
   }, [])
 
-  const loadAddresses = React.useCallback(async (customerId?: string | null) => {
+  const loadAddresses = React.useCallback(async (customerId?: string | null): Promise<AddressOption[]> => {
     addressRequestRef.current += 1
     const requestId = addressRequestRef.current
 
@@ -541,7 +551,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       setAddressesError(null)
       setAddressOptions([])
       setAddressesLoading(false)
-      return
+      return []
     }
     setAddressesLoading(true)
     setAddressesError(null)
@@ -574,12 +584,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           const name = typeof item.name === 'string' ? item.name.trim() : ''
           const summary = formatAddressString(value, addressFormat)
           const label = name || summary || id
-          acc.push({ id, label, summary, value, name: name || null })
+          const isPrimary = item.is_primary === true
+          acc.push({ id, label, summary, value, name: name || null, isPrimary })
           return acc
         }, [])
         if (addressRequestRef.current === requestId) {
           setAddressOptions(options)
         }
+        return options
       } else {
         if (addressRequestRef.current === requestId) {
           setAddressOptions([])
@@ -612,6 +624,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         setAddressesLoading(false)
       }
     }
+    return []
   }, [addressFormat, t])
 
   React.useEffect(() => {
@@ -1099,7 +1112,12 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     resetAddressFormState(setValue)
                   }
                   setValue('customerEntityId', next)
-                  loadAddresses(next)
+                  loadAddresses(next).then((addrs) => {
+                    const primary = addrs.find((addr) => addr.isPrimary)
+                    if (primary) {
+                      setValue('shippingAddressId', primary.id)
+                    }
+                  }).catch((err) => { console.error('sales.documents.autoSelectAddress', err) })
                   if (next) {
                     const match = customers.find((entry) => entry.id === next)
                     const possibleEmail =
@@ -1151,7 +1169,12 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                       })
                       setValue('customerEntityId', id)
                       resetAddressFormState(setValue)
-                      loadAddresses(id)
+                      loadAddresses(id).then((addrs) => {
+                        const primary = addrs.find((addr) => addr.isPrimary)
+                        if (primary) {
+                          setValue('shippingAddressId', primary.id)
+                        }
+                      }).catch((err) => { console.error('sales.documents.autoSelectAddress', err) })
                       if (email && !values.customerEmail) {
                         setValue('customerEmail', email)
                       }
@@ -1229,13 +1252,23 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     () => ({
       documentKind: initialKind === 'order' ? 'order' : 'quote',
       documentNumber: '',
-      currencyCode: 'USD',
+      currencyCode: inboxPreFill?.currencyCode || 'USD',
+      channelId: inboxPreFill?.channelId || undefined,
+      customerEntityId: inboxPreFill?.customerEntityId || undefined,
+      comments: inboxPreFill?.comments || undefined,
       useCustomShipping: false,
       useCustomBilling: false,
       sameAsShipping: true,
     }),
-    [initialKind]
+    [initialKind, inboxPreFill]
   )
+
+  // When inboxPreFill provides a customer, load their addresses on mount
+  React.useEffect(() => {
+    if (inboxPreFill?.customerEntityId) {
+      loadAddresses(inboxPreFill.customerEntityId)
+    }
+  }, [inboxPreFill?.customerEntityId, loadAddresses])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -1347,16 +1380,18 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     [onCreated, t],
   )
 
+  const cancelHref = initialKind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
+
   return (
     <CrudForm<SalesDocumentFormValues>
       title={t('sales.documents.form.title', 'Create sales document')}
-      backHref="/backend/sales/channels"
+      backHref={cancelHref}
       fields={fields}
       groups={groups}
       initialValues={initialValues}
       entityIds={[E.sales.sales_quote, E.sales.sales_order]}
       submitLabel={t('sales.documents.form.submit', 'Create')}
-      cancelHref="/backend/sales/channels"
+      cancelHref={cancelHref}
       onSubmit={handleSubmit}
     />
   )

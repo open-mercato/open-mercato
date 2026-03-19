@@ -11,6 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
   DictionaryForm,
@@ -43,6 +44,7 @@ const DEFAULT_FORM_VALUES: DictionaryFormValues = {
 
 export function StatusSettings() {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const translate = React.useCallback((key: string, fallback: string) => {
     const value = t(key)
     return value === key ? fallback : value
@@ -189,7 +191,11 @@ export function StatusSettings() {
 
   const deleteEntry = React.useCallback(async (kind: SalesStatusKind, entry: DictionaryTableEntry) => {
     const message = translate('sales.config.statuses.deleteConfirm', 'Delete status "{{value}}"?').replace('{{value}}', entry.label || entry.value)
-    if (!window.confirm(message)) return
+    const confirmed = await confirm({
+      title: message,
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       const call = await apiCall(apiPaths[kind], {
         method: 'DELETE',
@@ -206,7 +212,7 @@ export function StatusSettings() {
       const message = err instanceof Error ? err.message : translate('sales.config.statuses.error.delete', 'Failed to delete status.')
       flash(message, 'error')
     }
-  }, [apiPaths, loadEntries, translate])
+  }, [apiPaths, confirm, loadEntries, translate])
 
   const submitForm = React.useCallback(async (values: DictionaryFormValues) => {
     if (!dialog) return
@@ -318,6 +324,7 @@ export function StatusSettings() {
           />
         </DialogContent>
       </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

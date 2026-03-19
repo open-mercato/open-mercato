@@ -24,6 +24,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -228,7 +229,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -240,7 +241,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -404,6 +405,10 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
     if (!user) throw new CrudHttpError(404, { error: 'User not found' })
 
+    if (hashed) {
+      await em.nativeDelete(Session, { user: parsed.id })
+    }
+
     if (Array.isArray(parsed.roles)) {
       await syncUserRoles(em, user, parsed.roles, user.tenantId ? String(user.tenantId) : tenantId ?? null)
     }
@@ -445,7 +450,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     return user
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const roles = await loadUserRoleNames(em, String(result.id))
     const custom = await loadUserCustomSnapshot(
       em,
@@ -460,7 +465,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const beforeSnapshots = snapshots.before as UserSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterRoles = await loadUserRoleNames(em, String(result.id))
     const afterCustom = await loadUserCustomSnapshot(
       em,
@@ -495,7 +500,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload(logEntry)
+    const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     const after = payload?.after
     if (!before) return
@@ -621,7 +626,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload(logEntry)
+    const payload = extractUndoPayload<UndoPayload<UserUndoSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -700,6 +705,8 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
   }
 
   const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
+  const missingRoles: string[] = []
+  const roleAssignments: Role[] = []
 
   for (const name of unique) {
     if (!currentNames.has(name)) {
@@ -708,14 +715,20 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
         role = await em.findOne(Role, { name, tenantId: null })
       }
       if (!role) {
-        role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
-        await em.persistAndFlush(role)
-      } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
-        role.tenantId = normalizedTenantId
-        await em.persistAndFlush(role)
+        missingRoles.push(name)
+      } else {
+        roleAssignments.push(role)
       }
-      em.persist(em.create(UserRole, { user, role, createdAt: new Date() }))
     }
+  }
+
+  if (missingRoles.length) {
+    const names = missingRoles.map((n) => `"${n}"`).join(', ')
+    throw new CrudHttpError(400, { error: `Role(s) not found: ${names}` })
+  }
+
+  for (const role of roleAssignments) {
+    em.persist(em.create(UserRole, { user, role, createdAt: new Date() }))
   }
 
   await em.flush()
@@ -732,7 +745,7 @@ async function loadUserRoleNames(em: EntityManager, userId: string): Promise<str
   const names = links
     .map((link) => link.role?.name ?? '')
     .filter((name): name is string => !!name)
-  return Array.from(new Set(names)).sort()
+  return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b))
 }
 
 function serializeUser(user: User, roles: string[], custom?: Record<string, unknown> | null): SerializedUser {
@@ -795,14 +808,6 @@ async function restoreUserAcls(em: EntityManager, user: User, acls: UserAclSnaps
     em.persist(entity)
   }
   await em.flush()
-}
-
-type UndoPayload = { undo?: { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } }
-
-function extractUndoPayload(logEntry: { commandPayload?: unknown }): { before?: UserUndoSnapshot | null; after?: UserUndoSnapshot | null } | null {
-  const payload = logEntry?.commandPayload as UndoPayload | undefined
-  if (!payload || typeof payload !== 'object') return null
-  return payload.undo ?? null
 }
 
 async function loadUserCustomSnapshot(

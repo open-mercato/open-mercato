@@ -10,7 +10,6 @@ const config: Config = {
   organizationName: 'open-mercato',
   projectName: 'documentation',
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],

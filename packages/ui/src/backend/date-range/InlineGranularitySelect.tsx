@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '../../primitives/button'
 import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 
 export type InlineGranularitySelectProps = {
@@ -38,19 +39,21 @@ export function InlineGranularitySelect({
       {GRANULARITY_OPTIONS.map((option) => {
         const isActive = option.value === value
         return (
-          <button
+          <Button
             key={option.value}
             type="button"
+            variant="ghost"
+            size="sm"
             title={t(option.titleKey, option.titleFallback)}
             onClick={() => onChange(option.value)}
-            className={`px-2 py-0.5 text-xs font-medium transition-colors first:rounded-l-[calc(var(--radius)-2px)] last:rounded-r-[calc(var(--radius)-2px)] ${
+            className={`h-auto px-2 py-0.5 text-xs font-medium transition-colors first:rounded-l-[calc(var(--radius)-2px)] last:rounded-r-[calc(var(--radius)-2px)] ${
               isActive
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             }`}
           >
             {t(option.shortLabelKey, option.shortFallback)}
-          </button>
+          </Button>
         )
       })}
     </div>

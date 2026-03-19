@@ -1,0 +1,163 @@
+---
+title: yarn test:integration:ephemeral
+sidebar_label: yarn test:integration:ephemeral
+description: Runs the Playwright integration suite in a fully isolated ephemeral environment using disposable containers.
+---
+
+`yarn test:integration:ephemeral` executes `yarn mercato test:integration`.
+
+The command starts a disposable Postgres container and app runtime, runs the Playwright suite, and tears everything down when tests finish.
+
+## Usage
+
+```bash
+# Preferred script
+yarn test:integration:ephemeral
+
+# Code coverage report from integration tests
+yarn test:integration:coverage
+
+# Interactive menu (persisted ephemeral environment)
+yarn test:integration:ephemeral:interactive
+
+# Direct CLI command (alias form)
+yarn mercato test:integration
+
+# Direct CLI command (module/command form)
+yarn mercato test integration
+
+# Direct CLI command (interactive menu)
+yarn mercato test:integration:interactive
+# or
+yarn mercato test interactive
+
+# Direct CLI command (coverage)
+yarn mercato test:integration:coverage
+# or
+yarn mercato test coverage
+```
+
+## Coverage command
+
+Use `yarn test:integration:coverage` to measure real Open Mercato runtime code coverage driven by integration tests.
+
+The command:
+
+- Starts the ephemeral integration environment
+- Enables Node.js V8 coverage for the running app
+- Executes Playwright integration tests
+- Produces coverage reports in `.ai/qa/test-results/coverage/code/` (`index.html`, `lcov.info`, `coverage-summary.json`)
+
+Options for `yarn test:integration:coverage`:
+
+- `--filter <pattern>` or positional `<pattern>` to run subset of tests
+- `--workers <n>` and `--retries <n>` passed to Playwright
+- `--verbose`
+- `--screenshots` / `--no-screenshots`
+- `--no-reuse-env` always starts a fresh ephemeral runtime (never attaches to existing `.ai/qa/ephemeral-env.json`)
+- `--json` outputs machine-readable totals
+- `--keep-raw-v8` keeps raw process coverage files in `.ai/qa/test-results/coverage/raw-v8/`
+
+If you still need scenario/spec mapping coverage:
+
+```bash
+yarn test:integration:spec-coverage
+```
+
+## Options
+
+| Option | Description |
+| --- | --- |
+| `--filter <pattern>` | Runs only tests matching a Playwright filter (same as positional filter). |
+| `<pattern>` | Positional shorthand for `--filter`. |
+| `--keep` | Keeps app and database running after tests (for debugging). |
+| `--verbose` | Shows detailed bootstrap/build logs. |
+| `--screenshots` | Forces screenshot capture during test runs. |
+| `--no-screenshots` | Disables screenshot capture during test runs. |
+| `--no-reuse-env` | Forces a new ephemeral app+DB instance instead of reusing an existing one. |
+
+## Examples
+
+```bash
+# Run everything in ephemeral containers
+yarn test:integration:ephemeral
+
+# Run only auth-related tests
+yarn mercato test:integration --filter auth/
+
+# Keep environment alive for debugging after tests
+yarn mercato test:integration --keep --verbose
+
+# Always start a new ephemeral runtime (no attach/reuse)
+yarn mercato test:integration --no-reuse-env
+```
+
+## Speed up local runs
+
+`yarn test:integration:ephemeral` is optimized for clean, fully isolated runs, not for quick iteration. For day-to-day development, use one of these faster patterns:
+
+```bash
+# 1) Start interactive ephemeral mode once (preferred)
+yarn test:integration:ephemeral:interactive --no-screenshots
+
+# 2) Run only the test you are changing against that running environment
+BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts sales/TC-SALES-007.spec.ts --retries=0
+
+# 3) Run with more workers locally when tests are independent
+BASE_URL=http://127.0.0.1:<port> npx playwright test --config .ai/qa/tests/playwright.config.ts --workers=4 --retries=0
+
+# 4) Keep ephemeral mode but filter aggressively
+yarn test:integration:ephemeral -- --filter sales/TC-SALES-007.spec.ts --no-screenshots
+```
+
+Notes:
+
+- Ephemeral state is written to `.ai/qa/ephemeral-env.json`; read `baseUrl` from this file before running manual Playwright commands.
+- Default ephemeral port is `5001` when available; fallback ports are recorded in `.ai/qa/ephemeral-env.json`.
+- Use `--workers` only if tests do not share mutable state.
+- Keep full `yarn test:integration:ephemeral` for pre-merge confidence and CI parity.
+
+## Requirements
+
+- Node.js `24.x`
+- Docker runtime available (`docker info` must succeed)
+
+## Notes
+
+- By default, screenshot capture is enabled locally and disabled in CI.
+- The command ensures Playwright Chromium is installed before running tests.
+
+## Interactive mode
+
+Use interactive mode when you want to keep one ephemeral app/database running and execute multiple tests without re-bootstrapping each time.
+
+```bash
+yarn test:integration:ephemeral:interactive
+```
+
+The command writes active environment details to `.ai/qa/ephemeral-env.json` and clears the file when the environment is closed.
+
+Menu actions:
+
+- Run all tests (or all filtered tests when a text filter is active)
+- Run one selected test file from the list (with test description shown next to each file)
+- Type text (for example `crm`) to filter the visible list interactively by path/description
+- Refresh test list
+- Clear active filter (`a`)
+- Open Playwright HTML report (`show-report`)
+- Quit and tear down ephemeral environment
+
+After each test run, the CLI asks whether to:
+
+- Return to the menu (press any key, then Enter)
+- Open HTML report immediately (`h`)
+- Quit (`q`)
+
+Supported options:
+
+- `--verbose`
+- `--screenshots`
+- `--no-screenshots`
+- `--workers <n>`
+- `--retries <n>`
+- `--no-reuse-env`

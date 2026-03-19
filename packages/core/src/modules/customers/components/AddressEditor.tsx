@@ -372,10 +372,11 @@ export function AddressEditor({
                   </p>
                 ) : (
                   filteredCountryOptions.map((option) => (
-                    <button
+                    <Button
                       key={option.code}
-                      type="button"
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm text-left hover:bg-muted"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-between rounded-none font-normal"
                       onClick={() => {
                         update('country', option.code)
                         setCountryDialogOpen(false)
@@ -384,7 +385,7 @@ export function AddressEditor({
                     >
                       <span className="truncate">{option.label}</span>
                       <span className="text-xs text-muted-foreground">{option.code}</span>
-                    </button>
+                    </Button>
                   ))
                 )}
               </div>

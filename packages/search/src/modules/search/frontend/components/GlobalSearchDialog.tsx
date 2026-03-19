@@ -49,6 +49,12 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { SearchResult, SearchResultLink, SearchStrategyId } from '@open-mercato/shared/modules/search'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  getCurrentOrganizationScope,
+  subscribeOrganizationScopeChanged,
+} from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { parseSelectedOrganizationCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
 import { fetchGlobalSearchResults } from '../utils'
 
 const MIN_QUERY_LENGTH = 2
@@ -67,6 +73,16 @@ function pickPrimaryLink(result: SearchResult): string | null {
   if (!links.length) return null
   const primary = links.find((link) => link.kind === 'primary')
   return (primary ?? links[0]).href
+}
+
+function hasActiveOrganizationSelection(): boolean {
+  const fromEvent = getCurrentOrganizationScope().organizationId
+  if (typeof fromEvent === 'string' && fromEvent.trim().length > 0) return true
+
+  const cookieHeader = typeof document === 'undefined' ? null : document.cookie
+  const cookieValue = parseSelectedOrganizationCookie(cookieHeader)
+  if (!cookieValue) return false
+  return !isAllOrganizationsSelection(cookieValue);
 }
 
 function humanizeSegment(segment: string): string {
@@ -150,8 +166,17 @@ export function GlobalSearchDialog({
   const [error, setError] = React.useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = React.useState(0)
   const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const listRef = React.useRef<HTMLDivElement | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
   const t = useT()
+  const [showScopeHint, setShowScopeHint] = React.useState<boolean>(() => hasActiveOrganizationSelection())
+
+  React.useEffect(() => {
+    setShowScopeHint(hasActiveOrganizationSelection())
+    return subscribeOrganizationScopeChanged((detail) => {
+      setShowScopeHint(Boolean(detail.organizationId && detail.organizationId.trim().length > 0))
+    })
+  }, [])
 
   // Use configured strategies or fall back to defaults
   const enabledStrategies = React.useMemo(() => {
@@ -281,6 +306,19 @@ export function GlobalSearchDialog({
     }
   }, [results, selectedIndex, openResult])
 
+  React.useEffect(() => {
+    const container = listRef.current
+    const active = container?.querySelector<HTMLElement>('[data-active="true"]')
+    if (!container || !active) return
+    const { top: containerTop, bottom: containerBottom } = container.getBoundingClientRect()
+    const { top: activeTop, bottom: activeBottom } = active.getBoundingClientRect()
+    if (activeTop < containerTop) {
+      container.scrollTop -= containerTop - activeTop
+    } else if (activeBottom > containerBottom) {
+      container.scrollTop += activeBottom - containerBottom
+    }
+  }, [selectedIndex])
+
   // Check if vector search is enabled but not configured
   const showVectorWarning = !embeddingConfigured && enabledStrategies.includes('vector') && !error
 
@@ -313,7 +351,7 @@ export function GlobalSearchDialog({
           <span id="global-search-description" className="sr-only">
             {t('search.dialog.instructions')}
           </span>
-          <div className="flex flex-col gap-3 border-b px-4 pb-3 pt-4">
+          <div className="flex flex-col gap-3 border-b px-4 pb-3 pt-12">
             <div className="flex items-center gap-2 rounded border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
               <Search className="h-4 w-4 text-muted-foreground" />
               <TypedInput
@@ -334,8 +372,13 @@ export function GlobalSearchDialog({
             {showVectorWarning ? (
               <p className="rounded bg-amber-100 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{missingConfigMessage}</p>
             ) : null}
+            {showScopeHint ? (
+              <p className="text-xs text-muted-foreground">
+                {t('search.scopeHint.currentOrg', 'Scoped to current organization')}
+              </p>
+            ) : null}
           </div>
-          <div className="max-h-96 overflow-y-auto px-2 pb-3">
+          <div ref={listRef} className="max-h-96 overflow-y-auto px-2 pb-3">
             {results.length === 0 && !loading && !error ? (
               <div className="px-4 py-6 text-sm text-muted-foreground">
                 {query.trim().length < MIN_QUERY_LENGTH
@@ -350,7 +393,7 @@ export function GlobalSearchDialog({
                 const hasLink = pickPrimaryLink(result) !== null
                 const Icon = presenter?.icon ? resolveIcon(presenter.icon) : null
                 return (
-                  <li key={`${result.entityId}:${result.recordId}`}>
+                  <li key={`${result.entityId}:${result.recordId}`} data-active={isActive}>
                     <button
                       type="button"
                       onClick={() => openResult(result)}

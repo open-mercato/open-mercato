@@ -2,6 +2,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   transform: {
@@ -13,6 +14,9 @@ module.exports = {
         },
       },
     ],
+  },
+  moduleNameMapper: {
+    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
   },
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

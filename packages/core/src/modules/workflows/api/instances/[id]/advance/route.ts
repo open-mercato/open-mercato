@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -19,6 +20,12 @@ import * as workflowExecutor from '../../../../lib/workflow-executor'
 import * as stepHandler from '../../../../lib/step-handler'
 import * as transitionHandler from '../../../../lib/transition-handler'
 import { z } from 'zod'
+import {
+  workflowsTag,
+  advanceWorkflowRequestSchema,
+  advanceWorkflowResponseSchema,
+  workflowErrorSchema,
+} from '../../../openapi'
 
 // Validation schema
 const advanceWorkflowSchema = z.object({
@@ -276,4 +283,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['workflows.instances.create'],
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: workflowsTag,
+  summary: 'Advance workflow instance',
+  methods: {
+    POST: {
+      summary: 'Manually advance workflow to next step',
+      description: 'Manually advance a workflow instance to the next step. Useful for manual progression, step-by-step testing, user-triggered transitions, and approval flows. Validates transitions and auto-progresses if possible.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: advanceWorkflowRequestSchema,
+      },
+      responses: [
+        { status: 200, description: 'Workflow advanced successfully', schema: advanceWorkflowResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid request, no valid transitions, or workflow already completed/cancelled/failed', schema: workflowErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
+        { status: 403, description: 'Insufficient permissions', schema: workflowErrorSchema },
+        { status: 404, description: 'Workflow instance not found', schema: workflowErrorSchema },
+        { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
+      ],
+    },
+  },
 }

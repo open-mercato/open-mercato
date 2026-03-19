@@ -8,7 +8,7 @@
 
 import { validateConditionExpression, isValidFieldPath } from '../components/utils/conditionValidation'
 import { validateActions } from '../components/utils/actionValidation'
-import type { ConditionExpression } from '../components/utils/conditionValidation'
+import type { ConditionExpression, TranslatorFn } from '../components/utils/conditionValidation'
 import type { Action } from '../components/utils/actionValidation'
 
 /**
@@ -24,10 +24,12 @@ export interface ValidationResult {
  * Validate condition expression for API usage
  *
  * @param expression - Condition expression to validate
+ * @param t - Optional translator function for i18n support
  * @returns Validation result with error messages
  */
 export function validateConditionExpressionForApi(
-  expression: any
+  expression: any,
+  t?: TranslatorFn
 ): ValidationResult {
   // Null/undefined is valid (optional field)
   if (expression === null || expression === undefined) {
@@ -35,7 +37,7 @@ export function validateConditionExpressionForApi(
   }
 
   try {
-    const result = validateConditionExpression(expression as ConditionExpression)
+    const result = validateConditionExpression(expression as ConditionExpression, 0, 5, t)
 
     if (result.valid) {
       return { valid: true }
@@ -60,11 +62,13 @@ export function validateConditionExpressionForApi(
  *
  * @param actions - Array of actions to validate
  * @param fieldName - Name of field being validated (for error messages)
+ * @param t - Optional translator function for i18n support
  * @returns Validation result with error messages
  */
 export function validateActionsForApi(
   actions: any,
-  fieldName: string = 'actions'
+  fieldName: string = 'actions',
+  t?: TranslatorFn
 ): ValidationResult {
   // Null/undefined/empty is valid (optional field)
   if (!actions || (Array.isArray(actions) && actions.length === 0)) {
@@ -81,7 +85,7 @@ export function validateActionsForApi(
   }
 
   try {
-    const result = validateActions(actions as Action[])
+    const result = validateActions(actions as Action[], t)
 
     if (result.valid) {
       return { valid: true }
@@ -116,23 +120,23 @@ export function validateRulePayload(payload: {
   conditionExpression?: any
   successActions?: any
   failureActions?: any
-}): ValidationResult {
+}, t?: TranslatorFn): ValidationResult {
   const errors: string[] = []
 
   // Validate condition expression
-  const conditionResult = validateConditionExpressionForApi(payload.conditionExpression)
+  const conditionResult = validateConditionExpressionForApi(payload.conditionExpression, t)
   if (!conditionResult.valid && conditionResult.errors) {
     errors.push(...conditionResult.errors.map(e => `Condition: ${e}`))
   }
 
   // Validate success actions
-  const successResult = validateActionsForApi(payload.successActions, 'successActions')
+  const successResult = validateActionsForApi(payload.successActions, 'successActions', t)
   if (!successResult.valid && successResult.errors) {
     errors.push(...successResult.errors.map(e => `Success actions: ${e}`))
   }
 
   // Validate failure actions
-  const failureResult = validateActionsForApi(payload.failureActions, 'failureActions')
+  const failureResult = validateActionsForApi(payload.failureActions, 'failureActions', t)
   if (!failureResult.valid && failureResult.errors) {
     errors.push(...failureResult.errors.map(e => `Failure actions: ${e}`))
   }

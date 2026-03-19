@@ -22,7 +22,7 @@ jest.mock('../../lib/feature-flag-check', () => {
     }
 })
 
-jest.mock('../../../customers/commands/shared', () => ({
+jest.mock('@open-mercato/shared/lib/commands/undo', () => ({
     extractUndoPayload: jest.fn((logEntry) => logEntry?.payload?.undo),
 }))
 

@@ -214,6 +214,8 @@ export type FormHeaderDetailProps = FormHeaderBaseProps & {
   statusBadge?: React.ReactNode
   /** Context actions grouped into an "Actions" dropdown (preferred) */
   menuActions?: ActionItem[]
+  /** Optional utility actions (icon-only) displayed before menu actions */
+  utilityActions?: React.ReactNode
   /** Delete action -- rendered as a standalone destructive button next to the dropdown */
   onDelete?: () => void
   /** Delete button label */
@@ -544,6 +546,9 @@ These pages have custom inline header JSX that must be replaced with `<FormHeade
 None at this time. The component APIs are designed to handle all existing patterns found in the codebase.
 
 ## Changelog
+
+### 2026-02-04
+- Added `utilityActions` slot for icon-only actions in `FormHeader` detail mode
 
 ### 2026-02-03
 

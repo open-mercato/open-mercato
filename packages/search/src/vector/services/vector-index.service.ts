@@ -329,6 +329,7 @@ export class VectorIndexService {
       filters,
       includeCustomFields: true,
       fields: this.getEnrichmentFields(entityId),
+      skipAutoReindex: true,
     })
     const byId = new Map<string, Record<string, any>>()
     for (const item of result.items) {
@@ -902,6 +903,7 @@ export class VectorIndexService {
         page: { page, pageSize },
         includeCustomFields: true,
         fields: this.getEnrichmentFields(args.entityId),
+        skipAutoReindex: true,
       })
       if (!result.items.length) break
       for (const raw of result.items) {

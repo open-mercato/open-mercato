@@ -40,7 +40,7 @@ describe('Event bus', () => {
   })
 
   test('persistent events are recorded to queue', async () => {
-    const queueDir = path.resolve('.queue', 'events')
+    const queueDir = path.resolve('.mercato/queue', 'events')
     const queuePath = path.join(queueDir, 'queue.json')
     const recv: any[] = []
     const bus = createEventBus({ resolve: ((name: string) => name) as any })
@@ -60,7 +60,7 @@ describe('Event bus', () => {
   })
 
   test('clearQueue removes all queued events', async () => {
-    const queueDir = path.resolve('.queue', 'events')
+    const queueDir = path.resolve('.mercato/queue', 'events')
     const queuePath = path.join(queueDir, 'queue.json')
     const bus = createEventBus({ resolve: ((name: string) => name) as any })
 
@@ -95,7 +95,7 @@ describe('Event bus', () => {
   })
 
   test('non-persistent events are not queued', async () => {
-    const queueDir = path.resolve('.queue', 'events')
+    const queueDir = path.resolve('.mercato/queue', 'events')
     const queuePath = path.join(queueDir, 'queue.json')
     const bus = createEventBus({ resolve: ((name: string) => name) as any })
 

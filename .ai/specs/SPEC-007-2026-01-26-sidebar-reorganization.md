@@ -205,12 +205,12 @@ Administrative, configuration, and system-level tools. Accessed from the "Settin
 |---------|----------|-------------|
 | System | System Status, Cache | Admin |
 | Auth | Users, Roles, API Keys | Admin |
-| Business Rules | Rules, Sets, Logs | Power User |
 | Data Designer | System/User Entities, Query Indexes | Developer |
-| Workflows | Definitions, Instances, Tasks, Events | Power User |
-| Module Configs | Sales, Catalog, Customers, Currencies, Dictionaries, Encryption | Admin |
+| Module Configs | Sales, Catalog, Customers, Currencies, Dictionaries, Encryption, Availability Schedules | Admin |
 | Directory | Organizations, Tenants | Super Admin |
 | Feature Toggles | Global, Overrides | Admin |
+
+> **Note (v6)**: Business Rules and Workflows remain in the **main sidebar** as core functionality modules, not settings. Feature Toggles and Availability Schedules are in settings as they are admin configuration tools.
 
 #### Profile Page Sections
 
@@ -649,6 +649,22 @@ Summary:
 ---
 
 ## Changelog
+
+### 2026-02-04 (v7)
+- **Sidebar Customization Filtering**: Implemented option 1 from PR #467 discussion:
+  - "Customize sidebar" button only appears on the main sidebar (not on Settings/Profile)
+  - The customization editor filters out items with `pageContext: 'settings'` or `pageContext: 'profile'`
+  - Added `filterMainSidebarGroups()` helper in `AppShell.tsx` to enforce this filtering
+  - Settings/Profile internal navigation relies on ACL features for visibility, not user customization
+
+### 2026-02-03 (v6)
+- **PR #467 Review Changes**: Per reviewer feedback (issue #435):
+  - Business Rules and Workflows stay in main sidebar (core functionality, not admin settings)
+  - Feature Toggles and Availability Schedules moved to settings
+  - Settings section labels now fully auto-generated from `page.meta.ts` (`group`/`groupKey` fields)
+  - `settingsSectionConfig` simplified to order-only (`settingsSectionOrder: Record<string, number>`)
+  - Removed centralized label definitions from layout.tsx
+  - Icons remain as defined in individual `page.meta.ts` files (canonical source)
 
 ### 2026-02-01 (v5)
 - Top bar cleanup: removed "Organization" label and "Manage" link to save horizontal space; "Manage" (`/backend/directory/organizations`) relocates to Settings > Directory; added gear icon for Settings shortcut

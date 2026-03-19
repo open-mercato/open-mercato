@@ -3,14 +3,18 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Pencil, MousePointerClick, Loader2, Trash2 } from 'lucide-react'
+import { Pencil, MousePointerClick } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
@@ -36,6 +40,8 @@ type DealDetailPayload = {
     description: string | null
     status: string | null
     pipelineStage: string | null
+    pipelineId: string | null
+    pipelineStageId: string | null
     valueAmount: string | null
     valueCurrency: string | null
     probability: number | null
@@ -58,7 +64,7 @@ type DealDetailPayload = {
 }
 
 const CRUD_FOCUSABLE_SELECTOR =
-  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1")]'
+  '[data-crud-focus-target], input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 function formatCurrency(amount: string | null, currency: string | null): string | null {
   if (!amount) return null
@@ -91,6 +97,7 @@ function resolveDictionaryLabel(
 
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
@@ -204,6 +211,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           title: base.title,
           status: base.status ?? undefined,
           pipelineStage: base.pipelineStage ?? undefined,
+          pipelineId: base.pipelineId ?? undefined,
+          pipelineStageId: base.pipelineStageId ?? undefined,
           valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
           valueCurrency: base.valueCurrency ?? undefined,
           probability: typeof base.probability === 'number' ? base.probability : undefined,
@@ -241,15 +250,13 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const handleDelete = React.useCallback(async () => {
     if (!data || isDeleting) return
-    const confirmed =
-      typeof window === 'undefined'
-        ? true
-        : window.confirm(
-            t(
-              'customers.deals.detail.deleteConfirm',
-              'Delete this deal? This action cannot be undone.',
-            ),
-          )
+    const confirmed = await confirm({
+      title: t(
+        'customers.deals.detail.deleteConfirm',
+        'Delete this deal? This action cannot be undone.',
+      ),
+      variant: 'destructive',
+    })
     if (!confirmed) return
 
     setIsDeleting(true)
@@ -274,7 +281,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     } finally {
       setIsDeleting(false)
     }
-  }, [data, isDeleting, router, t])
+  }, [confirm, data, isDeleting, router, t])
 
   React.useEffect(() => {
     setSectionAction(null)
@@ -370,7 +377,16 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const statusLabel =
     resolveDictionaryLabel(data.deal.status, statusDictionaryMap) ??
     t('customers.deals.detail.noStatus', 'No status')
+  const statusDictEntry = data.deal.status ? statusDictionaryMap?.[data.deal.status] ?? null : null
   const pipelineLabel = resolveDictionaryLabel(data.deal.pipelineStage, pipelineDictionaryMap)
+  const pipelineDictEntry = data.deal.pipelineStage ? pipelineDictionaryMap?.[data.deal.pipelineStage] ?? null : null
+  const previewValueAmount = formatCurrency(data.deal.valueAmount, data.deal.valueCurrency)
+  const previewProbability = data.deal.probability !== null && data.deal.probability !== undefined
+    ? `${data.deal.probability}%`
+    : null
+  const dealPreviewMetadata: Record<string, string> = {}
+  if (previewValueAmount) dealPreviewMetadata[t('customers.deals.detail.fields.value')] = previewValueAmount
+  if (previewProbability) dealPreviewMetadata[t('customers.deals.detail.fields.probability')] = previewProbability
 
   const peopleSummaryLabel =
     data.people.length === 1
@@ -387,59 +403,61 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     <Page>
       <PageBody>
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/backend/customers/deals"
-                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
-              >
-                <span aria-hidden className="mr-1 text-base">←</span>
-                <span className="sr-only">{t('customers.deals.detail.backToList', 'Back to deals')}</span>
-              </Link>
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-semibold text-foreground">
-                    {data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
-                  </h1>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="gap-1 text-muted-foreground hover:text-foreground"
-                    onClick={scrollToDealSettings}
-                  >
-                    <Pencil className="h-4 w-4" aria-hidden />
-                    <MousePointerClick className="h-4 w-4" aria-hidden />
-                    <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
-                  </Button>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t('customers.deals.detail.summary', undefined, {
-                    status: statusLabel,
-                    pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
-                  })}
-                </p>
+          <FormHeader
+            mode="detail"
+            backHref="/backend/customers/deals"
+            backLabel={t('customers.deals.detail.backToList', 'Back to deals')}
+            utilityActions={(
+              <>
+                <SendObjectMessageDialog
+                  object={{
+                    entityModule: 'customers',
+                    entityType: 'deal',
+                    entityId: data.deal.id,
+                    sourceEntityType: 'customers.deal',
+                    sourceEntityId: data.deal.id,
+                    previewData: {
+                      title: data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal'),
+                      status: data.deal.status ? statusLabel : undefined,
+                      metadata: Object.keys(dealPreviewMetadata).length > 0 ? dealPreviewMetadata : undefined,
+                    },
+                  }}
+                  viewHref={`/backend/customers/deals/${data.deal.id}`}
+                  defaultValues={{
+                    sourceEntityType: 'customers.deal',
+                    sourceEntityId: data.deal.id,
+                  }}
+                />
+                <VersionHistoryAction
+                  config={{ resourceKind: 'customers.deal', resourceId: data.deal.id }}
+                  t={t}
+                />
+              </>
+            )}
+            title={
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-muted-foreground hover:text-foreground"
+                  onClick={scrollToDealSettings}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  <MousePointerClick className="h-4 w-4" aria-hidden />
+                  <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
+                </Button>
               </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
-              >
-                {isDeleting ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 className="size-4" aria-hidden />
-                )}
-                <span>{t('ui.actions.delete', 'Delete')}</span>
-              </Button>
-            </div>
-          </div>
-
+            }
+            subtitle={t('customers.deals.detail.summary', undefined, {
+              status: statusLabel,
+              pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
+            })}
+            onDelete={handleDelete}
+            isDeleting={isDeleting}
+            deleteLabel={t('ui.actions.delete', 'Delete')}
+          />
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr),minmax(0,1.1fr)]">
             <div className="space-y-6">
               <div className="rounded-lg border bg-card p-4">
@@ -461,9 +479,21 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   </div>
                   <div>
                     <p className="text-xs font-medium uppercase text-muted-foreground">
+                      {t('customers.deals.detail.fields.status', 'Status')}
+                    </p>
+                    <p className="text-base text-foreground flex items-center gap-2">
+                      {statusDictEntry?.color ? renderDictionaryColor(statusDictEntry.color) : null}
+                      {statusDictEntry?.icon ? renderDictionaryIcon(statusDictEntry.icon) : null}
+                      {statusLabel}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
                       {t('customers.deals.detail.fields.pipeline', 'Pipeline stage')}
                     </p>
-                    <p className="text-base text-foreground">
+                    <p className="text-base text-foreground flex items-center gap-2">
+                      {pipelineDictEntry?.color ? renderDictionaryColor(pipelineDictEntry.color) : null}
+                      {pipelineDictEntry?.icon ? renderDictionaryIcon(pipelineDictEntry.icon) : null}
                       {pipelineLabel ?? t('customers.deals.detail.noValue', 'Not provided')}
                     </p>
                   </div>
@@ -480,18 +510,19 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex gap-2">
                     {tabs.map((tab) => (
-                      <button
+                      <Button
                         key={tab.id}
-                        type="button"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setActiveTab(tab.id)}
-                        className={`relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors ${
+                        className={`h-auto rounded-none border-b-2 px-0 py-1 ${
                           activeTab === tab.id
                             ? 'border-primary text-foreground'
-                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                            : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
                         }`}
                       >
                         {tab.label}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   {sectionAction ? (
@@ -627,6 +658,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     title: data.deal.title ?? '',
                     status: data.deal.status ?? '',
                     pipelineStage: data.deal.pipelineStage ?? '',
+                    pipelineId: data.deal.pipelineId ?? '',
+                    pipelineStageId: data.deal.pipelineStageId ?? '',
                     valueAmount: data.deal.valueAmount ? Number(data.deal.valueAmount) : null,
                     valueCurrency: data.deal.valueCurrency ?? undefined,
                     probability: data.deal.probability ?? null,
@@ -652,6 +685,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           </div>
         </div>
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

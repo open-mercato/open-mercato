@@ -5,11 +5,20 @@ description: Trace how a request flows from the router through DI, services, and
 
 Understanding the request lifecycle helps when debugging complex modules. Every HTTP request—page or API—follows the same high-level flow:
 
-1. **Routing** – Next.js dispatches the request to a generated route handler. For APIs this lives in `src/app/api/[...slug]/route.ts`. The handler locates the module definition (method + path) and loads its module file.
+1. **Routing** – Next.js dispatches the request to a generated route handler. For APIs this lives in `src/app/api/[...slug]/route.ts`. The handler locates the module definition (method + path) and loads its module file. Runtime event emitted: `application.request.received`.
 2. **Container scope** – A new Awilix scope is created by `createRequestContainer`. Core services (logger, repositories, RBAC, query engine, data engine) are registered, then module registrars extend the container.
-3. **Auth context** – The framework resolves session/tenant data, attaches it to the request context, and enforces `requireAuth`/`requireFeatures` metadata declared by the route or page.
-4. **Business logic** – Handler code (often the [CRUD factory](../api/crud-factory)) executes, relying on injected services. Writes go through MikroORM repositories or the data engine; reads use the query engine for projection and filtering.
-5. **Events** – If the handler calls `eventBus.emitEvent`, subscribers are resolved lazily and executed. Persistent subscribers are queued when offline and retried later.
-6. **Response & telemetry** – The handler returns JSON/NextResponse. Middleware logs timing and errors with correlation identifiers for tracing across services.
+3. **Auth context** – The framework resolves session/tenant data, attaches it to the request context, and enforces `requireAuth`/`requireFeatures` metadata declared by the route or page. Runtime events emitted: `application.request.auth_resolved`, `application.request.authorization_denied` (when blocked).
+4. **Rate limiting** – If route metadata declares a rate limiter, request limits are evaluated before handler execution. Runtime event emitted on block: `application.request.rate_limited`.
+5. **Business logic** – Handler code (often the [CRUD factory](../api/crud-factory)) executes, relying on injected services. Writes go through MikroORM repositories or the data engine; reads use the query engine for projection and filtering.
+6. **Events** – If the handler calls `eventBus.emitEvent`, subscribers are resolved lazily and executed. Persistent subscribers are queued when offline and retried later.
+7. **Response & telemetry** – The handler returns JSON/NextResponse. Middleware logs timing and errors with correlation identifiers for tracing across services. Runtime events emitted: `application.request.not_found`, `application.request.completed`, `application.request.failed`.
 
 The same lifecycle powers server actions and background jobs; in each case we create a scope, load module registrars, and execute the requested operation in a tenant-aware context.
+
+## Bootstrap Lifecycle Events
+
+App startup exposes bootstrap lifecycle hooks that can be consumed by modules without coupling to core internals:
+
+- `application.bootstrap.started`
+- `application.bootstrap.completed`
+- `application.bootstrap.failed`

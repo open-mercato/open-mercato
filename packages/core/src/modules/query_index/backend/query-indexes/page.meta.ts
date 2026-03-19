@@ -13,9 +13,10 @@ export const metadata = {
   requireFeatures: ['query_index.status.view'],
   pageTitle: 'Query Indexes',
   pageTitleKey: 'query_index.nav.queryIndexes',
-  pageGroup: 'Data designer',
-  pageGroupKey: 'entities.nav.group',
-  pageOrder: 13,
+  pageGroup: 'Data Designer',
+  pageGroupKey: 'settings.sections.dataDesigner',
+  pageOrder: 3,
   icon: indexIcon,
+  pageContext: 'settings' as const,
 }
 

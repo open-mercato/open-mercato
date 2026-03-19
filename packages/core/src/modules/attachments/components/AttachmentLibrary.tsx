@@ -73,7 +73,7 @@ function humanDate(value: string, locale?: string): string {
 }
 
 function buildFilterSignature(values: FilterValues): string {
-  return JSON.stringify(values, Object.keys(values).sort())
+  return JSON.stringify(values, Object.keys(values).sort((a, b) => a.localeCompare(b)))
 }
 
 function resolveAbsoluteUrl(path: string): string {
@@ -310,7 +310,6 @@ function AttachmentFilesField({
   value,
   setValue,
   disabled,
-  error,
   labels,
   uploading,
 }: AttachmentFilesFieldProps) {
@@ -428,7 +427,6 @@ function AttachmentFilesField({
         />
       </div>
       {renderFileList()}
-      {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
     </div>
   )
 }
@@ -1033,7 +1031,7 @@ export function AttachmentLibrary() {
   }, [deleteTarget, queryClient, selectedRow, t])
 
   const total = data?.total ?? 0
-  const totalPages = data?.totalPages ?? 1
+  const totalPages = data?.totalPages ?? 0
   return (
     <>
       <DataTable<AttachmentRow>

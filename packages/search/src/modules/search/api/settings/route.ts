@@ -7,6 +7,7 @@ import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 import type { Knex } from 'knex'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getReindexLockStatus } from '../../lib/reindex-lock'
+import { settingsOpenApi } from '../openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -185,3 +186,5 @@ export async function GET(req: Request) {
     }
   }
 }
+
+export const openApi = settingsOpenApi

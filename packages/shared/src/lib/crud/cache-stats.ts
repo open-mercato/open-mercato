@@ -25,7 +25,7 @@ function sanitizeSegment(value: string): string {
   return value
     .replace(/[^a-zA-Z0-9:_/|-]/g, '-')
     .replace(/-{2,}/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/(?:^-+|-+$)/g, '')
 }
 
 function normalizePathSegment(path: string | null | undefined, resource: string | null | undefined): string | null {

@@ -77,7 +77,7 @@ export function ScheduleGrid({ items, range, timezone, onItemClick, onSlotClick,
   const expandedItems = React.useMemo(() => expandRecurringItems(items, range), [items, range])
 
   return (
-    <div className={cn('grid gap-4 md:grid-cols-2 xl:grid-cols-3', className)}>
+    <div className={cn('grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3', className)}>
       {days.map((day) => {
         const dayItems = expandedItems.filter((item) => overlapsDay(item, day))
         const slotStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0)
@@ -110,7 +110,7 @@ export function ScheduleGrid({ items, range, timezone, onItemClick, onSlotClick,
                       key={item.id}
                       type="button"
                       className={cn(
-                        'flex w-full flex-col gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:shadow-sm',
+                        'flex w-full cursor-pointer flex-col gap-2 rounded-lg border px-3 py-2 text-left text-xs transition hover:shadow-sm',
                         getKindStyles(item.kind)
                       )}
                       onClick={() => onItemClick?.(item)}

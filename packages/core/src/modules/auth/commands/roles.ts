@@ -21,6 +21,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 type SerializedRole = {
   name: string
@@ -123,7 +124,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -133,7 +134,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -154,7 +155,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const undo = extractRoleUndoPayload(logEntry)?.after
+    const undo = extractUndoPayload<RoleUndoPayload>(logEntry)?.after
     if (!undo) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -246,7 +247,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     return role
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
       recordId: String(result.id),
@@ -259,7 +260,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const beforeSnapshots = snapshots.before as RoleSnapshots | undefined
     const before = beforeSnapshots?.view
     const beforeUndo = beforeSnapshots?.undo ?? null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const afterAcls = await loadRoleAclSnapshots(em, String(result.id))
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: E.auth.role,
@@ -290,7 +291,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const undo = extractRoleUndoPayload(logEntry)
+    const undo = extractUndoPayload<RoleUndoPayload>(logEntry)
     const before = undo?.before
     const after = undo?.after
     if (!before) return
@@ -402,7 +403,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const before = extractRoleUndoPayload(logEntry)?.before
+    const before = extractUndoPayload<RoleUndoPayload>(logEntry)?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -513,10 +514,4 @@ async function restoreRoleAcls(em: EntityManager, roleId: string, acls: RoleAclS
   await em.flush()
 }
 
-type RoleUndoPayload = { undo?: { before?: RoleUndoSnapshot | null; after?: RoleUndoSnapshot | null } }
-
-function extractRoleUndoPayload(logEntry: { commandPayload?: unknown }): { before?: RoleUndoSnapshot | null; after?: RoleUndoSnapshot | null } | null {
-  const payload = logEntry?.commandPayload as RoleUndoPayload | undefined
-  if (!payload || typeof payload !== 'object') return null
-  return payload.undo ?? null
-}
+type RoleUndoPayload = { before?: RoleUndoSnapshot | null; after?: RoleUndoSnapshot | null }

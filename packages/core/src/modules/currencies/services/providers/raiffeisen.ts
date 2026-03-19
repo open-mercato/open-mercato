@@ -67,7 +67,7 @@ export class RaiffeisenPolandProvider implements RateProvider {
       }
 
       // Get FIRST time slot (opening rates)
-      const times = Object.keys(data.rates).sort()
+      const times = Object.keys(data.rates).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
       const firstTime = times[0]
       const rates = data.rates[firstTime]
 

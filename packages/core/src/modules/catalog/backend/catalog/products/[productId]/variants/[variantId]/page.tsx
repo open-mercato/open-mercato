@@ -11,12 +11,15 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
+import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import {
   type VariantFormValues,
   type VariantPriceDraft,
   type OptionDefinition,
   createVariantInitialValues,
   normalizeOptionSchema,
+  mapPriceItemToDraft,
+  findInvalidVariantPriceKinds,
 } from '@open-mercato/core/modules/catalog/components/products/variantForm'
 import {
   type PriceKindSummary,
@@ -24,6 +27,7 @@ import {
   type TaxRateSummary,
   normalizePriceKindSummary,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
+import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -59,6 +63,21 @@ type PriceListResponse = {
 
 type AttachmentListResponse = {
   items?: ProductMediaItem[]
+}
+
+function resolveVariantPriceLabel(prices: Record<string, VariantPriceDraft> | undefined): string | null {
+  if (!prices || typeof prices !== 'object') return null
+  const entries = Object.values(prices)
+  for (const entry of entries) {
+    const amount = typeof entry?.amount === 'string' ? entry.amount.trim() : ''
+    if (!amount) continue
+    const currencyCode =
+      typeof entry.currencyCode === 'string' && entry.currencyCode.trim().length
+        ? entry.currencyCode.trim().toUpperCase()
+        : null
+    return currencyCode ? `${currencyCode} ${amount}` : amount
+  }
+  return null
 }
 
 export default function EditVariantPage({ params }: { params?: { productId?: string; variantId?: string } }) {
@@ -136,7 +155,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   }, [t])
 
   React.useEffect(() => {
-    if (!variantId || isCreateSentinel) return
+    if (!variantId || isCreateSentinel || priceKinds.length === 0) return
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -157,7 +176,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         if (resolvedProductId) setCurrentProductId(resolvedProductId)
         const metadata = typeof record.metadata === 'object' && record.metadata ? { ...(record.metadata as Record<string, unknown>) } : {}
         const attachments = await fetchVariantAttachments(variantId!)
-        const priceDrafts = await loadVariantPrices(variantId!)
+        const priceDrafts = await loadVariantPrices(variantId!, priceKinds)
         const priceIdMap: Record<string, string> = {}
         Object.entries(priceDrafts).forEach(([kindId, draft]) => {
           if (draft.priceId) priceIdMap[kindId] = draft.priceId
@@ -283,14 +302,14 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     }
     load()
     return () => { cancelled = true }
-  }, [variantId, t, currentProductId])
+  }, [variantId, t, currentProductId, priceKinds])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const list: CrudFormGroup[] = [
       {
         id: 'general',
         column: 1,
-        title: t('catalog.variants.form.nameLabel', 'Name'),
+        title: t('catalog.variants.form.general', 'General'),
         component: ({ values, setValue, errors }) => (
           <VariantBasicsSection values={values as VariantFormValues} setValue={setValue} errors={errors} />
         ),
@@ -406,6 +425,31 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         <CrudForm<VariantFormValues>
           title={formTitle}
           backHref={productVariantsHref}
+          versionHistory={{ resourceKind: 'catalog.variant', resourceId: variantId ? String(variantId) : '' }}
+          extraActions={(
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'catalog',
+                entityType: 'variant',
+                entityId: variantId,
+                previewData: {
+                  title:
+                    (typeof initialValues?.name === 'string' && initialValues.name.trim().length
+                      ? initialValues.name
+                      : variantId),
+                  metadata: {
+                    [t('catalog.variants.form.skuLabel')]:
+                      (typeof initialValues?.sku === 'string' && initialValues.sku.trim().length
+                        ? initialValues.sku
+                        : '-'),
+                    [t('catalog.variants.form.pricesLabel')]:
+                      resolveVariantPriceLabel(initialValues?.prices) ?? '-',
+                  },
+                },
+              }}
+              viewHref={`/backend/catalog/products/${currentProductId}/variants/${variantId}`}
+            />
+          )}
           fields={[]}
           groups={groups}
           entityId={E.catalog.catalog_product_variant}
@@ -420,6 +464,11 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             if (!name) {
               const message = t('catalog.variants.form.errors.nameRequired', 'Provide the variant name.')
               throw createCrudFormError(message, { name: message })
+            }
+            const invalidPriceKinds = findInvalidVariantPriceKinds(priceKinds, values.prices)
+            if (invalidPriceKinds.length) {
+              const message = t('catalog.variants.form.errors.invalidPrice', 'Provide a valid non-negative price.')
+              throw createCrudFormError(message, { prices: message })
             }
             const resolveTaxRateValue = (taxRateId?: string | null) => {
               if (!taxRateId) return null
@@ -557,7 +606,8 @@ async function fetchVariantAttachments(variantId: string): Promise<ProductMediaI
   }
 }
 
-async function loadVariantPrices(variantId: string): Promise<Record<string, VariantPriceDraft>> {
+async function loadVariantPrices(variantId: string, priceKinds: PriceKindSummary[]): Promise<Record<string, VariantPriceDraft>> {
+  const kindDisplayModes = new Map(priceKinds.map((k) => [k.id, k.displayMode]))
   const drafts: Record<string, VariantPriceDraft> = {}
   const pageSize = 100
   let page = 1
@@ -569,37 +619,8 @@ async function loadVariantPrices(variantId: string): Promise<Record<string, Vari
       if (!res.ok) break
       const items = Array.isArray(res.result?.items) ? res.result?.items : []
       for (const item of items) {
-        const kindId =
-          typeof item.price_kind_id === 'string'
-            ? item.price_kind_id
-            : typeof item.priceKindId === 'string'
-              ? item.priceKindId
-              : null
-        if (!kindId) continue
-        const unitNet =
-          typeof item.unit_price_net === 'string'
-            ? item.unit_price_net
-            : typeof item.unitPriceNet === 'string'
-              ? item.unitPriceNet
-              : null
-        const unitGross =
-          typeof item.unit_price_gross === 'string'
-            ? item.unit_price_gross
-            : typeof item.unitPriceGross === 'string'
-              ? item.unitPriceGross
-              : null
-        drafts[kindId] = {
-          priceKindId: kindId,
-          priceId: typeof item.id === 'string' ? item.id : undefined,
-          amount: unitNet ?? unitGross ?? '',
-          currencyCode:
-            typeof item.currency_code === 'string'
-              ? item.currency_code
-              : typeof item.currencyCode === 'string'
-                ? item.currencyCode
-                : null,
-          displayMode: unitGross ? 'including-tax' : 'excluding-tax',
-        }
+        const draft = mapPriceItemToDraft(item as Record<string, unknown>, kindDisplayModes)
+        if (draft) drafts[draft.priceKindId] = draft
       }
       if (items.length < pageSize) break
       page += 1
@@ -664,8 +685,8 @@ async function syncVariantPricesUpdate({
       }
       continue
     }
-    const numeric = Number(amount)
-    if (Number.isNaN(numeric) || numeric < 0) continue
+    const numeric = parseNumericInput(amount)
+    if (!Number.isFinite(numeric) || numeric < 0) continue
     const payload: Record<string, unknown> = {
       productId,
       variantId,

@@ -5,11 +5,20 @@ import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
-import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
+import {
+  buildAdminNav,
+  buildSettingsSections,
+  computeSettingsPathPrefixes,
+  convertToSectionNavGroups,
+} from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
-import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
+import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
+import { IntegrationsButton } from '@open-mercato/ui/backend/IntegrationsButton'
+import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
+import { MessagesIcon } from '@open-mercato/ui/backend/messages'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
+import { NotificationBellWrapper } from '@/components/NotificationBellWrapper'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -25,8 +34,12 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { profileSections, profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
+import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
+import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
+import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBootstrap'
 
 type NavItem = {
   href: string
@@ -35,6 +48,7 @@ type NavItem = {
   enabled: boolean
   hidden?: boolean
   icon?: ReactNode
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
   children?: NavItem[]
 }
 
@@ -137,12 +151,39 @@ export default async function BackendLayout({ children, params }: { children: Re
       }
     : undefined
 
+  let userEntities: Array<{ entityId: string; label: string; href: string }> | undefined
+  if (auth) {
+    try {
+      const container = await ensureContainer()
+      const em = container.resolve('em') as EntityManager
+      const where: FilterQuery<CustomEntity> = {
+        isActive: true,
+        showInSidebar: true,
+      }
+      where.$and = [
+        { $or: [{ organizationId: auth.orgId ?? undefined }, { organizationId: null }] },
+        { $or: [{ tenantId: auth.tenantId ?? undefined }, { tenantId: null }] },
+      ]
+      const entities = await em.find(CustomEntity, where, { orderBy: { label: 'asc' } })
+      userEntities = entities.map((entity) => ({
+        entityId: entity.entityId,
+        label: entity.label,
+        href: `/backend/entities/user/${encodeURIComponent(entity.entityId)}/records`,
+      }))
+    } catch {
+      userEntities = undefined
+    }
+  }
+
   const entries = await buildAdminNav(
     modules,
     ctx,
-    undefined,
+    userEntities,
     (key, fallback) => (key ? translate(key, fallback) : fallback),
     featureChecker ? { checkFeatures: featureChecker } : undefined,
+  )
+  const showIntegrationsButton = entries.some(
+    (entry) => entry.href === '/backend/integrations' && entry.enabled !== false && entry.hidden !== true,
   )
 
   const groupMap = new Map<string, {
@@ -179,6 +220,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     enabled: item.enabled,
     hidden: item.hidden,
     icon: item.icon,
+    pageContext: item.pageContext,
     children: item.children?.map(mapItem),
   })
 
@@ -193,6 +235,8 @@ export default async function BackendLayout({ children, params }: { children: Re
     'customers.nav.group',
     'catalog.nav.group',
     'customers~sales.nav.group',
+    'resources.nav.group',
+    'staff.nav.group',
     'entities.nav.group',
     'directory.nav.group',
     'customers.storage.nav.group',
@@ -242,12 +286,16 @@ export default async function BackendLayout({ children, params }: { children: Re
           })
         }
       }
-      sidebarPreference = await loadSidebarPreference(em, {
-        userId: auth.sub,
-        tenantId: auth.tenantId ?? null,
-        organizationId: auth.orgId ?? null,
-        locale,
-      })
+      // For API key auth, use userId (the actual user) if available
+      const effectiveUserId: string | undefined = auth.isApiKey ? auth.userId : auth.sub
+      if (effectiveUserId) {
+        sidebarPreference = await loadSidebarPreference(em, {
+          userId: effectiveUserId,
+          tenantId: auth.tenantId ?? null,
+          organizationId: auth.orgId ?? null,
+          locale,
+        })
+      }
     } catch {
       // ignore preference loading failures; render with default navigation
     }
@@ -264,6 +312,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     enabled: item.enabled,
     hidden: item.hidden,
     icon: item.icon,
+    pageContext: item.pageContext,
     children: item.children?.map(materializeItem),
   })
 
@@ -289,18 +338,46 @@ export default async function BackendLayout({ children, params }: { children: Re
     return { ...item, label }
   })
 
+  const settingsSectionOrder: Record<string, number> = {
+    'system': 1,
+    'auth': 2,
+    'data-designer': 3,
+    'module-configs': 4,
+    'directory': 5,
+    'feature-toggles': 6,
+  }
+  const generatedSettingsSections = buildSettingsSections(entries, settingsSectionOrder)
+  const settingsPathPrefixes = computeSettingsPathPrefixes(generatedSettingsSections)
+  const filteredSettingsSections = convertToSectionNavGroups(
+    generatedSettingsSections,
+    (key, fallback) => (key ? translate(key, fallback) : fallback)
+  )
+
   const collapsedCookie = cookieStore.get('om_sidebar_collapsed')?.value
   const initialCollapsed = collapsedCookie === '1'
 
   const rightHeaderContent = (
     <>
+      <AiChatHeaderButton />
       <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
-      <OrganizationSwitcher />
-      <UserMenu email={auth?.email} />
+      <div className="hidden lg:contents">
+        <OrganizationSwitcher />
+      </div>
+      {showIntegrationsButton ? <IntegrationsButton /> : null}
+      <SettingsButton />
+      <ProfileDropdown email={auth?.email} />
+      <NotificationBellWrapper />
+      <MessagesIcon />
     </>
   )
 
-  const productName = translate('appShell.productName', 'Open Mercato')
+  const mobileSidebarContent = <OrganizationSwitcher compact />
+
+  const deployEnv = process.env.DEPLOY_ENV
+  const baseProductName = translate('appShell.productName', 'Open Mercato')
+  const productName = deployEnv && deployEnv !== 'local'
+    ? `${baseProductName} (${deployEnv.charAt(0).toUpperCase() + deployEnv.slice(1)})`
+    : baseProductName
   const injectionContext = {
     path,
     userId: auth?.sub ?? null,
@@ -312,22 +389,36 @@ export default async function BackendLayout({ children, params }: { children: Re
     <>
       <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
       <I18nProvider locale={locale} dict={dict}>
-        <AppShell
-          key={path}
-          productName={productName}
-          email={auth?.email}
-          groups={groups}
-          currentTitle={currentTitle}
-          breadcrumb={breadcrumb}
-          sidebarCollapsedDefault={initialCollapsed}
-          rightHeaderSlot={rightHeaderContent}
-          adminNavApi="/api/auth/admin/nav"
-          version={APP_VERSION}
-        >
-          <PageInjectionBoundary path={path} context={injectionContext}>
-            {children}
-          </PageInjectionBoundary>
-        </AppShell>
+        <ComponentOverridesBootstrap>
+          <AiAssistantIntegration
+            tenantId={auth?.tenantId ?? null}
+            organizationId={auth?.orgId ?? null}
+          >
+            <AppShell
+              key={path}
+              productName={productName}
+              email={auth?.email}
+              groups={groups}
+              currentTitle={currentTitle}
+              breadcrumb={breadcrumb}
+              sidebarCollapsedDefault={initialCollapsed}
+              rightHeaderSlot={rightHeaderContent}
+              mobileSidebarSlot={mobileSidebarContent}
+              adminNavApi="/api/auth/admin/nav"
+              version={APP_VERSION}
+              settingsPathPrefixes={settingsPathPrefixes}
+              settingsSections={filteredSettingsSections}
+              settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
+              profileSections={profileSections}
+              profileSectionTitle={translate('profile.page.title', 'Profile')}
+              profilePathPrefixes={profilePathPrefixes}
+            >
+              <PageInjectionBoundary path={path} context={injectionContext}>
+                {children}
+              </PageInjectionBoundary>
+            </AppShell>
+          </AiAssistantIntegration>
+        </ComponentOverridesBootstrap>
       </I18nProvider>
     </>
   )

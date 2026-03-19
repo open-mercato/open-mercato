@@ -62,7 +62,7 @@ export async function POST(req: Request) {
   if (!target || target.executionState !== 'done') {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
-  if (target.actorUserId && target.actorUserId !== auth.sub) {
+  if (target.actorUserId && target.actorUserId !== auth.sub && !canUndoTenant) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
   if (target.tenantId && auth.tenantId && target.tenantId !== auth.tenantId) {
@@ -73,10 +73,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
 
+  const lookupActorId = canUndoTenant ? (target.actorUserId ?? auth.sub) : auth.sub
   let latest = null
   if (target.resourceKind || target.resourceId) {
     latest = await logs.latestUndoableForResource({
-      actorUserId: auth.sub,
+      actorUserId: lookupActorId,
       tenantId: auth.tenantId ?? null,
       organizationId: scopedOrgId,
       resourceKind: target.resourceKind ?? undefined,
@@ -84,7 +85,7 @@ export async function POST(req: Request) {
     })
   }
   if (!latest) {
-    latest = await logs.latestUndoableForActor(auth.sub, {
+    latest = await logs.latestUndoableForActor(lookupActorId, {
       tenantId: auth.tenantId ?? null,
       organizationId: scopedOrgId,
     })

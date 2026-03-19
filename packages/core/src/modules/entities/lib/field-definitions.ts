@@ -24,6 +24,7 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'label',
   'description',
   'fieldset',
+  'fieldsets',
   'group',
   'options',
   'optionsUrl',
@@ -42,13 +43,14 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'validation',
   'maxAttachmentSizeMb',
   'acceptExtensions',
+  'sourceMetadata',
 ]
 
 function normalizeValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => normalizeValue(item))
   if (value && typeof value === 'object') {
     return Object.keys(value as Record<string, unknown>)
-      .sort()
+      .sort((a, b) => a.localeCompare(b))
       .reduce<Record<string, unknown>>((acc, key) => {
         acc[key] = normalizeValue((value as Record<string, unknown>)[key])
         return acc

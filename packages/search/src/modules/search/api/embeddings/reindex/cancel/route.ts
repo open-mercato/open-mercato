@@ -4,9 +4,12 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { Queue } from '@open-mercato/queue'
 import type { Knex } from 'knex'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { clearReindexLock } from '../../../../lib/reindex-lock'
+import { cancelReindexProgress } from '../../../../lib/reindex-progress'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+import { embeddingsReindexCancelOpenApi } from '../../../openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
@@ -21,6 +24,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const progressService = container.resolve('progressService') as ProgressService
   const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 
   let queue: Queue | undefined
@@ -42,6 +46,14 @@ export async function POST(req: Request) {
   }
 
   await clearReindexLock(knex, auth.tenantId, 'vector', auth.orgId ?? null)
+  await cancelReindexProgress({
+    em,
+    progressService,
+    type: 'vector',
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+    userId: auth.sub ?? null,
+  })
 
   // Log the cancellation
   try {
@@ -75,3 +87,5 @@ export async function POST(req: Request) {
     jobsRemoved,
   })
 }
+
+export const openApi = embeddingsReindexCancelOpenApi

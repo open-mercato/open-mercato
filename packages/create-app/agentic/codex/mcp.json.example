@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "open-mercato": {
+      "command": "yarn",
+      "args": ["mercato", "mcp:dev"],
+      "env": {
+        "APP_URL": "http://localhost:3000",
+        "MCP_API_KEY": "${MCP_API_KEY}"
+      }
+    }
+  }
+}

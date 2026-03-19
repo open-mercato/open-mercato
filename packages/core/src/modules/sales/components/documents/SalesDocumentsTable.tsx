@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -14,6 +14,7 @@ import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/c
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import {
   DictionaryValue,
@@ -141,6 +142,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<SalesDocumentRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -230,7 +232,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
             ? item.primary_email.trim()
             : null
         const label = email ? `${name} (${email})` : name
-        return { value: id, label: kind === 'company' ? label : label }
+        return { value: id, label }
       }
       const options = [...peopleItems.map((i) => parseOption(i, 'person')), ...companyItems.map((i) => parseOption(i, 'company'))]
         .filter((opt): opt is FilterOption => !!opt)
@@ -447,7 +449,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       const validUntil = doc.validUntil ?? null
       const createdAt = doc.createdAt ?? null
       const date = placedAt ?? validUntil ?? createdAt ?? null
-      return {
+      return withDataTableNamespaces({
         id,
         number,
         status: doc.status ?? null,
@@ -459,7 +461,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         totalGross,
         currency: doc.currencyCode ?? null,
         date,
-      }
+      }, item)
     },
     [kind]
   )
@@ -529,7 +531,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
               'sales.documents.list.table.deleteQuoteConfirm',
               'Delete this sales quote? Related addresses, comments, and items will be removed.'
             )
-      if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) return
+      const confirmed = await confirm({
+        title: confirmMessage,
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       try {
         const result = await deleteCrud(`sales/${resource}`, row.id, {
           errorMessage: t('sales.documents.list.table.deleteError', 'Failed to delete document.'),
@@ -548,7 +554,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
     },
-    [handleRefresh, kind, resource, t]
+    [confirm, handleRefresh, kind, resource, t]
   )
 
   const handleRowClick = React.useCallback((row: SalesDocumentRow) => {
@@ -722,6 +728,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           }
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

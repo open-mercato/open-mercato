@@ -3,12 +3,15 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { BusinessRule } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   createBusinessRuleSchema,
   updateBusinessRuleSchema,
+  createLocalizedBusinessRuleSchema,
+  createLocalizedUpdateBusinessRuleSchema,
   businessRuleFilterSchema,
   ruleTypeSchema,
 } from '../../data/validators'
@@ -192,7 +195,9 @@ export async function POST(req: Request) {
     createdBy: auth.sub ?? auth.email ?? null,
   }
 
-  const parsed = createBusinessRuleSchema.safeParse(payload)
+  const { t } = await resolveTranslations()
+  const schema = createLocalizedBusinessRuleSchema(t)
+  const parsed = schema.safeParse(payload)
   if (!parsed.success) {
     const errors = parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
@@ -229,7 +234,9 @@ export async function PUT(req: Request) {
     updatedBy: auth.sub ?? auth.email ?? null,
   }
 
-  const parsed = updateBusinessRuleSchema.safeParse(payload)
+  const { t } = await resolveTranslations()
+  const schema = createLocalizedUpdateBusinessRuleSchema(t)
+  const parsed = schema.safeParse(payload)
   if (!parsed.success) {
     const errors = parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })

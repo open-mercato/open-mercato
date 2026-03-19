@@ -23,10 +23,12 @@ PACKAGES=(
   "queue"
   "ui"
   "core"
+  "gateway-stripe"
   "search"
   "content"
   "onboarding"
   "ai-assistant"
+  "scheduler"
   "cli"
   "create-app"
 )

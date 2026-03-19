@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw, Languages } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -17,6 +17,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector, useAppearanceState } from './AppearanceSelector'
 import { DictionaryValue } from './dictionaryAppearance'
 import {
@@ -24,6 +25,10 @@ import {
   useDictionaryEntries,
 } from './hooks/useDictionaryEntries'
 import type { DictionaryEntryRecord } from './hooks/useDictionaryEntries'
+import {
+  DialogDescription,
+} from '@open-mercato/ui/primitives/dialog'
+import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
 
 type Entry = DictionaryEntryRecord
 
@@ -43,6 +48,7 @@ type FormState = {
 
 export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly = false }: DictionaryEntriesEditorProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const readOnlyMessage = t('dictionaries.config.entries.readOnly', 'Inherited dictionaries are managed at the parent organization.')
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
@@ -63,6 +69,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     icon: null,
   }))
   const [errors, setErrors] = React.useState<{ value?: string; label?: string }>({})
+  const [translateEntry, setTranslateEntry] = React.useState<Entry | null>(null)
   const appearance = useAppearanceState(formState.icon, formState.color)
 
   const resetForm = React.useCallback(() => {
@@ -179,9 +186,10 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         return
       }
       if (!entry.id) return
-      const confirmDelete = window.confirm(
-        t('dictionaries.config.entries.delete.confirm', 'Delete "{{value}}"?', { value: entry.label || entry.value }),
-      )
+      const confirmDelete = await confirm({
+        title: t('dictionaries.config.entries.delete.confirm', 'Delete "{{value}}"?', { value: entry.label || entry.value }),
+        variant: 'destructive',
+      })
       if (!confirmDelete) return
       setIsDeleting(true)
       try {
@@ -203,7 +211,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         setIsDeleting(false)
       }
     },
-    [dictionaryId, queryClient, readOnly, readOnlyMessage, t],
+    [confirm, dictionaryId, queryClient, readOnly, readOnlyMessage, t],
   )
 
   const tableContent = React.useMemo(() => {
@@ -263,6 +271,15 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                   onClick={() => openDialog(entry)}
                 >
                   <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTranslateEntry(entry)}
+                  title={t('dictionaries.config.entries.actions.translate', 'Translate')}
+                >
+                  <Languages className="h-4 w-4" />
                 </Button>
                 <Button
                   type="button"
@@ -423,6 +440,26 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={!!translateEntry} onOpenChange={(open) => { if (!open) setTranslateEntry(null) }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('translations.manager.translateEntry', 'Translate: {{label}}', { label: translateEntry?.label ?? '' })}</DialogTitle>
+            <DialogDescription>
+              {t('translations.manager.translateEntryDescription', 'Manage translations for this dictionary entry.')}
+            </DialogDescription>
+          </DialogHeader>
+          {translateEntry?.id && (
+            <TranslationManager
+              mode="embedded"
+              entityType="dictionaries:dictionary_entry"
+              recordId={translateEntry.id}
+              baseValues={{ label: translateEntry.label }}
+              translatableFields={['label']}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+      {ConfirmDialogElement}
     </div>
   )
 }

@@ -31,7 +31,39 @@ COPY eslint.config.mjs ./
 
 
 # Build the app
+# Limit Node.js heap to 4GB and reduce worker count to avoid OOM in constrained Docker environments
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN yarn build
+
+# Dev stage: install + build packages only, no production build; run dev server with watch
+FROM node:24-alpine AS dev
+
+ENV NODE_ENV=development \
+    NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++ ca-certificates openssl
+RUN corepack enable
+
+COPY package.json yarn.lock .yarnrc.yml turbo.json ./
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages/ ./packages/
+COPY apps/ ./apps/
+COPY scripts/ ./scripts/
+RUN yarn install
+
+COPY newrelic.js ./
+COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
+COPY eslint.config.mjs ./
+
+RUN yarn build:packages
+
+COPY docker/scripts/dev-entrypoint.sh /app/docker/scripts/dev-entrypoint.sh
+RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
+
+EXPOSE 3000
+CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
 # Production stage
 FROM node:24-alpine AS runner
@@ -45,7 +77,8 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # Install only production system dependencies (Alpine uses apk)
-RUN apk add --no-cache ca-certificates openssl
+# sudo: allows non-root user to chown the Railway-mounted volume at startup
+RUN apk add --no-cache ca-certificates openssl sudo
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -63,7 +96,7 @@ COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 RUN yarn workspaces focus @open-mercato/app --production
 
 # Copy built Next.js application
-COPY --from=builder /app/apps/mercato/.next ./apps/mercato/.next
+COPY --from=builder /app/apps/mercato/.mercato/next ./apps/mercato/.mercato/next
 COPY --from=builder /app/apps/mercato/public ./apps/mercato/public
 COPY --from=builder /app/apps/mercato/next.config.ts ./apps/mercato/
 COPY --from=builder /app/apps/mercato/components.json ./apps/mercato/
@@ -78,14 +111,22 @@ COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 # Copy runtime configuration files
 COPY --from=builder /app/newrelic.js ./
 
-# Drop root privileges (Alpine uses adduser instead of useradd)
+# Copy Railway entrypoint script
+COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh
+RUN chmod +x /app/docker/scripts/railway-entrypoint.sh
+
+# Prepare storage directory for Railway volume mount
+RUN mkdir -p /app/apps/mercato/storage
+
+# Create non-root user and grant passwordless sudo for chown only
 RUN adduser -D -u 1001 omuser \
- && chown -R omuser:omuser /app
+ && chown -R omuser:omuser /app \
+ && echo "omuser ALL=(root) NOPASSWD: /bin/chown" > /etc/sudoers.d/omuser \
+ && chmod 0440 /etc/sudoers.d/omuser
 
 USER omuser
 
 EXPOSE ${CONTAINER_PORT}
 
-# Run the app directly instead of using turbo (which is a devDependency)
 WORKDIR /app/apps/mercato
 CMD ["yarn", "start"]

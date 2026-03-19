@@ -288,12 +288,13 @@ describe('aggregations', () => {
         expect.arrayContaining([
           'sales:orders',
           'sales:order_lines',
+          'sales:quotes',
           'customers:entities',
           'customers:deals',
           'catalog:products',
         ]),
       )
-      expect(entityIds).toHaveLength(5)
+      expect(entityIds).toHaveLength(6)
     })
 
     it('each config has required fields', () => {

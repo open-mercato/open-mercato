@@ -1,0 +1,68 @@
+---
+title: yarn dev:ephemeral
+sidebar_label: yarn dev:ephemeral
+description: Starts a development runtime on an automatically selected free port for parallel worktrees.
+---
+
+`yarn dev:ephemeral` starts Open Mercato development mode on a free local port with a dedicated ephemeral PostgreSQL container, prints the URL, and opens `/backend` in your browser when the app is reachable.
+
+The command performs these steps automatically:
+
+1. Validates Node.js `24.x` (fails early with fix instructions when incompatible).
+2. Creates `apps/mercato/.env` from `apps/mercato/.env.example` only when missing.
+3. Runs `yarn install`.
+4. Runs `yarn build:packages` to ensure CLI generators are up to date.
+5. Runs `yarn generate` to prepare `.mercato/generated` files.
+6. Starts a disposable PostgreSQL container and resolves a unique `DATABASE_URL`.
+7. Runs `yarn initialize -- --reinstall` against that ephemeral database.
+8. Selects a random free app port in the `5000-65535` range.
+9. Starts `yarn dev:app` with `PORT=<selected-port>` and ephemeral `DATABASE_URL`.
+10. Waits for readiness, opens the browser, and records the running instance in `.ai/dev-ephemeral-envs.json`.
+
+## Usage
+
+```bash
+yarn dev:ephemeral
+```
+
+## Runtime Output
+
+When setup finishes, the command prints:
+
+- `Ephemeral URL: http://127.0.0.1:<port>`
+- `Backend URL: http://127.0.0.1:<port>/backend`
+- `Ephemeral PostgreSQL URL: postgresql://...@127.0.0.1:<port>/<db>`
+- `Opened browser at http://127.0.0.1:<port>/backend`
+
+Use that URL for browser testing or MCP tooling.
+
+## Dev Instance Registry
+
+`yarn dev:ephemeral` writes active instances to `.ai/dev-ephemeral-envs.json`.
+
+- Every launch validates existing entries and removes stale/non-responsive instances.
+- New instances are added with pid, app port, base URL, backend URL, PostgreSQL container ID, DB port, DB URL, worktree cwd, and timestamp.
+- Entries are removed automatically when the related dev process exits.
+
+## Parallel Instances
+
+Run the command from multiple worktrees to keep isolated app processes on different ports:
+
+```bash
+# In worktree A
+yarn dev:ephemeral
+
+# In worktree B
+yarn dev:ephemeral
+```
+
+Each process auto-selects its own free port.
+
+## Optional Environment
+
+| Variable | Description |
+| --- | --- |
+| `DEV_EPHEMERAL_PREFERRED_PORT` | Optional fixed port override. Must be in `5000-65535`; otherwise it is ignored and a random free port is used. |
+| `DEV_EPHEMERAL_POSTGRES_IMAGE` | Optional Docker image for ephemeral PostgreSQL. Default: `postgres:16`. |
+| `DEV_EPHEMERAL_POSTGRES_USER` | Optional PostgreSQL user for ephemeral DB. Default: `postgres`. |
+| `DEV_EPHEMERAL_POSTGRES_PASSWORD` | Optional PostgreSQL password for ephemeral DB. Default: `postgres`. |

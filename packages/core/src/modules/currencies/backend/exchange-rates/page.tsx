@@ -13,6 +13,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type ExchangeRateRow = {
@@ -39,6 +40,7 @@ type ResponsePayload = {
 
 export default function ExchangeRatesPage() {
   const t = useT()
+  const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<ExchangeRateRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -99,9 +101,11 @@ export default function ExchangeRatesPage() {
 
   const handleDelete = React.useCallback(
     async (row: ExchangeRateRow) => {
-      if (!confirm(t('exchangeRates.list.confirmDelete', { pair: `${row.fromCurrencyCode}/${row.toCurrencyCode}` }))) {
-        return
-      }
+      const confirmed = await confirmDialog({
+        title: t('exchangeRates.list.confirmDelete', { pair: `${row.fromCurrencyCode}/${row.toCurrencyCode}` }),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
 
       try {
         const call = await apiCall(`/api/currencies/exchange-rates`, {
@@ -121,7 +125,7 @@ export default function ExchangeRatesPage() {
         flash(t('exchangeRates.flash.deleteError'), 'error')
       }
     },
-    [t]
+    [t, confirmDialog]
   )
 
   const columns = React.useMemo<ColumnDef<ExchangeRateRow>[]>(
@@ -297,6 +301,7 @@ export default function ExchangeRatesPage() {
           perspective={{ tableId: 'exchange-rates.list' }}
         />
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

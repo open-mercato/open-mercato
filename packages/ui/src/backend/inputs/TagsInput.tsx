@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 
 export type TagsInputOption = {
   value: string
@@ -21,6 +23,7 @@ export type TagsInputProps = {
   autoFocus?: boolean
   disabled?: boolean
   allowCustomValues?: boolean
+  showSuggestionsOnFocus?: boolean
 }
 
 function normalizeOptions(input?: Array<string | TagsInputOption>): TagsInputOption[] {
@@ -55,6 +58,7 @@ export function TagsInput({
   autoFocus,
   disabled = false,
   allowCustomValues = true,
+  showSuggestionsOnFocus = true,
 }: TagsInputProps) {
   const t = useT()
   const [input, setInput] = React.useState('')
@@ -193,25 +197,34 @@ export function TagsInput({
                   <span className="text-[10px] text-muted-foreground">{description}</span>
                 ) : null}
               </span>
-              <button
+              <IconButton
                 type="button"
-                className="opacity-60 transition-opacity hover:opacity-100"
+                variant="ghost"
+                size="xs"
+                className="opacity-60 hover:opacity-100"
                 onClick={() => removeTag(tag)}
                 disabled={disabled}
               >
                 ×
-              </button>
+              </IconButton>
             </span>
           )
         })}
         <input
-          className="flex-1 min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
+          className="flex-1 min-w-[80px] sm:min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
           value={input}
           placeholder={placeholder || t('ui.inputs.tagsInput.placeholder', 'Add tag and press Enter')}
           autoFocus={autoFocus}
           data-crud-focus-target=""
           disabled={disabled}
-          onFocus={() => setTouched(true)}
+          onFocus={() => {
+            if (showSuggestionsOnFocus) {
+              setTouched(true)
+            }
+          }}
+          onMouseDown={() => {
+            setTouched(true)
+          }}
           onChange={(event) => {
             setTouched(true)
             setInput(event.target.value)
@@ -238,10 +251,12 @@ export function TagsInput({
         {!loading && filteredSuggestions.length ? (
           <div className="basis-full mt-1 flex flex-col gap-1">
             {filteredSuggestions.map((option) => (
-              <button
+              <Button
                 key={option.value}
                 type="button"
-                className="flex flex-col items-start rounded border px-1.5 py-1 text-xs transition hover:bg-muted"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start font-normal flex flex-col items-start text-xs px-1.5 py-1"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => addValue(option.value)}
               >
@@ -249,7 +264,7 @@ export function TagsInput({
                 {option.description ? (
                   <span className="text-[10px] text-muted-foreground">{option.description}</span>
                 ) : null}
-              </button>
+              </Button>
             ))}
           </div>
         ) : null}

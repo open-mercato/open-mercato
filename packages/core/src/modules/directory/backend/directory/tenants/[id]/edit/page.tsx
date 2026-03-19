@@ -90,6 +90,7 @@ export default function EditTenantPage({ params }: { params?: { id?: string } })
         <CrudForm<TenantFormValues>
           title={t('directory.tenants.form.title.edit', 'Edit Tenant')}
           backHref="/backend/directory/tenants"
+          versionHistory={{ resourceKind: 'directory.tenant', resourceId: tenantId ? String(tenantId) : '' }}
           fields={fields}
           groups={groups}
           entityId={E.directory.tenant}

@@ -1,4 +1,5 @@
 import { createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const {
   withScopedPayload,
@@ -14,3 +15,11 @@ const {
 })
 
 export { withScopedPayload, parseScopedCommandInput, requireRecordId, resolveCrudRecordId }
+
+export function buildAggregateSearchFilter(search?: string | null): Record<string, unknown> | null {
+  const term = typeof search === 'string' ? search.trim() : ''
+  if (!term) return null
+  return {
+    search_text: { $ilike: `%${escapeLikePattern(term)}%` },
+  }
+}

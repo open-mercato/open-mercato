@@ -134,7 +134,7 @@ async function loadResourceSnapshot(em: EntityManager, id: string): Promise<Reso
   const tags = assignments
     .map((assignment) => (assignment.tag as ResourcesResourceTag | undefined)?.id ?? null)
     .filter((tagId): tagId is string => typeof tagId === 'string' && tagId.length > 0)
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
   return {
     id: resource.id,
     tenantId: resource.tenantId,
@@ -267,14 +267,14 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
     return { resourceId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadResourceSnapshot(em, result.resourceId)
     if (!snapshot) return null
     const custom = await loadResourceCustomSnapshot(em, snapshot)
     return { snapshot, custom }
   },
   buildLog: async ({ result, ctx }) => {
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadResourceSnapshot(em, result?.resourceId ?? '')
     if (!snapshot) return null
     const custom = await loadResourceCustomSnapshot(em, snapshot)
@@ -376,14 +376,14 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
     if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
     record.updatedAt = new Date()
+    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    await em.flush()
     await syncResourcesResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,
       tagIds: parsed.tags,
     })
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-
     await em.flush()
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
@@ -410,7 +410,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as ResourceSnapshot | undefined
     if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadResourceSnapshot(em, before.id)
     if (!after) return null
     const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
@@ -486,6 +486,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
     record.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
     record.updatedAt = new Date()
+    await em.flush()
     await syncResourcesResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,

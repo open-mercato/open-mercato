@@ -9,6 +9,7 @@ export const metadata: ModuleInfo = {
   author: 'Open Mercato Team',
   license: 'Proprietary',
   requires: ['planner', 'resources'],
+  ejectable: true,
 }
 
 export { features } from './acl'

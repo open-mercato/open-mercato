@@ -5,7 +5,7 @@ import { FeatureToggle } from '../data/entities'
 import { ProcessedChangeOverrideStateInput, processedChangeOverrideStateSchema } from '../data/validators'
 import { FeatureToggleOverride } from '../data/entities'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
-import { extractUndoPayload } from '../../customers/commands/shared'
+import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
@@ -85,7 +85,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as OverrideSnapshot | undefined
     if (!before) return null
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const after = await loadOverrideSnapshot(em, before.toggleId, before.tenantId)
     if (!after) return null
 

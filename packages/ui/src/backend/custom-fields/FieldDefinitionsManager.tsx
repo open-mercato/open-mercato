@@ -353,11 +353,11 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
     )
 
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 sm:gap-4">
         {statusError ? (
           <ErrorNotice title={t('entities.customFields.errors.title', 'Something went wrong')} message={statusError} />
         ) : null}
-        <div className="rounded-lg border bg-card p-4 max-h-[70vh] overflow-y-auto">
+        <div className="rounded-lg border bg-card p-3 sm:p-4 max-h-[70vh] overflow-y-auto">
           {content}
         </div>
         <div className="flex justify-end gap-2">

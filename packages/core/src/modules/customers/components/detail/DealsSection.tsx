@@ -10,6 +10,7 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -316,6 +317,7 @@ export function DealsSection({
   translator,
 }: DealsSectionProps) {
   const tHook = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
   useCurrencyDictionary()
@@ -709,15 +711,13 @@ export function DealsSection({
 
   const handleDelete = React.useCallback(
     async (deal: NormalizedDeal) => {
-      const confirmed =
-        typeof window === 'undefined'
-          ? true
-          : window.confirm(
-              translate(
-                'customers.people.detail.deals.deleteConfirm',
-                'Delete this deal? This action cannot be undone.',
-              ),
-            )
+      const confirmed = await confirm({
+        title: translate(
+          'customers.people.detail.deals.deleteConfirm',
+          'Delete this deal? This action cannot be undone.',
+        ),
+        variant: 'destructive',
+      })
       if (!confirmed) return
       setPendingAction({ kind: 'delete', id: deal.id })
       try {
@@ -737,7 +737,7 @@ export function DealsSection({
         setPendingAction(null)
       }
     },
-    [translate],
+    [confirm, translate],
   )
 
   const handleDialogSubmit = React.useCallback(
@@ -953,6 +953,7 @@ export function DealsSection({
         }}
         isSubmitting={Boolean(isFormPending)}
       />
+      {ConfirmDialogElement}
     </div>
   )
 }

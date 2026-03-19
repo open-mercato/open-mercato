@@ -32,6 +32,10 @@ export interface EventDefinition {
   entity?: string
   /** Whether excluded from workflow triggers */
   excludeFromTriggers?: boolean
+  /** When true, this event is bridged to the browser via SSE (DOM Event Bridge). Default: false */
+  clientBroadcast?: boolean
+  /** When true, this event is bridged to the customer portal via SSE (Portal Event Bridge). Default: false */
+  portalBroadcast?: boolean
 }
 
 // =============================================================================
